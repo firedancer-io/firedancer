@@ -37,6 +37,7 @@ struct fd_execle_tile {
   ulong _pack_idx;
   ulong _txn_idx;
   int _is_bundle;
+  fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
 
   ulong * busy_fseq;
 
@@ -130,7 +131,18 @@ during_frag( fd_execle_tile_t * ctx,
   if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
 
-  fd_memcpy( dst, src, sz-sizeof(fd_microblock_execle_trailer_t) );
+  /* Pack sends fd_txn_e_t (with ALT accounts), but PoH expects fd_txn_p_t.
+     We copy the fd_txn_p_t portion to the PoH output buffer, and copy the
+     ALT accounts to the tile context for rebates. */
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
+  fd_txn_e_t const * src_txn_e = (fd_txn_e_t const *)src;
+  fd_txn_p_t       * dst_txn_p = (fd_txn_p_t       *)dst;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_memcpy( dst_txn_p + i, src_txn_e[i].txnp, sizeof(fd_txn_p_t) );
+    ulong alt_cnt = fd_ulong_min( (ulong)TXN(src_txn_e[i].txnp)->addr_table_adtl_cnt, FD_TXN_ACCT_ADDR_MAX );
+    fd_memcpy( ctx->_alt_accts[i], src_txn_e[i].alt_accts, alt_cnt * sizeof(fd_acct_addr_t) );
+  }
+
   fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
   ctx->_bank_idx  = trailer->bank_idx;
   ctx->_pack_idx  = trailer->pack_idx;
@@ -169,7 +181,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
@@ -202,7 +214,9 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
       fd_runtime_cancel_txn( ctx->runtime, txn_out );
-      if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
+      /* Use pre-resolved ALT accounts for rebates even for unlanded transactions */
+      fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
+      if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
       ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( txn_out->err.txn_err ) ]++;
       continue;
@@ -269,11 +283,10 @@ handle_microblock( fd_execle_tile_t *  ctx,
     txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
     txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
-    /* The account keys in the transaction context are laid out such
-       that first the non-alt accounts are laid out, then the writable
-       alt accounts, and finally the read-only alt accounts. */
-    fd_txn_t * txn_descriptor = TXN( txn_in->txn );
-    fd_acct_addr_t const * writable_alt = fd_type_pun_const( txn_out->accounts.keys+txn_descriptor->acct_addr_cnt );
+    /* Use ALT accounts copied in during_frag for rebates.
+       These were resolved by resolv_tile and are needed because the LUT
+       may be deactivated by the time we get here. */
+    fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
     if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
 
     /* The VM will stop executing and fail an instruction immediately if
@@ -316,8 +329,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
   trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
   trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
 
-  /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
-     so there's always 64 extra bytes at the end to stash the hash. */
+  /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_p_t to PoH,
+     there's always extra bytes at the end to stash the trailer. */
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_execle_trailer_t), poh_shred_mtu );
 
@@ -348,15 +361,22 @@ handle_bundle( fd_execle_tile_t *  ctx,
   fd_txn_p_t * txns = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
-  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
   ulong bank_slot = fd_bank_slot_get( bank );
   FD_TEST( bank_slot==slot );
 
-  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ];
   ulong                  tips        [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+
+  /* Pre-populate ALT accounts for all transactions for rebates.
+     These were copied in during_frag from the source fd_txn_e_t,
+     resolved by fd_resolv_tile. */
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    writable_alt[i] = ctx->_alt_accts[i];
+  }
 
   int   execution_success = 1;
   ulong failed_idx        = ULONG_MAX;
@@ -389,8 +409,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
       failed_idx = i;
       continue;
     }
-
-    writable_alt[i] = fd_type_pun_const( txn_out->accounts.keys+TXN( txn_in->txn )->acct_addr_cnt );
   }
 
   /* If all of the transactions in the bundle executed successfully, we

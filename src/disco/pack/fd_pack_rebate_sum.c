@@ -91,8 +91,12 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
       }
       in_table->rebate_cus += rebated_cus;
     }
-    if( FD_LIKELY( txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-      accts = adtl_writable[i];
+    /* ALT accounts are pre-resolved by resolv_tile and passed via
+       fd_txn_e_t, so we always rebate even if bank sanitization
+       failed (e.g. due to LUT deactivation).  If adtl_writable[i] is
+       NULL, we do not rebate ALT accounts. */
+    accts = adtl_writable[i];
+    if( FD_LIKELY( accts ) ) {
       for( ulong j=0UL; j<(ulong)TXN(txn)->addr_table_adtl_writable_cnt; j++ ) {
         fd_pack_rebate_entry_t * in_table = rmap_query( s->map, accts[j], NULL );
         if( FD_UNLIKELY( !in_table ) ) {

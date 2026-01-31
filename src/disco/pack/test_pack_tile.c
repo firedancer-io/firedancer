@@ -503,7 +503,7 @@ bank_out_check( fd_tile_test_ctx_t  * test_ctx,
     return 0;
   }
 
-  ulong txn_out_cnt = (mline->sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_p_t);
+  ulong txn_out_cnt = (mline->sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
   if( locals->txn_cnt && !mline->sz ) {
     FD_LOG_WARNING(( "mline: %p, prod_seq: %lu sz: %u, chunk: %lu, chunk0: %lu", (void *)mline, bank_out_link->prod_seq, mline->sz, bank_out_link->chunk, bank_out_link->chunk0 ));
     FD_LOG_WARNING(( "no transaction scheduled" ));
@@ -517,7 +517,7 @@ bank_out_check( fd_tile_test_ctx_t  * test_ctx,
     return -1;
   }
 
-  fd_txn_p_t * txnp_out = (fd_txn_p_t *)out_mem;
+  fd_txn_e_t * txne_out = (fd_txn_e_t *)out_mem;
   ulong ref_i = locals->txn_ref_i;
   if( locals->is_stress_test ) {
     txn_ref_treap_rev_iter_t cur_iter = txn_ref_treap_rev_iter_init( locals->txn_ref_treap, locals->txn_ref_pool );
@@ -533,6 +533,7 @@ bank_out_check( fd_tile_test_ctx_t  * test_ctx,
   FD_TEST( ref_i+locals->txn_cnt<=MAX_TEST_TXNS );
 
   for( ulong i=0; i<locals->txn_cnt; i++ ){
+    fd_txn_p_t * txnp_out     = txne_out->txnp;
     fd_txn_p_t * txnp_out_ref = &txn_scratch[ ref_i ];
     ulong payload_sz_ref  = txnp_sz[ ref_i ];
     ulong txn_t_sz_ref    = txnt_sz[ ref_i ];
@@ -560,7 +561,7 @@ bank_out_check( fd_tile_test_ctx_t  * test_ctx,
     }
     // FD_LOG_HEXDUMP_NOTICE(( "txn out verified", txnp_out->payload+0xa0, 8 ));
     ref_i++;
-    txnp_out++;
+    txne_out++;
   }
 
   bank_out_link->prod_seq = fd_seq_inc( bank_out_link->prod_seq, 1 );
