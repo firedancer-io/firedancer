@@ -339,7 +339,7 @@ fd_vinyl_io_forget( fd_vinyl_io_t * io,
 /* fd_vinyl_io_rewind moves blocks [seq,seq_present) (cyclic) from the
    bstream's past to the bstream's future (updating seq_ancient and
    seq_past as necessary).  There should be no reads, copies or appends
-   in progress.  seq should at most seq_present (cylic) and
+   in progress.  seq should at most seq_present (cyclic) and
    FD_VINYL_BSTREAM_BLOCK_SZ aligned.  Cannot fail from the caller's
    perspective (will FD_LOG_CRIT if anything goes wrong).
 

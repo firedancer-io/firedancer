@@ -12,7 +12,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../vinyl/fd_vinyl.h"
 #include "../../vinyl/fd_vinyl_base.h"
-#include "../../vinyl/io/fd_vinyl_io_ur.h"
+#include "../../vinyl/io/ur/fd_vinyl_io_ur.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"
@@ -26,7 +26,10 @@
 #define NAME "accdb"
 #define MAX_INS 8
 
-#define IO_SPAD_MAX (32UL<<20)
+/* For io_ur backend, this controls the size of the write-back cache.
+   This should be larger than the cumulative record size of all unique
+   changed accounts in a slot. */
+#define IO_SPAD_MAX (128UL<<20)
 
 #define FD_VINYL_CLIENT_MAX (1024UL)
 #define FD_VINYL_REQ_MAX    (1024UL)
@@ -862,10 +865,6 @@ before_credit( fd_vinyl_tile_t *   ctx,
       FD_ALERT( !memcmp( &ele0[ ele_idx ].phdr, cphdr, sizeof(fd_vinyl_bstream_phdr_t) ), "corruption detected" );
       FD_CRIT ( ele0[ ele_idx ].seq     ==seq,                                            "corruption detected" );
       FD_CRIT ( ele0[ ele_idx ].line_idx==line_idx,                                       "corruption detected" );
-
-      /* Verify data integrity */
-
-      FD_ALERT( !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)cphdr, cpair_sz ), "corruption detected" );
 
       /* Decode the pair */
 
