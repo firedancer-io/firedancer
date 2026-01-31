@@ -4,6 +4,7 @@
 #include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
+#include "../../vinyl/io/ur/fd_vinyl_io_ur_private.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"
@@ -18,7 +19,7 @@
 #include <fcntl.h>    /* open  */
 #include <unistd.h>   /* close */
 
-#include "../../vinyl/io/fd_vinyl_io_ur.h"
+#include "../../vinyl/io/ur/fd_vinyl_io_ur.h"
 
 #define NAME "snaplh"
 
@@ -199,17 +200,6 @@ streamlined_hash( fd_snaplh_t *       restrict ctx,
   else                         ctx->metrics.incremental.accounts_hashed++;
 }
 
-FD_FN_UNUSED static inline void
-bd_read( int    fd,
-         ulong  off,
-         void * buf,
-         ulong  sz ) {
-  ssize_t ssz = pread( fd, buf, sz, (off_t)off );
-  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
-  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
-  /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
-}
-
 FD_FN_UNUSED static void
 handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
                                 ulong                     seq,
@@ -367,6 +357,15 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
   memcpy( in_phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t) );
   ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
   ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+
+  /* Fixup io addressable range */
+  fd_vinyl_io_t * io = ctx->vinyl.io;
+  io->seq_past    = fd_ulong_align_dn( seq,         FD_VINYL_BSTREAM_BLOCK_SZ );
+  io->seq_present = fd_ulong_align_up( seq+pair_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
+  if( io->type==FD_VINYL_IO_TYPE_UR ) {
+    fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io;
+    ur->seq_clean = ur->seq_cache = ur->seq_write = io->seq_present;
+  }
 
   fd_vinyl_io_rd_t * rd_req  = &ctx->vinyl.pending.rd_req[ free_i ];
   rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_PEND );
