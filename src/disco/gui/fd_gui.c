@@ -248,6 +248,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_live_tile_timers,
     fd_gui_printf_live_tile_metrics,
     fd_gui_printf_catch_up_history,
+    fd_gui_printf_vote_latency_history,
+    fd_gui_printf_late_votes_history
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
@@ -255,9 +257,6 @@ fd_gui_ws_open( fd_gui_t * gui,
     printers[ i ]( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
-
-  fd_gui_printf_vote_latency_history( gui );
-  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 
   if( FD_LIKELY( gui->block_engine.has_block_engine ) ) {
     fd_gui_printf_block_engine( gui );
