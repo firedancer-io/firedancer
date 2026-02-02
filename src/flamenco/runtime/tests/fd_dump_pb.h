@@ -66,6 +66,30 @@ FD_PROTOTYPES_BEGIN
 
 /***** Dumping context *****/
 
+/* Generic struct to hold options for dumping protobuf messages */
+struct fd_dump_proto_ctx {
+  /* General dumping options */
+  char const *             dump_proto_output_dir;
+  char const *             dump_proto_sig_filter;
+  ulong                    dump_proto_start_slot;
+
+  /* Instruction Capture */
+  uint                     dump_instr_to_pb : 1;
+
+  /* Transaction Capture */
+  uint                     dump_txn_to_pb : 1;
+
+  /* Block Capture */
+  uint                     dump_block_to_pb : 1;
+
+  /* Syscall Capture */
+  uint                     dump_syscall_to_pb : 1;
+  char const *             dump_syscall_name_filter;
+
+  /* ELF Capture */
+  uint                     dump_elf_to_pb : 1;
+};
+
 /* Persistent context for block dumping.  Maintains state about
    in-progress block dumping, such as any dynamic memory allocations
    (which live in the spad) and the block context message. */
@@ -195,15 +219,15 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
    fd_dump_block_to_protobuf()
    fd_block_dump_context_reset() */
 void
-fd_dump_block_to_protobuf_collect_tx( fd_block_dump_ctx_t * dump_ctx,
+fd_dump_block_to_protobuf_collect_tx( fd_block_dump_ctx_t * dump_block_ctx,
                                       fd_txn_p_t const *    txn );
 
 void
-fd_dump_block_to_protobuf( fd_block_dump_ctx_t *     dump_ctx,
-                           fd_banks_t *              banks,
-                           fd_bank_t *               bank,
-                           fd_accdb_user_t *         accdb,
-                           fd_capture_ctx_t const *  capture_ctx );
+fd_dump_block_to_protobuf( fd_block_dump_ctx_t *       dump_block_ctx,
+                           fd_banks_t *                banks,
+                           fd_bank_t *                 bank,
+                           fd_accdb_user_t *           accdb,
+                           fd_dump_proto_ctx_t const * dump_proto_ctx );
 
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,

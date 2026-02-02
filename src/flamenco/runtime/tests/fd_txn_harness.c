@@ -352,12 +352,13 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
-  runtime->accdb           = runner->accdb;
-  runtime->progcache       = runner->progcache;
-  runtime->status_cache    = NULL;
-  runtime->log.tracing_mem = tracing_mem;
-  runtime->log.dumping_mem = NULL;
-  runtime->log.capture_ctx = NULL;
+  runtime->accdb              = runner->accdb;
+  runtime->progcache          = runner->progcache;
+  runtime->status_cache       = NULL;
+  runtime->log.tracing_mem    = tracing_mem;
+  runtime->log.dumping_mem    = NULL;
+  runtime->log.capture_ctx    = NULL;
+  runtime->log.dump_proto_ctx = NULL;
 
   fd_runtime_prepare_and_execute_txn( runtime, runner->bank, txn_in, txn_out );
   *exec_res = txn_out->err.txn_err;

@@ -340,6 +340,10 @@ struct fd_replay_tile {
   FILE *                 capture_file;
   fd_capture_link_buf_t  cap_repl_out[1];
 
+  /* Protobuf dumping context for debugging runtime execution and
+     collecting seed corpora. */
+  fd_dump_proto_ctx_t * dump_proto_ctx;
+
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */
   int is_booted;
@@ -440,15 +444,16 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),  sizeof(fd_replay_tile_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
-  l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),    fd_block_id_map_footprint( chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),           fd_reasm_footprint( tile->replay.fec_max ) );
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),           fd_sched_footprint( tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_req_pool_align(),  fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
-  l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),    fd_vote_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),    sizeof(fd_replay_tile_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
+  l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_vinyl_req_pool_align(),    fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
 
 # if FD_HAS_FLATCC
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -828,8 +833,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 # if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
      context state */
-  if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
-    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->capture_ctx );
+  if( FD_UNLIKELY( ctx->dump_proto_ctx && ctx->dump_proto_ctx->dump_block_to_pb ) ) {
+    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->dump_proto_ctx );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
 # endif
@@ -1570,7 +1575,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       /* Add the transaction to the block dumper if necessary. This
          logic doesn't need to be fork-aware since it's only meant to
          be used in backtest. */
-      if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
+      if( FD_UNLIKELY( ctx->dump_proto_ctx && ctx->dump_proto_ctx->dump_block_to_pb ) ) {
         fd_dump_block_to_protobuf_collect_tx( ctx->block_dump_ctx, txn_p );
       }
 #     endif
@@ -2526,6 +2531,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * vinyl_req_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_req_pool_align(),   fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
+  void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
 # if FD_HAS_FLATCC
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -2612,18 +2618,19 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->txncache );
 
   ctx->capture_ctx = NULL;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
-  }
-
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
     ctx->capture_ctx->capture_solcap = 1;
   }
 
+  ctx->dump_proto_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
-    ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
-    if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;
+    ctx->dump_proto_ctx                        = dump_proto_ctx_mem;
+    ctx->dump_proto_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
+    if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) {
+      ctx->dump_proto_ctx->dump_block_to_pb = !!tile->replay.dump_block_to_pb;
+    }
   }
 
 # if FD_HAS_FLATCC

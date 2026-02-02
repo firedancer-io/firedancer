@@ -880,9 +880,9 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   */
 
 # if FD_HAS_FLATCC
-  uchar dump_txn = !!( runtime->log.capture_ctx &&
-                       fd_bank_slot_get( bank ) >= runtime->log.capture_ctx->dump_proto_start_slot &&
-                       runtime->log.capture_ctx->dump_txn_to_pb );
+  uchar dump_txn = !!( runtime->log.dump_proto_ctx &&
+                       fd_bank_slot_get( bank ) >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                       runtime->log.dump_proto_ctx->dump_txn_to_pb );
   if( FD_UNLIKELY( dump_txn ) ) {
     fd_dump_txn_to_protobuf( runtime, bank, txn_in, txn_out );
   }
