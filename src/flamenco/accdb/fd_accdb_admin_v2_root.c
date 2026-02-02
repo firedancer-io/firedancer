@@ -120,6 +120,7 @@ funk_remove_rec( fd_funk_t *     funk,
 fd_funk_rec_t *
 fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
                            fd_funk_rec_t *       head ) {
+  long t_start = fd_tickcount();
 
   fd_funk_t *           funk      = admin->v1->funk;        /* unrooted DB */
   fd_wksp_t *           funk_wksp = funk->wksp;             /* shm workspace containing unrooted accounts */
@@ -196,7 +197,9 @@ fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
     ulong data_sz = src_meta->dlen;
     FD_CRIT( data_sz<=FD_RUNTIME_ACC_SZ_MAX, "oversize account record" );
 
-    acq_val_gaddr0[ i ] = sizeof(fd_account_meta_t) + data_sz;
+    ulong val_sz = sizeof(fd_account_meta_t) + data_sz;
+    acq_val_gaddr0[ i ]      = val_sz;
+    admin->base.root_tot_sz += val_sz;
   }
 
   fd_vinyl_req_send_batch(
@@ -219,6 +222,7 @@ fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
   /* Spin for ACQUIRE completion */
 
   vinyl_spin_wait( acq_comp, acq_key0, acq_err0, acq_cnt, "ACQUIRE" );
+  long t_acquire = fd_tickcount();
 
   /* Copy back modified accounts */
 
@@ -247,6 +251,7 @@ fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
       FD_VINYL_REQ_FLAG_MODIFY,
       acq_batch, acq_cnt
   );
+  long t_copy = fd_tickcount();
 
   /* Spin for ERASE, RELEASE completions */
 
@@ -255,17 +260,22 @@ fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
 
   vinyl_spin_wait( acq_comp, acq_key0, acq_err0, acq_cnt, "RELEASE" );
   fd_vinyl_req_pool_release( req_pool, acq_batch );
+  long t_release = fd_tickcount();
 
   /* Remove funk records */
 
   for( ulong i=0UL; i<rec_cnt; i++ ) {
     funk_remove_rec( funk, recs[ i ] );
   }
+  long t_gc = fd_tickcount();
 
   /* Update metrics */
 
   admin->base.root_cnt    += (uint)acq_cnt;
   admin->base.reclaim_cnt += (uint)del_cnt;
+  admin->base.dt_vinyl    += ( t_acquire - t_start ) + ( t_release - t_copy );
+  admin->base.dt_copy     += ( t_copy - t_acquire );
+  admin->base.dt_gc       += ( t_gc - t_release );
 
   return head;
 }

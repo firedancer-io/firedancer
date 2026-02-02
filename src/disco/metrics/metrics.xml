@@ -778,6 +778,12 @@ metric introduced.
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<enum name="RootPhase">
+    <int value="0" name="Db" label="Waiting on database server" />
+    <int value="1" name="Copy" label="Copying account data" />
+    <int value="2" name="Gc" label="Garbage collecting old account data" />
+</enum>
+
 <tile name="replay">
   <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
     <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
@@ -825,16 +831,19 @@ metric introduced.
   <counter name="AccdbCreated" summary="Number of account database records created" />
   <counter name="AccdbReverted" summary="Number of account database records reverted" />
   <counter name="AccdbRooted" summary="Number of account database entries rooted" />
+  <counter name="AccdbRootedBytes" summary="Number of bytes in account database entries rooted (including overhead)" />
   <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
   <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
 
-  <histogram name="RootSlotDurationSeconds" min="0.0001" max="1.0" converter="seconds">
+  <histogram name="RootSlotDurationSeconds" min="0.0005" max="1.0" converter="seconds">
     <summary>Time in seconds spent updating the rooted account store (one sample per block)</summary>
   </histogram>
 
   <histogram name="RootAccountDurationSeconds" min="0.0000001" max="0.1" converter="seconds">
     <summary>Time in seconds spent updating the rooted account store (one sample per block, normalized by account count)</summary>
   </histogram>
+
+  <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
 </tile>
 
 <enum name="RepairSentRequestTypes">

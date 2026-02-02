@@ -510,13 +510,17 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
 
-  FD_MCNT_SET( REPLAY, ACCDB_CREATED,   ctx->accdb->base.created_cnt       );
-  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,  ctx->accdb_admin->base.revert_cnt  );
-  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,    ctx->accdb_admin->base.root_cnt    );
-  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,   ctx->accdb_admin->base.gc_root_cnt );
-  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED, ctx->accdb_admin->base.reclaim_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_CREATED,      ctx->accdb->base.created_cnt       );
+  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,     ctx->accdb_admin->base.revert_cnt  );
+  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,       ctx->accdb_admin->base.root_cnt    );
+  FD_MCNT_SET( REPLAY, ACCDB_ROOTED_BYTES, ctx->accdb_admin->base.root_tot_sz );
+  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,      ctx->accdb_admin->base.gc_root_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED,    ctx->accdb_admin->base.reclaim_cnt );
   FD_MHIST_COPY( REPLAY, ROOT_SLOT_DURATION_SECONDS,    ctx->metrics.root_slot_dur    );
   FD_MHIST_COPY( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS, ctx->metrics.root_account_dur );
+  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_DB,   (ulong)ctx->accdb_admin->base.dt_vinyl );
+  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_COPY, (ulong)ctx->accdb_admin->base.dt_copy  );
+  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
 }
 
 static inline ulong
