@@ -2,6 +2,7 @@
 #include "fd_vinyl_io_ur.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"
+#include "../../util/hist/fd_histf.h"
 
 #include <stdlib.h> /* mkstemp */
 #include <errno.h>
@@ -11,6 +12,52 @@
 #include <sys/mman.h> /* mmap */
 
 #include "test_vinyl_io_common.c"
+
+static void
+bench_append( fd_vinyl_io_t * io,
+              ulong           dev_sz,
+              ulong           pair_sz ) {
+  double ns_per_tick = 1.0 / fd_tempo_tick_per_ns( NULL );
+
+  long start = fd_log_wallclock();
+  fd_histf_t hist_[1];
+  fd_histf_t * hist = fd_histf_join( fd_histf_new( hist_, 0UL, (ulong)10e6 ) );
+
+  ulong const tot_sz    = (ulong)1e9;
+  ulong const block_cnt = tot_sz / pair_sz;
+  for( ulong rem=block_cnt; rem; rem-- ) {
+    if( fd_vinyl_seq_gt( io->seq_future+pair_sz, io->seq_ancient+dev_sz ) ) {
+      FD_TEST( fd_vinyl_io_commit( io, FD_VINYL_IO_FLAG_BLOCKING )==FD_VINYL_SUCCESS );
+      fd_vinyl_io_forget( io, io->seq_future - (dev_sz/4UL) );
+      fd_vinyl_io_sync( io, 0 );
+    }
+    long dt = -fd_tickcount();
+    void * smem = fd_vinyl_io_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    FD_TEST( smem );
+    fd_vinyl_io_append( io, smem, pair_sz );
+    dt += fd_tickcount();
+    double dt_ns = (double)dt * ns_per_tick;
+    if( dt_ns<0.0 ) dt_ns = 0.0;
+    fd_histf_sample( hist, (ulong)dt_ns );
+  }
+  fd_vinyl_io_sync( io, FD_VINYL_IO_FLAG_BLOCKING );
+  long dt = fd_log_wallclock() - start;
+
+  FD_LOG_NOTICE((
+      "\n  block size %lu bytes:\n"
+      "    elapsed: %.2f seconds (%.1f GB in %lu blocks)\n"
+      "    throughput: %.2f MB/s\n"
+      "    p50: %e ms"
+      "    p90: %e ms"
+      "    p95: %e ms",
+      pair_sz,
+      (double)dt/1e9, (double)tot_sz/1e9, block_cnt,
+      (double)tot_sz / ((double)dt*1e-3),
+      (double)fd_histf_percentile( hist, 50, 0UL ) * 1e-6,
+      (double)fd_histf_percentile( hist, 90, 0UL ) * 1e-6,
+      (double)fd_histf_percentile( hist, 95, 0UL ) * 1e-6
+  ));
+}
 
 int
 main( int     argc,
@@ -185,6 +232,25 @@ main( int     argc,
 
   FD_TEST( !fd_vinyl_io_fini( NULL ) );
   FD_TEST( fd_vinyl_io_fini( io )==mem ); /* fini with uncommitted bytes */
+
+  FD_LOG_NOTICE(( "Benchmarking writes" ));
+
+  store_sz = FD_VINYL_BSTREAM_BLOCK_SZ + fd_ulong_align_dn( (ulong)512e6, FD_VINYL_BSTREAM_BLOCK_SZ );
+  if( FD_UNLIKELY( ftruncate( fd, (off_t)store_sz ) ) )
+    FD_LOG_ERR(( "ftruncate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  io = fd_vinyl_io_ur_init( mem, spad_max, fd, ring );
+  FD_TEST( io );
+
+  bench_append( io, BCACHE_SZ,   512UL );
+  bench_append( io, BCACHE_SZ,  1024UL );
+  bench_append( io, BCACHE_SZ,  2048UL );
+  bench_append( io, BCACHE_SZ,  4096UL );
+  bench_append( io, BCACHE_SZ,  8192UL );
+  bench_append( io, BCACHE_SZ, 16384UL );
+  bench_append( io, BCACHE_SZ, 32768UL );
+  bench_append( io, BCACHE_SZ, 65536UL );
+
+  FD_TEST( fd_vinyl_io_fini( io ) );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
 
