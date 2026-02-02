@@ -567,7 +567,6 @@ fd_tower_verify( fd_tower_t const * tower );
 
 void
 fd_tower_print( fd_tower_t const *         tower,
-                ulong                      root,
-                fd_io_buffered_ostream_t * ostream_opt );
+                ulong                      root );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_h */

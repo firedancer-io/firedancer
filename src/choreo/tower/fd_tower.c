@@ -837,13 +837,16 @@ fd_tower_verify( fd_tower_t const * tower ) {
 }
 
 #include <stdio.h>
+#include <string.h>
 
-#define PRINT( fmt, ... ) do { if( FD_LIKELY( ostream_opt ) ) { snprintf( buf, sizeof(buf), fmt, ##__VA_ARGS__ ); fd_io_buffered_ostream_write( ostream_opt, buf, strlen(buf) ); } else { printf( fmt, ##__VA_ARGS__ ); } } while(0)
-#define PRINT_STR( str )  do { if( FD_LIKELY( ostream_opt ) ) { fd_io_buffered_ostream_write( ostream_opt, str, strlen(str) ); } else { printf( str ); } } while(0)
-void
-fd_tower_print( fd_tower_t const * tower, ulong root, fd_io_buffered_ostream_t * ostream_opt ) {
-  if( FD_LIKELY( ostream_opt ) ) PRINT_STR( "\n\n[Tower]\n" );
-  else                           FD_LOG_NOTICE( ( "\n\n[Tower]" ) );
+static void
+print( fd_tower_t const * tower, ulong root, char * s, ulong len ) {
+  ulong off = 0;
+  int   n;
+
+  n = snprintf( s + off, len - off, "[Tower]\n\n" );
+  if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
+  off += (ulong)n;
 
   if( FD_UNLIKELY( fd_tower_empty( tower ) ) ) return;
 
@@ -854,46 +857,77 @@ fd_tower_print( fd_tower_t const * tower, ulong root, fd_io_buffered_ostream_t *
   for( fd_tower_iter_t iter = fd_tower_iter_init_rev( tower       );
                              !fd_tower_iter_done_rev( tower, iter );
                        iter = fd_tower_iter_prev    ( tower, iter ) ) {
-
     max_slot = fd_ulong_max( max_slot, fd_tower_iter_ele_const( tower, iter )->slot );
   }
 
   /* Calculate the number of digits in the maximum slot value. */
 
-  int           digit_cnt = (int)fd_ulong_base10_dig_cnt(max_slot);
+
+  int digit_cnt = (int)fd_ulong_base10_dig_cnt( max_slot );
 
   /* Print the column headers. */
 
-  char buf[1024];
-  PRINT( "slot%*s | %s\n", digit_cnt - (int)strlen("slot"), "", "confirmation count" );
+  if( off < len ) {
+    n = snprintf( s + off, len - off, "slot%*s | %s\n", digit_cnt - (int)strlen("slot"), "", "confirmation count" );
+    if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
+    off += (ulong)n;
+  }
 
   /* Print the divider line. */
 
-  for( int i = 0; i < digit_cnt; i++ ) {
-    PRINT_STR( "-" );
+  for( int i = 0; i < digit_cnt && off < len; i++ ) {
+    s[off++] = '-';
   }
-  PRINT_STR( " | " );
-  for( ulong i = 0; i < strlen( "confirmation count" ); i++ ) {
-    PRINT_STR( "-" );
+  if( off < len ) {
+    n = snprintf( s + off, len - off, " | " );
+    if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
+    off += (ulong)n;
   }
-  PRINT_STR( "\n" );
+  for( ulong i = 0; i < strlen( "confirmation count" ) && off < len; i++ ) {
+    s[off++] = '-';
+  }
+  if( off < len ) {
+    s[off++] = '\n';
+  }
 
   /* Print each vote as a table. */
 
   for( fd_tower_iter_t iter = fd_tower_iter_init_rev( tower       );
                              !fd_tower_iter_done_rev( tower, iter );
                        iter = fd_tower_iter_prev    ( tower, iter ) ) {
-
     fd_tower_t const * vote = fd_tower_iter_ele_const( tower, iter );
-    PRINT( "%*lu | %lu\n", digit_cnt, vote->slot, vote->conf );
-    max_slot = fd_ulong_max( max_slot, fd_tower_iter_ele_const( tower, iter )->slot );
+    if( off < len ) {
+      n = snprintf( s + off, len - off, "%*lu | %lu\n", digit_cnt, vote->slot, vote->conf );
+      if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
+      off += (ulong)n;
+    }
   }
-  if( FD_UNLIKELY( root==ULONG_MAX ) ) {
-    PRINT( "%*s | root\n", digit_cnt, "NULL" );
+
+  if( FD_UNLIKELY( root == ULONG_MAX ) ) {
+    if( off < len ) {
+      n = snprintf( s + off, len - off, "%*s | root\n", digit_cnt, "NULL" );
+      if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
+      off += (ulong)n;
+    }
   } else {
-    PRINT( "%*lu | root\n", digit_cnt, root );
+    if( off < len ) {
+      n = snprintf( s + off, len - off, "%*lu | root\n", digit_cnt, root );
+      if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
+      off += (ulong)n;
+    }
   }
-  PRINT_STR( "\n" );
+
+  /* Ensure null termination */
+  if( off < len ) {
+    s[off] = '\0';
+  } else {
+    s[len - 1] = '\0';
+  }
 }
-#undef PRINT
-#undef PRINT_STR
+
+void
+fd_tower_print( fd_tower_t const * tower, ulong root ) {
+  char buf[4096];
+  print( tower, root, buf, sizeof(buf) );
+  FD_LOG_NOTICE(( "\n\n%s", buf ));
+}
