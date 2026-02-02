@@ -1855,7 +1855,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
 }
 
 static void
-funk_advance_root( fd_replay_tile_t * ctx,
+accdb_advance_root( fd_replay_tile_t * ctx,
                    ulong              slot,
                    ulong              bank_idx ) {
   fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = bank_idx };
@@ -1911,7 +1911,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
 
   ulong advanceable_root_slot = fd_bank_slot_get( bank );
-  funk_advance_root( ctx, advanceable_root_slot, bank->data->idx );
+  accdb_advance_root( ctx, advanceable_root_slot, bank->data->idx );
 
   fd_txncache_advance_root( ctx->txncache, bank->data->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
