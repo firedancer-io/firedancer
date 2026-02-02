@@ -5,7 +5,7 @@ be run from the command line.
 ::: warning WARNING
 
 There is no stable release for the `firedancer` binary. Run the client
-and use these commands are your own risk.
+and use these commands at your own risk.
 
 :::
 
