@@ -1165,8 +1165,8 @@ during_housekeeping( ctx_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes );
-    if( FD_UNLIKELY( fd_auth_key_set_query( ctx->auth_key_set, pubkey, NULL ) ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key that should've been guarded against by sign tile" ));
-    if( FD_UNLIKELY( ctx->auth_key_set_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, count not synced up with sign tile" ));
+    if( FD_UNLIKELY( fd_auth_key_set_query( ctx->auth_key_set, pubkey, NULL ) ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
+    if( FD_UNLIKELY( ctx->auth_key_set_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
 
     fd_auth_key_t * auth_key = fd_auth_key_set_insert( ctx->auth_key_set, *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes ) );
     auth_key->idx = ctx->auth_key_set_cnt;
