@@ -602,10 +602,6 @@ telemetry = true
         queue_depth = 2048
 
 [runtime]
-    # TODO: This is not respected, the max vote accounts seems to be
-    # hardcoded in several places as 4096.
-    max_vote_accounts = 2000000
-
     # max_live_slots and max_fork_width are parameters used to size
     # out the total memory footprint of the bank in the runtime. The
     # bank represents all of the in-memory state in the runtime that
