@@ -12,7 +12,7 @@ and use these commands at your own risk.
 ## `add-authorized-voter`
 Adds an authorized voter to the running validator. The `<keypair>`
 argument is required and must be the path to an Agave style
-`identity.json` keypair file. If the path is specified as `-` the key
+`voter.json` keypair file. If the path is specified as `-` the key
 will instead be read from `stdin`.
 
 ::: warning WARNING
@@ -39,11 +39,6 @@ validator might be running with the same authorized voter and vote
 account. If they both vote concurrently, the validator may violate
 consensus and be subject to (future) slashing.
 
-The validator will not change identity in the middle of a leader slot,
-and will wait until any in-progress leader slot completes before
-switching to the new identity. It is safe to call during or near a
-leader slot because of this wait.
-
 It is safe to call the command while the validator is running and voting
 as the client guarantees that votes will not be produced with the new
 authorized voter key until the key has been gracefully added to the
@@ -53,12 +48,11 @@ The command exits successfully (with an exit code of 0) if the
 authorized voter was added, otherwise it will fail and print diagnostic
 messages to `stderr`. Reasons for failure include the validator being
 unable to load or verify the provided authorized voter key or if the
-provided key is a duplicate of one that the validator is already
-running with.
+provided key is a duplicate that the validator is already with.
 
 | Arguments         | Description |
 |-------------------|-------------|
-| `<keypair>`       | Path to a `identity.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
-| `--config <path>` | Path to a configuration TOML file of the validator to change identity for. This must be the same configuration file the validator was started with |
+| `<keypair>`       | Path to a `voter.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
+| `--config <path>` | Path to a configuration TOML file of the validator to add an authorized voter for. This must be the same configuration file the validator was started with |
 
 <<< @/snippets/commands/add-authorized-voter.ansi
