@@ -838,7 +838,7 @@ void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
                                    long         now,
                                    ulong        _slot,
-                                   fd_txn_p_t * txns,
+                                   fd_txn_e_t * txns,
                                    ulong        txn_cnt,
                                    uint         microblock_idx,
                                    ulong        pack_txn_idx );
