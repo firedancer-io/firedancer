@@ -60,47 +60,30 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary. */
 
-/* The max number of stake accounts that can be modified in a current
-   slot from transactions can be bounded based on CU consumption. The
-   best strategy to maximize the max number of stake accounts modified
-   in a single transaction.  A stake program instruction can either
-   modify one or two stake accounts.  Stake program instructions that
-   modify two stake accounts (merge/split) are assumed to be at least 2x
-   as expensive as a stake program instruction that modifies one stake
-   account.  So we will assume that the most efficient strategy is to
-   modify one stake account per instruction and have as many instruction
-   as posssible in this transaction.  We can have 63 stake program
-   instructions in this transaction because one account will be the fee
-   payer/signature and the other 63 are free to be writable accounts.
+/* The max number of stake accounts that can be modified in a single
+   slot from transactions can be conservatively bounded based on bounds
+   set by the cost tracker: the max writable account CUs per slot.  This
+   bound is set at 12M CUs and each writable account costs 300 CUs.
+   Very loosely this would give us 12M/300 = 40000 stake accounts per
+   slot.  A tighter bound can be found by considering the fee payer must
+   be writable as well and can not be a stake account.  We can have 64
+   unique writable accounts per transaction.  So the best utilization of
+   transactions are ones where 63/64 stake accounts are writable.  This
+   gives us 40000 * 63/64 = 39375 stake accounts per slot. */
 
-   Given the above:
-   100000000 - CUs per slot
-   64 - Max number of writable accounts per transaction.
-   63 - Max number of writable stake accounts per transaction.
-   720 - Cost of a signature
-   300 - Cost of a writable account lock.
-   6000 - Cost of a stake program instruction.
-
-   We can have (100000000 / (720 + 300 * 64 + 6000 * 63)) = 251
-   optimal stake program transactions per slot.  With 63 stake accounts
-   per transaction, we can have 251 * 63 = 15813 stake accounts modified
-   in a slot. */
-
-#define MAX_OPTIMAL_STAKE_ACCOUNTS_POSSIBLE_IN_TXN (FD_MAX_BLOCK_UNITS_SIMD_0286/(FD_WRITE_LOCK_UNITS * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION + FD_RUNTIME_MIN_STAKE_INSN_CUS * (FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION - 1UL) + FD_PACK_COST_PER_SIGNATURE))
-FD_STATIC_ASSERT(MAX_OPTIMAL_STAKE_ACCOUNTS_POSSIBLE_IN_TXN==251, "Incorrect MAX_STAKE_ACCOUNTS_POSSIBLE_IN_TXN");
-#define MAX_STAKE_ACCOUNTS_POSSIBLE_IN_SLOT_FROM_TXNS (MAX_OPTIMAL_STAKE_ACCOUNTS_POSSIBLE_IN_TXN * (FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION - 1UL))
-FD_STATIC_ASSERT(MAX_STAKE_ACCOUNTS_POSSIBLE_IN_SLOT_FROM_TXNS==15813, "Incorrect MAX_STAKE_ACCOUNTS_PER_SLOT");
+#define MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS (FD_MAX_WRITABLE_ACCOUNT_UNITS/FD_PACK_COST_PER_WRITABLE_ACCT * (FD_RUNTIME_WRITABLE_ACCOUNTS_MAX - 1UL)/FD_RUNTIME_WRITABLE_ACCOUNTS_MAX)
+FD_STATIC_ASSERT( MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS==39375UL, "Incorrect MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS" );
 
 /* The static footprint of fd_stake_delegations_t when it is a delta
    is determined by the max total number of stake accounts that can get
    changed in a single slot. Stake accounts can get modified in two ways:
-   1. Through transactions. This bound is calculated using CU
-      consumption as described above.
+   1. Through transactions. This bound is calculated using CU bounds set
+      by the cost tracker as described above.
    2. Through epoch rewards. This is a protocol-level bound is defined
       in fd_rewards_base.h and is the max number of stake accounts that
       can reside in a single reward partition. */
 
-#define FD_STAKE_DELEGATIONS_MAX_PER_SLOT (MAX_STAKE_ACCOUNTS_POSSIBLE_IN_SLOT_FROM_TXNS + STAKE_ACCOUNT_STORES_PER_BLOCK)
+#define FD_STAKE_DELEGATIONS_MAX_PER_SLOT (MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS + STAKE_ACCOUNT_STORES_PER_BLOCK)
 
 /* The static footprint of the vote states assumes that there are
    FD_RUNTIME_MAX_STAKE_ACCOUNTS. It also assumes worst case alignment
@@ -132,7 +115,7 @@ FD_STATIC_ASSERT(MAX_STAKE_ACCOUNTS_POSSIBLE_IN_SLOT_FROM_TXNS==15813, "Incorrec
    stake delegation with up to ~19K delegations we have a total
    footprint of ~2.5MB. */
 
-#define FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST (16384UL)
+#define FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST (32768UL)
 #define FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT                                                       \
   /* First, layout the struct with alignment */                                                    \
   sizeof(fd_stake_delegations_t) + alignof(fd_stake_delegations_t) +                               \
@@ -146,16 +129,22 @@ FD_STATIC_ASSERT(MAX_STAKE_ACCOUNTS_POSSIBLE_IN_SLOT_FROM_TXNS==15813, "Incorrec
 
 #define FD_STAKE_DELEGATIONS_ALIGN (128UL)
 
+#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 (0)
+#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 (1)
+#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 (0.25)
+#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 (0.09)
+
+
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
   fd_pubkey_t vote_account;
-  ulong       next_; /* Only for internal pool/map usage */
   ulong       stake;
-  ulong       activation_epoch;
-  ulong       deactivation_epoch;
   ulong       credits_observed;
-  double      warmup_cooldown_rate;
-  int         is_tombstone;
+  uint        next_; /* Only for internal pool/map usage */
+  ushort      activation_epoch;
+  ushort      deactivation_epoch;
+  uchar       is_tombstone;
+  uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -179,6 +168,11 @@ struct fd_stake_delegations_iter {
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
 FD_PROTOTYPES_BEGIN
+
+static inline double
+fd_stake_delegations_warmup_cooldown_rate_to_double( uchar warmup_cooldown_rate ) {
+  return warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009;
+}
 
 /* fd_stake_delegations_align returns the alignment of the stake
    delegations struct. */

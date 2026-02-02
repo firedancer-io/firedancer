@@ -169,9 +169,9 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
     fd_delegation_t delegation = {
       .voter_pubkey         = stake->vote_account,
       .stake                = stake->stake,
-      .activation_epoch     = stake->activation_epoch,
-      .deactivation_epoch   = stake->deactivation_epoch,
-      .warmup_cooldown_rate = stake->warmup_cooldown_rate,
+      .activation_epoch     = stake->activation_epoch==USHORT_MAX ? ULONG_MAX : stake->activation_epoch,
+      .deactivation_epoch   = stake->deactivation_epoch==USHORT_MAX ? ULONG_MAX : stake->deactivation_epoch,
+      .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( stake->warmup_cooldown_rate ),
     };
 
     ulong stake_amount = fd_stake_activating_and_deactivating(
@@ -263,9 +263,9 @@ calculate_stake_points_and_credits( fd_accdb_user_t *              accdb,
     fd_delegation_t delegation = {
       .voter_pubkey         = stake->vote_account,
       .stake                = stake->stake,
-      .activation_epoch     = stake->activation_epoch,
-      .deactivation_epoch   = stake->deactivation_epoch,
-      .warmup_cooldown_rate = stake->warmup_cooldown_rate,
+      .activation_epoch     = stake->activation_epoch==USHORT_MAX ? ULONG_MAX : stake->activation_epoch,
+      .deactivation_epoch   = stake->deactivation_epoch==USHORT_MAX ? ULONG_MAX : stake->deactivation_epoch,
+      .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( stake->warmup_cooldown_rate ),
     };
 
     ulong stake_amount = fd_stake_activating_and_deactivating(
