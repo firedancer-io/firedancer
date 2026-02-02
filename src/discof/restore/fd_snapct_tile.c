@@ -56,7 +56,7 @@ typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 #define FD_SNAPCT_GOSSIP_SATURATION_THRESHOLD      (0.05)                     /* 5% fresh peers */
 
 #define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT         (2L*60L*1000L*1000L*1000L) /* 2 minutes */
-#define FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT        (2L*60L*1000L*1000L*1000L) /* 2 minutes */
+#define FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT        (30L*1000L*1000L*1000L)    /* 30 seconds */
 
 struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
@@ -588,6 +588,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
       if( FD_UNLIKELY( !best.addr.l ) ) {
+        ctx->deadline_nanos = now + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
         ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS;
         break;
       }
