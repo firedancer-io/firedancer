@@ -9,12 +9,14 @@
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
+#include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/cJSON.h"
 #include "../../ballet/json/cJSON_alloc.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../util/archive/fd_tar.h"
 
 #include <stddef.h>
 #include <sys/socket.h>
@@ -33,15 +35,20 @@
 #include <zstd.h>
 #endif
 
+#if FD_HAS_BZIP2
+#include <bzlib.h>
+#endif
+
 #include "generated/fd_rpc_tile_seccomp.h"
 
 #define FD_RPC_AGAVE_API_VERSION "3.1.8"
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
-#define IN_KIND_REPLAY     (0)
-#define IN_KIND_GENESI     (1)
-#define IN_KIND_GOSSIP_OUT (2)
+#define IN_KIND_REPLAY      (0)
+#define IN_KIND_GENESI      (1)
+#define IN_KIND_GOSSIP_OUT  (2)
+#define IN_KIND_GENESI_FILE (3)
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -145,6 +152,28 @@ derive_http_params( fd_topo_tile_t const * tile ) {
   };
 }
 
+#if FD_HAS_BZIP2
+static void *
+bz2_malloc( void * opaque,
+            int    items,
+            int    size ) {
+  fd_alloc_t * alloc = (fd_alloc_t *)opaque;
+
+  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)(items*size) );
+  if( FD_UNLIKELY( !result ) ) return NULL;
+  return result;
+}
+
+static void
+bz2_free( void * opaque,
+          void * addr ) {
+  fd_alloc_t * alloc = (fd_alloc_t *)opaque;
+
+  if( FD_UNLIKELY( !addr ) ) return;
+  fd_alloc_free( alloc, addr );
+}
+#endif
+
 struct fd_rpc_in {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -222,6 +251,23 @@ struct fd_rpc_tile {
 
   int has_genesis_hash;
   uchar genesis_hash[ 32 ];
+
+#define FD_RPC_TAR_SZ (FD_GENESIS_MAX_MESSAGE_SIZE + 4UL*512UL)
+  uchar genesis_tar[ FD_RPC_TAR_SZ ];
+  ulong genesis_tar_sz;
+
+  /* From bzip2 docs:
+       To guarantee that the compressed data will fit in its buffer,
+       allocate an output buffer of size 1% larger than the uncompressed
+       data, plus six hundred extra bytes.
+  */
+#define CEIL_DIV(x, y) (((x) + (y) - 1UL) / (y))
+  uchar genesis_tar_bz[ FD_RPC_TAR_SZ + CEIL_DIV(FD_RPC_TAR_SZ, 100UL) + 600UL ];
+  ulong genesis_tar_bz_sz;
+#undef  CEIL_DIV
+#undef  FD_RPC_TAR_SZ
+
+  fd_alloc_t * bz2_alloc;
 
   long next_poll_deadline;
 
@@ -407,6 +453,53 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     } else {
       fd_memcpy( ctx->genesis_hash, src, 32UL );
     }
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_FILE ) {
+    uchar * src = (uchar *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+
+    ulong padding_sz = 2*512UL;
+    if( FD_LIKELY( sz % 512UL ) ) padding_sz += 512UL - (sz % 512UL);
+    FD_TEST( sizeof(fd_tar_meta_t)+sz+padding_sz <= sizeof(ctx->genesis_tar) );
+
+    fd_tar_meta_init_file_default( (fd_tar_meta_t *)ctx->genesis_tar, "genesis.bin", sz, fd_log_wallclock() );
+    fd_memcpy( ctx->genesis_tar+sizeof(fd_tar_meta_t), src, sz );
+    memset( ctx->genesis_tar+sizeof(fd_tar_meta_t)+sz, 0, padding_sz );
+
+    /* NOTE: Agave's genesis.tar also contains a `rocksdb` folder */
+
+    ctx->genesis_tar_sz = sizeof(fd_tar_meta_t)+sz+padding_sz;
+
+#   if FD_HAS_BZIP2
+    bz_stream bzstrm = {0};
+    bzstrm.bzalloc = bz2_malloc;
+    bzstrm.bzfree  = bz2_free;
+    bzstrm.opaque  = ctx->bz2_alloc;
+    int bzerr = BZ2_bzCompressInit( &bzstrm, 1, 0, 0 );
+    if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzCompressInit() failed (%d)", bzerr ));
+
+    ctx->genesis_tar_bz_sz = sizeof(ctx->genesis_tar_bz);
+
+    bzstrm.next_in   = (char *)ctx->genesis_tar;
+    bzstrm.avail_in  = (uint)ctx->genesis_tar_sz;
+    bzstrm.next_out  = (char *)ctx->genesis_tar_bz;
+    bzstrm.avail_out = (uint)ctx->genesis_tar_bz_sz;
+
+    for(;;) {
+      bzerr = BZ2_bzCompress( &bzstrm, BZ_FINISH );
+      if( FD_LIKELY( bzerr==BZ_STREAM_END ) ) break;
+      if( FD_UNLIKELY( bzerr>=0 ) ) continue;
+      FD_LOG_ERR(( "BZ2_bzCompress(_, BZ_FINISH) failed (%d)", bzerr ));
+    }
+
+    ctx->genesis_tar_bz_sz -= (ulong)bzstrm.avail_out;
+
+    bzerr = BZ2_bzCompressEnd( &bzstrm );
+    if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzCompressEnd() failed (%d)", bzerr ));
+
+#   else
+    FD_LOG_ERR(( "This build does not include bzip2, which is required to serve genesis file.\n"
+                 "To install bzip2, re-run ./deps.sh +dev, make distclean, and make -j" ));
+#   endif
+
   }
 
   return 0;
@@ -1368,6 +1461,15 @@ rpc_http_request( fd_http_server_request_t const * request ) {
     }
   }
 
+  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
+    if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
+
+    fd_http_server_response_t response = (fd_http_server_response_t){ .status = 200 };
+    fd_http_server_memcpy( ctx->http, ctx->genesis_tar_bz, ctx->genesis_tar_bz_sz );
+    FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
+    return response;
+  }
+
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET ) ) {
     return (fd_http_server_response_t){ .status = 404 };
   }
@@ -1581,9 +1683,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( ulong i=0UL; i<FD_CONTACT_INFO_TABLE_SIZE; i++ ) ctx->cluster_nodes[ i ].valid = 0;
 
+  ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
+  FD_TEST( ctx->bz2_alloc );
+
   ctx->next_poll_deadline = fd_tickcount();
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
+  ctx->genesis_tar_sz    = ULONG_MAX;
+  ctx->genesis_tar_bz_sz = ULONG_MAX;
 
   ctx->processed_idx = ULONG_MAX;
   ctx->confirmed_idx = ULONG_MAX;
@@ -1609,6 +1716,7 @@ unprivileged_init( fd_topo_t *      topo,
     if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "genesi_rpc" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_FILE;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

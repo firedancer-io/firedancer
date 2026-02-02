@@ -6,6 +6,7 @@
    currently only intended for loading and writing Solana snapshots. */
 
 #include "../bits/fd_bits.h"
+#include "../cstr/fd_cstr.h"
 
 /* File Format ********************************************************/
 
@@ -91,32 +92,85 @@ fd_tar_meta_get_size( fd_tar_meta_t const * meta ) {
   return ret;
 }
 
-/* fd_tar_set_octal is a helper function to write 12-byte octal fields */
+/* fd_tar_set_octal is a helper function to write octal fields per TAR
+   standard.  Each field of width buf_sz contains buf_sz-1 zero-filled
+   octal digits and a null terminator.  Returns 1 on success, 0 if val
+   is too large to be represented in the field. */
+static inline int
+fd_tar_set_octal( char * buf,
+                  ulong  buf_sz,
+                  ulong  val ) {
+  /* Need at least 1 byte for null terminator */
+  if( FD_UNLIKELY( buf_sz < 1 ) ) return 0;
 
-int
-fd_tar_set_octal( char  buf[ static 12 ],
-                  ulong val );
+  /* Check if val fits in buf_sz-1 octal digits */
+  if( FD_UNLIKELY( val >> (3UL*(buf_sz-1UL)) ) ) return 0;
+
+  memset( buf, '0', buf_sz-1UL );
+  buf[ buf_sz-1UL ] = '\0';
+
+  for( ulong i=buf_sz-1UL; i>0UL && val>0UL; i-- ) {
+    buf[ i-1UL ] = '0' + (val&7UL);  /* Extract low 3 bits as octal digit */
+    val >>= 3;                       /* Divide by 8 */
+  }
+
+  return 1;
+}
 
 /* fd_tar_meta_set_size sets the size field.  Returns 1 on success, 0
-   if sz is too large to be represented in TAR header. Set size using the
-   OLDGNU size extension to allow for unlimited file sizes. The first byte
-   must be 0x80 followed by 0s and then the size in binary. */
+   if sz is too large to be represented in TAR header. */
 
 static inline int
 fd_tar_meta_set_size( fd_tar_meta_t * meta,
                       ulong           sz ) {
-  meta->size[ 0 ] = (char)0x80;
-  FD_STORE( ulong, meta->size + 4UL, fd_ulong_bswap( sz ) );
-  return 1;
+  return fd_tar_set_octal( meta->size, sizeof(meta->size), sz );
 }
 
 /* fd_tar_meta_set_mtime sets the modification time field.  Returns 1
-   on success, 0 if time cannot be represented in TAR header. */
+   on success, 0 if mtime cannot be represented in TAR header. */
 
 static inline int
 fd_tar_meta_set_mtime( fd_tar_meta_t * meta,
                        ulong           mtime ) {
-  return fd_tar_set_octal( meta->mtime, mtime );
+  return fd_tar_set_octal( meta->mtime, sizeof(meta->mtime), mtime );
+}
+
+static inline int
+fd_tar_meta_init_file_default( fd_tar_meta_t * meta,
+                               char const *    filename,
+                               ulong           filesize,
+                               long            now ) {
+  int valid = 1;
+  memset( meta, 0, sizeof(fd_tar_meta_t) );
+  valid &= fd_cstr_printf_check( meta->name, sizeof(meta->name), NULL, "%s", filename );
+  valid &= fd_cstr_printf_check( meta->mode, sizeof(meta->mode), NULL, "0000644" );
+  valid &= fd_cstr_printf_check( meta->uid,  sizeof(meta->uid),  NULL, "0000000" );
+  valid &= fd_cstr_printf_check( meta->gid,  sizeof(meta->gid),  NULL, "0000000" );
+  valid &= fd_tar_meta_set_size( meta, filesize );
+  valid &= fd_tar_meta_set_mtime( meta, (ulong)(now/1000000000L));
+  valid &= fd_cstr_printf_check( meta->magic, sizeof(meta->magic), NULL, FD_TAR_MAGIC );
+  valid &= fd_cstr_printf_check( meta->uname, sizeof(meta->uname), NULL, "root" );
+  valid &= fd_cstr_printf_check( meta->gname, sizeof(meta->gname), NULL, "root" );
+  valid &= fd_cstr_printf_check( meta->devmajor, sizeof(meta->devmajor), NULL, "0000000" );
+  valid &= fd_cstr_printf_check( meta->devminor, sizeof(meta->devminor), NULL, "0000000" );
+  meta->typeflag = FD_TAR_TYPE_REGULAR;
+  meta->version[ 0 ] = '0'; meta->version[ 1 ] = '0';
+  /* meta->linkname empty */
+  /* meta->prefix empty. TODO: add support */
+
+  ulong checksum = 0;
+
+  for( ulong i=0UL; i<FD_TAR_BLOCK_SZ; i++ ) {
+    /* Special handling for the checksum field itself
+        148UL==offsetof(meta->chksum)
+        156UL==offsetof(meta->chksum)+sizeof(meta->chksum)
+    */
+    checksum += (i>=148UL && i<156UL) ? 32UL : ((uchar *)meta)[ i ];
+  }
+
+  valid &= fd_tar_set_octal( meta->chksum, sizeof(meta->chksum), checksum );
+
+  return valid;
 }
 
 FD_PROTOTYPES_END

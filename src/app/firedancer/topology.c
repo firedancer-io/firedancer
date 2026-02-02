@@ -29,6 +29,7 @@
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 #include "../../vinyl/io/fd_vinyl_io.h" /* FD_VINYL_IO_TYPE_* */
 
@@ -700,6 +701,7 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_wksp( topo, "rpc" );
     fd_topob_wksp( topo, "rpc_replay" );
+    fd_topob_wksp( topo, "genesi_rpc" );
     fd_topob_tile( topo, "rpc", "rpc", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
   }
 
@@ -1088,10 +1090,13 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_link( topo, "rpc_replay", "rpc_replay", 8UL, 0UL, 1UL );
+    fd_topob_link( topo, "genesi_rpc", "genesi_rpc", 2UL, FD_GENESIS_MAX_MESSAGE_SIZE, 1UL );
     fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
+    fd_topob_tile_out( topo, "genesi", 0UL, "genesi_rpc", 0UL );
 
     fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "genesi_rpc", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "rpc_replay", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "rpc",    0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
