@@ -413,12 +413,13 @@ unprivileged_init( fd_topo_t *      topo,
     }
 
     if( strlen( tile->execrp.dump_proto_dir ) ) {
-      ctx->capture_ctx->dump_proto_output_dir = tile->execrp.dump_proto_dir;
-      ctx->capture_ctx->dump_proto_start_slot = tile->execrp.capture_start_slot;
-      ctx->capture_ctx->dump_instr_to_pb      = tile->execrp.dump_instr_to_pb;
-      ctx->capture_ctx->dump_txn_to_pb        = tile->execrp.dump_txn_to_pb;
-      ctx->capture_ctx->dump_syscall_to_pb    = tile->execrp.dump_syscall_to_pb;
-      ctx->capture_ctx->dump_elf_to_pb        = tile->execrp.dump_elf_to_pb;
+      ctx->capture_ctx->dump_proto_output_dir    = tile->execrp.dump_proto_dir;
+      ctx->capture_ctx->dump_proto_start_slot    = tile->execrp.capture_start_slot;
+      ctx->capture_ctx->dump_syscall_name_filter = tile->execrp.dump_syscall_name_filter;
+      ctx->capture_ctx->dump_instr_to_pb         = tile->execrp.dump_instr_to_pb;
+      ctx->capture_ctx->dump_txn_to_pb           = tile->execrp.dump_txn_to_pb;
+      ctx->capture_ctx->dump_syscall_to_pb       = tile->execrp.dump_syscall_to_pb;
+      ctx->capture_ctx->dump_elf_to_pb           = tile->execrp.dump_elf_to_pb;
     }
   }
 

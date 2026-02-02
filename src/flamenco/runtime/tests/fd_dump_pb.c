@@ -1148,10 +1148,14 @@ FD_SPAD_FRAME_BEGIN( dump_ctx->spad ) {
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
                                 char const *    fn_name ) {
+  char const * syscall_name_filter = vm->instr_ctx->runtime->log.capture_ctx->dump_syscall_name_filter;
+  if( syscall_name_filter && strcmp( syscall_name_filter, fn_name ) ) {
+    return;
+  }
 
   fd_spad_t * spad = fd_spad_join( fd_spad_new( vm->instr_ctx->runtime->log.dumping_mem, 1UL<<28UL ) );
 
-FD_SPAD_FRAME_BEGIN( spad ) {
+  FD_SPAD_FRAME_BEGIN( spad ) {
 
   fd_ed25519_sig_t signature;
   memcpy( signature, (uchar const *)vm->instr_ctx->txn_in->txn->payload + TXN( vm->instr_ctx->txn_in->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
@@ -1260,7 +1264,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
       fclose( file );
     }
   }
-} FD_SPAD_FRAME_END;
+  } FD_SPAD_FRAME_END;
 }
 
 void

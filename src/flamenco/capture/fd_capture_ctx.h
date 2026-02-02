@@ -144,6 +144,7 @@ struct fd_capture_ctx {
 
   /* Syscall Capture */
   int                      dump_syscall_to_pb;
+  char const *             dump_syscall_name_filter;
 
   /* ELF Capture */
   int                      dump_elf_to_pb;
