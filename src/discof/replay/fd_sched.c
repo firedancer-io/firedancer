@@ -307,7 +307,7 @@ static inline int
 block_should_signal_end( fd_sched_block_t * block ) {
   /* Under the current policy of eager synchronous PoH mixin, hashing
      done plus fec_eos imply that all mixins have been done. */
-  FD_TEST( !block->fec_eos || ((block->mblk_cnt==block->poh_hashing_done_cnt&&block->mblk_cnt==block->poh_hash_cmp_done_cnt)||block->mblk_cnt!=block->poh_hashing_done_cnt) );
+  if( FD_UNLIKELY( !( !block->fec_eos || ((block->mblk_cnt==block->poh_hashing_done_cnt&&block->mblk_cnt==block->poh_hash_cmp_done_cnt)||block->mblk_cnt!=block->poh_hashing_done_cnt) ) ) ) FD_LOG_CRIT(( "invariant violation: slot %lu fec_eos %d mblk_cnt %u poh_hashing_done_cnt %u poh_hash_cmp_done_cnt %u", block->slot, block->fec_eos, block->mblk_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt ));
   return block->fec_eos && block->txn_parsed_cnt==block->txn_done_cnt && block->mblk_cnt==block->poh_hashing_done_cnt && block->block_start_done && !block->block_end_signaled;
 }
 
@@ -876,6 +876,23 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     handle_bad_block( sched, block );
     sched->metrics->bytes_dropped_cnt += block->fec_buf_sz-block->fec_buf_soff;
     return 0;
+  }
+
+  /* We just received a FEC set, which may have made all transactions in
+     a partially parsed microblock available.  If this were a malformed
+     block that ends in a non-tick microblock, there's not going to be a
+     hashing task from the missing ending tick to drain the mixin queue.
+     So we try to drain the mixin queue right here.  Another option is
+     to drain it at dispatch time, when we are about to dispatch the end
+     of block signal, right before the check for whether block should
+     end. */
+  int mixin_res;
+  while( (mixin_res=maybe_mixin( sched, block )) ) {
+    if( FD_UNLIKELY( mixin_res==-1 ) ) {
+      handle_bad_block( sched, block );
+      return 0;
+    }
+    FD_TEST( mixin_res==1||mixin_res==2 );
   }
 
   /* Check if we need to set the active block. */
