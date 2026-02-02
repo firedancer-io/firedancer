@@ -5,8 +5,8 @@ void
 fd_accdb_lineage_set_fork_slow( fd_accdb_lineage_t *      lineage,
                                 fd_funk_t const *         funk,
                                 fd_funk_txn_xid_t const * xid ) {
-  fd_funk_txn_xid_t     next_xid = *xid;
-  fd_funk_txn_t const * tip      = NULL;
+  fd_funk_txn_xid_t next_xid = *xid;
+  fd_funk_txn_t *   tip      = NULL;
 
   /* Walk transaction graph, recovering from overruns on-the-fly */
   lineage->fork_depth = 0UL;
@@ -15,7 +15,7 @@ fd_accdb_lineage_set_fork_slow( fd_accdb_lineage_t *      lineage,
   ulong i;
   for( i=0UL; i<FD_ACCDB_DEPTH_MAX; i++ ) {
     fd_funk_txn_map_query_t query[1];
-    fd_funk_txn_t const *   candidate;
+    fd_funk_txn_t *         candidate;
     fd_funk_txn_xid_t       found_xid;
     ulong                   parent_idx;
     fd_funk_txn_xid_t       parent_xid;
@@ -38,7 +38,7 @@ retry:
     /* Lookup parent transaction while recovering from overruns
        FIXME This would be a lot easier if transactions specified
              parent by XID instead of by pointer ... */
-    candidate = fd_funk_txn_map_query_ele_const( query );
+    candidate = fd_funk_txn_map_query_ele( query );
     FD_COMPILER_MFENCE();
     do {
       found_xid  = FD_VOLATILE_CONST( candidate->xid );
@@ -57,8 +57,11 @@ retry:
     } while(0);
     FD_COMPILER_MFENCE();
 
+    fd_rwlock_read( candidate->lock );
+
     /* Verify speculative loads by ensuring txn still exists in map */
     if( FD_UNLIKELY( fd_funk_txn_map_query_test( query )!=FD_MAP_SUCCESS ) ) {
+      fd_rwlock_unread( candidate->lock );
       FD_SPIN_PAUSE();
       goto retry;
     }
@@ -71,6 +74,7 @@ retry:
     }
 
     if( !tip ) tip = candidate;  /* remember head of fork */
+    else       fd_rwlock_unread( candidate->lock );
     lineage->fork[ i ] = next_xid;
     if( fd_funk_txn_idx_is_null( parent_idx ) ) {
       /* Reached root */
@@ -94,7 +98,7 @@ done:
   /* Remember head of fork */
   if( tip ) {
     lineage->tip_txn_idx = (ulong)( tip - funk->txn_pool->ele );
-    fd_funk_txn_state_assert( tip, FD_FUNK_TXN_STATE_ACTIVE );
+    fd_rwlock_unread( tip->lock );
   } else {
     lineage->tip_txn_idx = ULONG_MAX;  /* XID is rooted */
   }
