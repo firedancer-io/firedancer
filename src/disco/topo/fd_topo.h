@@ -383,7 +383,6 @@ struct fd_topo_tile {
 
     struct {
       ulong fec_max;
-      ulong max_vote_accounts;
 
       ulong txncache_obj_id;
       ulong progcache_obj_id;

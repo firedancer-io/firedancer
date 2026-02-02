@@ -1505,7 +1505,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     /* Please maintain same field order as fd_topo.h */
 
     tile->replay.fec_max = config->firedancer.runtime.max_live_slots * 1024UL; /* FIXME temporary hack to run on 512 gb boxes */
-    tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;
 
     tile->replay.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->replay.txncache_obj_id !=ULONG_MAX );
     tile->replay.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->replay.progcache_obj_id!=ULONG_MAX );
