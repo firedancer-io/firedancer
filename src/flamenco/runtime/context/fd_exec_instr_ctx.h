@@ -160,7 +160,8 @@ fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * c
 
 int
 fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
-                               fd_pubkey_t const *         signers[ static FD_TXN_SIG_MAX ] );
+                               fd_pubkey_t const *         signers[ static FD_TXN_SIG_MAX ],
+                               ulong *                     signers_cnt );
 
 /* fd_exec_instr_ctx_any_signed matches
    solana_system_program::system_processor::Address::is_signer
@@ -185,8 +186,9 @@ fd_exec_instr_ctx_any_signed( fd_exec_instr_ctx_t const * ctx,
 
 static inline int
 fd_signers_contains( fd_pubkey_t const * signers[ static FD_TXN_SIG_MAX ],
+                     ulong               signers_cnt,
                      fd_pubkey_t const * pubkey ) {
-  for( ulong i=0; i<FD_TXN_SIG_MAX && signers[i]; i++ )
+  for( ulong i=0; i<signers_cnt; i++ )
     if( 0==memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) return 1;
   return 0;
 }

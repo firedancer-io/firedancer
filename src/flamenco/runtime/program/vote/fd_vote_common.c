@@ -4,9 +4,10 @@
 
 int
 fd_vote_verify_authorized_signer( fd_pubkey_t const * authorized,
-                                  fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
+                                  fd_pubkey_t const * signers[static FD_TXN_SIG_MAX],
+                                  ulong               signers_cnt ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L989
-  return fd_signers_contains( signers, authorized ) ?
+  return fd_signers_contains( signers, signers_cnt, authorized ) ?
     FD_EXECUTOR_INSTR_SUCCESS :
     FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 }
@@ -14,8 +15,9 @@ fd_vote_verify_authorized_signer( fd_pubkey_t const * authorized,
 int
 fd_vote_signature_verify( fd_pubkey_t *       epoch_authorized_voter,
                           int                 authorized_withdrawer_signer,
-                          fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] ) {
-  return authorized_withdrawer_signer ? 0 : fd_vote_verify_authorized_signer( epoch_authorized_voter, signers );
+                          fd_pubkey_t const * signers[static FD_TXN_SIG_MAX],
+                          ulong               signers_cnt ) {
+  return authorized_withdrawer_signer ? 0 : fd_vote_verify_authorized_signer( epoch_authorized_voter, signers, signers_cnt );
 }
 
 uchar
