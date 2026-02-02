@@ -84,6 +84,7 @@ FD_STATIC_ASSERT( MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS==39375UL, "Incorrect MAX_
       can reside in a single reward partition. */
 
 #define FD_STAKE_DELEGATIONS_MAX_PER_SLOT (MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS + STAKE_ACCOUNT_STORES_PER_BLOCK)
+FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_MAX_PER_SLOT==43471UL, "Incorrect FD_STAKE_DELEGATIONS_MAX_PER_SLOT" );
 
 /* The static footprint of the vote states assumes that there are
    FD_RUNTIME_MAX_STAKE_ACCOUNTS. It also assumes worst case alignment
@@ -109,11 +110,9 @@ FD_STATIC_ASSERT( MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS==39375UL, "Incorrect MAX_
   FD_STAKE_DELEGATIONS_ALIGN + 128UL /* MAP_ALIGN */ + (FD_STAKE_DELEGATIONS_CHAIN_CNT_EST * sizeof(ulong))
 
 /* We need a footprint for the max amount of stake delegations that
-   can be added in a single slot. We know that there can be up to
-   8192 writable accounts in a slot (bound determined from the cost
-   tracker). Using the same calculation as above, we get 120 bytes per
-   stake delegation with up to ~19K delegations we have a total
-   footprint of ~2.5MB. */
+   can be added in a single slot.  Based on the above calculation we can
+   have roughly ~43k stake delegations in a single slot in the worst
+   case.  This leaves us with roughly 4.3MB per slot. */
 
 #define FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST (32768UL)
 #define FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT                                                       \
