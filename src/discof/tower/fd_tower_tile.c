@@ -110,6 +110,7 @@ typedef struct {
   fd_auth_key_t * auth_key_set;
   uchar           our_vote_acct[FD_VOTE_STATE_DATA_MAX]; /* buffer for reading back our own vote acct data */
   ulong           out_vote_acct_sz;
+  int             debug_logging;
 
   /* structures owned by tower tile */
 
@@ -176,11 +177,6 @@ typedef struct {
 
     fd_hfork_metrics_t hfork;
   } metrics;
-
-  /* debug logging */
-  int debug_fd;
-  fd_io_buffered_ostream_t debug_ostream;
-  uchar debug_buf[4096];
 
 } ctx_t;
 
@@ -888,12 +884,17 @@ done_vote_iter:
   fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_DONE, ctx->out_chunk, sizeof(fd_tower_slot_done_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_done_t), ctx->out_chunk0, ctx->out_wmark );
 
-  if( FD_UNLIKELY( ctx->debug_fd!=-1 ) ) {
-    /* standard buf_sz used by below prints is ~3400 bytes, so buf_max of
-       4096 is sufficient to keep the debug file mostly up to date */
-    fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ), &ctx->debug_ostream );
-    fd_tower_print( ctx->tower, fd_ghost_root( ctx->ghost )->slot, &ctx->debug_ostream );
+  if( FD_UNLIKELY( ctx->debug_logging ) ) {
+    fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ) );
+    fd_tower_print( ctx->tower, ctx->metrics.root_slot );
   }
+
+  // if( FD_UNLIKELY( ctx->debug_fd!=-1 ) ) {
+  //   /* standard buf_sz used by below prints is ~3400 bytes, so buf_max of
+  //      4096 is sufficient to keep the debug file mostly up to date */
+  //   fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ), &ctx->debug_ostream );
+  //   fd_tower_print( ctx->tower, fd_ghost_root( ctx->ghost )->slot, &ctx->debug_ostream );
+  // }
 }
 
 static inline void
@@ -1011,20 +1012,6 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.base_path, identity_key_b58 ) );
   ctx->restore_fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  if( FD_LIKELY( tile->tower.debug_logging ) ) {
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-debug.log", tile->tower.base_path ) );
-    ctx->debug_fd = open( path, O_WRONLY|O_CREAT|O_APPEND, 0644 );
-    if( FD_UNLIKELY( -1==ctx->debug_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-    if( FD_LIKELY( ctx->debug_fd!=-1 ) ) {
-      int err = ftruncate( ctx->debug_fd, 0UL );
-      if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to truncate file (%i-%s)", errno, fd_io_strerror( errno ) ));
-      FD_TEST( fd_io_buffered_ostream_init( &ctx->debug_ostream, ctx->debug_fd, ctx->debug_buf, sizeof(ctx->debug_buf) ) );
-    }
-  } else {
-    ctx->debug_fd = -1;
-  }
 }
 
 static void
@@ -1107,6 +1094,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+
+  ctx->debug_logging = tile->tower.debug_logging;
 }
 
 static ulong
@@ -1118,7 +1107,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, (uint)ctx->debug_fd );
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }
 
@@ -1139,7 +1128,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   if( FD_LIKELY( ctx->checkpt_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->checkpt_fd;
   if( FD_LIKELY( ctx->restore_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->restore_fd;
-  if( FD_LIKELY( ctx->debug_fd!=-1   ) ) out_fds[ out_cnt++ ] = ctx->debug_fd;
   return out_cnt;
 }
 

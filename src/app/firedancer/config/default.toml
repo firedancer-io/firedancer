@@ -1489,10 +1489,9 @@ telemetry = true
         max_vote_lookahead = 4096
 
         # Whether to enable debug logging for the tower tile.  If
-        # enabled, the tower tile will write a fork tree and tower
-        # information to `base/tower-debug.log` once per slot.  Can
-        # produce a lot of log data, so it is recommended to put it on a
-        # `logrotate`, see [log] for more details.
+        # enabled, the tower tile will print ghost and tower to the log
+        # file.  This will generate a lot of data, so by default it is
+        # disabled.
         debug_logging = false
 
     # The txsend tile is responsible for sending transactions out to
