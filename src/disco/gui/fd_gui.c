@@ -3090,7 +3090,7 @@ void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
                                    long         now,
                                    ulong        _slot,
-                                   fd_txn_p_t * txns,
+                                   fd_txn_e_t * txns,
                                    ulong        txn_cnt,
                                    uint         microblock_idx,
                                    ulong        pack_txn_idx ) {
@@ -3108,7 +3108,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
   gui->pack_txn_idx = fd_ulong_max( gui->pack_txn_idx, pack_txn_idx+txn_cnt-1UL );
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn_payload = &txns[ i ];
+    fd_txn_p_t * txn_payload = txns[ i ].txnp;
     fd_txn_t * txn = TXN( txn_payload );
 
     ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt;

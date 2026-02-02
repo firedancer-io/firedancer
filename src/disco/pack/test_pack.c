@@ -49,7 +49,7 @@ struct pack_outcome {
   ulong microblock_cnt;
   aset_t  r_accts_in_use[ FD_PACK_MAX_EXECLE_TILES ];
   aset_t  w_accts_in_use[ FD_PACK_MAX_EXECLE_TILES ];
-  fd_txn_p_t results[1024];
+  fd_txn_e_t results[1024];
 };
 typedef struct pack_outcome pack_outcome_t;
 
@@ -381,7 +381,7 @@ schedule_validate_microblock( fd_pack_t * pack,
   aset_t write_accts = aset_null( );
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txnp = outcome->results+i;
+    fd_txn_p_t * txnp = outcome->results[i].txnp;
     fd_txn_t   * txn  = TXN(txnp);
 
     fd_compute_budget_program_state_t cbp;
@@ -528,7 +528,7 @@ void test_vote( void ) {
   schedule_validate_microblock( pack, pack_cost_estimate, 1.0f, 3UL, 0UL, 0UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 
-  for( ulong j=0UL; j<3UL; j++ ) FD_TEST( outcome.results[ j ].flags==FD_TXN_P_FLAGS_IS_SIMPLE_VOTE );
+  for( ulong j=0UL; j<3UL; j++ ) FD_TEST( outcome.results[ j ].txnp->flags==FD_TXN_P_FLAGS_IS_SIMPLE_VOTE );
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
@@ -958,7 +958,7 @@ void performance_end_block( void ) {
       .max_vote_cost_per_block   = 0UL,
       .max_write_cost_per_acct   = FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT,
       .max_data_bytes_per_block  = ULONG_MAX/2UL,
-      .max_txn_per_microblock    = 31UL,
+      .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
       .max_microblocks_per_block = 16384UL,
   } };
   ulong footprint = fd_pack_footprint( 4096UL, 0UL, 8UL, limits );
@@ -1157,8 +1157,8 @@ test_limits( void ) {
     schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
-    outcome.results->execle_cu.rebated_cus = (uint)((total_cus + (total_cus*FD_PACK_TEST_MAX_COST_PER_BLOCK/(4*total_cus))) - FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT);
-    fd_pack_rebate_sum_add_txn( rebater, outcome.results, rebate_alt, 1UL );
+    outcome.results->txnp->execle_cu.rebated_cus = (uint)((total_cus + (total_cus*FD_PACK_TEST_MAX_COST_PER_BLOCK/(4*total_cus))) - FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT);
+    fd_pack_rebate_sum_add_txn( rebater, outcome.results->txnp, rebate_alt, 1UL );
     fd_pack_rebate_sum_report( rebater, report->rebate );
     fd_pack_rebate_cus( pack, report->rebate );
     /* Now consumed CUs is 12M - total_cus, so it just fits. */
@@ -1205,8 +1205,8 @@ test_limits( void ) {
 
 
     /* rebate just enough cus to have the total_cus needed for one more */
-    outcome.results[ 0 ].execle_cu.rebated_cus = (uint)(total_cus - (FD_PACK_TEST_MAX_COST_PER_BLOCK - almost_full_iter*8UL*total_cus - 7UL*total_cus));
-    fd_pack_rebate_sum_add_txn( rebater, outcome.results, rebate_alt, 1UL );
+    outcome.results[ 0 ].txnp->execle_cu.rebated_cus = (uint)(total_cus - (FD_PACK_TEST_MAX_COST_PER_BLOCK - almost_full_iter*8UL*total_cus - 7UL*total_cus));
+    fd_pack_rebate_sum_add_txn( rebater, outcome.results[0].txnp, rebate_alt, 1UL );
     fd_pack_rebate_sum_report( rebater, report->rebate );
     fd_pack_rebate_cus( pack, report->rebate );
     schedule_validate_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
@@ -1517,8 +1517,8 @@ test_bundle_nonce( void ) {
   FD_TEST( txn_cnt == 3UL );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
   for( ulong j = 0UL; j < 3UL; j++ ) {
-    FD_TEST( outcome.results[j].flags & FD_TXN_P_FLAGS_BUNDLE );
-    FD_TEST( outcome.results[j].flags & FD_TXN_P_FLAGS_DURABLE_NONCE );
+    FD_TEST( outcome.results[j].txnp->flags & FD_TXN_P_FLAGS_BUNDLE );
+    FD_TEST( outcome.results[j].txnp->flags & FD_TXN_P_FLAGS_DURABLE_NONCE );
   }
   FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
   FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );

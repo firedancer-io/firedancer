@@ -539,8 +539,8 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_gui_microblock_execution_begin( ctx->gui,
                                           now,
                                           fd_disco_poh_sig_slot( sig ),
-                                          (fd_txn_p_t *)src,
-                                          (sz-sizeof( fd_microblock_execle_trailer_t ))/sizeof( fd_txn_p_t ),
+                                          (fd_txn_e_t *)src,
+                                          (sz-sizeof( fd_microblock_execle_trailer_t ))/sizeof( fd_txn_e_t ),
                                           (uint)trailer->microblock_idx,
                                           trailer->pack_txn_idx );
       } else {

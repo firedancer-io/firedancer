@@ -91,8 +91,12 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
       }
       in_table->rebate_cus += rebated_cus;
     }
-    if( FD_LIKELY( txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-      accts = adtl_writable[i];
+    /* ALT accounts are pre-resolved by resolv_tile and passed via
+       fd_txn_e_t, so we always rebate even if bank sanitization
+       failed (e.g. due to LUT deactivation).  If adtl_writable[i] is
+       NULL, we do not rebate ALT accounts. */
+    accts = adtl_writable[i];
+    if( FD_LIKELY( accts ) ) {
       for( ulong j=0UL; j<(ulong)TXN(txn)->addr_table_adtl_writable_cnt; j++ ) {
         fd_pack_rebate_entry_t * in_table = rmap_query( s->map, accts[j], NULL );
         if( FD_UNLIKELY( !in_table ) ) {
@@ -115,12 +119,14 @@ fd_pack_rebate_sum_add_txn( fd_pack_rebate_sum_t         * s,
     s->ib_result = fd_int_if( ib_success, 1, -1 );
   }
 
-  /* We want to make sure that we have enough capacity to insert 31*128
-     addresses without hitting 5k.  Thus, if x is the current value of
-     writer_cnt, we need to call report at least y times to ensure
-                        x-y*1637 <= 5*1024-31*128
-                               y >= (x-1152)/1637
-     but y is an integer, so y >= ceiling( (x-1152)/1637 ) */
+  /* We want to make sure that we have enough capacity to insert
+     MAX_TXN_PER_MICROBLOCK*FD_TXN_ACCT_ADDR_MAX addresses without
+     hitting FD_PACK_REBATE_SUM_CAPACITY.  Thus, if x is the current
+     value of writer_cnt, we need to call report at least y times to
+     ensure
+                        x-y*1637 <= HEADROOM
+                               y >= (x-HEADROOM)/1637
+     but y is an integer, so y >= ceiling( (x-HEADROOM)/1637 ) */
   return (ulong)((fd_int_max( 0, (int)s->writer_cnt - (int)HEADROOM ) + 1636) / 1637);
 }
 
