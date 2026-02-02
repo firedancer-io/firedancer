@@ -15,6 +15,7 @@
 
 static void
 bench_append( fd_vinyl_io_t * io,
+              int             dev_fd,
               ulong           dev_sz,
               ulong           pair_sz ) {
   double ns_per_tick = 1.0 / fd_tempo_tick_per_ns( NULL );
@@ -28,7 +29,7 @@ bench_append( fd_vinyl_io_t * io,
   for( ulong rem=block_cnt; rem; rem-- ) {
     if( fd_vinyl_seq_gt( io->seq_future+pair_sz, io->seq_ancient+dev_sz ) ) {
       FD_TEST( fd_vinyl_io_commit( io, FD_VINYL_IO_FLAG_BLOCKING )==FD_VINYL_SUCCESS );
-      fd_vinyl_io_forget( io, io->seq_future - (dev_sz/4UL) );
+      fd_vinyl_io_forget( io, fd_ulong_align_up( io->seq_future - (dev_sz/4UL), FD_VINYL_BSTREAM_BLOCK_SZ ) );
       fd_vinyl_io_sync( io, 0 );
     }
     long dt = -fd_tickcount();
@@ -42,17 +43,21 @@ bench_append( fd_vinyl_io_t * io,
   }
   fd_vinyl_io_sync( io, FD_VINYL_IO_FLAG_BLOCKING );
   long dt = fd_log_wallclock() - start;
+  FD_TEST( 0==fsync( dev_fd ) );
+  long dt_sync = fd_log_wallclock() - start;
 
   FD_LOG_NOTICE((
       "\n  block size %lu bytes:\n"
       "    elapsed: %.2f seconds (%.1f GB in %lu blocks)\n"
-      "    throughput: %.2f MB/s\n"
+      "    throughput:        %.2f MB/s\n"
+      "    throughput (sync): %.2f MB/s\n"
       "    p50: %e ms"
       "    p90: %e ms"
       "    p95: %e ms",
       pair_sz,
       (double)dt/1e9, (double)tot_sz/1e9, block_cnt,
-      (double)tot_sz / ((double)dt*1e-3),
+      (double)tot_sz / ((double)dt     *1e-3),
+      (double)tot_sz / ((double)dt_sync*1e-3),
       (double)fd_histf_percentile( hist, 50, 0UL ) * 1e-6,
       (double)fd_histf_percentile( hist, 90, 0UL ) * 1e-6,
       (double)fd_histf_percentile( hist, 95, 0UL ) * 1e-6
@@ -235,20 +240,21 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Benchmarking writes" ));
 
-  store_sz = FD_VINYL_BSTREAM_BLOCK_SZ + fd_ulong_align_dn( (ulong)512e6, FD_VINYL_BSTREAM_BLOCK_SZ );
+  ulong dev_sz = fd_ulong_align_dn( (ulong)1e9, FD_VINYL_BSTREAM_BLOCK_SZ );
+  store_sz = FD_VINYL_BSTREAM_BLOCK_SZ + dev_sz;
   if( FD_UNLIKELY( ftruncate( fd, (off_t)store_sz ) ) )
     FD_LOG_ERR(( "ftruncate failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   io = fd_vinyl_io_ur_init( mem, spad_max, fd, ring );
   FD_TEST( io );
 
-  bench_append( io, BCACHE_SZ,   512UL );
-  bench_append( io, BCACHE_SZ,  1024UL );
-  bench_append( io, BCACHE_SZ,  2048UL );
-  bench_append( io, BCACHE_SZ,  4096UL );
-  bench_append( io, BCACHE_SZ,  8192UL );
-  bench_append( io, BCACHE_SZ, 16384UL );
-  bench_append( io, BCACHE_SZ, 32768UL );
-  bench_append( io, BCACHE_SZ, 65536UL );
+  bench_append( io, fd, dev_sz,   512UL );
+  bench_append( io, fd, dev_sz,  1024UL );
+  bench_append( io, fd, dev_sz,  2048UL );
+  bench_append( io, fd, dev_sz,  4096UL );
+  bench_append( io, fd, dev_sz,  8192UL );
+  bench_append( io, fd, dev_sz, 16384UL );
+  bench_append( io, fd, dev_sz, 32768UL );
+  bench_append( io, fd, dev_sz, 65536UL );
 
   FD_TEST( fd_vinyl_io_fini( io ) );
 
