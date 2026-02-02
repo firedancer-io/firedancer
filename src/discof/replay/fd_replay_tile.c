@@ -644,6 +644,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_bank_max_tick_height_set( bank, max_tick_height );
   fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
   fd_sched_set_poh_params( ctx->sched, bank->data->idx, fd_bank_tick_height_get( bank ), fd_bank_max_tick_height_get( bank ), fd_bank_hashes_per_tick_get( bank ), fd_bank_poh_query( parent_bank ) );
+
+  FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
 
 static void
@@ -1758,6 +1760,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
        starting a new slot, and we need a new bank index. */
     fd_bank_t bank[1];
     reasm_fec->bank_idx = fd_banks_new_bank( bank, ctx->banks, reasm_fec->parent_bank_idx, now )->data->idx;
+    FD_LOG_DEBUG(( "reserving bank_idx=%lu for slot=%lu", reasm_fec->bank_idx, reasm_fec->slot ));
     /* At this point remove any stale entry in the block id map if it
        exists and set the block id as not having been seen yet.  This is
        safe because we know that the old entry for this bank index has
@@ -1852,11 +1855,11 @@ process_fec_set( fd_replay_tile_t *  ctx,
 }
 
 static void
-funk_publish( fd_replay_tile_t * ctx,
-              ulong              slot,
-              ulong              bank_idx ) {
+funk_advance_root( fd_replay_tile_t * ctx,
+                   ulong              slot,
+                   ulong              bank_idx ) {
   fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = bank_idx };
-  FD_LOG_DEBUG(( "publishing slot=%lu", slot ));
+  FD_LOG_DEBUG(( "advancing root to slot=%lu", slot ));
 
   /* This is the standard case.  Publish all transactions up to and
      including the watermark.  This will publish any in-prep ancestors
@@ -1908,7 +1911,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
 
   ulong advanceable_root_slot = fd_bank_slot_get( bank );
-  funk_publish( ctx, advanceable_root_slot, bank->data->idx );
+  funk_advance_root( ctx, advanceable_root_slot, bank->data->idx );
 
   fd_txncache_advance_root( ctx->txncache, bank->data->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
