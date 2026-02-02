@@ -3297,10 +3297,19 @@ fd_stake_get_state( fd_account_meta_t const * meta,
 }
 
 fd_stake_history_entry_t
-fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
-                                      ulong                      target_epoch,
-                                      fd_stake_history_t const * stake_history,
-                                      ulong *                    new_rate_activation_epoch ) {
+fd_stake_activating_and_deactivating( fd_stake_delegation_t const * stake_delegation,
+                                      ulong                         target_epoch,
+                                      fd_stake_history_t const *    stake_history,
+                                      ulong *                       new_rate_activation_epoch ) {
+  fd_delegation_t delegation = {
+    .voter_pubkey         = stake_delegation->vote_account,
+    .stake                = stake_delegation->stake,
+    .deactivation_epoch   = stake_delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->deactivation_epoch,
+    .activation_epoch     = stake_delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->activation_epoch,
+    .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( stake_delegation->warmup_cooldown_rate ),
+  };
+
   return stake_activating_and_deactivating(
-    self, target_epoch, stake_history, new_rate_activation_epoch );
+    &delegation, target_epoch, stake_history, new_rate_activation_epoch );
 }
+

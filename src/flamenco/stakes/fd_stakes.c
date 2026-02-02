@@ -56,16 +56,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
-    fd_delegation_t delegation = {
-      .voter_pubkey         = stake_delegation->vote_account,
-      .stake                = stake_delegation->stake,
-      .deactivation_epoch   = stake_delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->deactivation_epoch,
-      .activation_epoch     = stake_delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->activation_epoch,
-      .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( stake_delegation->warmup_cooldown_rate ),
-    };
-
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
-        &delegation,
+        stake_delegation,
         epoch,
         history,
         new_rate_activation_epoch );
@@ -117,16 +109,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
-    fd_delegation_t delegation = {
-      .voter_pubkey         = stake_delegation->vote_account,
-      .stake                = stake_delegation->stake,
-      .activation_epoch     = stake_delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->activation_epoch,
-      .deactivation_epoch   = stake_delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->deactivation_epoch,
-      .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( stake_delegation->warmup_cooldown_rate ),
-    };
-
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
-        &delegation,
+        stake_delegation,
         fd_bank_epoch_get( bank ),
         stake_history,
         new_rate_activation_epoch );
