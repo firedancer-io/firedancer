@@ -1381,7 +1381,6 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
-  FD_TEST( block_id_ele );
   block_id_ele->block_id = initial_block_id;
   block_id_ele->slot     = 0UL;
 
@@ -1488,7 +1487,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_runtime_update_leaders( bank, &ctx->runtime_stack );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
-    FD_TEST( block_id_ele );
     block_id_ele->block_id = manifest_block_id;
     block_id_ele->slot     = snapshot_slot;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
@@ -1776,7 +1774,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    FD_TEST( block_id_ele );
 
     block_id_ele->block_id_seen = 1;
     block_id_ele->block_id      = reasm_fec->key;
@@ -1894,10 +1891,10 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, advanceable_root_idx ) );
 
-  fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
-  if( FD_UNLIKELY( !advanceable_root_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: advanceable root ele not found for bank index %lu", advanceable_root_idx ));
+  if( FD_UNLIKELY( advanceable_root_idx >= ctx->block_id_len ) ) {
+    FD_LOG_CRIT(( "invariant violation: advanceable root ele out of bounds [0, %lu) index %lu", ctx->block_id_len, advanceable_root_idx ));
   }
+  fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
   long exacq_start, exacq_end, exrel_end;
   FD_STORE_EXCLUSIVE_LOCK( ctx->store, exacq_start, exacq_end, exrel_end ) {

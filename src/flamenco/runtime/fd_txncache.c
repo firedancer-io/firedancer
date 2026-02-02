@@ -244,7 +244,6 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
     root_slist_ele_push_tail( tc->shmem->root_ll, fork->shmem, tc->blockcache_shmem_pool );
   } else {
     blockcache_t * parent = &tc->blockcache_pool[ parent_fork_id.val ];
-    FD_TEST( parent );
     /* We might be tempted to freeze the parent here, and it's valid to
        do this ordinarily, but not when loading from a snapshot, when
        we need to load many transactions into a root parent chain at
@@ -326,7 +325,6 @@ remove_children( fd_txncache_t *      tc,
   fd_txncache_fork_id_t sibling_idx = fork->shmem->child_id;
   while( sibling_idx.val!=USHORT_MAX ) {
     blockcache_t * sibling = &tc->blockcache_pool[ sibling_idx.val ];
-    FD_TEST( sibling );
 
     sibling_idx = sibling->shmem->sibling_id;
     if( FD_UNLIKELY( sibling==except ) ) continue;
@@ -342,7 +340,6 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
   fd_rwlock_write( tc->shmem->lock );
 
   blockcache_t * fork = &tc->blockcache_pool[ fork_id.val ];
-  FD_TEST( fork );
 
   blockcache_t * parent_fork = &tc->blockcache_pool[ fork->shmem->parent_id.val ];
   if( FD_UNLIKELY( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )!=parent_fork->shmem ) ) {
