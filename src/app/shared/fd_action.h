@@ -38,7 +38,6 @@ union fdctl_args {
 
   struct {
     uchar * keypair;
-    int     force;
   } add_authorized_voter;
 
   struct {

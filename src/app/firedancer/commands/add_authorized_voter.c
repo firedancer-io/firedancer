@@ -65,12 +65,10 @@
 void
 add_authorized_voter_cmd_args( int *    pargc,
                                char *** pargv,
-                               args_t * args) {
-
-  args->add_authorized_voter.force = fd_env_strip_cmdline_contains( pargc, pargv, "--force" );
+                               args_t * args ) {
 
   if( FD_UNLIKELY( *pargc<1 ) ) {
-    FD_LOG_ERR(( "Usage: fdctl add-authorized-voter <keypair> [--force]" ));
+    FD_LOG_ERR(( "Usage: fdctl add-authorized-voter <keypair>" ));
   }
 
   char const * path = *pargv[0];
@@ -90,8 +88,7 @@ static void FD_FN_SENSITIVE
 poll_keyswitch( fd_topo_t * topo,
                 ulong *     state,
                 uchar *     keypair,
-                int *       has_error,
-                int         force_lock ) {
+                int *       has_error ) {
   fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
 
   switch( *state ) {
@@ -100,14 +97,8 @@ poll_keyswitch( fd_topo_t * topo,
         *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
         FD_LOG_INFO(( "Locking authorized voter set for authorized voter update..." ));
       } else {
-        if( FD_UNLIKELY( force_lock ) ) {
-          *state = FD_ADD_AUTH_VOTER_STATE_LOCKED;
-          FD_LOG_WARNING(( "Another process was changing keys, but `--force` supplied. Forcing lock on authorized voter set for key switch..." ));
-        } else {
-          FD_LOG_ERR(( "Cannot add-authorized-voter because Firedancer is already in the process of updating the authorized voter keys. If you"
-                       "are not currently adding an authorized voter, it might be because an authorized voter update was abandoned. To"
-                       "recover, run the `add-authorized-voter command again with the `--force` argument." ));
-        }
+        FD_LOG_ERR(( "Cannot add-authorized-voter because Firedancer is already in the process of updating the authorized voter keys. If you"
+                     "are not currently adding an authorized voter, it might be because an authorized voter update was abandoned." ));
       }
       break;
     }
@@ -203,8 +194,8 @@ add_authorized_voter( args_t *   args,
 
   fd_ed25519_public_from_private( check_public_key, args->add_authorized_voter.keypair, sha512 );
   if( FD_UNLIKELY( memcmp( check_public_key, args->add_authorized_voter.keypair+32UL, 32UL ) ) ) {
-    FD_LOG_ERR(( "The public key in the key file does not match the public key derived from the private key. "
-                  "Firedancer will not use the key pair to sign as it might leak the private key." ));
+    FD_LOG_ERR(( "The public key in the key file does not match the public key derived from the private key."
+                 "Firedancer will not use the key pair to sign as it might leak the private key." ));
   }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
@@ -217,7 +208,7 @@ add_authorized_voter( args_t *   args,
   int has_error = 0;
   ulong state = FD_ADD_AUTH_VOTER_STATE_UNLOCKED;
   for(;;) {
-    poll_keyswitch( &config->topo, &state, args->add_authorized_voter.keypair, &has_error, args->add_authorized_voter.force );
+    poll_keyswitch( &config->topo, &state, args->add_authorized_voter.keypair, &has_error );
     if( FD_UNLIKELY( FD_ADD_AUTH_VOTER_STATE_UNLOCKED==state ) ) break;
   }
 
@@ -226,7 +217,7 @@ add_authorized_voter( args_t *   args,
   key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
   if( FD_UNLIKELY( has_error ) ) FD_LOG_ERR(( "Failed to add authorized voter key to `%s`, check validator logs for details", key_base58 ));
-  else                           FD_LOG_NOTICE(( "Authorized voter key added to `%s`", key_base58 ));
+  else                           FD_LOG_NOTICE(( "Authorized voter key added `%s`", key_base58 ));
 
 }
 
