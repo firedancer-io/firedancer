@@ -41,7 +41,7 @@ int
 fd_stake_get_state( fd_account_meta_t const * meta,
                     fd_stake_state_v2_t *     out );
 
-/* TODO: This is a temporary hack to reuse stake program code which h
+/* TODO: This is a temporary hack to reuse stake program code which
    should be refactored out when local ledgers no longer rely on the
    deprecated native stake program. */
 

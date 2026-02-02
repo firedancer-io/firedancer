@@ -323,7 +323,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
   } else {
     /* If we are not configured to leave tombstones, we need to remove
        the entry from the map and release it from the pool. */
-    if( FD_UNLIKELY( delegation_idx == UINT_MAX ) ) {
+    if( FD_UNLIKELY( delegation_idx==UINT_MAX ) ) {
       /* The delegation was not found, nothing to do. */
       return;
     }

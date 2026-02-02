@@ -128,11 +128,13 @@ FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_MAX_PER_SLOT==43471UL, "Incorrect FD_STAK
 
 #define FD_STAKE_DELEGATIONS_ALIGN (128UL)
 
+/* The warmup cooldown rate can only be one of two values: 0.25 or 0.09.
+   The reason that the double is mapped to an enum is to save space in
+   the stake delegations struct. */
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 (0)
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 (1)
-#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 (0.25)
-#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 (0.09)
-
+#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025      (0.25)
+#define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009      (0.09)
 
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
