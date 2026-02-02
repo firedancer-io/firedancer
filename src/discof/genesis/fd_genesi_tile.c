@@ -28,6 +28,7 @@
 
 #include "generated/fd_genesi_tile_seccomp.h"
 
+#if FD_HAS_BZIP2
 static void *
 bz2_malloc( void * opaque,
             int    items,
@@ -47,6 +48,17 @@ bz2_free( void * opaque,
   if( FD_UNLIKELY( !addr ) ) return;
   fd_alloc_free( alloc, addr );
 }
+#endif
+
+struct fd_rpc_out_link {
+  ulong       idx;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+};
+
+typedef struct fd_rpc_out_link fd_rpc_out_link_t;
 
 struct fd_genesi_tile {
   fd_accdb_admin_t accdb_admin[1];
@@ -67,7 +79,8 @@ struct fd_genesi_tile {
   ushort expected_shred_version;
 
   uchar genesis[ FD_GENESIS_MAX_MESSAGE_SIZE ] __attribute__((aligned(alignof(fd_genesis_t)))); /* 10 MiB buffer for decoded genesis */
-  uchar buffer[ FD_GENESIS_MAX_MESSAGE_SIZE ]; /* 10 MiB buffer for reading genesis file */
+  uchar buffer[ FD_GENESIS_MAX_MESSAGE_SIZE + 5UL*512UL ]; /* 10 MiB buffer for reading genesis file */
+  ulong buffer_sz;
 
   char genesis_path[ PATH_MAX ];
 
@@ -75,10 +88,8 @@ struct fd_genesi_tile {
   int out_fd;
   int out_dir_fd;
 
-  fd_wksp_t * out_mem;
-  ulong       out_chunk0;
-  ulong       out_wmark;
-  ulong       out_chunk;
+  fd_rpc_out_link_t out_genesi;
+  fd_rpc_out_link_t out_rpc;
 
   fd_alloc_t * bz2_alloc;
 };
@@ -200,18 +211,26 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     fd_genesis_t * genesis = fd_type_pun( ctx->genesis );
 
-    uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    uchar * dst = fd_chunk_to_laddr( ctx->out_genesi.mem, ctx->out_genesi.chunk );
     if( FD_UNLIKELY( ctx->bootstrap ) ) {
       fd_memcpy( dst, &ctx->lthash->bytes, sizeof(fd_lthash_value_t) );
       fd_memcpy( dst+sizeof(fd_lthash_value_t), &ctx->genesis_hash, sizeof(fd_hash_t) );
       fd_memcpy( dst+sizeof(fd_lthash_value_t)+sizeof(fd_hash_t), ctx->genesis, genesis->total_sz );
 
-      fd_stem_publish( stem, 0UL, GENESI_SIG_BOOTSTRAP_COMPLETED, ctx->out_chunk, 0UL, 0UL, 0UL, 0UL );
-      ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, genesis->total_sz+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t), ctx->out_chunk0, ctx->out_wmark );
+      fd_stem_publish( stem, ctx->out_genesi.idx, GENESI_SIG_BOOTSTRAP_COMPLETED, ctx->out_genesi.chunk, 0UL, 0UL, 0UL, 0UL );
+      ctx->out_genesi.chunk = fd_dcache_compact_next( ctx->out_genesi.chunk, genesis->total_sz+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t), ctx->out_genesi.chunk0, ctx->out_genesi.wmark );
     } else {
       fd_memcpy( dst, ctx->genesis_hash, sizeof(fd_hash_t) );
-      fd_stem_publish( stem, 0UL, GENESI_SIG_GENESIS_HASH, ctx->out_chunk, sizeof(fd_hash_t), 0UL, 0UL, 0UL );
-      ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_hash_t), ctx->out_chunk0, ctx->out_wmark );
+      fd_stem_publish( stem, ctx->out_genesi.idx, GENESI_SIG_GENESIS_HASH, ctx->out_genesi.chunk, sizeof(fd_hash_t), 0UL, 0UL, 0UL );
+      ctx->out_genesi.chunk = fd_dcache_compact_next( ctx->out_genesi.chunk, sizeof(fd_hash_t), ctx->out_genesi.chunk0, ctx->out_genesi.wmark );
+    }
+
+    if( FD_LIKELY( ctx->out_rpc.idx!=ULONG_MAX ) ) {
+      uchar * dst = fd_chunk_to_laddr( ctx->out_rpc.mem, ctx->out_rpc.chunk );
+      FD_TEST( ctx->buffer_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
+      fd_memcpy( dst, ctx->buffer, ctx->buffer_sz );
+      fd_stem_publish( stem, ctx->out_rpc.idx, GENESI_SIG_GENESIS_FILE, ctx->out_rpc.chunk, ctx->buffer_sz, 0UL, 0UL, 0UL );
+      ctx->out_rpc.chunk = fd_dcache_compact_next( ctx->out_rpc.chunk, sizeof(fd_hash_t), ctx->out_rpc.chunk0, ctx->out_rpc.wmark );
     }
 
     *charge_busy = 1;
@@ -246,6 +265,10 @@ after_credit( fd_genesi_tile_t *  ctx,
     if( FD_UNLIKELY( BZ_STREAM_END!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompress() failed (%d)", bzerr ));
 
     actual_decompressed_sz = decompressed_sz - (ulong)bzstrm.avail_out;
+
+    bzerr = BZ2_bzDecompressEnd( &bzstrm );
+    if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressEnd() failed (%d)", bzerr ));
+
 #   else
     FD_LOG_ERR(( "This build does not include bzip2, which is required to boot from genesis.\n"
                  "To install bzip2, re-run ./deps.sh +dev, make distclean, and make -j" ));
@@ -256,6 +279,14 @@ after_credit( fd_genesi_tile_t *  ctx,
     fd_tar_meta_t const * meta = (fd_tar_meta_t const *)decompressed;
     FD_TEST( !strcmp( meta->name, "genesis.bin" ) );
     FD_TEST( actual_decompressed_sz>=512UL+fd_tar_meta_get_size( meta ) );
+
+    if( FD_LIKELY( ctx->out_rpc.idx!=ULONG_MAX ) ) {
+      uchar * dst = fd_chunk_to_laddr( ctx->out_rpc.mem, ctx->out_rpc.chunk );
+      FD_TEST( actual_decompressed_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
+      fd_memcpy( dst, decompressed, actual_decompressed_sz );
+      fd_stem_publish( stem, ctx->out_rpc.idx, GENESI_SIG_GENESIS_FILE, ctx->out_rpc.chunk, actual_decompressed_sz, 0UL, 0UL, 0UL );
+      ctx->out_rpc.chunk = fd_dcache_compact_next( ctx->out_rpc.chunk, sizeof(fd_hash_t), ctx->out_rpc.chunk0, ctx->out_rpc.wmark );
+    }
 
     uchar hash[ 32UL ];
     fd_sha256_hash( decompressed+512UL, fd_tar_meta_get_size( meta ), hash );
@@ -282,10 +313,10 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     verify_cluster_type( genesis, hash, ctx->genesis_path );
 
-    uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    uchar * dst = fd_chunk_to_laddr( ctx->out_genesi.mem, ctx->out_genesi.chunk );
     fd_memcpy( dst, hash, sizeof(fd_hash_t) );
-    fd_stem_publish( stem, 0UL, GENESI_SIG_GENESIS_HASH, ctx->out_chunk, 32UL, 0UL, 0UL, 0UL );
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_hash_t), ctx->out_chunk0, ctx->out_wmark );
+    fd_stem_publish( stem, ctx->out_genesi.idx, GENESI_SIG_GENESIS_HASH, ctx->out_genesi.chunk, 32UL, 0UL, 0UL, 0UL );
+    ctx->out_genesi.chunk = fd_dcache_compact_next( ctx->out_genesi.chunk, sizeof(fd_hash_t), ctx->out_genesi.chunk0, ctx->out_genesi.wmark );
 
     ulong bytes_written = 0UL;
     while( bytes_written<fd_tar_meta_get_size( meta ) ) {
@@ -332,6 +363,7 @@ process_local_genesis( fd_genesi_tile_t * ctx,
   }
 
   FD_TEST( bytes_read==size );
+  ctx->buffer_sz = bytes_read;
 
   if( FD_UNLIKELY( -1==close( ctx->in_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -437,6 +469,29 @@ privileged_init( fd_topo_t *      topo,
   }
 }
 
+static inline fd_rpc_out_link_t
+out1( fd_topo_t const *      topo,
+      fd_topo_tile_t const * tile,
+      char const *           name ) {
+  ulong idx = ULONG_MAX;
+
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
+    if( !strcmp( link->name, name ) ) {
+      if( FD_UNLIKELY( idx!=ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had multiple output links named %s but expected one", tile->name, tile->kind_id, name ));
+      idx = i;
+    }
+  }
+
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_rpc_out_link_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0 };
+
+  void * mem = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
+  ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
+  ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
+
+  return (fd_rpc_out_link_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -466,10 +521,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_cstr_printf_check( ctx->genesis_path, PATH_MAX, NULL, "%s", tile->genesi.genesis_path ) );
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  ctx->out_genesi = out1( topo, tile, "genesi_out" );
+  ctx->out_rpc    = out1( topo, tile, "genesi_rpc" );
 
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
