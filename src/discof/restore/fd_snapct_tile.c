@@ -288,7 +288,7 @@ on_resolve( void *        _ctx,
             uchar         incr_hash[ FD_HASH_FOOTPRINT ] ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, full_hash, incr_hash );
+  fd_sspeer_selector_add( ctx->selector, addr, 10, full_slot, incr_slot, full_hash, incr_hash );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
@@ -297,9 +297,10 @@ static void
 on_ping( void *        _ctx,
          fd_ip4_port_t addr,
          ulong         latency ) {
+  (void)latency;
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, latency, ULONG_MAX, ULONG_MAX, NULL, NULL );
+  fd_sspeer_selector_add( ctx->selector, addr, 10, ULONG_MAX, ULONG_MAX, NULL, NULL );
   predict_incremental( ctx );
 }
 
@@ -318,7 +319,7 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
     }
   }
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, msg->snapshot_hashes.full->hash, incr_hash );
+  fd_sspeer_selector_add( ctx->selector, addr, 10, full_slot, incr_slot, msg->snapshot_hashes.full->hash, incr_hash );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }

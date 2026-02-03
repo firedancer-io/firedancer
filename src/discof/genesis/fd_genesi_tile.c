@@ -160,7 +160,7 @@ verify_cluster_type( fd_genesis_t const * genesis,
     case FD_GENESIS_TYPE_MAINNET: {
       if( FD_UNLIKELY( memcmp( genesis_hash, mainnet_hash, 32UL ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( genesis_hash, genesis_hash_b58 );
-        FD_LOG_ERR(( "genesis file `%s` has cluster type MAINNET but unexpected genesis hash `%s`",
+        FD_LOG_WARNING(( "genesis file `%s` has cluster type MAINNET but unexpected genesis hash `%s`",
                      genesis_path, genesis_hash_b58 ));
       }
       break;

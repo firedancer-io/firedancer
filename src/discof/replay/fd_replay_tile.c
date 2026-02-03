@@ -1983,46 +1983,14 @@ after_credit( fd_replay_tile_t *  ctx,
   /* FIXME: The reasm logic needs to get reworked to support
      equivocation more robustly. */
   if( FD_LIKELY( can_process_fec( ctx ) ) ) {
-    fd_reasm_fec_t * fec = fd_reasm_peek( ctx->reasm );
 
-    /* If fec->eqvoc is set that means that equivocation mid-block was
-       detected in fd_reasm_t.  We need to replay up to and including
-       the equivocating FEC on a new bank. */
+    /* Standard case. */
+    fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
 
-    if( FD_UNLIKELY( fec->eqvoc ) ) {
-      FD_LOG_WARNING(( "Block equivocation detected at slot %lu", fec->slot ));
-
-      /* We need to figure out which and how many FECs we need to
-         (re)insert into the scheduler.  We work backwards from the
-         equivocating FEC, querying for chained merkle roots until we
-         reach the first FEC in the slot.
-         TODO: replace the magic number with a constant for the max
-               number of fecs possible in a slot with fix-32. */
-      fd_reasm_fec_t * fecs[ 1024 ] = { [0] = fec };
-      ulong            fec_cnt      = 1UL;
-      while( fecs[ fec_cnt-1UL ]->fec_set_idx!=0UL ) {
-        fec = fd_reasm_query( ctx->reasm, &fecs[ fec_cnt-1UL ]->cmr );
-        fecs[ fec_cnt++ ] = fec;
-      }
-
-      /* If we don't have enough space in the scheduler to ingest all of
-         FECs, we can't proceed yet. */
-      if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched, fec_cnt ) ) ) return;
-
-      /* Now that we have validated that sched can ingest all of the
-         required FECs, it is finally safe to remove the equivocating
-         fec from the reasm deque. */
-      fd_reasm_pop( ctx->reasm );
-
-      /* Now we can process all of the FECs. */
-      for( ulong i=fec_cnt; i>0UL; i-- ) {
-        process_fec_set( ctx, stem, fecs[i-1UL] );
-      }
-    } else {
-      /* Standard case. */
-      fec = fd_reasm_pop( ctx->reasm );
-      process_fec_set( ctx, stem, fec );
+    if( fec->eqvoc ) {
+      FD_LOG_WARNING(( "equivocating FEC set detected: slot=%lu, fec_set_idx=%u", fec->slot, fec->fec_set_idx ));
     }
+    process_fec_set( ctx, stem, fec );
 
     *charge_busy = 1;
     *opt_poll_in = 0;
