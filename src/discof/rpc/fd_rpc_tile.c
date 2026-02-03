@@ -1,6 +1,5 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
-#include "../tower/fd_tower_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -41,7 +40,6 @@
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_GENESI (1)
-#define IN_KIND_TOWER  (2)
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -132,10 +130,6 @@
 #define FD_RPC_ERROR_SLOT_NOT_EPOCH_BOUNDARY                     (-32018)
 #define FD_RPC_ERROR_LONG_TERM_STORAGE_UNREACHABLE               (-32019)
 
-#define DEQUE_NAME ref_q
-#define DEQUE_T    ulong
-#include "../../util/tmpl/fd_deque_dynamic.c"
-
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
   return (fd_http_server_params_t) {
@@ -198,7 +192,6 @@ struct fd_rpc_tile {
 
   bank_info_t * banks;
   ulong         max_live_slots;
-  ulong *       ref_q;
 
   ulong cluster_confirmed_slot;
 
@@ -245,7 +238,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),   http_fp                                      );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
   l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t) );
-  l = FD_LAYOUT_APPEND( l, ref_q_align(),            ref_q_footprint( tile->rpc.max_live_slots )  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -280,12 +272,10 @@ after_credit( fd_rpc_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  if( FD_LIKELY( !ref_q_empty( ctx->ref_q ) ) ) {
-    ulong bank_idx = ref_q_pop_head( ctx->ref_q );
-    fd_stem_publish( stem, ctx->replay_out->idx, bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-    *opt_poll_in = 0;
-    *charge_busy = 1;
-  }
+  (void)ctx;
+  (void)stem;
+  (void)opt_poll_in;
+  (void)charge_busy;
 }
 
 static inline int
@@ -299,11 +289,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)ctx;
-  (void)in_idx;
   (void)seq;
-  (void)sig;
-  (void)chunk;
   (void)sz;
   (void)ctl;
   (void)tsorig;
@@ -344,10 +330,25 @@ returnable_frag( fd_rpc_tile_t *     ctx,
 
            tldr: This isn't strictly conformant with Agave, but doesn't
            need to be since Agave doesn't provide any guarantees anyways. */
+        if( FD_LIKELY( ctx->processed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->processed_idx = slot_completed->bank_idx;
         break;
       }
-      default: break;
+      case REPLAY_SIG_OC_ADVANCED: {
+        fd_replay_oc_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->confirmed_idx = msg->bank_idx;
+        break;
+      }
+      case REPLAY_SIG_ROOT_ADVANCED: {
+        fd_replay_root_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->finalized_idx = msg->bank_idx;
+        break;
+      }
+      default: {
+        break;
+      }
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
@@ -356,41 +357,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       fd_memcpy( ctx->genesis_hash, src+sizeof(fd_lthash_value_t), 32UL );
     } else {
       fd_memcpy( ctx->genesis_hash, src, 32UL );
-    }
-  } else if( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) {
-    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-      fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      switch( msg->kind ) {
-        case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: {
-          if( FD_LIKELY( msg->bank_idx!=ULONG_MAX ) ) ctx->confirmed_idx = msg->bank_idx;
-          break;
-        }
-        case FD_TOWER_SLOT_CONFIRMED_CLUSTER: {
-          ctx->cluster_confirmed_slot = msg->slot;
-          break;
-        }
-        case FD_TOWER_SLOT_CONFIRMED_ROOTED: {
-          /* TODO: rooted != finalized. Fix in fd_notar */
-
-          if( FD_UNLIKELY( ctx->finalized_idx==ULONG_MAX ) ) ctx->finalized_idx = msg->bank_idx;
-          else if ( FD_LIKELY( ctx->banks[ ctx->finalized_idx ].slot==ULONG_MAX || ctx->banks[ ctx->finalized_idx ].slot<msg->slot ) ) {
-            FD_TEST( msg->bank_idx!=ULONG_MAX );
-            for( ulong i=0UL; i<ctx->max_live_slots; i++ ) {
-              /* Release ownership of any banks older than
-                 finalized_idx. */
-              if( FD_UNLIKELY( ctx->banks[ i ].slot!=ULONG_MAX && ctx->banks[ i ].slot<msg->slot ) ) {
-                if( FD_UNLIKELY( !ref_q_avail( ctx->ref_q ) ) ) FD_LOG_CRIT(( "ref_q full" ));
-                ref_q_push_tail( ctx->ref_q, i );
-                ctx->banks[ i ].slot = ULONG_MAX;
-              }
-            }
-
-            ctx->finalized_idx = msg->bank_idx;
-          }
-          break;
-        }
-        default: break;
-      }
     }
   }
 
@@ -656,9 +622,6 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     char const * commitment = config ? cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "finalized" ) ) : "confirmed";
     if( !commitment ) commitment = "finalized";
     if( 0==strcmp( commitment, "confirmed" ) ) {
-      /* This check is here for correctness. It's technically possible for
-        tower to race and provide confirmed_idx before we've received it
-        from replay. */
       _bank_idx = fd_ulong_if( ctx->banks[ ctx->confirmed_idx ].slot!=ULONG_MAX, ctx->confirmed_idx, ULONG_MAX );
     } else if( 0==strcmp( commitment, "processed" ) ) {
       _bank_idx = ctx->processed_idx;
@@ -1726,7 +1689,6 @@ unprivileged_init( fd_topo_t *      topo,
                         FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( derive_http_params( tile ) ) );
   void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
   void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
-  void * _ref_q       = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),            ref_q_footprint( tile->rpc.max_live_slots )            );
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
@@ -1747,9 +1709,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->max_live_slots = tile->rpc.max_live_slots;
   for( ulong i=0UL; i<ctx->max_live_slots; i++ ) ctx->banks[ i ].slot = ULONG_MAX;
 
-  ctx->ref_q = ref_q_join( ref_q_new( _ref_q, tile->rpc.max_live_slots ) );
-  FD_TEST( ctx->ref_q );
-
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
@@ -1764,7 +1723,6 @@ unprivileged_init( fd_topo_t *      topo,
 
     if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
-    else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

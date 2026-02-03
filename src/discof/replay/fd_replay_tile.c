@@ -980,14 +980,23 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   }
 
   fd_bank_t bank[1];
-  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, consensus_root_bank->data->child_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, ctx->consensus_root_bank_idx ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
+  }
+  bank->data->refcnt++;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+
+  fd_bank_t child_bank[1];
+  if( FD_UNLIKELY( !fd_banks_bank_query( child_bank, ctx->banks, consensus_root_bank->data->child_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: consensus root bank child is NULL at bank index %lu", consensus_root_bank->data->child_idx ));
   }
 
   /* Increment the reference count on the consensus root bank to account
      for the number of exec tiles that are waiting on it. */
-  bank->data->refcnt += ctx->resolv_tile_cnt;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  bank->data->refcnt       += ctx->resolv_tile_cnt;
+  child_bank->data->refcnt += ctx->resolv_tile_cnt;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx,       fd_bank_slot_get( bank ),       bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", child_bank->data->idx, fd_bank_slot_get( child_bank ), child_bank->data->refcnt ));
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->bank_idx = bank->data->idx;
@@ -2261,6 +2270,10 @@ static void
 process_resolv_slot_completed( fd_replay_tile_t * ctx, ulong bank_idx ) {
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, bank_idx ) );
+  fd_bank_t bank_parent[1];
+  FD_TEST( fd_banks_bank_query( bank_parent, ctx->banks, bank->data->parent_idx ) );
+  bank_parent->data->refcnt--;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank_parent->data->idx, fd_bank_slot_get( bank_parent ), bank_parent->data->refcnt ));
 
   bank->data->refcnt--;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
@@ -2340,6 +2353,24 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
   }
 }
 
+static void
+process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
+                                    fd_stem_context_t *               stem,
+                                    fd_tower_slot_confirmed_t const * msg ) {
+  FD_TEST( msg->bank_idx!=ULONG_MAX );
+
+  fd_bank_t bank[1];
+  FD_TEST( fd_banks_bank_query( bank, ctx->banks, msg->bank_idx ) );
+  bank->data->refcnt++;
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+
+  fd_replay_oc_advanced_t * replay_msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  replay_msg->bank_idx = msg->bank_idx;
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_OC_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
 static inline int
 returnable_frag( fd_replay_tile_t *  ctx,
                  ulong               in_idx,
@@ -2398,18 +2429,14 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      if     ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE      ) ) process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
+      if ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+        process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
+      }
       else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
         fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-
-        /* Implement replay plugin API here */
-
-        switch( msg->kind ) {
-        case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: break;
-        case FD_TOWER_SLOT_CONFIRMED_ROOTED:     break;
-        }
+        if( msg->kind==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) process_tower_optimistic_confirmed( ctx, stem, msg );
       }
-      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED   ) ) {
+      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED ) ) {
         fd_tower_slot_ignored_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_tower_slot_done_t ignored = {
           .replay_slot     = msg->slot,

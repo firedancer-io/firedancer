@@ -366,7 +366,7 @@ fd_banks_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( max_total_banks>=FD_BANKS_MAX_BANKS ) ) {
+  if( FD_UNLIKELY( max_total_banks>FD_BANKS_MAX_BANKS ) ) {
     FD_LOG_WARNING(( "max_total_banks is too large" ));
     return NULL;
   }

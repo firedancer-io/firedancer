@@ -10,6 +10,7 @@
 #define REPLAY_SIG_ROOT_ADVANCED  (2)
 #define REPLAY_SIG_RESET          (3)
 #define REPLAY_SIG_BECAME_LEADER  (4)
+#define REPLAY_SIG_OC_ADVANCED    (5)
 
 struct fd_replay_slot_completed {
   ulong slot;
@@ -74,10 +75,14 @@ struct fd_replay_slot_dead {
 };
 typedef struct fd_replay_slot_dead fd_replay_slot_dead_t;
 
+struct fd_replay_oc_advanced {
+  ulong bank_idx;
+};
+typedef struct fd_replay_oc_advanced fd_replay_oc_advanced_t;
+
 struct fd_replay_root_advanced {
   ulong bank_idx;
 };
-
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 
 union fd_replay_message {
