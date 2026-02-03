@@ -5,10 +5,11 @@
 #include "../../util/pod/fd_pod.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/io/ur/fd_vinyl_io_ur_private.h"
+#include "../../vinyl/io/ur/wb_ring.h"
+#include "../../vinyl/io/ur/wq_ring.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"
-#include "../../util/io_uring/fd_io_uring.h"
 #include "generated/fd_snaplh_tile_seccomp.h"
 
 #include "utils/fd_ssctrl.h"
@@ -21,24 +22,27 @@
 
 #include "../../vinyl/io/ur/fd_vinyl_io_ur.h"
 
+/* SNAPLH_HANDHOLDING enables various expensive correctness checks */
+#define SNAPLH_HANDHOLDING 0
+
 #define NAME "snaplh"
 
 #define IN_CNT_MAX     (2UL)
 #define IN_KIND_SNAPLV (0UL)
 #define IN_KIND_SNAPWH (1UL)
 
-#define VINYL_LTHASH_BLOCK_ALIGN  FD_VINYL_BSTREAM_BLOCK_SZ
-#define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
-FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
+/* Read queue configuration */
+#define RQ_DEPTH    (1024UL) /* depth of the async read queue */
+#define RQ_HEAP_MAX          /* heap size of async read queue */ \
+  FD_ULONG_ALIGN_UP( 16UL<<20, FD_CHUNK_ALIGN )
+FD_STATIC_ASSERT(
+  RQ_HEAP_MAX>=FD_VINYL_BSTREAM_BLOCK_SZ+FD_ULONG_ALIGN_UP( FD_RUNTIME_ACC_SZ_MAX, FD_VINYL_BSTREAM_BLOCK_SZ ),
+  "read queue heap cannot fit a maximally-sized account"
+);
 
-#define VINYL_LTHASH_RD_REQ_MAX   (32UL)
-#define VINYL_LTHASH_IORING_DEPTH (2*VINYL_LTHASH_RD_REQ_MAX)
-
-#define VINYL_LTHASH_IO_SPAD_MAX  (2<<20UL)
-
-#define VINYL_LTHASH_RD_REQ_FREE  (0UL)
-#define VINYL_LTHASH_RD_REQ_PEND  (1UL)
-#define VINYL_LTHASH_RD_REQ_SENT  (2UL)
+/* VINYL_LTHASH_IO_SPAD_MAX is a required param for vinyl_io, but it's
+   unused in this tile (only used for writes, but this tile only reads). */
+#define VINYL_LTHASH_IO_SPAD_MAX (4096UL)
 
 struct in_link_private {
   fd_wksp_t *  wksp;
@@ -59,11 +63,150 @@ struct out_link_private {
 };
 typedef struct out_link_private out_link_t;
 
+/* Read queue *********************************************************/
+
+/* Declare an arena for read descriptors */
+
+struct rq_desc {
+  fd_vinyl_io_rd_t rd[1];
+  ulong prev;
+  ulong next;
+};
+typedef struct rq_desc rq_desc_t;
+FD_STATIC_ASSERT( offsetof(rq_desc_t, rd)==0UL, layout );
+
+#define DLIST_NAME  rq_free
+#define DLIST_ELE_T rq_desc_t
+#include "../../util/tmpl/fd_dlist.c" /* FIXME use fd_pool.c? */
+
+#if SNAPLH_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 1
+#define SET_NAME buf_shadow
+#define SET_MAX  RQ_HEAP_MAX
+#include "../../util/tmpl/fd_set.c"
+#endif
+
+/* The snaplh tile does asynchronous reads via the vinyl_io API.
+   The rq_ring (read queue ring) provides an allocator for read buffers.
+   It takes into account that fd_vinyl_io_poll can deliver read results
+   in arbitrary order. */
+
+struct rq_ring {
+
+  /* Descriptor free stack (free is a join into free_mem) */
+  rq_free_t free[1];
+  rq_desc_t arena[ RQ_DEPTH ];
+
+  /* Completion reorder buffer (FIXME rename from wq to cq) */
+  struct {
+    wq_ring_t wq[1];
+    wq_desc_t _desc[ RQ_DEPTH ];
+  };
+
+  /* Data allocator */
+  uchar     buf[ RQ_HEAP_MAX ];
+  wb_ring_t wb[1];
+  ulong     data_seq1;
+
+# if SNAPLH_HANDHOLDING
+  /* Shadow tracking */
+  ulong buf_shadow[ buf_shadow_word_cnt ];
+# endif
+
+};
+
+typedef struct rq_ring rq_ring_t;
+
+/* rq_ring_init constructs the read queue. */
+
+static rq_ring_t *
+rq_ring_init( rq_ring_t * ring ) {
+  /* ring is a bit too big to just memset, partially initialize */
+  FD_TEST( rq_free_join( rq_free_new( ring->free ) ) );
+  FD_TEST( ring->free );
+  for( ulong i=0UL; i<RQ_DEPTH; i++ ) rq_free_idx_push_tail( ring->free, i, ring->arena );
+  wq_ring_init( ring->wq, 0UL, RQ_DEPTH );
+  wb_ring_init( ring->wb, 0UL, RQ_HEAP_MAX );
+  ring->data_seq1 = 0UL;
+# if SNAPLH_HANDHOLDING
+  buf_shadow_new( ring->buf_shadow );
+# endif
+  return ring;
+}
+
+/* rq_ring_acquire acquires a read request descriptor.  On success,
+   retval is non-zero and points to a descriptor ready to be posted to
+   fd_vinyl_io_read.  retval->dst points to a buffer with cache-line
+   alignment (architecture-specific).  On failure (because there is no
+   space for a request), returns NULL.  The failure condition lasts
+   indefinitely until a few rq_ring_release calls are made. */
+
+static fd_vinyl_io_rd_t *
+rq_ring_acquire( rq_ring_t * ring,
+                 ulong       sz ) {
+
+  if( FD_UNLIKELY( sz > sizeof(ring->buf) ) ) {
+    FD_LOG_CRIT(( "oversize read request (sz=%lu, buf_max=%lu)", sz, sizeof(ring->buf) ));
+  }
+
+  /* can fit metadata to track this request? */
+  if( FD_UNLIKELY( rq_free_is_empty( ring->free, ring->arena ) ) ) return NULL;
+  if( FD_UNLIKELY( wq_ring_is_full( ring->wq )  ) ) return NULL;
+
+  /* can fit data into ring buffer? */
+  if( FD_UNLIKELY( fd_vinyl_seq_gt( wb_ring_alloc_seq0( ring->wb, sz ), ring->wq->seq ) ) ) return NULL;
+  ulong data_seq = ring->data_seq1;
+  wb_ring_alloc( ring->wb, sz );
+  ulong  buf_off = wb_ring_seq_to_off( ring->wb, data_seq );
+  void * buf     = ring->buf + buf_off;
+  ring->data_seq1 += sz;
+
+# if SNAPLH_HANDHOLDING
+  ulong overlap_bytes = buf_shadow_range_cnt( ring->buf_shadow, buf_off, buf_off+sz );
+  if( FD_UNLIKELY( overlap_bytes ) ) {
+    FD_LOG_ERR(( "detected aliasing buffers: buf range [%lu,%lu) is partially in use (%lu bytes in use)", buf_off, buf_off+sz, overlap_bytes ));
+  }
+  buf_shadow_insert_range( ring->buf_shadow, buf_off, buf_off+sz );
+# endif
+
+  /* allocate objects */
+  ulong meta_seq = wq_ring_enqueue( ring->wq, ring->data_seq1 );
+  fd_vinyl_io_rd_t * req = rq_free_ele_pop_tail( ring->free, ring->arena )->rd;
+
+  /* fill in request */
+  req->ctx = meta_seq;
+  req->seq = 0UL; /* filled in by user */
+  req->dst = buf;
+  req->sz  = sz;
+
+  return req;
+}
+
+/* rq_ring_release releases a read request descriptor, so it can be
+   reused by a future acquire.  On return, the rd pointer is no longer
+   valid. */
+
+static void
+rq_ring_release( rq_ring_t *        ring,
+                 fd_vinyl_io_rd_t * rd ) {
+  ulong meta_seq = rd->ctx;
+  wq_ring_complete( ring->wq, meta_seq );
+
+# if SNAPLH_HANDHOLDING
+  ulong buf_off = (ulong)rd->dst - (ulong)ring->buf;
+  FD_TEST( buf_shadow_range_cnt( ring->buf_shadow, buf_off, buf_off + rd->sz )==rd->sz );
+  buf_shadow_remove_range( ring->buf_shadow, buf_off, buf_off + rd->sz );
+# endif
+  rq_free_ele_push_tail( ring->free, (rq_desc_t *)rd, ring->arena );
+}
+
+/* Tile context *******************************************************/
+
 struct fd_snaplh_tile {
   uint state;
   int  full;
 
-  ulong seed;
   ulong lthash_tile_cnt;
   ulong lthash_tile_idx;
   ulong lthash_tile_add_cnt;
@@ -78,25 +221,13 @@ struct fd_snaplh_tile {
 
   fd_lthash_adder_t   adder[1];
   fd_lthash_adder_t   adder_sub[1];
-  uchar               data[FD_RUNTIME_ACC_SZ_MAX];
 
   fd_lthash_value_t   running_lthash;
   fd_lthash_value_t   running_lthash_sub;
 
   struct {
-    int               dev_fd;
-    ulong             dev_sz;
-    ulong             dev_base;
-    void *            pair_mem;
-    void *            pair_tmp;
-
-    struct {
-      fd_vinyl_bstream_phdr_t phdr  [VINYL_LTHASH_RD_REQ_MAX];
-      fd_vinyl_io_rd_t        rd_req[VINYL_LTHASH_RD_REQ_MAX];
-    } pending;
-    ulong             pending_rd_req_cnt;
-
-    fd_vinyl_io_t *   io;
+    int                dev_fd;
+    fd_vinyl_io_t *    io;
     fd_vinyl_admin_t * admin;
   } vinyl;
 
@@ -117,10 +248,9 @@ struct fd_snaplh_tile {
   uchar       in_kind[IN_CNT_MAX];
   out_link_t  out;
 
-  /* io_uring setup */
-
   fd_io_uring_t ioring[1];
-  int           io_uring_enabled;
+
+  rq_ring_t rq[1];
 };
 
 typedef struct fd_snaplh_tile fd_snaplh_t;
@@ -139,13 +269,13 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t),      sizeof(fd_snaplh_t)                                );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          );
-  l = FD_LAYOUT_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(),    fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
-  l = FD_LAYOUT_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( VINYL_LTHASH_IORING_DEPTH, VINYL_LTHASH_IORING_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaplh_t),      sizeof(fd_snaplh_t) );
+  if( tile->snaplh.io_uring_enabled ) {
+    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_ur_align(),  fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
+  } else {
+    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_bd_align(),  fd_vinyl_io_bd_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
+  }
+  l = FD_LAYOUT_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( RQ_DEPTH, RQ_DEPTH ) );
   return FD_LAYOUT_FINI( l, alignof(fd_snaplh_t) );
 }
 
@@ -166,8 +296,8 @@ should_process_lthash_request( fd_snaplh_t * ctx ) {
   return (ctx->lthash_req_seen % ctx->lthash_tile_sub_cnt)==ctx->lthash_tile_sub_idx;
 }
 
-FD_FN_UNUSED static void
-streamlined_hash( fd_snaplh_t *       restrict ctx,
+static void
+hash_add_account( fd_snaplh_t *       restrict ctx,
                   fd_lthash_adder_t * restrict adder,
                   fd_lthash_value_t * restrict running_lthash,
                   uchar const *       restrict _pair ) {
@@ -178,224 +308,114 @@ streamlined_hash( fd_snaplh_t *       restrict ctx,
   pair += sizeof(fd_account_meta_t);
   uchar const * data = pair;
 
-  ulong data_len      = meta->dlen;
-  const char * pubkey = phdr->key.c;
-  ulong lamports      = meta->lamports;
-  const uchar * owner = meta->owner;
-  uchar executable = (uchar)( !meta->executable ? 0U : 1U) ;
 
-  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
-  if( FD_UNLIKELY( lamports==0UL ) ) return;
+  if( FD_UNLIKELY( meta->dlen > FD_RUNTIME_ACC_SZ_MAX ) ) {
+    FD_LOG_ERR(( "Found unusually large account (data_sz=%u), aborting", meta->dlen ));
+  }
+  if( FD_UNLIKELY( !meta->lamports ) ) return;
 
-  fd_lthash_adder_push_solana_account( adder,
-                                       running_lthash,
-                                       pubkey,
-                                       data,
-                                       data_len,
-                                       lamports,
-                                       executable,
-                                       owner );
+  fd_lthash_adder_push_solana_account(
+      adder,
+      running_lthash,
+      phdr->key.uc,
+      data,
+      meta->dlen,
+      meta->lamports,
+      !!meta->executable,
+      meta->owner
+  );
 
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
   else                         ctx->metrics.incremental.accounts_hashed++;
 }
 
-FD_FN_UNUSED static void
-handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
-                                ulong                     seq,
-                                fd_vinyl_bstream_phdr_t * acc_hdr ) {
+/* Async reads of duplicate accounts **********************************/
 
-  /* The bd version is blocking, therefore ctx->pending is not used. */
-  ulong const io_seed = FD_VOLATILE_CONST( *ctx->io_seed );
+/* rmdup_completion handles a read completion of a duplicate account.
+   Hashes the resulting account and returns the read buffer. */
 
-  ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
-  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+static void
+rmdup_completion( fd_snaplh_t *      ctx,
+                  fd_vinyl_io_rd_t * rd_req ) {
+  uchar * pair    = (uchar *)rd_req->dst;
 
-  /* dev_seq shows where the seq is physically located in device. */
-  ulong dev_seq  = ( seq + ctx->vinyl.dev_base ) % ctx->vinyl.dev_sz;
-  ulong rd_off   = fd_ulong_align_dn( dev_seq, FD_VINYL_BSTREAM_BLOCK_SZ );
-  ulong pair_off = (dev_seq - rd_off);
-  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
-  FD_TEST( rd_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
-
-  uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
-  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)pair;
-
-  for(;;) {
-    ulong sz    = rd_sz;
-    ulong rsz   = fd_ulong_min( rd_sz, ctx->vinyl.dev_sz - rd_off );
-    uchar * dst = ctx->vinyl.pair_mem;
-    uchar * tmp = ctx->vinyl.pair_tmp;
-
-    bd_read( ctx->vinyl.dev_fd, rd_off, dst, rsz );
-    sz -= rsz;
-    if( FD_UNLIKELY( sz ) ) {
-      /* When the dev wraps around, the dev_base needs to be skipped.
-         This means: increase the size multiple of the alignment,
-         read into a temporary buffer, and memcpy into the dst at the
-         correct offset. */
-      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + FD_VINYL_BSTREAM_BLOCK_SZ );
-      fd_memcpy( dst + rsz, tmp + ctx->vinyl.dev_base, sz );
-    }
-
-    if( FD_LIKELY( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) ) ) {
-
-      /* test bstream pair integrity hashes */
-      int test = !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz );
-      if( FD_LIKELY( test ) ) break;
-    }
-    FD_LOG_WARNING(( "phdr mismatch! - this should not happen under bstream_seq" ));
-    FD_SPIN_PAUSE();
-  }
-
-  streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
-}
-
-FD_FN_UNUSED static inline ulong
-rd_req_ctx_get_idx( ulong rd_req_ctx ) {
-  return ( rd_req_ctx >>  0 ) & ((1UL<<32)-1UL);
-}
-
-FD_FN_UNUSED static inline ulong
-rd_req_ctx_get_status( ulong rd_req_ctx ) {
-  return ( rd_req_ctx >> 32 ) & ((1UL<<32)-1UL);
-}
-
-FD_FN_UNUSED static inline void
-rd_req_ctx_into_parts( ulong   rd_req_ctx,
-                       ulong * idx,
-                       ulong * status ) {
-  *idx    = rd_req_ctx_get_idx( rd_req_ctx );
-  *status = rd_req_ctx_get_status( rd_req_ctx );
-}
-
-FD_FN_UNUSED static inline ulong
-rd_req_ctx_from_parts( ulong idx,
-                       ulong status ) {
-  return ( idx & ((1UL<<32)-1UL) ) | ( status << 32 );
-}
-
-FD_FN_UNUSED static inline ulong
-rd_req_ctx_update_status( ulong rd_req_ctx,
-                          ulong status ) {
-  return rd_req_ctx_from_parts( rd_req_ctx_get_idx( rd_req_ctx ), status );
-}
-
-FD_FN_UNUSED static void
-handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
-                                         fd_vinyl_io_rd_t * rd_req ) {
-  ulong idx = rd_req_ctx_get_idx( rd_req->ctx );
-
-  fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)rd_req->dst;
-  fd_vinyl_bstream_phdr_t * acc_hdr = &ctx->vinyl.pending.phdr[ idx ];
-
-  /* test the retrieved header (it must mach the request) */
-  FD_TEST( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) );
-
+# if SNAPLH_HANDHOLDING
   ulong const io_seed = FD_VOLATILE_CONST( *ctx->io_seed );
   ulong   seq     = rd_req->seq;
-  uchar * pair    = (uchar*)rd_req->dst;
   ulong   pair_sz = rd_req->sz;
+  if( FD_UNLIKELY( fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz ) ) ) {
+    FD_LOG_WARNING(( "integrity check failed: bstream_seq=%lu pair_sz=%lu", seq, pair_sz ));
+    FD_LOG_HEXDUMP_ERR(( "failing bstream pair", pair, pair_sz ));
+  }
+# endif
 
-  /* test the bstream pair integrity hashes */
-  FD_TEST( !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz ) );
-
-  streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
+  hash_add_account( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
+  rq_ring_release( ctx->rq, rd_req );
 }
 
-/* Process next read completion */
+/* rmdup_clean processes all available read completions. */
 
 static inline ulong
-consume_available_cqe( fd_snaplh_t * ctx ) {
-  if( FD_LIKELY( !ctx->vinyl.pending_rd_req_cnt ) ) return 0UL;
-  if( FD_UNLIKELY( !ctx->io_uring_enabled ) ) return 0UL;
-  if( !fd_io_uring_cq_ready( ctx->ioring->cq ) ) return 0UL;
-
-  /* At this point, there is at least one unconsumed CQE */
-
+rmdup_clean( fd_snaplh_t * ctx,
+             int           flags ) {
   fd_vinyl_io_rd_t * rd_req = NULL;
-  if( FD_LIKELY( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, 0/*non blocking*/ )==FD_VINYL_SUCCESS ) ) {
-    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
-    rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
-    rd_req->seq = ULONG_MAX;
-    rd_req->sz  = 0UL;
-    ctx->vinyl.pending_rd_req_cnt--;
+  while( fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, flags )==FD_VINYL_SUCCESS ) {
+    rmdup_completion( ctx, rd_req );
     return 1UL;
   }
   return 0UL;
 }
 
-FD_FN_UNUSED static void
-handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
-                                ulong                     seq,
-                                fd_vinyl_bstream_phdr_t * acc_hdr ) {
-  /* Find a free slot */
-  ulong free_i = ULONG_MAX;
-  if( FD_LIKELY( ctx->vinyl.pending_rd_req_cnt<VINYL_LTHASH_RD_REQ_MAX ) ) {
-    for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
-      fd_vinyl_io_rd_t * rd_req = &ctx->vinyl.pending.rd_req[ i ];
-      if( FD_UNLIKELY( rd_req_ctx_get_status( rd_req->ctx )==VINYL_LTHASH_RD_REQ_FREE ) ) {
-        free_i = i;
-        break;
-      }
-    }
-  } else {
-    fd_vinyl_io_rd_t * rd_req = NULL;
-    fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING );
-    FD_TEST( rd_req!=NULL );
-    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
-    rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
-    rd_req->seq = ULONG_MAX;
-    rd_req->sz  = 0UL;
-    free_i      = rd_req_ctx_get_idx( rd_req->ctx );
-    ctx->vinyl.pending_rd_req_cnt--;
-  }
-  FD_CRIT( free_i<VINYL_LTHASH_RD_REQ_MAX, "read request free index exceeds max value" );
+/* rmdup_enqueue enqueues removal of an account (identified by acc_hdr). */
 
-  /* Populate the empty slot and submit */
-  fd_vinyl_bstream_phdr_t * in_phdr = &ctx->vinyl.pending.phdr[ free_i ];
-  memcpy( in_phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t) );
-  ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
-  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+static void
+rmdup_enqueue( fd_snaplh_t *             ctx,
+               ulong                     seq,
+               fd_vinyl_bstream_phdr_t * acc_hdr ) {
+  /* Spin until we can allocate a descriptor */
+  ulong req_sz = fd_vinyl_bstream_pair_sz( fd_vinyl_bstream_ctl_sz( acc_hdr->ctl ) );
+  fd_vinyl_io_t *    io     = ctx->vinyl.io;
+  fd_vinyl_io_rd_t * rd_req = NULL;
+  for(;;) {
+    rd_req = rq_ring_acquire( ctx->rq, req_sz );
+    if( FD_LIKELY( rd_req ) ) break;
+    rmdup_clean( ctx, FD_VINYL_IO_FLAG_BLOCKING );
+  }
 
   /* Fixup io addressable range */
-  fd_vinyl_io_t * io = ctx->vinyl.io;
-  io->seq_past    = fd_ulong_align_dn( seq,         FD_VINYL_BSTREAM_BLOCK_SZ );
-  io->seq_present = fd_ulong_align_up( seq+pair_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
+  io->seq_past    = fd_ulong_align_dn( seq,        FD_VINYL_BSTREAM_BLOCK_SZ );
+  io->seq_present = fd_ulong_align_up( seq+req_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
   if( io->type==FD_VINYL_IO_TYPE_UR ) {
     fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io;
     ur->seq_clean = ur->seq_cache = ur->seq_write = io->seq_present;
   }
 
-  fd_vinyl_io_rd_t * rd_req  = &ctx->vinyl.pending.rd_req[ free_i ];
-  rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_PEND );
+  /* Fill in the details */
   rd_req->seq = seq;
-  rd_req->sz  = pair_sz;
+  rd_req->sz  = req_sz;
   fd_vinyl_io_read( ctx->vinyl.io, rd_req );
-  rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_SENT );
-  ctx->vinyl.pending_rd_req_cnt++;
 }
 
-FD_FN_UNUSED static void
-handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
-  while( ctx->vinyl.pending_rd_req_cnt ) {
+/* rmdup_flush flushes the 'remove duplicate accounts' queue.  This
+   entails waiting for all read completions, then hashing all the
+   resulting accounts. */
+
+static void
+rmdup_flush( fd_snaplh_t * ctx ) {
+  for(;;) {
     fd_vinyl_io_rd_t * rd_req = NULL;
-    fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING );
-    FD_TEST( rd_req!=NULL );
-    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
-    rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
-    rd_req->seq = ULONG_MAX;
-    rd_req->sz  = 0UL;
-    ctx->vinyl.pending_rd_req_cnt--;
-  }
-  FD_CRIT( !ctx->vinyl.pending_rd_req_cnt, "pending read requests count not zero" );
-  for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
-    fd_vinyl_io_rd_t * rd_req = &ctx->vinyl.pending.rd_req[ i ];
-    FD_CRIT( rd_req_ctx_get_status( rd_req->ctx )==VINYL_LTHASH_RD_REQ_FREE, "pending request status is not free" );
+    int poll_err = fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING );
+    if( poll_err==FD_VINYL_ERR_EMPTY ) break;
+    if( FD_UNLIKELY( poll_err!=FD_VINYL_SUCCESS ) ) {
+      FD_LOG_ERR(( "fd_vinyl_io_poll failed (%i-%s)", poll_err, fd_vinyl_strerror( poll_err ) ));
+    }
+    rmdup_completion( ctx, rd_req );
   }
 }
 
-FD_FN_UNUSED static uint
+/* handle_lthash_completion finalizes the LtHash computation process. */
+
+static uint
 handle_lthash_completion( fd_snaplh_t * ctx,
                           fd_stem_context_t * stem ) {
   fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
@@ -411,12 +431,17 @@ handle_lthash_completion( fd_snaplh_t * ctx,
   return ctx->state;
 }
 
+/* before_credit runs every run loop iteration. */
+
 static void
 before_credit( fd_snaplh_t *       ctx,
                fd_stem_context_t * stem FD_PARAM_UNUSED,
                int *               charge_busy ) {
-  *charge_busy = !!consume_available_cqe( ctx );
+  *charge_busy = !!rmdup_clean( ctx, 0 );
 }
+
+/* handle_wh_data_frag hashes accounts 'on-the-fly' as they are being
+   appended to the database log file. */
 
 static void
 handle_wh_data_frag( fd_snaplh_t * ctx,
@@ -443,9 +468,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
         ulong val_esz = fd_vinyl_bstream_ctl_sz( ctl );
         ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
         if( FD_LIKELY( should_hash_account( ctx ) ) ) {
-          uchar * pair = ctx->vinyl.pair_mem;
-          fd_memcpy( pair, rem, pair_sz );
-          streamlined_hash( ctx, ctx->adder, &ctx->running_lthash, pair );
+          hash_add_account( ctx, ctx->adder, &ctx->running_lthash, rem );
         }
         rem    += pair_sz;
         rem_sz -= pair_sz;
@@ -469,6 +492,13 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
   }
 }
 
+/* handle_lv_data_frag handles account duplicates.  Whenever an account
+   is replaced, this method gets called with a file pointer to the
+   account being replaced (acc_hdr).
+
+   This method then enqueues an asynchronous read.  Read completions and
+   hashing is handled in before_credit. */
+
 static void
 handle_lv_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
@@ -479,11 +509,7 @@ handle_lv_data_frag( fd_snaplh_t * ctx,
     fd_vinyl_bstream_phdr_t acc_hdr[1];
     memcpy( &seq,    indata, sizeof(ulong) );
     memcpy( acc_hdr, indata + sizeof(ulong), sizeof(fd_vinyl_bstream_phdr_t) );
-    if( FD_LIKELY( ctx->io_uring_enabled ) ) {
-      handle_vinyl_lthash_request_ur( ctx, seq, acc_hdr );
-    } else {
-      handle_vinyl_lthash_request_bd( ctx, seq, acc_hdr );
-    }
+    rmdup_enqueue( ctx, seq, acc_hdr );
   }
   ctx->lthash_req_seen++;
 }
@@ -532,9 +558,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
-        if( FD_LIKELY( ctx->io_uring_enabled ) ) {
-          handle_vinyl_lthash_request_ur_consume_all( ctx );
-        }
+        rmdup_flush( ctx );
         ctx->state = handle_lthash_completion( ctx, stem );
       }
       break;
@@ -614,7 +638,7 @@ during_housekeeping( fd_snaplh_t * ctx ) {
 
   /* Service io_uring instance */
 
-  if( FD_LIKELY( ctx->io_uring_enabled ) ) {
+  if( FD_LIKELY( ctx->ioring->ioring_fd>=0 ) ) {
     uint sq_drops = fd_io_uring_sq_dropped( ctx->ioring->sq );
     if( FD_UNLIKELY( sq_drops ) ) {
       FD_LOG_CRIT(( "kernel io_uring dropped I/O requests, cannot continue (sq_dropped=%u)", sq_drops ));
@@ -647,13 +671,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 static fd_vinyl_io_t *
 snaplh_io_uring_init( fd_snaplh_t * ctx,
                       void *        uring_shmem,
-                      void *        vinyl_io_ur_mem,
+                      void *        io_mem,
                       int           dev_fd ) {
-  ulong const uring_depth = VINYL_LTHASH_IORING_DEPTH;
   fd_io_uring_params_t params[1];
-  fd_io_uring_params_init( params, uring_depth );
+  fd_io_uring_params_init( params, RQ_DEPTH );
 
-  if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ioring, params, uring_shmem, uring_depth, uring_depth ) ) ) {
+  if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ioring, params, uring_shmem, RQ_DEPTH, RQ_DEPTH ) ) ) {
     FD_LOG_ERR(( "fd_io_uring_init_shmem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   fd_io_uring_t * ioring = ctx->ioring;
@@ -678,30 +701,7 @@ snaplh_io_uring_init( fd_snaplh_t * ctx,
     FD_LOG_ERR(( "io_uring_enable_rings failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  ulong align = fd_vinyl_io_ur_align();
-  FD_TEST( fd_ulong_is_pow2( align ) );
-
-  ulong footprint = fd_vinyl_io_ur_footprint( VINYL_LTHASH_IO_SPAD_MAX );
-  FD_TEST( fd_ulong_is_aligned( footprint, align ) );
-
-  /* Before invoking fd_vinyl_io_ur_init, the sync block must be
-     already available.  Although in principle one could keep
-     calling fd_vinyl_io_ur_init until it returns !=NULL, doing this
-     would log uncessary (and misleading) warnings. */
-  FD_LOG_INFO(( "waiting for account database creation" ));
-  for(;;) {
-    fd_vinyl_bstream_block_t block[1];
-    ulong dev_sync = 0UL; /* Use the beginning of the file for the sync block */
-    bd_read( dev_fd, dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ );
-    int type = fd_vinyl_bstream_ctl_type( block->sync.ctl );
-    if( FD_UNLIKELY( type != FD_VINYL_BSTREAM_CTL_TYPE_SYNC ) ) continue;
-    ulong io_seed = block->sync.hash_trail;
-    if( FD_LIKELY( !fd_vinyl_bstream_block_test( io_seed, block ) ) ) break;
-    fd_log_sleep( 1e6 ); /* 1ms */
-  }
-  FD_LOG_INFO(( "found valid account database sync block, attaching ..." ));
-
-  fd_vinyl_io_t * io = fd_vinyl_io_ur_init( vinyl_io_ur_mem, VINYL_LTHASH_IO_SPAD_MAX, dev_fd, ioring );
+  fd_vinyl_io_t * io = fd_vinyl_io_ur_init( io_mem, VINYL_LTHASH_IO_SPAD_MAX, dev_fd, ioring );
   if( FD_UNLIKELY( !io ) ) FD_LOG_ERR(( "vinyl_io_ur_init failed" ));
   return io;
 }
@@ -713,13 +713,28 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaplh_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),      sizeof(fd_snaplh_t)                                );
-  void * pair_mem    = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          ); (void)pair_mem;
-  void * pair_tmp    = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          ); (void)pair_tmp;
-  void * rd_req_mem  = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  ); (void)rd_req_mem;
-  void * uring_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(),    fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
-  void * uring_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( VINYL_LTHASH_IORING_DEPTH, VINYL_LTHASH_IORING_DEPTH ) );
+  void * io_mem;
+  if( tile->snaplh.io_uring_enabled ) {
+    io_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(),    fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
+  } else {
+    io_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_bd_align(),    fd_vinyl_io_bd_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
+  }
+  void * uring_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( RQ_DEPTH, RQ_DEPTH ) );
 
-  FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
+  /* Wait for database file to get created */
+
+  ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+  FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+  fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+  FD_TEST( vinyl_admin );
+  ctx->vinyl.admin = vinyl_admin;
+  for(;;) {
+    ulong vinyl_admin_status = fd_vinyl_admin_ulong_query( &vinyl_admin->status );
+    if( FD_LIKELY( vinyl_admin_status!=FD_VINYL_ADMIN_STATUS_INIT_PENDING &&
+                   vinyl_admin_status!=FD_VINYL_ADMIN_STATUS_ERROR ) ) break;
+    fd_log_sleep( (long)1e6 /*1ms*/ );
+    FD_SPIN_PAUSE();
+  }
 
   /* Set up io_bd dependencies */
 
@@ -735,41 +750,24 @@ privileged_init( fd_topo_t *      topo,
                  bstream_path, errno, fd_io_strerror( errno ) ));
   }
 
-  struct stat st;
-  if( FD_UNLIKELY( 0!=fstat( dev_fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", bstream_path, errno, strerror( errno ) ));
-
-  ctx->vinyl.dev_fd  = dev_fd;
-  ulong bstream_sz   = (ulong)st.st_size;
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( bstream_sz, FD_VINYL_BSTREAM_BLOCK_SZ ) ) ) {
-    FD_LOG_ERR(( "vinyl file %s has misaligned size (%lu bytes)", bstream_path, bstream_sz ));
-  }
-  ctx->vinyl.dev_sz   = bstream_sz;
-  ctx->vinyl.dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
+  ctx->vinyl.dev_fd = dev_fd;
 
   ctx->vinyl.io = NULL;
   ctx->ioring->ioring_fd = -1;
 
   if( FD_LIKELY( tile->snaplh.io_uring_enabled ) ) {
-    ctx->vinyl.io = snaplh_io_uring_init( ctx, uring_shmem, uring_mem, dev_fd );
+    ctx->vinyl.io = snaplh_io_uring_init( ctx, uring_shmem, io_mem, dev_fd );
+  } else {
+    ctx->vinyl.io = fd_vinyl_io_bd_init( io_mem, VINYL_LTHASH_IO_SPAD_MAX, dev_fd, 0, NULL, 0UL, 0UL );
   }
-  ctx->io_uring_enabled = tile->snaplh.io_uring_enabled;
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snaplh_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplh_t),     sizeof(fd_snaplh_t)                               );
-  void *   pair_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                         );
-  void *   pair_tmp = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_BLOCK_MAX_SZ                         );
-  void * rd_req_mem = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN, VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ );
+  fd_snaplh_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_TEST( fd_topo_tile_name_cnt( topo, "snaplh" )<=FD_SNAPSHOT_MAX_SNAPLH_TILES );
-
-  ctx->vinyl.pair_mem = pair_mem;
-  ctx->vinyl.pair_tmp = pair_tmp;
 
   if( FD_UNLIKELY( tile->in_cnt!=IN_CNT_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu", tile->in_cnt, IN_CNT_MAX ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL       ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1",  tile->out_cnt            ));
@@ -819,18 +817,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics.full.accounts_hashed        = 0UL;
   ctx->metrics.incremental.accounts_hashed = 0UL;
 
-  memset( ctx->vinyl.pending.phdr,   0, sizeof(fd_vinyl_bstream_phdr_t) * VINYL_LTHASH_RD_REQ_MAX );
-  memset( ctx->vinyl.pending.rd_req, 0, sizeof(fd_vinyl_io_rd_t)        * VINYL_LTHASH_RD_REQ_MAX );
-  for( ulong i=0UL; i<VINYL_LTHASH_RD_REQ_MAX; i++ ) {
-    fd_vinyl_io_rd_t * rd_req = &ctx->vinyl.pending.rd_req[ i ];
-    rd_req->ctx = rd_req_ctx_from_parts( i, VINYL_LTHASH_RD_REQ_FREE );
-    rd_req->dst = NULL;
-    if( rd_req_mem!=NULL ) {
-      rd_req->dst = ((uchar*)rd_req_mem) + i*VINYL_LTHASH_BLOCK_MAX_SZ;
-    }
-  }
-  ctx->vinyl.pending_rd_req_cnt = 0UL;
-
   ctx->state                   = FD_SNAPSHOT_STATE_IDLE;
   ctx->full                    = 1;
   ctx->lthash_tile_cnt         = fd_topo_tile_name_cnt( topo, "snaplh" );
@@ -848,19 +834,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_lthash_zero( &ctx->running_lthash );
   fd_lthash_zero( &ctx->running_lthash_sub );
 
-  ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
-  FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
-  fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
-  FD_TEST( vinyl_admin );
-  ctx->vinyl.admin = vinyl_admin;
-  for(;;) {
-    /* This query can be done without the need of an rwlock. */
-    ulong vinyl_admin_status = fd_vinyl_admin_ulong_query( &vinyl_admin->status );
-    if( FD_LIKELY( vinyl_admin_status!=FD_VINYL_ADMIN_STATUS_INIT_PENDING &&
-                   vinyl_admin_status!=FD_VINYL_ADMIN_STATUS_ERROR ) ) break;
-    fd_log_sleep( (long)1e6 /*1ms*/ );
-    FD_SPIN_PAUSE();
-  }
+  rq_ring_init( ctx->rq );
 }
 
 #define STEM_BURST 1UL
