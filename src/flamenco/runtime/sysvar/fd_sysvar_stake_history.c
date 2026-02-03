@@ -7,28 +7,31 @@
    of the corresponding fd_types entry. */
 
 static void
-write_stake_history( fd_bank_t *               bank,
-                     fd_accdb_user_t *         accdb,
-                     fd_funk_txn_xid_t const * xid,
-                     fd_capture_ctx_t *        capture_ctx,
-                     fd_stake_history_t *      stake_history ) {
+write_stake_history(fd_bank_t *bank,
+                    fd_accdb_user_t *accdb,
+                    fd_funk_txn_xid_t const *xid,
+                    fd_capture_ctx_t *capture_ctx,
+                    fd_stake_history_t *stake_history)
+{
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
-  uchar __attribute__((aligned(FD_STAKE_HISTORY_ALIGN))) enc[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ] = {0};
+  uchar __attribute__((aligned(FD_STAKE_HISTORY_ALIGN))) enc[FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ] = {0};
   fd_bincode_encode_ctx_t encode =
-    { .data    = enc,
-      .dataend = enc + sizeof(enc) };
-  if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
+      {.data = enc,
+       .dataend = enc + sizeof(enc)};
+  if (FD_UNLIKELY(fd_stake_history_encode(stake_history, &encode) != FD_BINCODE_SUCCESS))
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
+  fd_sysvar_account_update(bank, accdb, xid, capture_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc));
 }
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_stake_history_t *      stake_history ) {
+fd_sysvar_stake_history_read(fd_accdb_user_t *accdb,
+                             fd_funk_txn_xid_t const *xid,
+                             fd_stake_history_t *stake_history)
+{
   fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_stake_history_id ) ) ) {
+  if (FD_UNLIKELY(!fd_accdb_open_ro(accdb, ro, xid, &fd_sysvar_stake_history_id)))
+  {
     return NULL;
   }
 
@@ -36,60 +39,56 @@ fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
+  if (FD_UNLIKELY(fd_accdb_ref_lamports(ro) == 0UL))
+  {
+    fd_accdb_close_ro(accdb, ro);
     return NULL;
   }
 
   stake_history = fd_bincode_decode_static(
       stake_history, stake_history,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz( ro ),
-      NULL );
-  fd_accdb_close_ro( accdb, ro );
+      fd_accdb_ref_data_const(ro),
+      fd_accdb_ref_data_sz(ro),
+      NULL);
+  fd_accdb_close_ro(accdb, ro);
   return stake_history;
 }
 
-void
-fd_sysvar_stake_history_init( fd_bank_t *               bank,
-                              fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_capture_ctx_t *        capture_ctx ) {
+void fd_sysvar_stake_history_init(fd_bank_t *bank,
+                                  fd_accdb_user_t *accdb,
+                                  fd_funk_txn_xid_t const *xid,
+                                  fd_capture_ctx_t *capture_ctx)
+{
   fd_stake_history_t stake_history;
-  fd_stake_history_new( &stake_history );
-  write_stake_history( bank, accdb, xid, capture_ctx, &stake_history );
+  fd_stake_history_new(&stake_history);
+  write_stake_history(bank, accdb, xid, capture_ctx, &stake_history);
 }
 
-void
-fd_sysvar_stake_history_update( fd_bank_t *                                 bank,
-                                fd_accdb_user_t *                           accdb,
-                                fd_funk_txn_xid_t const *                   xid,
-                                fd_capture_ctx_t *                          capture_ctx,
-                                fd_epoch_stake_history_entry_pair_t const * pair ) {
+void fd_sysvar_stake_history_update(fd_bank_t *bank,
+                                    fd_accdb_user_t *accdb,
+                                    fd_funk_txn_xid_t const *xid,
+                                    fd_capture_ctx_t *capture_ctx,
+                                    fd_epoch_stake_history_entry_pair_t const *pair)
+{
 
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_CRIT(( "Failed to read stake history sysvar" ));
+  if (FD_UNLIKELY(!fd_sysvar_stake_history_read(accdb, xid, stake_history)))
+  {
+    FD_LOG_CRIT(("Failed to read stake history sysvar"));
   }
+  stake_history->fd_stake_history_offset = (stake_history->fd_stake_history_offset - 1) & (stake_history->fd_stake_history_size - 1);
 
-  if( stake_history->fd_stake_history_offset == 0 ) {
-    stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
-  } else {
-    stake_history->fd_stake_history_offset--;
-  }
-
-  if( stake_history->fd_stake_history_len < stake_history->fd_stake_history_size ) {
+  if (stake_history->fd_stake_history_len < stake_history->fd_stake_history_size)
+  {
     stake_history->fd_stake_history_len++;
   }
 
-  // This should be done with a bit mask
   ulong idx = stake_history->fd_stake_history_offset;
 
-  stake_history->fd_stake_history[ idx ].epoch              = pair->epoch;
-  stake_history->fd_stake_history[ idx ].entry.activating   = pair->entry.activating;
-  stake_history->fd_stake_history[ idx ].entry.effective    = pair->entry.effective;
-  stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
+  stake_history->fd_stake_history[idx].epoch = pair->epoch;
+  stake_history->fd_stake_history[idx].entry.activating = pair->entry.activating;
+  stake_history->fd_stake_history[idx].entry.effective = pair->entry.effective;
+  stake_history->fd_stake_history[idx].entry.deactivating = pair->entry.deactivating;
 
-  write_stake_history( bank, accdb, xid, capture_ctx, stake_history );
-
+  write_stake_history(bank, accdb, xid, capture_ctx, stake_history);
 }
