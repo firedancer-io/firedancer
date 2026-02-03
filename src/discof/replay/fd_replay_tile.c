@@ -2260,11 +2260,6 @@ static void
 process_resolv_slot_completed( fd_replay_tile_t * ctx, ulong bank_idx ) {
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, bank_idx ) );
-  fd_bank_t bank_parent[1];
-  FD_TEST( fd_banks_bank_query( bank_parent, ctx->banks, bank->data->parent_idx ) );
-  bank_parent->data->refcnt--;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank_parent->data->idx, fd_bank_slot_get( bank_parent ), bank_parent->data->refcnt ));
-
   bank->data->refcnt--;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
 }
