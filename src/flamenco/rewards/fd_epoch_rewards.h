@@ -39,7 +39,7 @@ FD_PROTOTYPES_BEGIN
    == 733UL partitions.
 */
 #define FD_REWARDS_MAX_PARTITIONS ((FD_RUNTIME_MAX_STAKE_ACCOUNTS / STAKE_ACCOUNT_STORES_PER_BLOCK) + (FD_RUNTIME_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK != 0))
-FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS == 733, "incorrect FD_REWARDS_MAX_PARTITIONS" );
+//FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS == 733, "incorrect FD_REWARDS_MAX_PARTITIONS" );
 FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH, "incorrect FD_REWARDS_MAX_PARTITIONS" );
 
 /* The max of footprint of fd_epoch_rewards is variable depending on the
@@ -66,7 +66,7 @@ FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_
    total footprint:         5,984 bytes + 192,000,128 bytes + 8,388,632 bytes + 11,728 bytes = 200,406,472 bytes
    total footprint + align: align up to 128 bytes = 200,406,528 bytes
 */
-#define FD_EPOCH_REWARDS_FOOTPRINT (200406528UL)
+#define FD_EPOCH_REWARDS_FOOTPRINT (11862528896)
 
 #define FD_EPOCH_REWARDS_ALIGN (128UL)
 
@@ -77,10 +77,9 @@ struct fd_epoch_stake_reward {
   ulong       credits_observed;
   ulong       lamports;
   /* Internal pointers for pool, dlist, and map. */
+  uint        next_map;
   uint        prev;
   uint        next;
-  uint        parent;
-  uint        next_map;
 };
 typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 

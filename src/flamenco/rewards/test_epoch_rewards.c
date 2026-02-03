@@ -23,6 +23,7 @@ int main( int argc, char * * argv ) {
 
   /* Make sure that the static footprint is at least as large as the
      dynamic footprint. */
+  FD_LOG_WARNING(("epoch rewards footprint: %lu", fd_epoch_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ));
   FD_TEST( fd_epoch_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS ) <= FD_EPOCH_REWARDS_FOOTPRINT );
 
   uchar * epoch_rewards_mem = NULL;
