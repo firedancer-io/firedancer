@@ -434,8 +434,6 @@ after_frag( fd_resolv_ctx_t *   ctx,
            advancing the database root.  See fd_replay_tile.c for more
            details. */
         FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, msg->bank_idx ) );
-        FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, ctx->bank->data->child_idx ) );
-
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */

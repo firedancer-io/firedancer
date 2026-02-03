@@ -975,28 +975,18 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
-  if( FD_UNLIKELY( consensus_root_bank->data->child_idx==ULONG_MAX ) ) {
-    return;
-  }
-
   fd_bank_t bank[1];
   if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, ctx->consensus_root_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
+
   bank->data->refcnt++;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
 
-  fd_bank_t child_bank[1];
-  if( FD_UNLIKELY( !fd_banks_bank_query( child_bank, ctx->banks, consensus_root_bank->data->child_idx ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: consensus root bank child is NULL at bank index %lu", consensus_root_bank->data->child_idx ));
-  }
-
   /* Increment the reference count on the consensus root bank to account
      for the number of exec tiles that are waiting on it. */
-  bank->data->refcnt       += ctx->resolv_tile_cnt;
-  child_bank->data->refcnt += ctx->resolv_tile_cnt;
+  bank->data->refcnt += ctx->resolv_tile_cnt;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx,       fd_bank_slot_get( bank ),       bank->data->refcnt ));
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", child_bank->data->idx, fd_bank_slot_get( child_bank ), child_bank->data->refcnt ));
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->bank_idx = bank->data->idx;
