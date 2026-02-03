@@ -17,8 +17,8 @@ write_stake_history( fd_bank_t *               bank,
   fd_bincode_encode_ctx_t encode =
     { .data    = enc,
       .dataend = enc + sizeof(enc) };
-  if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode ) != FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(( "fd_stake_history_encode failed" ));
+  if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
+    FD_LOG_ERR(("fd_stake_history_encode failed"));
 
   fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
 }
@@ -36,7 +36,7 @@ fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro ) == 0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
     fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
@@ -66,13 +66,14 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
                                 fd_funk_txn_xid_t const *                   xid,
                                 fd_capture_ctx_t *                          capture_ctx,
                                 fd_epoch_stake_history_entry_pair_t const * pair ) {
+
   fd_stake_history_t stake_history[1];
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_CRIT(( "Failed to read stake history sysvar" ));
   }
 
-  stake_history->fd_stake_history_offset =
-    (stake_history->fd_stake_history_offset - 1) & (stake_history->fd_stake_history_size - 1);
+  stake_history->fd_stake_history_offset = (stake_history->fd_stake_history_offset - 1) & (stake_history->fd_stake_history_size - 1);
+
 
   if( stake_history->fd_stake_history_len < stake_history->fd_stake_history_size ) {
     stake_history->fd_stake_history_len++;
@@ -86,4 +87,5 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
   stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
 
   write_stake_history( bank, accdb, xid, capture_ctx, stake_history );
+
 }
