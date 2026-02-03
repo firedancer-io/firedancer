@@ -865,7 +865,7 @@ fd_banks_stake_delegations_apply_delta( fd_bank_data_t *         bank,
           stake_delegation->activation_epoch,
           stake_delegation->deactivation_epoch,
           stake_delegation->credits_observed,
-          stake_delegation->warmup_cooldown_rate
+          fd_stake_delegations_warmup_cooldown_rate_to_double( stake_delegation->warmup_cooldown_rate )
       );
     } else {
       fd_stake_delegations_remove( stake_delegations_base, &stake_delegation->stake_account );
