@@ -970,23 +970,20 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
      replay: we are advancing the root from slot A->B
      resolv: we are resolving ALUTs against slot B */
 
-  fd_bank_t consensus_root_bank[1];
-  if( FD_UNLIKELY( !fd_banks_bank_query( consensus_root_bank, ctx->banks, ctx->consensus_root_bank_idx ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
-  }
-
   fd_bank_t bank[1];
   if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, ctx->consensus_root_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
-  bank->data->refcnt++;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  if( ctx->rpc_enabled ) {
+    bank->data->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  }
 
   /* Increment the reference count on the consensus root bank to account
      for the number of exec tiles that are waiting on it. */
   bank->data->refcnt += ctx->resolv_tile_cnt;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx,       fd_bank_slot_get( bank ),       bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->bank_idx = bank->data->idx;
@@ -2344,10 +2341,12 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
                                     fd_tower_slot_confirmed_t const * msg ) {
   FD_TEST( msg->bank_idx!=ULONG_MAX );
 
-  fd_bank_t bank[1];
-  FD_TEST( fd_banks_bank_query( bank, ctx->banks, msg->bank_idx ) );
-  bank->data->refcnt++;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  if( ctx->rpc_enabled ) {
+    fd_bank_t bank[1];
+    FD_TEST( fd_banks_bank_query( bank, ctx->banks, msg->bank_idx ) );
+    bank->data->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  }
 
   fd_replay_oc_advanced_t * replay_msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   replay_msg->bank_idx = msg->bank_idx;
