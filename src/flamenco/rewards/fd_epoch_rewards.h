@@ -66,7 +66,7 @@ FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_
    total footprint:         5,984 bytes + 192,000,128 bytes + 8,388,632 bytes + 11,728 bytes = 200,406,472 bytes
    total footprint + align: align up to 128 bytes = 200,406,528 bytes
 */
-#define FD_EPOCH_REWARDS_FOOTPRINT (10446951296)
+#define FD_EPOCH_REWARDS_FOOTPRINT (11862528896)
 
 #define FD_EPOCH_REWARDS_ALIGN (128UL)
 
@@ -78,8 +78,8 @@ struct fd_epoch_stake_reward {
   ulong       lamports;
   /* Internal pointers for pool, dlist, and map. */
   uint        next_map;
-  ushort      prev;
-  ushort      next;
+  uint        prev;
+  uint        next;
 };
 typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
@@ -88,7 +88,7 @@ typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
 #define DLIST_NAME  fd_epoch_stake_reward_dlist
 #define DLIST_ELE_T fd_epoch_stake_reward_t
-#define DLIST_IDX_T ushort
+#define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
 struct fd_epoch_rewards_iter {
