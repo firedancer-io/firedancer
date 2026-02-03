@@ -3,5 +3,6 @@
 
 #define GENESI_SIG_GENESIS_HASH        (0) /* This is not a bootstrapping node, just publishing learned genesis hash*/
 #define GENESI_SIG_BOOTSTRAP_COMPLETED (1) /* This node is bootstrapping the chain, publish genesis hash along with genesis info */
+#define GENESI_SIG_GENESIS_FILE        (2) /* This frag contains the contents of the compressed genesis archive. Used by RPC to serve to clients. */
 
 #endif /* HEADER_fd_src_discof_genesis_fd_genesi_tile_h */
