@@ -267,17 +267,6 @@ before_credit( fd_rpc_tile_t *     ctx,
   }
 }
 
-static inline void
-after_credit( fd_rpc_tile_t *     ctx,
-              fd_stem_context_t * stem,
-              int *               opt_poll_in,
-              int *               charge_busy ) {
-  (void)ctx;
-  (void)stem;
-  (void)opt_poll_in;
-  (void)charge_busy;
-}
-
 static inline int
 returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               in_idx,
@@ -1783,7 +1772,6 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
-#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
