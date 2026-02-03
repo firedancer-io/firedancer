@@ -37,15 +37,15 @@ fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
                                 fd_funk_txn_xid_t const *   xid,
                                 fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
-                                  
+
   uchar enc[ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ] = {0};
-  
+
   fd_bincode_encode_ctx_t ctx = {
     .data    = enc,
     .dataend = enc + FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ
   };
   if( FD_UNLIKELY( fd_epoch_schedule_encode( epoch_schedule, &ctx ) ) ) {
-    FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
+    FD_LOG_ERR(( "fd_epoch_schedule_encode failed" ));
   }
 
   fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_schedule_id, enc, FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ );
