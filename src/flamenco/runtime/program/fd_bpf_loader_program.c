@@ -536,68 +536,68 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        and the access type was a store, a different error code is returned to give developers more insight
        as to what caused the error.
        https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1556-L1618 */
-    if( FD_UNLIKELY( stricter_abi_and_runtime_constraints &&
-                     ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
-                     vm->segv_vaddr!=ULONG_MAX ) ) {
+    // if( FD_UNLIKELY( stricter_abi_and_runtime_constraints &&
+    //                  ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
+    //                  vm->segv_vaddr!=ULONG_MAX ) ) {
 
-      /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
-      if( FD_UNLIKELY( vm->segv_vaddr>>32UL==0UL ) ) {
-        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-      }
+    //   /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
+    //   if( FD_UNLIKELY( vm->segv_vaddr>>32UL==0UL ) ) {
+    //     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
+    //   }
 
-      /* If the vaddr doesn't live in the input region, then we don't need to
-         bother trying to iterate through all of the borrowed accounts. */
-      if( FD_VADDR_TO_REGION( vm->segv_vaddr )!=FD_VM_INPUT_REGION ) {
-        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-      }
+    //   /* If the vaddr doesn't live in the input region, then we don't need to
+    //      bother trying to iterate through all of the borrowed accounts. */
+    //   if( FD_VADDR_TO_REGION( vm->segv_vaddr )!=FD_VM_INPUT_REGION ) {
+    //     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
+    //   }
 
-      /* If the vaddr of the access violation falls within the bounds of a
-         serialized account vaddr range, then try to retrieve a more specific
-         vm error based on the account's accesss permissions. */
-      for( ushort i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
-        /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1455 */
+    //   /* If the vaddr of the access violation falls within the bounds of a
+    //      serialized account vaddr range, then try to retrieve a more specific
+    //      vm error based on the account's accesss permissions. */
+    //   for( ushort i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
+    //     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1455 */
 
-        /* Find the input memory region that corresponds to the access
-           https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1566-L1617 */
-        ulong idx = acc_region_metas[i].region_idx;
-        fd_vm_input_region_t const * input_mem_region = &input_mem_regions[idx];
-        fd_vm_acc_region_meta_t const * acc_region_meta = &acc_region_metas[i];
+    //     /* Find the input memory region that corresponds to the access
+    //        https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1566-L1617 */
+    //     ulong idx = acc_region_metas[i].region_idx;
+    //     fd_vm_input_region_t const * input_mem_region = &input_mem_regions[idx];
+    //     fd_vm_acc_region_meta_t const * acc_region_meta = &acc_region_metas[i];
 
-        /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1484-L1492 */
-        ulong region_data_vaddr_start = FD_VM_MEM_MAP_INPUT_REGION_START + input_mem_region->vaddr_offset + input_mem_region->region_sz;
-        ulong region_data_vaddr_end   = fd_ulong_sat_add( region_data_vaddr_start, acc_region_meta->original_data_len );
-        if( FD_LIKELY( !is_deprecated ) ) {
-          region_data_vaddr_end       = fd_ulong_sat_add( region_data_vaddr_end, MAX_PERMITTED_DATA_INCREASE );
-        }
+    //     /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1484-L1492 */
+    //     ulong region_data_vaddr_start = FD_VM_MEM_MAP_INPUT_REGION_START + input_mem_region->vaddr_offset + input_mem_region->region_sz;
+    //     ulong region_data_vaddr_end   = fd_ulong_sat_add( region_data_vaddr_start, acc_region_meta->original_data_len );
+    //     if( FD_LIKELY( !is_deprecated ) ) {
+    //       region_data_vaddr_end       = fd_ulong_sat_add( region_data_vaddr_end, MAX_PERMITTED_DATA_INCREASE );
+    //     }
 
-        if( vm->segv_vaddr >= region_data_vaddr_start && vm->segv_vaddr <= region_data_vaddr_end ) {
+    //     if( vm->segv_vaddr >= region_data_vaddr_start && vm->segv_vaddr <= region_data_vaddr_end ) {
 
-          /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1575-L1616 */
-          fd_guarded_borrowed_account_t instr_acc = {0};
-          FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, i, &instr_acc );
+    //       /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1575-L1616 */
+    //       fd_guarded_borrowed_account_t instr_acc = {0};
+    //       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, i, &instr_acc );
 
-          /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1581-L1616 */
-          if( fd_ulong_sat_add( vm->segv_vaddr, vm->segv_access_len ) <= region_data_vaddr_end ) {
-            /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1592-L1601 */
-            if( vm->segv_access_type == FD_VM_ACCESS_TYPE_ST ) {
-              int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
-              if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-                return borrow_err;
-              } else {
-                return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
-              }
-            } else if ( vm->segv_access_type == FD_VM_ACCESS_TYPE_LD ) {
-              int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
-              if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-                return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
-              } else {
-                return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
-              }
-            }
-          }
-        }
-      }
-    }
+    //       /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1581-L1616 */
+    //       if( fd_ulong_sat_add( vm->segv_vaddr, vm->segv_access_len ) <= region_data_vaddr_end ) {
+    //         /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1592-L1601 */
+    //         if( vm->segv_access_type == FD_VM_ACCESS_TYPE_ST ) {
+    //           int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
+    //           if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
+    //             return borrow_err;
+    //           } else {
+    //             return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+    //           }
+    //         } else if ( vm->segv_access_type == FD_VM_ACCESS_TYPE_LD ) {
+    //           int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
+    //           if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
+    //             return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+    //           } else {
+    //             return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+    //           }
+    //         }
+    //       }
+    //     }
+    //   }
+    // }
 
     /* The error kind should have been set in the VM. Match it and set
        the error code accordingly. There are no direct permalinks here -
@@ -619,10 +619,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
 
-      uchar * signature = (uchar *)instr_ctx->txn_in->txn->payload + TXN( instr_ctx->txn_in->txn )->signature_off;
-      FD_BASE58_ENCODE_64_BYTES(signature, signature_b58);
-      FD_LOG_NOTICE(( "syscall error: %s %d", signature_b58, instr_ctx->txn_out->err.exec_err  ));
-
       return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
     }
 
@@ -640,7 +636,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
     uchar * signature = (uchar *)instr_ctx->txn_in->txn->payload + TXN( instr_ctx->txn_in->txn )->signature_off;
     FD_BASE58_ENCODE_64_BYTES(signature, signature_b58);
-    FD_LOG_NOTICE(( "error: %s %d %d", signature_b58, instr_ctx->txn_out->err.exec_err, instr_ctx->txn_out->err.exec_err_kind  ));
+    FD_LOG_NOTICE(( "error: %s %d %d %d", signature_b58, instr_ctx->txn_out->err.exec_err, instr_ctx->txn_out->err.exec_err_kind, exec_err ));
 
 
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
