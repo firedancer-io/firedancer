@@ -4,6 +4,7 @@
 #define POOL_NAME  fd_epoch_stake_reward_pool
 #define POOL_T     fd_epoch_stake_reward_t
 #define POOL_IDX_T uint
+#define POOL_NEXT  next_map
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               fd_epoch_stake_reward_map

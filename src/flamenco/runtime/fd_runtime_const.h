@@ -16,9 +16,18 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (40200UL)   /* ~40k vote accounts */
 
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (3000000UL) /* 3M stake accounts */
-
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
+
+/* The number of stake accounts that are possible to support is
+   determined by the the number of slots per epoch and the number of
+   stake accounts whose rewards are distributed in each slot.  There
+   can be 43200 reward slots per epoch as determined by
+   (MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH) with each reward slot paying
+   out up to 4096 (MAX_PARTITIONED_REWARDS_PER_BLOCK) stake accounts per
+   slot.  This gives a total of 43200 * 4096 = 176947200 stake
+   accounts that can be supported on chain. */
+
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (176947200) /* 100M stake accounts */
 
 /* Maximum amount of writable accounts per transaction
    https://github.com/anza-xyz/agave/blob/v3.0.8/runtime/src/bank.rs#L2946 */
