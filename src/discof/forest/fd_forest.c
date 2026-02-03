@@ -213,9 +213,6 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
 
   root_ele->merkle_roots[0].mr = (fd_hash_t){ .key = { 0 } };
 
-  fd_forest_blk_idxs_full( root_ele->fecs );
-  fd_forest_blk_idxs_full( root_ele->cmpl );
-
   forest->root = fd_forest_pool_idx( pool, root_ele );
   fd_forest_frontier_ele_insert( frontier, root_ele, pool ); /* cannot fail */
   consumed_insert( forest, fd_forest_pool_idx( pool, root_ele ) );
@@ -541,9 +538,7 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   blk->buffered_idx = UINT_MAX;
   blk->complete_idx = UINT_MAX;
 
-  fd_forest_blk_idxs_null( blk->fecs ); /* expensive */
   fd_forest_blk_idxs_null( blk->idxs ); /* expensive */
-  fd_forest_blk_idxs_null( blk->cmpl ); /* expensive */
 
   fd_forest_merkle_null( blk->merkle_recvd );
   fd_forest_merkle_null( blk->merkle_verified );
@@ -728,8 +723,6 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   }
 
   /* Shred accepted, merkle root verified (as much as possible) */
-  fd_forest_blk_idxs_insert_if( ele->fecs, fec_set_idx > 0, fec_set_idx - 1 );
-  fd_forest_blk_idxs_insert_if( ele->fecs, slot_complete,   shred_idx       );
   ele->complete_idx = fd_uint_if( slot_complete, shred_idx, ele->complete_idx );
 
   if( !fd_forest_blk_idxs_test( ele->idxs, shred_idx ) ) { /* newly seen shred */
@@ -806,7 +799,6 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
      the last fec_complete we needed to finish the slot, then we rely on
      the advance_consumed_frontier call in the below data_shred_insert
      to move forward the consumed frontier.  */
-  fd_forest_blk_idxs_insert( ele->cmpl, last_shred_idx );
   for( uint idx = fec_set_idx; idx <= last_shred_idx; idx++ ) {
     ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, mr, cmr );
   }
@@ -948,8 +940,6 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     new_root_ele = fd_forest_blk_insert( forest, new_root_slot, 0 );
     new_root_ele->complete_idx = 0;
     new_root_ele->buffered_idx = 0;
-    fd_forest_blk_idxs_full( new_root_ele->cmpl );
-    fd_forest_blk_idxs_full( new_root_ele->fecs );
     requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
     advance_consumed_frontier( forest, new_root_slot, 0 ); /* advances consumed frontier if possible */
   }
@@ -1033,8 +1023,6 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
        invalid */
     new_root_ele->complete_idx = 0;
     new_root_ele->buffered_idx = 0;
-    fd_forest_blk_idxs_full( new_root_ele->cmpl );
-    fd_forest_blk_idxs_full( new_root_ele->fecs );
     advance_consumed_frontier( forest, new_root_ele->slot, 0 );
   }
 

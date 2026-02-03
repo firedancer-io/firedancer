@@ -46,9 +46,8 @@
 #define IN_KIND_SHRED   (3)
 #define IN_KIND_SIGN    (4)
 #define IN_KIND_SNAP    (5)
-#define IN_KIND_EPOCH   (6)
-#define IN_KIND_GOSSIP  (7)
-#define IN_KIND_GENESIS (8)
+#define IN_KIND_GOSSIP  (6)
+#define IN_KIND_GENESIS (7)
 
 #define MAX_IN_LINKS    (32)
 
@@ -144,7 +143,6 @@ struct out_ctx {
 };
 typedef struct out_ctx out_ctx_t;
 
-
 /* Data needed to sign and send a pong that is not contained in the
    pong msg itself. */
 
@@ -220,6 +218,8 @@ struct ctx {
     ulong slot;        /* 0 if no verification in progress */
     uint  fec_set_idx;
   } last_incorrect_fec[ 1 ];
+
+  ulong enforce_fixed_fec_set; /* min slot where the feature is enforced */
 
   fd_pubkey_t identity_public_key;
 
@@ -494,10 +494,6 @@ during_frag( ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_EPOCH ) ) {
-    return;
-  }
-
   if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
     if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) ctx->snap_out_chunk = chunk;
     return;
@@ -720,13 +716,17 @@ after_fec( ctx_t      * ctx,
   FD_TEST( ele ); /* must be non-empty */
 
   /* metrics for completed slots */
-  if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx &&
-                   0==memcmp( ele->cmpl, ele->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) ) ) {
+  if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
     long now = fd_tickcount();
     long start_ts = ele->first_req_ts == 0 || ele->slot >= ctx->turbine_slot0 ? ele->first_shred_ts : ele->first_req_ts;
     ulong duration_ticks = (ulong)(now - start_ts);
     fd_histf_sample( ctx->metrics->slot_compl_time, duration_ticks );
     fd_repair_metrics_add_slot( ctx->slot_metrics, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
+    /* Note: this log now no longer implies that the slot is fully
+       executable, as we don't wait for FEC completion msgs to log this,
+       only that a shred for every index has been received. It's
+       possible that we have an unverified slot that doesn't chain
+       verify, which is technically un-executable. */
     FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt, (double)fd_metrics_convert_ticks_to_nanoseconds(duration_ticks) / 1e6 ));
   }
 
@@ -744,8 +744,7 @@ after_fec( ctx_t      * ctx,
     fd_forest_blk_t * turbine0     = fd_forest_query( ctx->forest, ctx->turbine_slot0 );
     ulong             turbine0_idx = fd_forest_pool_idx( fd_forest_pool( ctx->forest ), turbine0 );
     fd_forest_ref_t * consumed     = fd_forest_consumed_ele_query( fd_forest_consumed( ctx->forest ), &turbine0_idx, NULL, fd_forest_conspool( ctx->forest ) );
-    if( FD_UNLIKELY( consumed && turbine0->complete_idx != UINT_MAX && turbine0->complete_idx == turbine0->buffered_idx &&
-                     0==memcmp( turbine0->cmpl, turbine0->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) ) ) {
+    if( FD_UNLIKELY( consumed && turbine0->complete_idx != UINT_MAX && turbine0->complete_idx == turbine0->buffered_idx ) ) {
       FD_COMPILER_MFENCE();
       FD_VOLATILE( ctx->profiler.complete ) = 1;
     }
@@ -901,10 +900,6 @@ after_frag( ctx_t *             ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_EPOCH ) ) {
-    return;
-  }
-
   if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
     after_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
     return;
@@ -1052,7 +1047,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( 0==strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
     else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
-    else if( 0==strcmp( link->name, "replay_epoch" ) ) ctx->in_kind[ in_idx ] = IN_KIND_EPOCH;
     else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
     else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
 
@@ -1146,7 +1140,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_key_next = 0;
   ctx->profiler.enabled  = tile->repair.end_slot != 0UL;
   ctx->profiler.end_slot = tile->repair.end_slot;
-  if( ctx->profiler.enabled ) {
+  if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
     ctx->metrics->current_slot = tile->repair.end_slot + 1; /* +1 to allow the turbine slot 0 to be completed */
     ctx->profiler.complete     = 0;
   }
