@@ -1565,6 +1565,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.capture_start_slot = config->capture.capture_start_slot;
     strncpy( tile->execrp.solcap_capture, config->capture.solcap_capture, sizeof(tile->execrp.solcap_capture) );
     strncpy( tile->execrp.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->execrp.dump_proto_dir) );
+    strncpy( tile->execrp.dump_syscall_name_filter, config->capture.dump_syscall_name_filter, sizeof(tile->execrp.dump_syscall_name_filter) );
     tile->execrp.dump_instr_to_pb = config->capture.dump_instr_to_pb;
     tile->execrp.dump_txn_to_pb = config->capture.dump_txn_to_pb;
     tile->execrp.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;

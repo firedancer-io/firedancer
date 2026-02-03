@@ -96,7 +96,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   memset( txn_out->details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_out->details.return_data.len = 0;
 
-  runtime->log.capture_ctx   = NULL;
+  runtime->log.capture_ctx    = NULL;
+  runtime->log.dump_proto_ctx = NULL;
 
   runtime->instr.trace_length = 1UL;
 

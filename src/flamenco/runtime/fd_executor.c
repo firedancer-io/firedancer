@@ -1580,9 +1580,9 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
 # if FD_HAS_FLATCC
   /* Dumping ELF files to protobuf, if applicable */
-  int dump_elf_to_pb = runtime->log.capture_ctx &&
-                       fd_bank_slot_get( bank ) >= runtime->log.capture_ctx->dump_proto_start_slot &&
-                       runtime->log.capture_ctx->dump_elf_to_pb;
+  int dump_elf_to_pb = runtime->log.dump_proto_ctx &&
+                       fd_bank_slot_get( bank )>=runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                       runtime->log.dump_proto_ctx->dump_elf_to_pb;
   if( FD_UNLIKELY( dump_elf_to_pb ) ) {
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       fd_account_meta_t * acc_meta = txn_out->accounts.account[i].meta;
@@ -1683,7 +1683,9 @@ fd_execute_txn( fd_runtime_t *      runtime,
                 fd_txn_out_t *      txn_out ) {
   fd_accdb_user_t * accdb = runtime->accdb;
 
-  bool dump_insn = runtime->log.capture_ctx && fd_bank_slot_get( bank ) >= runtime->log.capture_ctx->dump_proto_start_slot && runtime->log.capture_ctx->dump_instr_to_pb;
+  bool dump_insn = runtime->log.dump_proto_ctx &&
+                   fd_bank_slot_get( bank )>=runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                   runtime->log.dump_proto_ctx->dump_instr_to_pb;
   (void)dump_insn;
 
   fd_txn_t const * txn = TXN( txn_in->txn );

@@ -9,6 +9,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -43,6 +44,10 @@ struct fd_execrp_tile {
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
   fd_capture_link_buf_t cap_execrp_out[1];
+
+  /* Protobuf dumping context for debugging runtime execution and
+     collecting seed corpora. */
+  fd_dump_proto_ctx_t * dump_proto_ctx;
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
@@ -275,11 +280,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_execrp_tile_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),  sizeof(fd_execrp_tile_t) );
-  void * capture_ctx_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
-  void * _txncache         = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execrp.max_live_slots ) );
-  uchar * pc_scratch       = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  ulong  scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),  sizeof(fd_execrp_tile_t) );
+  void * capture_ctx_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
+  void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execrp.max_live_slots ) );
+  uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  ulong  scratch_alloc_mem  = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
     FD_LOG_ERR( ( "Scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
@@ -375,51 +381,51 @@ unprivileged_init( fd_topo_t *      topo,
   /********************************************************************/
 
   ctx->capture_ctx = NULL;
-
-  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) || strlen( tile->execrp.dump_proto_dir ) ) ) {
+  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
     ctx->capture_ctx->solcap_start_slot = tile->execrp.capture_start_slot;
 
-    if( strlen( tile->execrp.solcap_capture ) ) {
-      ulong tile_idx = tile->kind_id;
-      ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_execrp", tile_idx );
-      FD_TEST( idx!=ULONG_MAX );
-      fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
-      fd_capture_link_buf_t * cap_execrp_out = ctx->cap_execrp_out;
-      cap_execrp_out->base.vt = &fd_capture_link_buf_vt;
-      cap_execrp_out->idx     = idx;
-      cap_execrp_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      cap_execrp_out->chunk0  = fd_dcache_compact_chunk0( cap_execrp_out->mem, link->dcache );
-      cap_execrp_out->wmark   = fd_dcache_compact_wmark( cap_execrp_out->mem, link->dcache, link->mtu );
-      cap_execrp_out->chunk   = cap_execrp_out->chunk0;
-      cap_execrp_out->mcache  = link->mcache;
-      cap_execrp_out->depth   = fd_mcache_depth( link->mcache );
-      cap_execrp_out->seq     = 0UL;
+    ulong tile_idx = tile->kind_id;
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_execrp", tile_idx );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+    fd_capture_link_buf_t * cap_execrp_out = ctx->cap_execrp_out;
+    cap_execrp_out->base.vt = &fd_capture_link_buf_vt;
+    cap_execrp_out->idx     = idx;
+    cap_execrp_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    cap_execrp_out->chunk0  = fd_dcache_compact_chunk0( cap_execrp_out->mem, link->dcache );
+    cap_execrp_out->wmark   = fd_dcache_compact_wmark( cap_execrp_out->mem, link->dcache, link->mtu );
+    cap_execrp_out->chunk   = cap_execrp_out->chunk0;
+    cap_execrp_out->mcache  = link->mcache;
+    cap_execrp_out->depth   = fd_mcache_depth( link->mcache );
+    cap_execrp_out->seq     = 0UL;
 
-      ulong consumer_tile_idx = fd_topo_find_tile(topo, "solcap", 0UL);
-      fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
-      cap_execrp_out->fseq = NULL;
-      for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
-        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
-          cap_execrp_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
-          FD_TEST( cap_execrp_out->fseq );
-          break;
-        }
+    ulong consumer_tile_idx = fd_topo_find_tile(topo, "solcap", 0UL);
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    cap_execrp_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
+        cap_execrp_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( cap_execrp_out->fseq );
+        break;
       }
-
-      ctx->capture_ctx->capture_solcap  = 1;
-      ctx->capture_ctx->capctx_type.buf = cap_execrp_out;
-      ctx->capture_ctx->capture_link    = &cap_execrp_out->base;
     }
 
-    if( strlen( tile->execrp.dump_proto_dir ) ) {
-      ctx->capture_ctx->dump_proto_output_dir = tile->execrp.dump_proto_dir;
-      ctx->capture_ctx->dump_proto_start_slot = tile->execrp.capture_start_slot;
-      ctx->capture_ctx->dump_instr_to_pb      = tile->execrp.dump_instr_to_pb;
-      ctx->capture_ctx->dump_txn_to_pb        = tile->execrp.dump_txn_to_pb;
-      ctx->capture_ctx->dump_syscall_to_pb    = tile->execrp.dump_syscall_to_pb;
-      ctx->capture_ctx->dump_elf_to_pb        = tile->execrp.dump_elf_to_pb;
-    }
+    ctx->capture_ctx->capture_solcap  = 1;
+    ctx->capture_ctx->capctx_type.buf = cap_execrp_out;
+    ctx->capture_ctx->capture_link    = &cap_execrp_out->base;
+  }
+
+  ctx->dump_proto_ctx = NULL;
+  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
+    ctx->dump_proto_ctx                           = dump_proto_ctx_mem;
+    ctx->dump_proto_ctx->dump_proto_output_dir    = tile->execrp.dump_proto_dir;
+    ctx->dump_proto_ctx->dump_proto_start_slot    = tile->execrp.capture_start_slot;
+    ctx->dump_proto_ctx->dump_syscall_name_filter = tile->execrp.dump_syscall_name_filter;
+    ctx->dump_proto_ctx->dump_instr_to_pb         = !!tile->execrp.dump_instr_to_pb;
+    ctx->dump_proto_ctx->dump_txn_to_pb           = !!tile->execrp.dump_txn_to_pb;
+    ctx->dump_proto_ctx->dump_syscall_to_pb       = !!tile->execrp.dump_syscall_to_pb;
+    ctx->dump_proto_ctx->dump_elf_to_pb           = !!tile->execrp.dump_elf_to_pb;
   }
 
   /********************************************************************/
@@ -436,6 +442,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->log.enable_vm_tracing    = 0;
   ctx->runtime->log.tracing_mem          = &ctx->tracing_mem[0][0];
   ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
+  ctx->runtime->log.dump_proto_ctx       = ctx->dump_proto_ctx;
 
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );

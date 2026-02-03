@@ -5,6 +5,7 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../progcache/fd_prog_load.h"
 #include "../../progcache/fd_progcache_user.h"
+#include "../tests/fd_dump_pb.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../fd_pubkey_utils.h"
 #include "../fd_borrowed_account.h"
@@ -434,9 +435,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   /* For dumping syscalls for seed corpora */
-  int dump_syscall_to_pb = instr_ctx->runtime->log.capture_ctx &&
-                           fd_bank_slot_get( instr_ctx->bank ) >= instr_ctx->runtime->log.capture_ctx->dump_proto_start_slot &&
-                           instr_ctx->runtime->log.capture_ctx->dump_syscall_to_pb;
+  int dump_syscall_to_pb = instr_ctx->runtime->log.dump_proto_ctx &&
+                           fd_bank_slot_get( instr_ctx->bank )>=instr_ctx->runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                           instr_ctx->runtime->log.dump_proto_ctx->dump_syscall_to_pb;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/bpf_loader/src/lib.rs#L1525-L1528 */
   ulong r2_initial_value = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
