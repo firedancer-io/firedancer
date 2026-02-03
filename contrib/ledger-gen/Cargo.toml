@@ -6,12 +6,23 @@ edition = "2021"
 [dependencies]
 dirs-next = "2.0"
 lazy_static = "1.4"
-solana-sdk = { version = "2.0.3", features = ["dev-context-only-utils"] }
-solana-bpf-loader-program ={ version = "2.0.3"}
-solana-program-runtime ={ version = "2.0.3"}
+solana-sdk = { version = "3.0.0", features = ["dev-context-only-utils"] }
+solana-bpf-loader-program ={ version = "3.0.5"}
+solana-program-runtime ={ version = "3.0.5"}
 solana_rbpf = { version = "0.8.1"}
-solana-client = { version = "2.0.3"}
-solana-cli ={ version = "2.0.3"}
-solana-rpc-client-api = { version = "2.0.3"}
-solana-rpc-client-nonce-utils = { version = "2.0.3"}
-solana-compute-budget  = { version = "2.0.3"}
+solana-client = { version = "3.0.5"}
+solana-cli ={ version = "3.0.5"}
+solana-rpc-client-api = { version = "3.0.5"}
+solana-rpc-client-nonce-utils = { version = "3.0.5"}
+solana-compute-budget  = { version = "3.0.5"}
+solana-commitment-config = { version = "3.0.0"}
+solana-feature-set = { version = "2.2.5" }
+solana-system-interface = { version = "3.0.0" }
+tokio = { version = "1.0", features = ["full"] }
+solana-keypair = { version = "3.0.0" }
+futures = "0.3"
+solana-address-lookup-table-interface = { version = "3.0.0" }
+solana-sdk-ids = { version = "3.0.0" }
+solana-clock = { version = "3.0.0" }
+solana-message = { version = "3.0.0" }
+solana-transaction = { version = "3.0.0" }

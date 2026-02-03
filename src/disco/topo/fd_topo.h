@@ -383,7 +383,6 @@ struct fd_topo_tile {
 
     struct {
       ulong fec_max;
-      ulong max_vote_accounts;
 
       ulong txncache_obj_id;
       ulong progcache_obj_id;
@@ -581,16 +580,17 @@ struct fd_topo_tile {
     } snapin;
 
     struct {
-      uint  lthash_disabled : 1;
       ulong vinyl_meta_map_obj_id;
       ulong vinyl_meta_pool_obj_id;
       ulong snapwr_depth;
       char  vinyl_path[ PATH_MAX ];
+      uint  lthash_disabled : 1;
     } snapwm;
 
     struct {
       ulong dcache_obj_id;
       char  vinyl_path[ PATH_MAX ];
+      uint  lthash_disabled : 1;
     } snapwr;
 
     struct {

@@ -248,6 +248,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_live_tile_timers,
     fd_gui_printf_live_tile_metrics,
     fd_gui_printf_catch_up_history,
+    fd_gui_printf_vote_latency_history,
+    fd_gui_printf_late_votes_history
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
@@ -255,9 +257,6 @@ fd_gui_ws_open( fd_gui_t * gui,
     printers[ i ]( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
-
-  fd_gui_printf_vote_latency_history( gui );
-  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 
   if( FD_LIKELY( gui->block_engine.has_block_engine ) ) {
     fd_gui_printf_block_engine( gui );
@@ -3091,7 +3090,7 @@ void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
                                    long         now,
                                    ulong        _slot,
-                                   fd_txn_p_t * txns,
+                                   fd_txn_e_t * txns,
                                    ulong        txn_cnt,
                                    uint         microblock_idx,
                                    ulong        pack_txn_idx ) {
@@ -3109,7 +3108,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
   gui->pack_txn_idx = fd_ulong_max( gui->pack_txn_idx, pack_txn_idx+txn_cnt-1UL );
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn_payload = &txns[ i ];
+    fd_txn_p_t * txn_payload = txns[ i ].txnp;
     fd_txn_t * txn = TXN( txn_payload );
 
     ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt;

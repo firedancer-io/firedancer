@@ -9,13 +9,15 @@ FD_PROTOTYPES_BEGIN
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L985 */
 int
 fd_vote_verify_authorized_signer( fd_pubkey_t const * authorized,
-                                  fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] );
+                                  fd_pubkey_t const * signers[static FD_TXN_SIG_MAX],
+                                  ulong               signers_cnt );
 
 /* lambda function: https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L873 */
 int
 fd_vote_signature_verify( fd_pubkey_t *       epoch_authorized_voter,
                           int                 authorized_withdrawer_signer,
-                          fd_pubkey_t const * signers[static FD_TXN_SIG_MAX] );
+                          fd_pubkey_t const * signers[static FD_TXN_SIG_MAX],
+                          ulong               signers_cnt );
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L668 */
 uchar

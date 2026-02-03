@@ -67,21 +67,23 @@ void * fd_pack_rebate_sum_new( void * mem );
 
 /* fd_pack_rebate_sum_add_txn adds rebate information from a bundle or
    microblock to the pending summary.  This reads the EXECUTE_SUCCESS
-   flag and the bank_cu field, so those must be populated in the
+   flag and the execle_cu field, so those must be populated in the
    transactions before this is called.
 
    s must be a valid local join. txn will be indexed txn[i] for i in [0,
    txn_cnt), and each transaction must have the previously mentioned
-   fields set.  Additionally, if the transaction txn[i] loads writable
-   accounts from one or more address lookup tables, addtl_writable[i]
-   must point to the first writable account address that it loaded.
-   adtl_writable is indexed addtl_writable[i][j] for j in
-   [0, TXN(txn[i])->addr_table_adtl_writable_cnt ).  If txn[i] does not
-   load any accounts writably from address lookup tables or if the
-   SANITIZE_SUCCESS flag is not set, adtl_writable[i] is ignored and can
-   be NULL.  txn_cnt must be in [0, MAX_TXN_PER_MICROBLOCK], where
-   txn_cnt==0 is a no-op.  txn and adtl_writable can be NULL if
-   txn_cnt==0.
+   fields set.
+
+   Additionally, if the transaction txn[i] loads writable accounts
+   from one or more address lookup tables, addtl_writable[i] must
+   either be NULL or point to the first writable account address that
+   it loaded.  When not NULL, adtl_writable is indexed
+   addtl_writable[i][j] for j in [0, TXN(txn[i])->addr_table_adtl_writable_cnt ).
+   If adtl_writable[i] is NULL, ALT account rebates are skipped (this can
+   happen if the transaction doesn't load any writable accounts from address
+   lookup tables or if the resolved addresses are not available).
+   txn_cnt must be in [0, MAX_TXN_PER_MICROBLOCK], where txn_cnt==0 is
+   a no-op.  txn and adtl_writable can be NULL if txn_cnt==0.
 
    This function does not retain any read interest in txn or
    adtl_writable after returning.

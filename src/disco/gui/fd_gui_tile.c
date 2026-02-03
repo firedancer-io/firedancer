@@ -59,8 +59,8 @@ static fd_http_static_file_t * STATIC_FILES;
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
-#define FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN       8192
-#define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 8192
+#define FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN       65536
+#define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
 static fd_http_server_params_t
@@ -539,8 +539,8 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_gui_microblock_execution_begin( ctx->gui,
                                           now,
                                           fd_disco_poh_sig_slot( sig ),
-                                          (fd_txn_p_t *)src,
-                                          (sz-sizeof( fd_microblock_execle_trailer_t ))/sizeof( fd_txn_p_t ),
+                                          (fd_txn_e_t *)src,
+                                          (sz-sizeof( fd_microblock_execle_trailer_t ))/sizeof( fd_txn_e_t ),
                                           (uint)trailer->microblock_idx,
                                           trailer->pack_txn_idx );
       } else {

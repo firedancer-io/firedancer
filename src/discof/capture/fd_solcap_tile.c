@@ -441,6 +441,7 @@ privileged_init( fd_topo_t *      topo,
 
   FD_TEST( ctx->capture_ctx->capture );
 
+  ctx->capture_ctx->capture_solcap    = 1;
   ctx->capture_ctx->solcap_start_slot = tile->solcap.capture_start_slot;
   fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->fd );
 

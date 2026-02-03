@@ -924,6 +924,8 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
+| <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block) |
+| <span class="metrics-name">replay_&#8203;root_&#8203;account_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block, normalized by account count) |
 
 </div>
 

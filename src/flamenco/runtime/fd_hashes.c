@@ -93,7 +93,7 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
 
   fd_bank_lthash_end_locking_modify( bank );
 
-  if( capture_ctx && capture_ctx->capture &&
+  if( capture_ctx && capture_ctx->capture_solcap &&
       fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
     fd_solana_account_meta_t solana_meta[1];
     fd_solana_account_meta_init(

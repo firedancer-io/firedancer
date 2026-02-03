@@ -1617,68 +1617,58 @@ fd_executor_txn_check( fd_runtime_t * runtime,
                        fd_txn_out_t * txn_out ) {
   fd_rent_t const * rent = fd_bank_rent_query( bank );
 
-  ulong starting_lamports_l = 0;
-  ulong starting_lamports_h = 0;
-
-  ulong ending_lamports_l = 0;
-  ulong ending_lamports_h = 0;
+  ulong starting_lamports_l = 0UL;
+  ulong starting_lamports_h = 0UL;
+  ulong ending_lamports_l   = 0UL;
+  ulong ending_lamports_h   = 0UL;
 
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
-  for( ulong idx = 0; idx < txn_out->accounts.cnt; idx++ ) {
-    ulong               starting_lamports  = runtime->accounts.starting_lamports[idx];
-    ulong               starting_dlen      = runtime->accounts.starting_dlen[idx];
-    fd_account_meta_t * meta               = txn_out->accounts.account[idx].meta;
-    fd_pubkey_t *       pubkey             = &txn_out->accounts.keys[idx];
+  for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
+    if( !txn_out->accounts.is_writable[i] ) continue;
 
-    // Was this account written to?
-    /* TODO: Clean this logic up... lots of redundant checks with our newer account loading model.
-       We should be using the rent transition checking logic instead, along with a small refactor
-       to keep check ordering consistent. */
-    if( meta!=NULL ) {
+    ulong               starting_lamports = runtime->accounts.starting_lamports[i];
+    ulong               starting_dlen     = runtime->accounts.starting_dlen[i];
+    fd_account_meta_t * meta              = txn_out->accounts.account[i].meta;
+    fd_pubkey_t *       pubkey            = &txn_out->accounts.keys[i];
 
-      fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, meta->lamports );
+    fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, meta->lamports );
+    fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
 
-      /* Rent states are defined as followed:
-         - lamports == 0                      -> Uninitialized
-         - 0 < lamports < rent_exempt_minimum -> RentPaying
-         - lamports >= rent_exempt_minimum    -> RentExempt
-         In Agave, 'self' refers to our 'after' state. */
-      uchar after_uninitialized  = meta->lamports == 0;
-      uchar after_rent_exempt    = meta->lamports >= fd_rent_exempt_minimum_balance( rent, meta->dlen );
+    /* Rent states are defined as followed:
+        - lamports == 0                      -> Uninitialized
+        - 0 < lamports < rent_exempt_minimum -> RentPaying
+        - lamports >= rent_exempt_minimum    -> RentExempt
+        In Agave, 'self' refers to our 'after' state. */
+    uchar after_uninitialized = meta->lamports==0UL;
+    uchar after_rent_exempt   = meta->lamports>=fd_rent_exempt_minimum_balance( rent, meta->dlen );
 
-      /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
-      if( FD_LIKELY( memcmp( pubkey, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 ) ) {
-        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L44 */
-        if( after_uninitialized || after_rent_exempt ) {
+    /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L96 */
+    if( FD_LIKELY( memcmp( pubkey, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L44 */
+      if( after_uninitialized || after_rent_exempt ) {
+        // no-op
+      } else {
+        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
+        uchar before_uninitialized = starting_lamports==0UL;
+        uchar before_rent_exempt   = starting_lamports>=fd_rent_exempt_minimum_balance( rent, starting_dlen );
+
+        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
+        if( FD_UNLIKELY( before_uninitialized || before_rent_exempt ) ) {
+          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
+          return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
+        /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
+        } else if( (meta->dlen==starting_dlen) && meta->lamports<=starting_lamports ) {
           // no-op
         } else {
-          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
-          uchar before_uninitialized = starting_dlen == ULONG_MAX || starting_lamports == 0;
-          uchar before_rent_exempt   = starting_dlen != ULONG_MAX && starting_lamports >= fd_rent_exempt_minimum_balance( rent, starting_dlen );
-
-          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
-          if( before_uninitialized || before_rent_exempt ) {
-            /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
-            return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
-          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
-          } else if( (meta->dlen == starting_dlen) && meta->lamports <= starting_lamports ) {
-            // no-op
-          } else {
-            /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
-            return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
-          }
+          /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
+          return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
         }
-      }
-
-      if( starting_lamports != ULONG_MAX ) {
-        fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
       }
     }
   }
 
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/transaction_processor.rs#L839-L845 */
   if( FD_UNLIKELY( ending_lamports_l!=starting_lamports_l || ending_lamports_h!=starting_lamports_h ) ) {
-    FD_LOG_DEBUG(( "Lamport sum mismatch: starting %lx%lx ending %lx%lx", starting_lamports_h, starting_lamports_l, ending_lamports_h, ending_lamports_l ));
     return FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION;
   }
 

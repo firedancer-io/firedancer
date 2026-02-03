@@ -303,7 +303,7 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
 
 /* Bank accesssors */
 
-#define X(type, name, footprint, align)                                 \
+#define X(type, name)                                                   \
   type const *                                                          \
   fd_bank_##name##_query( fd_bank_t const * bank ) {                    \
     return (type const *)fd_type_pun_const( bank->data->non_cow.name ); \
@@ -511,6 +511,7 @@ fd_banks_new( void * shmem,
 
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );
+    bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
 
     if( FD_UNLIKELY( !fd_stake_delegations_join( fd_stake_delegations_new( bank->stake_delegations_delta, seed, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 ) ) ) ) {
       FD_LOG_WARNING(( "Failed to create stake delegations" ));

@@ -484,10 +484,11 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       capture_link_file->base.vt = &fd_capture_link_file_vt;
 
       int solcap_fd = (int)(ulong)runner->solcap_file;
-      capture_link_file->fd         = solcap_fd;
+      capture_link_file->fd          = solcap_fd;
       capture_ctx->capture_link      = &capture_link_file->base;
-      capture_ctx->capctx_type.file   = capture_link_file;
+      capture_ctx->capctx_type.file  = capture_link_file;
       capture_ctx->solcap_start_slot = fd_bank_slot_get( runner->bank );
+      capture_ctx->capture_solcap    = 1;
 
       fd_solcap_writer_init( capture_ctx->capture, solcap_fd );
     }

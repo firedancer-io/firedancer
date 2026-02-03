@@ -5,6 +5,7 @@
 #include "utils/fd_vinyl_io_wd.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
+#include "../../util/pod/fd_pod.h"
 
 #include <errno.h>
 #include <fcntl.h>     /* open */
@@ -209,6 +210,23 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
 
   fd_lthash_adder_new( &ctx->vinyl.adder );
   fd_lthash_zero( &ctx->vinyl.running_lthash );
+
+  ulong wr_cnt      = fd_topo_tile_name_cnt( topo, "snapwr" );
+  ctx->vinyl.wr_cnt = wr_cnt;
+
+  ctx->vinyl.admin = NULL;
+  if( FD_LIKELY( !ctx->lthash_disabled ) ) {
+    ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+    FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+    fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+    FD_TEST( vinyl_admin );
+    ctx->vinyl.admin = vinyl_admin;
+
+    /* There is no need for rw_lock here, since every other consumer
+       is waiting for the completion of this initialization step and
+       this can be done without a lock. */
+    fd_snapwm_vinyl_init_admin( ctx, 0/*do_rwlock*/ );
+  }
 }
 
 ulong
@@ -750,5 +768,51 @@ fd_snapwm_vinyl_duplicate_accounts_lthash_fini( fd_snapwm_tile_t * ctx,
   fd_memcpy( data, &ctx->vinyl.running_lthash, FD_LTHASH_LEN_BYTES );
   fd_stem_publish( stem, ctx->hash_out.idx, FD_SNAPSHOT_HASH_MSG_RESULT_SUB, ctx->hash_out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
   ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, FD_LTHASH_LEN_BYTES, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  return 1;
+}
+
+int
+fd_snapwm_vinyl_init_admin( fd_snapwm_tile_t * ctx,
+                            int                do_rwlock ) {
+  if( FD_UNLIKELY( !!do_rwlock ) ) fd_rwlock_write( &ctx->vinyl.admin->lock );
+
+  ulong status = fd_vinyl_admin_ulong_query( &ctx->vinyl.admin->status );
+  if( FD_UNLIKELY( status!=FD_VINYL_ADMIN_STATUS_INIT_PENDING ) ) goto init_admin_error;
+
+  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt ) ) goto init_admin_error;
+  fd_vinyl_admin_ulong_update( &ctx->vinyl.admin->wr_cnt, ctx->vinyl.wr_cnt );
+
+  for( ulong i=0UL; i<ctx->vinyl.wr_cnt; i++ ) {
+    fd_vinyl_admin_ulong_update( &ctx->vinyl.admin->wr_seq[ i ], 0UL );
+  }
+
+  fd_vinyl_admin_ulong_update( &ctx->vinyl.admin->status, FD_VINYL_ADMIN_STATUS_INIT_DONE );
+
+  if( FD_UNLIKELY( !!do_rwlock ) ) fd_rwlock_unwrite( &ctx->vinyl.admin->lock );
+  return 1;
+
+init_admin_error:
+  if( FD_UNLIKELY( !!do_rwlock ) ) fd_rwlock_unwrite( &ctx->vinyl.admin->lock );
+  return 0;
+}
+
+int
+fd_snapwm_vinyl_update_admin( fd_snapwm_tile_t * ctx,
+                              int                do_rwlock ) {
+  if( FD_UNLIKELY( !!do_rwlock ) ) fd_rwlock_write( &ctx->vinyl.admin->lock );
+
+  fd_vinyl_admin_ulong_update( &ctx->vinyl.admin->status, FD_VINYL_ADMIN_STATUS_UPDATING );
+
+  for( ulong i=0UL; i<ctx->vinyl.wr_cnt; i++ ) {
+    /* This may cause a wr_seq[ i ] regression, which is expected e.g.
+       if the snapshot load pipeline aborts the current snapshot and
+       resets to load a new one. */
+    fd_vinyl_admin_ulong_update( &ctx->vinyl.admin->wr_seq[ i ], ctx->vinyl.io_wd->seq_present );
+  }
+
+  ulong status = fd_ulong_if( ctx->full, FD_VINYL_ADMIN_STATUS_SNAPSHOT_FULL, FD_VINYL_ADMIN_STATUS_SNAPSHOT_INCR );
+  fd_vinyl_admin_ulong_update( &ctx->vinyl.admin->status, status );
+
+  if( FD_UNLIKELY( !!do_rwlock ) ) fd_rwlock_unwrite( &ctx->vinyl.admin->lock );
   return 1;
 }

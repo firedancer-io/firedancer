@@ -347,6 +347,9 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     fec->popped         = 1;
     bid_t * bid         = bid_insert( reasm->bid, slot );
     bid->idx            = pool_idx( pool, fec );
+    xid_t * xid         = xid_insert( reasm->xid, ( slot << 32 ) | fec_set_idx );
+    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx ));
+    xid->idx            = pool_idx( pool, fec );
     reasm->root         = pool_idx( pool, fec );
     reasm->slot0        = slot;
     frontier_ele_insert( reasm->frontier, fec, pool );
@@ -460,7 +463,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   xid_t * xid = xid_query( reasm->xid, (slot<<32) | fec_set_idx, NULL );
   if( FD_LIKELY( !xid ) ) {
-    xid      = xid_insert( reasm->xid, ( slot << 32 ) | fec_set_idx );
+    xid = xid_insert( reasm->xid, ( slot << 32 ) | fec_set_idx );
+    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx ));
     xid->idx = pool_idx( reasm->pool, fec );
   }
   else {
@@ -521,9 +525,14 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
     bid_t * bid = bid_query( reasm->bid, head->slot, NULL );
     if( FD_UNLIKELY( bid ) ) bid_remove( reasm->bid, bid  ); /* only first FEC */
 
+    /* remove from the xid map */
+    xid_t * xid = xid_query( reasm->xid, ( head->slot << 32 ) | head->fec_set_idx, NULL );
+    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid not found for slot: %lu fec_set_idx: %u", head->slot, head->fec_set_idx ));
+    xid_remove( reasm->xid, xid );
+
     fd_reasm_fec_t * next = pool_ele( pool, head->next ); /* pophead */
-    pool_ele_release( pool, head );                       /* release */
     head->free = 1;
+    pool_ele_release( pool, head );                       /* release */
     head = next;                                          /* advance */
   }
 

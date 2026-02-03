@@ -323,8 +323,7 @@ fd_ghost_verify( fd_ghost_t * ghost );
 
 void
 fd_ghost_print( fd_ghost_t const *         ghost,
-                fd_ghost_blk_t const *     root,
-                fd_io_buffered_ostream_t * ostream_opt );
+                fd_ghost_blk_t const *     root );
 
 FD_PROTOTYPES_END
 

@@ -506,12 +506,12 @@ log_download( fd_snapct_tile_t * ctx,
         FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at https://%s:%hu/%s",
                         full ? "full" : "incremental", slot, i,
                         ctx->config.sources.servers[ i ].hostname, fd_ushort_bswap( addr.port ),
-                        full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ));
+                        full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ));
       } else {
         FD_LOG_NOTICE(( "downloading %s snapshot at slot %lu from configured server with index %lu at http://" FD_IP4_ADDR_FMT ":%hu/%s",
                         full ? "full" : "incremental", slot, i,
                         FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ),
-                        full ? "snapshot.tar.bz2" : "incremental-snapshot.tar.bz2" ));
+                        full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ));
       }
       return;
     }
@@ -601,11 +601,6 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->config.incremental_snapshots = 0;
       }
 
-      /* FIXME: Revisit the local age logic with new effective age
-         concept.  Measure cluster slot based on snapshots we can
-         download / trust.  Reevaluate incremental age after the full
-         snapshot download is completed. etc. etc. */
-
       ulong       cluster_slot    = ctx->config.incremental_snapshots ? cluster.incremental : cluster.full;
       ulong       local_slot      = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
       ulong       local_slot_with_download = local_slot;
@@ -657,13 +652,28 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      ctx->predicted_incremental.slot = best.incr_slot;
-      send_expected_slot( ctx, stem, best.incr_slot );
+      /* decide whether to use the local incremental snapshot if one
+         exists and is not too old, otherwise download a new incremental
+         snapshot. */
+      ulong cluster_slot  = fd_sspeer_selector_cluster_slot( ctx->selector ).incremental;
+      ulong local_slot    = ctx->local_in.incremental_snapshot_slot;
+      int   local_too_old = local_slot<fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age );
+      if( FD_LIKELY( local_slot!=ULONG_MAX && !local_too_old ) ) {
+        ctx->predicted_incremental.slot = local_slot;
+        send_expected_slot( ctx, stem, local_slot );
 
-      ctx->peer  = best;
-      ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
-      init_load( ctx, stem, 0, 0 );
-      log_download( ctx, 0, best.addr, best.incr_slot );
+        FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+        ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
+        init_load( ctx, stem, 0, 1 );
+      } else {
+        ctx->predicted_incremental.slot = best.incr_slot;
+        send_expected_slot( ctx, stem, best.incr_slot );
+
+        ctx->peer  = best;
+        ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+        init_load( ctx, stem, 0, 0 );
+        log_download( ctx, 0, best.addr, best.incr_slot );
+      }
       break;
     }
 
@@ -724,7 +734,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      if( FD_LIKELY( ctx->local_in.incremental_snapshot_slot==ULONG_MAX ) ) {
+      if( FD_LIKELY( ctx->download_enabled ) ) {
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
         ctx->deadline_nanos = 0L;
       } else {
@@ -801,6 +811,7 @@ after_credit( fd_snapct_tile_t *  ctx,
            our local snapshot, we must shutdown the validator. */
         FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.full_snapshot_path ));
       } else {
+        ctx->local_in.full_snapshot_slot = ULONG_MAX;
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS;
         ctx->deadline_nanos = 0L;
       }
@@ -826,6 +837,7 @@ after_credit( fd_snapct_tile_t *  ctx,
            our local snapshot, we must shutdown the validator. */
         FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.full_snapshot_path ));
       } else {
+        ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
         ctx->deadline_nanos = 0L;
       }
