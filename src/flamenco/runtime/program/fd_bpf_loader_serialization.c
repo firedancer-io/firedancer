@@ -506,6 +506,10 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
             fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
           int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, post_len );
           if( FD_UNLIKELY( set_data_err ) ) {
+            FD_BASE58_ENCODE_32_BYTES( view_acc.pubkey->uc, key_b58 );
+            FD_LOG_WARNING(( "set_data_err: %d, key: %s pre %u post %lu", set_data_err, key_b58, metadata_check->dlen, post_len ));
+            FD_LOG_HEXDUMP_WARNING(( "pre", fd_borrowed_account_get_data( &view_acc ), metadata_check->dlen ));
+            FD_LOG_HEXDUMP_WARNING(( "post", post_data, post_len ));
             return set_data_err;
           }
         } else {
