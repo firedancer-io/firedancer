@@ -430,9 +430,6 @@ after_frag( fd_resolv_ctx_t *   ctx,
         /* Replace current bank with new bank */
         fd_bank_data_t * prev_bank = ctx->bank->data;
 
-        /* Use the child of the new root to avoid a data race with
-           advancing the database root.  See fd_replay_tile.c for more
-           details. */
         FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, msg->bank_idx ) );
 
         /* Send slot completed message back to replay, so it can

@@ -960,16 +960,6 @@ static void
 publish_root_advanced( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem ) {
 
-  /* FIXME: for now we want to send the child of the consensus root to
-     avoid data races with funk root advancing.  This is a temporary
-     hack because currently it is not safe to query against the xid for
-     the root that is being advanced in funk.  This doesn't eliminate
-     the data race that exists in funk, but reduces how often it occurs.
-
-     Case that causes a data race:
-     replay: we are advancing the root from slot A->B
-     resolv: we are resolving ALUTs against slot B */
-
   fd_bank_t bank[1];
   if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, ctx->consensus_root_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
@@ -1556,9 +1546,6 @@ dispatch_task( fd_replay_tile_t *  ctx,
     case FD_SCHED_TT_TXN_EXEC: {
       fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, task->txn_exec->txn_idx );
 
-      /* FIXME: this should be done during txn parsing so that we don't
-         have to loop over all accounts a second time. */
-      /* Insert or reverify invoked programs for this epoch, if needed. */
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, task->txn_exec->bank_idx ) );
 
