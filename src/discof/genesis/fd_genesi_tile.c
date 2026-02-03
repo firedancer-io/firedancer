@@ -133,7 +133,7 @@ initialize_accdb( fd_accdb_admin_t *   accdb_admin,
     fd_genesis_account( genesis, genesis_blob, account, i );
 
     fd_accdb_rw_t rw[1];
-    fd_accdb_open_rw( accdb, rw, &xid, account->pubkey.key, account->meta.dlen, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_DONTZERO );
+    fd_accdb_open_rw( accdb, rw, &xid, account->pubkey.key, account->meta.dlen, FD_ACCDB_FLAG_CREATE );
     fd_accdb_ref_owner_set   ( rw, account->meta.owner        );
     fd_accdb_ref_lamports_set( rw, account->meta.lamports     );
     fd_accdb_ref_exec_bit_set( rw, !!account->meta.executable );

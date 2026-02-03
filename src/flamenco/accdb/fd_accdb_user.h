@@ -8,7 +8,7 @@
 
 #define FD_ACCDB_FLAG_CREATE   (1)
 #define FD_ACCDB_FLAG_TRUNCATE (2)
-#define FD_ACCDB_FLAG_DONTZERO (3)
+#define FD_ACCDB_FLAG_DONTZERO (4)
 
 /* FD_ACCDB_IMPL_FOOTPRINT sizes the inline impl[] buffer in
    fd_accdb_user_t and fd_accdb_admin_t.  The main contributor to this
