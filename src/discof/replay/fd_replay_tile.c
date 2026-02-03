@@ -2400,7 +2400,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      if ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
         process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
       }
       else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
