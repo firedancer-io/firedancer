@@ -172,10 +172,9 @@ FD_FN_PURE static inline ulong fd_vinyl_io_dev_used( fd_vinyl_io_t const * io ) 
 /* fd_vinyl_io_read_imm does an immediate (blocking) read of
    [seq,seq+dst_sz) (cyclic) from io's bstream's past into dst.  Assumes
    there are no reads currently posted on io.  Retains no interest in
-   dst.  seq, dst and sz should be FD_VINYL_BSTREAM_BLOCK_SZ aligned.
-   This is used mostly for sequential iterating over a bstream's past
-   (i.e. serial recovery and discovering partitions for parallel
-   recovery). */
+   dst.  seq and sz should be FD_VINYL_BSTREAM_BLOCK_SZ aligned.  This
+   is used mostly for sequential iterating over a bstream's past (i.e.
+   serial recovery and discovering partitions for parallel recovery). */
 
 static inline void
 fd_vinyl_io_read_imm( fd_vinyl_io_t * io,
@@ -186,8 +185,8 @@ fd_vinyl_io_read_imm( fd_vinyl_io_t * io,
 }
 
 /* fd_vinyl_io_read starts the executing the read command rd.  That is,
-   start reading bstream bytes [seq,seq+sz) (cyclic) into dst.  seq, dst
-   and sz should be FD_VINYL_BSTREAM_BLOCK_SZ aligned.  Further,
+   start reading bstream bytes [seq,seq+sz) (cyclic) into dst.  seq and
+   sz should be FD_VINYL_BSTREAM_BLOCK_SZ aligned.  Further,
    [seq,seq+sz) should be in the bstream's past and the region to read
    should be stored contiguously in the underlying storage.
 
