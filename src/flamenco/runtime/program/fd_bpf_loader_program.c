@@ -618,6 +618,11 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
       err = instr_ctx->txn_out->err.exec_err;
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
+
+      uchar * signature = (uchar *)instr_ctx->txn_in->txn->payload + TXN( instr_ctx->txn_in->txn )->signature_off;
+      FD_BASE58_ENCODE_64_BYTES(signature, signature_b58);
+      FD_LOG_NOTICE(( "syscall error: %s %d", signature_b58, instr_ctx->txn_out->err.exec_err  ));
+
       return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
     }
 
@@ -632,6 +637,11 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
       FD_VM_ERR_FOR_LOG_EBPF( vm, exec_err );
     }
+
+    uchar * signature = (uchar *)instr_ctx->txn_in->txn->payload + TXN( instr_ctx->txn_in->txn )->signature_off;
+    FD_BASE58_ENCODE_64_BYTES(signature, signature_b58);
+    FD_LOG_NOTICE(( "error: %s %d %d", signature_b58, instr_ctx->txn_out->err.exec_err, instr_ctx->txn_out->err.exec_err_kind  ));
+
 
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
   }
