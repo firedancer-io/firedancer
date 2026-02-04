@@ -36,6 +36,9 @@ mkdir -p "$(dirname "$CACHE")"
 exec {lockfd}>"$CACHE.lock"
 flock -x "$lockfd"
 
+# Clean up stale git lock files left by killed processes
+rm -f "$CACHE/.git/index.lock"
+
 if [ ! -d "$CACHE" ]; then
     git clone -q "$REPO_URL" "$CACHE"
 fi
