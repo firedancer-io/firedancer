@@ -387,6 +387,7 @@ void
 fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
                                 ulong rlimit_address_space,
                                 ulong rlimit_data,
+                                ulong rlimit_nproc,
                                 int   dumpable ) {
   struct rlimit_setting rlimits[] = {
     { .resource=RLIMIT_NOFILE,     .limit=rlimit_file_cnt },
@@ -410,7 +411,7 @@ fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
     { .resource=RLIMIT_DATA,       .limit=rlimit_data     },
     { .resource=RLIMIT_MEMLOCK,    .limit=0UL             },
     { .resource=RLIMIT_MSGQUEUE,   .limit=0UL             },
-    { .resource=RLIMIT_NPROC,      .limit=0UL             },
+    { .resource=RLIMIT_NPROC,      .limit=rlimit_nproc    },
     { .resource=RLIMIT_RTPRIO,     .limit=0UL             },
     { .resource=RLIMIT_RTTIME,     .limit=0UL             },
     { .resource=RLIMIT_SIGPENDING, .limit=0UL             },
@@ -581,6 +582,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      ulong       rlimit_file_cnt,
                                      ulong       rlimit_address_space,
                                      ulong       rlimit_data,
+                                     ulong       rlimit_nproc,
                                      ulong       allowed_file_descriptor_cnt,
                                      int const * allowed_file_descriptor ) {
   /* Read the highest capability index on the currently running kernel
@@ -674,7 +676,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   fd_sandbox_private_landlock_restrict_self( allow_connect, allow_renameat );
 
   /* And trim all the resource limits down to zero. */
-  fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data, dumpable );
+  fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data, rlimit_nproc, dumpable );
 
   /* And drop all the capabilities we have in the new user namespace. */
   fd_sandbox_private_drop_caps( cap_last_cap );
@@ -693,6 +695,7 @@ fd_sandbox_enter( uint                 desired_uid,
                   ulong                rlimit_file_cnt,
                   ulong                rlimit_address_space,
                   ulong                rlimit_data,
+                  ulong                rlimit_nproc,
                   ulong                allowed_file_descriptor_cnt,
                   int const *          allowed_file_descriptor,
                   ulong                seccomp_filter_cnt,
@@ -709,6 +712,7 @@ fd_sandbox_enter( uint                 desired_uid,
                                        rlimit_file_cnt,
                                        rlimit_address_space,
                                        rlimit_data,
+                                       rlimit_nproc,
                                        allowed_file_descriptor_cnt,
                                        allowed_file_descriptor );
 
