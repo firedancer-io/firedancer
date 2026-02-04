@@ -98,7 +98,7 @@ fd_vinyl_io_ur_read_imm( fd_vinyl_io_t * io,
 
   sz = wb_read( ur, dst, seq0, sz );
   if( !sz ) return;
-  seq1 = seq0 + sz;
+  seq1 = seq0 + sz; /* unused */
 
   /* Read the rest from disk.  Map seq0 into the bstream store.  Read
      the lesser of sz bytes or until the store end.  If we hit the store
@@ -155,8 +155,8 @@ static void
 rq_push( fd_vinyl_io_ur_t *    ur,
          fd_vinyl_io_ur_rd_t * rd ) {
   rd->next          = NULL;
-  *ur->rd_tail_next = rd;
-  ur->rd_tail_next  = &rd->next;
+  *ur->rq_tail_next = rd;
+  ur->rq_tail_next  = &rd->next;
 }
 
 /* rc_push adds a read job to the early-complete queue. */
@@ -211,15 +211,18 @@ rq_prep( fd_vinyl_io_ur_t *    ur,
   sz -= rsz;
 
   /* Prepare the head SQE */
-  rd->next = NULL;
-  rd->csz  = (uint)rsz;
+  rd->next     = NULL;
+  rd->head_off = 0U;
+  rd->head_sz  = (uint)rsz;
+  rd->tail_off = 0U;
+  rd->tail_sz  = 0U;
   struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
   if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "fd_io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
   *sqe = (struct io_uring_sqe) {
     .opcode    = IORING_OP_READ,
     .fd        = 0, /* fixed file index 0 */
-    .off       = (unsigned long long)(dev_base + dev_off),
-    .addr      = (unsigned long long)rd->dst,
+    .off       = dev_base + dev_off,
+    .addr      = (ulong)rd->dst,
     .len       = (uint)rsz,
     .flags     = IOSQE_FIXED_FILE,
     .user_data = ur_udata_pack_ptr( UR_REQ_READ, rd ),
@@ -229,28 +232,22 @@ rq_prep( fd_vinyl_io_ur_t *    ur,
   ur->cqe_read_pending++;
   if( FD_LIKELY( !sz ) ) return 1; /* optimize for the unfragmented case */
 
-  /* Tail wraparound occurred.  Amend the head SQE to be linked to the
-     tail SQE, detach it from the io_ur descriptor, and suppress the CQE
-     for the head.  If we get a CQE for the tail read job, we know that
-     the head read job also succeeded. */
-  sqe->flags |= IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS;
-  sqe->user_data = ur_udata_pack_ptr( UR_REQ_READ_PART, rd ),
-  ur->cqe_cnt++;  /* Treat as already-completed in metrics */
-
   /* Prepare the tail SQE */
-  rd->csz  = (uint)sz;
+  rd->tail_sz = (uint)sz;
   sqe = fd_io_uring_get_sqe( ring->sq );
   if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "fd_io_uring_get_sqe() returned NULL despite io_uring_sq_space_left()>=2" ));
   *sqe = (struct io_uring_sqe) {
     .opcode    = IORING_OP_READ,
     .fd        = 0, /* fixed file index 0 */
-    .off       = (unsigned long long)dev_base,
-    .addr      = (unsigned long long)rd->dst + rsz,
+    .off       = dev_base,
+    .addr      = (ulong)rd->dst + rsz,
     .len       = (uint)sz,
     .flags     = IOSQE_FIXED_FILE,
-    .user_data = ur_udata_pack_ptr( UR_REQ_READ, rd ),
+    .user_data = ur_udata_pack_ptr( UR_REQ_READ_TAIL, rd ),
   };
   ur->sqe_prep_cnt++;
+  ur->cqe_pending++;
+  ur->cqe_read_pending++;
   return 2;
 }
 
@@ -260,16 +257,16 @@ rq_prep( fd_vinyl_io_ur_t *    ur,
 static void
 rq_clean( fd_vinyl_io_ur_t * ur ) {
   for(;;) {
-    fd_vinyl_io_ur_rd_t * rd = ur->rd_head;
+    fd_vinyl_io_ur_rd_t * rd = ur->rq_head;
     if( !rd ) break;
 
-    fd_vinyl_io_ur_rd_t ** rd_tail_next = ur->rd_tail_next;
-    fd_vinyl_io_ur_rd_t *  rd_next      = rd->next;
+    fd_vinyl_io_ur_rd_t ** rq_tail_next = ur->rq_tail_next;
+    fd_vinyl_io_ur_rd_t *  rq_next      = rd->next;
 
     if( FD_UNLIKELY( rq_prep( ur, rd, rd->seq, rd->sz )<0 ) ) break;
 
-    ur->rd_head      = rd_next;
-    ur->rd_tail_next = fd_ptr_if( !!rd_next, rd_tail_next, &ur->rd_head );
+    ur->rq_head      = rq_next;
+    ur->rq_tail_next = fd_ptr_if( !!rq_next, rq_tail_next, &ur->rq_head );
   }
 }
 
@@ -282,20 +279,58 @@ fd_vinyl_io_ur_read( fd_vinyl_io_t *    io,
   rq_clean( ur );
 }
 
-/* rq_completion handles a read completion. */
+/* rq_prep_retry re-enqueues a SQE after a short read */
+
+static void
+rq_prep_retry( fd_vinyl_io_ur_t *    ur,
+               fd_vinyl_io_ur_rd_t * rd,
+               ulong                 req_type ) {
+  fd_io_uring_t * ring = ur->ring;
+
+  ulong dev_base = ur->dev_base;
+  ulong dev_sz   = ur->dev_sz;
+
+  ulong   frag_dev_off;
+  uchar * frag_dst;
+  ulong   frag_sz;
+  if( FD_LIKELY( req_type==UR_REQ_READ ) ) {
+    frag_dev_off = dev_base + (rd->seq % dev_sz) + rd->head_off;
+    frag_dst     = (uchar *)rd->dst + rd->head_off;
+    frag_sz      = rd->head_sz - rd->head_off;
+  } else { /* tail read */
+    frag_dev_off = dev_base + rd->tail_off;
+    frag_dst     = (uchar *)rd->dst + rd->head_sz + rd->tail_off;
+    frag_sz      = rd->tail_sz - rd->tail_off;
+  }
+
+  struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
+  if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "no SQ space available; unbalanced SQ and CQ?" ));
+  *sqe = (struct io_uring_sqe) {
+    .opcode    = IORING_OP_READ,
+    .fd        = 0, /* fixed file index 0 */
+    .off       = frag_dev_off,
+    .addr      = (ulong)frag_dst,
+    .len       = (uint)frag_sz,
+    .flags     = IOSQE_FIXED_FILE,
+    .user_data = ur_udata_pack_ptr( req_type, rd ),
+  };
+  ur->sqe_prep_cnt++;
+  ur->cqe_pending++;
+  ur->cqe_read_pending++;
+}
+
+/* rq_completion consumes an io_uring CQE.  Returns io_rd if a read job
+   completed, otherwise returns NULL. */
 
 static fd_vinyl_io_rd_t *
 rq_completion( fd_vinyl_io_ur_t * ur ) {
   fd_io_uring_t * ring = ur->ring;
 
   /* The CQE could come in one of these shapes:
-     - Success (full read): implies that all fragments of a ur_rd read
-       have been completed; only generated for the last frag
-     - Short read: crash the app
+     - Success (full read)
+     - Short read: re-enqueue
      - Zero byte read: unexpected EOF reached, crash the app
-     - Error (cancelled): a short read of the head frag broke the SQE
-       chain, the tail got cancelled.  Crash the app
-     - Error (other): crash the app */
+     - Error: crash the app */
 
   FD_CRIT( ur->cqe_pending     >0, "stray completion"      );
   FD_CRIT( ur->cqe_read_pending>0, "stray read completion" );
@@ -309,19 +344,44 @@ rq_completion( fd_vinyl_io_ur_t * ur ) {
   if( cqe_res<0 ) {
     FD_LOG_ERR(( "io_uring read failed (%i-%s)", -cqe_res, fd_io_strerror( -cqe_res ) ));
   }
-  if( FD_UNLIKELY( req_type==UR_REQ_READ_PART ) ) {
-    FD_LOG_ERR(( "io_uring read failed (short read or EOF)" ));
+  if( FD_UNLIKELY( cqe_res==0 ) ) {
+    FD_LOG_ERR(( "io_uring read failed (unexpected EOF)" ));
   }
-  if( FD_UNLIKELY( req_type!=UR_REQ_READ ) ) {
-    FD_LOG_CRIT(( "corrupt CQE (user_data=0x%016llx)", cqe->user_data ));
+
+  /* interpret CQE user data */
+  uint * poff;
+  uint * psz;
+  if( FD_LIKELY( req_type==UR_REQ_READ ) ) {
+    poff = &rd->head_off; psz = &rd->head_sz;
+  } else if( req_type==UR_REQ_WRITE ) {
+    poff = &rd->tail_off; psz = &rd->tail_sz;
+  } else {
+    FD_LOG_CRIT(( "unexpected CQE (user_data=0x%016llx)", cqe->user_data ));
   }
-  if( FD_UNLIKELY( rd->csz!=(uint)cqe_res ) ) {
-    FD_LOG_ERR(( "io_uring read failed (seq=%lu, expected_sz=%u, cqe_res=%d)", rd->seq, rd->csz, cqe_res ));
-  }
+  FD_CRIT( *poff < *psz, "invariant violation" );
   ur->cqe_read_pending--;
   ur->cqe_pending--;
   ur->cqe_cnt++;
   fd_io_uring_cq_advance( ring->cq, 1U );
+
+  /* was this a short read? */
+  if( FD_UNLIKELY( (uint)cqe_res > *psz-*poff ) ) {
+    FD_LOG_CRIT(( "io_uring read returned excess data (seq=%lu expected_sz=%u cqe_res=%d part=%s)",
+                  rd->seq, *psz-*poff, cqe_res, req_type==UR_REQ_READ?"head":"tail" ));
+  }
+  *poff += (uint)cqe_res;
+  if( FD_UNLIKELY( *poff < *psz ) ) {
+    ur->cqe_read_short_cnt++;
+    rq_prep_retry( ur, rd, req_type );
+    return NULL;
+  }
+
+  /* did all reads complete? */
+  if( FD_UNLIKELY( ( rd->head_off < rd->head_sz ) |
+                   ( rd->tail_off < rd->tail_sz ) ) ) {
+    /* need another CQE to make progress */
+    return NULL;
+  }
 
   return (fd_vinyl_io_rd_t *)rd;
 }
@@ -388,7 +448,9 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
       continue;
     }
 
-    *_rd = rq_completion( ur );
+    fd_vinyl_io_rd_t * rd = rq_completion( ur );
+    if( FD_UNLIKELY( !rd ) ) continue;
+    *_rd = rd;
     return FD_VINYL_SUCCESS;
   }
 }

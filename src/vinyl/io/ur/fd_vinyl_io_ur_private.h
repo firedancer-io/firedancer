@@ -55,8 +55,10 @@ struct fd_vinyl_io_ur_rd {
   void *                dst;  /* " */
   ulong                 sz;   /* " */
 
-  uint                  csz;  /* Chunk size */
   fd_vinyl_io_ur_rd_t * next; /* Next element in ur rd queue */
+
+  uint head_off;  uint head_sz;
+  uint tail_off;  uint tail_sz;
 };
 
 FD_STATIC_ASSERT( sizeof(fd_vinyl_io_ur_rd_t)<=sizeof(fd_vinyl_io_rd_t), layout );
@@ -69,25 +71,27 @@ struct fd_vinyl_io_ur {
   ulong                    dev_sync;     /* Offset to block that holds bstream sync (BLOCK_SZ multiple) */
   ulong                    dev_base;     /* Offset to first block (BLOCK_SZ multiple) */
   ulong                    dev_sz;       /* Block store byte size (BLOCK_SZ multiple) */
-  fd_vinyl_io_ur_rd_t *    rd_head;      /* Pointer to queue head */
-  fd_vinyl_io_ur_rd_t **   rd_tail_next; /* Pointer to queue &tail->next or &rd_head if empty. */
   fd_vinyl_bstream_block_t sync[1];
+
+  /* reads waiting to be submitted to io_uring */
+  fd_vinyl_io_ur_rd_t *    rq_head;      /* Pointer to queue head */
+  fd_vinyl_io_ur_rd_t **   rq_tail_next; /* Pointer to queue &tail->next or &rd_head if empty. */
 
   /* reads completed early, awaiting poll() */
   fd_vinyl_io_ur_rd_t *    rc_head;      /* Pointer to queue head */
   fd_vinyl_io_ur_rd_t **   rc_tail_next; /* Pointer to queue &tail->next or &rc_head if empty. */
 
   fd_io_uring_t * ring;
+  ulong sqe_prep_cnt;        /* SQEs sent */
+  ulong sqe_write_tot_sz;    /* Total write size requests in SQEs */
+  ulong sqe_sent_cnt;        /* SQEs submitted */
+  ulong cqe_cnt;             /* CQEs received */
+  uint  cqe_pending;         /* Total CQEs pending */
+  uint  cqe_read_pending;    /* CQEs for reads  pending */
+  uint  cqe_write_pending;   /* CQEs for writes pending */
+  ulong cqe_read_short_cnt;  /* CQEs with short reads received */
 
-  ulong sqe_prep_cnt;     /* SQEs sent */
-  ulong sqe_write_tot_sz; /* Total write size requests in SQEs */
-  ulong sqe_sent_cnt;     /* SQEs submitted */
-  ulong cqe_cnt;          /* CQEs received */
-
-  uint cqe_pending;       /* Total CQEs pending */
-  uint cqe_read_pending;  /* CQEs for reads  pending */
-  uint cqe_write_pending; /* CQEs for writes pending */
-
+  /* write-back cache */
   wb_ring_t wb; /* write buffer */
   ulong     seq_cache;
   ulong     seq_clean;
@@ -214,9 +218,9 @@ fd_vinyl_io_wq_completion( fd_vinyl_io_ur_t * io );
    the descriptor.  Pointers are compressed to 61 bits (since the low
    3 bits are always zero for 8 byte aligned pointers). */
 
-#define UR_REQ_READ      0
-#define UR_REQ_READ_PART 1
-#define UR_REQ_WRITE     2
+#define UR_REQ_READ      0  /* read SQE */
+#define UR_REQ_READ_TAIL 1  /* read SQE, tail wraparound at end of bstream */
+#define UR_REQ_WRITE     2  /* write SQE */
 
 #define UR_REQ_TYPE_WIDTH 3
 #define UR_REQ_TYPE_MASK ((1UL<<UR_REQ_TYPE_WIDTH)-1UL)

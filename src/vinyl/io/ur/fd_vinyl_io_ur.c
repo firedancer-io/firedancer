@@ -13,7 +13,7 @@ fd_vinyl_io_ur_fini( fd_vinyl_io_t * io ) {
   ulong seq_present = ur->base->seq_present;
   ulong seq_future  = ur->base->seq_future;
 
-  if( FD_UNLIKELY( ur->rd_head                                ) ) FD_LOG_WARNING(( "fini completing outstanding reads" ));
+  if( FD_UNLIKELY( ur->rq_head                                ) ) FD_LOG_WARNING(( "fini completing outstanding reads" ));
   if( FD_UNLIKELY( ur->rc_head                                ) ) FD_LOG_WARNING(( "fini completing outstanding reads" ));
   if( FD_UNLIKELY( fd_vinyl_seq_ne( seq_present, seq_future ) ) ) FD_LOG_WARNING(( "fini discarding uncommited blocks" ));
 
@@ -109,8 +109,8 @@ fd_vinyl_io_ur_init( void *          mem,
   ur->dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;      /* Use the rest for the actual bstream store (at least 3.5 KiB) */
   ur->dev_sz   = dev_sz - FD_VINYL_BSTREAM_BLOCK_SZ;
 
-  ur->rd_head      = NULL;
-  ur->rd_tail_next = &ur->rd_head;
+  ur->rq_head      = NULL;
+  ur->rq_tail_next = &ur->rq_head;
 
   ur->rc_head      = NULL;
   ur->rc_tail_next = &ur->rc_head;
