@@ -253,7 +253,7 @@ vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
       .sqe_flags = IOSQE_FIXED_FILE },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
-      .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
+      .sqe_flags = 0 }
   };
   if( FD_UNLIKELY( fd_io_uring_register_restrictions( ctx->ring->ioring_fd, res, 4U )<0 ) ) {
     FD_LOG_ERR(( "io_uring_register_restrictions failed (%i-%s)", errno, fd_io_strerror( errno ) ));
