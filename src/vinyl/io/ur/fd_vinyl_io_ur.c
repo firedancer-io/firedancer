@@ -14,6 +14,7 @@ fd_vinyl_io_ur_fini( fd_vinyl_io_t * io ) {
   ulong seq_future  = ur->base->seq_future;
 
   if( FD_UNLIKELY( ur->rd_head                                ) ) FD_LOG_WARNING(( "fini completing outstanding reads" ));
+  if( FD_UNLIKELY( ur->rc_head                                ) ) FD_LOG_WARNING(( "fini completing outstanding reads" ));
   if( FD_UNLIKELY( fd_vinyl_seq_ne( seq_present, seq_future ) ) ) FD_LOG_WARNING(( "fini discarding uncommited blocks" ));
 
   return io;
@@ -110,6 +111,9 @@ fd_vinyl_io_ur_init( void *          mem,
 
   ur->rd_head      = NULL;
   ur->rd_tail_next = &ur->rd_head;
+
+  ur->rc_head      = NULL;
+  ur->rc_tail_next = &ur->rc_head;
 
   ur->ring = ring;
 

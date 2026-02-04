@@ -73,6 +73,10 @@ struct fd_vinyl_io_ur {
   fd_vinyl_io_ur_rd_t **   rd_tail_next; /* Pointer to queue &tail->next or &rd_head if empty. */
   fd_vinyl_bstream_block_t sync[1];
 
+  /* reads completed early, awaiting poll() */
+  fd_vinyl_io_ur_rd_t *    rc_head;      /* Pointer to queue head */
+  fd_vinyl_io_ur_rd_t **   rc_tail_next; /* Pointer to queue &tail->next or &rc_head if empty. */
+
   fd_io_uring_t * ring;
 
   ulong sqe_prep_cnt;     /* SQEs sent */

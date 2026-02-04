@@ -450,7 +450,7 @@ fd_vinyl_io_ur_forget( fd_vinyl_io_t * io,
 
   int bad_seq    = !fd_ulong_is_aligned( seq, FD_VINYL_BSTREAM_BLOCK_SZ );
   int bad_dir    = !(fd_vinyl_seq_le( seq_past, seq ) & fd_vinyl_seq_le( seq, seq_present ));
-  int bad_read   = !!ur->rd_head;
+  int bad_read   = !!ur->rd_head || !!ur->rc_head;
   int bad_append = fd_vinyl_seq_ne( seq_present, seq_future );
 
   if( FD_UNLIKELY( bad_seq | bad_dir | bad_read | bad_append ) )
@@ -493,7 +493,7 @@ fd_vinyl_io_ur_rewind( fd_vinyl_io_t * io,
   int bad_seq    = !fd_ulong_is_aligned( seq, FD_VINYL_BSTREAM_BLOCK_SZ );
   int bad_past   = fd_vinyl_seq_lt( seq, seq_past    );
   int bad_dir    = fd_vinyl_seq_gt( seq, seq_present );
-  int bad_read   = !!ur->rd_head;
+  int bad_read   = !!ur->rd_head || !!ur->rc_head;
   int bad_append = fd_vinyl_seq_ne( seq_present, seq_future );
 
   if( FD_UNLIKELY( bad_seq | bad_past | bad_dir | bad_read | bad_append ) )
