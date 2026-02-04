@@ -347,7 +347,7 @@ verify_crds_value( fd_gossip_view_crds_value_t const * value,
   return fd_ed25519_verify( payload+value->signature_off+64UL, /* signable data begins after signature */
                             value->length-64UL,                /* signable data length */
                             payload+value->signature_off,
-                            payload+value->pubkey_off,
+                            payload+value->from_off,
                             sha );
 }
 
@@ -454,7 +454,7 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
     if( container->crds_values[ i ].tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
       keep = container->crds_values[ i ].ci_view->contact_info->shred_version==ctx->shred_version;
     } else {
-      peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->crds_values[ i ].pubkey_off), NULL, ctx->peers );
+      peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->crds_values[ i ].from_off), NULL, ctx->peers );
       no_origin = !origin;
       keep = origin && origin->shred_version==ctx->shred_version;
     }
@@ -551,7 +551,7 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
     fd_contact_info_t const * contact_info = value->ci_view->contact_info;
 
     if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=contact_info->instance_creation_wallclock_nanos ) ) continue;
-    if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, payload+value->pubkey_off, 32UL ) ) ) continue;
+    if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, payload+value->from_off, 32UL ) ) ) continue;
 
     FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, contact_info->instance_creation_wallclock_nanos ));
   }
@@ -763,7 +763,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
     if( FD_UNLIKELY( view->pull_request->pr_ci->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
-    if( FD_UNLIKELY( !memcmp( payload+view->pull_request->pr_ci->pubkey_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
+    if( FD_UNLIKELY( !memcmp( payload+view->pull_request->pr_ci->from_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
     if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, view->pull_request->pr_ci->ci_view->contact_info, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
 
     /* TODO: Jitter? */

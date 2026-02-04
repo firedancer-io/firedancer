@@ -574,7 +574,8 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL: {
       if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for peers." ));
 
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
+      FD_TEST( ctx->predicted_incremental.full_slot!=ULONG_MAX );
+      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
       if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
         ctx->deadline_nanos = now;
@@ -771,11 +772,8 @@ after_credit( fd_snapct_tile_t *  ctx,
       /* Get the best incremental peer to download from */
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
-        /* FIXME: We should just transition to collecting_peers_incremental
-           here rather than failing the full snapshot? */
-        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->flush_ack = 0;
-        ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
+        ctx->deadline_nanos = now;
+        ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
         break;
       }
 
