@@ -376,7 +376,7 @@ after_frag( fd_gui_ctx_t *      ctx,
           ctx->peers->votes[ vote_count ].stake               = vote_state->stake;
           ctx->peers->votes[ vote_count ].last_vote_slot      = vote_state->last_vote_slot;
           ctx->peers->votes[ vote_count ].last_vote_timestamp = vote_state->last_vote_timestamp;
-          ctx->peers->votes[ vote_count ].commission          = vote_state->commission;
+          ctx->peers->votes[ vote_count ].commission          = (uchar)(vote_state->commission_bps / 100U);
           // ctx->peers->votes[ vote_count ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
           // ctx->peers->votes[ vote_count ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
 

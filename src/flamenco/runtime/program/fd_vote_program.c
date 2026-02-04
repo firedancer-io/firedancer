@@ -932,6 +932,71 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
   );
 }
 
+/* SIMD-0291: Update commission rate in basis points
+   https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L871-L906 */
+static int
+update_commission_bps( fd_exec_instr_ctx_t *   ctx,
+                       int                     target_version,
+                       fd_borrowed_account_t * vote_account,
+                       ushort                  commission_bps,
+                       fd_commission_kind_t *  kind,
+                       fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX],
+                       ulong                   signers_cnt ) {
+
+  /* SIMD-0291: Commission Rate in Basis Points
+     Requires SIMD-0185: Vote State V4
+     Requires SIMD-0249: Delay Commission Updates
+     https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_processor.rs#L324-L333 */
+  if( !FD_FEATURE_ACTIVE_BANK( ctx->bank, commission_rate_in_basis_points ) ||
+      !FD_FEATURE_ACTIVE_BANK( ctx->bank, delay_commission_updates ) ||
+      target_version != VOTE_STATE_TARGET_VERSION_V4 ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+
+  /* TODO: fill in this block when block_revenue_sharing is implemented
+     https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L880-L884 */
+  if( kind->discriminant == fd_commission_kind_enum_block_revenue ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L886-L889 */
+  int rc = get_vote_state_handler_checked(
+      vote_account,
+      target_version,
+      false,
+      ctx->runtime->vote_program.update_commission.vote_state_mem,
+      ctx->runtime->vote_program.update_commission.authorized_voters_mem,
+      ctx->runtime->vote_program.update_commission.landed_votes_mem
+  );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  fd_vote_state_versioned_t * vote_state_versioned =
+      (fd_vote_state_versioned_t *)ctx->runtime->vote_program.update_commission.vote_state_mem;
+
+  /* Require authorized withdrawer to sign.
+     https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L893-L894 */
+  rc = fd_vote_verify_authorized_signer(
+      fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
+      signers,
+      signers_cnt
+  );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  /* https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_state/mod.rs#L896-L903 */
+  if( vote_state_versioned->discriminant == fd_vote_state_versioned_enum_v4 ) {
+    vote_state_versioned->inner.v4.inflation_rewards_commission_bps = commission_bps;
+  }
+  /* TODO: add BlockRevenue case when implementing block_revenue_sharing */
+
+  /* Write back to account */
+  return fd_vsv_set_vote_account_state(
+      ctx,
+      vote_account,
+      vote_state_versioned,
+      ctx->runtime->vote_program.update_commission.vote_lockout_mem
+  );
+}
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L848C8-L903 */
 static int
 withdraw( fd_exec_instr_ctx_t *         ctx,
@@ -2081,7 +2146,75 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     break;
   }
 
+  /* InitializeAccountV2
+   *
+   * Instruction:
+   * https://github.com/anza-xyz/solana-sdk/blob/master/vote-interface/src/instruction.rs#L195-L200
+   *
+   * Processor:
+   * https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_processor.rs#L302-L319
+   *
+   * Notes:
+   * - TODO: implement with bls_pubkey_management_in_vote_account
+   */
+  case fd_vote_instruction_enum_initialize_account_v2: {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+
+  /* UpdateCommissionCollector
+   *
+   * Instruction:
+   * https://github.com/anza-xyz/solana-sdk/blob/master/vote-interface/src/instruction.rs#L202-L210
+   *
+   * Processor:
+   * https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_processor.rs#L343-L371
+   *
+   * Notes:
+   * - TODO: implement with custom_commission_collector
+   */
+  case fd_vote_instruction_enum_update_commission_collector: {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+
+  /* UpdateCommissionBps
+   *
+   * Instruction:
+   * https://github.com/anza-xyz/solana-sdk/blob/master/vote-interface/src/instruction.rs#L212-L221
+   *
+   * Processor:
+   * https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_processor.rs#L320-L342
+   *
+   */
+  case fd_vote_instruction_enum_update_commission_bps: {
+    rc = update_commission_bps(
+        ctx,
+        target_version,
+        &me,
+        instruction->inner.update_commission_bps.commission_bps,
+        &instruction->inner.update_commission_bps.kind,
+        signers,
+        signers_cnt
+    );
+    break;
+  }
+
+  /* DepositDelegatorRewards
+   *
+   * Instruction:
+   * https://github.com/anza-xyz/solana-sdk/blob/master/vote-interface/src/instruction.rs#L261-L265
+   *
+   * Processor:
+   * https://github.com/anza-xyz/agave/blob/master/programs/vote/src/vote_processor.rs#L372-L391
+   *
+   * Notes:
+   * - TODO: implement with block_revenue_sharing
+   */
+  case fd_vote_instruction_enum_deposit_delegator_rewards: {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+
   default:
+    /* unreachable due to limited_deserialize */
     FD_LOG_CRIT(( "unsupported vote instruction: %u", instruction->discriminant ));
   }
 

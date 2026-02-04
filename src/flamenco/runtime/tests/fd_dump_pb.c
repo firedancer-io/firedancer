@@ -481,7 +481,7 @@ create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vot
       .v3 = {
         .node_pubkey           = vote_state->node_account,
         .authorized_withdrawer = vote_state->node_account,
-        .commission            = vote_state->commission,
+        .commission            = (uchar)(vote_state->commission_bps / 100U),
         .root_slot             = 0UL,
         .has_root_slot         = 0,
         .last_timestamp        = {
