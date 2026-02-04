@@ -72,6 +72,10 @@ typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
 struct fd_execrp_txn_sigverify_done_msg {
   ulong txn_idx;
   int   err;
+
+  /* We echo these back to replay so tower tile can snoop on these for
+     sigverified votes. */
+  fd_txn_p_t txn[ 1 ];
 };
 typedef struct fd_execrp_txn_sigverify_done_msg fd_execrp_txn_sigverify_done_msg_t;
 

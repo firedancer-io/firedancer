@@ -252,6 +252,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         out_msg->bank_idx               = msg->bank_idx;
         out_msg->txn_sigverify->txn_idx = msg->txn_idx;
         out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
+        memcpy( out_msg->txn_sigverify->txn, msg->txn, sizeof(out_msg->txn_sigverify->txn) );
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
