@@ -5,7 +5,7 @@
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v1_t)<=alignof(fd_accdb_user_t), layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_user_v1_t)<=sizeof(fd_accdb_user_t),  layout );
 
-int
+static int
 fd_accdb_search_chain( fd_funk_t const *          funk,
                        fd_accdb_lineage_t const * lineage,
                        ulong                      chain_idx,
