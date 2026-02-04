@@ -110,6 +110,15 @@
 
     mymap_t * mymap_insert( mymap_t * map, ulong key );
 
+    // Same as mymap_insert, except if key is already in the map, returns
+    // the existing map entry and set value pointed by exist to 1.
+    // Otherwise, the inserted map entry will be returned and set value
+    // pointed by exist to 0.
+    // Still returns NULL on other failures and value pointed by exist
+    // will be undefined.
+
+    mymap_t * mymap_insert_maybe_exist( mymap_t * map, ulong key, int * exist );
+
     // Remove entry from map, fast O(1).  Assumes map is a current join
     // and that entry points to a full entry currently in the map.
     // Removal performance very slightly more optimal if sizeof(mymap_t)
@@ -536,6 +545,49 @@ MAP_(query)( MAP_T *   map,
 
     slot = MAP_(private_next)( slot, slot_mask );
   }
+  return m;
+}
+
+FD_FN_UNUSED static MAP_T * /* Work around -Winline */
+MAP_(insert_maybe_exist)( MAP_T *   map,
+                          MAP_KEY_T key,
+                          int *     exist ) {
+# if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(key_inval)( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
+# endif
+  MAP_(private_t) * hdr = MAP_(private_from_slot)( map );
+
+  ulong key_cnt   = hdr->key_cnt;
+  ulong slot_mask = hdr->slot_mask; /* == key_max (FIXME: MAKE KEY_MAX DISTINCT FROM SLOT_MASK?) */
+  if( FD_UNLIKELY( key_cnt >= slot_mask ) ) return NULL;
+
+  MAP_HASH_T hash = MAP_(key_hash)( key, hdr->seed );
+  ulong      slot = MAP_(private_start)( hash, slot_mask );
+  MAP_T * m;
+  for(;;) {
+    m = map + slot;
+    MAP_KEY_T map_key = m->MAP_KEY;
+    if( FD_LIKELY( MAP_(key_inval)( map_key ) ) ) break; /* Optimize for not found */
+#   if MAP_MEMOIZE && MAP_KEY_EQUAL_IS_SLOW              /* ... and then for searching */
+    if( FD_UNLIKELY( m->MAP_HASH==hash && MAP_(key_equal)( map_key, key ) ) ) {
+      *exist = 1;
+      return m;
+    }
+#   else
+    if( FD_UNLIKELY( MAP_(key_equal)( map_key, key ) ) ) {
+      *exist = 1;
+      return m;
+    }
+#   endif
+    slot = MAP_(private_next)( slot, slot_mask );
+  }
+  MAP_KEY_MOVE( m->MAP_KEY, key );
+# if MAP_MEMOIZE
+  m->MAP_HASH = hash;
+# endif
+  hdr->key_cnt = key_cnt + 1UL;
+
+  *exist = 0;
   return m;
 }
 
