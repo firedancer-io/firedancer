@@ -210,6 +210,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1116 */
       err = fd_borrowed_account_set_data_from_slice( &callee_acc, caller_account->serialized_data, caller_account->serialized_data_len );
       if( FD_UNLIKELY( err ) ) {
+        FD_BASE58_ENCODE_32_BYTES( callee_acc.pubkey->uc, key_b58 );
+        FD_LOG_WARNING(( "setting data from slice %s", key_b58 ));
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );
         return -1;
       }

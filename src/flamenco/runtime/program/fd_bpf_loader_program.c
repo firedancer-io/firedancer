@@ -636,7 +636,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
     uchar * signature = (uchar *)instr_ctx->txn_in->txn->payload + TXN( instr_ctx->txn_in->txn )->signature_off;
     FD_BASE58_ENCODE_64_BYTES(signature, signature_b58);
-    FD_LOG_NOTICE(( "error: %s %d %d %d", signature_b58, instr_ctx->txn_out->err.exec_err, instr_ctx->txn_out->err.exec_err_kind, exec_err ));
+    FD_LOG_NOTICE(( "error: %s %d %d %d %u", signature_b58, instr_ctx->txn_out->err.exec_err, instr_ctx->txn_out->err.exec_err_kind, exec_err, instr_ctx->instr->program_id ));
 
 
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
