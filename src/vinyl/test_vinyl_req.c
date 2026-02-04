@@ -33,8 +33,9 @@ req( int                    type,    /* request type */
   switch( type ) {
 
   case FD_VINYL_REQ_TYPE_ACQUIRE: {
+    if( !ref.quota_rem ) return FD_VINYL_ERR_FULL;  /* (comp err) client quota exhausted */
+
     if( fd_vinyl_req_flag_modify( flags ) && (val_max>FD_VINYL_VAL_MAX) ) return FD_VINYL_ERR_INVAL; /* bad req val_max */
-    if( !ref.quota_rem                                                  ) return FD_VINYL_ERR_FULL;  /* client quota exhausted */
 
     ulong    idx  = 0UL;
     pair_t * pair = NULL;
@@ -484,24 +485,30 @@ client_tile( ulong            iter_max,
       FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
-    case 6: /* acquire with bad val_max */
-      val_gaddr[0] = val_max_bad;
-      FD_TEST( req( FD_VINYL_REQ_TYPE_ACQUIRE, flags | FD_VINYL_REQ_FLAG_MODIFY, val_max_bad,
-                    src_key, NULL, NULL )==FD_VINYL_ERR_INVAL );
-      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags | FD_VINYL_REQ_FLAG_MODIFY, 1UL,
-                        src_key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
-      FD_TEST( comp->err      ==FD_VINYL_SUCCESS ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0        ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
-      FD_TEST( err[0]==(schar)FD_VINYL_ERR_INVAL );
-      break;
-
-    case 7: /* acquire with zero batch */
+    case 6: /* acquire with zero batch */
       val_gaddr[0] = val_max;
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, 0UL,
                         0UL, 0UL, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS  ); FD_TEST( comp->batch_cnt==(ushort)0             );
       FD_TEST( comp->fail_cnt ==(ushort)0         ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
+
+    case 7: { /* acquire with bad val_max */
+      pair_t * pair;
+      int ref_err = req( FD_VINYL_REQ_TYPE_ACQUIRE, flags | FD_VINYL_REQ_FLAG_MODIFY, val_max_bad, src_key, &pair, NULL );
+      val_gaddr[0] = val_max_bad;
+      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags | FD_VINYL_REQ_FLAG_MODIFY, 1UL,
+                        src_key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
+      if( ref_err==FD_VINYL_ERR_FULL ) {
+        FD_TEST( comp->err      ==FD_VINYL_ERR_FULL ); FD_TEST( comp->batch_cnt==(ushort)1             );
+        FD_TEST( comp->fail_cnt ==(ushort)0         ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
+        break;
+      }
+      FD_TEST( comp->err      ==FD_VINYL_SUCCESS ); FD_TEST( comp->batch_cnt==(ushort)1             );
+      FD_TEST( comp->fail_cnt ==(ushort)1        ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
+      FD_TEST( err[0]==(schar)FD_VINYL_ERR_INVAL );
+      break;
+    }
 
     case 8: { /* acquire */
       pair_t * pair;
@@ -837,7 +844,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  if( FD_UNLIKELY( fd_tile_cnt() < 2UL ) ) FD_LOG_ERR(( "This test requires at least tiles" ));
+  if( FD_UNLIKELY( fd_tile_cnt() < 2UL ) ) FD_LOG_ERR(( "This test requires at least 2 tiles" ));
 
   char const * _wksp       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",        NULL,                   NULL );
   char const * _page_sz    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",     NULL,             "gigantic" );
@@ -920,7 +927,7 @@ main( int     argc,
   ulong thread_cnt = fd_tile_cnt();
 
   if( FD_LIKELY( thread_cnt>1UL ) ) {
-    FD_LOG_NOTICE(( "Creating temporary tpool from all %lu tiles for thread paralel init", thread_cnt ));
+    FD_LOG_NOTICE(( "Creating temporary tpool from all %lu tiles for thread parallel init", thread_cnt ));
 
     static uchar _tpool[ FD_TPOOL_FOOTPRINT( FD_TILE_MAX ) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
 
