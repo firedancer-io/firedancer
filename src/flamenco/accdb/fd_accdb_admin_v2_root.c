@@ -118,10 +118,11 @@ funk_remove_rec( fd_funk_t *     funk,
 /* Main algorithm */
 
 fd_funk_rec_t *
-fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
-                           fd_funk_rec_t *       head ) {
+fd_accdb_v2_root_batch( fd_accdb_admin_v2_t * admin,
+                        fd_funk_rec_t *       rec0 ) {
   long t_start = fd_tickcount();
 
+  fd_accdb_lineage_t *  lineage   = admin->root_lineage;
   fd_funk_t *           funk      = admin->v1->funk;        /* unrooted DB */
   fd_wksp_t *           funk_wksp = funk->wksp;             /* shm workspace containing unrooted accounts */
   fd_funk_rec_t *       rec_pool  = funk->rec_pool->ele;    /* funk rec arena */
@@ -131,21 +132,34 @@ fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
   fd_wksp_t *           data_wksp = admin->vinyl_data_wksp; /* shm workspace containing vinyl data cache */
   ulong                 link_id   = admin->vinyl_link_id;   /* vinyl client ID */
 
+  ulong rec_map_seed      = funk->rec_map->map->seed;
+  ulong rec_map_chain_cnt = funk->rec_map->map->chain_cnt;
+
   /* Collect funk request batch */
 
   fd_funk_rec_t * recs[ FD_ACCDB_ROOT_BATCH_MAX ];
   ulong           rec_cnt;
 
-  for( rec_cnt=0UL; head && rec_cnt<FD_ACCDB_ROOT_BATCH_MAX; rec_cnt++ ) {
-    uint next_idx = head->next_idx;
-    head->prev_idx = FD_FUNK_REC_IDX_NULL;
-    head->next_idx = FD_FUNK_REC_IDX_NULL;
-
-    recs[ rec_cnt ] = head;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) {
-      head = NULL;
+  fd_funk_rec_t * next = rec0;
+  for( rec_cnt=0UL; next && rec_cnt<FD_ACCDB_ROOT_BATCH_MAX; ) {
+    fd_funk_rec_t * cur = next;
+    if( fd_funk_rec_idx_is_null( cur->next_idx ) ) {
+      next = NULL;
     } else {
-      head = &rec_pool[ next_idx ];
+      next = &rec_pool[ cur->next_idx ];
+    }
+    cur->prev_idx = FD_FUNK_REC_IDX_NULL;
+    cur->next_idx = FD_FUNK_REC_IDX_NULL;
+
+    ulong hash      = fd_funk_rec_map_key_hash( &cur->pair, rec_map_seed );
+    ulong chain_idx = (hash & (rec_map_chain_cnt-1UL) );
+    fd_funk_rec_t * found_rec = NULL;
+    FD_TEST( fd_accdb_search_chain( funk, lineage, chain_idx, cur->pair.key, &found_rec )==FD_MAP_SUCCESS );
+    if( found_rec==cur ) {
+      recs[ rec_cnt++ ] = cur;
+    } else {
+      funk_remove_rec( funk, cur );
+      admin->base.gc_root_cnt++;
     }
   }
 
@@ -189,8 +203,8 @@ fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
 
   memset( acq_comp, 0, sizeof(fd_vinyl_comp_t) );
   memset( del_comp, 0, sizeof(fd_vinyl_comp_t) );
-  for( ulong i=0UL; i<acq_cnt; i++ ) acq_err0      [ i ] = 0;
-  for( ulong i=0UL; i<del_cnt; i++ ) del_err0      [ i ] = 0;
+  for( ulong i=0UL; i<acq_cnt; i++ ) acq_err0[ i ] = 0;
+  for( ulong i=0UL; i<del_cnt; i++ ) del_err0[ i ] = 0;
   for( ulong i=0UL; i<acq_cnt; i++ ) {
     fd_account_meta_t const * src_meta = fd_funk_val( recs[ i ], funk_wksp );
 
@@ -277,5 +291,5 @@ fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
   admin->base.dt_copy     += ( t_copy - t_acquire );
   admin->base.dt_gc       += ( t_gc - t_release );
 
-  return head;
+  return next;
 }

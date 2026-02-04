@@ -92,7 +92,7 @@ publish_recs( fd_accdb_admin_v2_t * admin,
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
   while( head ) {
-    head = fd_accdb_v2_publish_batch( admin, head );
+    head = fd_accdb_v2_root_batch( admin, head );
   }
 }
 
@@ -130,11 +130,15 @@ fd_accdb_txn_publish_one( fd_accdb_admin_v2_t * accdb,
                           fd_funk_txn_t *       txn ) {
   fd_funk_t * funk = accdb->v1->funk;
 
+  /* Children of transaction are now children of root */
+  funk->shmem->child_head_cidx = txn->child_head_cidx;
+  funk->shmem->child_tail_cidx = txn->child_tail_cidx;
+
   /* Phase 1: Mark transaction as "last published" */
 
   fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_copy( xid, fd_funk_txn_xid( txn ) );
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
-    FD_LOG_CRIT(( "fd_accdb_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid->ul[0], xid->ul[1] ));
+    FD_LOG_CRIT(( "fd_accdb_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
   }
   fd_funk_txn_xid_st_atomic( funk->shmem->last_publish, xid );
   FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: publish", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
@@ -164,6 +168,8 @@ fd_accdb_v2_advance_root( fd_accdb_admin_t *        accdb_,
   fd_accdb_admin_v2_t * accdb = downcast( accdb_ );
   fd_funk_t *           funk  = accdb->v1->funk;
 
+  fd_accdb_lineage_set_fork( accdb->root_lineage, funk, xid );
+
   /* Assume no concurrent access to txn_map */
 
   fd_funk_txn_map_query_t query[1];
@@ -174,21 +180,34 @@ fd_accdb_v2_advance_root( fd_accdb_admin_t *        accdb_,
   }
   fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
-  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
-    FD_LOG_CRIT(( "fd_accdb_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
-  }
-
   FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: advancing root",
                 (void *)txn,
                 xid->ul[0], xid->ul[1] ));
 
   fd_accdb_txn_cancel_siblings( accdb->v1, txn );
 
-  /* Children of transaction are now children of root */
-  funk->shmem->child_head_cidx = txn->child_head_cidx;
-  funk->shmem->child_tail_cidx = txn->child_tail_cidx;
+  fd_accdb_lineage_t * lineage    = accdb->root_lineage;
+  fd_funk_txn_xid_t    oldest_xid = lineage->fork[ lineage->fork_depth-1UL ];
+  if( fd_funk_txn_xid_eq_root( &oldest_xid ) && lineage->fork_depth>1UL ) {
+    oldest_xid = lineage->fork[ lineage->fork_depth-2UL ];
+  }
 
-  fd_accdb_txn_publish_one( accdb, txn );
+  ulong delay = xid->ul[0] - oldest_xid.ul[0];
+  if( delay >= accdb->slot_delay ) {
+    FD_LOG_INFO(( "accdb xid %lu:%lu: pruning",
+                  oldest_xid.ul[0], oldest_xid.ul[1] ));
+    fd_funk_txn_t * oldest = &funk->txn_pool->ele[ funk->shmem->child_head_cidx ];
+    FD_TEST( fd_funk_txn_xid_eq( &oldest_xid, &oldest->xid ) );
+    fd_accdb_txn_publish_one( accdb, oldest );
+  }
+}
+
+void
+fd_accdb_admin_v2_delay_set( fd_accdb_admin_t * accdb_,
+                             ulong              slot_delay ) {
+  fd_accdb_admin_v2_t * accdb = downcast( accdb_ );
+  if( FD_UNLIKELY( !slot_delay ) ) FD_LOG_CRIT(( "invalid slot_delay (%lu)", slot_delay ));
+  accdb->slot_delay = slot_delay;
 }
 
 fd_accdb_admin_vt_t const fd_accdb_admin_v2_vt = {

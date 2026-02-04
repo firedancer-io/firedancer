@@ -2568,6 +2568,7 @@ unprivileged_init( fd_topo_t *      topo,
         topo->workspaces[ vinyl_data->wksp_id ].wksp,
         fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
         vinyl_rq->id ) );
+    fd_accdb_admin_v2_delay_set( ctx->accdb_admin, tile->replay.write_delay_slots );
   }
   fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 

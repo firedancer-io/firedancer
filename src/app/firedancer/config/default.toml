@@ -566,6 +566,12 @@ telemetry = true
     # DRAM reservation for the vinyl in-memory cache.
     cache_size_gib = 2
 
+    # Delay writing of accounts to disk by a number of slots.
+    # An account only gets written to disk when it is unchanged for more
+    # or equal the specified number of slots.  This greatly reduces disk
+    # I/O.
+    write_delay_slots = 64
+
     # Faster disk I/O using io_uring.
     #
     # Firedancer can use modern kernel APIs to improve database
