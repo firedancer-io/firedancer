@@ -4,6 +4,16 @@
 #include "../../../util/net/fd_net_headers.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 
+#define FD_SNAPSHOT_DEBUG_ERROR_INCR 1
+
+#ifndef FD_SNAPSHOT_DEBUG_ERROR_FULL
+#define FD_SNAPSHOT_DEBUG_ERROR_FULL 0
+#endif
+
+#ifndef FD_SNAPSHOT_DEBUG_ERROR_INCR
+#define FD_SNAPSHOT_DEBUG_ERROR_INCR 0
+#endif
+
 /* The snapshot tiles have a somewhat involved state machine, which is
    controlled by snapct.  Imagine first the following sequence:
 

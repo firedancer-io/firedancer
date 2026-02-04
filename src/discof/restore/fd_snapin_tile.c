@@ -644,6 +644,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
                ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
+#if FD_SNAPSHOT_DEBUG_ERROR_FULL
+      transition_malformed( ctx, stem );
+      break;
+#endif
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
         transition_malformed( ctx, stem );
         break;
@@ -661,6 +665,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
                ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
+#if FD_SNAPSHOT_DEBUG_ERROR_INCR
+      transition_malformed( ctx, stem );
+      break;
+#endif
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
         transition_malformed( ctx, stem );
         break;

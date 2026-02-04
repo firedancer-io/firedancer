@@ -23,9 +23,7 @@
 #define NAME "snapct"
 
 /* FIXME: Implement full_effective_age_cancel_threshold */
-/* FIXME: Add more timeout config options and have consistent behavior */
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
-/* FIXME: Improve behavior when using incremental_snapshots = false */
 /* FIXME: Handle cases where no explicitly allowed peers advertise RPC */
 /* FIXME: Make the code more strict about duplicate IP:port's */
 
