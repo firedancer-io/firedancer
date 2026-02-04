@@ -86,26 +86,18 @@ fd_funk_rec_admin_unlock( fd_funk_rec_t * rec,
 }
 
 static void
-funk_remove_rec( fd_funk_t *     funk,
-                 fd_funk_rec_t * rec ) {
-
-  /* Step 1: Remove record from map */
-
-  fd_funk_xid_key_pair_t pair = rec->pair;
-  fd_funk_rec_query_t query[1];
-  int rm_err = fd_funk_rec_map_remove( funk->rec_map, &pair, NULL, query, FD_MAP_FLAG_BLOCKING );
-  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", rm_err, fd_map_strerror( rm_err ) ));
-  FD_COMPILER_MFENCE();
-
-  /* Step 2: Acquire admin lock (kick out readers)
+funk_free_rec( fd_funk_t *     funk,
+               fd_funk_rec_t * rec ) {
+  /* Acquire admin lock (kick out readers)
 
      Note: At this point, well-behaving external readers will abandon a
      read-lock attempt if they observe this active write lock.  (An
      admin lock always implies the record is about to die) */
 
+  FD_COMPILER_MFENCE();
   ulong ver_lock = fd_funk_rec_admin_lock( rec );
 
-  /* Step 3: Free record */
+  /* Free record */
 
   memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
   FD_COMPILER_MFENCE();
@@ -115,6 +107,100 @@ funk_remove_rec( fd_funk_t *     funk,
   fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
 }
 
+/* funk_gc_chain optimistically deletes all but the newest rooted
+   revisions of rec.  This possibly deletes 'rec'.  Returns rec if rec
+   is the only known rooted revision, otherwise returns NULL (if rec was
+   deleted).  Note that due to edge cases, revisions that are not in the
+   oldest tracked slot, may not reliably get cleaned up.  (The oldest
+   tracked slot always gets cleaned up, though.) */
+
+static fd_funk_rec_t *
+funk_gc_chain( fd_accdb_admin_v2_t * const admin,
+               fd_funk_rec_t *       const rec ) {
+
+  fd_accdb_lineage_t * lineage   = admin->root_lineage;
+  fd_funk_t *          funk      = admin->v1->funk;
+  fd_funk_rec_t *      rec_pool  = funk->rec_pool->ele;
+  ulong                rec_max   = funk->rec_pool->ele_max;
+  ulong                seed      = funk->rec_map->map->seed;
+  ulong                chain_cnt = funk->rec_map->map->chain_cnt;
+  ulong                root_slot = lineage->fork[0].ul[0];
+
+  ulong hash      = fd_funk_rec_map_key_hash( &rec->pair, seed );
+  ulong chain_idx = (hash & (chain_cnt-1UL) );
+
+  /* Lock rec_map chain */
+
+  int lock_err = fd_funk_rec_map_iter_lock( funk->rec_map, &chain_idx, 1UL, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY( lock_err!=FD_MAP_SUCCESS ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_iter_lock failed (%i-%s)", lock_err, fd_map_strerror( lock_err ) ));
+  }
+
+  fd_funk_rec_map_shmem_private_chain_t * chain =
+      fd_funk_rec_map_shmem_private_chain( funk->rec_map->map, 0UL ) + chain_idx;
+  ulong ver =
+      fd_funk_rec_map_private_vcnt_ver( FD_VOLATILE_CONST( chain->ver_cnt ) );
+  FD_CRIT( ver&1UL, "chain is not locked" );
+
+  /* Walk map chain */
+
+  fd_funk_rec_t * found_rec = NULL;
+  uint *          pnext     = &chain->head_cidx;
+  uint            cur       = *pnext;
+  ulong           chain_len = 0UL;
+  ulong           iter      = 0UL;
+  while( cur!=FD_FUNK_REC_IDX_NULL ) {
+    if( FD_UNLIKELY( iter++ > rec_max ) ) FD_LOG_CRIT(( "cycle detected in rec_map chain %lu", chain_idx ));
+
+    /* Is this node garbage? */
+
+    fd_funk_rec_t * node = &funk->rec_pool->ele[ cur ];
+    if( FD_UNLIKELY( cur==node->map_next ) ) FD_LOG_CRIT(( "accdb corruption detected: cycle in rec_map chain %lu", chain_idx ));
+    cur = node->map_next;
+    if( !fd_funk_rec_key_eq( rec->pair.key, node->pair.key ) ) goto retain;
+    if( node->pair.xid->ul[0]>root_slot ) goto retain;
+    if( !found_rec ) {
+      found_rec = node;
+      goto retain;
+    }
+
+    /* No longer need this node */
+
+    if( node->pair.xid->ul[0] > rec->pair.xid->ul[0] ) {
+      /* If this node is newer than the to-be-deleted slot, need to
+         remove it from the transaction's record list. */
+      uint neigh_prev = node->prev_idx;
+      uint neigh_next = node->next_idx;
+      if( neigh_prev==FD_FUNK_REC_IDX_NULL ||
+          neigh_next==FD_FUNK_REC_IDX_NULL ) {
+        /* Node is first or last of transaction -- too bothersome to
+           remove it from the transaction's record list */
+        goto retain;
+      }
+      rec_pool[ neigh_next ].prev_idx = neigh_prev;
+      rec_pool[ neigh_prev ].next_idx = neigh_next;
+    }
+
+    /* Destroy this node */
+
+    funk_free_rec( funk, node );
+    *pnext = cur;
+    continue;
+
+  retain:
+    pnext = &node->map_next;
+    chain_len++;
+  }
+
+  /* Unlock rec_map chain */
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( chain->ver_cnt ) =
+      fd_funk_rec_map_private_vcnt( ver+1UL, chain_len );
+  FD_COMPILER_MFENCE();
+  return found_rec==rec ? found_rec : NULL;
+}
+
 /* Main algorithm */
 
 fd_funk_rec_t *
@@ -122,7 +208,6 @@ fd_accdb_v2_root_batch( fd_accdb_admin_v2_t * admin,
                         fd_funk_rec_t *       rec0 ) {
   long t_start = fd_tickcount();
 
-  fd_accdb_lineage_t *  lineage   = admin->root_lineage;
   fd_funk_t *           funk      = admin->v1->funk;        /* unrooted DB */
   fd_wksp_t *           funk_wksp = funk->wksp;             /* shm workspace containing unrooted accounts */
   fd_funk_rec_t *       rec_pool  = funk->rec_pool->ele;    /* funk rec arena */
@@ -131,9 +216,6 @@ fd_accdb_v2_root_batch( fd_accdb_admin_v2_t * admin,
   fd_wksp_t *           req_wksp  = admin->vinyl_req_wksp;  /* shm workspace containing request buffer */
   fd_wksp_t *           data_wksp = admin->vinyl_data_wksp; /* shm workspace containing vinyl data cache */
   ulong                 link_id   = admin->vinyl_link_id;   /* vinyl client ID */
-
-  ulong rec_map_seed      = funk->rec_map->map->seed;
-  ulong rec_map_chain_cnt = funk->rec_map->map->chain_cnt;
 
   /* Collect funk request batch */
 
@@ -151,15 +233,8 @@ fd_accdb_v2_root_batch( fd_accdb_admin_v2_t * admin,
     cur->prev_idx = FD_FUNK_REC_IDX_NULL;
     cur->next_idx = FD_FUNK_REC_IDX_NULL;
 
-    ulong hash      = fd_funk_rec_map_key_hash( &cur->pair, rec_map_seed );
-    ulong chain_idx = (hash & (rec_map_chain_cnt-1UL) );
-    fd_funk_rec_t * found_rec = NULL;
-    FD_TEST( fd_accdb_search_chain( funk, lineage, chain_idx, cur->pair.key, &found_rec )==FD_MAP_SUCCESS );
-    if( found_rec==cur ) {
+    if( funk_gc_chain( admin, cur ) ) {
       recs[ rec_cnt++ ] = cur;
-    } else {
-      funk_remove_rec( funk, cur );
-      admin->base.gc_root_cnt++;
     }
   }
 
@@ -279,7 +354,11 @@ fd_accdb_v2_root_batch( fd_accdb_admin_v2_t * admin,
   /* Remove funk records */
 
   for( ulong i=0UL; i<rec_cnt; i++ ) {
-    funk_remove_rec( funk, recs[ i ] );
+    fd_funk_xid_key_pair_t pair = recs[ i ]->pair;
+    fd_funk_rec_query_t query[1];
+    int rm_err = fd_funk_rec_map_remove( funk->rec_map, &pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+    if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", rm_err, fd_map_strerror( rm_err ) ));
+    funk_free_rec( funk, recs[ i ] );
   }
   long t_gc = fd_tickcount();
 

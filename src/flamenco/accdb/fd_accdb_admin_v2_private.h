@@ -57,13 +57,6 @@ fd_funk_rec_t *
 fd_accdb_v2_root_batch( fd_accdb_admin_v2_t * admin,
                         fd_funk_rec_t *       rec0 );
 
-int
-fd_accdb_search_chain( fd_funk_t const *          funk,
-                       fd_accdb_lineage_t const * lineage,
-                       ulong                      chain_idx,
-                       fd_funk_rec_key_t const *  key,
-                       fd_funk_rec_t **           out_rec );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_admin_v2_private_h */
