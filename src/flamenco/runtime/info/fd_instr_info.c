@@ -67,7 +67,7 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
     fd_accdb_rw_t const * ref = &txn_out->accounts.account[ idx_in_txn ];
 
-    if( !ref || instr->is_duplicate[i] ) {
+    if( instr->is_duplicate[i] ) {
       continue;
     }
 
