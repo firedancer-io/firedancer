@@ -163,8 +163,9 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
     fd_hash_t mr;
     fd_hash_t cmr;
   } merkle_roots[ FD_FEC_BLK_MAX + 1 ]; /* +1 -> .cmr will be populated when the block id is confirmed */
-  fd_forest_merkle_t    merkle_recvd[fd_forest_merkle_word_cnt];
-  fd_forest_merkle_t merkle_verified[fd_forest_merkle_word_cnt];
+  uint lowest_verified_fec; /* lowest fec index that has been verified so far, inclusive. complete_idx / 32UL,
+                               if the last merkle root is verified, 5 if every merkle root after fec set 5*32 is verified */
+
 
   uchar confirmed; /* 1 if the slot has been confirmed, 0 otherwise */
   uchar consumed;  /* 1 if the slot has been consumed (i.e., all shreds received, and parents are complete), 0 otherwise */
@@ -791,12 +792,12 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
 
 static inline uint
 fd_forest_merkle_last_incorrect_idx( fd_forest_blk_t * ele ) {
-  ulong first_verified_fec = fd_forest_merkle_first( ele->merkle_verified );
+  ulong first_verified_fec = ele->lowest_verified_fec;
   /* UNLIKELY because this is being called because we've detected an incorrect FEC */
   if( FD_UNLIKELY( first_verified_fec == 0 ) ) return UINT_MAX;
 
-  uint bad_fec_idx = first_verified_fec == ULONG_MAX ? ele->complete_idx / 32UL /* last FEC is wrong */
-                                                     : (uint)first_verified_fec - 1;
+  uint bad_fec_idx = first_verified_fec == UINT_MAX ? ele->complete_idx / 32UL /* last FEC is wrong */
+                                                    : (uint)first_verified_fec - 1;
   return bad_fec_idx * 32UL;
 }
 
