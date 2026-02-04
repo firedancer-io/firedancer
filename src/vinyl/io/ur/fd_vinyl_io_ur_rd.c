@@ -159,13 +159,24 @@ rq_push( fd_vinyl_io_ur_t *    ur,
   ur->rd_tail_next  = &rd->next;
 }
 
+/* rc_push adds a read job to the early-complete queue. */
+
+static void
+rc_push( fd_vinyl_io_ur_t *    ur,
+         fd_vinyl_io_ur_rd_t * rd ) {
+  rd->next          = NULL;
+  *ur->rc_tail_next = rd;
+  ur->rc_tail_next  = &rd->next;
+}
+
 /* rq_prep translates a staged read job into one (or rarely two)
    io_uring SQEs.  SQEs are allocated off the io_uring instance.
    Returns the number of SQEs prepared on success, and moves rd onto the
-   wait heap.  On failure to allocate SQEs, behaves like a no-op (safe
-   to retry) and returns 0.  */
+   wait heap.  Might not prepare any SQEs if the read request was served
+   entirely from cache.  On failure to allocate SQEs, behaves like a
+   no-op (safe to retry) and returns -1. */
 
-static uint
+static int
 rq_prep( fd_vinyl_io_ur_t *    ur,
          fd_vinyl_io_ur_rd_t * rd,
          ulong                 seq0,
@@ -175,11 +186,15 @@ rq_prep( fd_vinyl_io_ur_t *    ur,
   if( FD_UNLIKELY( sz>INT_MAX ) ) {
     FD_LOG_CRIT(( "Invalid read size 0x%lx bytes (exceeds max)", sz ));
   }
-  if( FD_UNLIKELY( fd_io_uring_sq_space_left( ring->sq )<2U ) ) return 0U;
+  if( FD_UNLIKELY( fd_io_uring_sq_space_left( ring->sq )<2U ) ) return -1;
 
   /* Serve tail from write-back cache */
 
   sz = wb_read( ur, rd->dst, seq0, sz );
+  if( !sz ) {
+    rc_push( ur, rd );
+    return 0;
+  }
 
   /* If the read was entirely served by cache (sz==0), generate an
      io_uring SQE regardless, since we don't have any data structure to
@@ -212,7 +227,7 @@ rq_prep( fd_vinyl_io_ur_t *    ur,
   ur->sqe_prep_cnt++;
   ur->cqe_pending++;
   ur->cqe_read_pending++;
-  if( FD_LIKELY( !sz ) ) return 1U; /* optimize for the unfragmented case */
+  if( FD_LIKELY( !sz ) ) return 1; /* optimize for the unfragmented case */
 
   /* Tail wraparound occurred.  Amend the head SQE to be linked to the
      tail SQE, detach it from the io_ur descriptor, and suppress the CQE
@@ -236,7 +251,7 @@ rq_prep( fd_vinyl_io_ur_t *    ur,
     .user_data = ur_udata_pack_ptr( UR_REQ_READ, rd ),
   };
   ur->sqe_prep_cnt++;
-  return 2U;
+  return 2;
 }
 
 /* rq_clean moves as many read jobs from the staged queue to the
@@ -251,8 +266,7 @@ rq_clean( fd_vinyl_io_ur_t * ur ) {
     fd_vinyl_io_ur_rd_t ** rd_tail_next = ur->rd_tail_next;
     fd_vinyl_io_ur_rd_t *  rd_next      = rd->next;
 
-    uint sqe_cnt = rq_prep( ur, rd, rd->seq, rd->sz );
-    if( FD_UNLIKELY( !sqe_cnt ) ) break;
+    if( FD_UNLIKELY( rq_prep( ur, rd, rd->seq, rd->sz )<0 ) ) break;
 
     ur->rd_head      = rd_next;
     ur->rd_tail_next = fd_ptr_if( !!rd_next, rd_tail_next, &ur->rd_head );
@@ -322,6 +336,17 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
   fd_io_uring_t *    ring     = ur->ring;
   int                blocking = !!( flags & FD_VINYL_IO_FLAG_BLOCKING );
   *_rd = NULL;
+
+  /* Pop early completions */
+  if( ur->rc_head ) {
+    fd_vinyl_io_ur_rd_t *  rd           = ur->rc_head;
+    fd_vinyl_io_ur_rd_t ** rc_tail_next = ur->rc_tail_next;
+    fd_vinyl_io_ur_rd_t *  rc_next      = rd->next;
+    ur->rc_head      = rc_next;
+    ur->rc_tail_next = fd_ptr_if( !!rc_next, rc_tail_next, &ur->rc_head );
+    *_rd = (fd_vinyl_io_rd_t *)rd;
+    return FD_VINYL_SUCCESS;
+  }
 
   /* Drain completions until we find a read (skip writes). */
   for(;;) {
