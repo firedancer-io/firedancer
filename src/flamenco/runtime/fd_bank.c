@@ -1139,17 +1139,20 @@ fd_banks_subtree_mark_dead( fd_banks_data_t * banks,
 
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
-                         fd_bank_t *  bank ) {
+                         ulong        bank_idx ) {
   fd_rwlock_write( &banks->locks->banks_lock );
 
-  fd_banks_subtree_mark_dead( banks->data, fd_banks_get_bank_pool( banks->data ), bank->data );
+  fd_bank_data_t * bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank_idx );
+  fd_banks_subtree_mark_dead( banks->data, fd_banks_get_bank_pool( banks->data ), bank );
 
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 }
 
-void
+int
 fd_banks_prune_dead_banks( fd_banks_t * banks ) {
   fd_rwlock_write( &banks->locks->banks_lock );
+
+  int any_pruned = 0;
 
   ulong *          dead_banks_queue = fd_banks_get_dead_banks_deque( banks->data );
   fd_bank_data_t * bank_pool        = fd_banks_get_bank_pool( banks->data );
@@ -1171,9 +1174,11 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
       curr_bank->sibling_idx = bank->sibling_idx;
     }
     bank->sibling_idx = null_idx;
+    fd_banks_pool_ele_release( bank_pool, bank );
+    any_pruned = 1;
   }
-
   fd_rwlock_unwrite( &banks->locks->banks_lock );
+  return any_pruned;
 }
 
 void

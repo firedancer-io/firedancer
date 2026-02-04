@@ -943,20 +943,22 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
 
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
-                         fd_bank_t *  bank );
+                         ulong        bank_idx );
 
 /* fd_banks_prune_dead_banks will try to prune away any banks that were
    marked as dead.  It will not prune away any dead banks that have a
-   non-zero reference count. */
+   non-zero reference count.  Returns 1 if any banks were pruned away
+   and 0 otherwise. */
 
-void
+int
 fd_banks_prune_dead_banks( fd_banks_t * banks );
 
 /* fd_banks_mark_bank_frozen marks the current bank as frozen.  This
    should be done when the bank is no longer being updated: it should be
    done at the end of a slot.  This also releases the memory for the
    cost tracker which only has to be persisted from the start of a slot
-   to the end. */
+   to the end.
+   TODO: bank param should be replaced with bank_idx */
 
 void
 fd_banks_mark_bank_frozen( fd_banks_t * banks,

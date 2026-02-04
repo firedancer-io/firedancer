@@ -1661,7 +1661,7 @@ replay( fd_replay_tile_t *  ctx,
       fd_bank_t bank[ 1 ];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, task->mark_dead->bank_idx ) );
       publish_slot_dead( ctx, stem, bank );
-      fd_banks_mark_bank_dead( ctx->banks, bank );
+      fd_banks_mark_bank_dead( ctx->banks, task->mark_dead->bank_idx );
       break;
     }
     default: {
@@ -1864,7 +1864,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
-    fd_banks_mark_bank_dead( ctx->banks, bank );
+    fd_banks_mark_bank_dead( ctx->banks, sched_fec->bank_idx );
   }
 }
 
@@ -1987,6 +1987,12 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( fd_banks_prune_dead_banks( ctx->banks ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
   if( FD_LIKELY( can_process_fec( ctx ) ) ) {
@@ -2049,7 +2055,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       if( FD_UNLIKELY( msg->txn_exec->err && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead. */
-        fd_banks_mark_bank_dead( ctx->banks, bank );
+        fd_banks_mark_bank_dead( ctx->banks, bank->data->idx );
         fd_sched_block_abandon( ctx->sched, bank->data->idx );
 
         /* We can only publish the slot as dead if we have seen the
@@ -2070,7 +2076,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
-        fd_banks_mark_bank_dead( ctx->banks, bank );
+        fd_banks_mark_bank_dead( ctx->banks, bank->data->idx );
         fd_sched_block_abandon( ctx->sched, bank->data->idx );
 
         /* We can only publish the slot as dead if we have seen the
@@ -2089,7 +2095,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
     case FD_EXECRP_TT_POH_HASH: {
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
       if( FD_UNLIKELY( res<0 && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
-        fd_banks_mark_bank_dead( ctx->banks, bank );
+        fd_banks_mark_bank_dead( ctx->banks, bank->data->idx );
 
         if( ctx->block_id_arr[ bank->data->idx ].block_id_seen ) {
           publish_slot_dead( ctx, stem, bank );
