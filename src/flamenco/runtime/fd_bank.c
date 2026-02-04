@@ -253,6 +253,7 @@ fd_banks_footprint( ulong max_total_banks,
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_epoch_rewards_pool_align(), fd_bank_epoch_rewards_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
@@ -282,12 +283,13 @@ fd_banks_new( void * shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_banks_data_t * banks_data        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
-  void *       pool_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
-  void *       epoch_rewards_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_rewards_pool_align(), fd_bank_epoch_rewards_pool_footprint( max_fork_width ) );
-  void *       epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
-  void *       vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
-  void *       cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  fd_banks_data_t * banks_data             = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
+  void *            pool_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
+  void *            dead_banks_deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
+  void *            epoch_rewards_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_rewards_pool_align(), fd_bank_epoch_rewards_pool_footprint( max_fork_width ) );
+  void *            epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
+  void *            vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
+  void *            cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -315,6 +317,13 @@ fd_banks_new( void * shmem,
     }
     bank->flags = 0UL;
   }
+
+  ulong * banks_dead_deque = fd_banks_dead_join( fd_banks_dead_new( dead_banks_deque_mem ) );
+  if( FD_UNLIKELY( !banks_dead_deque ) ) {
+    FD_LOG_WARNING(( "Failed to create banks dead deque" ));
+    return NULL;
+  }
+  fd_banks_set_dead_banks_deque( banks_data, banks_dead_deque );
 
   /* Assign offset of the bank pool to the banks object. */
 
@@ -615,14 +624,11 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
     FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is not frozen", child_bank->parent_idx ));
   }
 
-  /* If the parent bank is dead, mark the child bank as dead and don't
-     bother copying over any other fields. */
-  if( FD_UNLIKELY( parent_bank->flags & FD_BANK_FLAGS_DEAD ) ) {
-    child_bank->flags |= FD_BANK_FLAGS_DEAD;
+  /* If the bank has been marked as dead from the time that it was
+     initialized, don't bother copying over any data and return NULL. */
+  if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
     fd_rwlock_unwrite( &banks->locks->banks_lock );
-    bank_l->data  = child_bank;
-    bank_l->locks = banks->locks;
-    return bank_l;
+    return NULL;
   }
 
   /* We can simply copy over all of the data in the bank struct that
@@ -1017,9 +1023,6 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
     curr = rooted_child;
   }
 
-  /* We should mark the old root bank as dead. */
-  root->data->flags |= FD_BANK_FLAGS_DEAD;
-
   /* We will at most advance our root bank by one.  This means we can
      advance our root bank by one if each of the siblings of the
      potential new root are eligible for pruning.  Each of the sibling
@@ -1092,7 +1095,7 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
   if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_INIT) ) ) {
     FD_LOG_CRIT(( "Invariant violation: parent bank with index %lu is uninitialized", parent_bank_idx ));
   }
-
+  if( FD_UNLIKELY( parent_bank->flags&FD_BANK_FLAGS_DEAD ) ) {
   /* Link node->parent */
 
   child_bank->parent_idx = parent_bank_idx;
@@ -1140,6 +1143,20 @@ fd_banks_mark_bank_dead( fd_banks_t * banks,
   fd_rwlock_write( &banks->locks->banks_lock );
 
   fd_banks_subtree_mark_dead( fd_banks_get_bank_pool( banks->data ), bank->data );
+
+  fd_rwlock_unwrite( &banks->locks->banks_lock );
+}
+
+void
+fd_banks_prune_dead_banks( fd_banks_t * banks ) {
+  fd_rwlock_write( &banks->locks->banks_lock );
+
+  for( ulong i=0UL; i<banks->data->max_total_banks; i++ ) {
+    fd_bank_data_t * bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), i );
+    if( bank->flags&FD_BANK_FLAGS_DEAD && bank->refcnt==0UL ) {
+
+    }
+  }
 
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 }

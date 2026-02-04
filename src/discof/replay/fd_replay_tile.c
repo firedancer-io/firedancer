@@ -1746,18 +1746,32 @@ process_fec_set( fd_replay_tile_t *  ctx,
      a bank index for the FEC and it just needs to be propagated to the
      reasm_fec. */
 
+  fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
+
+  fd_bank_t parent_bank[1];
+  if( FD_UNLIKELY( !fd_banks_bank_query( parent_bank, ctx->banks, parent->bank_idx ) ||
+                   parent_bank->data->bank_seq!=parent->bank_seq ||
+                   parent_bank->data->flags&FD_BANK_FLAGS_DEAD ) ) {
+    FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because parent bank is invalid", reasm_fec->slot, reasm_fec->fec_set_idx ));
+    return;
+  }
+
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
+  reasm_fec->parent_bank_seq = parent_bank->data->bank_seq;
 
   if( FD_UNLIKELY( reasm_fec->is_leader ) ) {
     /* If we are the leader we just need to copy in the bank index that
        the leader slot is using. */
     FD_TEST( ctx->leader_bank->data!=NULL );
     reasm_fec->bank_idx = ctx->leader_bank->data->idx;
+    reasm_fec->bank_seq = ctx->leader_bank->data->bank_seq;
   } else if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
     /* If we are seeing a FEC with fec set idx 0, this means that we are
        starting a new slot, and we need a new bank index. */
     fd_bank_t bank[1];
-    reasm_fec->bank_idx = fd_banks_new_bank( bank, ctx->banks, reasm_fec->parent_bank_idx, now )->data->idx;
+    fd_banks_new_bank( bank, ctx->banks, reasm_fec->parent_bank_idx, now );
+    reasm_fec->bank_idx = bank->data->idx;
+    reasm_fec->bank_seq = bank->data->bank_seq;
     FD_LOG_DEBUG(( "reserving bank_idx=%lu for slot=%lu", reasm_fec->bank_idx, reasm_fec->slot ));
     /* At this point remove any stale entry in the block id map if it
        exists and set the block id as not having been seen yet.  This is
@@ -1773,6 +1787,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
     /* We are continuing to execute through a slot that we already have
        a bank index for. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
+    reasm_fec->bank_seq = reasm_fec->parent_bank_seq;
   }
 
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
@@ -1783,11 +1798,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
-  if( FD_UNLIKELY( reasm_fec->is_leader ) ) {
-    /* If we are the leader, we don't need to process the FEC set any
-       further. */
-    return;
-  }
+  /* If we are the leader, we don't need to process the FEC set */
+  if( FD_UNLIKELY( reasm_fec->is_leader ) ) return;
 
   /* Forks form a partial ordering over FEC sets. The Repair tile
      delivers FEC sets in-order per fork, but FEC set ordering across

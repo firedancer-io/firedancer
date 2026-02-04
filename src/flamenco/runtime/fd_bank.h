@@ -494,19 +494,25 @@ fd_bank_footprint( void );
 #define POOL_T    fd_bank_data_t
 #include "../../util/tmpl/fd_pool.c"
 
+#define DEQUE_NAME fd_banks_dead
+#define DEQUE_T    ulong
+#define DEQUE_MAX  FD_BANKS_MAX_BANKS
+#include "../../util/tmpl/fd_deque.c"
+
 struct fd_banks_data {
-  ulong       magic;           /* ==FD_BANKS_MAGIC */
-  ulong       max_total_banks; /* Maximum number of banks */
-  ulong       max_fork_width;  /* Maximum fork width executing through
+  ulong magic;           /* ==FD_BANKS_MAGIC */
+  ulong max_total_banks; /* Maximum number of banks */
+  ulong max_fork_width;  /* Maximum fork width executing through
                                   any given slot. */
-  ulong       root_idx;        /* root idx */
-  ulong       bank_seq;        /* app-wide bank sequence number */
+  ulong root_idx;        /* root idx */
+  ulong bank_seq;        /* app-wide bank sequence number */
 
-  ulong       pool_offset;     /* offset of pool from banks */
+  ulong pool_offset;     /* offset of pool from banks */
 
-  ulong       cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
+  ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
+  ulong vote_states_pool_offset_;
 
-  ulong       vote_states_pool_offset_;
+  ulong dead_banks_deque_offset;
 
   /* stake_delegations_root will be the full state of stake delegations
      for the current root. It can get updated in two ways:
@@ -681,6 +687,17 @@ fd_banks_set_bank_pool( fd_banks_data_t * banks_data,
   banks_data->pool_offset = (ulong)bank_pool_mem - (ulong)banks_data;
 }
 
+static inline ulong *
+fd_banks_get_dead_banks_deque( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->dead_banks_deque_offset );
+}
+
+static inline void
+fd_banks_set_dead_banks_deque( fd_banks_data_t * banks_data,
+                               ulong *           dead_banks_deque ) {
+  banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
+}
+
 static inline fd_bank_epoch_rewards_t *
 fd_banks_get_epoch_rewards_pool( fd_banks_data_t * banks_data ) {
   return fd_bank_epoch_rewards_pool_join( (uchar *)banks_data + banks_data->epoch_rewards_pool_offset );
@@ -852,7 +869,7 @@ fd_banks_get_parent( fd_bank_t *  bank_l,
    over the data from the parent bank to the child.  This function
    assumes that the child and parent banks both have been allocated.
    The parent bank must be frozen and the child bank must be initialized
-   but not yet used.
+   but not yet used.  It also assumes that the parent bank is not dead.
 
    A more detailed note: not all of the data is copied over and this
    is a shallow clone.  All of the CoW fields are not copied over and
@@ -926,6 +943,13 @@ void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
                          fd_bank_t *  bank );
 
+/* fd_banks_prune_dead_banks will try to prune away any banks that were
+   marked as dead.  It will not prune away any dead banks that have a
+   non-zero reference count. */
+
+void
+fd_banks_prune_dead_banks( fd_banks_t * banks );
+
 /* fd_banks_mark_bank_frozen marks the current bank as frozen.  This
    should be done when the bank is no longer being updated: it should be
    done at the end of a slot.  This also releases the memory for the
@@ -941,7 +965,8 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
    the bank will be linked to its parent bank, but not yet replayable.
    After a call to fd_banks_clone_from_parent, the bank will be
    replayable.  This assumes that there is a parent bank which exists
-   and the there are available bank indices in the bank pool. */
+   and the there are available bank indices in the bank pool.  It also
+   assumes that the parent bank is not dead. */
 
 fd_bank_t *
 fd_banks_new_bank( fd_bank_t *  bank_l,
