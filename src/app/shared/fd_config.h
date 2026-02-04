@@ -110,6 +110,7 @@ struct fd_configf {
     ulong file_size_gib;
     ulong max_cache_entries;
     ulong cache_size_gib;
+    ulong write_delay_slots;
     struct {
        int  enabled;
        uint queue_depth;

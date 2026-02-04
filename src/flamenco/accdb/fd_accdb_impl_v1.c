@@ -5,18 +5,19 @@
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v1_t)<=alignof(fd_accdb_user_t), layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_user_v1_t)<=sizeof(fd_accdb_user_t),  layout );
 
-static int
-fd_accdb_search_chain( fd_accdb_user_v1_t const * accdb,
+int
+fd_accdb_search_chain( fd_funk_t const *          funk,
+                       fd_accdb_lineage_t const * lineage,
                        ulong                      chain_idx,
                        fd_funk_rec_key_t const *  key,
                        fd_funk_rec_t **           out_rec ) {
   *out_rec = NULL;
 
-  fd_funk_rec_map_shmem_t const *               shmap     = accdb->funk->rec_map->map;
+  fd_funk_rec_map_shmem_t const *               shmap     = funk->rec_map->map;
   fd_funk_rec_map_shmem_private_chain_t const * chain_tbl = fd_funk_rec_map_shmem_private_chain_const( shmap, 0UL );
   fd_funk_rec_map_shmem_private_chain_t const * chain     = chain_tbl + chain_idx;
-  fd_funk_rec_t *                               rec_tbl   = accdb->funk->rec_pool->ele;
-  ulong                                         rec_max   = fd_funk_rec_pool_ele_max( accdb->funk->rec_pool );
+  fd_funk_rec_t *                               rec_tbl   = funk->rec_pool->ele;
+  ulong                                         rec_max   = fd_funk_rec_pool_ele_max( funk->rec_pool );
   ulong                                         ver_cnt   = FD_VOLATILE_CONST( chain->ver_cnt );
 
   /* Start a speculative transaction for the chain containing revisions
@@ -38,7 +39,7 @@ fd_accdb_search_chain( fd_accdb_user_v1_t const * accdb,
     if( FD_UNLIKELY( !fd_funk_rec_key_eq( rec->pair.key, key ) ) ) continue;
 
     /* Confirm that record is part of the current fork */
-    if( FD_UNLIKELY( !fd_accdb_lineage_has_xid( accdb->lineage, rec->pair.xid ) ) ) continue;
+    if( FD_UNLIKELY( !fd_accdb_lineage_has_xid( lineage, rec->pair.xid ) ) ) continue;
 
     if( FD_UNLIKELY( rec->map_next==ele_idx ) ) {
       FD_LOG_CRIT(( "fd_accdb_search_chain detected cycle" ));
@@ -81,7 +82,7 @@ fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
   /* Traverse chain for candidate */
   fd_funk_rec_t * rec = NULL;
   for(;;) {
-    int err = fd_accdb_search_chain( accdb, chain_idx, key, &rec );
+    int err = fd_accdb_search_chain( accdb->funk, accdb->lineage, chain_idx, key, &rec );
     if( FD_LIKELY( err==FD_MAP_SUCCESS ) ) break;
     FD_SPIN_PAUSE();
     /* FIXME backoff */

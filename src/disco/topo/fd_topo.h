@@ -398,6 +398,7 @@ struct fd_topo_tile {
 
       ulong heap_size_gib;
       ulong max_live_slots;
+      ulong write_delay_slots;
 
       /* not specified in TOML */
 

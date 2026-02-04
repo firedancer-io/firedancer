@@ -1159,7 +1159,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
-      config->firedancer.runtime.max_live_slots,
+      config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots,
       config->firedancer.funk.heap_size_gib );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* TODO: Should be readonly? */
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL  ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1534,7 +1534,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
 
-    tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
+    tile->replay.max_live_slots    = config->firedancer.runtime.max_live_slots;
+    tile->replay.write_delay_slots = config->firedancer.vinyl.write_delay_slots;
 
     strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
 
