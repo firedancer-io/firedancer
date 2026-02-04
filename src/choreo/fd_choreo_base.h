@@ -18,24 +18,9 @@
 #include "../flamenco/fd_flamenco.h"
 #include "../flamenco/types/fd_types.h"
 
-/* clang-format off */
-#define FD_VOTER_MAX                  (4096) /* the maximum # of unique voters ie. node pubkeys. */
-#define FD_EQVOCSAFE_PCT              (0.52)
-#define FD_CONFIRMED_PCT              (2.0 / 3.0)
-#define FD_FINALIZED_PCT              FD_CONFIRMED_PCT
-#define FD_SLOT_HASH_CMP(k0,k1)       (fd_int_if(((k0)->slot)<((k1)->slot),-1,fd_int_if(((k0)->slot)>((k1)->slot),1),memcmp((k0),(k1),sizeof(fd_slot_hash_t))))
-#define FD_SLOT_HASH_EQ(k0,k1)        ((((k0)->slot)==((k1)->slot)) & !(memcmp(((k0)->hash.uc),((k1)->hash.uc),sizeof(fd_hash_t))))
-#define FD_SLOT_HASH_HASH(key,seed)   fd_ulong_hash( ((key)->slot) ^ ((key)->hash.ul[0]) ^ (seed) )
-#define FD_SLOT_PUBKEY_CMP(a,b)       FD_SLOT_HASH_CMP(a,b)
-#define FD_SLOT_PUBKEY_EQ(k0,k1)      FD_SLOT_HASH_EQ(k0,k1)
-#define FD_SLOT_PUBKEY_HASH(key,seed) FD_SLOT_HASH_HASH(key,seed)
-/* clang-format on */
-
-typedef uchar fd_block_id_t[ 32UL ];
-
-typedef fd_slot_hash_t fd_slot_pubkey_t;
+#define FD_VOTER_MAX (4096) /* the maximum # of unique voters ie. node pubkeys. */
 
 static const fd_pubkey_t pubkey_null = {{ 0 }};
-static const fd_hash_t hash_null = {{ 0 }};
+static const fd_hash_t   hash_null   = {{ 0 }};
 
 #endif /* HEADER_fd_src_choreo_fd_choreo_base_h */
