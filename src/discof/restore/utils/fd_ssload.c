@@ -221,7 +221,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
     fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_stakes_prev, (fd_pubkey_t *)elem->vote );
     vote_state->node_account        = *(fd_pubkey_t *)elem->identity;
-    vote_state->commission          = elem->commission;
+    vote_state->commission_bps      = (ushort)(elem->commission * 100U);
     vote_state->last_vote_timestamp = elem->timestamp;
     vote_state->last_vote_slot      = elem->slot;
     vote_state->stake               = elem->stake;
@@ -259,7 +259,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     if( FD_UNLIKELY( !elem->stake ) ) continue;
     fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote );
     vote_state->node_account        = *(fd_pubkey_t *)elem->identity;
-    vote_state->commission          = elem->commission;
+    vote_state->commission_bps      = (ushort)(elem->commission * 100U);
     vote_state->last_vote_timestamp = elem->timestamp;
     vote_state->last_vote_slot      = elem->slot;
     vote_state->stake               = elem->stake;
@@ -280,7 +280,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote_account_pubkey );
 
     vote_state->node_account        = *(fd_pubkey_t *)elem->node_account_pubkey;
-    vote_state->commission          = elem->commission;
+    vote_state->commission_bps      = (ushort)(elem->commission * 100U);
     vote_state->last_vote_timestamp = elem->last_timestamp;
     vote_state->last_vote_slot      = elem->last_slot;
     vote_state->stake               = elem->stake;

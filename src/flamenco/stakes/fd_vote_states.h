@@ -121,7 +121,7 @@ struct fd_vote_state_ele {
   fd_pubkey_t node_account;
   ulong       last_vote_slot;
   long        last_vote_timestamp;
-  uchar       commission;
+  ushort      commission_bps;
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 

@@ -81,6 +81,8 @@ $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delt
 $(call run-unit-test,test_accounts_resize_delta,)
 $(call make-unit-test,test_delay_commission_updates,tests/test_delay_commission_updates,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_delay_commission_updates,)
+$(call make-unit-test,test_commission_rate_in_basis_points,tests/test_commission_rate_in_basis_points,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_commission_rate_in_basis_points,)
 endif
 endif
 endif

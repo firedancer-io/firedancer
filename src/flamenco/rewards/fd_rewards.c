@@ -12,6 +12,9 @@
 #include "../accdb/fd_accdb_sync.h"
 #include "fd_epoch_rewards.h"
 
+/* https://github.com/anza-xyz/agave/blob/master/runtime/src/inflation_rewards/mod.rs#L244 */
+#define FD_MAX_INFLATION_REWARDS_BPS (10000U)
+
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
 total( fd_inflation_t const * inflation, double year ) {
@@ -277,22 +280,24 @@ typedef struct fd_commission_split fd_commission_split_t;
 /// returns commission split as (voter_portion, staker_portion, was_split) tuple
 ///
 /// if commission calculation is 100% one way or other, indicate with false for was_split
+///
+/// commission_bps is in basis points (0-10000), where 10000 = 100%
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L543
+// https://github.com/anza-xyz/agave/blob/master/runtime/src/inflation_rewards/mod.rs#L243
 void
-fd_vote_commission_split( uchar                   commission,
+fd_vote_commission_split( ushort                  commission_bps,
                           ulong                   on,
                           fd_commission_split_t * result ) {
-  uint commission_split = fd_uint_min( (uint)commission, 100 );
-  result->is_split      = (commission_split != 0 && commission_split != 100);
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
+  uint commission_split = fd_uint_min( (uint)commission_bps, FD_MAX_INFLATION_REWARDS_BPS );
+  result->is_split      = (commission_split != 0 && commission_split != FD_MAX_INFLATION_REWARDS_BPS);
+  // https://github.com/anza-xyz/agave/blob/master/runtime/src/inflation_rewards/mod.rs#L247
   if( commission_split==0U ) {
     result->voter_portion  = 0;
     result->staker_portion = on;
     return;
   }
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L546
-  if( commission_split==100U ) {
+  // https://github.com/anza-xyz/agave/blob/master/runtime/src/inflation_rewards/mod.rs#L248
+  if( commission_split==FD_MAX_INFLATION_REWARDS_BPS ) {
     result->voter_portion  = on;
     result->staker_portion = 0;
     return;
@@ -309,11 +314,11 @@ fd_vote_commission_split( uchar                   commission,
   // being rewarded at all. Thus, note that we intentionally discard
   // any residual fractional lamports.
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L548
+  // https://github.com/anza-xyz/agave/blob/master/runtime/src/inflation_rewards/mod.rs#L256
   result->voter_portion =
-      (ulong)((uint128)on * (uint128)commission_split / (uint128)100);
+      (ulong)((uint128)on * (uint128)commission_split / (uint128)FD_MAX_INFLATION_REWARDS_BPS);
   result->staker_portion =
-      (ulong)((uint128)on * (uint128)( 100 - commission_split ) / (uint128)100);
+      (ulong)((uint128)on * (uint128)( FD_MAX_INFLATION_REWARDS_BPS - commission_split ) / (uint128)FD_MAX_INFLATION_REWARDS_BPS);
 }
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
@@ -323,7 +328,7 @@ redeem_rewards( fd_accdb_user_t *               accdb,
                 fd_stake_history_t const *      stake_history,
                 fd_stake_delegation_t const *   stake,
                 fd_vote_state_ele_t const *     vote_state,
-                uchar                           commission,
+                ushort                          commission_bps,
                 ulong                           rewarded_epoch,
                 ulong                           total_rewards,
                 uint128                         total_points,
@@ -378,7 +383,7 @@ redeem_rewards( fd_accdb_user_t *               accdb,
   }
 
   fd_commission_split_t split_result;
-  fd_vote_commission_split( commission, rewards, &split_result );
+  fd_vote_commission_split( commission_bps, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
     return 1;
   }
@@ -495,25 +500,27 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
   return total_points;
 }
 
-/* Get commission rate for reward calculation
+/* Get commission rate in basis points for reward calculation
 
-   FIXME: permalink when Agave 4.0 is cut */
-static uchar
-get_commission_rate( fd_bank_t *         bank,
-                     fd_pubkey_t const * voter_acc,
-                     uchar               current_commission ) {
+   Returns commission in basis points (0-10000).
+
+   https://github.com/anza-xyz/agave/blob/master/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L467 */
+static ushort
+get_commission_rate_bps( fd_bank_t *         bank,
+                         fd_pubkey_t const * voter_acc,
+                         ushort              current_commission_bps ) {
   if( !FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-    return current_commission;
+    return current_commission_bps;
   }
 
-  /* Delayed commission rate */
+  /* Delayed commission rate - use snapshot from previous epochs */
   fd_vote_state_ele_t const * prev_prev_ele = fd_vote_states_query_const( fd_bank_vote_states_prev_prev_query( bank ), voter_acc );
-  if( FD_LIKELY( prev_prev_ele ) ) return prev_prev_ele->commission;
+  if( FD_LIKELY( prev_prev_ele ) ) return prev_prev_ele->commission_bps;
 
   fd_vote_state_ele_t const * prev_ele = fd_vote_states_query_const( fd_bank_vote_states_prev_query( bank ), voter_acc );
-  if( FD_LIKELY( prev_ele ) ) return prev_ele->commission;
+  if( FD_LIKELY( prev_ele ) ) return prev_ele->commission_bps;
 
-  return current_commission;
+  return current_commission_bps;
 }
 
 /* Calculates epoch rewards for stake/vote accounts.
@@ -587,7 +594,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_vote_state_credits_t * realc_credit = !!runtime_stack->stakes.prev_vote_credits_used ?
                                              &runtime_stack->stakes.vote_credits[ vote_state_ele->idx ] : NULL;
 
-    uchar commission = get_commission_rate( bank, voter_acc, vote_state_ele->commission );
+    ushort commission_bps = get_commission_rate_bps( bank, voter_acc, vote_state_ele->commission_bps );
 
     /* redeem_rewards is actually just responsible for calculating the
        vote and stake rewards for each stake account.  It does not do
@@ -599,7 +606,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         stake_history,
         stake_delegation,
         vote_state_ele,
-        commission,
+        commission_bps,
         rewarded_epoch,
         total_rewards,
         total_points,
@@ -616,7 +623,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                                                 fd_bank_slot_get( bank ),
                                                 stake_delegation->stake_account,
                                                 *voter_acc,
-                                                commission,
+                                                commission_bps,
                                                 (long)calculated_stake_rewards->voter_rewards,
                                                 (long)calculated_stake_rewards->staker_rewards,
                                                 (long)calculated_stake_rewards->new_credits_observed );

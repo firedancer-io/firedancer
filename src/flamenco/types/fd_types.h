@@ -950,6 +950,22 @@ struct fd_vote_authorize_checked_with_seed_args {
 typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN alignof(fd_vote_authorize_checked_with_seed_args_t)
 
+/* https://github.com/anza-xyz/agave/blob/master/sdk/vote-interface/src/instruction.rs */
+struct fd_commission_kind {
+  uint discriminant;
+};
+typedef struct fd_commission_kind fd_commission_kind_t;
+#define FD_COMMISSION_KIND_ALIGN alignof(fd_commission_kind_t)
+
+/* https://github.com/anza-xyz/agave/blob/master/sdk/vote-interface/src/instruction.rs */
+/* Encoded Size: Fixed (6 bytes) */
+struct fd_update_commission_bps {
+  ushort commission_bps;
+  fd_commission_kind_t kind;
+};
+typedef struct fd_update_commission_bps fd_update_commission_bps_t;
+#define FD_UPDATE_COMMISSION_BPS_ALIGN alignof(fd_update_commission_bps_t)
+
 union fd_vote_instruction_inner {
   fd_vote_init_t initialize_account;
   fd_vote_authorize_pubkey_t authorize;
@@ -966,6 +982,9 @@ union fd_vote_instruction_inner {
   fd_compact_vote_state_update_switch_t compact_update_vote_state_switch;
   fd_tower_sync_t tower_sync;
   fd_tower_sync_switch_t tower_sync_switch;
+  fd_commission_kind_t update_commission_collector;
+  fd_update_commission_bps_t update_commission_bps;
+  ulong deposit_delegator_rewards;
 };
 typedef union fd_vote_instruction_inner fd_vote_instruction_inner_t;
 
@@ -2149,6 +2168,27 @@ static inline ulong fd_vote_authorize_checked_with_seed_args_align( void ) { ret
 int fd_vote_authorize_checked_with_seed_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_vote_authorize_checked_with_seed_args_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
+static inline void fd_commission_kind_new_disc( fd_commission_kind_t * self, uint discriminant ) { self->discriminant = discriminant; }
+static inline void fd_commission_kind_new( fd_commission_kind_t * self ) { self->discriminant = (uint)ULONG_MAX; }
+int fd_commission_kind_encode( fd_commission_kind_t const * self, fd_bincode_encode_ctx_t * ctx );
+ulong fd_commission_kind_size( fd_commission_kind_t const * self );
+static inline ulong fd_commission_kind_align( void ) { return FD_COMMISSION_KIND_ALIGN; }
+int fd_commission_kind_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_commission_kind_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+FD_FN_PURE uchar fd_commission_kind_is_inflation_rewards( fd_commission_kind_t const * self );
+FD_FN_PURE uchar fd_commission_kind_is_block_revenue( fd_commission_kind_t const * self );
+enum {
+fd_commission_kind_enum_inflation_rewards = 0,
+fd_commission_kind_enum_block_revenue = 1,
+};
+void fd_update_commission_bps_new( fd_update_commission_bps_t * self );
+int fd_update_commission_bps_encode( fd_update_commission_bps_t const * self, fd_bincode_encode_ctx_t * ctx );
+static inline ulong fd_update_commission_bps_size( fd_update_commission_bps_t const * self ) { (void)self; return 6UL; }
+static inline ulong fd_update_commission_bps_align( void ) { return FD_UPDATE_COMMISSION_BPS_ALIGN; }
+int fd_update_commission_bps_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_update_commission_bps_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+
 void fd_vote_instruction_new_disc( fd_vote_instruction_t * self, uint discriminant );
 void fd_vote_instruction_new( fd_vote_instruction_t * self );
 int fd_vote_instruction_encode( fd_vote_instruction_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2173,6 +2213,10 @@ FD_FN_PURE uchar fd_vote_instruction_is_compact_update_vote_state( fd_vote_instr
 FD_FN_PURE uchar fd_vote_instruction_is_compact_update_vote_state_switch( fd_vote_instruction_t const * self );
 FD_FN_PURE uchar fd_vote_instruction_is_tower_sync( fd_vote_instruction_t const * self );
 FD_FN_PURE uchar fd_vote_instruction_is_tower_sync_switch( fd_vote_instruction_t const * self );
+FD_FN_PURE uchar fd_vote_instruction_is_initialize_account_v2( fd_vote_instruction_t const * self );
+FD_FN_PURE uchar fd_vote_instruction_is_update_commission_collector( fd_vote_instruction_t const * self );
+FD_FN_PURE uchar fd_vote_instruction_is_update_commission_bps( fd_vote_instruction_t const * self );
+FD_FN_PURE uchar fd_vote_instruction_is_deposit_delegator_rewards( fd_vote_instruction_t const * self );
 enum {
 fd_vote_instruction_enum_initialize_account = 0,
 fd_vote_instruction_enum_authorize = 1,
@@ -2190,6 +2234,10 @@ fd_vote_instruction_enum_compact_update_vote_state = 12,
 fd_vote_instruction_enum_compact_update_vote_state_switch = 13,
 fd_vote_instruction_enum_tower_sync = 14,
 fd_vote_instruction_enum_tower_sync_switch = 15,
+fd_vote_instruction_enum_initialize_account_v2 = 16,
+fd_vote_instruction_enum_update_commission_collector = 17,
+fd_vote_instruction_enum_update_commission_bps = 18,
+fd_vote_instruction_enum_deposit_delegator_rewards = 19,
 };
 static inline void fd_system_program_instruction_create_account_new( fd_system_program_instruction_create_account_t * self ) { fd_memset( self, 0, sizeof(fd_system_program_instruction_create_account_t) ); }
 int fd_system_program_instruction_create_account_encode( fd_system_program_instruction_create_account_t const * self, fd_bincode_encode_ctx_t * ctx );
