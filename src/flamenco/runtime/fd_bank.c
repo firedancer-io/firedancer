@@ -451,12 +451,13 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, banks_data );
-  banks_data                    = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
-  void * pool_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( banks_data->max_total_banks ) );
-  void * epoch_rewards_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_rewards_pool_align(), fd_bank_epoch_rewards_pool_footprint( banks_data->max_fork_width ) );
-  void * epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( banks_data->max_fork_width ) );
-  void * vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( banks_data->max_total_banks ) );
-  void * cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
+  banks_data                            = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                           sizeof(fd_banks_data_t) );
+  void * pool_mem                       = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),                      fd_banks_pool_footprint( banks_data->max_total_banks ) );
+  void * dead_banks_deque_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),                      fd_banks_dead_footprint() );
+  void * epoch_rewards_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_rewards_pool_align(),         fd_bank_epoch_rewards_pool_footprint( banks_data->max_fork_width ) );
+  void * epoch_leaders_pool_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(),         fd_bank_epoch_leaders_pool_footprint( banks_data->max_fork_width ) );
+  void * vote_states_pool_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),           fd_bank_vote_states_pool_footprint( banks_data->max_total_banks ) );
+  void * cost_tracker_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),          fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -468,6 +469,12 @@ fd_banks_join( fd_banks_t * banks_ljoin,
 
   if( FD_UNLIKELY( banks_pool!=fd_banks_pool_join( pool_mem ) ) ) {
     FD_LOG_WARNING(( "Failed to join bank pool" ));
+    return NULL;
+  }
+
+  ulong * banks_dead_deque = fd_banks_dead_join( dead_banks_deque_mem );
+  if( FD_UNLIKELY( !banks_dead_deque ) ) {
+    FD_LOG_WARNING(( "Failed to join banks dead deque" ));
     return NULL;
   }
 
@@ -614,6 +621,13 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
     FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu is not initialized", child_bank_idx ));
   }
 
+  /* If the bank has been marked as dead from the time that it was
+     initialized, don't bother copying over any data and return NULL. */
+     if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
+      fd_rwlock_unwrite( &banks->locks->banks_lock );
+      return NULL;
+    }
+
   /* Then make sure that the parent bank is valid and frozen. */
 
   fd_bank_data_t * parent_bank = fd_banks_pool_ele( bank_pool, child_bank->parent_idx );
@@ -622,13 +636,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   }
   if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_FROZEN) ) ) {
     FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is not frozen", child_bank->parent_idx ));
-  }
-
-  /* If the bank has been marked as dead from the time that it was
-     initialized, don't bother copying over any data and return NULL. */
-  if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
-    fd_rwlock_unwrite( &banks->locks->banks_lock );
-    return NULL;
   }
 
   /* We can simply copy over all of the data in the bank struct that
@@ -1116,15 +1123,8 @@ static void
 fd_banks_subtree_mark_dead( fd_banks_data_t * banks,
                             fd_bank_data_t *  bank_pool,
                             fd_bank_data_t *  bank ) {
-  if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
-  }
-  if( FD_UNLIKELY( bank->flags & FD_BANK_FLAGS_ROOTED ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank for idx %lu is rooted", bank->idx ));
-  }
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
 
-  /* We want to push to the head of banks_dead queue so that we prune
-     the child nodes first. */
   bank->flags |= FD_BANK_FLAGS_DEAD;
   fd_banks_dead_push_head( fd_banks_get_dead_banks_deque( banks ), bank->idx );
 
