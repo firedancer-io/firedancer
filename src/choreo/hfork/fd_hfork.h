@@ -149,13 +149,13 @@ fd_hfork_delete( void * hfork );
 
 void
 fd_hfork_count_vote( fd_hfork_t *         hfork,
+                     fd_hfork_metrics_t * metrics,
                      fd_hash_t const *    vote_acc,
                      fd_hash_t const *    block_id,
                      fd_hash_t const *    bank_hash,
                      ulong                slot,
                      ulong                stake,
-                     ulong                total_stake,
-                     fd_hfork_metrics_t * metrics );
+                     ulong                total_stake );
 
 /* Update the hard fork detector with our bank hash (computed on replay)
    for a given block ID.  If bank_hash is NULL, this indicates the block

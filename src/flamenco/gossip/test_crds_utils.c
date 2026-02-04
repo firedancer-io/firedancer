@@ -30,7 +30,7 @@ create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
     /* Create a minimal gossip view for contact info */
     fd_gossip_view_crds_value_t view = {0};
     view.tag = FD_GOSSIP_VALUE_CONTACT_INFO;
-    view.pubkey_off = 0;
+    view.from_off = 0;
     view.value_off = 0;
     view.length = 200; /* Minimal size */
     view.wallclock_nanos = fd_log_wallclock();

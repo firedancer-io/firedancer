@@ -294,11 +294,66 @@ fd_gossip_crds_vote_encode( uchar *                       out_buf,
   out_view->tag           = FD_GOSSIP_VALUE_VOTE; FD_STORE( uint,  CURSOR, FD_GOSSIP_VALUE_VOTE ); INC(  4U );
 
   vote->index               = vote_index; FD_STORE ( uchar, CURSOR, vote_index )                       ; INC(  1U );
-  out_view->pubkey_off      = CUR_OFFSET; fd_memcpy( CURSOR, identity_pubkey, 32UL )                   ; INC( 32U );
+  out_view->from_off        = CUR_OFFSET; fd_memcpy( CURSOR, identity_pubkey, 32UL )                   ; INC( 32U );
   vote->txn_off             = CUR_OFFSET; fd_memcpy( CURSOR, txn, txn_sz )                             ; INC( (ushort)txn_sz );
   out_view->wallclock_nanos = now       ; FD_STORE ( ulong, CURSOR, (ulong)FD_NANOSEC_TO_MILLI( now ) ); INC(  8U );
 
   vote->txn_sz     = (ushort)txn_sz;
   out_view->length = (ushort)BYTES_CONSUMED;
+  return 0;
+}
+
+int
+fd_gossip_crds_duplicate_shred_encode( fd_gossip_duplicate_shred_t const * duplicate_shred,
+                                       uchar                               from[ static sizeof(fd_pubkey_t) ],
+                                       uchar                               buf[ static FD_GOSSIP_CRDS_MAX_SZ ],
+                                       ulong                               buf_sz,
+                                       fd_gossip_view_crds_value_t *       view ) {
+
+  FD_TEST( buf_sz>=FD_GOSSIP_CRDS_MAX_SZ );
+
+  ushort off = 0;
+
+  view->signature_off = off;
+  off += FD_ED25519_SIG_SZ;
+
+  view->tag = FD_GOSSIP_VALUE_DUPLICATE_SHRED;
+  FD_STORE( uint, buf + off, FD_GOSSIP_VALUE_DUPLICATE_SHRED );
+  off += sizeof(uint);
+
+  view->from_off = off;
+  memcpy( buf + off, from, 32UL );
+  off += sizeof(fd_pubkey_t);
+
+  view->wallclock_nanos = duplicate_shred->wallclock;
+  FD_STORE( long, buf + off, duplicate_shred->wallclock );
+  off += sizeof(long);
+
+  view->duplicate_shred->index = duplicate_shred->index;
+  FD_STORE( ushort, buf + off, duplicate_shred->index );
+  off += sizeof(ushort);
+
+  view->duplicate_shred->slot = duplicate_shred->slot;
+  FD_STORE( ulong, buf + off, duplicate_shred->slot );
+  off += sizeof(ulong);
+
+  view->duplicate_shred->num_chunks = duplicate_shred->num_chunks;
+  FD_STORE( uchar, buf + off, duplicate_shred->num_chunks );
+  off += sizeof(uchar);
+
+  view->duplicate_shred->chunk_index = duplicate_shred->chunk_index;
+  FD_STORE( uchar, buf + off, duplicate_shred->chunk_index );
+  off += sizeof(uchar);
+
+  view->duplicate_shred->chunk_len = duplicate_shred->chunk_len;
+  FD_STORE( ulong, buf + off, duplicate_shred->chunk_len );
+  off += sizeof(ulong);
+
+  view->duplicate_shred->chunk_off = off;
+  memcpy( buf + off, duplicate_shred->chunk, duplicate_shred->chunk_len );
+  off += (ushort)duplicate_shred->chunk_len;
+
+  view->length = off;
+
   return 0;
 }

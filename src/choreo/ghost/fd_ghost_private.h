@@ -46,7 +46,6 @@
 
 struct __attribute__((aligned(128UL))) fd_ghost {
   ulong root;           /* pool idx of the root tree element */
-  ulong ghost_gaddr;    /* memory offset of the beginning of ghost region in the wksp */
   ulong blk_pool_gaddr; /* memory offset of the blk_pool */
   ulong blk_map_gaddr;  /* memory offset of the blk_map */
   ulong vtr_pool_gaddr; /* memory offset of the vtr_pool */
