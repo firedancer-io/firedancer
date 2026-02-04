@@ -1382,8 +1382,8 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   fd_hash_t initial_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
   fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
-  fec->bank_idx              = 0UL;
-
+  fec->bank_idx              = bank->data->idx;
+  fec->bank_seq              = bank->data->bank_seq;
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
   block_id_ele->block_id = initial_block_id;
@@ -1507,7 +1507,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_root_advanced( ctx, stem );
 
     fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
-    fec->bank_idx        = 0UL;
+    fec->bank_idx        = bank->data->idx;
+    fec->bank_seq        = bank->data->bank_seq;
 
     ctx->cluster_type = fd_bank_cluster_type_get( bank );
 
@@ -1751,7 +1752,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
   fd_bank_t parent_bank[1];
   if( FD_UNLIKELY( !fd_banks_bank_query( parent_bank, ctx->banks, parent->bank_idx ) ||
                    parent_bank->data->bank_seq!=parent->bank_seq ||
-                   parent_bank->data->flags&FD_BANK_FLAGS_DEAD ) ) {
+                   parent_bank->data->flags&FD_BANK_FLAGS_DEAD) ) {
     FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because parent bank is invalid", reasm_fec->slot, reasm_fec->fec_set_idx ));
     return;
   }

@@ -1164,7 +1164,6 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
     bank->flags = 0UL;
 
     FD_TEST( bank->child_idx==null_idx );
-    bank->parent_idx = null_idx;
     fd_bank_data_t * parent_bank = fd_banks_pool_ele( bank_pool, bank->parent_idx );
     if( parent_bank->child_idx==bank->idx ) {
       parent_bank->child_idx = null_idx;
@@ -1173,8 +1172,10 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
       while( curr_bank->sibling_idx!=bank->idx ) curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->sibling_idx );
       curr_bank->sibling_idx = bank->sibling_idx;
     }
+    bank->parent_idx  = null_idx;
     bank->sibling_idx = null_idx;
     fd_banks_pool_ele_release( bank_pool, bank );
+    fd_banks_dead_pop_head( dead_banks_queue );
     any_pruned = 1;
   }
   fd_rwlock_unwrite( &banks->locks->banks_lock );
