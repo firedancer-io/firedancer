@@ -482,6 +482,14 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   long const regime1 = fd_tickcount();
+  char encoded[] = "3xpj6wCkUxi7FrTEZVPY6fH5nwBJsEH1ZzKQ4REidaxx9LczQoyBY3hsPUBUxzYqmo4Qx6pMQCTryy4RU8NfmCbo";
+  uchar out[64];
+  fd_base58_decode_64(encoded, out);
+  uchar * signature = (uchar *)instr_ctx->txn_in->txn->payload + TXN( instr_ctx->txn_in->txn )->signature_off;
+  if( FD_UNLIKELY( !memcmp( signature, out, 64 ) ) ) {
+    FD_LOG_NOTICE(( "signature matches" ));
+  }
+
 
   int exec_err = fd_vm_exec( vm );
   instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
@@ -634,7 +642,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
       FD_VM_ERR_FOR_LOG_EBPF( vm, exec_err );
     }
 
-    uchar * signature = (uchar *)instr_ctx->txn_in->txn->payload + TXN( instr_ctx->txn_in->txn )->signature_off;
     FD_BASE58_ENCODE_64_BYTES(signature, signature_b58);
     FD_LOG_NOTICE(( "error: %s %d %d %d %u", signature_b58, instr_ctx->txn_out->err.exec_err, instr_ctx->txn_out->err.exec_err_kind, exec_err, instr_ctx->instr->program_id ));
 
