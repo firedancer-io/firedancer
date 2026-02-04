@@ -8,7 +8,8 @@
 
 struct wq_desc {
   ulong seq;
-  ulong done : 1;
+  uint  sz;
+  uint  done : 1;
 };
 
 typedef struct wq_desc wq_desc_t;
@@ -51,6 +52,13 @@ wq_ring_is_full( wq_ring_t const * ring ) {
   return (ring->wq1 - ring->wq0) >= ring->max;
 }
 
+FD_FN_PURE static inline wq_desc_t *
+wq_ring_desc( wq_ring_t * ring,
+              ulong       wq ) {
+  ulong mask = ring->max-1UL;
+  return &ring->ring[ wq&mask ];
+}
+
 static inline ulong
 wq_ring_enqueue( wq_ring_t * ring,
                  ulong       seq ) {
@@ -59,6 +67,7 @@ wq_ring_enqueue( wq_ring_t * ring,
   ulong mask = ring->max-1UL;
   ring->ring[ wq&mask ] = (wq_desc_t){
     .seq  = seq,
+    .sz   = 0U,
     .done = 0
   };
   ring->wq1 = wq+1UL;

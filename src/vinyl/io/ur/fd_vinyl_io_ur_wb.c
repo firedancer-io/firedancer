@@ -1,5 +1,7 @@
 #include "fd_vinyl_io_ur_private.h"
 
+#pragma GCC diagnostic ignored "-Wunused-function"
+
 /* This backend uses scratch pad memory as a write-back cache.  Every
    byte in the scratch pad has one of the following states:
 
@@ -38,19 +40,26 @@ fd_vinyl_io_wq_completion( fd_vinyl_io_ur_t * ur ) {
   FD_CRIT( ur->cqe_pending      >0, "stray completion"       );
   FD_CRIT( ur->cqe_write_pending>0, "stray write completion" );
 
+  /* interpret CQE */
   struct io_uring_cqe * cqe = fd_io_uring_cq_head( ring->cq );
   if( FD_UNLIKELY( !cqe ) ) FD_LOG_CRIT(( "no write completion found" ));
   if( ur_udata_req_type( cqe->user_data )!=UR_REQ_WRITE ) {
     FD_LOG_CRIT(( "unexpected CQE type while flushing write queue" ));
   }
-
   int cqe_res = cqe->res;
   if( cqe_res<0 ) {
     FD_LOG_ERR(( "io_uring write failed (%i-%s)", -cqe_res, fd_io_strerror( -cqe_res ) ));
   }
-  /* FIXME detect short writes */
 
-  ulong wq_idx = ur_udata_idx( cqe->user_data );
+  /* advance write cursor */
+  ulong       wq_idx  = ur_udata_idx( cqe->user_data );
+  wq_desc_t * wq_desc = wq_ring_desc( &ur->wq, wq_idx );
+  ulong       req_sz  = wq_desc->sz;
+  if( FD_UNLIKELY( (uint)cqe_res != req_sz ) ) {
+    FD_LOG_ERR(( "database write failed (short write): requested to write %lu bytes, but only wrote %i bytes (at bstream seq 0x%016lx)",
+                 req_sz, cqe_res,
+                 wq_desc->seq - req_sz ));
+  }
   ur->seq_clean = wq_ring_complete( &ur->wq, wq_idx );
 
   fd_io_uring_cq_advance( ring->cq, 1U );
@@ -93,9 +102,10 @@ wq_enqueue( fd_vinyl_io_ur_t * ur,
 
   fd_io_uring_t * ring     = ur->ring;
   ulong           cq_depth = ring->cq->depth;
+  wq_ring_t *     wq       = &ur->wq;
   for(;;) {
     wq_clean( ur );
-    if( wq_ring_free_cnt( &ur->wq )>=2 && ur->cqe_pending+2 <= cq_depth ) break;
+    if( wq_ring_free_cnt( wq )>=2 && ur->cqe_pending+2 <= cq_depth ) break;
     wq_wait( ur );
   }
 
@@ -107,7 +117,8 @@ wq_enqueue( fd_vinyl_io_ur_t * ur,
   ulong dev_off  = seq % dev_sz;
 
   ulong wsz = fd_ulong_min( sz, dev_sz - dev_off );
-  ulong wq0 = wq_ring_enqueue( &ur->wq, seq+wsz );
+  ulong wq0 = wq_ring_enqueue( wq, seq+wsz );
+  wq_ring_desc( wq, wq0 )->sz = (uint)wsz; /* remember request size for CQE */
   struct io_uring_sqe * sqe = fd_io_uring_get_sqe( ring->sq );
   if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "unbalanced SQ" ));
   *sqe = (struct io_uring_sqe) {
@@ -126,7 +137,8 @@ wq_enqueue( fd_vinyl_io_ur_t * ur,
 
   sz -= wsz;
   if( sz ) {
-    ulong wq1 = wq_ring_enqueue( &ur->wq, seq+wsz+sz );
+    ulong wq1 = wq_ring_enqueue( wq, seq+wsz+sz );
+    wq_ring_desc( wq, wq1 )->sz = (uint)sz;
     sqe = fd_io_uring_get_sqe( ring->sq );
     if( FD_UNLIKELY( !sqe ) ) FD_LOG_CRIT(( "unbalanced SQ" ));
     *sqe = (struct io_uring_sqe) {
