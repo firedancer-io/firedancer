@@ -46,11 +46,11 @@ bench_append( fd_vinyl_io_t * io,
   FD_TEST( 0==fsync( ur->dev_fd ) );
   long dt_sync = fd_log_wallclock() - start;
 
-  FD_TEST( ur->sqe_prep_cnt      == ur->sqe_sent_cnt  );
-  FD_TEST( ur->cqe_cnt           == ur->sqe_sent_cnt  );
-  FD_TEST( ur->sqe_write_tot_sz  >= block_cnt*pair_sz );
-  FD_TEST( ur->cqe_write_pending == 0                 );
-  FD_TEST( ur->cqe_pending       == 0                 );
+  FD_TEST( ur->sqe_prep_cnt == ur->sqe_sent_cnt  );
+  FD_TEST( ur->cqe_cnt      == ur->sqe_sent_cnt  );
+  FD_TEST( ur->base->file_write_tot_sz >= block_cnt*pair_sz );
+  FD_TEST( ur->cqe_write_pending == 0 );
+  FD_TEST( ur->cqe_pending       == 0 );
   FD_LOG_NOTICE((
       "\n  block size %lu bytes:\n"
       "    elapsed: %.2f seconds (%.1f GB in %lu blocks)\n"

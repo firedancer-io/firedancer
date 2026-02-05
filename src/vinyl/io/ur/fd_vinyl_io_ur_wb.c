@@ -1,7 +1,5 @@
 #include "fd_vinyl_io_ur_private.h"
 
-#pragma GCC diagnostic ignored "-Wunused-function"
-
 /* This backend uses scratch pad memory as a write-back cache.  Every
    byte in the scratch pad has one of the following states:
 
@@ -95,6 +93,16 @@ wq_wait( fd_vinyl_io_ur_t * ur ) {
 /* wq_enqueue adds a buffer to the write queue. */
 
 static void
+track_sqe_write( fd_vinyl_io_ur_t * ur,
+                 ulong              sz ) {
+  ur->base->file_write_cnt++;
+  ur->base->file_write_tot_sz += sz;
+  ur->sqe_prep_cnt++;
+  ur->cqe_pending++;
+  ur->cqe_write_pending++;
+}
+
+static void
 wq_enqueue( fd_vinyl_io_ur_t * ur,
             ulong              seq,
             uchar const *      src,
@@ -130,10 +138,7 @@ wq_enqueue( fd_vinyl_io_ur_t * ur,
     .flags     = IOSQE_FIXED_FILE,
     .user_data = ur_udata_pack_idx( UR_REQ_WRITE, wq0 ),
   };
-  ur->sqe_prep_cnt++;
-  ur->sqe_write_tot_sz += wsz;
-  ur->cqe_pending++;
-  ur->cqe_write_pending++;
+  track_sqe_write( ur, wsz );
 
   sz -= wsz;
   if( sz ) {
@@ -150,10 +155,7 @@ wq_enqueue( fd_vinyl_io_ur_t * ur,
       .flags     = IOSQE_FIXED_FILE,
       .user_data = ur_udata_pack_idx( UR_REQ_WRITE, wq1 ),
     };
-    ur->sqe_prep_cnt++;
-    ur->sqe_write_tot_sz += sz;
-    ur->cqe_pending++;
-    ur->cqe_write_pending++;
+    track_sqe_write( ur, sz );
   }
 }
 
@@ -294,7 +296,7 @@ fd_vinyl_io_ur_append( fd_vinyl_io_t * io,
 
   /* Is the request in-place?  If so, trim the allocation */
 
-  ulong seq    = seq_future;
+  ulong seq = seq_future;
 
   ur->base->spad_used = 0UL;
   if( src==ur->last_alloc ) {
@@ -310,6 +312,8 @@ fd_vinyl_io_ur_append( fd_vinyl_io_t * io,
     wb_ring_trim( &ur->wb, seq );
     void * alloc = fd_vinyl_io_ur_alloc( io, sz, FD_VINYL_IO_FLAG_BLOCKING );
     fd_memcpy( alloc, src, sz );
+    ur->base->cache_write_cnt++;
+    ur->base->cache_write_tot_sz += sz;
   }
 
   /* At this point, the append request is at the correct position in the
@@ -435,6 +439,8 @@ fd_vinyl_io_ur_sync( fd_vinyl_io_t * io,
   fd_vinyl_bstream_block_hash( seed, block ); /* sets hash_trail back to seed */
 
   bd_write( dev_fd, dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ );
+  ur->base->file_write_cnt++;
+  ur->base->file_write_tot_sz += FD_VINYL_BSTREAM_BLOCK_SZ;
 
   ur->base->seq_ancient = seq_past;
 

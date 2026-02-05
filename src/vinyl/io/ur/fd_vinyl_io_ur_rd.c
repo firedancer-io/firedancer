@@ -56,6 +56,8 @@ wb_read( fd_vinyl_io_ur_t * io,
   wb_ring_span_t span = wb_ring_translate( &io->wb, req0, rsz );
   if( span.sz0 ) fd_memcpy( dst,          spad+span.off0, span.sz0 );
   if( span.sz1 ) fd_memcpy( dst+span.sz0, spad+span.off1, span.sz1 );
+  io->base->cache_read_cnt    += (ulong)( !!span.sz0 + !!span.sz1 );
+  io->base->cache_read_tot_sz +=            span.sz0 +   span.sz1;
 
   return sz-rsz;
 }
@@ -114,8 +116,15 @@ fd_vinyl_io_ur_read_imm( fd_vinyl_io_t * io,
   ulong rsz = fd_ulong_min( sz, dev_sz - dev_off );
   bd_read( dev_fd, dev_base + dev_off, dst, rsz );
   sz -= rsz;
+  ur->base->file_read_cnt++;
+  ur->base->file_read_tot_sz += rsz;
 
-  if( FD_UNLIKELY( sz ) ) bd_read( dev_fd, dev_base, dst + rsz, sz );
+  if( FD_UNLIKELY( sz ) ) {
+    bd_read( dev_fd, dev_base, dst + rsz, sz );
+    ur->base->file_read_cnt++;
+    ur->base->file_read_tot_sz += sz;
+  }
+
 }
 
 /* ### Read pipeline explainer
@@ -167,6 +176,16 @@ rc_push( fd_vinyl_io_ur_t *    ur,
   rd->next          = NULL;
   *ur->rc_tail_next = rd;
   ur->rc_tail_next  = &rd->next;
+}
+
+static void
+track_sqe_read( fd_vinyl_io_ur_t * ur,
+                ulong              sz ) {
+  ur->base->file_read_cnt++;
+  ur->base->file_read_tot_sz += sz;
+  ur->sqe_prep_cnt++;
+  ur->cqe_pending++;
+  ur->cqe_read_pending++;
 }
 
 /* rq_prep translates a staged read job into one (or rarely two)
@@ -227,9 +246,7 @@ rq_prep( fd_vinyl_io_ur_t *    ur,
     .flags     = IOSQE_FIXED_FILE,
     .user_data = ur_udata_pack_ptr( UR_REQ_READ, rd ),
   };
-  ur->sqe_prep_cnt++;
-  ur->cqe_pending++;
-  ur->cqe_read_pending++;
+  track_sqe_read( ur, rsz );
   if( FD_LIKELY( !sz ) ) return 1; /* optimize for the unfragmented case */
 
   /* Prepare the tail SQE */
@@ -245,9 +262,7 @@ rq_prep( fd_vinyl_io_ur_t *    ur,
     .flags     = IOSQE_FIXED_FILE,
     .user_data = ur_udata_pack_ptr( UR_REQ_READ_TAIL, rd ),
   };
-  ur->sqe_prep_cnt++;
-  ur->cqe_pending++;
-  ur->cqe_read_pending++;
+  track_sqe_read( ur, sz );
   return 2;
 }
 
@@ -314,9 +329,7 @@ rq_prep_retry( fd_vinyl_io_ur_t *    ur,
     .flags     = IOSQE_FIXED_FILE,
     .user_data = ur_udata_pack_ptr( req_type, rd ),
   };
-  ur->sqe_prep_cnt++;
-  ur->cqe_pending++;
-  ur->cqe_read_pending++;
+  track_sqe_read( ur, frag_sz );
 }
 
 /* rq_completion consumes an io_uring CQE.  Returns io_rd if a read job

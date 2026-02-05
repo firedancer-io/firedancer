@@ -142,6 +142,16 @@ struct fd_vinyl_io_private {
   ulong                spad_max;     /* " */
   ulong                spad_used;    /* " */
   fd_vinyl_io_impl_t * impl;         /* implementation specific funcs */
+
+  ulong cache_read_cnt;     /* Cache read request count */
+  ulong cache_read_tot_sz;  /* Cache bytes read total */
+  ulong cache_write_cnt;    /* Cache write request count */
+  ulong cache_write_tot_sz; /* Cache bytes written total */
+  ulong file_read_cnt;      /* File read request count  */
+  ulong file_read_tot_sz;   /* File bytes read total */
+  ulong file_write_cnt;     /* File write request count */
+  ulong file_write_tot_sz;  /* File bytes written total */
+
   /* io implementation specific details follow */
 };
 
