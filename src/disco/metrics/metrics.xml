@@ -766,12 +766,21 @@ metric introduced.
     <counter name="ShredRepairRcvBytes" summary="The number bytes received from network packets with repair shreds. Bytes include network headers" />
     <counter name="ShredTurbineRcv" summary="The number of times we received a turbine shred" />
     <counter name="ShredTurbineRcvBytes" summary="The number bytes received from network packets with turbine shreds. Bytes include network headers" />
-    <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
-        <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
+
+    <counter name="StoreInsertAcquire" summary="Count of slock acquires for insert" />
+    <counter name="StoreInsertRelease" summary="Count of slock releases for insert" />
+    <histogram name="StoreInsertWait" min="0.00000001" max="0.001" converter="seconds">
+        <summary>Time in seconds spent waiting to acquire the slock for insert</summary>
     </histogram>
-    <histogram name="StoreInsertWork" min="0.00000001" max="0.0005" converter="seconds">
-        <summary>Time in seconds spent on inserting a new FEC set</summary>
+    <histogram name="StoreInsertWork" min="0.00000001" max="0.001" converter="seconds">
+        <summary>Time in seconds spent working before releasing the slock for insert</summary>
     </histogram>
+    <counter name="StoreInsertCnt" summary="Count of inserts" />
+    <counter name="StoreInsertFullCnt" summary="Count of inserts when store was full" />
+    <counter name="StoreInsertDuplicateCnt" summary="Count of duplicate inserts" />
+    <gauge name="StoreInsertMr" summary="First 8 bytes of most recently inserted merkle root" />
+    <gauge name="StoreInsertFullMr" summary="First 8 bytes of most recently inserted merkle root when store was full" />
+    <gauge name="StoreInsertDuplicateMr" summary="First 8 bytes of most recently inserted duplicate merkle root" />
 </tile>
 
 <tile name="store" telemetry="false">
@@ -785,24 +794,32 @@ metric introduced.
 </enum>
 
 <tile name="replay">
-  <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
-    <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
+
+  <counter name="StoreQueryAcquire" summary="Count of store slock acquires for query" />
+  <counter name="StoreQueryRelease" summary="Count of store slock releases for query" />
+  <histogram name="StoreQueryWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting to acquire the slock for query</summary>
   </histogram>
-  <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
-    <summary>Time in seconds spent on linking a new FEC set</summary>
+  <histogram name="StoreQueryWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent working before releasing the slock for query</summary>
   </histogram>
-  <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
+  <counter name="StoreQueryCnt" summary="Count of queries" />
+  <counter name="StoreQueryMissingCnt" summary="Count of queries where merkle root was missing" />
+  <gauge name="StoreQueryMr" summary="First 8 bytes of most recently queried merkle root" />
+  <gauge name="StoreQueryMissingMr" summary="First 8 bytes of most recently queried missing merkle root" />
+
+  <counter name="StoreRemoveAcquire" summary="Count of store xlock acquires for remove" />
+  <counter name="StoreRemoveRelease" summary="Count of store xlock releases for remove" />
+  <histogram name="StoreRemoveWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting to acquire the xlock for remove</summary>
   </histogram>
-  <histogram name="StoreReadWork" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent on reading a FEC set</summary>
+  <histogram name="StoreRemoveWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent working before releasing the xlock for remove</summary>
   </histogram>
-  <histogram name="StorePublishWait" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent waiting for the store to publish a new FEC set</summary>
-  </histogram>
-  <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent on publishing a new FEC set</summary>
-  </histogram>
+  <counter name="StoreRemoveCnt" summary="Count of removes" />
+  <counter name="StoreRemoveMissingCnt" summary="Count of removes where merkle root was missing" />
+  <gauge name="StoreRemoveMr" summary="First 8 bytes of most recently removed merkle root" />
+  <gauge name="StoreRemoveMissingMr" summary="First 8 bytes of most recently removed missing merkle root" />
 
   <gauge name="RootSlot" summary="The slot at which our node has most recently rooted" />
   <gauge name="RootDistance" summary="The distance in slots between our current root and the current reset slot" />
@@ -1260,6 +1277,7 @@ metric introduced.
     <gauge name="ClusterVoteSlot" summary="Cluster vote slot (from on-chain vote account as of ReplaySlotProcessed)" />
     <gauge name="LocalRootSlot" summary="Local root slot (root of local tower)" />
     <gauge name="LocalVoteSlot" summary="Local vote slot (top of local tower)" />
+    <gauge name="ReplaySlot" summary="Replay slot" />
     <gauge name="ResetSlot" summary="Reset slot" />
 
     <!-- Replay slot completed -->

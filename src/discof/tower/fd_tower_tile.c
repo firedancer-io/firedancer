@@ -283,6 +283,7 @@ metrics_write( ctx_t * ctx ) {
   FD_MGAUGE_SET( TOWER, CLUSTER_VOTE_SLOT, ctx->metrics.cluster_vote_slot );
   FD_MGAUGE_SET( TOWER, LOCAL_ROOT_SLOT,   ctx->metrics.local_root_slot   );
   FD_MGAUGE_SET( TOWER, LOCAL_VOTE_SLOT,   ctx->metrics.local_vote_slot   );
+  FD_MGAUGE_SET( TOWER, REPLAY_SLOT,       ctx->metrics.replay_slot       );
   FD_MGAUGE_SET( TOWER, RESET_SLOT,        ctx->metrics.reset_slot        );
 
   FD_MGAUGE_SET( TOWER, REPLAY_SLOT_PROCESSED, ctx->metrics.replay_slot_processed_gauge );
@@ -504,7 +505,6 @@ count_vote_txn( ctx_t *             ctx,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
-
     fd_notar_blk_t * notar_blk = fd_notar_count_vote( ctx->notar, total_stake, vote_acc, their_intermediate_vote->slot, fd_forks_canonical_block_id( ctx->forks, their_intermediate_vote->slot ) );
     if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, notar_blk );
   }
@@ -631,6 +631,8 @@ replay_slot_completed( ctx_t *                      ctx,
     FD_LOG_CRIT(( "replay_slot_completed slot %lu block id is null", slot_completed->slot ));
   }
 
+  ctx->metrics.replay_slot = slot_completed->slot;
+
   /* This is a temporary patch for equivocation. */
 
   if( FD_UNLIKELY( fd_forks_query( ctx->forks, slot_completed->slot ) ) ) {
@@ -754,19 +756,21 @@ replay_slot_completed( ctx_t *                      ctx,
       ulong vote_slot = fd_voter_vote_slot( acct->data );
       if( FD_LIKELY( vote_slot!=ULONG_MAX && /* has voted */
                      vote_slot>=fd_ghost_root( ctx->ghost )->slot ) ) { /* vote not too old */
-        /* We search up the ghost ancestry to find the ghost block for this
-           vote slot.  In Agave, they look this value up using a hashmap of
-           slot->block_id ("fork progress"), but that approach only works
-           because they dump and repair (so there's only ever one canonical
-           block id).  We retain multiple block ids, both the original and
-           confirmed one. */
+
+        /* We search up the ghost ancestry to find the ghost block for
+           this vote slot.  In Agave, they look this value up using a
+           hashmap of slot->bank hash ("fork progress"), but that
+           approach only works because they dump and repair (so there's
+           only ever one canonical bank hash).  We retain multiple block
+           ids, both the original and confirmed one. */
 
         fd_ghost_blk_t * ancestor_blk = fd_ghost_slot_ancestor( ctx->ghost, ghost_blk, vote_slot ); /* FIXME potentially slow */
 
-        /* It is impossible for ancestor to be missing, because these are
-           vote accounts on a given fork, not vote txns across forks.  So we
-           know these towers must contain slots we know about (as long as
-           they are >= root, which we checked above). */
+        /* It is impossible for ancestor_blk to be missing, because these
+           are vote accounts on a given fork, not vote txns across
+           forks.  So we know these towers must contain slots we know
+           about as long as they are >= root, which we checked above.
+        */
 
         if( FD_UNLIKELY( !ancestor_blk ) ) {
           FD_BASE58_ENCODE_32_BYTES( acct->addr.key, pubkey_b58 );
@@ -947,13 +951,6 @@ done_vote_iter:
     fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ) );
     fd_tower_print( ctx->tower, ctx->metrics.local_root_slot );
   }
-
-  // if( FD_UNLIKELY( ctx->debug_fd!=-1 ) ) {
-  //   /* standard buf_sz used by below prints is ~3400 bytes, so buf_max of
-  //      4096 is sufficient to keep the debug file mostly up to date */
-  //   fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ), &ctx->debug_ostream );
-  //   fd_tower_print( ctx->tower, fd_ghost_root( ctx->ghost )->slot, &ctx->debug_ostream );
-  // }
 }
 
 static inline void

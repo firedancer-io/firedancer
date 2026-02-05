@@ -66,6 +66,7 @@ typedef struct bid bid_t;
 struct xid {
   ulong key; /* 32 msb slot | 32 lsb fec_set_idx */
   ulong idx; /* pool idx of the FEC */
+  ulong cnt; /* count of FECs with this xid key */
 };
 typedef struct xid xid_t;
 

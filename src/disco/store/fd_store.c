@@ -1,10 +1,25 @@
 #include "fd_store.h"
-#include "../../flamenco/fd_flamenco_base.h"
 
-static const fd_hash_t hash_null = { 0 };
-
-#define null fd_store_pool_idx_null()
 #define BLOCKING 1
+
+static inline fd_store_map_t *
+map_laddr( fd_store_t * store ) {
+  return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr );
+}
+
+static inline fd_store_pool_t
+pool_ljoin( fd_store_t const * store ) {
+  return (fd_store_pool_t){
+      .pool    = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_mem_gaddr ),
+      .ele     = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_ele_gaddr ),
+      .ele_max = store->fec_max };
+}
+
+static inline fd_store_fec_t *
+pool_laddr( fd_store_t * store ) {
+  fd_store_pool_t pool = pool_ljoin( store );
+  return pool.ele;
+}
 
 void *
 fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
@@ -61,9 +76,8 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
 
   store->part_cnt = part_cnt;
   store->fec_max  = fec_max;
-  store->root     = null;
 
-  fd_store_pool_t pool = fd_store_pool( store );
+  fd_store_pool_t pool = pool_ljoin( store );
   if( FD_UNLIKELY( !fd_store_pool_new( shpool ) ) ) {
     FD_LOG_WARNING(( "fd_store_pool_new failed" ));
     return NULL;
@@ -143,156 +157,98 @@ fd_store_delete( void * shstore ) {
 }
 
 fd_store_fec_t *
+fd_store_query( fd_store_t       * store,
+                fd_hash_t  const * merkle_root ) {
+
+  *store->metrics.query_cnt += 1;
+
+  fd_store_pool_t pool = pool_ljoin( store );
+  ulong           null = fd_store_pool_idx_null();
+  for( uint part_idx = 0; part_idx < store->part_cnt; part_idx++ ) {
+    fd_store_key_t   key = { *merkle_root, part_idx };
+    ulong            idx = fd_store_map_idx_query_const( map_laddr( store ), &key, null, pool_laddr( store ) );
+    fd_store_fec_t * fec = fd_store_pool_ele( &pool, idx );
+    if( FD_LIKELY( fec ) ) return fec;
+  }
+
+  *store->metrics.query_missing_cnt += 1;
+  *store->metrics.query_missing_mr = merkle_root->ul[0];
+  return NULL;
+}
+
+fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
                  fd_hash_t  * merkle_root ) {
-  if( FD_UNLIKELY( fd_store_query_const( store, merkle_root ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( merkle_root->key, merkle_root_b58 );
-    FD_LOG_WARNING(( "Merkle root %s already in store.  Ignoring insert.", merkle_root_b58 ));
-    return NULL;
+
+  *store->metrics.insert_cnt += 1;
+  *store->metrics.insert_mr = merkle_root->ul[0];
+
+  fd_store_pool_t pool = pool_ljoin( store );
+  ulong           null = fd_store_pool_idx_null();
+
+  ulong _part_idx = part_idx;
+  for( ulong part_idx = 0; part_idx < store->part_cnt; part_idx++ ) {
+    fd_store_key_t   key = { *merkle_root, part_idx };
+    ulong            idx = fd_store_map_idx_query_const( map_laddr( store ), &key, null, pool_laddr( store ) );
+    fd_store_fec_t * fec = fd_store_pool_ele( &pool, idx );
+    if( FD_UNLIKELY( fec ) ) {
+      if( FD_UNLIKELY( _part_idx!=part_idx ) ) FD_LOG_WARNING(( "store duplicate insert with different part_idx" ));
+      *store->metrics.insert_duplicate_cnt += 1;
+      *store->metrics.insert_duplicate_mr = merkle_root->ul[0];
+      return fec;
+    };
   }
 
-  int err;
-  fd_store_pool_t  pool = fd_store_pool( store );
-  fd_store_fec_t * fec  = fd_store_pool_acquire( &pool, NULL, BLOCKING, &err );
+  int err; fd_store_fec_t * fec = fd_store_pool_acquire( &pool, NULL, BLOCKING, &err );
 
-  if( FD_UNLIKELY( err == FD_POOL_ERR_EMPTY   ) ) { FD_LOG_WARNING(( "store full %s",    fd_store_pool_strerror( err ) )); return NULL; } /* FIXME: eviction? max bound guaranteed for worst-case? */
-  if( FD_UNLIKELY( err == FD_POOL_ERR_CORRUPT ) ) { FD_LOG_CRIT   (( "store corrupt %s", fd_store_pool_strerror( err ) )); }
-  FD_TEST( fec );
+  switch( err ) {
+  case FD_POOL_SUCCESS:     break;
+  case FD_POOL_ERR_EMPTY:   FD_LOG_WARNING(( "store full %s",    fd_store_pool_strerror( err ) )); *store->metrics.insert_full_cnt += 1; *store->metrics.insert_full_mr = merkle_root->ul[0]; return NULL;
+  case FD_POOL_ERR_CORRUPT: FD_LOG_CRIT   (( "store corrupt %s", fd_store_pool_strerror( err ) ));
+  default:                  FD_LOG_ERR    (( "unhandled err %s", fd_store_pool_strerror( err ) ));
+  }
 
-  fec->key.mr           = *merkle_root;
-  fec->key.part         = part_idx;
-  fec->cmr              = hash_null;
-  fec->next             = null;
-  fec->parent           = null;
-  fec->child            = null;
-  fec->sibling          = null;
-  fec->data_sz          = 0UL;
-  if( FD_UNLIKELY( store->root == null ) ) store->root = fd_store_pool_idx( &pool, fec );
-  fd_store_map_ele_insert( fd_store_map( store ), fec, fd_store_fec0( store ) );
+  fec->key.merkle_root = *merkle_root;
+  fec->key.part_idx    = part_idx;
+  fec->cmr             = (fd_hash_t){ 0 };
+  fec->next            = null;
+  fec->data_sz         = 0UL;
+  fd_store_map_ele_insert( map_laddr( store ), fec, pool_laddr( store ) );
 
   return fec;
 }
 
-fd_store_fec_t *
-fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_merkle_root ) {
+void
+fd_store_remove( fd_store_t      * store,
+                 fd_hash_t const * merkle_root ) {
 
-# if FD_STORE_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_store_query_const( store, merkle_root         ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( merkle_root->key, merkle_root_b58 );
-    FD_LOG_WARNING(( "missing merkle root %s", merkle_root_b58 ) );
-    return NULL;
-  }
-  if( FD_UNLIKELY( !fd_store_query_const( store, chained_merkle_root ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( chained_merkle_root->key, chained_merkle_root_b58 );
-    FD_LOG_WARNING(( "missing chained merkle root %s", chained_merkle_root_b58 ) );
-    return NULL;
-  }
-# endif
+  *store->metrics.remove_cnt += 1;
+  *store->metrics.remove_mr = merkle_root->ul[0];
 
-  fd_store_pool_t   pool   = fd_store_pool( store );
-  fd_store_fec_t  * parent = fd_store_query( store, chained_merkle_root );
-  fd_store_fec_t  * child  = fd_store_query( store, merkle_root );
+  for( uint part_idx = 0; part_idx < store->part_cnt; part_idx++ ) {
+    fd_store_key_t   key = { *merkle_root, part_idx };
+    fd_store_fec_t * fec = NULL;
+    FD_STORE_XLOCK_BEGIN( store ) {
+      fec = fd_store_map_ele_remove( map_laddr( store ), &key, NULL, pool_laddr( store ) );
+    } FD_STORE_XLOCK_END;
 
-  if( FD_UNLIKELY( child->parent != null ) ) return child; /* already linked */
-  child->parent = fd_store_pool_idx( &pool, parent );
-  if( FD_LIKELY( parent->child == null ) ) {
-    parent->child = fd_store_pool_idx( &pool, child ); /* set as left-child. */
-  } else {
-    fd_store_fec_t * curr = fd_store_pool_ele( &pool, parent->child );
-    while( curr->sibling != null ) curr = fd_store_pool_ele( &pool, curr->sibling );
-    curr->sibling = fd_store_pool_idx( &pool, child ); /* set as right-sibling. */
-  }
-  return child;
-}
-
-fd_store_fec_t *
-fd_store_publish( fd_store_t *      store,
-                  fd_hash_t const * merkle_root ) {
-
-# if FD_STORE_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_store_query( store, merkle_root ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( merkle_root->key, merkle_root_b58 );
-    FD_LOG_WARNING(( "merkle root %s not found", merkle_root_b58 ));
-    return NULL;
-  }
-# endif
-
-  fd_store_map_t  * map  = fd_store_map ( store );
-  fd_store_pool_t   pool = fd_store_pool( store );
-  fd_store_fec_t  * fec0 = fd_store_fec0( store );
-  fd_store_fec_t  * oldr = fd_store_root( store );
-  fd_store_fec_t  * newr = fd_store_query( store, merkle_root );
-
-  /* First, remove the previous root, and push it as the first element
-     of the BFS queue. */
-
-  fd_store_fec_t * head = fd_store_map_ele_remove( map, &oldr->key, NULL, fec0 );
-  head->next            = null; /* clear map next */
-  fd_store_fec_t * tail = head; /* tail of BFS queue */
-
-  /* Second, BFS down the tree, pruning all of root's ancestors and also
-     any descendants of those ancestors. */
-
-  while( FD_LIKELY( head ) ) {
-    fd_store_fec_t * child = fd_store_pool_ele( &pool, head->child );         /* left-child */
-    while( FD_LIKELY( child ) ) {                                             /* iterate over children */
-      if( FD_LIKELY( child != newr ) ) {                                      /* stop at new root */
-        tail->next = fd_store_map_idx_remove( map, &child->key, null, fec0 ); /* remove node from map to reuse `.next` */
-        tail       = fd_store_pool_ele( &pool, tail->next );                  /* push onto BFS queue (so descendants can be pruned) */
-        tail->next = null;                                                    /* clear map next */
-      }
-      child = fd_store_pool_ele( &pool, child->sibling );                     /* right-sibling */
+    if( FD_LIKELY( fec ) ) {
+      fd_store_pool_t pool = pool_ljoin( store );
+      fd_store_pool_release( &pool, fec, BLOCKING );
+      return;
     }
-    fd_store_fec_t * next = fd_store_pool_ele( &pool, head->next ); /* pophead */
-    int err = fd_store_pool_release( &pool, head, BLOCKING );       /* release */
-    if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "failed to release fec %s", fd_store_pool_strerror( err ) ));
-    head = next; /* advance */
   }
-  newr->parent = null;                             /* unlink old root */
-  store->root  = fd_store_pool_idx( &pool, newr ); /* replace with new root */
-  return newr;
-}
 
-fd_store_t *
-fd_store_clear( fd_store_t * store ) {
-
-# if FD_STORE_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_store_root( store ) ) ) { FD_LOG_WARNING(( "calling clear on an empty store" )); return NULL; }
-# endif
-
-  fd_store_map_t * map  = fd_store_map( store );
-  fd_store_pool_t  pool = fd_store_pool( store );
-  fd_store_fec_t * fec0 = fd_store_fec0( store );
-
-  fd_store_fec_t * head = fd_store_root( store );
-  fd_store_fec_t * tail = head;
-
-  for( fd_store_map_iter_t iter = fd_store_map_iter_init( map, fec0 );
-       !fd_store_map_iter_done( iter, map, fec0 );
-       iter = fd_store_map_iter_next( iter, map, fec0 ) ) {
-    ulong idx = fd_store_map_iter_idx( iter, map, fec0 );
-    if( FD_UNLIKELY( idx == fd_store_pool_idx( &pool, head ) ) ) continue;
-    tail->sibling = idx;
-    tail          = fd_store_pool_ele( &pool, tail->sibling );
-  }
-  tail->sibling = null;
-  for( ulong idx = fd_store_pool_idx( &pool, head );
-       FD_LIKELY( idx != null );
-       idx = fd_store_pool_ele( &pool, idx )->sibling ) {
-    fd_store_fec_t * fec = fd_store_pool_ele( &pool, idx );
-    fd_store_map_idx_remove( map, &fec->key, null, fec0 );
-    fd_store_pool_release( &pool, fec, 1 );
-  }
-  store->root = null;
-  return store;
+  *store->metrics.remove_missing_cnt += 1;
+  *store->metrics.remove_missing_mr = merkle_root->ul[0];
 }
 
 int
 fd_store_verify( fd_store_t * store ) {
 
-  fd_store_map_t * map  = fd_store_map( store );
-  fd_store_fec_t * fec0 = fd_store_fec0( store );
+  fd_store_map_t * map  = map_laddr( store );
+  fd_store_fec_t * fec0 = pool_laddr( store );
 
   ulong part_sz = store->fec_max / store->part_cnt;
   if( part_sz != map->seed ) {
@@ -312,45 +268,12 @@ fd_store_verify( fd_store_t * store ) {
     }
     ulong chain_idx = fd_store_map_private_chain_idx( &fec->key, map->seed, map->chain_cnt );
     /* the chain_idx should be in the range of the partition */
-    if( FD_UNLIKELY( chain_idx < part_sz * fec->key.part || chain_idx >= part_sz * (fec->key.part + 1) ) ) {
-      FD_LOG_WARNING(( "chain_idx %lu not in range %lu-%lu", chain_idx, part_sz * fec->key.part, part_sz * (fec->key.part + 1) ) );
+    if( FD_UNLIKELY( chain_idx < part_sz * fec->key.part_idx || chain_idx >= part_sz * (fec->key.part_idx + 1) ) ) {
+      FD_LOG_WARNING(( "chain_idx %lu not in range %lu-%lu", chain_idx, part_sz * fec->key.part_idx, part_sz * (fec->key.part_idx + 1) ) );
       return -1;
     }
   }
-  fd_store_pool_t pool = fd_store_pool( store );
+  fd_store_pool_t pool = pool_ljoin( store );
   if( FD_UNLIKELY( fd_store_pool_verify( &pool )==-1 ) ) return -1;
   return fd_store_map_verify( map, store->fec_max, fec0 );
-}
-
-#include <stdio.h>
-
-static void
-print( fd_store_t const * store, fd_store_fec_t const * fec, int space, const char * prefix ) {
-
-  if( fec == NULL ) return;
-  if( space > 0 ) printf( "\n" );
-  for( int i = 0; i < space; i++ ) printf( " " );
-  FD_BASE58_ENCODE_32_BYTES( fec->key.mr.key, key_mr_b58 );
-  printf( "%s%s", prefix, key_mr_b58 );
-
-  fd_store_pool_t pool = fd_store_pool( store );
-  fd_store_fec_t const * curr = fd_store_pool_ele_const( &pool, fec->child );
-  char new_prefix[1024]; /* FIXME size this correctly */
-  while( curr ) {
-    if( fd_store_pool_ele_const( &pool, curr->sibling ) ) {
-      sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
-      print( store, curr, space + 4, new_prefix );
-    } else {
-      sprintf( new_prefix, "└── " ); /* end branch */
-      print( store, curr, space + 4, new_prefix );
-    }
-    curr = fd_store_pool_ele_const( &pool, curr->sibling );
-  }
-}
-
-void
-fd_store_print( fd_store_t const * store ) {
-  FD_LOG_NOTICE( ( "\n\n[Store]" ) );
-  print( store, fd_store_root_const( store ), 0, "" );
-  printf( "\n\n" );
 }
