@@ -541,17 +541,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                      ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
                      vm->segv_vaddr!=ULONG_MAX ) ) {
 
-      /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
-      if( FD_UNLIKELY( vm->segv_vaddr>>32UL==0UL ) ) {
-        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-      }
-
-      /* If the vaddr doesn't live in the input region, then we don't need to
-         bother trying to iterate through all of the borrowed accounts. */
-      if( FD_VADDR_TO_REGION( vm->segv_vaddr )!=FD_VM_INPUT_REGION ) {
-        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-      }
-
       /* If the vaddr of the access violation falls within the bounds of a
          serialized account vaddr range, then try to retrieve a more specific
          vm error based on the account's accesss permissions. */
