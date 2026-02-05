@@ -519,6 +519,7 @@ struct fd_config {
     ulong capture_start_slot;
     char  dump_proto_dir[ PATH_MAX ];
     char  dump_syscall_name_filter[ PATH_MAX ];
+    char  dump_instr_program_id_filter[ FD_BASE58_ENCODED_32_SZ ];
     char  solcap_capture[ PATH_MAX ];
     int   recent_only;
     ulong recent_slots_per_file;

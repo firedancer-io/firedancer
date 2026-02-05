@@ -1020,24 +1020,19 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
                            fd_txn_out_t *      txn_out,
                            fd_instr_info_t *   instr,
                            ushort              instruction_idx ) {
+  /* Check program ID filter, if it exists */
+  if( runtime->log.dump_proto_ctx->has_dump_instr_program_id_filter &&
+      memcmp( txn_out->accounts.keys[ instr->program_id ].uc, runtime->log.dump_proto_ctx->dump_instr_program_id_filter, sizeof(fd_pubkey_t) ) ) {
+    return;
+  }
+
   fd_spad_t * spad = fd_spad_join( fd_spad_new( runtime->log.dumping_mem, 1UL<<28UL ) );
 
   FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( txn_in->txn ), txn_in->txn->payload );
-    fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
-    ulong out_size;
-    fd_base58_encode_64( signature, &out_size, encoded_signature );
-
-    if( runtime->log.dump_proto_ctx->dump_proto_sig_filter ) {
-      ulong filter_strlen = (ulong) strlen(runtime->log.dump_proto_ctx->dump_proto_sig_filter);
-
-      // Terminate early if the signature does not match
-      if( memcmp( runtime->log.dump_proto_ctx->dump_proto_sig_filter, encoded_signature, filter_strlen < out_size ? filter_strlen : out_size ) ) {
-        return;
-      }
-    }
+    fd_base58_encode_64( signatures[0], NULL, encoded_signature );
 
     fd_exec_test_instr_context_t instr_context = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
     create_instr_context_protobuf_from_instructions( &instr_context, runtime, bank, txn_out, instr, spad );
@@ -1068,17 +1063,8 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
   FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( txn_in->txn ), txn_in->txn->payload );
-    fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
-    ulong out_size;
-    fd_base58_encode_64( signature, &out_size, encoded_signature );
-
-    if( runtime->log.dump_proto_ctx->dump_proto_sig_filter ) {
-      // Terminate early if the signature does not match
-      if( strcmp( runtime->log.dump_proto_ctx->dump_proto_sig_filter, encoded_signature ) ) {
-        return;
-      }
-    }
+    fd_base58_encode_64( signatures[0], NULL, encoded_signature );
 
     fd_exec_test_txn_context_t txn_context_msg = FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT;
     create_txn_context_protobuf_from_txn( &txn_context_msg, runtime, bank, txn_in, txn_out, spad );

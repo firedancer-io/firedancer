@@ -151,7 +151,6 @@ test_ctx_setup( void ) {
   FD_TEST( test_ctx->dump_proto_ctx );
 
   test_ctx->dump_proto_ctx->dump_proto_output_dir = TEST_OUTPUT_DIR;
-  test_ctx->dump_proto_ctx->dump_proto_sig_filter = NULL;
   test_ctx->dump_proto_ctx->dump_proto_start_slot = 0UL;
   test_ctx->dump_proto_ctx->dump_block_to_pb      = 1;
 
