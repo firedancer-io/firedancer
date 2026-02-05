@@ -922,10 +922,14 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted_&#8203;bytes</span> | counter | Number of bytes in account database entries rooted (including overhead) |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;account_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block, normalized by account count) |
+| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">db</span>"} | counter | Total time in seconds spent rooting accounts (Waiting on database server) |
+| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">copy</span>"} | counter | Total time in seconds spent rooting accounts (Copying account data) |
+| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
 
 </div>
 
@@ -965,6 +969,19 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">accdb_&#8203;accounts</span> | gauge | Current number of accounts |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of read operations (Record cache) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of read operations (I/O layer cache) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of read operations (File access) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes read (Record cache) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes read (I/O layer cache) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes read (File access) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of write operations (Record cache) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of write operations (I/O layer cache) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of write operations (File access) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes written (Record cache) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes written (I/O layer cache) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes written (File access) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (Blocks between ancient and past have been written and forgotten (no read, no write)) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (Blocks between past and present have been written (read only)) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
@@ -978,7 +995,7 @@
 | <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
 | <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
 | <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
-| <span class="metrics-name">accdb_&#8203;cache_&#8203;hits</span> | counter | Total number of cache hits |
+| <span class="metrics-name">accdb_&#8203;account_&#8203;map_&#8203;slots</span> | gauge | Account map capacity |
 
 </div>
 

@@ -19,6 +19,10 @@ fd_accdb_admin_v2_init( fd_accdb_admin_t * admin_,
                         ulong              vinyl_link_id );
 
 void
+fd_accdb_admin_v2_delay_set( fd_accdb_admin_t * admin,
+                             ulong              slot_delay );
+
+void
 fd_accdb_admin_v2_fini( fd_accdb_admin_t * ljoin );
 
 void *

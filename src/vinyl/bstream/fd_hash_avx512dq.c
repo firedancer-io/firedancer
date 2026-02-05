@@ -47,9 +47,9 @@ fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed_,
   for( ulong i=0UL; i<8UL; i++ ) max_sz = fd_ulong_max( max_sz, sz_[i] );
 
   wwv_t rem_sz = wwv_ldu( sz_ );
-  wwv_t sub512 = wwv_bcast( 512UL );
+  wwv_t sub_sz = wwv_bcast( FD_VINYL_BSTREAM_BLOCK_SZ );
 
-  for( ulong j_outer=0UL; j_outer<max_sz; j_outer+=512UL ) {
+  for( ulong j_outer=0UL; j_outer<max_sz; j_outer+=FD_VINYL_BSTREAM_BLOCK_SZ ) {
     /* not_done has one bit per lane, and we need to convert it to one
        mask per lane.  We'll extract and invert the kth bit with a shift
        and mask, then add 0xFF to it, which has the effect of
@@ -57,7 +57,7 @@ fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed_,
        0xFF = 0x00. */
     __mmask8 not_done = _mm512_cmpneq_epi64_mask( rem_sz, wwv_zero() );
     /* Do effectively a saturating subtract */
-    rem_sz = _mm512_mask_sub_epi64( rem_sz, not_done, rem_sz, sub512 );
+    rem_sz = _mm512_mask_sub_epi64( rem_sz, not_done, rem_sz, sub_sz );
     __mmask8 k0 = _kadd_mask8( 0xFF, _kandn_mask8(                  not_done,      0x01 ) );
     __mmask8 k1 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 1 ), 0x01 ) );
     __mmask8 k2 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 2 ), 0x01 ) );
@@ -68,7 +68,7 @@ fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed_,
     __mmask8 k7 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 7 ), 0x01 ) );
 
 
-    for( ulong j=j_outer; j<j_outer+512UL; j+=32UL ) {
+    for( ulong j=j_outer; j<j_outer+FD_VINYL_BSTREAM_BLOCK_SZ; j+=32UL ) {
       V0 = _mm256_mask_mullo_epi64( V0, k0, wv_rol( wv_add( V0, wv_mul( CC2, _mm256_maskz_loadu_epi64( k0, p0+j ) ) ), 31 ), CC1 );
       V1 = _mm256_mask_mullo_epi64( V1, k1, wv_rol( wv_add( V1, wv_mul( CC2, _mm256_maskz_loadu_epi64( k1, p1+j ) ) ), 31 ), CC1 );
       V2 = _mm256_mask_mullo_epi64( V2, k2, wv_rol( wv_add( V2, wv_mul( CC2, _mm256_maskz_loadu_epi64( k2, p2+j ) ) ), 31 ), CC1 );

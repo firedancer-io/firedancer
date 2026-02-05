@@ -94,13 +94,13 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  funk.max_account_records                            );
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );
-  CFG_POP      ( ulong,  funk.max_database_transactions                      );
 
   CFG_POP      ( bool,   vinyl.enabled                                       );
   CFG_POP      ( ulong,  vinyl.max_account_records                           );
   CFG_POP      ( ulong,  vinyl.file_size_gib                                 );
   CFG_POP      ( ulong,  vinyl.max_cache_entries                             );
   CFG_POP      ( ulong,  vinyl.cache_size_gib                                );
+  CFG_POP      ( ulong,  vinyl.write_delay_slots                             );
   CFG_POP      ( bool,   vinyl.io_uring.enabled                              );
   CFG_POP      ( uint,   vinyl.io_uring.queue_depth                          );
 
@@ -263,6 +263,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  capture.recent_slots_per_file                    );
   CFG_POP      ( cstr,   capture.dump_proto_dir                           );
   CFG_POP      ( cstr,   capture.dump_syscall_name_filter                 );
+  CFG_POP      ( cstr,   capture.dump_instr_program_id_filter             );
   CFG_POP      ( bool,   capture.dump_elf_to_pb                           );
   CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
   CFG_POP      ( bool,   capture.dump_instr_to_pb                         );

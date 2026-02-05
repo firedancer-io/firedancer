@@ -94,7 +94,6 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
 [funk]
     heap_size_gib = 1
     max_account_records = 2000000
-    max_database_transactions = 64
 [runtime]
     max_live_slots = 64
     max_fork_width = 4

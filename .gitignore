@@ -84,3 +84,6 @@ venv
 .venv
 *.pyc
 *.egg-info/
+
+# Fuchsia trace format
+*.fxt

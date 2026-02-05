@@ -352,6 +352,7 @@ fd_accdb_publish_recs( fd_accdb_admin_v1_t * accdb,
       fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
       fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
       accdb->base.root_cnt++;
+      accdb->base.root_tot_sz += rec->val_sz;
     }
 
     head = next; /* next record */
@@ -429,6 +430,7 @@ fd_accdb_v1_advance_root( fd_accdb_admin_t *        accdb_,
 
   /* Assume no concurrent access to txn_map */
 
+  long dt = -fd_tickcount();
   fd_funk_txn_map_query_t query[1];
   int query_err = fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 );
   if( FD_UNLIKELY( query_err ) ) {
@@ -452,6 +454,9 @@ fd_accdb_v1_advance_root( fd_accdb_admin_t *        accdb_,
   funk->shmem->child_tail_cidx = txn->child_tail_cidx;
 
   fd_accdb_txn_publish_one( accdb, txn );
+
+  dt += fd_tickcount();
+  accdb->base.dt_gc += dt;
 }
 
 /* reset_rec_map frees all records in a funk instance. */

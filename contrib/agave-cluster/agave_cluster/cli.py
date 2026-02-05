@@ -202,6 +202,7 @@ def start_cluster(ctx, bootstrap_validator_name):
         click.echo(f"Authority account funded: {get_pubkey(authority_key)}")
 
     click.echo(f"✅ Cluster started successfully at: {cluster_path}")
+    click.echo(f"Cluster URL: http://{ip()}:8899")
     click.echo(f"Node path: {node_path}")
     click.echo((f"Log file: {node_path}/validator.log"))
 
@@ -676,6 +677,7 @@ def cluster_status(ctx, output_json):
         else:
             click.echo("📊 Cluster Status:")
             click.echo(f"  Status: {status.title()}")
+            click.echo(f"  Cluster URL: http://{ip()}:8899")
             click.echo(f"  Running Processes: {running_processes}")
             click.echo(f"  Ledger Path: {cluster_path}")
             if genesis_hash:

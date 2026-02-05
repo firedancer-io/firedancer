@@ -16,6 +16,9 @@ struct fd_accdb_admin_v2 {
     fd_accdb_admin_v1_t   v1[1];
   };
 
+  fd_accdb_lineage_t root_lineage[1];
+  ulong              slot_delay;
+
   /* Vinyl client */
   ulong                 vinyl_req_id;
   fd_vinyl_rq_t *       vinyl_rq;
@@ -29,9 +32,7 @@ typedef struct fd_accdb_admin_v2 fd_accdb_admin_v2_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_accdb_vinyl_write_batch moves a batch of funk account records to
-   vinyl.  The move is done in a thread-safe manner (writes to vinyl
-   first, then once the write is globally visible, removes from funk).
+/* fd_accdb_v2_root_batch "roots" a batch of funk accounts.
 
    rec0 is the head of the batch linked list to root (NULL is fine).
    Up to FD_ACCDB_ROOT_BATCH_MAX records starting at rec0 are migrated
@@ -42,11 +43,19 @@ FD_PROTOTYPES_BEGIN
    this point.  (The funk_txn that used to own rec0 has child_head and
    child_tail set to sentinel.)
 
+   Each record is considered as follows:
+   - If another newer revision of this record exists that was already
+     marked as rooted, this record is thrown away.
+   - Otherwise, the record is moved to vinyl.
+
+   The move to vinyl is done in a thread-safe manner (writes to vinyl
+   first, then once the write is globally visible, removes from funk).
+
    Updates the following metrics: root_cnt, reclaim_cnt. */
 
 fd_funk_rec_t *
-fd_accdb_v2_publish_batch( fd_accdb_admin_v2_t * admin,
-                           fd_funk_rec_t *       rec0 );
+fd_accdb_v2_root_batch( fd_accdb_admin_v2_t * admin,
+                        fd_funk_rec_t *       rec0 );
 
 FD_PROTOTYPES_END
 

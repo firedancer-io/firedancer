@@ -63,7 +63,6 @@ echo "
 [funk]
     max_account_records = 10000000
     heap_size_gib = 32
-    max_database_transactions = 1024
 [log]
     path = \"firedancer-dev.log\"
     level_stderr = \"INFO\"

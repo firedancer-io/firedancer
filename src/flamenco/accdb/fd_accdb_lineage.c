@@ -75,7 +75,8 @@ retry:
 
     if( !tip ) tip = candidate;  /* remember head of fork */
     else       fd_rwlock_unread( candidate->lock );
-    lineage->fork[ i ] = next_xid;
+    lineage->fork   [ i ] = next_xid;
+    lineage->txn_idx[ i ] = (uint)( candidate - funk->txn_pool->ele );
     if( fd_funk_txn_idx_is_null( parent_idx ) ) {
       /* Reached root */
       i++;

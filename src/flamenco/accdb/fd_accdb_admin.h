@@ -40,9 +40,15 @@ struct fd_accdb_admin_base {
   ulong ro_active;
   ulong created_cnt;
   ulong root_cnt;     /* moved to database root */
+  ulong root_tot_sz;  /* number of bytes moved while rooting */
   ulong reclaim_cnt;  /* 0 lamport account removed while rooting */
   ulong gc_root_cnt;  /* stale rooted revisions removed while rooting */
   ulong revert_cnt;   /* abandoned by consensus */
+
+  /* cumulative tickcount spent on various admin operations */
+  long dt_vinyl;  /* waiting on vinyl completinos */
+  long dt_copy;   /* copying account data */
+  long dt_gc;     /* garbage collecting data */
 };
 
 typedef struct fd_accdb_admin_base fd_accdb_admin_base_t;
