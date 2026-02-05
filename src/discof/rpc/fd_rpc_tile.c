@@ -327,6 +327,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         fd_replay_oc_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->confirmed_idx = msg->bank_idx;
+        ctx->cluster_confirmed_slot = msg->slot;
         break;
       }
       case REPLAY_SIG_ROOT_ADVANCED: {
@@ -610,13 +611,10 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
   if( FD_LIKELY( has_commitment ) ) {
     char const * commitment = config ? cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "finalized" ) ) : "confirmed";
     if( !commitment ) commitment = "finalized";
-    if( 0==strcmp( commitment, "confirmed" ) ) {
-      _bank_idx = fd_ulong_if( ctx->banks[ ctx->confirmed_idx ].slot!=ULONG_MAX, ctx->confirmed_idx, ULONG_MAX );
-    } else if( 0==strcmp( commitment, "processed" ) ) {
-      _bank_idx = ctx->processed_idx;
-    } else if( 0==strcmp( commitment, "finalized" ) ) {
-      _bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
-    } else {
+    if( 0==strcmp( commitment, "confirmed" ) ) _bank_idx = ctx->confirmed_idx;
+    else if( 0==strcmp( commitment, "processed" ) ) _bank_idx = ctx->processed_idx;
+    else if( 0==strcmp( commitment, "finalized" ) ) _bank_idx = ctx->finalized_idx;
+    else {
       *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
       return 0;
     }
@@ -627,7 +625,7 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     *bank_idx = _bank_idx;
   } else {
     /* default finalized */
-    _bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
+    _bank_idx = ctx->finalized_idx;
   }
 
   if( FD_LIKELY( has_encoding ) ) {
@@ -677,7 +675,7 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     if( 0==strcmp( encoding_cstr, "jsonParsed" ) ) {
       *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: jsonParsed is unsupported\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
       return 0;
-    } else if( 0!=strcmp( encoding_cstr, "binary" ) && 0!=strcmp( encoding_cstr, "base58" ) && 0!=strcmp( encoding_cstr, "base64" ) ) {
+    } else if( 0!=strcmp( encoding_cstr, "binary" ) && 0!=strcmp( encoding_cstr, "base58" ) && 0!=strcmp( encoding_cstr, "base64" ) && 0!=strcmp( encoding_cstr, "base64+zstd" ) ) {
       *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding_cstr, cJSON_PrintUnformatted( id ) );
       return 0;
     }
@@ -798,7 +796,7 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
 
     minContextSlot = _minContextSlot && fd_rpc_cjson_is_integer( _minContextSlot ) ? _minContextSlot->valueulong : 0UL;
 
-    if( _bank_idx !=ULONG_MAX && ctx->banks[ _bank_idx ].slot<minContextSlot ) {
+    if( _bank_idx!=ULONG_MAX && ctx->banks[ _bank_idx ].slot<minContextSlot ) {
       *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, ctx->banks[ _bank_idx ].slot, cJSON_PrintUnformatted( id ) );
       return 0;
     }
@@ -968,11 +966,11 @@ getBalance( fd_rpc_tile_t * ctx,
   char const * commitment = cJSON_GetStringValue( cJSON_GetObjectItemCaseSensitive( config, "commitment" ) );
   if( !commitment ) commitment = "confirmed";
   if( 0==strcmp( commitment, "confirmed" ) ) {
-    bank_idx = fd_ulong_if( ctx->banks[ ctx->confirmed_idx ].slot!=ULONG_MAX, ctx->confirmed_idx, ULONG_MAX );
+    bank_idx = ctx->confirmed_idx;
   } else if( 0==strcmp( commitment, "processed" ) ) {
     bank_idx = ctx->processed_idx;
   } else if( 0==strcmp( commitment, "finalized" ) ) {
-    bank_idx = fd_ulong_if( ctx->banks[ ctx->finalized_idx ].slot!=ULONG_MAX, ctx->finalized_idx, ULONG_MAX );
+    bank_idx = ctx->finalized_idx;
   } else {
     fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: unsupported commitment level\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
     fd_http_server_response_t response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
@@ -1141,7 +1139,7 @@ getGenesisHash( fd_rpc_tile_t * ctx,
 
 static inline int
 _getHealth( fd_rpc_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX || fd_ulong_if( ctx->banks[ ctx->confirmed_idx ].slot!=ULONG_MAX, ctx->confirmed_idx, ULONG_MAX )==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
+  if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX || ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
 
   ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot );
   if( FD_LIKELY( slots_behind<=128UL ) ) return FD_RPC_HEALTH_STATUS_OK;
@@ -1526,7 +1524,7 @@ rpc_http_request( fd_http_server_request_t const * request ) {
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id ? cJSON_PrintUnformatted( id ) : "null" );
   }
 
-  if( FD_UNLIKELY( !(id && fd_rpc_cjson_is_integer( id ) && id->valueint > 0) && !cJSON_IsString( id ) && !cJSON_IsNull( id ) ) ) {
+  if( FD_UNLIKELY( !(id && fd_rpc_cjson_is_integer( id ) && id->valueint >= 0) && !cJSON_IsString( id ) && !cJSON_IsNull( id ) ) ) {
     cJSON_Delete( json );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
