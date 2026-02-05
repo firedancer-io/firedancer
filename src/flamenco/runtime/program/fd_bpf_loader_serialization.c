@@ -727,11 +727,9 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t * ctx,
       }
 
       input_cursor += sizeof(ulong); /* lamports */
+      input_cursor += sizeof(ulong); /* data length */
 
-      ulong post_len = FD_LOAD( ulong, input_cursor );
-      input_cursor  += sizeof(ulong); /* data length */
-
-      ulong pre_len     = pre_lens[i];
+      ulong   pre_len   = pre_lens[i];
       uchar * post_data = input_cursor;
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L436-L446 */
@@ -750,7 +748,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t * ctx,
           }
       } else if( !direct_mapping && fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
         /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L446-L452 */
-        int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, post_len );
+        int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, pre_len );
         if( FD_UNLIKELY( set_data_err ) ) {
           return set_data_err;
         }
