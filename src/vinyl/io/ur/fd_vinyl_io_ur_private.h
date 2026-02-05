@@ -82,8 +82,7 @@ struct fd_vinyl_io_ur {
   fd_vinyl_io_ur_rd_t **   rc_tail_next; /* Pointer to queue &tail->next or &rc_head if empty. */
 
   fd_io_uring_t * ring;
-  ulong sqe_prep_cnt;        /* SQEs sent */
-  ulong sqe_write_tot_sz;    /* Total write size requests in SQEs */
+  ulong sqe_prep_cnt;        /* SQEs prepared */
   ulong sqe_sent_cnt;        /* SQEs submitted */
   ulong cqe_cnt;             /* CQEs received */
   uint  cqe_pending;         /* Total CQEs pending */
