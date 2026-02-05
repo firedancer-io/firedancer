@@ -1,9 +1,9 @@
 /* Test for SIMD-0194: deprecate_rent_exemption_threshold
 
-   This test simulates passing through several epoch boundaries, checking that
-   the value of rent in the accounts db, the bank and the sysvar cache is
-   updated correctly at the slot where deprecate_rent_exemption_threshold
-   is activated. */
+   This test simulates passing through several epoch boundaries,
+   checking that the value of rent in the accounts db, the bank and
+   the sysvar cache is updated correctly at the slot where
+   deprecate_rent_exemption_threshold is activated. */
 
 #include "fd_runtime.h"
 #include "fd_runtime_stack.h"
@@ -17,15 +17,23 @@
 #include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../features/fd_features.h"
-#include "../accdb/fd_accdb_sync.h"
 
 /* Values before deprecate_rent_exemption_threshold is activated */
 #define TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR (3480UL)
 #define TEST_DEFAULT_EXEMPTION_THRESHOLD     (2.0)
 
+/* Before activation, bank and sysvar can have different burn_percent
+   values */
+#define TEST_DEFAULT_BANK_BURN_PERCENT       (50)
+#define TEST_DEFAULT_SYSVAR_BURN_PERCENT     (100)
+
 /* Values after deprecate_rent_exemption_threshold is activated */
 #define TEST_NEW_LAMPORTS_PER_UINT8_YEAR (6960UL)
 #define TEST_NEW_EXEMPTION_THRESHOLD     (1.0)
+
+/* After activation, sysvar inherits burn_percent from bank */
+#define TEST_NEW_BANK_BURN_PERCENT       TEST_DEFAULT_BANK_BURN_PERCENT
+#define TEST_NEW_SYSVAR_BURN_PERCENT     TEST_NEW_BANK_BURN_PERCENT
 
 #define TEST_SLOTS_PER_EPOCH         (3UL)
 #define TEST_FEATURE_ACTIVATION_SLOT (TEST_SLOTS_PER_EPOCH * 2)
@@ -47,14 +55,19 @@ static void
 init_rent_sysvar( test_env_t * env,
                   ulong        lamports_per_uint8_year,
                   double       exemption_threshold ) {
-  fd_rent_t rent = {
+  fd_rent_t bank_rent = {
     .lamports_per_uint8_year = lamports_per_uint8_year,
     .exemption_threshold     = exemption_threshold,
-    .burn_percent            = 50
+    .burn_percent            = TEST_DEFAULT_BANK_BURN_PERCENT
   };
+  fd_bank_rent_set( env->bank, bank_rent );
 
-  fd_bank_rent_set( env->bank, rent );
-  fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
+  fd_rent_t sysvar_rent = {
+    .lamports_per_uint8_year = lamports_per_uint8_year,
+    .exemption_threshold     = exemption_threshold,
+    .burn_percent            = TEST_DEFAULT_SYSVAR_BURN_PERCENT
+  };
+  fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &sysvar_rent );
 }
 
 static void
@@ -173,22 +186,27 @@ test_env_destroy( test_env_t * env ) {
 static void
 verify_rent_values( test_env_t * env,
                     ulong        expected_lamports,
-                    double       expected_threshold ) {
+                    double       expected_threshold,
+                    uchar        expected_bank_burn_percent,
+                    uchar        expected_sysvar_burn_percent ) {
   fd_rent_t funk_rent[1];
   FD_TEST( fd_sysvar_rent_read( env->accdb, &env->xid, funk_rent ) );
   FD_TEST( funk_rent->lamports_per_uint8_year == expected_lamports );
   FD_TEST( funk_rent->exemption_threshold     == expected_threshold );
+  FD_TEST( funk_rent->burn_percent            == expected_sysvar_burn_percent );
 
   fd_rent_t const * bank_rent = fd_bank_rent_query( env->bank );
   FD_TEST( bank_rent );
   FD_TEST( bank_rent->lamports_per_uint8_year == expected_lamports );
   FD_TEST( bank_rent->exemption_threshold     == expected_threshold );
+  FD_TEST( bank_rent->burn_percent            == expected_bank_burn_percent );
 
   fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( env->bank );
   fd_rent_t cache_rent[1];
   FD_TEST( fd_sysvar_cache_rent_read( sysvar_cache, cache_rent ) );
   FD_TEST( cache_rent->lamports_per_uint8_year == expected_lamports );
   FD_TEST( cache_rent->exemption_threshold     == expected_threshold );
+  FD_TEST( cache_rent->burn_percent            == expected_sysvar_burn_percent );
 }
 
 static int
@@ -239,7 +257,8 @@ process_slot( test_env_t * env,
   return rent_modified;
 }
 
-/* Advance to target slot and return whether rent was modified in that slot. */
+/* Advance to target slot and return whether rent was modified in that
+   slot. */
 static int
 advance_to_slot( test_env_t * env,
                  ulong        target_slot ) {
@@ -253,25 +272,40 @@ advance_to_slot( test_env_t * env,
 
 /* - Epoch 1: deprecate_rent_exemption_threshold not activated
    - Epoch 2: deprecate_rent_exemption_threshold activation epoch
-   - Epoch 3: after deprecate_rent_exemption_threshold activation epoch */
+   - Epoch 3: after deprecate_rent_exemption_threshold activation
+     epoch */
 static void
 test_deprecate_rent_exemption_threshold( fd_wksp_t * wksp ) {
   test_env_t env[1];
   test_env_create( env, wksp );
 
-  /* Advance to last slot of epoch 1. Rent should not change. */
+  /* Advance to last slot of epoch 1. Rent should not change.
+     Bank and sysvar have different burn_percent values. */
   int rent_modified = advance_to_slot( env, (2UL * TEST_SLOTS_PER_EPOCH) - 1UL );
-  verify_rent_values( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
+  verify_rent_values( env,
+                      TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR,
+                      TEST_DEFAULT_EXEMPTION_THRESHOLD,
+                      TEST_DEFAULT_BANK_BURN_PERCENT,
+                      TEST_DEFAULT_SYSVAR_BURN_PERCENT );
   FD_TEST( !rent_modified );
 
-  /* Advance to first slot of epoch 2. Rent should change. */
+  /* Advance to first slot of epoch 2. Rent should change.
+     After activation, sysvar inherits burn_percent from bank. */
   rent_modified = advance_to_slot( env, 2UL * TEST_SLOTS_PER_EPOCH );
-  verify_rent_values( env, TEST_NEW_LAMPORTS_PER_UINT8_YEAR, TEST_NEW_EXEMPTION_THRESHOLD );
+  verify_rent_values( env,
+                      TEST_NEW_LAMPORTS_PER_UINT8_YEAR,
+                      TEST_NEW_EXEMPTION_THRESHOLD,
+                      TEST_NEW_BANK_BURN_PERCENT,
+                      TEST_NEW_SYSVAR_BURN_PERCENT );
   FD_TEST( rent_modified );
 
   /* Advance to first slot of epoch 3. Rent should not change. */
   rent_modified = advance_to_slot( env, 3UL * TEST_SLOTS_PER_EPOCH );
-  verify_rent_values( env, TEST_NEW_LAMPORTS_PER_UINT8_YEAR, TEST_NEW_EXEMPTION_THRESHOLD );
+  verify_rent_values( env,
+                      TEST_NEW_LAMPORTS_PER_UINT8_YEAR,
+                      TEST_NEW_EXEMPTION_THRESHOLD,
+                      TEST_NEW_BANK_BURN_PERCENT,
+                      TEST_NEW_SYSVAR_BURN_PERCENT );
   FD_TEST( !rent_modified );
 
   test_env_destroy( env );
