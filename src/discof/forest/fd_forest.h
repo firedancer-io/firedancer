@@ -131,9 +131,6 @@
 #include "../../util/tmpl/fd_set.c"
 
 #define FD_FEC_BLK_MAX (FD_SHRED_BLK_MAX / 32UL) /* 1024 */
-#define SET_NAME fd_forest_merkle
-#define SET_MAX  FD_FEC_BLK_MAX + 1  /* +1 to mark verification on the block id*/
-#include "../../util/tmpl/fd_set.c"
 
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
@@ -154,7 +151,6 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   ulong head;        /* reserved by dlist. not all blks will be part of a dlist. */
   ulong tail;        /* reserved by dlist */
 
-  uint consumed_idx; /* highest contiguous fec-completed shred idx */
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
@@ -162,17 +158,16 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   struct {
     fd_hash_t mr;
     fd_hash_t cmr;
-  } merkle_roots[ FD_FEC_BLK_MAX + 1 ]; /* +1 -> .cmr will be populated when the block id is confirmed */
+  } merkle_roots[ FD_FEC_BLK_MAX ]; /* */
+  fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
+                               on confirmation, and don't know the index of the last fec set until we repair the slot
+                               hash_null if not confirmed. */
   uint lowest_verified_fec; /* lowest fec index that has been verified so far, inclusive. complete_idx / 32UL,
                                if the last merkle root is verified, 5 if every merkle root after fec set 5*32 is verified */
 
-
-  uchar confirmed; /* 1 if the slot has been confirmed, 0 otherwise */
+  uchar confirmed; /* 1 if all the FECs the slot has been confirmed, 0 otherwise */
   uchar consumed;  /* 1 if the slot has been consumed (i.e., all shreds received, and parents are complete), 0 otherwise */
   /* only consumed slots may be fec_chain_verified */
-
-  /* i.e. when fecs == cmpl, the slot is truly complete and everything
-  is contained in fec store. Look at fec_clear for more details.*/
 
   int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the
                                  ticks received, this will be a lower bound estimate on the highest tick we have seen.
@@ -719,12 +714,6 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
 
-/* fd_forest_blk_parent_update updates the parent of a block in the forest.
-   Needed for profiler mode. */
-
-fd_forest_blk_t *
-fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot );
-
 #define SHRED_SRC_TURBINE   0
 #define SHRED_SRC_REPAIR    1
 #define SHRED_SRC_RECOVERED 2
@@ -789,6 +778,9 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
    Returns a pointer to the first slot that does not confirm, or NULL if the chain is valid. */
 fd_forest_blk_t *
 fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * mr );
+
+void
+fd_forest_confirm( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * bid );
 
 static inline uint
 fd_forest_merkle_last_incorrect_idx( fd_forest_blk_t * ele ) {
