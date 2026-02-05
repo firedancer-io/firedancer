@@ -1653,8 +1653,7 @@ replay( fd_replay_tile_t *  ctx,
     case FD_SCHED_TT_TXN_EXEC:
     case FD_SCHED_TT_TXN_SIGVERIFY:
     case FD_SCHED_TT_POH_HASH: {
-      /* Likely/common case: we have a transaction we actually need to
-         execute. */
+      /* Common case: we have a transaction we need to execute. */
       dispatch_task( ctx, stem, task );
       break;
     }
@@ -1753,6 +1752,10 @@ process_fec_set( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_bank_query( parent_bank, ctx->banks, parent->bank_idx ) ||
                    parent_bank->data->bank_seq!=parent->bank_seq ||
                    parent_bank->data->flags&FD_BANK_FLAGS_DEAD) ) {
+    /* If the parent bank has a different sequence number or can't be
+       found that means that the parent bank has been pruned away.  If
+       it is marked as dead, that means it is queued up for pruning and
+       will be pruned away soon. */
     FD_LOG_DEBUG(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because parent bank is invalid", reasm_fec->slot, reasm_fec->fec_set_idx ));
     return;
   }
