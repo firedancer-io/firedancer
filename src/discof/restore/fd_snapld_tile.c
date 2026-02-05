@@ -232,12 +232,10 @@ after_credit( fd_snapld_tile_t *  ctx,
               int *               charge_busy ) {
   if( FD_UNLIKELY( ctx->pending_ctrl_sig ) ) {
     FD_TEST( !ctx->load_file && ctx->is_https );
-    FD_TEST( ctx->pending_ctrl_sig==FD_SNAPSHOT_MSG_CTRL_NEXT ||
-             ctx->pending_ctrl_sig==FD_SNAPSHOT_MSG_CTRL_DONE );
-    if( ctx->state==FD_SNAPSHOT_STATE_FINISHING || ctx->state==FD_SNAPSHOT_STATE_ERROR ) {
+    if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
+                     ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
       fd_stem_publish( stem, 0UL, ctx->pending_ctrl_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->pending_ctrl_sig = 0UL;
-      if( ctx->state!=FD_SNAPSHOT_STATE_ERROR ) ctx->state = FD_SNAPSHOT_STATE_IDLE;
       return;
     } else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
   }
@@ -335,16 +333,24 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   FD_TEST( !ctx->pending_ctrl_sig );
 
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    goto forward_msg;
+  };
+
   switch( sig ) {
 
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) && sz<=ctx->out_dc.mtu );
       fd_ssctrl_init_t const * msg_in = fd_chunk_to_laddr_const( ctx->in_rd.base, chunk );
       ctx->load_full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->load_file = msg_in->file;
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->sent_meta = 0;
       ctx->is_https = msg_in->is_https;
       if( ctx->load_file ) {
@@ -361,17 +367,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       return 0;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state!=FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
-      fd_sshttp_cancel( ctx->sshttp );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      break;
-
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:
-    case FD_SNAPSHOT_MSG_CTRL_DONE:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
       if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) {
         /* snapld should be in the finishing state when reading from a
            file or downloading from http.  It is only allowed to still
@@ -382,20 +378,42 @@ returnable_frag( fd_snapld_tile_t *  ctx,
         ctx->pending_ctrl_sig = sig;
         return 0; /* return directly to avoid fowarding the message */
       }
-      else if( FD_LIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
-        ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      }
+      else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:
+    case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL:
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      fd_sshttp_cancel( ctx->sshttp );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
 
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
+    }
 
-    /* FD_SNAPSHOT_MSG_CTRL_ERROR and FD_SNAPSHOT_MSG_DATA are not possible */
-    default: FD_LOG_ERR(( "invalid sig %lu", sig ));
+    /* FD_SNAPSHOT_MSG_DATA is not possible */
+    default: {
+      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
+      break;
+    }
   }
 
+forward_msg:
   /* Forward the control message down the pipeline */
   fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 
