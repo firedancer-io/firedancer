@@ -108,7 +108,10 @@ fd_vinyl_io_append_move( fd_vinyl_io_t *                 io,
   block->move.src     = *src;
   block->move.dst     = *dst;
   block->move.info_sz = info_sz;
+
+# if 0 /* Note: with BLOCK_SZ==128, MOVE_INFO_MAX=0 so there's no move.info field due to language limitations */
   if( info_sz ) memcpy( block->move.info, info, info_sz );
+# endif
 
   fd_vinyl_bstream_block_hash( fd_vinyl_io_seed( io ), block );
 

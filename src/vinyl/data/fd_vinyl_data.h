@@ -33,36 +33,46 @@
    memory data integrity continuously to help catch memory corruption
    (either due to hardware failures, buggy usage or malicious usage).
 
-   Direct I/O alignment requirements quantize the data cache footprint
-   of a val_sz pair to BLOCK_SZ+align_up(pair_sz(val_sz),BLOCK_SZ).
-   This is negligilbe for large pairs.
+   I/O alignment requirements quantize the data cache footprint of a
+   val_sz pair to BLOCK_SZ+align_up(pair_sz(val_sz),BLOCK_SZ).  This
+   unavoidable quantization dominates allocation footprint efficiency
+   for the smallest values (e.g. a val_sz 1 pair will occupy 2 blocks
+   for the I/O alignment requirements and metadata).  This is negligible
+   for large pairs (e.g. ~0.0024% for a VAL_MAX ~ 10 MiB val).
 
-   Rounding allocations up to the nearest sizeclass adds nothing to
-   smalll pairs and ~O(1) percent overhead to large pairs.
+   Rounding an allocation to the smallest compatible size class adds no
+   additional overhead for smallest sizes (every possible quantization
+   of a val_sz less then ~4-8 KiB has a dedicated sizeclass).  For
+   object sizes << VAL_MAX, the worst case overhead is better than ~2%.
+   For the object sizes ~ VAL_MAX, if the volume size is ~O(1) VAL_MAX,
+   volume divisibility starts to impact this overhead.  It still less
+   than ~20% for the current config (and such sizes should be rare in
+   the practical usage).  This effect can eliminated by using volume
+   sizes much larger than VAL_MAX (at the expense of creating a deeper
+   sizeclass nesting).
 
-   For the superblocking nesting, if we consider the smallest footprint
-   allocation (2 blocks== 1 KiB byte), it will be in a superblock with
-   64 items.  The leaf superblock overhead will be 8 bytes for this
-   allocation.  But the leaf superblock will be in a larger superblock
-   of roughly 12 leaf superblocks (adding ~0.67 bytes overhead to this
-   allocation).  And this will be larger superblock of roughly 12
-   superblocks (~0.06 overhead) ...  The overall superblock overhead
-   rapidly converges to under 9 bytes per allocation for this size
-   class.  Relative to the footprint, this overhead is ~O(1) percent.
-   Larger size classes might be a superblock with fewer objects (e.g.
-   8).  This means more overhead per allocation in absolute terms but
-   comparable to less in relative terms because the application itself
-   is larger.
+   The packing of objects into nested superblocks also incurs a small
+   amount of additional overhead. The smallest footprint object (2
+   blocks or 256B) will be in a leaf superblock with 64 objects.  The
+   leaf superblock overhead (128B) amortized over these 64 objects is
+   thus 2 bytes per object.  This leaf superblock will be nested in a
+   larger superblock with 2 leaf superblocks.  With 128B additional
+   overhead amortized over 128 objects, this yields 1 more byte overhead
+   per object.  And so forth.  For this sizeclass, the overall
+   superblock overhead converges to <~4 bytes per object absolute or
+   <~1.5% relative.  This is a rough relative upper bound for all
+   sizeclasses.  Specifically, for leaf superblocks with less than 64
+   objects, there is more absolute superblock overhead per object but
+   the object itself is large enough to compensate.  And for objects in
+   large superblocks, the objects more than large enough to compensate.
 
-   The allocation policies will also implicitly adaptively preallocate
-   space for frequently used sizeclasses to speed up allocations.  For
-   asymptotically large data caches relative to the value size, the
-   amount of preallocation is very small.
+   The allocator will also implicitly adaptively preallocate space for
+   frequently used sizeclasses to speed up allocations.  For
+   asymptotically large data caches relative to the worst case object
+   sizes, the amount of preallocation is very small.
 
-   The upshot is that block quantization is the main source of memory
-   overhead and this primarily impacts small allocation.  For other
-   allocations, the memory overheads are typically less than a couple of
-   percent. */
+   TL;DR Allocator footprint overhead is the unavoidable BLOCK_SZ
+   quantization plus a couple percent typically. */
 
 #include "../io/fd_vinyl_io.h"
 
@@ -86,7 +96,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_vinyl_data_szc_cfg describes the sizeclasses used by the data
    cache.  Indexed [0,FD_VINYL_DATA_SZC_CNT). */
 
-#define FD_VINYL_DATA_SZC_CNT (188UL)
+#define FD_VINYL_DATA_SZC_CNT (327UL)
 
 extern fd_vinyl_data_szc_cfg_t const fd_vinyl_data_szc_cfg[ FD_VINYL_DATA_SZC_CNT ];
 
@@ -130,7 +140,7 @@ fd_vinyl_data_szc( ulong val_max ) {
   ulong l = 0UL;
   ulong h = FD_VINYL_DATA_SZC_CNT-1UL;
 
-  for( ulong rem=8UL; rem; rem-- ) { /* Update if FD_VINYL_DATA_SZC_CNT changed */
+  for( ulong rem=9UL; rem; rem-- ) { /* Update if FD_VINYL_DATA_SZC_CNT changed */
 
     /* At this point, szc in [0,l) aren't suitable, szc in [h,CNT) are
        suitable and szc in [l,h) are untested.  See fd_alloc for more
@@ -191,18 +201,21 @@ struct __attribute__((aligned(FD_VINYL_BSTREAM_BLOCK_SZ))) fd_vinyl_data_obj {
      laddr0 is 0, next_off will be just a pointer in the local address
      space.
 
-     Note that direct I/O requires memory alignment and device alignment
-     to match.  So we need to put all the object allocator data its its
-     own block.  This leaves a lot of extra space.  We put this space up
-     front in the block to that it can act as a guard region for
-     whatever preceeds it (applications could even use this guard region
-     to stash extra info but this is not recommended because of false
-     sharing conflicts in might induce between different threads using
-     adjacent in memory objects).  Likewise, because we have all this
-     space from block quantization, we don't try to be hyperefficient
-     with the packing (like we do for, say, fd_alloc). */
+     Note that I/O acceleration may require memory alignment and I/O
+     device alignment to match.  So we need to put all the object
+     allocator data its own block.  This can leave a lot of extra space.
+     We put this space up front in the block to that it can act as a
+     guard region for whatever preceeds it (applications could even use
+     this guard region to stash extra info but this is not recommended
+     because of false sharing conflicts in might induce between
+     different threads using adjacent in memory objects).  Likewise,
+     because we have all this space from block quantization, we don't
+     try to be hyperefficient with the packing (like we do for, say,
+     fd_alloc). */
 
+# if 0 /* Note: with BLOCK_SZ==128, GUARD_SZ=0 so there's no guard field due to language limitations */
   uchar guard[ FD_VINYL_DATA_OBJ_GUARD_SZ ];
+# endif
 
   /* rd on its own cache line */
 
@@ -309,7 +322,7 @@ FD_PROTOTYPES_END
 
 /* fd_vinyl_data_vol **************************************************/
 
-#define FD_VINYL_DATA_VOL_FOOTPRINT (114211328UL) /* Autogenerated */
+#define FD_VINYL_DATA_VOL_FOOTPRINT (34078592UL) /* autogenerated */
 
 struct fd_vinyl_data_vol {
   fd_vinyl_data_obj_t obj[1];
