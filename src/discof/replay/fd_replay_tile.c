@@ -431,6 +431,8 @@ struct fd_replay_tile {
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
   fd_runtime_stack_t runtime_stack;
+
+  ulong slots_to_halt_in;
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;
@@ -1725,6 +1727,10 @@ process_fec_set( fd_replay_tile_t *  ctx,
                  fd_reasm_fec_t *    reasm_fec ) {
   long now = fd_log_wallclock();
 
+  if( ctx->metrics.slots_total >= ctx->slots_to_halt_in ) {
+    return;
+  }
+
   /* Linking only requires a shared lock because the fields that are
      modified are only read on publish which uses exclusive lock. */
 
@@ -2511,6 +2517,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_locks_obj_id!=ULONG_MAX );
 
   FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
+
+  ctx->slots_to_halt_in = tile->replay.slots_to_halt_in;
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
   FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max( bank_pool ) );

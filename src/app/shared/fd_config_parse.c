@@ -110,6 +110,7 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  runtime.program_cache.heap_size_mib                 );
   CFG_POP      ( ulong,  runtime.program_cache.mean_cache_entry_size         );
+  CFG_POP      ( ulong,  runtime.slots_to_halt_in                            );
 
   CFG_POP      ( uint,   snapshots.sources.max_local_full_effective_age      );
   CFG_POP      ( uint,   snapshots.sources.max_local_incremental_age         );

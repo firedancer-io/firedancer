@@ -384,6 +384,8 @@ struct fd_topo_tile {
     struct {
       ulong fec_max;
 
+      ulong slots_to_halt_in;
+
       ulong txncache_obj_id;
       ulong progcache_obj_id;
 
