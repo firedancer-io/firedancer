@@ -412,7 +412,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( !fd_banks_prune_dead_banks( banks ) );
 
   /* Case: don't prune dead banks if there is an outstanding reference
-     to them.  */
+     to them. */
   fd_banks_new_bank( bank_D, banks, bank_C->data->idx, 0L );
   FD_TEST( fd_banks_clone_from_parent( bank_D, banks, bank_D->data->idx ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
