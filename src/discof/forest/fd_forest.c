@@ -6,6 +6,9 @@ static void ver_inc( ulong ** ver ) {
 
 #define VER_INC ulong * ver __attribute__((cleanup(ver_inc))) = fd_forest_ver( forest ); ver_inc( &ver )
 
+static fd_hash_t empty_mr   = { .ul = { 0, 0, 0, 0 } };
+static fd_hash_t invalid_mr = { .ul = { ULONG_MAX, ULONG_MAX, ULONG_MAX, ULONG_MAX } };
+
 void *
 fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   FD_TEST( fd_ulong_is_pow2( ele_max ) );
@@ -488,7 +491,6 @@ advance_consumed_frontier( fd_forest_t * forest, ulong slot, ulong parent_slot )
       consumed_remove( forest, fd_forest_pool_idx( pool, head ) );
       while( FD_LIKELY( child ) ) { /* add children to consumed frontier */
         consumed_insert( forest, fd_forest_pool_idx( pool, child ) );
-
         fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, child ) );
         child = fd_forest_pool_ele( pool, child->sibling );
       }
@@ -534,13 +536,13 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   blk->confirmed   = 0;
   blk->consumed    = 0;
 
-  blk->consumed_idx = UINT_MAX;
   blk->buffered_idx = UINT_MAX;
   blk->complete_idx = UINT_MAX;
 
   fd_forest_blk_idxs_null( blk->idxs );
   blk->lowest_verified_fec = UINT_MAX;
   memset( blk->merkle_roots, 0, sizeof( blk->merkle_roots ) ); /* expensive*/
+  blk->confirmed_bid = empty_mr;
 
   blk->est_buffered_tick_recv = 0;
 
@@ -567,7 +569,18 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   FD_TEST( slot > fd_forest_root_slot( forest ) ); /* caller error - inval */
 # endif
   fd_forest_blk_t * ele = query( forest, slot );
-  if( FD_LIKELY( ele ) ) { return ele; }
+  if( FD_LIKELY( ele ) ) {
+    // potentially may need to update the parent_slot, if this
+    // this was a sentinel block that was created for a confirmed msg
+    if( FD_UNLIKELY( parent_slot != ele->parent_slot ) ) {
+      ele->parent_slot = parent_slot;
+      subtrees_orphaned_remove( forest, slot ); // if this is a sentinel block, then it must be in subtrees
+    } else {
+      return ele;
+    }
+  } else {
+    ele = acquire( forest, slot, parent_slot );
+  }
 
   fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
@@ -583,8 +596,6 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   ulong                  null     = fd_forest_pool_idx_null( pool );
 
   fd_forest_blk_t * parent = NULL;
-
-  ele = acquire( forest, slot, parent_slot );
 
   if(        FD_LIKELY  ( parent = fd_forest_ancestry_ele_query ( ancestry, &parent_slot, NULL, pool ) ) ) { /* parent is in ancestry, ele makes new frontier */
     fd_forest_frontier_ele_insert( frontier, ele, pool );
@@ -611,7 +622,8 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
        !fd_forest_subtlist_iter_done( iter, subtlist, pool );
        iter = fd_forest_subtlist_iter_fwd_next( iter, subtlist, pool ) ) {
     fd_forest_blk_t * orphan = fd_forest_subtlist_iter_ele( iter, subtlist, pool );
-    fd_forest_deque_push_tail( bfs, fd_forest_pool_idx( pool, orphan ) );
+    // edge case where for a sentinel node the parent_slot == slot, so we want to avoid linking it to itself
+    if( FD_LIKELY( orphan->slot != ele->slot ) ) fd_forest_deque_push_tail( bfs, fd_forest_pool_idx( pool, orphan ) );
   }
   while( FD_LIKELY( fd_forest_deque_cnt( bfs ) ) ) {
     fd_forest_blk_t * orphan = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( bfs ) );
@@ -669,9 +681,6 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   return ele;
 }
 
-static fd_hash_t empty_mr   = { .ul = { 0, 0, 0, 0 } };
-static fd_hash_t invalid_mr = { .ul = { ULONG_MAX, ULONG_MAX, ULONG_MAX, ULONG_MAX } };
-
 static inline int
 merkle_recvd( fd_forest_blk_t * ele, uint fec_idx ) {
   return memcmp( &ele->merkle_roots[fec_idx].mr, &empty_mr, sizeof(fd_hash_t) ) != 0;
@@ -679,6 +688,12 @@ merkle_recvd( fd_forest_blk_t * ele, uint fec_idx ) {
 
 static inline int
 merkle_verified( fd_forest_blk_t * ele, uint fec_idx ) {
+  // not possible for anything to be verified if the slot doesn't know the last index
+  if( ele->complete_idx == UINT_MAX ) return 0;
+  /* if we are asking about the block_id, it's stored in the confirmed_bid field */
+  if( FD_UNLIKELY( fec_idx == (ele->complete_idx / 32UL + 1) ) ) {
+    return !fd_hash_eq( &ele->confirmed_bid, &empty_mr );
+  }
   return ele->lowest_verified_fec <= fec_idx;
 }
 
@@ -707,7 +722,9 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
      the FEC. */
   uint fec_idx = fec_set_idx / 32UL;
   if( FD_UNLIKELY( merkle_verified( ele, fec_idx + 1 ) ) ) { /* if the cmr pointing to this FEC has been verified, then... */
-    if( FD_UNLIKELY( !fd_hash_eq( &ele->merkle_roots[fec_idx + 1].cmr, mr ) ) ) {
+    if( FD_UNLIKELY(
+         ( fec_idx == (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->confirmed_bid, mr ) ) ||
+         ( fec_idx != (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->merkle_roots[fec_idx + 1].cmr, mr ) ) ) ) {
       /* merkle root doesn't match the verified CMR  */
       return NULL; /* do not accept this shred. */
     } else {
@@ -749,15 +766,6 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
        est_buffered_tick_recv is at least ref_tick */
   }
   advance_consumed_frontier( forest, slot, parent_slot );
-  return ele;
-}
-
-fd_forest_blk_t *
-fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
-  VER_INC;
-  fd_forest_blk_t * ele = query( forest, slot );
-  if( FD_UNLIKELY( !ele ) ) return NULL;
-  ele->parent_slot = parent_slot;
   return ele;
 }
 
@@ -804,6 +812,20 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
     ele->merkle_roots[fec_idx].mr  = *mr;
     ele->merkle_roots[fec_idx].cmr = *cmr;
   }
+
+  if( FD_UNLIKELY( slot_complete && ele->child != ULONG_MAX ) ) {
+    /* check for a child that is confirmed */
+    fd_forest_blk_t * child = fd_forest_pool_ele( fd_forest_pool( forest ), ele->child );
+    while( FD_UNLIKELY( child ) ) {
+      if( FD_UNLIKELY( child->confirmed ) ) {
+        ele->confirmed_bid       = child->merkle_roots[0].cmr;
+        ele->lowest_verified_fec = fec_idx + 1; /* populate the block id with the confirmed child's CMR */
+        break;
+      }
+      child = fd_forest_pool_ele( fd_forest_pool( forest ), child->sibling );
+    }
+  }
+
   /* It's important that we set the cmpl idx here. If this happens to be
      the last fec_complete we needed to finish the slot, then we rely on
      the advance_consumed_frontier call in the below data_shred_insert
@@ -838,13 +860,11 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) 
 
 fd_forest_blk_t *
 fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * bid ) {
-  FD_TEST( ele && ele->complete_idx != UINT_MAX );
-
   fd_hash_t const * expected_mr = bid;
   uint fec_idx = ele->complete_idx / 32UL;
 
   ele->lowest_verified_fec = fec_idx+1;
-  ele->merkle_roots[fec_idx + 1].cmr = *bid; /* confirmed */
+  ele->confirmed_bid       = *bid; /* confirmed */
 
   while( FD_UNLIKELY( !ele->confirmed ) ) {
     if( FD_UNLIKELY( !fd_hash_eq( expected_mr, &ele->merkle_roots[fec_idx].mr ) ) ) return ele;
@@ -858,14 +878,14 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
          slot successfully verifying the chain! mark it confirmed! */
       ele->confirmed = 1;
       ele = fd_forest_pool_ele( fd_forest_pool( forest ), ele->parent );
-      if( FD_UNLIKELY( !ele || ele->complete_idx == UINT_MAX ) ) {
+      if( FD_UNLIKELY( !ele || ele->complete_idx == UINT_MAX || ele->buffered_idx != ele->complete_idx ) ) {
         return NULL;
-        FD_LOG_CRIT(( "fd_forest_fec_chain_verify: equivocating across parent slots is not supported yet, or parent slot %lu is not complete? %u consumed? %u", ele->parent_slot, ele->complete_idx, ele->consumed ));
+        //FD_LOG_CRIT(( "fd_forest_fec_chain_verify: equivocating across parent slots is not supported yet, or parent slot %lu is not complete? %u consumed? %u", ele->parent_slot, ele->complete_idx, ele->consumed ));
       }
 
       fec_idx = ele->complete_idx / 32UL;
       ele->lowest_verified_fec = fec_idx+1;
-      ele->merkle_roots[fec_idx + 1].cmr = *expected_mr; /* CMR of child slot */
+      ele->confirmed_bid       = *expected_mr; /* CMR of child slot */
       continue;
     }
     fec_idx--; /* go back one FEC set */
