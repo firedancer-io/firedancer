@@ -204,61 +204,79 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig,
                      ulong               in_idx ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    goto forward_msg;
+  };
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE || ctx->state==FD_SNAPSHOT_STATE_ERROR );
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       if( !recv_acks( ctx, in_idx, sig ) ) return;
-      if( ctx->state==FD_SNAPSHOT_STATE_IDLE ) {
-        ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-        ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-        fd_lthash_zero( &ctx->running_lthash );
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      fd_lthash_zero( &ctx->running_lthash );
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      if( !recv_acks( ctx, in_idx, sig ) ) return;
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
+      if( FD_UNLIKELY( memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
+        FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
+                          FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
+                          FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
+        transition_malformed( ctx, stem );
+        break;
+      } else {
+        FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
+                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
+                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
       }
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state!=FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:
+    case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       if( !recv_acks( ctx, in_idx, sig ) ) return;
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:
-    case FD_SNAPSHOT_MSG_CTRL_DONE:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( !recv_acks( ctx, in_idx, sig ) ) return;
-      if( FD_LIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) {
-        fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
-        if( FD_UNLIKELY( memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
-          FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
-                           FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
-                           FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
-          transition_malformed( ctx, stem );
-          break;
-        } else {
-          FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
-                          FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
-                          FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
-        }
-        ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      }
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      if( !recv_acks( ctx, in_idx, sig ) ) return;
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       if( !recv_acks( ctx, in_idx, sig ) ) return;
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      transition_malformed( ctx, stem );
-      return;
-
-    default:
+    default: {
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
+      break;
+    }
   }
 
+forward_msg:
   /* Forward the control message down the pipeline */
   fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -418,4 +436,3 @@ fd_topo_run_tile_t fd_tile_snapls = {
 };
 
 #undef NAME
-

@@ -97,70 +97,82 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
 
-  switch( sig ) {
-    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
-      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-      ctx->full = 1;
-      ctx->is_zstd = !!msg->zstd;
-      ctx->dirty = 0;
-      ctx->in.frag_pos = 0UL;
-      ctx->metrics.full.compressed_bytes_read      = 0UL;
-      ctx->metrics.full.decompressed_bytes_written = 0UL;
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    goto forward_msg;
+  };
 
-      fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
-      fd_memcpy( msg_out, msg, sz );
-      fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
-      ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
-      return;
-    }
+  switch( sig ) {
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.mem, chunk );
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-      ctx->full = 0;
+      ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->is_zstd = !!msg->zstd;
       ctx->dirty = 0;
       ctx->in.frag_pos = 0UL;
-      ctx->metrics.incremental.compressed_bytes_read      = 0UL;
-      ctx->metrics.incremental.decompressed_bytes_written = 0UL;
-
+      if( ctx->full ) {
+        ctx->metrics.full.compressed_bytes_read      = 0UL;
+        ctx->metrics.full.decompressed_bytes_written = 0UL;
+      } else {
+        ctx->metrics.incremental.compressed_bytes_read      = 0UL;
+        ctx->metrics.incremental.decompressed_bytes_written = 0UL;
+      }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk );
       fd_memcpy( msg_out, msg, sz );
       fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
       ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
       return;
     }
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
+
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
+        FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
+        ctx->state = FD_SNAPSHOT_STATE_ERROR;
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+      }
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:
+    case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:
-    case FD_SNAPSHOT_MSG_CTRL_DONE:
-      if( FD_LIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) {
-        if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
-          FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
-          ctx->state = FD_SNAPSHOT_STATE_ERROR;
-          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-        } else {
-          ctx->state = FD_SNAPSHOT_STATE_IDLE;
-        }
-      } else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
       break;
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      break;
-    default:
+    }
+
+    default: {
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
+      break;
+    }
   }
 
+forward_msg:
   /* Forward the control message down the pipeline */
   fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -175,7 +187,7 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
        we receive fail & init control messages to restart processing. */
     return 0;
   }
-  else if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
     FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
   }
 
