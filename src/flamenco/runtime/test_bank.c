@@ -39,7 +39,7 @@ test_bank_advancing( void * mem ) {
   fd_bank_slot_set( bank_P, 100UL );
   FD_TEST( fd_bank_slot_get( bank_P ) == 100UL );
   bank_P->data->refcnt = 0UL; /* P(0) */
-  ulong bank_idx_P = bank_P->data->idx; (void)bank_idx_P;
+  ulong bank_idx_P = bank_P->data->idx;
 
   /* Create Q branch from P. */
   fd_bank_t bank_Q[1];
@@ -272,6 +272,162 @@ test_bank_advancing( void * mem ) {
   FD_TEST( !fd_banks_bank_query( bank_query, banks, bank_idx_M ) ); /* M should be gone */
   FD_TEST( !fd_banks_bank_query( bank_query, banks, bank_idx_D ) ); /* D should be gone */
   FD_TEST( fd_banks_bank_query( bank_query, banks, bank_idx_T )->data == bank_T->data ); /* T should be the new root */
+
+}
+
+static void
+test_bank_dead_eviction( void * mem ) {
+  fd_banks_locks_t locks[1];
+  fd_banks_locks_init( locks );
+  fd_banks_t banksl_join[1];
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), locks );
+  fd_bank_data_t * bank_data_pool = fd_banks_get_bank_pool( banks->data );
+
+  fd_bank_t bank_P[1];
+  FD_TEST( fd_banks_init_bank( bank_P, banks ) ); /* P slot = 100 */
+  FD_TEST( bank_P->data->bank_seq==0UL );
+  fd_bank_slot_set( bank_P, 100UL );
+  FD_TEST( fd_bank_slot_get( bank_P ) == 100UL );
+  bank_P->data->refcnt = 0UL; /* P(0) */
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
+
+  FD_TEST( !fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
+
+  /* Case: isolated dead bank that gets pruned. */
+  fd_bank_t bank_D[1];
+  fd_banks_new_bank( bank_D, banks, bank_P->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_D, banks, bank_D->data->idx ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
+
+  FD_TEST( !fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
+  fd_banks_mark_bank_frozen( banks, bank_D );
+
+  fd_banks_mark_bank_dead( banks, bank_D->data->idx );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
+  FD_TEST( bank_D->data->flags&FD_BANK_FLAGS_DEAD );
+
+  FD_TEST( fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
+
+  /* Case: multiple isolated dead banks get pruned at once. */
+  fd_bank_t bank_C[1];
+  fd_banks_new_bank( bank_C, banks, bank_P->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_C, banks, bank_C->data->idx ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
+  FD_TEST( !fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
+  fd_banks_mark_bank_frozen( banks, bank_C );
+
+  fd_bank_t bank_R[1];
+  fd_banks_new_bank( bank_R, banks, bank_P->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_R, banks, bank_R->data->idx ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
+  FD_TEST( !fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
+
+  fd_bank_t bank_Y[1];
+  fd_banks_new_bank( bank_Y, banks, bank_P->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_Y, banks, bank_Y->data->idx ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+  FD_TEST( !fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+
+  fd_bank_t bank_Z[1];
+  fd_banks_new_bank( bank_Z, banks, bank_C->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_Z, banks, bank_Z->data->idx ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
+  FD_TEST( !fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
+
+  fd_banks_mark_bank_dead( banks, bank_Y->data->idx );
+  fd_banks_mark_bank_dead( banks, bank_Z->data->idx );
+  FD_TEST( fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
+
+  /* Case: dead banks that are siblings of non pruned banks. Make sure
+     that sibling links are updated correctly. */
+  fd_bank_t bank_G[1];
+  fd_banks_new_bank( bank_G, banks, bank_C->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_G, banks, bank_G->data->idx ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+
+  fd_bank_t bank_W[1];
+  fd_banks_new_bank( bank_W, banks, bank_C->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_W, banks, bank_W->data->idx ) );
+
+  fd_bank_t bank_I[1];
+  fd_banks_new_bank( bank_I, banks, bank_W->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
+
+  fd_banks_mark_bank_dead( banks, bank_W->data->idx );
+  FD_TEST( bank_G->data->sibling_idx==bank_W->data->idx );
+  FD_TEST( fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+  FD_TEST( bank_G->data->sibling_idx==ULONG_MAX );
+
+  fd_banks_new_bank( bank_W, banks, bank_C->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_W, banks, bank_W->data->idx ) );
+
+  fd_banks_new_bank( bank_I, banks, bank_C->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_I, banks, bank_I->data->idx ) );
+  fd_bank_t bank_query[1];
+  FD_TEST( fd_banks_bank_query( bank_query, banks, bank_I->data->idx ) );
+
+  fd_banks_mark_bank_dead( banks, bank_W->data->idx );
+  FD_TEST( bank_G->data->sibling_idx==bank_W->data->idx );
+  FD_TEST( fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
+  FD_TEST( bank_G->data->sibling_idx!=ULONG_MAX );
+  FD_TEST( bank_G->data->sibling_idx==bank_I->data->idx );
+  FD_TEST( fd_banks_bank_query( bank_query, banks, bank_I->data->idx ) );
+
+  /* Case: dead banks get pruned when advancing the root.  Make sure
+     that double frees don't happen. */
+  fd_banks_new_bank( bank_W, banks, bank_P->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
+  FD_TEST( fd_banks_clone_from_parent( bank_W, banks, bank_W->data->idx ) );
+
+  fd_banks_new_bank( bank_Z, banks, bank_W->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==7UL );
+  fd_banks_mark_bank_dead( banks, bank_Z->data->idx );
+
+  fd_banks_advance_root( banks, bank_C->data->idx );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
+  FD_TEST( fd_banks_bank_query( bank_query, banks, bank_C->data->idx ) );
+  FD_TEST( fd_banks_bank_query( bank_query, banks, bank_G->data->idx ) );
+  FD_TEST( fd_banks_bank_query( bank_query, banks, bank_I->data->idx ) );
+  FD_TEST( !fd_banks_bank_query( bank_query, banks, bank_Z->data->idx ) );
+
+  FD_TEST( !fd_banks_prune_dead_banks( banks ) );
+
+  /* Case: don't prune dead banks if there is an outstanding reference
+     to them.  */
+  fd_banks_new_bank( bank_D, banks, bank_C->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_D, banks, bank_D->data->idx ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+
+  fd_banks_new_bank( bank_W, banks, bank_D->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
+
+  bank_D->data->refcnt = 1UL;
+  fd_banks_mark_bank_dead( banks, bank_D->data->idx );
+  FD_TEST( fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+
+  bank_D->data->refcnt = 0UL;
+  FD_TEST( fd_banks_prune_dead_banks( banks ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
 
 }
 
@@ -692,6 +848,8 @@ main( int argc, char ** argv ) {
   FD_TEST( !fd_banks_join( banksl_join, banks->data, NULL ) );
 
   test_bank_advancing( mem );
+
+  test_bank_dead_eviction( mem );
 
   FD_LOG_NOTICE(( "pass" ));
 
