@@ -32,7 +32,7 @@
    ring.  The ring mapping is not modulo, see wb_ring for details. */
 
 void
-fd_vinyl_io_wq_completion( fd_vinyl_io_ur_t * ur ) {
+fd_vinyl_io_ur_completion( fd_vinyl_io_ur_t * ur ) {
   fd_io_uring_t * ring = ur->ring;
 
   FD_CRIT( ur->cqe_pending      >0, "stray completion"       );
@@ -42,7 +42,8 @@ fd_vinyl_io_wq_completion( fd_vinyl_io_ur_t * ur ) {
   struct io_uring_cqe * cqe = fd_io_uring_cq_head( ring->cq );
   if( FD_UNLIKELY( !cqe ) ) FD_LOG_CRIT(( "no write completion found" ));
   if( ur_udata_req_type( cqe->user_data )!=UR_REQ_WRITE ) {
-    FD_LOG_CRIT(( "unexpected CQE type while flushing write queue" ));
+    fd_vinyl_io_ur_rd_completion( ur );
+    return;
   }
   int cqe_res = cqe->res;
   if( cqe_res<0 ) {
@@ -72,7 +73,7 @@ static void
 wq_clean( fd_vinyl_io_ur_t * ur ) {
   fd_io_uring_t * ring = ur->ring;
   while( fd_io_uring_cq_ready( ring->cq ) ) {
-    fd_vinyl_io_wq_completion( ur );
+    fd_vinyl_io_ur_completion( ur );
   }
 }
 
@@ -272,10 +273,6 @@ fd_vinyl_io_ur_append( fd_vinyl_io_t * io,
   fd_vinyl_io_ur_t * ur   = (fd_vinyl_io_ur_t *)io; /* Note: io must be non-NULL to have even been called */
   uchar const *      src  = (uchar const *)_src;
   uchar *            spad = fd_vinyl_io_ur_wb_buf( ur );
-
-  if( FD_UNLIKELY( ur->cqe_read_pending ) ) {
-    FD_LOG_CRIT(( "attempted to enqueue a write while there are still inflight reads" ));
-  }
 
   /* Validate the input args. */
 
