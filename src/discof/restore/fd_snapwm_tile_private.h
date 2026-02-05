@@ -88,6 +88,7 @@ struct fd_snapwm_tile {
 
     ulong txn_seq;  /* bstream seq of first txn record (in [seq_past,seq_present]) */
     uint  txn_active : 1;
+    uint  txn_commit : 1;
 
     ulong   duplicate_accounts_batch_sz;
     ulong   duplicate_accounts_batch_cnt;
@@ -274,6 +275,14 @@ fd_snapwm_vinyl_init_admin( fd_snapwm_tile_t * ctx,
 int
 fd_snapwm_vinyl_update_admin( fd_snapwm_tile_t * ctx,
                               int                do_rwlock );
+
+/* fd_snapwm_vinyl_meta_clean_all frees all elements of the vinyl meta
+   map, invoking fd_vinyl_meta_private_ele_free on each of them.  This
+   is typically needed when recovering from an error during a full
+   snapshot loading process. */
+
+void
+fd_snapwm_vinyl_meta_clean_all( fd_vinyl_meta_t * join );
 
 FD_PROTOTYPES_END
 

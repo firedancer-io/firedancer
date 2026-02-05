@@ -564,24 +564,28 @@ after_credit( fd_snapct_tile_t *  ctx,
 
   /* FIXME: Collapse WAITING_FOR_PEERS and COLLECTING_PEERS states for
      both full and incremental variants? */
-  /* FIXME: Add INIT state so that we don't put the !download_enabled
-     logic in waiting_for_peers, which is weird. */
 
   switch ( ctx->state ) {
 
     /* ============================================================== */
-    case FD_SNAPCT_STATE_WAITING_FOR_PEERS: {
-      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for peers." ));
-
+    case FD_SNAPCT_STATE_INIT: {
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
         ulong local_slot = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
         send_expected_slot( ctx, stem, local_slot );
         FD_LOG_NOTICE(( "reading full snapshot at slot %lu from local file `%s`", ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
-        ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
+        ctx->state = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
         break;
       }
+      ctx->deadline_nanos = now+FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
+      ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS;
+      break;
+    }
+
+    /* ============================================================== */
+    case FD_SNAPCT_STATE_WAITING_FOR_PEERS: {
+      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for peers." ));
 
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
       if( FD_LIKELY( best.addr.l ) ) {
@@ -1337,6 +1341,7 @@ snapin_frag( fd_snapct_tile_t *  ctx,
         case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
         case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
           ctx->malformed = 1;
+          ctx->flush_ack = 1;
           break;
         default:
           break;
@@ -1519,7 +1524,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->config.incremental_snapshots, 1UL ) );
 
-  ctx->state          = FD_SNAPCT_STATE_WAITING_FOR_PEERS;
+  ctx->state          = FD_SNAPCT_STATE_INIT;
   ctx->malformed      = 0;
   ctx->deadline_nanos = fd_log_wallclock() + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
   ctx->flush_ack      = 0;

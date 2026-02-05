@@ -85,6 +85,14 @@ metrics_write( fd_snapdc_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPDC, STATE,                                   (ulong)(ctx->state) );
 }
 
+static void
+transition_malformed( fd_snapdc_tile_t *  ctx,
+                      fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
+  ctx->state = FD_SNAPSHOT_STATE_ERROR;
+  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
 static inline void
 handle_control_frag( fd_snapdc_tile_t *  ctx,
                      fd_stem_context_t * stem,
@@ -102,8 +110,10 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return;
   };
+
+  int forward_msg = 1;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
@@ -127,7 +137,8 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       fd_memcpy( msg_out, msg, sz );
       fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
       ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
-      return;
+      forward_msg = 0; // we forward the control message in the `fd_ssctrl_init_t` message
+      break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
@@ -135,8 +146,9 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
         FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
-        ctx->state = FD_SNAPSHOT_STATE_ERROR;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
       }
       break;
     }
@@ -172,9 +184,10 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     }
   }
 
-forward_msg:
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static inline int
