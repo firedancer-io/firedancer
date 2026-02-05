@@ -652,6 +652,18 @@ metrics_write( fd_vinyl_tile_t * ctx ) {
   fd_vinyl_t *    vinyl = ctx->vinyl;
   fd_vinyl_io_t * io    = vinyl->io;
 
+  FD_MGAUGE_SET( ACCDB, ACCOUNTS,          vinyl->pair_cnt      );
+  FD_MGAUGE_SET( ACCDB, ACCOUNT_MAP_SLOTS, vinyl->meta->ele_max );
+
+  FD_MCNT_SET( ACCDB, READ_OPS_IO_CACHE,    io->cache_read_cnt     );
+  FD_MCNT_SET( ACCDB, READ_BYTES_IO_CACHE,  io->cache_read_tot_sz  );
+  FD_MCNT_SET( ACCDB, WRITE_OPS_IO_CACHE,   io->cache_write_cnt    );
+  FD_MCNT_SET( ACCDB, WRITE_BYTES_IO_CACHE, io->cache_write_tot_sz );
+  FD_MCNT_SET( ACCDB, READ_OPS_FILE,        io->file_read_cnt      );
+  FD_MCNT_SET( ACCDB, READ_BYTES_FILE,      io->file_read_tot_sz   );
+  FD_MCNT_SET( ACCDB, WRITE_OPS_FILE,       io->file_write_cnt     );
+  FD_MCNT_SET( ACCDB, WRITE_BYTES_FILE,     io->file_write_tot_sz  );
+
   FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_ANCIENT, io->seq_ancient );
   FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_PAST,    io->seq_past    );
   FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_PRESENT, io->seq_present );
@@ -704,7 +716,6 @@ before_credit( fd_vinyl_tile_t *   ctx,
   ulong accum_dead_cnt    = ctx->accum_dead_cnt;
   ulong accum_garbage_cnt = ctx->accum_garbage_cnt;
   ulong accum_garbage_sz  = ctx->accum_garbage_sz;
-  ulong accum_cache_hit   = 0UL;
 
   /* Enqueue up to burst_max requests from this client into the
      local request queue.  Using burst_max << FD_VINYL_REQ_MAX
@@ -800,6 +811,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
     ulong read_cnt   = 0UL;
     ulong append_cnt = 0UL;
 
+    ulong accum_cache_hit = 0UL;
     switch( req->type ) {
 
 #   include "../../vinyl/fd_vinyl_case_acquire.c"
@@ -816,9 +828,14 @@ before_credit( fd_vinyl_tile_t *   ctx,
     FD_MCNT_INC( ACCDB, REQUEST_BATCHES, 1UL );
     switch( req->type ) {
     case FD_VINYL_REQ_TYPE_ACQUIRE:
-      FD_MCNT_INC( ACCDB, REQUESTS_ACQUIRE, batch_cnt );
+      FD_MCNT_INC( ACCDB, REQUESTS_ACQUIRE,      batch_cnt       );
+      FD_MCNT_INC( ACCDB, READ_OPS_SHARED_CACHE, accum_cache_hit );
       break;
     case FD_VINYL_REQ_TYPE_RELEASE:
+      /* FIXME missing metrics:
+         - ReadBytes(SharedCache)
+         - WriteOps(SharedCache)
+         - WriteBytes(SharedCache) */
       FD_MCNT_INC( ACCDB, REQUESTS_RELEASE, batch_cnt );
       break;
     case FD_VINYL_REQ_TYPE_ERASE:
@@ -941,7 +958,6 @@ before_credit( fd_vinyl_tile_t *   ctx,
   ctx->accum_dead_cnt    = accum_dead_cnt;
   ctx->accum_garbage_cnt = accum_garbage_cnt;
   ctx->accum_garbage_sz  = accum_garbage_sz;
-  FD_MCNT_INC( ACCDB, CACHE_HITS, accum_cache_hit );
 }
 
 #define STEM_BURST (1UL)

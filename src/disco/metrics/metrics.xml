@@ -1322,14 +1322,28 @@ metric introduced.
     <int value="3" name="Future" label="Blocks between future and ancient have not been written (no read, no write)" />
 </enum>
 
+<enum name="StorageType">
+    <int value="0" name="SharedCache" label="Record cache" />
+    <int value="1" name="IoCache" label="I/O layer cache" />
+    <int value="2" name="File" label="File access" />
+</enum>
+
 <tile name="accdb">
+    <!-- user friendly metrics -->
+    <gauge name="Accounts" summary="Current number of accounts" />
+    <counter name="ReadOps" enum="StorageType" summary="Total number of read operations" />
+    <counter name="ReadBytes" enum="StorageType" summary="Total number of bytes read" />
+    <counter name="WriteOps" enum="StorageType" summary="Total number of write operations" />
+    <counter name="WriteBytes" enum="StorageType" summary="Total number of bytes written" />
+
+    <!-- developer metrics -->
     <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
     <counter name="RequestBatches" summary="Number of request batches processed" />
     <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
     <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
     <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
     <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
-    <counter name="CacheHits" summary="Total number of cache hits" />
+    <gauge name="AccountMapSlots" summary="Account map capacity" />
 </tile>
 
 </metrics>
