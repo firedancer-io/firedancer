@@ -2,7 +2,7 @@
 #define HEADER_fd_src_vinyl_bstream_fd_vinyl_bstream_h
 
 /* Client modifications to a vinyl key-val store are sequenced into
-   total order by the vinyl tile and encoded into a stream of direct I/O
+   total order by the vinyl tile and encoded into a stream of I/O
    friendly blocks (a "bstream").  A bstream has the strict mathematical
    property that a sufficient contiguous range of blocks ("the bstream's
    past") can be used to reconstruct the exact state of the vinyl
@@ -168,11 +168,11 @@
 #include "../fd_vinyl_base.h"
 
 /* FD_VINYL_BSTREAM_BLOCK_SZ gives the block size in bytes of a bstream
-   block.  It is a direct I/O friendly power-of-2 (i.e. a power-of-2 >=
-   512).  FD_VINYL_BSTEAM_BLOCK_LG_SZ gives the log2 of this. */
+   block.  It is a power-of-2 of at least 128.
+   FD_VINYL_BSTEAM_BLOCK_LG_SZ gives the log2 of this. */
 
-#define FD_VINYL_BSTREAM_BLOCK_SZ    (512UL)
-#define FD_VINYL_BSTREAM_BLOCK_LG_SZ (9)
+#define FD_VINYL_BSTREAM_BLOCK_SZ    (128UL)
+#define FD_VINYL_BSTREAM_BLOCK_LG_SZ (7)
 
 /* A FD_VINYL_BSTREAM_CTL_TYPE_* specifies how to interpret the next
    range of blocks in the bstream.  A FD_VINYL_BSTREAM_CTL_STYLE_*
@@ -231,8 +231,8 @@ typedef struct fd_vinyl_bstream_phdr fd_vinyl_bstream_phdr_t;
 #define FD_VINYL_BSTREAM_PART_INFO_MAX (FD_VINYL_BSTREAM_BLOCK_SZ - 8UL*sizeof(ulong))
 
 /* A fd_vinyl_bstream_block gives the binary layouts for various types
-   of blocks.  Note that direct I/O requires our memory alignments to
-   match device alignments.  Hence is this aligned
+   of blocks.  Note that I/O acceleration may require our memory
+   alignments to match our I/O alignments.  Hence is this aligned
    FD_VINYL_BSTREAM_BLOCK_SZ in memory too. */
 
 union __attribute__((aligned(FD_VINYL_BSTREAM_BLOCK_SZ))) fd_vinyl_bstream_block {
@@ -273,7 +273,9 @@ union __attribute__((aligned(FD_VINYL_BSTREAM_BLOCK_SZ))) fd_vinyl_bstream_block
     fd_vinyl_bstream_phdr_t src;                                    /* src pair header */
     fd_vinyl_key_t          dst;                                    /* pair src.key renamed to pair dst or replaced pair dst */
     ulong                   info_sz;                                /* info byte size, in [0,FD_VINYL_BSTREAM_MOVE_INFO_MAX] */
+#   if 0 /* Note: with BLOCK_SZ==128, MOVE_INFO_MAX=0 so there's no move.info field due to language limitations */
     uchar                   info[ FD_VINYL_BSTREAM_MOVE_INFO_MAX ]; /* move info */
+#   endif
     ulong                   hash_trail;
     ulong                   hash_blocks;
   } move; /* Note: a move block is immediately followed by a matching pair */

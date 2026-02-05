@@ -184,8 +184,10 @@ fd_vinyl_bstream_move_test( ulong                      seed,
            bad_dst_key    ? "mismatched move dst key"      :
                             "mismatched move dst info";
 
+# if 0 /* Note: with BLOCK_SZ==128, MOVE_INFO_MAX=0 and there's no move.info field due to language limitations */
   for( ulong zpad_idx=move_info_sz; zpad_idx<FD_VINYL_BSTREAM_MOVE_INFO_MAX; zpad_idx++ )
     if( FD_UNLIKELY( block->move.info[ zpad_idx ] ) ) return "data in zero padding";
+# endif
 
   if( FD_UNLIKELY( fd_vinyl_bstream_block_test( seed, block ) ) ) return "corrupt block";
 
