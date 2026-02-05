@@ -154,7 +154,6 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   ulong head;        /* reserved by dlist. not all blks will be part of a dlist. */
   ulong tail;        /* reserved by dlist */
 
-  uint consumed_idx; /* highest contiguous fec-completed shred idx */
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
@@ -162,7 +161,10 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   struct {
     fd_hash_t mr;
     fd_hash_t cmr;
-  } merkle_roots[ FD_FEC_BLK_MAX + 1 ]; /* +1 -> .cmr will be populated when the block id is confirmed */
+  } merkle_roots[ FD_FEC_BLK_MAX ]; /* */
+  fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
+                               on confirmation, and don't know the index of the last fec set until we repair the slot
+                               hash_null if not confirmed. */
   uint lowest_verified_fec; /* lowest fec index that has been verified so far, inclusive. complete_idx / 32UL,
                                if the last merkle root is verified, 5 if every merkle root after fec set 5*32 is verified */
 
@@ -719,12 +721,6 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
 
-/* fd_forest_blk_parent_update updates the parent of a block in the forest.
-   Needed for profiler mode. */
-
-fd_forest_blk_t *
-fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot );
-
 #define SHRED_SRC_TURBINE   0
 #define SHRED_SRC_REPAIR    1
 #define SHRED_SRC_RECOVERED 2
@@ -789,6 +785,9 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
    Returns a pointer to the first slot that does not confirm, or NULL if the chain is valid. */
 fd_forest_blk_t *
 fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * mr );
+
+void
+fd_forest_confirm( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * bid );
 
 static inline uint
 fd_forest_merkle_last_incorrect_idx( fd_forest_blk_t * ele ) {

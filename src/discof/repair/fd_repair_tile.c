@@ -643,7 +643,7 @@ after_shred( ctx_t      * ctx,
     int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
     int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-    if( FD_UNLIKELY( ctx->profiler.enabled && shred->slot == ctx->profiler.end_slot ) ) fd_forest_blk_parent_update( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
+    //if( FD_UNLIKELY( ctx->profiler.enabled && shred->slot == ctx->profiler.end_slot ) ) fd_forest_blk_parent_update( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
     fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
@@ -657,13 +657,10 @@ after_shred( ctx_t      * ctx,
    it left off.  Verification can be re-triggered in after_fec as well. */
 static inline void
 check_confirmed( ctx_t           * ctx,
-                 ulong             slot,
+                 fd_forest_blk_t * blk,
                  fd_hash_t const * confirmed_bid ) {
 
-  fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
-  if( FD_UNLIKELY( !blk ) ) return; /* No effect */
-
-  if( FD_LIKELY( !blk->confirmed ) ) {
+  if( FD_LIKELY( !blk->confirmed && blk->complete_idx != UINT_MAX && blk->buffered_idx == blk->complete_idx ) ) {
     /* The above conditions say that all the shreds of the block have arrived. */
     fd_forest_blk_t * bad_blk = fd_forest_fec_chain_verify( ctx->forest, blk, confirmed_bid );
     if( FD_LIKELY( !bad_blk ) ) {
@@ -719,8 +716,9 @@ after_fec( ctx_t      * ctx,
 
   /* re-trigger continuation of chained merkle verification if this FEC
      set enables it */
-  if( FD_UNLIKELY( ele->lowest_verified_fec == (shred->fec_set_idx / 32UL) + 1 ) ) {
-    check_confirmed( ctx, ele->slot, &ele->merkle_roots[ (ele->complete_idx / 32UL) + 1 ].cmr );
+  if( FD_UNLIKELY( ele->lowest_verified_fec == (shred->fec_set_idx / 32UL) + 1 ) &&
+                   ele->buffered_idx == ele->complete_idx ) {
+    check_confirmed( ctx, ele, &ele->merkle_roots[ (ele->complete_idx / 32UL) + 1 ].cmr );
   }
 
   if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
@@ -804,7 +802,16 @@ after_frag( ctx_t * ctx,
       if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || msg->kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
         /* the other two messages (rooted / optimistic) mean we have already
            received and replayed the correct version */
-        check_confirmed( ctx, msg->slot, &msg->block_id );
+
+        fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
+        if( FD_UNLIKELY( !blk ) ) {
+          /* If we receive a confirmation for a slot we don't have, create a sentinel forest block
+             that we can repair from */
+          FD_LOG_NOTICE(("inserting sentinel block at slot %lu", msg->slot));
+          blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot );
+          blk->confirmed_bid = msg->block_id;
+        }
+        check_confirmed( ctx, blk, &msg->block_id );
       }
     }
     return;
@@ -857,7 +864,7 @@ after_frag( ctx_t * ctx,
         /* we wait until the first turbine shred arrives to kick off
            the profiler.  This is to let gossip peers accumulate similar
            to a regular Firedancer run. */
-        fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot - 1 );
+        fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot );
         fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
 
         ctx->turbine_slot0 = ctx->profiler.end_slot;
