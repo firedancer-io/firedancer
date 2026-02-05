@@ -15,7 +15,6 @@
 [funk]
     heap_size_gib = {funk_pages}
     max_account_records = {index_max}
-    max_database_transactions = 64
 [runtime]
     max_live_slots = 128
     max_fork_width = 4

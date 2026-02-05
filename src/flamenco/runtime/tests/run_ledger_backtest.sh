@@ -281,7 +281,6 @@ if [[ "$DB" == "funk" ]]; then
 [funk]
     heap_size_gib = $FUNK_PAGES
     max_account_records = $INDEX_MAX
-    max_database_transactions = 64
 EOF
 elif [[ "$DB" == "vinyl" ]]; then
   if [[ "$INDEX_MAX" -lt "1000000" ]]; then
@@ -292,7 +291,6 @@ elif [[ "$DB" == "vinyl" ]]; then
 [funk]
     heap_size_gib = 2
     max_account_records = 1000000
-    max_database_transactions = 64
 [vinyl]
     enabled = true
     max_account_records = $INDEX_MAX

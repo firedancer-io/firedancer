@@ -94,7 +94,6 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  funk.max_account_records                            );
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );
-  CFG_POP      ( ulong,  funk.max_database_transactions                      );
 
   CFG_POP      ( bool,   vinyl.enabled                                       );
   CFG_POP      ( ulong,  vinyl.max_account_records                           );

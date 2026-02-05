@@ -82,7 +82,7 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "funk" );
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
-      config->firedancer.funk.max_database_transactions,
+      config->firedancer.runtime.max_live_slots,
       config->firedancer.funk.heap_size_gib );
   fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
@@ -90,7 +90,7 @@ backtest_topo( config_t * config ) {
   fd_topo_obj_t * progcache_obj = setup_topo_progcache( topo, "progcache",
       fd_progcache_est_rec_max( config->firedancer.runtime.program_cache.heap_size_mib<<20,
                                 config->firedancer.runtime.program_cache.mean_cache_entry_size ),
-      config->firedancer.funk.max_database_transactions,
+      config->firedancer.runtime.max_live_slots,
       config->firedancer.runtime.program_cache.heap_size_mib<<20 );
   fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
