@@ -371,7 +371,6 @@ poll_keyswitch( fd_topo_t * topo,
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].keyswitch_obj_id );
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-          FD_LOG_NOTICE(("TILE PENDING %s", topo->tiles[ i ].name));
           all_switched = 0UL;
           break;
         } else if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {

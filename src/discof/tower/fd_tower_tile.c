@@ -1055,8 +1055,8 @@ returnable_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->is_halting_signing = 1;
-    ctx->keyswitch->result  = ctx->out_seq;
+    ctx->halt_signing = 1;
+    ctx->keyswitch->result = ctx->out_seq;
   }
 
   switch( ctx->in_kind[ in_idx ] ) {
