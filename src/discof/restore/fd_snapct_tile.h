@@ -12,32 +12,34 @@
    it goes through the process of discovering and selecting elegible
    peers from gossip to download from. */
 
-#define FD_SNAPCT_STATE_WAITING_FOR_PEERS               ( 0) /* Waiting for first peer to arrive from gossip to download from */
-#define FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL   ( 1) /* Waiting for peers when attempting to download an incremental snapshot */
-#define FD_SNAPCT_STATE_COLLECTING_PEERS                ( 2) /* First peer arrived, wait a little longer to see if a better one arrives */
-#define FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL    ( 3) /* Collecting peers to download an incremental snapshot */
+#define FD_SNAPCT_STATE_INIT                            ( 0) /* Initialization step, it determines whether to start loading from file or to download */
 
-#define FD_SNAPCT_STATE_READING_FULL_FILE               ( 4) /* Full file looks better than peer, reading it from disk */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI         ( 5) /* Full file was read ok, signal downstream to finish all pending operations */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE         ( 6) /* Full file was read ok, and all other tiles have finished processing it */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET        ( 7) /* Resetting to load full snapshot from file again, confirm decompress and inserter are reset too */
+#define FD_SNAPCT_STATE_WAITING_FOR_PEERS               ( 1) /* Waiting for first peer to arrive from gossip to download from */
+#define FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL   ( 2) /* Waiting for peers when attempting to download an incremental snapshot */
+#define FD_SNAPCT_STATE_COLLECTING_PEERS                ( 3) /* First peer arrived, wait a little longer to see if a better one arrives */
+#define FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL    ( 4) /* Collecting peers to download an incremental snapshot */
 
-#define FD_SNAPCT_STATE_READING_INCREMENTAL_FILE        ( 8) /* Incremental file looks better than peer, reading it from disk */
-#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE  ( 9) /* Incremental file was read ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_READING_FULL_FILE               ( 5) /* Full file looks better than peer, reading it from disk */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI         ( 6) /* Full file was read ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE         ( 7) /* Full file was read ok, and all other tiles have finished processing it */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET        ( 8) /* Resetting to load full snapshot from file again, confirm decompress and inserter are reset too */
+
+#define FD_SNAPCT_STATE_READING_INCREMENTAL_FILE        ( 9) /* Incremental file looks better than peer, reading it from disk */
 #define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI  (10) /* Incremental file was read ok, and all other tiles have finished processing it */
-#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET (11) /* Resetting to load incremental snapshot from file again, confirm decompress and inserter are reset too */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE  (11) /* Incremental file was read ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET (12) /* Resetting to load incremental snapshot from file again, confirm decompress and inserter are reset too */
 
-#define FD_SNAPCT_STATE_READING_FULL_HTTP               (12) /* Peer was selected, reading full snapshot from HTTP */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE         (13) /* Full snapshot was downloaded ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_READING_FULL_HTTP               (13) /* Peer was selected, reading full snapshot from HTTP */
 #define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI         (14) /* Full snapshot was downloaded ok, and all other tiles have finished processing it */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET        (15) /* Resetting to load full snapshot from HTTP again, confirm decompress and inserter are reset too */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE         (15) /* Full snapshot was downloaded ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET        (16) /* Resetting to load full snapshot from HTTP again, confirm decompress and inserter are reset too */
 
-#define FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP        (16) /* Peer was selected, reading incremental snapshot from HTTP */
-#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE  (17) /* Incremental snapshot was downloaded ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP        (17) /* Peer was selected, reading incremental snapshot from HTTP */
 #define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI  (18) /* Incremental snapshot was downloaded ok, and all other tiles have finished processing it */
-#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET (19) /* Resetting to load incremental snapshot from HTTP again, confirm decompress and inserter are reset too */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE  (19) /* Incremental snapshot was downloaded ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET (20) /* Resetting to load incremental snapshot from HTTP again, confirm decompress and inserter are reset too */
 
-#define FD_SNAPCT_STATE_SHUTDOWN                        (20) /* The tile is done, and has likely already exited */
+#define FD_SNAPCT_STATE_SHUTDOWN                        (21) /* The tile is done, and has likely already exited */
 
 
 
@@ -45,6 +47,7 @@
 static inline const char *
 fd_snapct_state_str( ulong state ) {
   switch( state ) {
+    case FD_SNAPCT_STATE_INIT:                            return "init";
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS:               return "waiting_for_peers";
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL:   return "waiting_for_peers_incremental";
     case FD_SNAPCT_STATE_COLLECTING_PEERS:                return "collecting_peers";

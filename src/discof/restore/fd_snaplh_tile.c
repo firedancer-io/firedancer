@@ -117,6 +117,9 @@ struct fd_snaplh_tile {
   uchar       in_kind[IN_CNT_MAX];
   out_link_t  out;
 
+  int         lthash_completion_pending;
+  int         fail_completion_pending;
+
   /* io_uring setup */
 
   fd_io_uring_t ioring[1];
@@ -398,7 +401,9 @@ handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
 static void
 handle_lthash_completion( fd_snaplh_t * ctx,
                           fd_stem_context_t * stem ) {
-  if( fd_seq_inc( ctx->wh_last_in_seq, 1UL )==ctx->wh_finish_fseq ) {
+  if( FD_LIKELY( !ctx->lthash_completion_pending ) ) return;
+
+  if( fd_seq_inc( ctx->wh_last_in_seq, 1UL )>=ctx->wh_finish_fseq ) {
     fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
     fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
     fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
@@ -406,6 +411,20 @@ handle_lthash_completion( fd_snaplh_t * ctx,
     fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
+    ctx->lthash_completion_pending = 0;
+  }
+}
+
+static void
+handle_fail_completion( fd_snaplh_t * ctx,
+                  fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !ctx->fail_completion_pending ) ) return;
+
+  if( fd_seq_inc( ctx->wh_last_in_seq, 1UL )>=ctx->wh_finish_fseq ) {
+    fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
+    fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+    ctx->fail_completion_pending = 0;
   }
 }
 
@@ -428,9 +447,13 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
     /* skip all wh data frags when in error state. */
     return;
   }
-  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING  &&
-                   ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-    FD_LOG_ERR(( "invalid state for wh data frag %u", ctx->state ));
+  if( FD_UNLIKELY( ctx->fail_completion_pending ) ) {
+    /* handle_fail_completion may succeed (complete) either when the
+       control frag that triggers it is received (conditional upon
+       having no pending wh data frags) or after all wh data frags have
+       been received and processed.  Once the fail control message
+       is received, the state transitions into idle. */
+    handle_fail_completion( ctx, stem );
     return;
   }
 
@@ -527,7 +550,7 @@ handle_control_frag( fd_snaplh_t * ctx,
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return;
   };
 
   switch( sig ) {
@@ -550,6 +573,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       if( FD_LIKELY( ctx->io_uring_enabled ) ) {
         handle_vinyl_lthash_request_ur_consume_all( ctx );
       }
+      ctx->lthash_completion_pending = 1;
       /* handle_lthash_completion may succeed (complete) either here
          (if there are no pending wh data frags) or after all wh data
          frags have been received and processed. */
@@ -573,9 +597,15 @@ handle_control_frag( fd_snaplh_t * ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      ctx->wh_finish_fseq = tsorig_tspub_to_fseq( tsorig, tspub );
       if( FD_LIKELY( ctx->io_uring_enabled ) ) {
         handle_vinyl_lthash_request_ur_consume_all( ctx );
       }
+      ctx->fail_completion_pending = 1;
+      /* handle_fail_completion may succeed (complete) either here (if
+         there are no pending wh data frags) or after all wh data frags
+         have been received and processed. */
+      handle_fail_completion( ctx, stem );
       break;
     }
 
@@ -589,9 +619,6 @@ handle_control_frag( fd_snaplh_t * ctx,
       break;
     }
   }
-
-forward_msg:
-  return;
 }
 
 static inline int
@@ -900,6 +927,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_log_sleep( (long)1e6 /*1ms*/ );
     FD_SPIN_PAUSE();
   }
+
+  ctx->lthash_completion_pending = 0;
+  ctx->fail_completion_pending   = 0;
 }
 
 #define STEM_BURST 1UL

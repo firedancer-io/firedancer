@@ -590,8 +590,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return;
   };
+
+  int forward_msg = 1;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
@@ -662,6 +664,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
           FD_LOG_WARNING(( "slot deltas verification failed" ));
           transition_malformed( ctx, stem );
+          forward_msg = 0;
           break;
         }
       }
@@ -698,7 +701,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      if( !ctx->use_vinyl && ctx->full ) {
+      if( ctx->full ) {
         fd_accdb_v1_clear( ctx->accdb_admin );
       }
 
@@ -725,9 +728,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
   }
 
-forward_msg:
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static inline int
