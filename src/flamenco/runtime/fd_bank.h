@@ -494,8 +494,14 @@ fd_bank_footprint( void );
 #define POOL_T    fd_bank_data_t
 #include "../../util/tmpl/fd_pool.c"
 
+struct fd_bank_idx_seq {
+  ulong idx;
+  ulong seq;
+};
+typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
+
 #define DEQUE_NAME fd_banks_dead
-#define DEQUE_T    ulong
+#define DEQUE_T    fd_bank_idx_seq_t
 #define DEQUE_MAX  FD_BANKS_MAX_BANKS
 #include "../../util/tmpl/fd_deque.c"
 
@@ -687,14 +693,14 @@ fd_banks_set_bank_pool( fd_banks_data_t * banks_data,
   banks_data->pool_offset = (ulong)bank_pool_mem - (ulong)banks_data;
 }
 
-static inline ulong *
+static inline fd_bank_idx_seq_t *
 fd_banks_get_dead_banks_deque( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->dead_banks_deque_offset );
 }
 
 static inline void
-fd_banks_set_dead_banks_deque( fd_banks_data_t * banks_data,
-                               ulong *           dead_banks_deque ) {
+fd_banks_set_dead_banks_deque( fd_banks_data_t *   banks_data,
+                               fd_bank_idx_seq_t * dead_banks_deque ) {
   banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
 }
 

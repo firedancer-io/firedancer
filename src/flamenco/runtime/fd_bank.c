@@ -318,7 +318,7 @@ fd_banks_new( void * shmem,
     bank->flags = 0UL;
   }
 
-  ulong * banks_dead_deque = fd_banks_dead_join( fd_banks_dead_new( dead_banks_deque_mem ) );
+  fd_bank_idx_seq_t * banks_dead_deque = fd_banks_dead_join( fd_banks_dead_new( dead_banks_deque_mem ) );
   if( FD_UNLIKELY( !banks_dead_deque ) ) {
     FD_LOG_WARNING(( "Failed to create banks dead deque" ));
     return NULL;
@@ -472,7 +472,7 @@ fd_banks_join( fd_banks_t * banks_ljoin,
     return NULL;
   }
 
-  ulong * banks_dead_deque = fd_banks_dead_join( dead_banks_deque_mem );
+  fd_bank_idx_seq_t * banks_dead_deque = fd_banks_dead_join( dead_banks_deque_mem );
   if( FD_UNLIKELY( !banks_dead_deque ) ) {
     FD_LOG_WARNING(( "Failed to join banks dead deque" ));
     return NULL;
@@ -1126,7 +1126,7 @@ fd_banks_subtree_mark_dead( fd_banks_data_t * banks,
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
 
   bank->flags |= FD_BANK_FLAGS_DEAD;
-  fd_banks_dead_push_head( fd_banks_get_dead_banks_deque( banks ), bank->idx );
+  fd_banks_dead_push_head( fd_banks_get_dead_banks_deque( banks ), (fd_bank_idx_seq_t){ .idx = bank->idx, .seq = bank->bank_seq } );
 
   /* Recursively mark all children as dead. */
   ulong child_idx = bank->child_idx;
@@ -1154,12 +1154,18 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
 
   int any_pruned = 0;
 
-  ulong *          dead_banks_queue = fd_banks_get_dead_banks_deque( banks->data );
-  fd_bank_data_t * bank_pool        = fd_banks_get_bank_pool( banks->data );
-  ulong            null_idx         = fd_banks_pool_idx_null( bank_pool );
+  fd_bank_idx_seq_t * dead_banks_queue = fd_banks_get_dead_banks_deque( banks->data );
+  fd_bank_data_t *    bank_pool        = fd_banks_get_bank_pool( banks->data );
+  ulong               null_idx         = fd_banks_pool_idx_null( bank_pool );
   while( !fd_banks_dead_empty( dead_banks_queue ) ) {
-    fd_bank_data_t * bank = fd_banks_pool_ele( bank_pool, *fd_banks_dead_peek_head( dead_banks_queue ) );
-    if( bank->refcnt!=0UL ) break;
+    fd_bank_idx_seq_t * head = fd_banks_dead_peek_head( dead_banks_queue );
+    fd_bank_data_t * bank = fd_banks_pool_ele( bank_pool, head->idx );
+    if( bank->bank_seq!=head->seq ) {
+      fd_banks_dead_pop_head( dead_banks_queue );
+      continue;
+    } else if( bank->refcnt!=0UL ) {
+      break;
+    }
 
     bank->flags = 0UL;
 
