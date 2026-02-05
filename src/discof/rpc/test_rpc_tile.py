@@ -129,6 +129,7 @@ def run_test_suite(
 
 
 ALL_TYPES = [
+    0,
     1,
     1.1,
     -1,
@@ -334,6 +335,29 @@ GET_IDENTITY = [
 ]
 
 GET_ACCOUNT_INFO = [
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "getAccountInfo",
+                "params": [
+                    e,
+                    {
+                        "encoding": "base64",
+                        "commitment": "finalized",
+                        "data_slice": None,
+                        "min_context_slot": None,
+                    }
+                ]
+            },
+            "description": f"getAccountInfo account=",
+            "exclude_paths": ["root['result']['context']['slot']"],
+        }
+        for e in [
+            "SysvarRent111111111111111111111111111111111",
+        ]
+    ],
     *[
         {
             "payload": {
