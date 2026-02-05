@@ -1160,7 +1160,7 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
   while( !fd_banks_dead_empty( dead_banks_queue ) ) {
     fd_bank_idx_seq_t * head = fd_banks_dead_peek_head( dead_banks_queue );
     fd_bank_data_t * bank = fd_banks_pool_ele( bank_pool, head->idx );
-    if( bank->bank_seq!=head->seq ) {
+    if( !bank->flags || bank->bank_seq!=head->seq ) {
       fd_banks_dead_pop_head( dead_banks_queue );
       continue;
     } else if( bank->refcnt!=0UL ) {
@@ -1180,6 +1180,37 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
     }
     bank->parent_idx  = null_idx;
     bank->sibling_idx = null_idx;
+
+    if( FD_UNLIKELY( bank->cost_tracker_pool_idx!=null_idx ) ) {
+      fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( bank ), bank->cost_tracker_pool_idx );
+      bank->cost_tracker_pool_idx = null_idx;
+    }
+
+    if( FD_UNLIKELY( bank->vote_states_dirty && bank->vote_states_pool_idx!=null_idx ) ) {
+      fd_bank_vote_states_pool_idx_release( fd_bank_get_vote_states_pool( bank ), bank->vote_states_pool_idx );
+      bank->vote_states_pool_idx = null_idx;
+    }
+
+    if( FD_UNLIKELY( bank->vote_states_prev_dirty && bank->vote_states_prev_pool_idx!=null_idx ) ) {
+      fd_bank_vote_states_prev_pool_idx_release( fd_bank_get_vote_states_prev_pool( bank ), bank->vote_states_prev_pool_idx );
+      bank->vote_states_prev_pool_idx = null_idx;
+    }
+
+    if( FD_UNLIKELY( bank->vote_states_prev_prev_dirty && bank->vote_states_prev_prev_pool_idx!=null_idx ) ) {
+      fd_bank_vote_states_prev_prev_pool_idx_release( fd_bank_get_vote_states_prev_prev_pool( bank ), bank->vote_states_prev_prev_pool_idx );
+      bank->vote_states_prev_prev_pool_idx = null_idx;
+    }
+
+    if( FD_UNLIKELY( bank->epoch_leaders_dirty && bank->epoch_leaders_pool_idx!=null_idx ) ) {
+      fd_bank_epoch_leaders_pool_idx_release( fd_bank_get_epoch_leaders_pool( bank ), bank->epoch_leaders_pool_idx );
+      bank->epoch_leaders_pool_idx = null_idx;
+    }
+
+    if( FD_UNLIKELY( bank->epoch_rewards_dirty && bank->epoch_rewards_pool_idx!=null_idx ) ) {
+      fd_bank_epoch_rewards_pool_idx_release( fd_bank_get_epoch_rewards_pool( bank ), bank->epoch_rewards_pool_idx );
+      bank->epoch_rewards_pool_idx = null_idx;
+    }
+
     fd_banks_pool_ele_release( bank_pool, bank );
     fd_banks_dead_pop_head( dead_banks_queue );
     any_pruned = 1;

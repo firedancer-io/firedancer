@@ -945,7 +945,8 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
    descendants) as dead.  The caller is still responsible for handling
    the behavior of the dead bank correctly.  The function should not be
    called on a bank that is already dead nor on any ancestor of an
-   already dead bank. */
+   already dead bank.  After a bank is marked dead, the caller should
+   never increment the reference count on the bank. */
 
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
