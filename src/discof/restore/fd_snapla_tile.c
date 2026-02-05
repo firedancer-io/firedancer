@@ -211,7 +211,7 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
         break;
       }
       case FD_SSPARSE_ADVANCE_DONE:
-        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+        /* do not transition into FD_SNAPSHOT_STATE_FINISHING */
         break;
       default:
         FD_LOG_ERR(( "unexpected fd_ssparse_advance result %d", res ));
@@ -247,7 +247,7 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
                      ulong                sig ) {
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->full          = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->state         = FD_SNAPSHOT_STATE_PROCESSING;
@@ -262,41 +262,48 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
       if( ctx->full ) ctx->metrics.full.accounts_hashed = 0UL;
       ctx->metrics.incremental.accounts_hashed = 0UL;
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      break;
-
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:
-    case FD_SNAPSHOT_MSG_CTRL_DONE:{
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        transition_malformed( ctx, stem );
-        break;
-      }
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
       ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:
+    case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      break;
-
-    default:
+    default: {
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
       return;
+    }
   }
 
   /* Forward the control message down the pipeline */
@@ -434,4 +441,3 @@ fd_topo_run_tile_t fd_tile_snapla = {
 };
 
 #undef NAME
-

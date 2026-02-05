@@ -120,6 +120,7 @@ metrics_write( fd_snaplv_t * ctx ) {
 static void
 transition_malformed( fd_snaplv_t *  ctx,
                       fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, ctx->out_link[ OUT_LINK_LH ].idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
   fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -215,9 +216,16 @@ handle_data_frag( fd_snaplv_t *       ctx,
                   ulong               sz,
                   ulong               tspub ) {
   (void)chunk; (void)sz;
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
 
-  if( sig!=FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    /* skip all data frags when in error state. */
+    return;
+  }
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+    FD_LOG_ERR(( "invalid state for data frag %u", ctx->state ));
+    return;
+  }
+  if( FD_UNLIKELY( sig!=FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) {
     FD_LOG_ERR(( "unexpected sig %lu in handle_data_frag", sig ));
     return;
   }
@@ -297,33 +305,39 @@ handle_control_frag( fd_snaplv_t *       ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       fd_lthash_zero( &ctx->running_lthash );
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      fd_lthash_zero( &ctx->running_lthash );
-      break;
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      ctx->hash_accum.ack_sig          = sig;
+      ctx->hash_accum.awaiting_results = 1;
+      forward_to_ct = 0UL;
+      handle_vinyl_lthash_request_drain_all( ctx, stem );
+      break; /* the ack is sent when all hashes are received */
     }
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-        transition_malformed( ctx, stem );
-        break;
-      }
-      ctx->hash_accum.ack_sig          = sig;
-      ctx->hash_accum.awaiting_results = 1;
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      forward_to_ct = 0UL;
-      handle_vinyl_lthash_request_drain_all( ctx, stem );
-      break; /* the ack is sent when all hashes are received */
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
@@ -332,13 +346,10 @@ handle_control_frag( fd_snaplv_t *       ctx,
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      break;
-
-    default:
+    default: {
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
       break;
+    }
   }
 
   /* Forward the control message down the pipeline */
@@ -353,7 +364,15 @@ handle_hash_frag( fd_snaplv_t * ctx,
                   ulong         sig,
                   ulong         chunk,
                   ulong         sz ) {
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING || ctx->state==FD_SNAPSHOT_STATE_IDLE );
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    /* skip all hash frags when in error state. */
+    return;
+  }
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING &&
+                   ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+    FD_LOG_ERR(( "invalid state for data frag %u", ctx->state ));
+    return;
+  }
   switch( sig ) {
     case FD_SNAPSHOT_HASH_MSG_RESULT_ADD: {
       FD_TEST( sz==sizeof(fd_lthash_value_t) );
@@ -377,11 +396,11 @@ handle_hash_frag( fd_snaplv_t * ctx,
       fd_memcpy( &ctx->hash_accum.expected_lthash, result, sizeof(fd_lthash_value_t) );
       break;
     }
-    default:
+    default: {
       FD_LOG_ERR(( "unexpected hash sig %lu", sig ));
       break;
+    }
   }
-
 }
 
 static inline int

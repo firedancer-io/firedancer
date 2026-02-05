@@ -165,6 +165,8 @@ unprivileged_init( fd_topo_t *      topo,
     snapwr->bstream_seq = &snapwr->vinyl_admin->wr_seq[ tile->kind_id ];
   }
 
+  /* FIXME verify state in metrics (the state is not updated between
+     idle and shutdown). */
   snapwr->state = FD_SNAPSHOT_STATE_IDLE;
 
   snapwr->req_seen = 0UL;
@@ -219,7 +221,7 @@ before_credit( fd_snapwr_t *       ctx,
 
 static void
 metrics_write( fd_snapwr_t * ctx ) {
-  FD_MGAUGE_SET( SNAPWR, STATE,               ctx->state            );
+  FD_MGAUGE_SET( SNAPWR, STATE,               (ulong)ctx->state     );
   FD_MGAUGE_SET( SNAPWR, VINYL_BYTES_WRITTEN, ctx->metrics.last_off );
 }
 
@@ -231,19 +233,26 @@ handle_control_frag( fd_snapwr_t * ctx,
                      ulong         meta_ctl,
                      ulong         meta_sig ) {
   switch( meta_ctl ) {
-  case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    ctx->metrics.last_off = 0UL;
-    ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-    break;
-  case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-    ctx->metrics.last_off = meta_sig;
-    ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-    break;
-  case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
-    ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-    break;
-  default:
-    FD_LOG_CRIT(( "received unexpected ssctrl msg type %lu", meta_ctl ));
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL: {
+      /* FIXME this path is never reached. */
+      ctx->metrics.last_off = 0UL;
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      break;
+    }
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
+      /* FIXME this path is never reached. */
+      ctx->metrics.last_off = meta_sig;
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      break;
+    }
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
+      ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+      break;
+    }
+    default: {
+      FD_LOG_CRIT(( "received unexpected ssctrl msg type %lu", meta_ctl ));
+      break;
+    }
   }
 }
 

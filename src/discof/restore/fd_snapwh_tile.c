@@ -160,6 +160,7 @@ handle_control_frag( fd_snapwh_t * ctx,
   switch( meta_ctl ) {
   case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
   case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
+    /* FIXME this path is never reached. */
     ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
     break;
   case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:

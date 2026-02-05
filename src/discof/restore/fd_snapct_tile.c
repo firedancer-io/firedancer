@@ -680,7 +680,25 @@ after_credit( fd_snapct_tile_t *  ctx,
     }
 
     /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:
+      if( !ctx->flush_ack ) break;
+
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        ctx->malformed = 0;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->flush_ack = 0;
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET;
+        FD_LOG_WARNING(( "error reading snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
+        break;
+      }
+
+      ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE;
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
+      break;
+
+    /* ============================================================== */
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:
       if( !ctx->flush_ack ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
@@ -697,7 +715,28 @@ after_credit( fd_snapct_tile_t *  ctx,
       break;
 
     /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
+      if( !ctx->flush_ack ) break;
+
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        ctx->malformed = 0;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->flush_ack = 0;
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
+        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
+        break;
+      }
+
+      ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE;
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
+      break;
+
+    /* ============================================================== */
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
       if( !ctx->flush_ack ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
@@ -718,7 +757,27 @@ after_credit( fd_snapct_tile_t *  ctx,
       break;
 
     /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
+      if( !ctx->flush_ack ) break;
+
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        ctx->malformed = 0;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->flush_ack = 0;
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
+        FD_LOG_WARNING(( "error reading snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
+        break;
+      }
+
+      ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE;
+      ulong sig = ctx->config.incremental_snapshots &&
+                  (ctx->local_in.incremental_snapshot_slot!=ULONG_MAX || ctx->download_enabled) ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
+      fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
+      break;
+
+    /* ============================================================== */
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
       if( !ctx->flush_ack ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
@@ -747,7 +806,27 @@ after_credit( fd_snapct_tile_t *  ctx,
       break;
 
     /* ============================================================== */
-    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
+      if( !ctx->flush_ack ) break;
+
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        ctx->malformed = 0;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->flush_ack = 0;
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
+        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
+        break;
+      }
+
+      ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE;
+      fd_stem_publish( stem, ctx->out_ld.idx, ctx->config.incremental_snapshots ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+      break;
+
+    /* ============================================================== */
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
       if( !ctx->flush_ack ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
@@ -855,8 +934,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
       FD_TEST( ctx->metrics.full.bytes_total!=0UL );
       if( FD_UNLIKELY( ctx->metrics.full.bytes_read == ctx->metrics.full.bytes_total ) ) {
-        ulong sig = ctx->config.incremental_snapshots &&
-                    (ctx->local_in.incremental_snapshot_slot!=ULONG_MAX || ctx->download_enabled) ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
+        ulong sig = FD_SNAPSHOT_MSG_CTRL_FINI;
         if( sig==FD_SNAPSHOT_MSG_CTRL_DONE && ctx->config.incremental_snapshots ) {
           /* set incremental snapshots to 0 if there is no local
              incremental snapshot and download is not enabled. */
@@ -866,7 +944,7 @@ after_credit( fd_snapct_tile_t *  ctx,
           ctx->config.incremental_snapshots = 0;
         }
         fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE;
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI;
         ctx->flush_ack = 0;
       }
       break;
@@ -884,8 +962,8 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
       FD_TEST( ctx->metrics.incremental.bytes_total!=0UL );
       if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_read == ctx->metrics.incremental.bytes_total ) ) {
-        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI;
         ctx->flush_ack = 0;
       }
       break;
@@ -905,9 +983,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
       if( FD_UNLIKELY( ctx->metrics.full.bytes_total!=0UL && ctx->metrics.full.bytes_read==ctx->metrics.full.bytes_total ) ) {
-        ulong sig = ctx->config.incremental_snapshots ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
+        ulong sig = FD_SNAPSHOT_MSG_CTRL_FINI;
         fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP;
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI;
         ctx->flush_ack = 0;
       }
       break;
@@ -927,8 +1005,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
       if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_total!=0UL && ctx->metrics.incremental.bytes_read==ctx->metrics.incremental.bytes_total ) ) {
-        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI;
         ctx->flush_ack = 0;
       }
       break;
@@ -1095,10 +1173,14 @@ snapld_frag( fd_snapct_tile_t *  ctx,
          pipeline, just throw away any trailing data frags. */
       return;
 
-    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE:
-    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE:
-    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP:
-    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
       /* Based on previously received data frags, we expected that the
          current full / incremental snapshot was finished, but then we
          received additional data frags.  Unsafe to continue so throw
@@ -1156,6 +1238,7 @@ snapld_frag( fd_snapct_tile_t *  ctx,
   }
 }
 
+/* FIXME rename */
 static void
 snapin_frag( fd_snapct_tile_t *  ctx,
              ulong               sig ) {
@@ -1171,24 +1254,37 @@ snapin_frag( fd_snapct_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ||
                      ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ) ) {
-        FD_TEST( !ctx->flush_ack );
+        // FD_TEST( !ctx->flush_ack ); /* FIXME verify */
         ctx->flush_ack = 1;
       } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
-      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE ) ) {
+      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ||
+                     /* FIXME verify */
+                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ||
+                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
       } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_DONE:
-      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE ) ) {
+      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE ) ) {
+        FD_TEST( !ctx->flush_ack );
+        ctx->flush_ack = 1;
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
+      break;
+
+    case FD_SNAPSHOT_MSG_CTRL_FINI:
+      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
       } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
@@ -1210,13 +1306,17 @@ snapin_frag( fd_snapct_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_ERROR:
       switch( ctx->state ) {
         case FD_SNAPCT_STATE_READING_FULL_FILE:
-        case FD_SNAPCT_STATE_FLUSHING_FULL_FILE:
+        case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
+        case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
         case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
-        case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE:
+        case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:
+        case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:
         case FD_SNAPCT_STATE_READING_FULL_HTTP:
-        case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP:
+        case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
+        case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
         case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
-        case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP:
+        case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
+        case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
           ctx->malformed = 1;
           break;
         default:

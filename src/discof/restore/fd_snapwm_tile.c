@@ -62,6 +62,7 @@ seq_to_tsorig_tspub( ulong * tsorig,
 static void
 transition_malformed( fd_snapwm_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -132,16 +133,17 @@ handle_data_frag( fd_snapwm_tile_t *  ctx,
                   ulong               chunk,
                   ulong               acc_cnt,
                   fd_stem_context_t * stem ) {
+
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
     transition_malformed( ctx, stem );
     return 0;
   }
-  else if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
     /* Ignore all data frags after observing an error in the stream until
        we receive fail & init control messages to restart processing. */
     return 0;
   }
-  else if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
     FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
   }
 
@@ -161,7 +163,7 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
@@ -190,24 +192,27 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
       }
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
 
       fd_snapwm_vinyl_wd_fini( ctx );
+
+      /* FIXME vinyl_txn_commit should not happen in fini. */
       if( ctx->vinyl.txn_active ) {
-        fd_snapwm_vinyl_txn_cancel( ctx );
+        fd_snapwm_vinyl_txn_commit( ctx, stem );
       }
+
       if( !ctx->lthash_disabled ) {
         seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
       }
       break;
+    }
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       /* Backup metric counters */
@@ -215,10 +220,12 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
 
-      fd_snapwm_vinyl_wd_fini( ctx );
-      if( ctx->vinyl.txn_active ) {
-        fd_snapwm_vinyl_txn_commit( ctx, stem );
-      }
+      /* .......... */
+      // if( ctx->vinyl.txn_active ) {
+      //   fd_snapwm_vinyl_txn_commit( ctx, stem );
+      // }
+      /* .......... */
+
       if( !ctx->lthash_disabled ) {
         seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
       }
@@ -226,14 +233,15 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      fd_snapwm_vinyl_wd_fini( ctx );
-      if( ctx->vinyl.txn_active ) {
-        fd_snapwm_vinyl_txn_commit( ctx, stem );
-      }
+      /* .......... */
+      // if( ctx->vinyl.txn_active ) {
+      //   fd_snapwm_vinyl_txn_commit( ctx, stem );
+      // }
+      /* .......... */
+
       if( !ctx->lthash_disabled ) {
         seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
       }
@@ -246,13 +254,8 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      fd_snapwm_vinyl_shutdown( ctx );
-      break;
-
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
       fd_snapwm_vinyl_wd_fini( ctx );
       if( ctx->vinyl.txn_active ) {
@@ -262,10 +265,25 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
         seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
       }
       break;
+    }
 
-    default:
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+      fd_snapwm_vinyl_shutdown( ctx );
+      break;
+    }
+
+    default: {
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
+      break;
+    }
   }
 
   /* Forward the control message down the pipeline */

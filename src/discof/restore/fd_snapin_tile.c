@@ -453,16 +453,17 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                   ulong               chunk,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
+
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
     transition_malformed( ctx, stem );
     return 0;
   }
-  else if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
     /* Ignore all data frags after observing an error in the stream until
        we receive fail & init control messages to restart processing. */
     return 0;
   }
-  else if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
     FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
   }
 
@@ -556,7 +557,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         early_exit = fd_snapin_process_account_batch( ctx, result, NULL );
         break;
       case FD_SSPARSE_ADVANCE_DONE:
-        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+        /* no transition into state FD_SNAPSHOT_STATE_FINISHING here. */
         break;
       default:
         FD_LOG_ERR(( "unexpected fd_ssparse_advance result %d", res ));
@@ -587,10 +588,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                      ulong               chunk ) {
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-      fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->txncache_entries_len  = 0UL;
       ctx->blockhash_offsets_len = 0UL;
@@ -624,30 +625,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      if( ctx->state!=FD_SNAPSHOT_STATE_IDLE ) {
-        ctx->state = FD_SNAPSHOT_STATE_IDLE;
-
-        if( !ctx->use_vinyl && ctx->full ) {
-          fd_accdb_v1_clear( ctx->accdb_admin );
-        }
-
-        if( !ctx->full ) {
-          fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
-        }
-      }
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       break;
+    }
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        transition_malformed( ctx, stem );
-        break;
-      }
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       /* Backup metric counters */
@@ -658,13 +645,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        transition_malformed( ctx, stem );
-        break;
-      }
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       if( !ctx->use_vinyl ) {
@@ -698,7 +679,27 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( !ctx->use_vinyl && ctx->full ) {
+        fd_accdb_v1_clear( ctx->accdb_admin );
+      }
+
+      if( !ctx->full ) {
+        fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+        fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
+      }
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       /* Notify replay when snapshot is fully loaded and verified.  This
@@ -706,14 +707,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          snapshot load is successful. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      break;
-
-    default:
+    default: {
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
+      break;
+    }
   }
 
   /* Forward the control message down the pipeline */
