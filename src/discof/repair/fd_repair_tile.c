@@ -214,10 +214,6 @@ struct ctx {
   fd_policy_t    * policy;
   fd_inflights_t * inflights;
   fd_repair_t    * protocol;
-  struct {
-    ulong slot;        /* 0 if no verification in progress */
-    uint  fec_set_idx;
-  } last_incorrect_fec[ 1 ];
 
   ulong enforce_fixed_fec_set; /* min slot where the feature is enforced */
 
@@ -650,7 +646,7 @@ after_shred( ctx_t      * ctx,
     int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
     int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-    if( FD_UNLIKELY( ctx->profiler.enabled && shred->slot == ctx->profiler.end_slot ) ) fd_forest_blk_parent_update( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
+    //if( FD_UNLIKELY( ctx->profiler.enabled && shred->slot == ctx->profiler.end_slot ) ) fd_forest_blk_parent_update( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
     fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
@@ -663,37 +659,28 @@ after_shred( ctx_t      * ctx,
    this case the verification is paused and state is saved at where
    it left off.  Verification can be re-triggered in after_fec as well. */
 static inline void
-after_confirmed( ctx_t           * ctx,
-                 ulong             slot,
+check_confirmed( ctx_t           * ctx,
+                 fd_forest_blk_t * blk,
                  fd_hash_t const * confirmed_bid ) {
 
-  fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
-  if( FD_UNLIKELY( !blk ) ) return; /* No effect */
-
-  if( FD_LIKELY( !blk->confirmed && blk->consumed ) ) {
+  if( FD_LIKELY( !blk->confirmed && blk->complete_idx != UINT_MAX && blk->buffered_idx == blk->complete_idx ) ) {
     /* The above conditions say that all the shreds of the block have arrived. */
     fd_forest_blk_t * bad_blk = fd_forest_fec_chain_verify( ctx->forest, blk, confirmed_bid );
     if( FD_LIKELY( !bad_blk ) ) {
-      /* reset state */
-      ctx->last_incorrect_fec->slot        = 0;
-      ctx->last_incorrect_fec->fec_set_idx = 0;
-      FD_LOG_INFO(( "chain verified successfully from slot %lu to root", slot ));
+      /* chain verified successfully from blk to as far as we have fec data */
       return;
     }
-    uint bad_fec_idx = fd_forest_merkle_last_incorrect_idx( bad_blk );
-    // TODO: equivocating across slots not supported yet
 
-     FD_LOG_WARNING(( "slot %lu is complete but has incorrect FECs. bad blk %lu. last verified fec %u", blk->slot, bad_blk->slot, bad_fec_idx ));
-     /* If we have a bad block, we need to dump and repair backwards from
-        the point where the merkle root is incorrect.
-        We start only by dumping the last incorrect FEC. It's possible that
-        this is the only incorrect one.  If it isn't though, when the slot
-        recompletes, this function will trigger again and we will dump the
-        second to last incorrect FEC. */
+    uint bad_fec_idx = fd_forest_merkle_last_incorrect_idx( bad_blk );
+    FD_LOG_WARNING(( "slot %lu is complete but has incorrect FECs. bad blk %lu. last verified fec %u", blk->slot, bad_blk->slot, bad_fec_idx ));
+    /* If we have a bad block, we need to dump and repair backwards from
+       the point where the merkle root is incorrect.
+       We start only by dumping the last incorrect FEC. It's possible that
+       this is the only incorrect one.  If it isn't though, when the slot
+       recompletes, this function will trigger again and we will dump the
+       second to last incorrect FEC. */
 
     fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, 31UL );
-    ctx->last_incorrect_fec->slot        = bad_blk->slot;
-    ctx->last_incorrect_fec->fec_set_idx = bad_fec_idx;
   }
 }
 
@@ -730,12 +717,11 @@ after_fec( ctx_t      * ctx,
     FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt, (double)fd_metrics_convert_ticks_to_nanoseconds(duration_ticks) / 1e6 ));
   }
 
-  /* If we just completed something that underwent verification surgery,
-     re-trigger continuation of chained merkle verification. */
-  if( FD_UNLIKELY( ctx->last_incorrect_fec->slot == ele->slot && ctx->last_incorrect_fec->fec_set_idx == shred->fec_set_idx ) ) {
-    fd_forest_blk_t * ele = fd_forest_query( ctx->forest, ctx->last_incorrect_fec->slot );
-    FD_TEST( fd_forest_merkle_test( ele->merkle_verified, (ele->complete_idx / 32UL) + 1 ) ); /* we should have verified this FEC block id at least */
-    after_confirmed( ctx, ele->slot, &ele->merkle_roots[ (ele->complete_idx / 32UL) + 1 ].cmr );
+  /* re-trigger continuation of chained merkle verification if this FEC
+     set enables it */
+  if( FD_UNLIKELY( ele->lowest_verified_fec == (shred->fec_set_idx / 32UL) + 1 ) &&
+                   ele->buffered_idx == ele->complete_idx ) {
+    check_confirmed( ctx, ele, &ele->confirmed_bid /* if lowest_verified_fec is not UINT_MAX, confirmed_bid must be populated */ );
   }
 
   if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
@@ -816,13 +802,20 @@ after_frag( ctx_t *             ctx,
       fd_tower_slot_done_t const * msg = fd_type_pun_const( ctx->buffer );
       if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
     } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-      if( FD_UNLIKELY( ctx->last_incorrect_fec->slot != 0 ) ) return; /* If there is a verification in progress, just drop this one */
-
       fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( ctx->buffer );
       if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || msg->kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
         /* the other two messages (rooted / optimistic) mean we have already
            received and replayed the correct version */
-        after_confirmed( ctx, msg->slot, &msg->block_id );
+
+        fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
+        if( FD_UNLIKELY( !blk ) ) {
+          /* If we receive a confirmation for a slot we don't have, create a sentinel forest block
+             that we can repair from */
+          FD_LOG_NOTICE(("inserting sentinel block at slot %lu", msg->slot));
+          blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot );
+          blk->confirmed_bid = msg->block_id;
+        }
+        check_confirmed( ctx, blk, &msg->block_id );
       }
     }
     return;
@@ -875,7 +868,7 @@ after_frag( ctx_t *             ctx,
         /* we wait until the first turbine shred arrives to kick off
            the profiler.  This is to let gossip peers accumulate similar
            to a regular Firedancer run. */
-        fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot - 1 );
+        fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot );
         fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
 
         ctx->turbine_slot0 = ctx->profiler.end_slot;
@@ -1128,7 +1121,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
 
-  memset( ctx->last_incorrect_fec, 0, sizeof(ctx->last_incorrect_fec) );
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
 
   fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_TIME ),

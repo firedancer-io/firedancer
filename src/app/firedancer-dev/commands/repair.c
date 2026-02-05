@@ -257,7 +257,6 @@ repair_topo( config_t * config ) {
 
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
                        fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "repair", 0UL,                        "repair_shred",  i                                                    );
@@ -910,9 +909,8 @@ repair_cmd_fn_requests( args_t *   args,
       fd_forest_ref_t * req = fd_forest_reqslist_iter_ele( iter, dlist, pool );
       fd_forest_blk_t * blk = fd_forest_pool_ele( fd_forest_pool( forest ), req->idx );
 
-      printf("%-15lu %-12u %-12u %-12u %-20ld %-12u %-10u\n",
+      printf("%-15lu %-12u %-12u %-20ld %-12u %-10u\n",
               blk->slot,
-              blk->consumed_idx,
               blk->buffered_idx,
               blk->complete_idx,
               blk->first_shred_ts,
