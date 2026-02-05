@@ -6,15 +6,6 @@
 #include "../../ballet/utf8/fd_utf8.h"
 #include "fd_types_custom.h"
 
-/* sdk/program/src/feature.rs#L22 */
-/* Encoded Size: Dynamic */
-struct fd_feature {
-  ulong activated_at;
-  uchar has_activated_at;
-};
-typedef struct fd_feature fd_feature_t;
-#define FD_FEATURE_ALIGN alignof(fd_feature_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9 */
 /* Encoded Size: Fixed (8 bytes) */
 struct fd_fee_calculator {
@@ -1540,13 +1531,6 @@ typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
 
 
 FD_PROTOTYPES_BEGIN
-
-void fd_feature_new( fd_feature_t * self );
-int fd_feature_encode( fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_feature_size( fd_feature_t const * self );
-static inline ulong fd_feature_align( void ) { return FD_FEATURE_ALIGN; }
-int fd_feature_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_feature_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_fee_calculator_new( fd_fee_calculator_t * self ) { fd_memset( self, 0, sizeof(fd_fee_calculator_t) ); }
 int fd_fee_calculator_encode( fd_fee_calculator_t const * self, fd_bincode_encode_ctx_t * ctx );
