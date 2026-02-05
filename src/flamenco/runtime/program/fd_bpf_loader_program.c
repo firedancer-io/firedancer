@@ -569,21 +569,27 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
           /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1581-L1616 */
           if( fd_ulong_sat_add( vm->segv_vaddr, vm->segv_access_len ) <= region_data_vaddr_end ) {
             /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1592-L1601 */
-            if( vm->segv_access_type == FD_VM_ACCESS_TYPE_ST ) {
+            if( vm->segv_access_type==FD_VM_ACCESS_TYPE_ST ) {
               int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
               if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-                return borrow_err;
+                err = borrow_err;
               } else {
-                return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+                err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
               }
-            } else if ( vm->segv_access_type == FD_VM_ACCESS_TYPE_LD ) {
+            } else if( vm->segv_access_type==FD_VM_ACCESS_TYPE_LD ) {
               int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
               if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-                return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+                err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
               } else {
-                return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+                err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
               }
+            } else {
+              FD_LOG_CRIT(( "invariant violation: unsupported access type: %i", vm->segv_access_type ));
             }
+
+            FD_VM_PREPARE_ERR_OVERWRITE( vm );
+            FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+            return err;
           }
         }
       }
