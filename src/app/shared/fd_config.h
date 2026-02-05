@@ -102,7 +102,6 @@ struct fd_configf {
   struct {
     ulong max_account_records;
     ulong heap_size_gib;
-    ulong max_database_transactions;
   } funk;
 
   struct {

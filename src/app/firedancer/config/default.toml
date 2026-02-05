@@ -543,15 +543,6 @@ telemetry = true
     # consensus (typically takes 13 seconds).
     max_account_records = 300_000_000
 
-    # The max amount of concurrent database transactions.  These are
-    # used to track conflicting versions of accounts until such
-    # conflicts are resolved by the consensus algorithm.  (Not to be
-    # confused with Solana transactions).
-    # The validator uses one database transaction for each Solana block
-    # that is not yet finalized.  It is not recommended to change this
-    # setting.
-    max_database_transactions = 2048
-
 # FIXME rename 'vinyl' to human-readable name like 'accounts.root_db'
 [vinyl]
     # If set to true, enable the disk-backed account storage engine.

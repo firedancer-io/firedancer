@@ -47,7 +47,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "funk" );
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
-      config->firedancer.funk.max_database_transactions,
+      config->firedancer.runtime.max_live_slots,
       config->firedancer.funk.heap_size_gib );
 
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
