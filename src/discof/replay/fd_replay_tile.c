@@ -1753,7 +1753,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_bank_query( parent_bank, ctx->banks, parent->bank_idx ) ||
                    parent_bank->data->bank_seq!=parent->bank_seq ||
                    parent_bank->data->flags&FD_BANK_FLAGS_DEAD) ) {
-    FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because parent bank is invalid", reasm_fec->slot, reasm_fec->fec_set_idx ));
+    FD_LOG_DEBUG(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because parent bank is invalid", reasm_fec->slot, reasm_fec->fec_set_idx ));
     return;
   }
 
