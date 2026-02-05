@@ -25,7 +25,7 @@
 #define VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, vm_addr, expected_vm_addr, field_name) \
   if( FD_UNLIKELY( vm_addr!=expected_vm_addr )) {                                                         \
     fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,                                             \
-      "Invalid account info pointer `%s': %#lx != %#lx", field_name, vm_addr, expected_vm_addr );         \
+      "Invalid account info pointer `%s': 0x%lx != 0x%lx", field_name, vm_addr, expected_vm_addr );         \
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );                                   \
     return FD_VM_SYSCALL_ERR_INVALID_POINTER;                                                             \
   }
