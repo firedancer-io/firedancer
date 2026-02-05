@@ -14,8 +14,14 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
                                 uchar const *                   data,
                                 ulong                           sz,
                                 int                             sign_type ) {
-  /* FIXME Add vote transaction authorization here */
-  (void)authority; (void)data; (void)sz; (void)sign_type;
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz > FD_TXN_MTU ) return 0;
+  /* Each vote transaction may have 1 or 2 signers.  The first byte in
+     the transaction message is the number of signers. */
+  if( data[0] != 1 && data[0] != 2 ) return 0;
+  /* The authority's public key will be the first listed account in the
+     transaction message. */
+  if( memcmp( authority->identity_pubkey, data + 4, 32 ) ) return 0;
   return 1;
 }
 
