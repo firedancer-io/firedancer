@@ -1034,6 +1034,58 @@ test_slot_clear( fd_wksp_t * wksp ) {
      */
 }
 
+void
+test_verify_orphans( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  /*
+       2
+      | \
+      3  3'
+  */
+
+  /* We execute (2, 0) -> (2,32) -> (3, 0') -> (3, 32'). Tower detects
+     that (3, 32) is the duplicate confirmed version.
+     We must dump slot 3 and re-repair. */
+
+  fd_hash_t mr_0     = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2_0   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_2_32  = (fd_hash_t){ .key = { 3 } };
+  fd_hash_t mr_3_0   = (fd_hash_t){ .key = { 4 } };
+  fd_hash_t mr_3_32  = (fd_hash_t){ .key = { 5 } };
+  fd_hash_t mr_3_0_  = (fd_hash_t){ .key = { 6 } }; (void)mr_3_0_;
+  fd_hash_t mr_1_0   = (fd_hash_t){ .key = { 7 } };
+  fd_hash_t mr_1_32  = (fd_hash_t){ .key = { 8 } };
+
+
+  fd_forest_blk_t * ele;
+  fd_forest_init( forest, 0 );
+  fd_forest_blk_insert( forest, 2, 1 );
+  fd_forest_blk_insert( forest, 3, 2 );
+  /*                            slot paren  last  fec_set  slot_cmpl  rt  mr        cmr */
+  fd_forest_fec_insert( forest, 2,   1,     31,   0,       0,         0,  &mr_2_0,  &mr_1_32 );
+  fd_forest_fec_insert( forest, 2,   1,     63,   32,      1,         0,  &mr_2_32, &mr_2_0 );
+
+  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_32 );
+  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0 );
+
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
+   /* orphans verify */
+
+  /* Now chain 1 to 0, and this should trigger a verifcation of the chain from 2 to 0 */
+  fd_forest_blk_insert( forest, 1, 0 );
+  ele = fd_forest_fec_insert( forest, 1,   0,     31,   0,       0,         0,  &mr_1_0,  &mr_0 );
+  FD_TEST( ele->lowest_verified_fec == UINT_MAX );
+  ele = fd_forest_fec_insert( forest, 1,   0,     63,   32,      1,         0,  &mr_1_32, &mr_1_0 );
+  FD_TEST( ele->lowest_verified_fec == (32 / 32UL) + 1 );
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
+  /* orphans verify */
+
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1059,6 +1111,8 @@ main( int argc, char ** argv ) {
   test_iter_subtree( wksp );
   test_orphan_requests( wksp );
   test_slot_clear( wksp );
+
+  test_verify_orphans( wksp );
 
   fd_halt();
   return 0;
