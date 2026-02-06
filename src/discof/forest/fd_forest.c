@@ -568,6 +568,7 @@ fd_forest_query( fd_forest_t * forest, ulong slot ) {
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
 # if FD_FOREST_USE_HANDHOLDING
+  if( slot <= fd_forest_root_slot( forest ) ) __asm__("int $3");
   FD_TEST( slot > fd_forest_root_slot( forest ) ); /* caller error - inval */
 # endif
   /* we don't want to add a slot to the forest chains older than root,
@@ -979,7 +980,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
         could be publishing backwards to a slot that we don't have. */
 
   if( FD_UNLIKELY( !new_root_ele ) ) {
-    new_root_ele = fd_forest_blk_insert( forest, new_root_slot, 0 );
+    new_root_ele = fd_forest_blk_insert( forest, new_root_slot, new_root_slot );
     new_root_ele->complete_idx = 0;
     new_root_ele->buffered_idx = 0;
     requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
@@ -1227,9 +1228,10 @@ fd_forest_evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot, ulong 
      should we stop using the orphan iterator to make requests? i.e.
      focus only on rebuilding ancestry.  */
 
-  fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
+  (void)new_slot;
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
   fd_forest_subtlist_t * subtlist = fd_forest_subtlist( forest );
+  fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
   fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
 
@@ -1237,11 +1239,17 @@ fd_forest_evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot, ulong 
       1. Highest unconfirmed orphan leaf       - furthest from root
       2. Highest unconfirmed leaf in ancestry  - furthest from tip of execution
       3. Highest confirmed orphan leaf
-      4. Highest confirmed leaf in ancestry
-    There's some exceptions. For example, if the slot we are adding would be
-    an orphan, if its older than the rest of our orphans, we shouldn't add it. or maybe we should FAAAAA
-    Also we cannot evict slots that would be our parent.
-  */
+      4. Highest confirmed leaf in ancestry    - at this point we would not evict this candidate.
+
+      Since there can only be one confirmed fork, if we have more than
+      one fork,  then we should always be able to evict the unconfirmed
+      slots with ease.
+
+      There's some exceptions. We cannot evict slots that would be
+      our parent, because this would create a loop of evictions. Or,
+      if the slot we are adding would be an orphan, if it's older
+      than the rest of our orphans, we shouldn't add it. TODO: or
+      maybe we should FAAAAA */
 
   fd_forest_blk_t * unconfrmd_orphan = NULL; /* 1st best candidate for eviction is the highest unconfirmed orphan. */
   fd_forest_blk_t * confirmed_orphan = NULL; /* 3rd best candidate for eviction is the highest confirmed orphan.   */
@@ -1277,8 +1285,10 @@ fd_forest_evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot, ulong 
     if( fd_forest_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ) ) return SLOT_IGNORE;
     *evicted       = fd_forest_pool_ele( pool, forest->root )->slot;
     ulong new_root = fd_forest_pool_ele( pool, forest->root )->child;
+    if( FD_UNLIKELY( !fd_forest_pool_ele( pool, new_root )->confirmed ) ) {
+      FD_LOG_CRIT(( "forcing a root on slot %lu that is not confirmed. JOVER! YOU SUCK!", fd_forest_pool_ele( pool, new_root )->slot ));
+    }
     fd_forest_publish( forest, fd_forest_pool_ele( pool, new_root )->slot );
-    FD_LOG_WARNING(( "fd_forest_evict: no candidates for eviction found when inserting slot %lu. implement the two cases above.", new_slot ));
     return SLOT_INSERT;
   }
   if( FD_UNLIKELY( unconfrmd_orphan )) {
@@ -1296,65 +1306,61 @@ fd_forest_evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot, ulong 
   }
   if( FD_UNLIKELY( confirmed_orphan )) {
     fd_forest_blk_t * parent = query( forest, parent_slot );
+    /* Always accept a new orphan, as it could bring us closer to confirmation */
     if( !parent ) {
       *evicted = confirmed_orphan->slot;
       clear_leaf( forest, confirmed_orphan->slot );
       return SLOT_INSERT;
     }
 
-    /* you can't evict a confirmed orphan leaf if your parent is the
-       other fork that is unconfirmed. you also can't evict the
-       confirmed orphan if you are creating a new fork in the main tree
-       that has only one confirmed fork. This is adding useless forks to
-       something that is already confirmed. */
+    /* While in general it's safe to evict a confirmed orphan, we don't
+       want to evict them if this new slot is uselessly adding to a
+       fork we KNOW isn't confirmed. i.e., if there is another fork in
+       this subtree that isn't confirmed, but it's parent is parent_slot.
 
-    if( fd_forest_ancestry_ele_query( ancestry, &parent_slot, NULL, pool )  ||
-        fd_forest_frontier_ele_query( frontier, &parent_slot, NULL, pool ) ) {
-      // if connecting to main tree, and its adding to the tip of what we know is confirmed, then keep it.
-      // if its off another fork taht is not part of the main confirmed, then ignore it.
+       Ex. We shouldn't evict a confirmed orphan leaf if the parent_slot
+       is the other fork that is unconfirmed. Also can't evict a
+       confirmed orphan if we are creating a new fork in the main tree
+       that doesn't continue the singular confirmed fork.
 
-      /*  0 ── 1 ── 2 ── 3 (confirmed) ── 4(confirmed) ── 5 ── 6 ──> add 7 here is valid.
-                                          └──> add 7 here is valid.
-                          └──> add 7 here is invalid.
-      */
+       i.e. for any subtree:
 
-      fd_forest_blk_t * latest_confirmed_leaf = latest_confirmed_slot( forest, forest->root );
-      if( latest_confirmed_leaf == gca( forest, latest_confirmed_leaf, parent )) {
-        *evicted = confirmed_orphan->slot;
-        clear_leaf( forest, confirmed_orphan->slot );
-        return SLOT_INSERT;
+        0 ── 1 ── 2 ── 3 (confirmed) ── 4(confirmed) ── 5 ── 6 ──> add 7 here is valid.
+                                        └──> add 7 here is valid.
+                       └──> add 7 here is invalid. */
+    ulong subtree_root = forest->root;
+    if( fd_forest_subtrees_ele_query( subtrees, &parent_slot, NULL, pool )  ||
+        fd_forest_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ) ) {
+      /* if adding to an orphan, find the root of the orphan subtree. */
+      fd_forest_blk_t * root = parent;
+      while( FD_LIKELY( root->parent != ULONG_MAX ) ) {
+        root = fd_forest_pool_ele( pool, root->parent );
       }
-    } else {
-      /* we are adding to an orphan or subtree. */
-      /* walk up from the parent to the root of the subtree we are getting added to. */
-      fd_forest_blk_t * subtree_root = parent;
-      while( FD_LIKELY( subtree_root->parent != ULONG_MAX ) ) {
-        subtree_root = fd_forest_pool_ele( pool, subtree_root->parent );
-      }
-      /* now subtree_root is the root of the subtree we are getting added to. */
-      fd_forest_blk_t * latest_confirmed_leaf = latest_confirmed_slot( forest, fd_forest_pool_idx( pool, subtree_root ) );
-      if( latest_confirmed_leaf == gca( forest, latest_confirmed_leaf, parent )) {
-        *evicted = confirmed_orphan->slot;
-        clear_leaf( forest, confirmed_orphan->slot );
-        return SLOT_INSERT;
-      }
+      subtree_root = fd_forest_pool_idx( pool, root );
     }
+
+    fd_forest_blk_t * latest_confirmed_leaf = latest_confirmed_slot( forest, subtree_root );
+    if( !latest_confirmed_leaf || latest_confirmed_leaf == gca( forest, latest_confirmed_leaf, parent )) {
+      *evicted = confirmed_orphan->slot;
+      clear_leaf( forest, confirmed_orphan->slot );
+      return SLOT_INSERT; /* is not a useless new fork. */
+    }
+    /* is a useless new fork. */
     return SLOT_IGNORE;
   }
   if( FD_UNLIKELY( confirmed_leaf )) {
-    /* Should never be evicting a confirmed leaf. tbh. this can only happen if we
-       have no orphans, and theres only two forks in the main tree, and the parent of the
-       non confirmed fork is is our parent. in this case we should fr just ignore this case.
-
-       ORRRRR
-
-       we could have one orphan fork. Thats our parent. at the tip. and everything in main tree
-       is confirmed. in this case we should ALSOOOOO ignore. */
+    /* Should never be evicting a confirmed leaf. This is only non-NULL
+       if:
+         (1) we have no orphans, and theres only two forks in the main
+       tree, and the parent of the non confirmed fork is is our parent.
+       in this case we should just ignore this insert. TODO: optionally
+       we could evict the non confirmed fork if its a separate fork.
+         (2) we could have one orphan fork where parent_slot is at the
+       tip, and everything in main tree is confirmed. in this case we
+       should also ignore this insert. */
     return SLOT_IGNORE;
   }
-
   FD_LOG_CRIT(("unreachable"));
-  return SLOT_IGNORE;
 }
 #undef UPDATE_BEST_CANDIDATE
 
