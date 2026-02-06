@@ -643,7 +643,6 @@ after_shred( ctx_t      * ctx,
     int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
     int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-    //if( FD_UNLIKELY( ctx->profiler.enabled && shred->slot == ctx->profiler.end_slot ) ) fd_forest_blk_parent_update( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
     fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
