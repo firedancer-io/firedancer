@@ -200,7 +200,9 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
 
       fd_snapwm_vinyl_wd_fini( ctx );
 
-      /* FIXME vinyl_txn_commit should not happen in fini. */
+      /* FIXME vinyl_txn_commit should not happen in fini (it should
+         happen either in NEXT or DONE).  This is a temporary patch,
+         it will be corrected in an upcoming PR.  TODO. */
       if( ctx->vinyl.txn_active ) {
         fd_snapwm_vinyl_txn_commit( ctx, stem );
       }
@@ -220,11 +222,9 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
 
-      /* .......... */
-      // if( ctx->vinyl.txn_active ) {
-      //   fd_snapwm_vinyl_txn_commit( ctx, stem );
-      // }
-      /* .......... */
+      if( ctx->vinyl.txn_active ) {
+        fd_snapwm_vinyl_txn_commit( ctx, stem );
+      }
 
       if( !ctx->lthash_disabled ) {
         seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
@@ -236,11 +236,9 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      /* .......... */
-      // if( ctx->vinyl.txn_active ) {
-      //   fd_snapwm_vinyl_txn_commit( ctx, stem );
-      // }
-      /* .......... */
+      if( ctx->vinyl.txn_active ) {
+        fd_snapwm_vinyl_txn_commit( ctx, stem );
+      }
 
       if( !ctx->lthash_disabled ) {
         seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
