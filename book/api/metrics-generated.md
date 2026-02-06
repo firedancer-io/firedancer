@@ -1367,6 +1367,7 @@
 |--------|------|-------------|
 | <span class="metrics-name">backt_&#8203;final_&#8203;slot</span> | gauge | The slot after which the backtest will complete |
 | <span class="metrics-name">backt_&#8203;start_&#8203;slot</span> | gauge | The slot at which the backtest started |
+| <span class="metrics-name">backt_&#8203;slot_&#8203;replay_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent replaying a slot |
 
 </div>
 
