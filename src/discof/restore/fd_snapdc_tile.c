@@ -97,8 +97,6 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
 
-  int forward_to_in = 1;
-
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
@@ -121,7 +119,6 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       fd_memcpy( msg_out, msg, sz );
       fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
       ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
-      forward_to_in = 0;
       break;
     }
 
@@ -168,7 +165,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  if( FD_LIKELY( forward_to_in ) ) fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static inline int

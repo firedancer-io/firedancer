@@ -307,10 +307,9 @@ after_credit( fd_snapld_tile_t *  ctx,
         *charge_busy = 1;
         break;
       }
-      case FD_SSHTTP_ADVANCE_DONE: {
+      case FD_SSHTTP_ADVANCE_DONE:
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
-      }
       case FD_SSHTTP_ADVANCE_ERROR:
         transition_malformed( ctx, stem );
         fd_sshttp_cancel( ctx->sshttp );
