@@ -831,6 +831,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE;
       fd_stem_publish( stem, ctx->out_ld.idx, ctx->config.incremental_snapshots ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
       break;
 
     /* ============================================================== */
@@ -1253,17 +1254,14 @@ snapin_frag( fd_snapct_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ||
                      ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ) ) {
-        // FD_TEST( !ctx->flush_ack ); /* FIXME verify */
+        FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
       } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ||
-                     /* FIXME verify */
-                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ||
-                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ) ) {
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
       } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));

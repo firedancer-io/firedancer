@@ -550,7 +550,6 @@ handle_control_frag( fd_snaplh_t * ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR: {
-      /* TODO drain all pending requests? */
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
       break;
@@ -559,6 +558,9 @@ handle_control_frag( fd_snaplh_t * ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( FD_LIKELY( ctx->io_uring_enabled ) ) {
+        handle_vinyl_lthash_request_ur_consume_all( ctx );
+      }
       break;
     }
 

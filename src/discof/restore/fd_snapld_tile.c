@@ -232,11 +232,12 @@ after_credit( fd_snapld_tile_t *  ctx,
               int *               charge_busy ) {
   if( FD_UNLIKELY( ctx->pending_ctrl_sig ) ) {
     FD_TEST( !ctx->load_file && ctx->is_https );
-    FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING || ctx->state==FD_SNAPSHOT_STATE_ERROR );
-    fd_stem_publish( stem, 0UL, ctx->pending_ctrl_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-    ctx->pending_ctrl_sig = 0UL;
-    if( ctx->state!=FD_SNAPSHOT_STATE_ERROR ) ctx->state = FD_SNAPSHOT_STATE_IDLE;
-    return;
+    if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
+                     ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+      fd_stem_publish( stem, 0UL, ctx->pending_ctrl_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->pending_ctrl_sig = 0UL;
+      return;
+    }
   }
 
   if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
