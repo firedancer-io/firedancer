@@ -453,7 +453,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                   ulong               chunk,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
-
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
     transition_malformed( ctx, stem );
     return 0;
