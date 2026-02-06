@@ -367,7 +367,6 @@ returnable_frag( fd_snapld_tile_t *  ctx,
            finishing state. */
         FD_TEST( ctx->is_https );
         ctx->pending_ctrl_sig = sig;
-        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         return 0; /* return directly to avoid fowarding the message */
       }
       else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
