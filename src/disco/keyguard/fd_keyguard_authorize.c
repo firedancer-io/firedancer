@@ -20,7 +20,7 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
   if( sz > FD_TXN_MTU ) return 0;
   /* Each vote transaction may have 1 or 2 signers.  The first byte in
      the transaction message is the number of signers. */
-  uint off = 0U;
+  ulong off = 0UL;
   uchar signer_cnt = data[off];
   if( signer_cnt!=1 && signer_cnt!=2 ) return 0;
   if( signer_cnt==1 && sz<=139 ) return 0;
@@ -63,16 +63,17 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
   off++;
   uchar program_id = data[ off ];
   if( program_id != acc_cnt-1 ) return 0;
-  ulong program_acct_off = 4 + (program_id * 32);
+  ulong program_acct_off = 4UL + (program_id * 32UL);
   if( memcmp( &fd_solana_vote_program_id, data+program_acct_off, 32 ) ) return 0;
 
   off++;
   bytes = fd_cu16_dec_sz( data+off, 3UL );
   if( bytes!=1UL ) return 0;
 
-  /* Vote account count will always be 2 */
+  /* Vote account count will always be 2.  One byte is used to list the
+     account count for the transaction and 1 byte for each account. */
   if( data[ off ] != 2 ) return 0;
-  off += 3; /* 1 byte for the account count, 1 byte for each txn account. */
+  off += 3UL;
 
   /* Instr data sz */
   bytes = fd_cu16_dec_sz( data+off, 3UL );
