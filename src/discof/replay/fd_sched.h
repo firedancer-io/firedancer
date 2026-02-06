@@ -75,7 +75,7 @@ struct fd_sched_fec {
   uint             is_last_in_batch:1;  /* Set if this is the last FEC set in the batch; relevant because the
                                            parser should ignore trailing bytes at the end of a batch. */
   uint             is_last_in_block:1;  /* Set if this is the last FEC set in the block. */
-  uint             is_first_in_block:1; /* Set if this is the first FEC set in the block. */
+  uint             is_first_in_block:1; /* Set if this is the first FEC set in the block.  Bank should increment refcnt for sched if such a FEC set has been ingested by sched. */
 
   fd_sched_alut_ctx_t alut_ctx[ 1 ];
 };
@@ -89,7 +89,7 @@ typedef struct fd_sched_fec fd_sched_fec_t;
    q - replay may either do it immediately or queue the task up. */
 #define FD_SCHED_TT_NULL          (0UL)
 #define FD_SCHED_TT_BLOCK_START   (1UL) /* (i) Start-of-block processing. */
-#define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing. */
+#define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing.  Also decrement refcnt for sched. */
 #define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
 #define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
 #define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
@@ -240,9 +240,17 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    the effects of the execution are now visible on any core that could
    execute a subsequent transaction.  Returns 0 on success, -1 if given
    the result of the task, the block turns out to be bad.  -1 is only
-   returned from PoH tasks. */
+   returned from PoH tasks.  -2 if sched modified the out pointer to
+   indicate that the bank in the out pointer should be marked dead and
+   drop its refcnt for sched; otherwise, out pointer will be unmodified.
+   -2 is only returned when a parent block of an already dead child
+   finishes replaying.
+
+   If a block has been abandoned or marked dead for any reason, it'll be
+   pruned the moment in-flight task count hits 0 due to the last task
+   completing. */
 int
-fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data );
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data, ulong * out_dead_bank_idx );
 
 /* Abandon a block.  This means that we are no longer interested in
    executing the block.  This also implies that any block which chains
@@ -251,7 +259,12 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
    dead/invalid block, and so there's no point in spending resources
    executing it.  The scheduler will no longer return transactions from
    abandoned blocks for execution.  This should only be invoked on an
-   actively replayed block, and should only be invoked once on it. */
+   actively replayed block, and should only be invoked once on it.
+
+   An abandoned block will be pruned from sched as soon as, and only if,
+   the block has no more in-flight tasks associated with it.  No sooner,
+   no later.  After that point, the bank_idx may be recycled for another
+   block. */
 void
 fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx );
 

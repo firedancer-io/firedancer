@@ -74,8 +74,8 @@ fd_bls12_381_g1_sub_syscall( uchar       r[ 96 ], /* G1 point */
    The function returns 0 on success, -1 if `a` is not in G1. */
 int
 fd_bls12_381_g1_mul_syscall( uchar       r[ 96 ], /* G1 point */
-                             uchar const a[ 96 ], /* G1 point */
                              uchar const n[ 32 ], /* Scalar */
+                             uchar const a[ 96 ], /* G1 point */
                              int         big_endian );
 
 /* fd_bls12_381_g2_decompress_syscall decompresses the G2 point `a`
@@ -126,8 +126,8 @@ fd_bls12_381_g2_sub_syscall( uchar       r[ 96*2 ], /* G2 point */
    The function returns 0 on success, -1 if `a` is not in G2. */
 int
 fd_bls12_381_g2_mul_syscall( uchar       r[ 96*2 ], /* G2 point */
-                             uchar const a[ 96*2 ], /* G2 point */
                              uchar const n[ 32 ],   /* Scalar */
+                             uchar const a[ 96*2 ], /* G2 point */
                              int         big_endian );
 
 /* fd_bls12_381_pairing_syscall computes the pairing r = e( a[], b[] ),

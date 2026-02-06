@@ -192,8 +192,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
     case FD_VM_SYSCALL_SOL_CURVE_MUL:
       cost = FD_VM_CURVE_BLS12_381_G1_MUL_COST;
-      inputL_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ;
-      /* inputR_sz = 32UL // scalar */
+      /* inputL_sz = 32UL // scalar */
+      inputR_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ;
       break;
 
     default:
@@ -220,8 +220,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
     case FD_VM_SYSCALL_SOL_CURVE_MUL:
       cost = FD_VM_CURVE_BLS12_381_G2_MUL_COST;
-      inputL_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ;
-      /* inputR_sz = 32UL // scalar */
+      /* inputL_sz = 32UL // scalar */
+      inputR_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ;
       break;
 
     default:
@@ -347,62 +347,82 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
 #if FD_HAS_BLST
   /* BLS12-381 G1 */
+
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1453 */
   case MATCH_ID_OP( BLS_G1_BE, FD_VM_SYSCALL_SOL_CURVE_ADD ):
   case MATCH_ID_OP( BLS_G1_LE, FD_VM_SYSCALL_SOL_CURVE_ADD ): {
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
     /* Compute add */
-    if( FD_LIKELY( fd_bls12_381_g1_add_syscall( result, inputL, inputR, big_endian )==0 ) ) {
+    if( FD_LIKELY( fd_bls12_381_g1_add_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1474 */
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
       ret = 0UL; /* success */
     }
     break;
   }
 
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1485 */
   case MATCH_ID_OP( BLS_G1_BE, FD_VM_SYSCALL_SOL_CURVE_SUB ):
   case MATCH_ID_OP( BLS_G1_LE, FD_VM_SYSCALL_SOL_CURVE_SUB ): {
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
     /* Compute sub */
-    if( FD_LIKELY( fd_bls12_381_g1_sub_syscall( result, inputL, inputR, big_endian )==0 ) ) {
+    if( FD_LIKELY( fd_bls12_381_g1_sub_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
       ret = 0UL; /* success */
     }
     break;
   }
 
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1519 */
   case MATCH_ID_OP( BLS_G1_BE, FD_VM_SYSCALL_SOL_CURVE_MUL ):
   case MATCH_ID_OP( BLS_G1_LE, FD_VM_SYSCALL_SOL_CURVE_MUL ): {
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
     /* Compute mul */
-    if( FD_LIKELY( fd_bls12_381_g1_mul_syscall( result, inputL, inputR, big_endian )==0 ) ) {
+    if( FD_LIKELY( fd_bls12_381_g1_mul_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
       ret = 0UL; /* success */
     }
     break;
   }
 
   /* BLS12-381 G2 */
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1566 */
   case MATCH_ID_OP( BLS_G2_BE, FD_VM_SYSCALL_SOL_CURVE_ADD ):
   case MATCH_ID_OP( BLS_G2_LE, FD_VM_SYSCALL_SOL_CURVE_ADD ): {
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
     /* Compute add */
-    if( FD_LIKELY( fd_bls12_381_g2_add_syscall( result, inputL, inputR, big_endian )==0 ) ) {
+    if( FD_LIKELY( fd_bls12_381_g2_add_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
       ret = 0UL; /* success */
     }
     break;
   }
 
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1598 */
   case MATCH_ID_OP( BLS_G2_BE, FD_VM_SYSCALL_SOL_CURVE_SUB ):
   case MATCH_ID_OP( BLS_G2_LE, FD_VM_SYSCALL_SOL_CURVE_SUB ): {
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
     /* Compute sub */
-    if( FD_LIKELY( fd_bls12_381_g2_sub_syscall( result, inputL, inputR, big_endian )==0 ) ) {
+    if( FD_LIKELY( fd_bls12_381_g2_sub_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
       ret = 0UL; /* success */
     }
     break;
   }
 
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1643https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1632 */
   case MATCH_ID_OP( BLS_G2_BE, FD_VM_SYSCALL_SOL_CURVE_MUL ):
   case MATCH_ID_OP( BLS_G2_LE, FD_VM_SYSCALL_SOL_CURVE_MUL ): {
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
     /* Compute mul */
-    if( FD_LIKELY( fd_bls12_381_g2_mul_syscall( result, inputL, inputR, big_endian )==0 ) ) {
+    if( FD_LIKELY( fd_bls12_381_g2_mul_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
       ret = 0UL; /* success */
     }
     break;
@@ -642,7 +662,7 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   r4,
                                     FD_PARAM_UNUSED ulong   r5,
                                     /**/            ulong * _ret ) {
-  /* https://github.com/anza-xyz/agave/blob/691c1195ff29989aa37bbe8750718e176636685b/syscalls/src/lib.rs#L1118 */
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1118 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
@@ -651,22 +671,29 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
   uchar const * point = NULL;
   switch( curve_id ) {
 
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1137 */
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE:
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE: {
     FD_VM_CU_UPDATE( vm, FD_VM_CURVE_BLS12_381_G1_DECOMPRESS_COST );
     point = FD_VM_MEM_HADDR_LD( vm, point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
-    if( FD_LIKELY( fd_bls12_381_g1_decompress_syscall( result, point, big_endian )==0 ) ) {
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
+    if( FD_LIKELY( fd_bls12_381_g1_decompress_syscall( _result, point, big_endian )==0 ) ) {
+      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1160 */
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
       ret = 0UL; /* success */
     }
   } break;
 
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1171 */
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE:
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE: {
     FD_VM_CU_UPDATE( vm, FD_VM_CURVE_BLS12_381_G2_DECOMPRESS_COST );
     point = FD_VM_MEM_HADDR_LD( vm, point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
-    if( FD_LIKELY( fd_bls12_381_g2_decompress_syscall( result, point, big_endian )==0 ) ) {
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
+    if( FD_LIKELY( fd_bls12_381_g2_decompress_syscall( _result, point, big_endian )==0 ) ) {
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
       ret = 0UL; /* success */
     }
   } break;
@@ -688,7 +715,7 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
                                      FD_PARAM_UNUSED ulong   g2_points_addr,
                                      FD_PARAM_UNUSED ulong   result_addr,
                                      /**/            ulong * _ret ) {
-  /* https://github.com/anza-xyz/agave/blob/691c1195ff29989aa37bbe8750718e176636685b/syscalls/src/lib.rs#L1805 */
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1804 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
@@ -696,6 +723,7 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
 
   switch( curve_id ) {
 
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1823 */
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE:
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE: {
 
@@ -710,8 +738,11 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
     ulong total_g2_sz = fd_ulong_sat_mul( FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ, num_pairs );
     uchar const * g2_points = FD_VM_MEM_HADDR_LD( vm, g2_points_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, total_g2_sz );
 
-    uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ );
-    if( FD_LIKELY( fd_bls12_381_pairing_syscall( result, g1_points, g2_points, num_pairs, big_endian )==0 ) ) {
+    uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ ];
+    if( FD_LIKELY( fd_bls12_381_pairing_syscall( _result, g1_points, g2_points, num_pairs, big_endian )==0 ) ) {
+      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1860 */
+      uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ );
+      memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ );
       ret = 0UL; /* success */
     }
   } break;
