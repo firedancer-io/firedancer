@@ -334,6 +334,8 @@ void
 fd_reasm_confirm( fd_reasm_t * reasm,
                   fd_hash_t *  block_id );
 
+/* fd_reasm_evict evicts  */
+
 /* fd_reasm_publish publishes merkle root as the new reasm root, pruning
    (ie. map remove and pool release) any FEC sets that do not descend
    from this new root. */

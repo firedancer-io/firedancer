@@ -506,7 +506,6 @@ count_vote_txn( ctx_t *             ctx,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
-
     fd_notar_blk_t * notar_blk = fd_notar_count_vote( ctx->notar, total_stake, vote_acc, their_intermediate_vote->slot, fd_forks_canonical_block_id( ctx->forks, their_intermediate_vote->slot ) );
     if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, notar_blk );
   }

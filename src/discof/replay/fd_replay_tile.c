@@ -1343,16 +1343,6 @@ boot_genesis( fd_replay_tile_t *  ctx,
      slot_bank needed in blockstore_init. */
   init_after_snapshot( ctx );
 
-  /* Initialize store for genesis case, similar to snapshot case */
-  fd_hash_t genesis_block_id = { .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
-  fd_store_exacq( ctx->store );
-  if( FD_UNLIKELY( fd_store_root( ctx->store ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: store root is not 0 for genesis" ));
-  }
-  fd_store_insert( ctx->store, 0, &genesis_block_id );
-  ctx->store->slot0 = 0UL; /* Genesis slot */
-  fd_store_exrel( ctx->store );
-
   ctx->published_root_slot = 0UL;
   fd_sched_block_add_done( ctx->sched, bank->data->idx, ULONG_MAX, 0UL );
 
@@ -1380,7 +1370,6 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fd_hash_t initial_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
   fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
   fec->bank_idx              = 0UL;
-
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
   FD_TEST( block_id_ele );
@@ -1449,12 +1438,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        is not provided in the snapshot.  A possible solution is to get
        the block id of the snapshot slot from repair. */
     fd_hash_t manifest_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
-
-    fd_store_exacq( ctx->store );
-    FD_TEST( !fd_store_root( ctx->store ) );
-    fd_store_insert( ctx->store, 0, &manifest_block_id );
-    ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
-    fd_store_exrel( ctx->store );
 
     fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
     fd_features_restore( bank, ctx->accdb, &xid );
@@ -1732,21 +1715,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
                  fd_reasm_fec_t *    reasm_fec ) {
   long now = fd_log_wallclock();
 
-  /* Linking only requires a shared lock because the fields that are
-     modified are only read on publish which uses exclusive lock. */
-
-  long shacq_start, shacq_end, shrel_end;
-
-  FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
-    if( FD_UNLIKELY( !fd_store_link( ctx->store, &reasm_fec->key, &reasm_fec->cmr ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
-      FD_BASE58_ENCODE_32_BYTES( reasm_fec->cmr.key, cmr_b58 );
-      FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", key_b58, cmr_b58, reasm_fec->slot, reasm_fec->fec_set_idx ));
-    }
-  } FD_STORE_SHARED_LOCK_END;
-  fd_histf_sample( ctx->metrics.store_link_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0L ) );
-  fd_histf_sample( ctx->metrics.store_link_work, (ulong)fd_long_max( shrel_end - shacq_end,   0L ) );
-
   /* Update the reasm_fec with the correct bank index and parent bank
      index.  If the FEC belongs to a leader, we have already allocated
      a bank index for the FEC and it just needs to be propagated to the
@@ -1814,48 +1782,47 @@ process_fec_set( fd_replay_tile_t *  ctx,
      their corresponding banks, or parent banks, have also been pruned
      during publishing.  A query against store will rightfully tell us
      that the underlying data is not found, implying that this is for a
-     minority fork that we can safely ignore. */
-  FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+     minority fork that we can safeljy ignore. */
+
+  FD_STORE_SLOCK_BEGIN( ctx->store ) {
     fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
     if( FD_UNLIKELY( !store_fec ) ) {
       /* The only case in which a FEC is not found in the store after
-         repair has notified is if the FEC was on a minority fork that
-         has already been published away.  In this case we abandon the
-         entire slice because it is no longer relevant.  */
+          repair has notified is if the FEC was on a minority fork that
+          has already been published away.  In this case we abandon the
+          entire slice because it is no longer relevant.  */
       FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
       FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
       return;
     }
     FD_TEST( store_fec );
+    fd_store_slock_release( ctx->store );
+
     sched_fec->fec       = store_fec;
     sched_fec->shred_cnt = reasm_fec->data_cnt;
-  } FD_STORE_SHARED_LOCK_END;
+    sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
+    sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
+    sched_fec->bank_idx               = reasm_fec->bank_idx;
+    sched_fec->parent_bank_idx        = reasm_fec->parent_bank_idx;
+    sched_fec->slot                   = reasm_fec->slot;
+    sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
+    sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
+    fd_funk_txn_xid_t const root = fd_accdb_root_get( ctx->accdb_admin );
+    fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, &root );
+    sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
+    sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
-  fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
-  fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
+    fd_bank_t bank[1];
+    fd_banks_bank_query( bank, ctx->banks, sched_fec->bank_idx );
+    if( FD_UNLIKELY( bank->data->flags&FD_BANK_FLAGS_DEAD ) ) {
+      if( FD_UNLIKELY( reasm_fec->slot_complete ) ) publish_slot_dead( ctx, stem, bank );
+      return;
+    }
 
-  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
-  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
-  sched_fec->bank_idx               = reasm_fec->bank_idx;
-  sched_fec->parent_bank_idx        = reasm_fec->parent_bank_idx;
-  sched_fec->slot                   = reasm_fec->slot;
-  sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
-  sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
-  fd_funk_txn_xid_t const root = fd_accdb_root_get( ctx->accdb_admin );
-  fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, &root );
-  sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
-  sched_fec->alut_ctx->els          = ctx->published_root_slot;
-
-  fd_bank_t bank[1];
-  fd_banks_bank_query( bank, ctx->banks, sched_fec->bank_idx );
-  if( FD_UNLIKELY( bank->data->flags&FD_BANK_FLAGS_DEAD ) ) {
-    if( FD_UNLIKELY( reasm_fec->slot_complete ) ) publish_slot_dead( ctx, stem, bank );
-    return;
-  }
-
-  if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
-    fd_banks_mark_bank_dead( ctx->banks, bank );
-  }
+    if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
+      fd_banks_mark_bank_dead( ctx->banks, bank );
+    }
+  } FD_STORE_SLOCK_END;
 }
 
 /* accdb_advance_root moves account records from the unrooted to the
@@ -1919,20 +1886,13 @@ advance_published_root( fd_replay_tile_t * ctx ) {
     FD_LOG_CRIT(( "invariant violation: advanceable root ele not found for bank index %lu", advanceable_root_idx ));
   }
 
-  long exacq_start, exacq_end, exrel_end;
-  FD_STORE_EXCLUSIVE_LOCK( ctx->store, exacq_start, exacq_end, exrel_end ) {
-    fd_store_publish( ctx->store, &advanceable_root_ele->block_id );
-  } FD_STORE_EXCLUSIVE_LOCK_END;
-
-  fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max( exacq_end-exacq_start, 0UL ) );
-  fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
-
   ulong advanceable_root_slot = fd_bank_slot_get( bank );
   accdb_advance_root( ctx, advanceable_root_slot, bank->data->idx );
 
   fd_txncache_advance_root( ctx->txncache, bank->data->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
+
   fd_reasm_publish( ctx->reasm, &advanceable_root_ele->block_id );
 
   ctx->published_root_slot     = advanceable_root_slot;
@@ -2210,7 +2170,9 @@ process_fec_complete( fd_replay_tile_t * ctx,
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
 
-  FD_TEST( fd_reasm_free( ctx->reasm ) );
+  if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
+    FD_LOG_CRIT(( "unimplemented" )); /* TODO reasm eviction */
+  }
 
   FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec ) );
 }

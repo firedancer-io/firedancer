@@ -254,7 +254,6 @@ after_credit( fd_backt_tile_t *   ctx,
 
   int process = ctx->shreds_cnt>=2UL || (ctx->reading_slot>ctx->end_slot && ctx->shreds_cnt );
   if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
-  if( FD_UNLIKELY( !fd_store_root( ctx->store ) ) ) return; /* todo: hacky, remove, replay initializes this and asserts otherwise */
 
   *charge_busy = 1;
   ctx->idle_cnt = 0UL;
@@ -271,16 +270,16 @@ after_credit( fd_backt_tile_t *   ctx,
      ledgers which may not have merkle roots or chained merkle roots. */
   fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = shred->fec_set_idx };
   if( FD_UNLIKELY( ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx ) ) {
-    fd_store_shacq ( ctx->store );
+    fd_store_slock_acquire ( ctx->store );
     fd_store_insert( ctx->store, 0, &mr );
-    fd_store_shrel ( ctx->store );
+    fd_store_slock_release ( ctx->store );
   }
 
+  fd_store_slock_acquire( ctx->store );
   fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
-  fd_store_exacq( ctx->store ); /* FIXME shacq after store changes */
   fd_memcpy( fec->data+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
-  fd_store_exrel( ctx->store ); /* FIXME */
+  fd_store_slock_release( ctx->store ); /* drop(fec) */
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
   ctx->shreds_cnt--;
