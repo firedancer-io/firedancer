@@ -473,6 +473,10 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
   }
 
   if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
+    /* handle_lthash_completion may succeed (complete) either when the
+       control frag that triggers it is received (conditional upon
+       having no pending wh data frags) or after all wh data frags have
+       been received and processed. */
     handle_lthash_completion( ctx, stem );
   }
 }
@@ -538,6 +542,9 @@ handle_control_frag( fd_snaplh_t * ctx,
       if( FD_LIKELY( ctx->io_uring_enabled ) ) {
         handle_vinyl_lthash_request_ur_consume_all( ctx );
       }
+      /* handle_lthash_completion may succeed (complete) either here
+         (if there are no pending wh data frags) or after all wh data
+         frags have been received and processed. */
       handle_lthash_completion( ctx, stem );
       break;
     }
