@@ -770,9 +770,10 @@ main( int     argc,
         gre_outer_dst_ip                       = gre0_outer_dst_ip;
         use_gre                                = 1;
 
-        tx_pkt_during_frag_gre.inner_ip4.daddr = gre1_dst_ip;
+        tx_pkt_during_frag_gre.inner_ip4.daddr = gre0_dst_ip;
         during_frag_src                        = &tx_pkt_before_frag_gre;
         during_frag_src_sz                     = sizeof(tx_pkt_before_frag_gre);
+        during_frag_expected_sz                = sizeof(tx_pkt_during_frag_gre);
         during_frag_expected                   = &tx_pkt_during_frag_gre;
 
         after_frag_expected    = &tx_pkt_after_frag_gre;
@@ -813,6 +814,7 @@ main( int     argc,
         tx_pkt_during_frag_gre.inner_ip4.daddr = gre1_dst_ip;
         during_frag_src                        = &tx_pkt_before_frag_gre;
         during_frag_src_sz                     = sizeof(tx_pkt_before_frag_gre);
+        during_frag_expected_sz                = sizeof(tx_pkt_during_frag_gre);
         during_frag_expected                   = &tx_pkt_during_frag_gre;
 
         after_frag_expected                   = &tx_pkt_after_frag_gre;
