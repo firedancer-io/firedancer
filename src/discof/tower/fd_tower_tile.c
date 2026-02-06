@@ -62,7 +62,6 @@
 
 struct notif {
   ulong     slot;
-  ulong     parent_slot;
   int       kind;
   fd_hash_t block_id; /* for notar confirmations only */
 };
@@ -239,13 +238,11 @@ publish_slot_confirmed( ctx_t *             ctx,
                         fd_stem_context_t * stem,
                         ulong               tsorig,
                         ulong               slot,
-                        ulong               parent_slot,
                         fd_hash_t const *   block_id,
                         ulong               bank_idx,
                         int                 kind ) {
   fd_tower_slot_confirmed_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   msg->slot                       = slot;
-  msg->parent_slot                = parent_slot;
   msg->block_id                   = *block_id;
   msg->bank_idx                   = bank_idx;
   msg->kind                       = kind;
@@ -287,7 +284,7 @@ notar_confirm( ctx_t *             ctx,
 
   if( FD_LIKELY( notar_blk->dup_conf && !notar_blk->dup_notif ) ) {
     if( FD_UNLIKELY( !notif_avail( ctx->notif ) ) ) FD_LOG_CRIT(( "attempted to confirm more than slot max %lu", notif_max( ctx->notif ) )); /* should be impossible */
-    notif_push_head( ctx->notif, (notif_t){ .slot = notar_blk->slot, .parent_slot = notar_blk->parent_slot, .kind = FD_TOWER_SLOT_CONFIRMED_DUPLICATE, .block_id = notar_blk->block_id } );
+    notif_push_head( ctx->notif, (notif_t){ .slot = notar_blk->slot, .kind = FD_TOWER_SLOT_CONFIRMED_DUPLICATE, .block_id = notar_blk->block_id } );
     notar_blk->dup_notif = 1;
 
     fd_tower_forks_t * fork = fd_forks_query( ctx->forks, notar_blk->slot ); /* ensure fork exists */
@@ -922,7 +919,7 @@ after_credit( ctx_t *             ctx,
     } else {
       fd_tower_forks_t * fork = fd_tower_forks_query( ctx->forks->tower_forks, ancestor.slot, NULL );
       if( FD_UNLIKELY( !fork ) ) FD_LOG_CRIT(( "missing fork for ancestor %lu", ancestor.slot ));
-      publish_slot_confirmed( ctx, stem, fd_frag_meta_ts_comp( fd_tickcount() ), ancestor.slot, fork->parent_slot, fd_forks_canonical_block_id( ctx->forks, ancestor.slot ), fork->bank_idx, ancestor.kind );
+      publish_slot_confirmed( ctx, stem, fd_frag_meta_ts_comp( fd_tickcount() ), ancestor.slot, fd_forks_canonical_block_id( ctx->forks, ancestor.slot ), fork->bank_idx, ancestor.kind );
     }
     *opt_poll_in = 0; /* drain the confirmations */
     *charge_busy = 1;

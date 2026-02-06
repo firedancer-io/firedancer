@@ -1102,18 +1102,28 @@ test_eviction_simple( fd_wksp_t * wksp ) {
 
   /* now forest is full, and there is only one fork.*/
 
-  /* try to add 8, parent is leaf 7. should fail. */
-  FD_TEST( !fd_forest_blk_insert    ( forest, 8, 7 ) );
+  /* try to add 8, parent is leaf 7. should force a root. */
+  FD_TEST( fd_forest_blk_fec_insert( forest, 8, 7, 0, 0, 1) );
+  FD_TEST( !fd_forest_verify( forest ) );
 
-  /* add 8, parent is non-leaf 6. should succeed. 7 is evicted */
-  FD_TEST(  fd_forest_blk_fec_insert( forest, 8, 6, 0, 0, 1 ) );
-  FD_TEST( !fd_forest_query( forest, 7 ) );
+  /* add 9, parent is non-leaf 6. should succeed. 7 is evicted */
+  fd_forest_print( forest );
+  __asm__("int $3");
+  FD_TEST( fd_forest_blk_insert( forest, 9, 6 ) );
+  fd_forest_print( forest );
+
+  FD_TEST( !fd_forest_query( forest, 8 ) );
+  FD_TEST( !fd_forest_verify( forest ) );
 
   /* add 16, which would be an orphan. should succeed.*/
   FD_TEST( fd_forest_blk_insert( forest, 16, 15 ) );
+  fd_forest_print( forest );
+
+  FD_TEST( !fd_forest_verify( forest ) );
 
   /* add 10, parent 6. (fork) */
   FD_TEST( fd_forest_blk_fec_insert( forest, 10, 6, 0, 0, 1 ) );
+
   FD_TEST( !fd_forest_query( forest, 16 ) ); /* 16 gets evicted*/
 
   fd_forest_print( forest );
@@ -1168,9 +1178,9 @@ test_eviction_confirmations( fd_wksp_t * wksp ) {
   /* now 18 is verified. don't want to evict it */
   FD_TEST(  !fd_forest_blk_insert( forest, 16, 14 ) ); /* fails becase we add to a bad fork */
 
-  fd_forest_publish( forest, 11 ); /* publish forwards to 11. Now we only have one fork. */
+  fd_forest_publish( forest, 11 ); /* publish forwards to 11. Now we only have one fork. (thats confirmed) */
 
-  // lets say we get a slot in the future, 24, that is confirmed and correct.
+  // lets say we get a slot in the future, 24.
   // We start repairing orphans backwards
   FD_TEST( fd_forest_blk_fec_insert( forest, 24, 23, 31, 0, 1 ) );
   FD_TEST( fd_forest_blk_fec_insert( forest, 23, 22, 31, 0, 1 ) );
@@ -1178,10 +1188,19 @@ test_eviction_confirmations( fd_wksp_t * wksp ) {
   /* atp we are filled up. */
   /* this NEEDs to be accepted. */
   FD_TEST( fd_forest_blk_fec_insert( forest, 21, 20, 31, 0, 1 ) );
-  FD_TEST( fd_forest_blk_fec_insert( forest, 20, 19, 31, 0, 1 ) );
+  FD_TEST( !fd_forest_query( forest, 24 ) ); /* 24 gets evicted. */
 
-   /* an older orphan is not contributing to the awesomeness */
-  FD_TEST( !fd_forest_blk_insert( forest, 25, 24 ) );
+  /* Now we confirm the orphan chain starting at 23.
+     21 - 22 - 23 are all verified. */
+  fd_hash_t mr_23 = (fd_hash_t){ .key = { 1 } };
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 23 ), &mr_23 ) );
+
+  /* now we add 20, parent is 19. */
+  FD_TEST( fd_forest_blk_fec_insert( forest, 20, 19, 31, 0, 1 ) );
+  FD_TEST( !fd_forest_query( forest, 23 ) ); /* 23 gets evicted. */
+
+   /* an older orphan contributes to the awesomeness */
+  FD_TEST( fd_forest_blk_insert( forest, 25, 24 ) );
 }
 
 
@@ -1227,7 +1246,7 @@ main( int argc, char ** argv ) {
   //test_iter_subtree( wksp );
   //test_orphan_requests( wksp );
   //test_slot_clear( wksp );
-  //test_eviction_simple( wksp );
+  test_eviction_simple( wksp );
   test_eviction_confirmations( wksp );
 
   test_verify_orphans( wksp );

@@ -299,7 +299,7 @@ fd_forest_fini( fd_forest_t * forest ) {
 
 int
 fd_forest_verify( fd_forest_t const * forest ) {
-  #define FAIL( msg ) do { FD_LOG_WARNING(( "fd_forest_verify: %s", msg )); return -1; } while(0)
+  #define FAIL( msg ) do { FD_LOG_WARNING(( "fd_forest_verify: %s", msg )); __asm__("int $3"); return -1; } while(0)
   if( FD_UNLIKELY( !forest ) ) {
     FAIL( "NULL forest" );
   }
@@ -588,6 +588,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
     }
   } else {
     ele = acquire( forest, slot, parent_slot );
+    FD_TEST( !fd_forest_verify( forest ) );
     if( FD_UNLIKELY( !ele ) ) return NULL; /* no space in pool, so we can't add this slot */
   }
 
@@ -1144,16 +1145,17 @@ clear_leaf( fd_forest_t * forest, ulong slot ) {
       /* We removed from the main tree, so we possible need to insert parent into the frontier.
          Only need to add parent to the frontier if it doesn't have any other children. */
 
-      if( blk->sibling == fd_forest_pool_idx_null( pool ) ) {
+      if( parent->child == fd_forest_pool_idx_null( pool ) ) {
         fd_forest_blk_t * parent = fd_forest_ancestry_ele_remove( ancestry, &blk->parent_slot, NULL, pool );
         FD_TEST( parent );
         fd_forest_frontier_ele_insert( frontier, parent, pool );
         /* ensure parent is reachable from consumed frontier */
-        fd_forest_blk_t * ancestor = parent;
-        while( FD_UNLIKELY( ancestor && !fd_forest_consumed_ele_query( consumed, &ancestor->slot, NULL, conspool ) ) ) {
-          ancestor = fd_forest_pool_ele( pool, ancestor->parent );
+        ulong ancestor = fd_forest_pool_idx( pool, parent );
+        while( FD_UNLIKELY( ancestor!=fd_forest_pool_idx_null( pool ) &&
+                            !fd_forest_consumed_ele_query( consumed, &ancestor, NULL, conspool ) ) ) {
+          ancestor = fd_forest_pool_ele( pool, ancestor )->parent;
         }
-        if( FD_UNLIKELY( !ancestor ) ) {
+        if( FD_UNLIKELY( ancestor == fd_forest_pool_idx_null( pool ) ) ) {
           FD_LOG_NOTICE(( "fd_forest: fd_forest_slot_clear: parent %lu is not reachable from consumed frontier, adding myself", parent->slot ));
           consumed_insert( forest, fd_forest_pool_idx( pool, parent ) );
         }
@@ -1170,16 +1172,60 @@ clear_leaf( fd_forest_t * forest, ulong slot ) {
 
   /* finally, release the block from the pool */
   consumed_remove( forest, fd_forest_pool_idx( pool, blk ) );
-  consumed_insert( forest, blk->parent );
   if( is_orphan_req ) requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, blk ) );
-  else                requests_remove( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), &forest->iter, fd_forest_pool_idx( pool, blk ) );
+  else                requests_remove( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), &forest->iter,     fd_forest_pool_idx( pool, blk ) );
   fd_forest_pool_ele_release( pool, blk );
 }
 
+/* returns latest confirmed leaf in the subtree rooted at root */
+static fd_forest_blk_t *
+latest_confirmed_slot( fd_forest_t * forest, ulong root_idx ) {
+  ulong * queue = fd_forest_deque( forest );
+  fd_forest_blk_t * latest_confirmed = NULL;
+  fd_forest_blk_t * pool             = fd_forest_pool( forest );
+  fd_forest_deque_push_tail( queue, root_idx );
+  while( FD_LIKELY( !fd_forest_deque_empty( queue ) ) ) {
+    fd_forest_blk_t * blk = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
+    if( FD_LIKELY( blk->confirmed || memcmp( &blk->confirmed_bid, &empty_mr, sizeof( fd_hash_t ) ) != 0 ) ) {
+      latest_confirmed = blk;
+    }
+    fd_forest_blk_t * child = fd_forest_pool_ele( pool, blk->child );
+    while( FD_LIKELY( child ) ) {
+      fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, child ) );
+      child = fd_forest_pool_ele( pool, child->sibling );
+    }
+  }
+  return latest_confirmed;
+}
+
+static fd_forest_blk_t *
+gca( fd_forest_t * forest, fd_forest_blk_t * blk1, fd_forest_blk_t * blk2 ) {
+  fd_forest_blk_t * pool = fd_forest_pool( forest );
+  fd_forest_blk_t * parent1 = fd_forest_pool_ele( pool, blk1->parent );
+  fd_forest_blk_t * parent2 = fd_forest_pool_ele( pool, blk2->parent );
+  while( FD_LIKELY( parent1 && parent2 ) ) {
+    if( FD_LIKELY( parent1->slot == parent2->slot ) ) return parent1;
+  }
+  return NULL;
+}
+
+#define UPDATE_BEST_CANDIDATE( best_confrmd, best_unconfrmd, ele, filter )                         \
+  if( FD_UNLIKELY( filter ) ) continue;                                                            \
+  do {                                                                                             \
+    if( FD_UNLIKELY( ele->confirmed ) ) {                                                          \
+      if( FD_LIKELY( !best_confrmd ) ) best_confrmd = ele;                                         \
+      else                             best_confrmd = fd_ptr_if( best_confrmd->slot < ele->slot, ele, best_confrmd ); \
+    } else {                                                                                                          \
+      if( FD_LIKELY( !best_unconfrmd ) ) best_unconfrmd = ele;                                                        \
+      else                               best_unconfrmd = fd_ptr_if( best_unconfrmd->slot < ele->slot, ele, best_unconfrmd ); \
+    }                                                                                                                \
+  } while(0)
 
 int
 fd_forest_evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot, ulong * evicted ) {
-  /* TODO If we've reached the point that we need to evict, we should stop using the orphan iterator to make requests. */
+  /* TODO If we've reached the point that we need to evict,
+     should we stop using the orphan iterator to make requests? i.e.
+     focus only on rebuilding ancestry.  */
 
   fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
@@ -1187,106 +1233,130 @@ fd_forest_evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot, ulong 
   fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
 
-  int has_orphans = !fd_forest_subtlist_is_empty( subtlist, pool );
+  /* Generally, best policy for eviction is to evict in the order of:
+      1. Highest unconfirmed orphan leaf       - furthest from root
+      2. Highest unconfirmed leaf in ancestry  - furthest from tip of execution
+      3. Highest confirmed orphan leaf
+      4. Highest confirmed leaf in ancestry
+    There's some exceptions. For example, if the slot we are adding would be
+    an orphan, if its older than the rest of our orphans, we shouldn't add it. or maybe we should FAAAAA
+    Also we cannot evict slots that would be our parent.
+  */
 
-  /* During regular operation there's usually no orphans, but if eviction
-     is called then it's likely we have orphans. */
-  if( FD_LIKELY( has_orphans ) ) {
-
-    /* We'll keep it if it's older than all of our orphans, or if it's
-       parent is part of the main tree. */
-    fd_forest_blk_t * evict_orphan = NULL; /* best orphan candidate for eviction is the newest subtree. */
-    for( fd_forest_subtlist_iter_t iter = fd_forest_subtlist_iter_fwd_init( subtlist, pool );
-                                         !fd_forest_subtlist_iter_done( iter, subtlist, pool );
-                                   iter = fd_forest_subtlist_iter_fwd_next( iter, subtlist, pool ) ) {
-      fd_forest_blk_t * ele = fd_forest_subtlist_iter_ele( iter, subtlist, pool );
-      if( FD_LIKELY( evict_orphan == NULL ) ) evict_orphan = ele;
-      else                                    evict_orphan = fd_ptr_if( evict_orphan->slot < ele->slot, ele, evict_orphan );
-    }
-    for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
-                                         !fd_forest_orphaned_iter_done( iter, orphaned, pool );
-                                   iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
-      fd_forest_blk_t * ele = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
-      evict_orphan          = fd_ptr_if( evict_orphan->slot < ele->slot, ele, evict_orphan );
-    }
-    /* Now we have the max of all subtrees and orphans. This is our best candidate for eviction. */
-
-    /* If are connecting to the main tree. Nuke the best candidate orphan. */
-    if( fd_forest_ancestry_ele_query( ancestry, &parent_slot, NULL, pool ) ||
-        fd_forest_frontier_ele_query( frontier, &parent_slot, NULL, pool ) ) {
-      *evicted = evict_orphan->slot;
-      clear_leaf( forest, evict_orphan->slot );
-      return SLOT_INSERT;
-    }
-
-    /* The new slot is an orphan. Should we evict the candidate orphan
-       or insert ourselves? We'll keep it if it's older than all of our
-       orphans (i.e., closer to the root) */
-
-    if( new_slot > evict_orphan->slot ) {
-      return SLOT_IGNORE;
-    } else {
-      *evicted = evict_orphan->slot;
-      clear_leaf( forest, evict_orphan->slot );
-      return SLOT_INSERT;
-    }
+  fd_forest_blk_t * unconfrmd_orphan = NULL; /* 1st best candidate for eviction is the highest unconfirmed orphan. */
+  fd_forest_blk_t * confirmed_orphan = NULL; /* 3rd best candidate for eviction is the highest confirmed orphan.   */
+  for( fd_forest_subtlist_iter_t iter = fd_forest_subtlist_iter_fwd_init( subtlist, pool );
+                                       !fd_forest_subtlist_iter_done( iter, subtlist, pool );
+                                 iter = fd_forest_subtlist_iter_fwd_next( iter, subtlist, pool ) ) {
+    fd_forest_blk_t * ele = fd_forest_subtlist_iter_ele( iter, subtlist, pool );
+    UPDATE_BEST_CANDIDATE( confirmed_orphan, unconfrmd_orphan, ele, ele->child != ULONG_MAX || ele->slot == parent_slot );
+  }
+  for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool );
+                                       !fd_forest_orphaned_iter_done( iter, orphaned, pool );
+                                 iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
+    fd_forest_blk_t *  ele = fd_forest_orphaned_iter_ele( iter, orphaned, pool );
+    UPDATE_BEST_CANDIDATE( confirmed_orphan, unconfrmd_orphan, ele, ele->child != ULONG_MAX || ele->slot == parent_slot );
   }
 
-  /* Else we are here if we have no orphans. */
-
-  /* Choose an unconfirmed leaf to evict, from oldest to newest
-     priority, but don't consider leaves that are the parent of this
-     slot.  If we evict the parent of this slot, we would be inserting
-     the new_slot as an orphan, which would cause repair to repair the
-     parent again, which would cause an eviction loop. */
-
-  int               fork_confirmed   = 1;    /* whether all forks are confirmed. Note if there's more than one fork this must be 0 */
-  fd_forest_blk_t * non_parent_evict = NULL; /* unconfirmed leaf that is not our parent (could be null)*/
-  uint              fork_cnt         = 0;    /* number of forks */
+  fd_forest_blk_t * unconfrmd_leaf = NULL; /* 2nd best candidate for eviction is the highest unconfirmed leaf. */
+  fd_forest_blk_t * confirmed_leaf = NULL; /* 4th best candidate for eviction is the highest confirmed leaf. */
   for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool );
                                        !fd_forest_frontier_iter_done( iter, frontier, pool );
                                  iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
     fd_forest_blk_t * ele = fd_forest_frontier_iter_ele( iter, frontier, pool );
-    fork_cnt++;
-    fork_confirmed = fork_confirmed && ele->confirmed;
-    if( !ele->confirmed && ele->slot != parent_slot ) {
-      if( FD_UNLIKELY( !non_parent_evict ) ) non_parent_evict = ele;
-      else                                   non_parent_evict = fd_ptr_if( non_parent_evict->slot < ele->slot, non_parent_evict, ele );
+    UPDATE_BEST_CANDIDATE( confirmed_leaf, unconfrmd_leaf, ele, iter.ele_idx == forest->root || ele->slot == parent_slot );
+ }
+
+  if( FD_UNLIKELY( !unconfrmd_leaf && !confirmed_leaf && !unconfrmd_orphan && !confirmed_orphan ) ) {
+    /* This can only happen 1 of two ways:
+        1. One fork in orphans, and root is alone (common situation in
+           catchup). The new slot's parent is the tip of the orphan
+           fork.  Ignore the slot in this case.
+        2. One long fork, and the new slot's parent is the tip of the
+           fork. Force a root in this case. */
+    if( fd_forest_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ) ) return SLOT_IGNORE;
+    *evicted       = fd_forest_pool_ele( pool, forest->root )->slot;
+    ulong new_root = fd_forest_pool_ele( pool, forest->root )->child;
+    fd_forest_publish( forest, fd_forest_pool_ele( pool, new_root )->slot );
+    FD_LOG_WARNING(( "fd_forest_evict: no candidates for eviction found when inserting slot %lu. implement the two cases above.", new_slot ));
+    return SLOT_INSERT;
+  }
+  if( FD_UNLIKELY( unconfrmd_orphan )) {
+    *evicted = unconfrmd_orphan->slot;
+    clear_leaf( forest, unconfrmd_orphan->slot );
+    FD_TEST( !fd_forest_verify( forest ) );
+    return SLOT_INSERT;
+  }
+  if( FD_UNLIKELY( unconfrmd_leaf )) {
+    *evicted = unconfrmd_leaf->slot;
+    FD_TEST( !fd_forest_verify( forest ) );
+    clear_leaf( forest, unconfrmd_leaf->slot );
+    FD_TEST( !fd_forest_verify( forest ) );
+    return SLOT_INSERT;
+  }
+  if( FD_UNLIKELY( confirmed_orphan )) {
+    fd_forest_blk_t * parent = query( forest, parent_slot );
+    if( !parent ) {
+      *evicted = confirmed_orphan->slot;
+      clear_leaf( forest, confirmed_orphan->slot );
+      return SLOT_INSERT;
     }
+
+    /* you can't evict a confirmed orphan leaf if your parent is the
+       other fork that is unconfirmed. you also can't evict the
+       confirmed orphan if you are creating a new fork in the main tree
+       that has only one confirmed fork. This is adding useless forks to
+       something that is already confirmed. */
+
+    if( fd_forest_ancestry_ele_query( ancestry, &parent_slot, NULL, pool )  ||
+        fd_forest_frontier_ele_query( frontier, &parent_slot, NULL, pool ) ) {
+      // if connecting to main tree, and its adding to the tip of what we know is confirmed, then keep it.
+      // if its off another fork taht is not part of the main confirmed, then ignore it.
+
+      /*  0 ── 1 ── 2 ── 3 (confirmed) ── 4(confirmed) ── 5 ── 6 ──> add 7 here is valid.
+                                          └──> add 7 here is valid.
+                          └──> add 7 here is invalid.
+      */
+
+      fd_forest_blk_t * latest_confirmed_leaf = latest_confirmed_slot( forest, forest->root );
+      if( latest_confirmed_leaf == gca( forest, latest_confirmed_leaf, parent )) {
+        *evicted = confirmed_orphan->slot;
+        clear_leaf( forest, confirmed_orphan->slot );
+        return SLOT_INSERT;
+      }
+    } else {
+      /* we are adding to an orphan or subtree. */
+      /* walk up from the parent to the root of the subtree we are getting added to. */
+      fd_forest_blk_t * subtree_root = parent;
+      while( FD_LIKELY( subtree_root->parent != ULONG_MAX ) ) {
+        subtree_root = fd_forest_pool_ele( pool, subtree_root->parent );
+      }
+      /* now subtree_root is the root of the subtree we are getting added to. */
+      fd_forest_blk_t * latest_confirmed_leaf = latest_confirmed_slot( forest, fd_forest_pool_idx( pool, subtree_root ) );
+      if( latest_confirmed_leaf == gca( forest, latest_confirmed_leaf, parent )) {
+        *evicted = confirmed_orphan->slot;
+        clear_leaf( forest, confirmed_orphan->slot );
+        return SLOT_INSERT;
+      }
+    }
+    return SLOT_IGNORE;
+  }
+  if( FD_UNLIKELY( confirmed_leaf )) {
+    /* Should never be evicting a confirmed leaf. tbh. this can only happen if we
+       have no orphans, and theres only two forks in the main tree, and the parent of the
+       non confirmed fork is is our parent. in this case we should fr just ignore this case.
+
+       ORRRRR
+
+       we could have one orphan fork. Thats our parent. at the tip. and everything in main tree
+       is confirmed. in this case we should ALSOOOOO ignore. */
+    return SLOT_IGNORE;
   }
 
-  /* It should be impossible to confirm more than one fork at a time.
-      (1) If there is no leaf that is unconfirmed, then that means
-          there's either multiple forks that have been confirmed
-          (bad state for network), or that we have only one fork,
-          that has been confirmed, but it hasn't been rooted in
-          SLOT_MAX.  Now it's possible that the leaf of our one fork
-          has been confirmed, but we're still in the process of
-          confirming all of it's ancestors.  In that case... we
-          can't evict anything, but our state is POTENTIALLY valid
-          (but unlikely)
-      (2) If there is one fork that is unconfirmed, but the tip is
-          our parent, we cannot evict it or else would cause evict
-          loop. At this point we would wait for that parent to
-          become confirmed, or for another fork to be built off
-          another slot.
-      (3) If there is one fork that is unconfirmed and tip is
-          not our parent, we can evict it and create the new fork.
-          There's a chance this new fork could confirm something!
-      (4) If there are multiple forks, we can start by trimming
-          oldest unconfirmed leaf that is not our parent.
-      (5) If there are multiple forks, and the only unconfirmed
-          leaf is our parent, we cannot evict it or else would cause
-          evict loop. */
-
-          if( fork_cnt> 1 &&  fork_confirmed                      ) { FD_LOG_WARNING(( "More than one fork is confirmed. This is bad. ")); return SLOT_IGNORE; }
-  /* 1 */ if( fork_cnt==1 &&  fork_confirmed                      ) FD_LOG_CRIT(( "Firedancer has a 1 fully confirmed fork, but it's not rooted in SLOT_MAX. Increase slot_max or network is bad. "));
-  /* 2 */ if( fork_cnt==1 && !fork_confirmed && !non_parent_evict ) return SLOT_IGNORE;
-  /* 3 */ if( fork_cnt==1 && !fork_confirmed &&  non_parent_evict ) { *evicted = non_parent_evict->slot; clear_leaf( forest, non_parent_evict->slot ); return SLOT_INSERT; }
-  /* 4 */ if( fork_cnt> 1 &&                     non_parent_evict ) { *evicted = non_parent_evict->slot; clear_leaf( forest, non_parent_evict->slot ); return SLOT_INSERT; }
-  /* 5 */ if( fork_cnt> 1 &&                    !non_parent_evict ) return SLOT_IGNORE;
-  __builtin_unreachable();
+  FD_LOG_CRIT(("unreachable"));
+  return SLOT_IGNORE;
 }
+#undef UPDATE_BEST_CANDIDATE
 
 ulong
 fd_forest_highest_repaired_slot( fd_forest_t const * forest ) {
@@ -1639,6 +1709,21 @@ fd_forest_orphaned_print( fd_forest_t const * forest ) {
   fflush(stdout);
 }
 
+static void
+print_consumed_list( fd_forest_t const * forest ) {
+  fd_forest_ref_t const *      conspool = fd_forest_conspool_const( forest );
+  fd_forest_conslist_t const * conslist = fd_forest_conslist_const( forest );
+  fd_forest_blk_t const *      pool     = fd_forest_pool_const( forest );
+  FD_LOG_NOTICE(( "consumed list:"));
+  for( fd_forest_conslist_iter_t iter = fd_forest_conslist_iter_fwd_init( conslist, conspool );
+                                       !fd_forest_conslist_iter_done( iter, conslist, conspool );
+                                 iter = fd_forest_conslist_iter_fwd_next( iter, conslist, conspool ) ) {
+    fd_forest_ref_t const * ele = fd_forest_conslist_iter_ele_const( iter, conslist, conspool );
+    fd_forest_blk_t const * blk = fd_forest_pool_ele_const( pool, ele->idx );
+    FD_LOG_NOTICE(( "%lu", blk->slot ));
+  }
+}
+
 void
 fd_forest_print( fd_forest_t const * forest ) {
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return;
@@ -1647,6 +1732,7 @@ fd_forest_print( fd_forest_t const * forest ) {
   fd_forest_frontier_print( forest );
   fd_forest_orphaned_print( forest );
   printf("\n");
+  print_consumed_list( forest );
   fflush(stdout);
 }
 

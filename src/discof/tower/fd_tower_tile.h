@@ -138,7 +138,6 @@ typedef struct fd_tower_slot_done fd_tower_slot_done_t;
 
 struct fd_tower_slot_confirmed {
   ulong     slot;
-  ulong     parent_slot;
   fd_hash_t block_id;
   ulong     bank_idx; /* only valid for OPTIMISTIC or ROOTED kind (otherwise ULONG_MAX) */
   int       kind;
