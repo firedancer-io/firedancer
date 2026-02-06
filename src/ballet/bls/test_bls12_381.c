@@ -1008,6 +1008,103 @@ test_pairing( FD_FN_UNUSED fd_rng_t * rng ) {
   }
 }
 
+static void
+test_proof_of_possession( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar msg[ 89 ];
+  uchar proof[ 96 ];
+  uchar public_key[ 48 ];
+  ulong msg_sz;
+
+  struct test {
+    char * m;
+    char * p;
+    char * k;
+  };
+
+  {
+    /* negative tests */
+    const struct test tests[] = {
+      // test 0
+      { /* invalid, msg_sz too small - this is a valid test passing the public key as msg */
+        .m = "",
+        .p = "966668cb06354807f59e5ab52139dc0c62588caf224b64b869f2e04b7fb76b326c56b32a71c6933fca876e1d87bbaea40b97dc12307eb791e5ca08b6a24b1cf966b0ed94073521543808dcee74e1c4a095ab9a256e33d7a9e0fbf396d0e899aa",
+        .k = "b7234f70d097e3c4aec83cac68bc800eab507990a53527e4978ca49818c50ae1611d8d8a1233751decd693f37425844c",
+      },
+      // test 1
+      { /* invalid, msg_sz too small - this is valid test in agave - but it's definitely not a pop */
+        .m = "53494d442d303338372d636f6e746578742d64617461",
+        .p = "ac250621f715b242d12049f5c8a7d5acd1f3b1c8ac7ba12492ab0792e0c9b3cbf65df5dce65337bf25bc8c095e900c2c01e3dc3626d803dd3b45829569147d045a69bdcbfc889d4db74ee57bd349f09bdbff8dbf2100f863b8b2f62fe70eced7",
+        .k = "90b59d0f8f4f940c2c793808ad6d9bd2fc711250ceb4b44a7259d9093b7f555dd3c68e47a6b5eccd55fee1d41443a31f",
+      },
+      // test 2
+      { /* invalid msg */
+        .m = "004c50454e474c4f573031323334353637383961626364656630313233343536373839616263646566b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+        .p = "97f9281d4aa59515cf3dfa7e97de48f02e75648ae6a2dc2c8e2814d5d73bc68d2f50b0b98e643c45cc26e23aef6b4ea21965311c2bc18746b69c26699610cbf9054aedc956572d45d5c3d7cb2488f428db2401a0c490d742e3e33c776fc2b4e4",
+        .k = "b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+      },
+      // test 3
+      { /* invalid proof */
+        .m = "414c50454e474c4f573031323334353637383961626364656630313233343536373839616263646566b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+        .p = "00f9281d4aa59515cf3dfa7e97de48f02e75648ae6a2dc2c8e2814d5d73bc68d2f50b0b98e643c45cc26e23aef6b4ea21965311c2bc18746b69c26699610cbf9054aedc956572d45d5c3d7cb2488f428db2401a0c490d742e3e33c776fc2b4e4",
+        .k = "b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+      },
+      // test 4
+      { /* invalid public key */
+        .m = "414c50454e474c4f573031323334353637383961626364656630313233343536373839616263646566b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+        .p = "97f9281d4aa59515cf3dfa7e97de48f02e75648ae6a2dc2c8e2814d5d73bc68d2f50b0b98e643c45cc26e23aef6b4ea21965311c2bc18746b69c26699610cbf9054aedc956572d45d5c3d7cb2488f428db2401a0c490d742e3e33c776fc2b4e4",
+        .k = "002c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+      },
+    };
+
+    for( ulong i=0; i<sizeof(tests)/sizeof(struct test); i++ ) {
+      msg_sz = strlen( tests[i].m ) / 2;
+
+      fd_hex_decode( msg, tests[i].m, msg_sz );
+      fd_hex_decode( proof, tests[i].p, 96 );
+      fd_hex_decode( public_key, tests[i].k, 48 );
+
+      FD_TEST( fd_bls12_381_proof_of_possession_verify( msg, msg_sz, proof, public_key )==-1 );
+    }
+  }
+
+  {
+    /* success tests */
+    const struct test tests[] = {
+      // test 0
+      { /* m is the public key */
+        .m = "b7234f70d097e3c4aec83cac68bc800eab507990a53527e4978ca49818c50ae1611d8d8a1233751decd693f37425844c",
+        .p = "966668cb06354807f59e5ab52139dc0c62588caf224b64b869f2e04b7fb76b326c56b32a71c6933fca876e1d87bbaea40b97dc12307eb791e5ca08b6a24b1cf966b0ed94073521543808dcee74e1c4a095ab9a256e33d7a9e0fbf396d0e899aa",
+        .k = "b7234f70d097e3c4aec83cac68bc800eab507990a53527e4978ca49818c50ae1611d8d8a1233751decd693f37425844c",
+      },
+      // test 1
+      { /* m is ALPENGLOW:vote_account_pubkey:bls_pubkey */
+        .m = "414c50454e474c4f573031323334353637383961626364656630313233343536373839616263646566b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+        .p = "97f9281d4aa59515cf3dfa7e97de48f02e75648ae6a2dc2c8e2814d5d73bc68d2f50b0b98e643c45cc26e23aef6b4ea21965311c2bc18746b69c26699610cbf9054aedc956572d45d5c3d7cb2488f428db2401a0c490d742e3e33c776fc2b4e4",
+        .k = "b12c6a194ba9f583e646432bc38194921924f0d4de6b968bb76fd1d9253f6d21c7d8d684b4270a44c8e384ea0b2e9ec5",
+      },
+    };
+
+    for( ulong i=0; i<sizeof(tests)/sizeof(struct test); i++ ) {
+      msg_sz = strlen( tests[i].m ) / 2;
+
+      fd_hex_decode( msg, tests[i].m, msg_sz );
+      fd_hex_decode( proof, tests[i].p, 96 );
+      fd_hex_decode( public_key, tests[i].k, 48 );
+
+      FD_TEST( fd_bls12_381_proof_of_possession_verify( msg, msg_sz, proof, public_key )==0 );
+    }
+  }
+  {
+    ulong iter = 100UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_bls12_381_proof_of_possession_verify( msg, msg_sz, proof, public_key );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_bls12_381_proof_of_possession", iter, dt );
+  }
+}
+
 /**********************************************************************/
 
 int
@@ -1029,6 +1126,8 @@ main( int     argc,
   test_g2_mul( rng );
 
   test_pairing( rng );
+
+  test_proof_of_possession( rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
