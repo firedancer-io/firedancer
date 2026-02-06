@@ -1646,10 +1646,13 @@ replay( fd_replay_tile_t *  ctx,
       fd_bank_t bank[1];
       fd_banks_bank_query( bank, ctx->banks, task->block_end->bank_idx );
       if( FD_LIKELY( !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
+      bank->data->refcnt--;
       ulong dead_bank_idx;
       int err = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL, &dead_bank_idx );
       if( FD_UNLIKELY( err==-2 ) ) {
-        // FIXME decrement dead_bank_idx refcnt
+        fd_bank_t dead_bank[1];
+        fd_banks_bank_query( dead_bank, ctx->banks, dead_bank_idx );
+        dead_bank->data->refcnt--;
         break;
       }
       FD_TEST( err==0 );
@@ -1855,6 +1858,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, bank );
+  } else if( sched_fec->is_last_in_block ) {
+    bank->data->refcnt++;
   }
 }
 
