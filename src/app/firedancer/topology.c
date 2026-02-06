@@ -739,7 +739,7 @@ fd_topo_initialize( config_t * config ) {
     }
 
     fd_topob_wksp( topo, "accdb_replay" );
-    fd_topob_wksp( topo, "accdb_execrp"   );
+    fd_topob_wksp( topo, "accdb_execrp" );
     fd_topob_wksp( topo, "accdb_execle" );
     fd_topob_wksp( topo, "accdb_tower"  );
     fd_topob_wksp( topo, "accdb_resolv" );
