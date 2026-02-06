@@ -20,48 +20,64 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
   if( sz > FD_TXN_MTU ) return 0;
   /* Each vote transaction may have 1 or 2 signers.  The first byte in
      the transaction message is the number of signers. */
-  int signer_cnt = data[0];
-  if( signer_cnt != 1 && signer_cnt != 2 ) return 0;
+  uint off = 0U;
+  uchar signer_cnt = data[off];
+  if( signer_cnt!=1 && signer_cnt!=2 ) return 0;
+  if( signer_cnt==1 && sz<=139 ) return 0;
+  if( signer_cnt==2 && sz<=171 ) return 0;
   /* The authority's public key will be the first listed account in the
      transaction message. */
 
   /* r/o signers = 1 when there are 2 signers and 1 otherwise. */
-  if( data[1] != signer_cnt - 1 ) return 0;
+  off++;
+  if( data[off]!=signer_cnt-1 ) return 0;
+
   /* There will always be 1 r/o unsigned account. */
-  if( data[2] != 1 ) return 0;
+  off++;
+  if( data[off]!=1 ) return 0;
 
   /* The only accounts should be the 1 or 2 signers, the vote account,
-     and the vote program. data[3] is the number of accounts. */
-  ulong bytes = fd_cu16_dec_sz( data+3, 3UL );
+     and the vote program.  The number of accounts is represented as a
+     compact u16. */
+  off++;
+  ulong bytes = fd_cu16_dec_sz( data+off, 3UL );
   if( bytes!=1UL ) return 0;
-  if( data[3] != 2+signer_cnt ) return 0;
+  ulong acc_cnt = 2+signer_cnt;
+  if( data[off]!=acc_cnt ) return 0;
 
   /* The first account should always be the authority's public key. */
-  if( memcmp( authority->identity_pubkey, data+4, 32 ) ) return 0;
+  off++;
+  ulong acct_off = off;
+  if( memcmp( authority->identity_pubkey, data + acct_off, 32 ) ) return 0;
 
-  /* The instruction count follows the number of accounts and should
-     always be 1. */
-  ulong instr_cnt_off = 4 + ((data[3] + 1) * 32);
-  bytes = fd_cu16_dec_sz( data+instr_cnt_off, 3UL );
-  uchar instr_cnt = data[ instr_cnt_off ];
+  /* Each transaction account key is listed out and is followed by a 32
+     byte blockhash.  The instruction count is after this. */
+  off += (acc_cnt+1) * 32;
+  bytes = fd_cu16_dec_sz( data+off, 3UL );
+  uchar instr_cnt = data[ off ];
   if( bytes!=1UL ) return 0;
-  if( instr_cnt != 1 ) return 0;
+  if( instr_cnt!=1 ) return 0;
 
   /* The program id will be the first byte of the instruction payload
      and should be the vote program. */
-  uchar program_id = data[ instr_cnt_off + 1 ];
-  if( program_id != data[3]-1 ) return 0;
-  if( memcmp( &fd_solana_vote_program_id, data+4+(32*program_id), 32 ) ) return 0;
+  off++;
+  uchar program_id = data[ off ];
+  if( program_id != acc_cnt-1 ) return 0;
+  ulong program_acct_off = 4 + (program_id * 32);
+  if( memcmp( &fd_solana_vote_program_id, data+program_acct_off, 32 ) ) return 0;
 
-  bytes = fd_cu16_dec_sz( data+instr_cnt_off + 2, 3UL );
+  off++;
+  bytes = fd_cu16_dec_sz( data+off, 3UL );
   if( bytes!=1UL ) return 0;
-  if( data[ instr_cnt_off + 2 ] != 1 ) return 0;
 
-  FD_LOG_NOTICE(("DISCRIM %u", data[instr_cnt_off + 2]));
+  /* Vote account count will always be 2 */
+  if( data[ off ] != 2 ) return 0;
+  off += 3; /* 1 byte for the account count, 1 byte for each txn account. */
 
-
-  /* TODO: Check that there's 1 instruction */
-  /* TODO: Check that the instruction is a vote instruction */
+  /* Instr data sz */
+  bytes = fd_cu16_dec_sz( data+off, 3UL );
+  off += bytes;
+  if( data[off]!=14 ) return 0;
 
   return 1;
 }
