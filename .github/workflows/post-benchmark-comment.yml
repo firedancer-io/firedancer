@@ -1,0 +1,43 @@
+name: Post Benchmark Comment
+on:
+  workflow_run:
+    workflows: ["On Pull Request"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  post-comment:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'pull_request'
+    steps:
+      - name: Download artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh run download "$RUN_ID" \
+            -n benchmark-comment \
+            -R "$REPOSITORY" || echo "No artifact found"
+
+      - name: Post comment
+        if: hashFiles('comment.txt') != '' && hashFiles('pr_number.txt') != ''
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const comment = fs.readFileSync('comment.txt', 'utf8');
+            const prNumber = parseInt(fs.readFileSync('pr_number.txt', 'utf8').trim());
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: comment
+            });
