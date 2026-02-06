@@ -463,10 +463,18 @@ during_frag( ctx_t * ctx,
   uint             in_kind =  ctx->in_kind[ in_idx ];
   in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
 
+  if( FD_UNLIKELY( in_kind==IN_KIND_NET ) ) {
+    ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
+    FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
+    uchar const * dcache_entry = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
+    fd_memcpy( ctx->buffer, dcache_entry, sz );
+    return;
+  }
+
+  if( FD_UNLIKELY( sz!=0UL && ( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] in kind %u", chunk, sz, in_ctx->chunk0, in_ctx->wmark, in_kind ));
+
   if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
     uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     fd_memcpy( ctx->buffer, dcache_entry, sz );
     return;
@@ -475,25 +483,13 @@ during_frag( ctx_t * ctx,
   if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
     return;
   }
-  if( FD_UNLIKELY( in_kind==IN_KIND_NET ) ) {
-    uchar const * dcache_entry = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
-    fd_memcpy( ctx->buffer, dcache_entry, sz );
-    return;
-  }
-
   if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP ) ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
     uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     fd_memcpy( ctx->buffer, dcache_entry, sz );
     return;
   }
 
   if( FD_LIKELY  ( in_kind==IN_KIND_SHRED  ) ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
     uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     if( FD_LIKELY( sz > 0 ) ) fd_memcpy( ctx->buffer, dcache_entry, sz );
     return;
@@ -509,9 +505,6 @@ during_frag( ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
-    if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
-    }
     uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     fd_memcpy( ctx->buffer, dcache_entry, sz );
     return;
