@@ -104,6 +104,10 @@ struct fd_backt_tile {
   ulong dead_shred_cnt;
   ulong root_slot;
   ulong root_shred_cnt;
+
+  struct {
+    fd_histf_t replay_hist[1];
+  } metrics;
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -196,6 +200,11 @@ source_shred( fd_backt_tile_t * ctx,
   if( ctx->rocksdb ) return fd_backtest_rocksdb_shred( ctx->rocksdb, slot, shred_idx );
 # endif
   return fd_backtest_shredcap_shred( ctx->shredcap, slot, shred_idx );
+}
+
+static void
+metrics_write( fd_backt_tile_t * ctx ) {
+  FD_MHIST_COPY( BACKT, SLOT_REPLAY_DURATION_SECONDS, ctx->metrics.replay_hist );
 }
 
 static void
@@ -405,7 +414,8 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.uc, bh_got_b58 );
       if( FD_LIKELY( !memcmp( msg->bank_hash.uc, ctx->bank_hashes[ ctx->bank_hash_idx ], 32UL ) ) ) {
-
+        long replay_nanos = msg->completion_time_nanos - prior_completion_timestamp;
+        fd_histf_sample( ctx->metrics.replay_hist, (ulong)round( fd_tempo_tick_per_ns( NULL ) * (double)replay_nanos ) ); /* FIXME silly conversion to tickcount */
         FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%-44s (switch %.2f ms, begin %.2f ms, exec %6.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
           (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
           (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
@@ -570,6 +580,10 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->shred_out = out1( topo, tile, "shred_out" );
   *ctx->tower_out = out1( topo, tile, "tower_out" );
 
+  fd_histf_new( ctx->metrics.replay_hist,
+      FD_MHIST_SECONDS_MIN( BACKT, SLOT_REPLAY_DURATION_SECONDS ),
+      FD_MHIST_SECONDS_MAX( BACKT, SLOT_REPLAY_DURATION_SECONDS ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -579,6 +593,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_backt_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_backt_tile_t)
 
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
