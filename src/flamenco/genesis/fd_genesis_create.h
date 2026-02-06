@@ -7,33 +7,33 @@
 #include "../fd_flamenco_base.h"
 #include "../features/fd_features.h"
 
-
 /* fd_genesis_options_t exists as a convenient way to specify options
    for genesis creation. */
 
-struct fd_genesis_options {
-  fd_pubkey_t identity_pubkey;
-  fd_pubkey_t faucet_pubkey;
-  fd_pubkey_t stake_pubkey;
-  fd_pubkey_t vote_pubkey;
+struct fd_genesis_options
+{
+   fd_pubkey_t identity_pubkey;
+   fd_pubkey_t faucet_pubkey;
+   fd_pubkey_t stake_pubkey;
+   fd_pubkey_t vote_pubkey;
 
-  ulong creation_time;      /* unix time, i.e. seconds since the unix epoch */
-  ulong faucet_balance;     /* in lamports */
-  ulong vote_account_stake; /* in lamports */
+   ulong creation_time;      /* unix time, i.e. seconds since the unix epoch */
+   ulong faucet_balance;     /* in lamports */
+   ulong vote_account_stake; /* in lamports */
 
-  ulong hashes_per_tick; /* 0 means unset */
-  ulong ticks_per_slot;
-  ulong target_tick_duration_micros;
+   ulong hashes_per_tick; /* 0 means unset */
+   ulong ticks_per_slot;
+   ulong target_tick_duration_micros;
 
-  ulong fund_initial_accounts;
-  ulong fund_initial_amount_lamports;
+   ulong fund_initial_accounts;
+   ulong fund_initial_amount_lamports;
 
-  int   warmup_epochs;
+   int warmup_epochs;
 
-  /* features points to an externally owned feature map.
-     Adds a feature account to the genesis blob for feature enabled at
-     slot 0.  If features==NULL, creates no feature accounts. */
-  fd_features_t const * features;
+   /* features points to an externally owned feature map.
+      Adds a feature account to the genesis blob for feature enabled at
+      slot 0.  If features==NULL, creates no feature accounts. */
+   fd_features_t const *features;
 };
 
 typedef struct fd_genesis_options fd_genesis_options_t;
@@ -55,10 +55,11 @@ FD_PROTOTYPES_BEGIN
    THIS METHOD IS NOT SAFE FOR PRODUCTION USE.
    It is intended for development only. */
 
-ulong
-fd_genesis_create( void *                       buf,
-                   ulong                        bufsz,
-                   fd_genesis_options_t const * options );
+ulong fd_genesis_create(void *buf,
+                        ulong bufsz,
+                        fd_genesis_options_t const *options);
+ulong fd_genesis_blob_size(
+    fd_genesis_options_t const *options);
 
 /* TODO Add method to estimate the scratch and genesis blob size given options */
 
