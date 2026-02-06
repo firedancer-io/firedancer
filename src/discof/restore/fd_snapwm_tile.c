@@ -264,7 +264,9 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
+               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
+               ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }

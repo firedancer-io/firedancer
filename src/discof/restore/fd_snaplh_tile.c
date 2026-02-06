@@ -398,9 +398,9 @@ handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
 FD_FN_UNUSED static void
 handle_lthash_completion( fd_snaplh_t * ctx,
                           fd_stem_context_t * stem ) {
-  fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
-  fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
   if( fd_seq_inc( ctx->wh_last_in_seq, 1UL )==ctx->wh_finish_fseq ) {
+    fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
+    fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
     fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
     uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
     fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
@@ -563,7 +563,9 @@ handle_control_frag( fd_snaplh_t * ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
+               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
+               ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       if( FD_LIKELY( ctx->io_uring_enabled ) ) {
         handle_vinyl_lthash_request_ur_consume_all( ctx );
