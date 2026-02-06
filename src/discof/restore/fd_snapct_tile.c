@@ -772,6 +772,14 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE;
       ulong sig = ctx->config.incremental_snapshots &&
                   (ctx->local_in.incremental_snapshot_slot!=ULONG_MAX || ctx->download_enabled) ? FD_SNAPSHOT_MSG_CTRL_NEXT : FD_SNAPSHOT_MSG_CTRL_DONE;
+      if( sig==FD_SNAPSHOT_MSG_CTRL_DONE && ctx->config.incremental_snapshots ) {
+          /* set incremental snapshots to 0 if there is no local
+             incremental snapshot and download is not enabled. */
+          FD_LOG_WARNING(( "incremental snapshots were enabled via [snapshots.incremental_snapshots] "
+                           "but no incremental snapshot exists on disk and no snapshot peers are configured. "
+                           "skipping incremental snapshot load." ));
+          ctx->config.incremental_snapshots = 0;
+        }
       fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->flush_ack = 0;
       break;
