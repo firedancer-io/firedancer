@@ -1638,14 +1638,21 @@ replay( fd_replay_tile_t *  ctx,
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
       replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+      int err = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL, NULL );
+      FD_TEST( err==0 );
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t bank[1];
       fd_banks_bank_query( bank, ctx->banks, task->block_end->bank_idx );
       if( FD_LIKELY( !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
+      ulong dead_bank_idx;
+      int err = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL, &dead_bank_idx );
+      if( FD_UNLIKELY( err==-2 ) ) {
+        // FIXME decrement dead_bank_idx refcnt
+        break;
+      }
+      FD_TEST( err==0 );
       break;
     }
     case FD_SCHED_TT_TXN_EXEC:
@@ -2038,7 +2045,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx, NULL, NULL );
       FD_TEST( res==0 );
       break;
     }
@@ -2059,12 +2066,13 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx, NULL, NULL );
       FD_TEST( res==0 );
       break;
     }
     case FD_EXECRP_TT_POH_HASH: {
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash, NULL );
+      FD_TEST( res!=-2 );
       if( FD_UNLIKELY( res<0 && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
         fd_banks_mark_bank_dead( ctx->banks, bank );
 
