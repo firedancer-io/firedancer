@@ -453,6 +453,11 @@ fd_config_fill( fd_config_t * config,
     }
   }
 
+  if( FD_UNLIKELY( config->is_firedancer && config->consensus.wait_for_supermajority_at_slot && (!config->consensus.expected_shred_version || !strcmp( config->consensus.expected_bank_hash, "" )) ) ) {
+    FD_LOG_ERR(( "Config option wait_for_supermajority_at_slot requires both "
+                 "expected_shred_version and expected_bank_hash to be present" ));
+  }
+
   if( FD_UNLIKELY( config->is_firedancer && config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "

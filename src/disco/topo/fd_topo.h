@@ -393,6 +393,8 @@ struct fd_topo_tile {
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
+      fd_pubkey_t expected_bank_hash;
+      ulong  wait_for_supermajority_at_slot;
       ushort expected_shred_version;
       int    wait_for_vote_to_start_leader;
 
@@ -620,6 +622,7 @@ struct fd_topo_tile {
     } execle;
 
     struct {
+      int validate_genesis_hash;
       int allow_download;
 
       ushort expected_shred_version;
