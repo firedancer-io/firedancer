@@ -1856,10 +1856,12 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( sched_fec->is_first_in_block ) ) {
+    bank->data->refcnt++;
+  }
+
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, bank );
-  } else if( sched_fec->is_last_in_block ) {
-    bank->data->refcnt++;
   }
 }
 
