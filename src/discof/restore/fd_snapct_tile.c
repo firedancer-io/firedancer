@@ -934,16 +934,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
       FD_TEST( ctx->metrics.full.bytes_total!=0UL );
       if( FD_UNLIKELY( ctx->metrics.full.bytes_read == ctx->metrics.full.bytes_total ) ) {
-        ulong sig = FD_SNAPSHOT_MSG_CTRL_FINI;
-        if( sig==FD_SNAPSHOT_MSG_CTRL_DONE && ctx->config.incremental_snapshots ) {
-          /* set incremental snapshots to 0 if there is no local
-             incremental snapshot and download is not enabled. */
-          FD_LOG_WARNING(( "incremental snapshots were enabled via [snapshots.incremental_snapshots] "
-                           "but no incremental snapshot exists on disk and no snapshot peers are configured. "
-                           "skipping incremental snapshot load." ));
-          ctx->config.incremental_snapshots = 0;
-        }
-        fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI;
         ctx->flush_ack = 0;
       }

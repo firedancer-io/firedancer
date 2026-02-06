@@ -222,7 +222,7 @@ handle_data_frag( fd_snaplv_t *       ctx,
     return;
   }
   if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-    FD_LOG_ERR(( "invalid state for data frag %u", ctx->state ));
+    FD_LOG_ERR(( "invalid state %u for data frag %lu", ctx->state, sig ));
     return;
   }
   if( FD_UNLIKELY( sig!=FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) {

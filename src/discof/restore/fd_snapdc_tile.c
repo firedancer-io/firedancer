@@ -119,7 +119,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       fd_memcpy( msg_out, msg, sz );
       fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, sz, 0UL, 0UL, 0UL );
       ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, ctx->out.mtu, ctx->out.chunk0, ctx->out.wmark );
-      break;
+      return;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
