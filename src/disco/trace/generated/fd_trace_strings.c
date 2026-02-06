@@ -3,5 +3,10 @@
 #include <stddef.h>
 
 char const * fd_trace_strtab[] = {
+  "accdb",
+  "vinyl_request_batch",
+  "vinyl_io_poll",
+  "vinyl_io_append",
+  "vinyl_compact",
   NULL
 };

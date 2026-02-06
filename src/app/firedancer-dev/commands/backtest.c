@@ -349,6 +349,9 @@ backtest_topo( config_t * config ) {
     for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
+
+    fd_topob_link( topo, "accdb_trace", "accdb", 256UL, 64UL, 1UL )->permit_no_consumers = 1;
+    fd_topob_tile_out( topo, "accdb", 0UL, "accdb_trace", 0UL );
   }
 
   /**********************************************************************/
