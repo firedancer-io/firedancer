@@ -574,7 +574,7 @@ main( int     argc,
   fd_memcpy( eth_mac_addrs_before_frag,     eth1_dst_mac_addr, 6 );
   fd_memcpy( eth_mac_addrs_before_frag + 6, eth1_src_mac_addr, 6 );
 
-  struct {
+  struct __attribute__((packed)) {
     fd_eth_hdr_t eth;
     fd_ip4_hdr_t inner_ip4;
     fd_udp_hdr_t udp;
@@ -596,7 +596,7 @@ main( int     argc,
     .data = {0xFF, 0xFF, 0}
   };
 
-  struct {
+  struct __attribute__((packed)) {
     fd_eth_hdr_t eth;
     fd_ip4_hdr_t outer_ip4;
     fd_gre_hdr_t gre;
