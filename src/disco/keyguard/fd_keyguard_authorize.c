@@ -1,6 +1,8 @@
 #include "fd_keyguard.h"
 #include "fd_keyguard_client.h"
 #include "../bundle/fd_bundle_crank_constants.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../ballet/txn/fd_compact_u16.h"
 #include "../../waltz/tls/fd_tls.h"
 
 struct fd_keyguard_sign_req {
@@ -18,10 +20,49 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
   if( sz > FD_TXN_MTU ) return 0;
   /* Each vote transaction may have 1 or 2 signers.  The first byte in
      the transaction message is the number of signers. */
-  if( data[0] != 1 && data[0] != 2 ) return 0;
+  int signer_cnt = data[0];
+  if( signer_cnt != 1 && signer_cnt != 2 ) return 0;
   /* The authority's public key will be the first listed account in the
      transaction message. */
-  if( memcmp( authority->identity_pubkey, data + 4, 32 ) ) return 0;
+
+  /* r/o signers = 1 when there are 2 signers and 1 otherwise. */
+  if( data[1] != signer_cnt - 1 ) return 0;
+  /* There will always be 1 r/o unsigned account. */
+  if( data[2] != 1 ) return 0;
+
+  /* The only accounts should be the 1 or 2 signers, the vote account,
+     and the vote program. data[3] is the number of accounts. */
+  ulong bytes = fd_cu16_dec_sz( data+3, 3UL );
+  if( bytes!=1UL ) return 0;
+  if( data[3] != 2+signer_cnt ) return 0;
+
+  /* The first account should always be the authority's public key. */
+  if( memcmp( authority->identity_pubkey, data+4, 32 ) ) return 0;
+
+  /* The instruction count follows the number of accounts and should
+     always be 1. */
+  ulong instr_cnt_off = 4 + ((data[3] + 1) * 32);
+  bytes = fd_cu16_dec_sz( data+instr_cnt_off, 3UL );
+  uchar instr_cnt = data[ instr_cnt_off ];
+  if( bytes!=1UL ) return 0;
+  if( instr_cnt != 1 ) return 0;
+
+  /* The program id will be the first byte of the instruction payload
+     and should be the vote program. */
+  uchar program_id = data[ instr_cnt_off + 1 ];
+  if( program_id != data[3]-1 ) return 0;
+  if( memcmp( &fd_solana_vote_program_id, data+4+(32*program_id), 32 ) ) return 0;
+
+  bytes = fd_cu16_dec_sz( data+instr_cnt_off + 2, 3UL );
+  if( bytes!=1UL ) return 0;
+  if( data[ instr_cnt_off + 2 ] != 1 ) return 0;
+
+  FD_LOG_NOTICE(("DISCRIM %u", data[instr_cnt_off + 2]));
+
+
+  /* TODO: Check that there's 1 instruction */
+  /* TODO: Check that the instruction is a vote instruction */
+
   return 1;
 }
 
