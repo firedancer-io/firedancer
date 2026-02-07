@@ -660,7 +660,6 @@ fd_increase_calculated_data_size( fd_txn_out_t * txn_out,
 static int
 fd_collect_loaded_account( fd_runtime_t *            runtime,
                            fd_txn_out_t *            txn_out,
-                           fd_bank_t *               bank,
                            fd_account_meta_t const * account_meta,
                            ulong                     loaded_acc_size,
                            fd_pubkey_t *             additional_loaded_account_keys,
@@ -714,13 +713,16 @@ fd_collect_loaded_account( fd_runtime_t *            runtime,
   }
 
   /* Programdata account size check */
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
-  fd_accdb_ro_t programdata_ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, programdata_ro, &xid, &loader_state->inner.program.programdata_address ) ) ) {
-    return FD_RUNTIME_EXECUTE_SUCCESS;
+  fd_accdb_ro_t const * programdata_ref = NULL;
+  for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
+    fd_accdb_ro_t const * ro = &runtime->accounts.executable[i];
+    if( fd_pubkey_eq( fd_accdb_ref_address( ro ), &loader_state->inner.program.programdata_address ) ) {
+      programdata_ref = ro;
+      break;
+    }
   }
-  ulong programdata_sz = fd_accdb_ref_data_sz( programdata_ro );
-  fd_accdb_close_ro( runtime->accdb, programdata_ro );
+  if( FD_UNLIKELY( !programdata_ref ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+  ulong programdata_sz = fd_accdb_ref_data_sz( programdata_ref );
 
   /* Try to accumulate the programdata's data size
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L625-L630 */
@@ -795,7 +797,6 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
       int err = fd_collect_loaded_account(
         runtime,
         txn_out,
-        bank,
         meta,
         loaded_acc_size,
         additional_loaded_account_keys,
@@ -812,7 +813,6 @@ fd_executor_load_transaction_accounts_simd_186( fd_runtime_t *      runtime,
     int err = fd_collect_loaded_account(
       runtime,
       txn_out,
-      bank,
       meta,
       loaded_acc_size,
       additional_loaded_account_keys,
