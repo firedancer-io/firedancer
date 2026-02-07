@@ -35,6 +35,12 @@ $(call add-hdrs,fd_vinyl_req_pool.h)
 $(call add-objs,fd_vinyl_req_pool,fd_flamenco)
 endif
 
+# Simple overlay
+$(call add-hdrs,fd_accdb_overlay.h)
+$(call add-objs,fd_accdb_overlay,fd_flamenco)
+$(call add-hdrs,fd_acc_pool.h)
+$(call add-objs,fd_acc_pool,fd_flamenco)
+
 # Debug APIs
 $(call add-hdrs,fd_accdb_fsck.h)
 $(call add-objs,fd_accdb_fsck_funk fd_accdb_fsck_vinyl,fd_flamenco)

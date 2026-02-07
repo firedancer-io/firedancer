@@ -13,7 +13,7 @@
 #include "../../discof/fd_accdb_topo.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/accdb/fd_acc_pool.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 
