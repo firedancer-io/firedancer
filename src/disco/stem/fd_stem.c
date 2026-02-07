@@ -169,6 +169,7 @@
 #error "fd_stem requires alloca"
 #endif
 
+#include "../../util/log/fd_log.h"
 #include "../topo/fd_topo.h"
 #include "../metrics/fd_metrics.h"
 #include "../../tango/fd_tango.h"
@@ -422,7 +423,7 @@ STEM_(run1)( ulong                        in_cnt,
 
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
-        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)now );
+        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)fd_log_wallclock() );
         FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
         FD_MCNT_INC  ( TILE, BACKPRESSURE_COUNT,        metric_backp_cnt );
         FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
