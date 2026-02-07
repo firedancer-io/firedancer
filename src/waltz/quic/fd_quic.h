@@ -495,6 +495,13 @@ fd_quic_init( fd_quic_t * quic );
 FD_QUIC_API fd_quic_t *
 fd_quic_fini( fd_quic_t * quic );
 
+/* fd_quic_set_identity_public_key updates the public key used for
+   identity validation.  This function should only be called after the
+   QUIC has been initialized. */
+FD_QUIC_API void
+fd_quic_set_identity_public_key( fd_quic_t * quic,
+                                 uchar const public_key[ static 32 ] );
+
 /* NOTE: Calling any of the below requires valid initialization from
    this thread group. */
 

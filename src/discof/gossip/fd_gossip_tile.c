@@ -106,12 +106,18 @@ static inline void
 during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   ctx->last_wallclock = fd_log_wallclock();
   ctx->last_tickcount = fd_tickcount();
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting" ));
+    FD_CRIT( ctx->is_halting_signing, "state machine corruption" );
+    ctx->is_halting_signing = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    /* TODO: Need some kind of state machine here, to ensure we switch
-       in sync with the signing tile.  Currently, we might send out a
-       badly signed message before the signing tile has switched. */
+    FD_LOG_DEBUG(( "keyswitch: switching identity" ));
     fd_memcpy( ctx->my_contact_info->pubkey.uc, ctx->keyswitch->bytes, 32UL );
     fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, ctx->last_wallclock );
+    ctx->is_halting_signing = 1;
 
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
@@ -259,6 +265,10 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
   (void)tsorig;
   (void)tspub;
 
+  if( FD_UNLIKELY( ctx->is_halting_signing ) ) {
+    return 1;
+  }
+
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
@@ -375,6 +385,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
+  ctx->is_halting_signing = 0;
 
   if( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                        sign_out->mcache,
