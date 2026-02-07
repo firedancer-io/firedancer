@@ -10,6 +10,7 @@
 #define _GNU_SOURCE
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../discof/restore/fd_snapct_tile.h"
 #include "../../vinyl/fd_vinyl.h"
 #include "../../vinyl/fd_vinyl_base.h"
 #include "../../vinyl/io/ur/fd_vinyl_io_ur.h"
@@ -490,7 +491,7 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
 
   if( FD_UNLIKELY( !ctx->booted ) ) {
     ulong const snapct_state = FD_VOLATILE_CONST( *ctx->snapct_state );
-    if( snapct_state!=16UL ) {
+    if( snapct_state!=FD_SNAPCT_STATE_SHUTDOWN ) {
       fd_log_sleep( 1e6 ); /* 1 ms */
       return;
     }
