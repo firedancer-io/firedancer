@@ -9,6 +9,7 @@
 
 #define _GNU_SOURCE
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/trace/generated/fd_trace_accdb.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../vinyl/fd_vinyl.h"
 #include "../../vinyl/fd_vinyl_base.h"
@@ -85,6 +86,7 @@ struct fd_vinyl_tile {
   uint shutdown : 1;
   ulong volatile const * snapct_state;
   ulong volatile const * snapwm_pair_cnt;
+  fd_fxt_pub_t tracer[1];
 
   /* I/O */
 
@@ -479,6 +481,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   } /* client join loop */
 
+  ulong trace_out_idx = fd_topo_find_tile_out_link( topo, tile, "accdb_trace", 0UL );
+  if( FD_UNLIKELY( trace_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "accdb_trace link not found" ));
+  fd_topo_link_t const * trace_out_link = &topo->links[ tile->out_link_id[ trace_out_idx ] ];
+  fd_fxt_pub_cur = fd_fxt_pub_init( ctx->tracer, trace_out_link->mcache, trace_out_link->dcache, trace_out_link->mtu, tile->id+1UL );
 }
 
 /* during_housekeeping is called periodically (approx every STEM_LAZY ns) */
@@ -570,7 +576,11 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
     vinyl->garbage_sz += ctx->accum_garbage_sz; ctx->accum_garbage_sz  = 0UL;
 
     ulong garbage_pre = vinyl->garbage_sz;
-    fd_vinyl_compact( vinyl, compact_max );
+    if( compact_max ) {
+      fd_trace_vinyl_compact_enter();
+      fd_vinyl_compact( vinyl, compact_max );
+      fd_trace_vinyl_compact_exit();
+    }
     FD_MCNT_INC( ACCDB, CUM_GC_BYTES, garbage_pre - vinyl->garbage_sz );
 
   }
@@ -772,6 +782,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
   /* Execute received requests */
 
   for( ulong exec_rem=fd_ulong_min( ctx->req_tail-ctx->req_head, ctx->exec_max ); exec_rem; exec_rem-- ) {
+    fd_trace_vinyl_request_batch_enter();
     fd_vinyl_req_t * req = ctx->_req + ((ctx->req_head++) & (FD_VINYL_REQ_MAX-1UL));
 
     /* Determine the client that sent this request and unpack the
@@ -812,6 +823,8 @@ before_credit( fd_vinyl_tile_t *   ctx,
     ulong append_cnt = 0UL;
 
     ulong accum_cache_hit = 0UL;
+#   define TRACE_IO_APPEND_ENTER fd_trace_vinyl_io_append_enter()
+#   define TRACE_IO_APPEND_EXIT  fd_trace_vinyl_io_append_exit()
     switch( req->type ) {
 
 #   include "../../vinyl/fd_vinyl_case_acquire.c"
@@ -845,7 +858,9 @@ before_credit( fd_vinyl_tile_t *   ctx,
 
     for( ; read_cnt; read_cnt-- ) {
       fd_vinyl_io_rd_t * _rd; /* avoid pointer escape */
+      fd_trace_vinyl_io_poll_enter();
       fd_vinyl_io_poll( io, &_rd, FD_VINYL_IO_FLAG_BLOCKING );
+      fd_trace_vinyl_io_poll_exit();
       fd_vinyl_io_rd_t * rd = _rd;
 
       fd_vinyl_data_obj_t *     obj      = (fd_vinyl_data_obj_t *)    rd->ctx;
@@ -952,7 +967,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
     ulong const dead_cnt = accum_dead_cnt - ctx->accum_dead_cnt;
     FD_MCNT_INC( ACCDB, BLOCKS_PAIR, append_cnt - dead_cnt );
     FD_MCNT_INC( ACCDB, BLOCKS_DEAD, dead_cnt );
-
+    fd_trace_vinyl_request_batch_exit();
   }
 
   ctx->accum_dead_cnt    = accum_dead_cnt;
