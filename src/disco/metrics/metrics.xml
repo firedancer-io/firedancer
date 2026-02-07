@@ -1169,6 +1169,10 @@ metric introduced.
 <tile name="backt" telemetry="false">
     <gauge name="FinalSlot" summary="The slot after which the backtest will complete" />
     <gauge name="StartSlot" summary="The slot at which the backtest started" />
+
+    <histogram name="SlotReplayDurationSeconds" min="0.01" max="0.5" converter="seconds">
+        <summary>Duration spent replaying a slot</summary>
+    </histogram>
 </tile>
 
 <enum name="TxnRegime">
