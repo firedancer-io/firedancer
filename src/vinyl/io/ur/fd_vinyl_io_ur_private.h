@@ -202,10 +202,11 @@ void
 fd_vinyl_io_ur_rewind( fd_vinyl_io_t * io,
                        ulong           seq );
 
-/* Auxiliary write path functions */
+void
+fd_vinyl_io_ur_rd_completion( fd_vinyl_io_ur_t * io );
 
 void
-fd_vinyl_io_wq_completion( fd_vinyl_io_ur_t * io );
+fd_vinyl_io_ur_completion( fd_vinyl_io_ur_t * io );
 
 /* io_uring userdata encoding ******************************************
 
