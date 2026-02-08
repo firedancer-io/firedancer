@@ -2,7 +2,6 @@
 #include "fd_bank.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
-#include "../accdb/fd_acc_pool.h"
 
 #include "fd_system_ids.h"
 #include "program/fd_address_lookup_table_program.h"
@@ -965,7 +964,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {
+          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && fd_txn_out_account_is_writable( prev_txn_out, j ) ) {
             meta = prev_txn_out->accounts.account[j].meta;
             is_found = 1;
             break;
@@ -1401,198 +1400,6 @@ fd_executor_reclaim_account( fd_account_meta_t * meta,
   }
 }
 
-static void
-fd_executor_setup_txn_account( fd_runtime_t *      runtime,
-                               fd_bank_t *         bank,
-                               fd_txn_in_t const * txn_in,
-                               fd_txn_out_t *      txn_out,
-                               ushort              idx,
-                               uchar * *           writable_accs_mem,
-                               ulong *             writable_accs_idx_out ) {
-  /* To setup a transaction account, we need to first retrieve a
-     read-only handle to the account from the database. */
-
-  fd_pubkey_t *   address  = &txn_out->accounts.keys[ idx ];
-  fd_accdb_rw_t * ref_slot = &txn_out->accounts.account[ idx ];
-
-  fd_accdb_rw_t * account = NULL;
-  int is_found_in_bundle = 0;
-  if( txn_in->bundle.is_bundle ) {
-    /* If we are in a bundle, that means that the latest version of an
-       account may be a transaction account from a previous transaction
-       and not in the accounts database.  This means we have to
-       reference the previous transaction's account.  Because we are in
-       a bundle, we know that the transaction accounts for all previous
-       bundle transactions are valid.  We will also assume that the
-       transactions are in execution order.
-
-       TODO: This lookup can be made more performant by using a map
-       from pubkey to the bundle transaction index and only inserting
-       or updating when the account is writable. */
-
-    for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found_in_bundle; i-- ) {
-      fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
-      for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], address ) && prev_txn_out->accounts.is_writable[j] ) {
-          /* Found the account in a previous transaction.
-             Move ownership of reference from previous transaction to
-             this one. */
-          fd_memcpy( ref_slot, prev_txn_out->accounts.account[ j ].ref, sizeof(fd_accdb_rw_t) );
-          account = ref_slot;
-          is_found_in_bundle = 1;
-          break;
-        }
-      }
-    }
-  }
-
-  if( FD_LIKELY( !account ) ) {
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
-    account = (fd_accdb_rw_t *)fd_accdb_open_ro( runtime->accdb, ref_slot->ro, &xid, address );
-    /* creates a database reference, which is explicitly dropped here
-       or in commit/cancel */
-  }
-
-  if( txn_out->accounts.is_writable[ idx ] ) {
-    /* If the account is writable or a fee payer, then we need to create
-       staging regions for the account.  If the account exists, copy the
-       account data into the staging area; otherwise, initialize a new
-       metadata. */
-    uchar * new_raw_data = writable_accs_mem[ *writable_accs_idx_out ];
-    ulong   dlen         = !!account ? fd_accdb_ref_data_sz( (fd_accdb_ro_t *)account ) : 0UL;
-    (*writable_accs_idx_out)++;
-
-    if( FD_LIKELY( account ) ) {
-      /* Create copy of account, release reference of original */
-      fd_memcpy( new_raw_data, account->meta, sizeof(fd_account_meta_t)+dlen );
-      fd_accdb_close_ro( runtime->accdb, (fd_accdb_ro_t *)account );
-    } else {
-      /* Account did not exist, set up metadata */
-      fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
-    }
-
-    account = fd_accdb_rw_init_nodb(
-        (fd_accdb_rw_t *)ref_slot,
-        address,
-        (fd_account_meta_t *)new_raw_data,
-        FD_RUNTIME_ACC_SZ_MAX
-    );
-
-  } else {
-    /* If the account is not writable, then we can simply initialize
-       the txn account with the read-only accountsdb record.  However,
-       if the account does not exist, we need to initialize a new
-       metadata. */
-    if( FD_UNLIKELY( fd_pubkey_eq( address, &fd_sysvar_instructions_id ) ) ) {
-      fd_account_meta_t * meta = fd_account_meta_init( (void *)runtime->accounts.sysvar_instructions_mem );
-      account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, meta );
-    } else if( FD_LIKELY( account && !is_found_in_bundle ) ) {
-      /* transfer ownership of reference to runtime struct
-         account is freed in cancel/commit */
-    } else if( FD_LIKELY( account && is_found_in_bundle ) ) {
-      /* If the account is found in the bundle and marked read-only we
-         just need to initialize a reference to the account that doesn't
-         reference the database. */
-      account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, account->meta );
-    } else {
-      account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, &FD_ACCOUNT_META_DEFAULT );
-    }
-  }
-
-  runtime->accounts.starting_lamports[idx] = fd_accdb_ref_lamports( account->ro );
-  runtime->accounts.starting_dlen[idx]     = fd_accdb_ref_data_sz ( account->ro );
-  runtime->accounts.refcnt[idx]            = 0UL;
-}
-
-static void
-fd_executor_setup_executable_account( fd_runtime_t *            runtime,
-                                      fd_bank_t *               bank,
-                                      fd_account_meta_t const * program_meta,
-                                      ushort *                  executable_idx ) {
-  fd_bpf_upgradeable_loader_state_t program_loader_state[1];
-  int err = fd_bpf_loader_program_get_state( program_meta, program_loader_state );
-  if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return;
-  }
-
-  if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
-    return;
-  }
-
-  /* Attempt to load the program data account from funk. This prevents any unknown program
-      data accounts from getting loaded into the executable accounts list. If such a program is
-      invoked, the call will fail at the instruction execution level since the programdata
-      account will not exist within the executable accounts list. */
-  fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
-  fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
-
-  fd_accdb_ro_t * ro = &runtime->accounts.executable[ *executable_idx ];
-  ro = fd_accdb_open_ro( runtime->accdb, ro, &xid, programdata_acc );
-  if( FD_LIKELY( ro ) ) (*executable_idx)++;
-}
-
-void
-fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
-                                    fd_bank_t *         bank,
-                                    fd_txn_in_t const * txn_in,
-                                    fd_txn_out_t *      txn_out ) {
-
-  /* At this point, the total number of writable accounts in the
-     transaction is known.  We can now attempt to get the required
-     amount of memory from the account memory pool. */
-
-  ushort writable_account_cnt = 0U;
-  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) ) {
-      txn_out->accounts.is_writable[ i ] = 1;
-      writable_account_cnt++;
-    } else {
-      txn_out->accounts.is_writable[ i ] = 0;
-    }
-  }
-
-  /* At this point we know which accounts are writable, but we don't
-     know if we will need to create an account for the rollback fee
-     payer or nonce account.  To avoid a potential deadlock, we want to
-     request the worst-case number of accounts (# writable accounts + 2
-     rollback accounts) for the transaction in one call to
-     fd_acc_pool_acquire. */
-
-  ulong   writable_accs_idx = 0UL;
-  uchar * writable_accs_mem[ MAX_TX_ACCOUNT_LOCKS + 2UL ];
-  fd_acc_pool_acquire( runtime->acc_pool, writable_account_cnt + 2UL, writable_accs_mem );
-  txn_out->accounts.rollback_fee_payer_mem = writable_accs_mem[ writable_account_cnt ];
-  txn_out->accounts.rollback_nonce_mem     = writable_accs_mem[ writable_account_cnt+1UL ];
-
-  ushort executable_idx = 0U;
-  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i, writable_accs_mem, &writable_accs_idx );
-    fd_account_meta_t * meta = txn_out->accounts.account[ i ].meta;
-
-    if( FD_UNLIKELY( meta && memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_executor_setup_executable_account( runtime, bank, meta, &executable_idx );
-    }
-  }
-
-  txn_out->accounts.is_setup         = 1;
-  txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
-  runtime->accounts.executable_cnt   = executable_idx;
-
-# if FD_HAS_FLATCC
-  /* Dumping ELF files to protobuf, if applicable */
-  int dump_elf_to_pb = runtime->log.dump_proto_ctx &&
-                       fd_bank_slot_get( bank )>=runtime->log.dump_proto_ctx->dump_proto_start_slot &&
-                       runtime->log.dump_proto_ctx->dump_elf_to_pb;
-  if( FD_UNLIKELY( dump_elf_to_pb ) ) {
-    for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-      fd_account_meta_t * acc_meta = txn_out->accounts.account[i].meta;
-      fd_pubkey_t *       acc_pubkey = &txn_out->accounts.keys[i];
-      fd_dump_elf_to_protobuf( runtime, bank, txn_in, acc_pubkey, acc_meta );
-    }
-  }
-# endif
-}
-
 int
 fd_executor_txn_verify( fd_txn_p_t *  txn_p,
                         fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] ) {
@@ -1624,7 +1431,7 @@ fd_executor_txn_check( fd_runtime_t * runtime,
 
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    if( !txn_out->accounts.is_writable[i] ) continue;
+    if( !fd_txn_out_account_is_writable( txn_out, i ) ) continue;
 
     ulong               starting_lamports = runtime->accounts.starting_lamports[i];
     ulong               starting_dlen     = runtime->accounts.starting_dlen[i];

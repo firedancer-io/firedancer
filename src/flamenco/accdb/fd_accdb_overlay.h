@@ -13,48 +13,64 @@
 #define FD_ACCDB_OVERLAY_LG_SLOT_MAX 9
 #define FD_ACCDB_OVERLAY_SLOT_MAX    512
 
+struct __attribute__((aligned(16))) fd_accdb_overlay_rec {
+  fd_pubkey_t   key;
+  fd_accdb_rw_t ref[1];
+  uint          hash;
+  uchar         pad[28]; /* pad to 128 bytes */
+};
+
+typedef struct fd_accdb_overlay_rec fd_accdb_overlay_rec_t;
+
 struct fd_accdb_overlay {
-  fd_accdb_user_t *       src;
-  fd_funk_txn_xid_t const xid;
+  fd_accdb_overlay_rec_t map[ FD_ACCDB_OVERLAY_SLOT_MAX ];
+
+  uint cnt;
+
+  ushort list[ FD_ACCDB_OVERLAY_SLOT_MAX ];
 };
 
 typedef struct fd_accdb_overlay fd_accdb_overlay_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_accdb_overlay_init creates a new empty accdb overlay.
-
-   src is a handle to the underlying DB, and acc_pool is an arena
-   allocator for account buffers. */
+/* fd_accdb_overlay_init creates a new empty accdb overlay. */
 
 fd_accdb_overlay_t *
-fd_accdb_overlay_init( fd_accdb_overlay_t * overlay,
-                       fd_accdb_user_t *    src,
-                       fd_acc_pool_t *      acc_pool );
+fd_accdb_overlay_init( fd_accdb_overlay_t * overlay );
 
-/* fd_accdb_overlay_fini destroys an overlay object.
-   It is assumed that the caller has no outstanding accdb refs. */
+/* fd_accdb_overlay_fini destroys an overlay object.  Assumes overlay
+   currently has no accounts. */
 
-void *
+void
 fd_accdb_overlay_fini( fd_accdb_overlay_t * overlay );
 
-/* fd_accdb_overlay_user implements the accdb interface.  Writes are
-   redirected to the overlay (acc_pool), so that the underlying accdb is
-   unchanged.
+void
+fd_accdb_overlay_insert_ro( fd_accdb_overlay_t *      overlay,
+                            fd_account_meta_t const * account );
 
-   IMPORTANT: It is illegal to write the system program (all zeros key). */
+void
+fd_accdb_overlay_insert_rw( fd_accdb_overlay_t * overlay,
+                            fd_account_meta_t *  account );
 
-fd_accdb_user_t *
-fd_accdb_overlay_user( fd_accdb_overlay_t * overlay );
+fd_accdb_overlay_rec_t const *
+fd_accdb_overlay_query( fd_accdb_overlay_t * overlay,
+                        fd_pubkey_t const *  address );
 
-extern fd_accdb_user_vt_t const fd_accdb_overlay_vt;
+/* fd_accdb_overlay_cancel drops all writes.  Returns account buffers
+   back to acc_pool. */
+
+void
+fd_accdb_overlay_cancel( fd_accdb_overlay_t * overlay,
+                         fd_accdb_user_t *    accdb );
 
 /* fd_accdb_overlay_commit writes back all accdb_rw handles to the src
    database.  accdb handles at the overlay are still valid after the
    commit. */
 
 void
-fd_accdb_overlay_commit( fd_accdb_overlay_t * overlay );
+fd_accdb_overlay_commit( fd_accdb_overlay_t * overlay,
+                         fd_accdb_user_t *    accdb );
 
 FD_PROTOTYPES_END
 

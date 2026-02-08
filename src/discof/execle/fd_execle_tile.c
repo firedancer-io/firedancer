@@ -13,7 +13,6 @@
 #include "../../discof/fd_accdb_topo.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/accdb/fd_acc_pool.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 
@@ -617,10 +616,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
 
-
-  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->execle.acc_pool_obj_id ) );
-  FD_TEST( acc_pool );
-
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
     for( ulong j=0UL; j<i; j++ ) ctx->txn_in[ i ].bundle.prev_txn_outs[ j ] = &ctx->txn_out[ j ];
@@ -629,7 +624,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = progcache;
   ctx->runtime->status_cache             = txncache;
-  ctx->runtime->acc_pool                 = acc_pool;
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
   ctx->runtime->log.capture_ctx          = NULL;

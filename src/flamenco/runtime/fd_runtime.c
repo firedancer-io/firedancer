@@ -4,6 +4,7 @@
 #include "fd_alut_interp.h"
 #include "fd_bank.h"
 #include "fd_executor_err.h"
+#include "fd_executor_accounts.h"
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_stack.h"
@@ -841,7 +842,7 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
 /* fd_runtime_pre_execute_check is responsible for conducting many of the
    transaction sanitization checks. */
 
-static inline int
+int
 fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
                               fd_bank_t *         bank,
                               fd_txn_in_t const * txn_in,
@@ -905,7 +906,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   }
 
   /* Set up the transaction accounts and other txn ctx metadata */
-  fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
+  fd_exec_accounts_setup( runtime, bank, txn_in, txn_out );
 
   /* Post-sanitization checks. Called from prepare_sanitized_batch()
      which, for now, only is used to lock the accounts and perform a
@@ -983,100 +984,6 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   return err;
 }
 
-/* fd_runtime_finalize_account is a helper used to commit the data from
-   a writable transaction account back into the accountsdb. */
-
-static void
-fd_runtime_finalize_account( fd_accdb_user_t *         accdb,
-                             fd_funk_txn_xid_t const * xid,
-                             fd_pubkey_t const *       pubkey,
-                             fd_account_meta_t *       meta ) {
-  /* FIXME if account doesn't change according to LtHash, don't update
-           database record */
-
-  fd_accdb_rw_t rw[1];
-  int rw_ok = !!fd_accdb_open_rw(
-      accdb,
-      rw,
-      xid,
-      pubkey,
-      meta->dlen,
-      FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE );
-  if( FD_UNLIKELY( !rw_ok ) ) FD_LOG_CRIT(( "fd_accdb_open_rw failed" ));
-
-  void const * data = fd_account_data( meta );
-  fd_accdb_ref_lamports_set(        rw, meta->lamports   );
-  fd_accdb_ref_owner_set   (        rw, meta->owner      );
-  fd_accdb_ref_exec_bit_set(        rw, meta->executable );
-  fd_accdb_ref_data_set    ( accdb, rw, data, meta->dlen );
-  fd_accdb_ref_slot_set    (        rw, xid->ul[0]       );
-
-  fd_accdb_close_rw( accdb, rw );
-}
-
-/* fd_runtime_save_account persists a transaction account to the account
-   database and updates the bank lthash.
-
-   This function:
-   - Loads the previous account revision
-   - Computes the LtHash of the previous revision
-   - Computes the LtHash of the new revision
-   - Removes/adds the previous/new revision's LtHash
-   - Saves the new version of the account to funk
-   - Sends updates to metrics and capture infra
-
-   Returns FD_RUNTIME_SAVE_* */
-
-static int
-fd_runtime_save_account( fd_accdb_user_t *         accdb,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_pubkey_t const *       pubkey,
-                         fd_account_meta_t *       meta,
-                         fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx ) {
-  fd_lthash_value_t lthash_post[1];
-  fd_lthash_value_t lthash_prev[1];
-
-  /* Update LtHash
-     - Query old version of account and hash it
-     - Hash new version of account */
-  fd_accdb_ro_t ro[1];
-  int old_exist = 0;
-  if( fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) {
-    old_exist = fd_accdb_ref_lamports( ro )!=0UL;
-    fd_hashes_account_lthash(
-      pubkey,
-      ro->meta,
-      fd_accdb_ref_data_const( ro ),
-      lthash_prev );
-    fd_accdb_close_ro( accdb, ro );
-  } else {
-    old_exist = 0;
-    fd_lthash_zero( lthash_prev );
-  }
-  int new_exist = meta->lamports!=0UL;
-
-  /* FIXME don't calculate LtHash if (!old_exist && !new_exist)
-           This change is blocked by solcap v2, which is not smart
-           enough to understand that (lthash+0==lthash). */
-  fd_hashes_update_lthash1( lthash_post, lthash_prev, pubkey, meta, bank, capture_ctx );
-
-  /* The first 32 bytes of an LtHash with a single input element are
-     equal to the BLAKE3_256 hash of an account.  Therefore, comparing
-     the first 32 bytes is a cryptographically secure equality check
-     for an account. */
-  int changed = 0!=memcmp( lthash_post->bytes, lthash_prev->bytes, 32UL );
-
-  if( changed ) {
-    fd_runtime_finalize_account( accdb, xid, pubkey, meta );
-  }
-
-  int save_type = (old_exist<<1) | (new_exist);
-  if( save_type==FD_RUNTIME_SAVE_MODIFY && !changed ) {
-    save_type = FD_RUNTIME_SAVE_UNCHANGED;
-  }
-  return save_type;
-}
 
 /* fd_runtime_commit_txn is a helper used by the non-tpool transaction
    executor to finalize borrowed account changes back into funk. It also
@@ -1104,7 +1011,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   /* Release read-only accounts */
 
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    if( !txn_out->accounts.is_writable[i] ) {
+    if( !fd_txn_out_account_is_writable( txn_out, i ) ) {
       fd_accdb_close_ro( runtime->accdb, txn_out->accounts.account[i].ro );
     }
   }
@@ -1154,7 +1061,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
-      if( !txn_out->accounts.is_writable[i] ) {
+      if( !fd_txn_out_account_is_writable( txn_out, i ) ) {
         continue;
       }
 
@@ -1244,7 +1151,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   }
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    if( txn_out->accounts.is_writable[i] ) {
+    if( fd_txn_out_account_is_writable( txn_out, i ) ) {
+      /* FIXME remove this */
       fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.account[i].meta ) );
     }
   }
@@ -1271,25 +1179,21 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
   runtime->accounts.executable_cnt = 0UL;
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    if( txn_out->accounts.is_writable[i] ) {
-      fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.account[i].meta ) );
-    } else {
-      fd_accdb_close_ro( runtime->accdb, txn_out->accounts.account[i].ro );
-    }
+    fd_accdb_close_ref( runtime->accdb, txn_out->accounts.account[i]->ro );
   }
 
   fd_acc_pool_release( runtime->acc_pool, txn_out->accounts.rollback_nonce_mem );
   fd_acc_pool_release( runtime->acc_pool, txn_out->accounts.rollback_fee_payer_mem );
 }
 
-static inline void
+void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
   runtime->instr.stack_sz          = 0;
   runtime->instr.trace_length      = 0UL;
   runtime->accounts.executable_cnt = 0UL;
 }
 
-static inline void
+void
 fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
                         fd_txn_out_t *      txn_out ) {
   txn_out->details.prep_start_timestamp   = fd_tickcount();
@@ -1343,7 +1247,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   fd_runtime_new_txn_out( txn_in, txn_out );
 
   /* Transaction sanitization.  If a transaction can't be commited or is
-     fees-only, we return early. */
+     fees-only, we return early.  (Also sets up accounts) */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
 
   txn_out->details.exec_start_timestamp = fd_tickcount();
@@ -1357,7 +1261,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   }
 }
 
-/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
+/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responsible
    for the bulk of the pre-transaction execution checks in the runtime.
    They aim to preserve the ordering present in the Agave client to match
    parity in terms of error codes. Sigverify is kept separate from the rest

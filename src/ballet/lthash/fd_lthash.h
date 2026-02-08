@@ -59,6 +59,14 @@ fd_lthash_sub( fd_lthash_value_t * restrict       r,
   return r;
 }
 
+static inline fd_lthash_value_t *
+fd_lthash_neg( fd_lthash_value_t * r ) {
+  for ( ulong i=0; i<FD_LTHASH_LEN_ELEMS; i++ ) {
+    r->words[i] = (ushort)( -r->words[i] );
+  }
+  return r;
+}
+
 #define FD_LTHASH_ENC_32_BUF( _x, _y ) __extension__({                   \
   if( FD_UNLIKELY( _x == NULL ) ) {                                      \
     strcpy(_y, "<NULL>");                                                \

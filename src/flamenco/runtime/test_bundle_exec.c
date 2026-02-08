@@ -171,14 +171,9 @@ init_rent_sysvar( test_env_t * env,
 
     env->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), env->tag );
 
-    uchar * acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(), fd_acc_pool_footprint( TEST_ACC_POOL_ACCOUNT_CNT ), env->tag );
-    fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, TEST_ACC_POOL_ACCOUNT_CNT ) );
-    FD_TEST( acc_pool );
-
     env->runtime->accdb                    = &env->accdb[0];
     env->runtime->progcache                = NULL;
     env->runtime->status_cache             = NULL;
-    env->runtime->acc_pool                 = acc_pool;
     env->runtime->log.log_collector        = NULL;
     env->runtime->log.enable_log_collector = 0;
     env->runtime->log.dumping_mem          = NULL;
@@ -384,7 +379,6 @@ test_execute_bundles( fd_wksp_t * wksp ) {
      and account pool references are released. */
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
-  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 
@@ -492,13 +486,11 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[2] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[3] );
-  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 
   /* Test 3: Bundle fails */
 
-  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 
@@ -522,13 +514,11 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   env->txn_out[0].err.is_committable = 0;
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[0] );
 
-  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 
   /* Test 4: Bundle fails with last transaction failing. */
 
-  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 

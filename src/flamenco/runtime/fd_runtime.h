@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_h
 
 #include "fd_runtime_helpers.h"
+#include "../accdb/fd_accdb_overlay.h"
 
 /* The general structure for executing transactions in Firedancer can
    be thought as a state maching where transaction execution is a
@@ -63,10 +64,10 @@
 */
 
 struct fd_runtime {
-  fd_accdb_user_t * accdb;
-  fd_txncache_t *   status_cache;
-  fd_progcache_t *  progcache;
-  fd_acc_pool_t *   acc_pool;
+  fd_accdb_user_t *  accdb;
+  fd_txncache_t *    status_cache;
+  fd_progcache_t *   progcache;
+  fd_accdb_overlay_t acc_overlay[1];
 
   struct {
     uchar               stack_sz;                                /* Current depth of the instruction execution stack. */
@@ -107,6 +108,8 @@ struct fd_runtime {
     ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
     ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
     ulong                     refcnt[ MAX_TX_ACCOUNT_LOCKS ];            /* Reference count for each account */
+
+    fd_lthash_value_t         lthash_delta[1];
   } accounts;
 
   struct {
@@ -306,9 +309,8 @@ struct fd_txn_out {
        has been set, memory resources must be released. */
     int           is_setup;
     ulong         cnt;
-    fd_pubkey_t   keys       [ MAX_TX_ACCOUNT_LOCKS ];
-    fd_accdb_rw_t account    [ MAX_TX_ACCOUNT_LOCKS ]; /* FIXME use accdb_ref_t here for safety - some accounts are readonly */
-    uchar         is_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_pubkey_t   keys   [ MAX_TX_ACCOUNT_LOCKS ];
+    fd_accdb_rw_t account[ MAX_TX_ACCOUNT_LOCKS ]; /* FIXME use accdb_ref_t here for safety - some accounts are readonly */
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still
@@ -316,13 +318,7 @@ struct fd_txn_out {
        the point right after a fee is debited or the nonce is advanced
        respectively.  The rollback accounts store this state because a
        failed transaction could have potentially modified the state of
-       these two accounts.
-
-       The memory for the nonce and fee payer is always provisioned when
-       the transaction is prepared, but isn't necessarily used. */
-    uchar *             rollback_fee_payer_mem;
-    uchar *             rollback_nonce_mem;
-
+       these two accounts. */
     ulong               nonce_idx_in_txn; /* !=ULONG_MAX if exists */
     fd_account_meta_t * rollback_nonce;
     fd_account_meta_t * rollback_fee_payer;
@@ -393,6 +389,25 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 void
 fd_runtime_cancel_txn( fd_runtime_t * runtime,
                        fd_txn_out_t * txn_out );
+
+static inline int
+fd_txn_out_account_is_writable( fd_txn_out_t const * txn_out,
+                                ulong                acc_idx ) {
+  return txn_out->accounts.account[ acc_idx ].ref->ref_type == FD_ACCDB_REF_RW;
+}
+
+void
+fd_runtime_reset_runtime( fd_runtime_t * runtime );
+
+void
+fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
+                        fd_txn_out_t *      txn_out );
+
+int
+fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
+                              fd_bank_t *         bank,
+                              fd_txn_in_t const * txn_in,
+                              fd_txn_out_t *      txn_out );
 
 FD_PROTOTYPES_END
 
