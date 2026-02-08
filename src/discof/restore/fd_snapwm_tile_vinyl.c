@@ -139,7 +139,7 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
   }
 
   /* Write out zero blocks to align the bstream by 4096 bytes
-     (Assuming a 512 byte sync block) */
+     (Assuming a 128 byte sync block) */
 
   io_mm_align_4k( ctx );
 

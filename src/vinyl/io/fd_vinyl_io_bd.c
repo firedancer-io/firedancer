@@ -3,28 +3,6 @@
 #include <errno.h>
 #include <unistd.h>
 
-static inline void
-bd_read( int    fd,
-         ulong  off,
-         void * buf,
-         ulong  sz ) {
-  ssize_t ssz = pread( fd, buf, sz, (off_t)off );
-  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
-  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
-  /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
-}
-
-static inline void
-bd_write( int          fd,
-          ulong        off,
-          void const * buf,
-          ulong        sz ) {
-  ssize_t ssz = pwrite( fd, buf, sz, (off_t)off );
-  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
-  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pwrite(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
-  else                 FD_LOG_CRIT(( "pwrite(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
-}
-
 struct fd_vinyl_io_bd_rd;
 typedef struct fd_vinyl_io_bd_rd fd_vinyl_io_bd_rd_t;
 
@@ -50,6 +28,34 @@ struct fd_vinyl_io_bd {
 
 typedef struct fd_vinyl_io_bd fd_vinyl_io_bd_t;
 
+static inline void
+bd_read( fd_vinyl_io_bd_t * bd,
+         ulong              off,
+         void *             buf,
+         ulong              sz ) {
+  int fd = bd->dev_fd;
+  bd->base->file_read_cnt++;
+  bd->base->file_read_tot_sz += sz;
+  ssize_t ssz = pread( fd, buf, sz, (off_t)off );
+  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
+  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
+  /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
+}
+
+static inline void
+bd_write( fd_vinyl_io_bd_t * bd,
+          ulong              off,
+          void const *       buf,
+          ulong              sz ) {
+  int fd = bd->dev_fd;
+  bd->base->file_write_cnt++;
+  bd->base->file_write_tot_sz += sz;
+  ssize_t ssz = pwrite( fd, buf, sz, (off_t)off );
+  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
+  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pwrite(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
+  else                 FD_LOG_CRIT(( "pwrite(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
+}
+
 static void
 fd_vinyl_io_bd_read_imm( fd_vinyl_io_t * io,
                          ulong           seq0,
@@ -69,16 +75,16 @@ fd_vinyl_io_bd_read_imm( fd_vinyl_io_t * io,
   ulong seq_present = bd->base->seq_present;
 
   int bad_seq  = !fd_ulong_is_aligned( seq0, FD_VINYL_BSTREAM_BLOCK_SZ );
-  int bad_dst  = (!fd_ulong_is_aligned( (ulong)dst, FD_VINYL_BSTREAM_BLOCK_SZ )) | !dst;
+  int bad_dst  = !dst;
   int bad_sz   = !fd_ulong_is_aligned( sz,   FD_VINYL_BSTREAM_BLOCK_SZ );
   int bad_past = !(fd_vinyl_seq_le( seq_past, seq0 ) & fd_vinyl_seq_lt( seq0, seq1 ) & fd_vinyl_seq_le( seq1, seq_present ));
 
   if( FD_UNLIKELY( bad_seq | bad_dst | bad_sz | bad_past ) )
     FD_LOG_CRIT(( "bstream read_imm [%016lx,%016lx)/%lu failed (past [%016lx,%016lx)/%lu, %s)",
                   seq0, seq1, sz, seq_past, seq_present, seq_present-seq_past,
-                  bad_seq ? "misaligned seq"         :
-                  bad_dst ? "misaligned or NULL dst" :
-                  bad_sz  ? "misaligned sz"          :
+                  bad_seq ? "misaligned seq" :
+                  bad_dst ? "NULL dst"       :
+                  bad_sz  ? "misaligned sz"  :
                             "not in past" ));
 
   /* At this point, we have a valid read request.  Map seq0 into the
@@ -86,17 +92,16 @@ fd_vinyl_io_bd_read_imm( fd_vinyl_io_t * io,
      If we hit the store end with more to go, wrap around and finish the
      read at the store start. */
 
-  int   dev_fd   = bd->dev_fd;
   ulong dev_base = bd->dev_base;
   ulong dev_sz   = bd->dev_sz;
 
   ulong dev_off = seq0 % dev_sz;
 
   ulong rsz = fd_ulong_min( sz, dev_sz - dev_off );
-  bd_read( dev_fd, dev_base + dev_off, dst, rsz );
+  bd_read( bd, dev_base + dev_off, dst, rsz );
   sz -= rsz;
 
-  if( FD_UNLIKELY( sz ) ) bd_read( dev_fd, dev_base, dst + rsz, sz );
+  if( FD_UNLIKELY( sz ) ) bd_read( bd, dev_base, dst + rsz, sz );
 }
 
 static void
@@ -124,16 +129,16 @@ fd_vinyl_io_bd_read( fd_vinyl_io_t *    io,
   ulong seq_present = bd->base->seq_present;
 
   int bad_seq  = !fd_ulong_is_aligned( seq0, FD_VINYL_BSTREAM_BLOCK_SZ );
-  int bad_dst  = (!fd_ulong_is_aligned( (ulong)dst, FD_VINYL_BSTREAM_BLOCK_SZ )) | !dst;
+  int bad_dst  = !dst;
   int bad_sz   = !fd_ulong_is_aligned( sz,   FD_VINYL_BSTREAM_BLOCK_SZ );
   int bad_past = !(fd_vinyl_seq_le( seq_past, seq0 ) & fd_vinyl_seq_lt( seq0, seq1 ) & fd_vinyl_seq_le( seq1, seq_present ));
 
   if( FD_UNLIKELY( bad_seq | bad_dst | bad_sz | bad_past ) )
     FD_LOG_CRIT(( "bstream read [%016lx,%016lx)/%lu failed (past [%016lx,%016lx)/%lu, %s)",
                   seq0, seq1, sz, seq_past, seq_present, seq_present-seq_past,
-                  bad_seq ? "misaligned seq"         :
-                  bad_dst ? "misaligned or NULL dst" :
-                  bad_sz  ? "misaligned sz"          :
+                  bad_seq ? "misaligned seq" :
+                  bad_dst ? "NULL dst"       :
+                  bad_sz  ? "misaligned sz"  :
                             "not in past" ));
 
   /* At this point, we have a valid read request.  Map seq0 into the
@@ -141,17 +146,16 @@ fd_vinyl_io_bd_read( fd_vinyl_io_t *    io,
      If we hit the store end with more to go, wrap around and finish the
      read at the store start. */
 
-  int   dev_fd   = bd->dev_fd;
   ulong dev_base = bd->dev_base;
   ulong dev_sz   = bd->dev_sz;
 
   ulong dev_off = seq0 % dev_sz;
 
   ulong rsz = fd_ulong_min( sz, dev_sz - dev_off );
-  bd_read( dev_fd, dev_base + dev_off, dst, rsz );
+  bd_read( bd, dev_base + dev_off, dst, rsz );
   sz -= rsz;
 
-  if( FD_UNLIKELY( sz ) ) bd_read( dev_fd, dev_base, dst + rsz, sz );
+  if( FD_UNLIKELY( sz ) ) bd_read( bd, dev_base, dst + rsz, sz );
 }
 
 static int
@@ -189,7 +193,6 @@ fd_vinyl_io_bd_append( fd_vinyl_io_t * io,
 
   ulong seq_future  = bd->base->seq_future;  if( FD_UNLIKELY( !sz ) ) return seq_future;
   ulong seq_ancient = bd->base->seq_ancient;
-  int   dev_fd      = bd->dev_fd;
   ulong dev_base    = bd->dev_base;
   ulong dev_sz      = bd->dev_sz;
 
@@ -216,9 +219,9 @@ fd_vinyl_io_bd_append( fd_vinyl_io_t * io,
   ulong dev_off = seq % dev_sz;
 
   ulong wsz = fd_ulong_min( sz, dev_sz - dev_off );
-  bd_write( dev_fd, dev_base + dev_off, src, wsz );
+  bd_write( bd, dev_base + dev_off, src, wsz );
   sz -= wsz;
-  if( sz ) bd_write( dev_fd, dev_base, src + wsz, sz );
+  if( sz ) bd_write( bd, dev_base, src + wsz, sz );
 
   return seq;
 }
@@ -290,7 +293,6 @@ fd_vinyl_io_bd_copy( fd_vinyl_io_t * io,
   ulong seq_future  = bd->base->seq_future;   if( FD_UNLIKELY( !sz ) ) return seq_future;
   ulong spad_max    = bd->base->spad_max;
   ulong spad_used   = bd->base->spad_used;
-  int   dev_fd      = bd->dev_fd;
   ulong dev_base    = bd->dev_base;
   ulong dev_sz      = bd->dev_sz;
 
@@ -334,8 +336,8 @@ fd_vinyl_io_bd_copy( fd_vinyl_io_t * io,
     ulong dst_off = seq_dst0 % dev_sz;
     ulong csz     = fd_ulong_min( fd_ulong_min( sz, buf_max ), fd_ulong_min( dev_sz - src_off, dev_sz - dst_off ) );
 
-    bd_read ( dev_fd, dev_base + src_off, buf, csz );
-    bd_write( dev_fd, dev_base + dst_off, buf, csz );
+    bd_read ( bd, dev_base + src_off, buf, csz );
+    bd_write( bd, dev_base + dst_off, buf, csz );
 
     sz -= csz;
     if( !sz ) break;
@@ -421,8 +423,7 @@ fd_vinyl_io_bd_sync( fd_vinyl_io_t * io,
   ulong seq_past    = bd->base->seq_past;
   ulong seq_present = bd->base->seq_present;
 
-  int   dev_fd       = bd->dev_fd;
-  ulong dev_sync     = bd->dev_sync;
+  ulong dev_sync = bd->dev_sync;
 
   fd_vinyl_bstream_block_t * block = bd->sync;
 
@@ -436,7 +437,7 @@ fd_vinyl_io_bd_sync( fd_vinyl_io_t * io,
   block->sync.hash_blocks = 0UL;
   fd_vinyl_bstream_block_hash( seed, block ); /* sets hash_trail back to seed */
 
-  bd_write( dev_fd, dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ );
+  bd_write( bd, dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ );
 
   bd->base->seq_ancient = seq_past;
 
@@ -603,7 +604,7 @@ fd_vinyl_io_bd_init( void *       mem,
     /* We are resuming an existing bstream.  Read and validate the
        bstream's sync block. */
 
-    bd_read( dev_fd, bd->dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ ); /* logs details */
+    bd_read( bd, bd->dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ ); /* logs details */
 
     int   type        = fd_vinyl_bstream_ctl_type ( block->sync.ctl );
     int   version     = fd_vinyl_bstream_ctl_style( block->sync.ctl );

@@ -33,15 +33,6 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_INITIAL_BLOCK_ID (0xF17EDA2CE7B1DUL)
 
-/* The stake program is now a BPF program which means that there is a
-   variable cost in CUs to execute the stake program.  This is the
-   absolute minimum cost of executing the stake program.
-
-   FIXME: This is a reasonable estimate based off of BPF withdraw
-   instructions.  The hard bound still needs to be determined. */
-
-#define FD_RUNTIME_MIN_STAKE_INSN_CUS (6000UL)
-
 /* FD_RUNTIME_ACC_SZ_MAX is the protocol level hardcoded size limit of a
    Solana account. */
 

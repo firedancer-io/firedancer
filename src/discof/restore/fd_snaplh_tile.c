@@ -4,6 +4,7 @@
 #include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
+#include "../../vinyl/io/ur/fd_vinyl_io_ur_private.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"
@@ -18,7 +19,7 @@
 #include <fcntl.h>    /* open  */
 #include <unistd.h>   /* close */
 
-#include "../../vinyl/io/fd_vinyl_io_ur.h"
+#include "../../vinyl/io/ur/fd_vinyl_io_ur.h"
 
 #define NAME "snaplh"
 
@@ -26,7 +27,7 @@
 #define IN_KIND_SNAPLV (0UL)
 #define IN_KIND_SNAPWH (1UL)
 
-#define VINYL_LTHASH_BLOCK_ALIGN  (512UL) /* O_DIRECT would require 4096UL */
+#define VINYL_LTHASH_BLOCK_ALIGN  FD_VINYL_BSTREAM_BLOCK_SZ
 #define VINYL_LTHASH_BLOCK_MAX_SZ (16UL<<20)
 FD_STATIC_ASSERT( VINYL_LTHASH_BLOCK_MAX_SZ>(sizeof(fd_snapshot_full_account_t)+FD_VINYL_BSTREAM_BLOCK_SZ+2*VINYL_LTHASH_BLOCK_ALIGN), "VINYL_LTHASH_BLOCK_MAX_SZ" );
 
@@ -199,17 +200,6 @@ streamlined_hash( fd_snaplh_t *       restrict ctx,
   else                         ctx->metrics.incremental.accounts_hashed++;
 }
 
-FD_FN_UNUSED static inline void
-bd_read( int    fd,
-         ulong  off,
-         void * buf,
-         ulong  sz ) {
-  ssize_t ssz = pread( fd, buf, sz, (off_t)off );
-  if( FD_LIKELY( ssz==(ssize_t)sz ) ) return;
-  if( ssz<(ssize_t)0 ) FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (%i-%s)", fd, off, sz, errno, fd_io_strerror( errno ) ));
-  /**/                 FD_LOG_CRIT(( "pread(fd %i,off %lu,sz %lu) failed (unexpected sz %li)", fd, off, sz, (long)ssz ));
-}
-
 FD_FN_UNUSED static void
 handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
                                 ulong                     seq,
@@ -223,9 +213,9 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
 
   /* dev_seq shows where the seq is physically located in device. */
   ulong dev_seq  = ( seq + ctx->vinyl.dev_base ) % ctx->vinyl.dev_sz;
-  ulong rd_off   = fd_ulong_align_dn( dev_seq, VINYL_LTHASH_BLOCK_ALIGN );
+  ulong rd_off   = fd_ulong_align_dn( dev_seq, FD_VINYL_BSTREAM_BLOCK_SZ );
   ulong pair_off = (dev_seq - rd_off);
-  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, VINYL_LTHASH_BLOCK_ALIGN );
+  ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
   FD_TEST( rd_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
 
   uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
@@ -244,7 +234,7 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
          This means: increase the size multiple of the alignment,
          read into a temporary buffer, and memcpy into the dst at the
          correct offset. */
-      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + VINYL_LTHASH_BLOCK_ALIGN );
+      bd_read( ctx->vinyl.dev_fd, 0, tmp, sz + FD_VINYL_BSTREAM_BLOCK_SZ );
       fd_memcpy( dst + rsz, tmp + ctx->vinyl.dev_base, sz );
     }
 
@@ -368,6 +358,15 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
   ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
   ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
 
+  /* Fixup io addressable range */
+  fd_vinyl_io_t * io = ctx->vinyl.io;
+  io->seq_past    = fd_ulong_align_dn( seq,         FD_VINYL_BSTREAM_BLOCK_SZ );
+  io->seq_present = fd_ulong_align_up( seq+pair_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
+  if( io->type==FD_VINYL_IO_TYPE_UR ) {
+    fd_vinyl_io_ur_t * ur = (fd_vinyl_io_ur_t *)io;
+    ur->seq_clean = ur->seq_cache = ur->seq_write = io->seq_present;
+  }
+
   fd_vinyl_io_rd_t * rd_req  = &ctx->vinyl.pending.rd_req[ free_i ];
   rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_PEND );
   rd_req->seq = seq;
@@ -473,9 +472,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
 static void
 handle_lv_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
-                     ulong         chunk,      /* compressed input pointer */
-                     ulong         sz_comp ) { /* compressed input size */
-  (void)sz_comp;
+                     ulong         chunk ) { /* compressed input pointer */
   if( FD_LIKELY( should_process_lthash_request( ctx ) ) ) {
     uchar const * indata = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
     ulong seq;
@@ -565,14 +562,15 @@ returnable_frag( fd_snaplh_t *       ctx,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               ctl,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
+  (void)sz; (void)ctl;
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) )          handle_wh_data_frag( ctx, in_idx, chunk, sz/*sz_comp*/, stem );
-  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) handle_lv_data_frag( ctx, in_idx, chunk, sz );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) )          handle_wh_data_frag( ctx, in_idx, chunk, tsorig, stem );
+  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) handle_lv_data_frag( ctx, in_idx, chunk );
   else                                                               handle_control_frag( ctx, sig, tsorig, tspub, stem );
 
   /* Because fd_stem may not return flow control credits fast enough,
@@ -670,7 +668,7 @@ snaplh_io_uring_init( fd_snaplh_t * ctx,
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
       .sqe_flags = IOSQE_FIXED_FILE },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
-      .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
+      .sqe_flags = 0 }
   };
   if( FD_UNLIKELY( fd_io_uring_register_restrictions( ioring->ioring_fd, res, 3U )<0 ) ) {
     FD_LOG_ERR(( "io_uring_register_restrictions failed (%i-%s)", errno, fd_io_strerror( errno ) ));

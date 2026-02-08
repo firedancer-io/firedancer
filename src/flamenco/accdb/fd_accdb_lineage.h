@@ -17,6 +17,8 @@ struct fd_accdb_lineage {
   fd_funk_txn_xid_t fork[ FD_ACCDB_DEPTH_MAX ];
   ulong             fork_depth;
 
+  uint txn_idx[ FD_ACCDB_DEPTH_MAX ];
+
   /* Current funk txn cache */
   ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
 

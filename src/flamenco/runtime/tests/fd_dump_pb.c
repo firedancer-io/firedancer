@@ -1020,24 +1020,19 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
                            fd_txn_out_t *      txn_out,
                            fd_instr_info_t *   instr,
                            ushort              instruction_idx ) {
+  /* Check program ID filter, if it exists */
+  if( runtime->log.dump_proto_ctx->has_dump_instr_program_id_filter &&
+      memcmp( txn_out->accounts.keys[ instr->program_id ].uc, runtime->log.dump_proto_ctx->dump_instr_program_id_filter, sizeof(fd_pubkey_t) ) ) {
+    return;
+  }
+
   fd_spad_t * spad = fd_spad_join( fd_spad_new( runtime->log.dumping_mem, 1UL<<28UL ) );
 
   FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( txn_in->txn ), txn_in->txn->payload );
-    fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
-    ulong out_size;
-    fd_base58_encode_64( signature, &out_size, encoded_signature );
-
-    if( runtime->log.capture_ctx->dump_proto_sig_filter ) {
-      ulong filter_strlen = (ulong) strlen(runtime->log.capture_ctx->dump_proto_sig_filter);
-
-      // Terminate early if the signature does not match
-      if( memcmp( runtime->log.capture_ctx->dump_proto_sig_filter, encoded_signature, filter_strlen < out_size ? filter_strlen : out_size ) ) {
-        return;
-      }
-    }
+    fd_base58_encode_64( signatures[0], NULL, encoded_signature );
 
     fd_exec_test_instr_context_t instr_context = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
     create_instr_context_protobuf_from_instructions( &instr_context, runtime, bank, txn_out, instr, spad );
@@ -1048,7 +1043,7 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
     pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[ PATH_MAX ];
-      snprintf( output_filepath, PATH_MAX, "%s/instr-%s-%hu.instrctx", runtime->log.capture_ctx->dump_proto_output_dir, encoded_signature, instruction_idx );
+      snprintf( output_filepath, PATH_MAX, "%s/instr-%s-%hu.instrctx", runtime->log.dump_proto_ctx->dump_proto_output_dir, encoded_signature, instruction_idx );
       FILE * file = fopen(output_filepath, "wb");
       if( file ) {
         fwrite( out, 1, stream.bytes_written, file );
@@ -1068,17 +1063,8 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
   FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( txn_in->txn ), txn_in->txn->payload );
-    fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
-    ulong out_size;
-    fd_base58_encode_64( signature, &out_size, encoded_signature );
-
-    if( runtime->log.capture_ctx->dump_proto_sig_filter ) {
-      // Terminate early if the signature does not match
-      if( strcmp( runtime->log.capture_ctx->dump_proto_sig_filter, encoded_signature ) ) {
-        return;
-      }
-    }
+    fd_base58_encode_64( signatures[0], NULL, encoded_signature );
 
     fd_exec_test_txn_context_t txn_context_msg = FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT;
     create_txn_context_protobuf_from_txn( &txn_context_msg, runtime, bank, txn_in, txn_out, spad );
@@ -1089,7 +1075,7 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
     pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
     if( pb_encode( &stream, FD_EXEC_TEST_TXN_CONTEXT_FIELDS, &txn_context_msg ) ) {
       char output_filepath[ PATH_MAX ];
-      snprintf( output_filepath, PATH_MAX, "%s/txn-%s.txnctx", runtime->log.capture_ctx->dump_proto_output_dir, encoded_signature );
+      snprintf( output_filepath, PATH_MAX, "%s/txn-%s.txnctx", runtime->log.dump_proto_ctx->dump_proto_output_dir, encoded_signature );
       FILE * file = fopen(output_filepath, "wb");
       if( file ) {
         fwrite( out, 1, stream.bytes_written, file );
@@ -1100,42 +1086,42 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
 }
 
 void
-fd_dump_block_to_protobuf_collect_tx( fd_block_dump_ctx_t * dump_ctx,
+fd_dump_block_to_protobuf_collect_tx( fd_block_dump_ctx_t * dump_block_ctx,
                                       fd_txn_p_t const *    txn ) {
-  if( FD_UNLIKELY( dump_ctx->txns_to_dump_cnt>=FD_BLOCK_DUMP_CTX_MAX_TXN_CNT ) ) {
+  if( FD_UNLIKELY( dump_block_ctx->txns_to_dump_cnt>=FD_BLOCK_DUMP_CTX_MAX_TXN_CNT ) ) {
     FD_LOG_ERR(( "Please increase FD_BLOCK_DUMP_CTX_MAX_TXN_CNT to dump more than %lu transactions.", FD_BLOCK_DUMP_CTX_MAX_TXN_CNT ));
     return;
   }
-  fd_memcpy( &dump_ctx->txns_to_dump[dump_ctx->txns_to_dump_cnt++], txn, sizeof(fd_txn_p_t) );
+  fd_memcpy( &dump_block_ctx->txns_to_dump[dump_block_ctx->txns_to_dump_cnt++], txn, sizeof(fd_txn_p_t) );
 }
 
 void
-fd_dump_block_to_protobuf( fd_block_dump_ctx_t *     dump_ctx,
-                           fd_banks_t *              banks,
-                           fd_bank_t *               bank,
-                           fd_accdb_user_t *         accdb,
-                           fd_capture_ctx_t const *  capture_ctx ) {
-FD_SPAD_FRAME_BEGIN( dump_ctx->spad ) {
-  if( FD_UNLIKELY( capture_ctx==NULL ) ) {
-    FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
+fd_dump_block_to_protobuf( fd_block_dump_ctx_t *       dump_block_ctx,
+                           fd_banks_t *                banks,
+                           fd_bank_t *                 bank,
+                           fd_accdb_user_t *           accdb,
+                           fd_dump_proto_ctx_t const * dump_proto_ctx ) {
+FD_SPAD_FRAME_BEGIN( dump_block_ctx->spad ) {
+  if( FD_UNLIKELY( dump_proto_ctx==NULL ) ) {
+    FD_LOG_WARNING(( "Protobuf dumping context may not be NULL when dumping blocks." ));
     return;
   }
 
-  if( FD_UNLIKELY( dump_ctx==NULL ) ) {
+  if( FD_UNLIKELY( dump_block_ctx==NULL ) ) {
     FD_LOG_WARNING(( "Block dumping context may not be NULL when dumping blocks." ));
     return;
   }
 
   /* Dump the block context */
-  create_block_context_protobuf_from_block( dump_ctx, banks, bank, accdb );
+  create_block_context_protobuf_from_block( dump_block_ctx, banks, bank, accdb );
 
   /* Output to file */
   ulong        out_buf_size = 1UL<<30UL; /* 1 GB */
-  uint8_t *    out          = fd_spad_alloc( dump_ctx->spad, alignof(uint8_t), out_buf_size );
+  uint8_t *    out          = fd_spad_alloc( dump_block_ctx->spad, alignof(uint8_t), out_buf_size );
   pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
-  if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, &dump_ctx->block_context ) ) {
+  if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, &dump_block_ctx->block_context ) ) {
     char output_filepath[ PATH_MAX ];
-    snprintf( output_filepath, PATH_MAX, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, fd_bank_slot_get( bank ) );
+    snprintf( output_filepath, PATH_MAX, "%s/block-%lu.blockctx", dump_proto_ctx->dump_proto_output_dir, fd_bank_slot_get( bank ) );
     FILE * file = fopen(output_filepath, "wb");
     if( file ) {
       fwrite( out, 1, stream.bytes_written, file );
@@ -1148,10 +1134,14 @@ FD_SPAD_FRAME_BEGIN( dump_ctx->spad ) {
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
                                 char const *    fn_name ) {
+  char const * syscall_name_filter = vm->instr_ctx->runtime->log.dump_proto_ctx->dump_syscall_name_filter;
+  if( syscall_name_filter && strlen( syscall_name_filter ) && strcmp( syscall_name_filter, fn_name ) ) {
+    return;
+  }
 
   fd_spad_t * spad = fd_spad_join( fd_spad_new( vm->instr_ctx->runtime->log.dumping_mem, 1UL<<28UL ) );
 
-FD_SPAD_FRAME_BEGIN( spad ) {
+  FD_SPAD_FRAME_BEGIN( spad ) {
 
   fd_ed25519_sig_t signature;
   memcpy( signature, (uchar const *)vm->instr_ctx->txn_in->txn->payload + TXN( vm->instr_ctx->txn_in->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
@@ -1162,7 +1152,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   snprintf( filename,
           PATH_MAX,
           "%s/syscall-%s-%s-%d-%hhu-%lu.sysctx",
-          vm->instr_ctx->runtime->log.capture_ctx->dump_proto_output_dir,
+          vm->instr_ctx->runtime->log.dump_proto_ctx->dump_proto_output_dir,
           fn_name,
           encoded_signature,
           vm->instr_ctx->runtime->instr.current_idx,
@@ -1260,7 +1250,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
       fclose( file );
     }
   }
-} FD_SPAD_FRAME_END;
+  } FD_SPAD_FRAME_END;
 }
 
 void
@@ -1298,7 +1288,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   snprintf( filename,
           PATH_MAX,
           "%s/elf-%s-%s-%lu.elfctx",
-          runtime->log.capture_ctx->dump_proto_output_dir,
+          runtime->log.dump_proto_ctx->dump_proto_output_dir,
           encoded_signature,
           program_acc_b58,
           fd_bank_slot_get( bank ) );

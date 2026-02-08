@@ -922,10 +922,14 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted_&#8203;bytes</span> | counter | Number of bytes in account database entries rooted (including overhead) |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;account_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block, normalized by account count) |
+| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">db</span>"} | counter | Total time in seconds spent rooting accounts (Waiting on database server) |
+| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">copy</span>"} | counter | Total time in seconds spent rooting accounts (Copying account data) |
+| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
 
 </div>
 
@@ -965,6 +969,19 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">accdb_&#8203;accounts</span> | gauge | Current number of accounts |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of read operations (Record cache) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of read operations (I/O layer cache) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of read operations (File access) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes read (Record cache) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes read (I/O layer cache) |
+| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes read (File access) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of write operations (Record cache) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of write operations (I/O layer cache) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of write operations (File access) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes written (Record cache) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes written (I/O layer cache) |
+| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes written (File access) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (Blocks between ancient and past have been written and forgotten (no read, no write)) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (Blocks between past and present have been written (read only)) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
@@ -978,7 +995,7 @@
 | <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
 | <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
 | <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
-| <span class="metrics-name">accdb_&#8203;cache_&#8203;hits</span> | counter | Total number of cache hits |
+| <span class="metrics-name">accdb_&#8203;account_&#8203;map_&#8203;slots</span> | gauge | Account map capacity |
 
 </div>
 
@@ -988,9 +1005,6 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;invalid</span> | counter | Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;ignored</span> | counter | Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;mismatch</span> | counter | Number of times a vote txn mismatched our own block id |
 | <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
 | <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
 | <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
@@ -999,10 +1013,32 @@
 | <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
 | <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
 | <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
-| <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | Current Tower root slot |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Current Tower vote slot |
-| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Current Tower reset slot |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored</span> | counter | Number of times we ignored a slot likely due to minority fork publish |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;invalid</span> | counter | Number of invalid vote txns (malformed, bad signature, etc.) |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;ignored</span> | counter | Number of ignored vote txns (unrecognized slot or block id) |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;chunk_&#8203;cnt</span> | counter | Invalid DuplicateShred proof bad chunk cnt |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;chunk_&#8203;idx</span> | counter | Invalid DuplicateShred proof bad chunk idx |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;chunk_&#8203;len</span> | counter | Invalid DuplicateShred proof bad chunk len |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;shred_&#8203;ser</span> | counter | Invalid DuplicateShred proof bad serialization |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;shred_&#8203;slot</span> | counter | Invalid DuplicateShred proof different slots |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;shred_&#8203;version</span> | counter | Invalid DuplicateShred proof shred version mismatch |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;shred_&#8203;type</span> | counter | Invalid DuplicateShred proof bad shred type |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;shred_&#8203;merkle</span> | counter | Invalid DuplicateShred proof bad merkle root |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;err_&#8203;shred_&#8203;signature</span> | counter | Invalid DuplicateShred proof bad signature |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;verified_&#8203;merkle</span> | counter | Merkle root conflict |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;verified_&#8203;meta</span> | counter | Coding metadata conflict |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;verified_&#8203;last</span> | counter | Last shred index conflict |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;verified_&#8203;overlap</span> | counter | Overlapping FEC set conflict |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;verified_&#8203;chained</span> | counter | Chained merkle root conflict |
+| <span class="metrics-name">tower_&#8203;proof_&#8203;constructed</span> | counter | Number of duplicate proofs we constructed |
+| <span class="metrics-name">tower_&#8203;cluster_&#8203;root_&#8203;slot</span> | gauge | Cluster root slot (from on-chain vote account as of ReplaySlotProcessed) |
+| <span class="metrics-name">tower_&#8203;cluster_&#8203;vote_&#8203;slot</span> | gauge | Cluster vote slot (from on-chain vote account as of ReplaySlotProcessed) |
+| <span class="metrics-name">tower_&#8203;local_&#8203;root_&#8203;slot</span> | gauge | Local root slot (root of local tower) |
+| <span class="metrics-name">tower_&#8203;local_&#8203;vote_&#8203;slot</span> | gauge | Local vote slot (top of local tower) |
+| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |
+| <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;processed</span> | gauge | Most recent processed ReplaySlotCompleted slot |
+| <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;ignored</span> | gauge | Most recent ignored ReplaySlotCompleted slot |
+| <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;processed</span> | counter | Number of processed ReplaySlotCompleted frags |
+| <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;ignored</span> | counter | Number of ignored ReplaySlotCompleted frags |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;seen</span> | counter | Number of hard forks we've seen (block ids with multiple candidate bank hashes) |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;pruned</span> | counter | Number of hard forks (candidate bank hashes) we've pruned |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |

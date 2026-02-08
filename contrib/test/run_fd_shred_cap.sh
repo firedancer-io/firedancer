@@ -86,7 +86,6 @@ echo "
 [funk]
     max_account_records = 150000000
     heap_size_gib = 100
-    max_database_transactions = 2000
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384

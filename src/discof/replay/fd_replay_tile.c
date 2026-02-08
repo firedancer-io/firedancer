@@ -340,6 +340,10 @@ struct fd_replay_tile {
   FILE *                 capture_file;
   fd_capture_link_buf_t  cap_repl_out[1];
 
+  /* Protobuf dumping context for debugging runtime execution and
+     collecting seed corpora. */
+  fd_dump_proto_ctx_t * dump_proto_ctx;
+
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */
   int is_booted;
@@ -440,15 +444,16 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),  sizeof(fd_replay_tile_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t), sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
-  l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),    fd_block_id_map_footprint( chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),           fd_reasm_footprint( tile->replay.fec_max ) );
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),           fd_sched_footprint( tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_req_pool_align(),  fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
-  l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),    fd_vote_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),    sizeof(fd_replay_tile_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
+  l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_vinyl_req_pool_align(),    fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
 
 # if FD_HAS_FLATCC
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -505,13 +510,17 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
 
-  FD_MCNT_SET( REPLAY, ACCDB_CREATED,   ctx->accdb->base.created_cnt       );
-  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,  ctx->accdb_admin->base.revert_cnt  );
-  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,    ctx->accdb_admin->base.root_cnt    );
-  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,   ctx->accdb_admin->base.gc_root_cnt );
-  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED, ctx->accdb_admin->base.reclaim_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_CREATED,      ctx->accdb->base.created_cnt       );
+  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,     ctx->accdb_admin->base.revert_cnt  );
+  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,       ctx->accdb_admin->base.root_cnt    );
+  FD_MCNT_SET( REPLAY, ACCDB_ROOTED_BYTES, ctx->accdb_admin->base.root_tot_sz );
+  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,      ctx->accdb_admin->base.gc_root_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED,    ctx->accdb_admin->base.reclaim_cnt );
   FD_MHIST_COPY( REPLAY, ROOT_SLOT_DURATION_SECONDS,    ctx->metrics.root_slot_dur    );
   FD_MHIST_COPY( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS, ctx->metrics.root_account_dur );
+  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_DB,   (ulong)ctx->accdb_admin->base.dt_vinyl );
+  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_COPY, (ulong)ctx->accdb_admin->base.dt_copy  );
+  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
 }
 
 static inline ulong
@@ -828,8 +837,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 # if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
      context state */
-  if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
-    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->capture_ctx );
+  if( FD_UNLIKELY( ctx->dump_proto_ctx && ctx->dump_proto_ctx->dump_block_to_pb ) ) {
+    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->dump_proto_ctx );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
 # endif
@@ -960,28 +969,14 @@ static void
 publish_root_advanced( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem ) {
 
-  /* FIXME: for now we want to send the child of the consensus root to
-     avoid data races with funk root advancing.  This is a temporary
-     hack because currently it is not safe to query against the xid for
-     the root that is being advanced in funk.  This doesn't eliminate
-     the data race that exists in funk, but reduces how often it occurs.
-
-     Case that causes a data race:
-     replay: we are advancing the root from slot A->B
-     resolv: we are resolving ALUTs against slot B */
-
-  fd_bank_t consensus_root_bank[1];
-  if( FD_UNLIKELY( !fd_banks_bank_query( consensus_root_bank, ctx->banks, ctx->consensus_root_bank_idx ) ) ) {
+  fd_bank_t bank[1];
+  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, ctx->consensus_root_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
-  if( FD_UNLIKELY( consensus_root_bank->data->child_idx==ULONG_MAX ) ) {
-    return;
-  }
-
-  fd_bank_t bank[1];
-  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, consensus_root_bank->data->child_idx ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: consensus root bank child is NULL at bank index %lu", consensus_root_bank->data->child_idx ));
+  if( ctx->rpc_enabled ) {
+    bank->data->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
   }
 
   /* Increment the reference count on the consensus root bank to account
@@ -1560,9 +1555,6 @@ dispatch_task( fd_replay_tile_t *  ctx,
     case FD_SCHED_TT_TXN_EXEC: {
       fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, task->txn_exec->txn_idx );
 
-      /* FIXME: this should be done during txn parsing so that we don't
-         have to loop over all accounts a second time. */
-      /* Insert or reverify invoked programs for this epoch, if needed. */
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, task->txn_exec->bank_idx ) );
 
@@ -1570,7 +1562,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       /* Add the transaction to the block dumper if necessary. This
          logic doesn't need to be fork-aware since it's only meant to
          be used in backtest. */
-      if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
+      if( FD_UNLIKELY( ctx->dump_proto_ctx && ctx->dump_proto_ctx->dump_block_to_pb ) ) {
         fd_dump_block_to_protobuf_collect_tx( ctx->block_dump_ctx, txn_p );
       }
 #     endif
@@ -1646,14 +1638,26 @@ replay( fd_replay_tile_t *  ctx,
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
       replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+      int err = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL, NULL );
+      FD_TEST( err==0 );
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t bank[1];
       fd_banks_bank_query( bank, ctx->banks, task->block_end->bank_idx );
       if( FD_LIKELY( !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for sched", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+      bank->data->refcnt--;
+      ulong dead_bank_idx;
+      int err = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL, &dead_bank_idx );
+      if( FD_UNLIKELY( err==-2 ) ) {
+        fd_bank_t dead_bank[1];
+        fd_banks_bank_query( dead_bank, ctx->banks, dead_bank_idx );
+        dead_bank->data->refcnt--;
+        FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for sched", dead_bank->data->idx, fd_bank_slot_get( dead_bank ), dead_bank->data->refcnt ));
+        break;
+      }
+      FD_TEST( err==0 );
       break;
     }
     case FD_SCHED_TT_TXN_EXEC:
@@ -1854,6 +1858,11 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( sched_fec->is_first_in_block ) ) {
+    bank->data->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  }
+
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, bank );
   }
@@ -1974,51 +1983,9 @@ after_credit( fd_replay_tile_t *  ctx,
 
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
-
-  /* FIXME: The reasm logic needs to get reworked to support
-     equivocation more robustly. */
   if( FD_LIKELY( can_process_fec( ctx ) ) ) {
-    fd_reasm_fec_t * fec = fd_reasm_peek( ctx->reasm );
-
-    /* If fec->eqvoc is set that means that equivocation mid-block was
-       detected in fd_reasm_t.  We need to replay up to and including
-       the equivocating FEC on a new bank. */
-
-    if( FD_UNLIKELY( fec->eqvoc ) ) {
-      FD_LOG_WARNING(( "Block equivocation detected at slot %lu", fec->slot ));
-
-      /* We need to figure out which and how many FECs we need to
-         (re)insert into the scheduler.  We work backwards from the
-         equivocating FEC, querying for chained merkle roots until we
-         reach the first FEC in the slot.
-         TODO: replace the magic number with a constant for the max
-               number of fecs possible in a slot with fix-32. */
-      fd_reasm_fec_t * fecs[ 1024 ] = { [0] = fec };
-      ulong            fec_cnt      = 1UL;
-      while( fecs[ fec_cnt-1UL ]->fec_set_idx!=0UL ) {
-        fec = fd_reasm_query( ctx->reasm, &fecs[ fec_cnt-1UL ]->cmr );
-        fecs[ fec_cnt++ ] = fec;
-      }
-
-      /* If we don't have enough space in the scheduler to ingest all of
-         FECs, we can't proceed yet. */
-      if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched, fec_cnt ) ) ) return;
-
-      /* Now that we have validated that sched can ingest all of the
-         required FECs, it is finally safe to remove the equivocating
-         fec from the reasm deque. */
-      fd_reasm_pop( ctx->reasm );
-
-      /* Now we can process all of the FECs. */
-      for( ulong i=fec_cnt; i>0UL; i-- ) {
-        process_fec_set( ctx, stem, fecs[i-1UL] );
-      }
-    } else {
-      /* Standard case. */
-      fec = fd_reasm_pop( ctx->reasm );
-      process_fec_set( ctx, stem, fec );
-    }
-
+    fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
+    process_fec_set( ctx, stem, fec );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2088,7 +2055,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx, NULL, NULL );
       FD_TEST( res==0 );
       break;
     }
@@ -2109,12 +2076,13 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx, NULL, NULL );
       FD_TEST( res==0 );
       break;
     }
     case FD_EXECRP_TT_POH_HASH: {
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash, NULL );
+      FD_TEST( res!=-2 );
       if( FD_UNLIKELY( res<0 && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
         fd_banks_mark_bank_dead( ctx->banks, bank );
 
@@ -2261,7 +2229,6 @@ static void
 process_resolv_slot_completed( fd_replay_tile_t * ctx, ulong bank_idx ) {
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, bank_idx ) );
-
   bank->data->refcnt--;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
 }
@@ -2340,6 +2307,27 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
   }
 }
 
+static void
+process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
+                                    fd_stem_context_t *               stem,
+                                    fd_tower_slot_confirmed_t const * msg ) {
+  FD_TEST( msg->bank_idx!=ULONG_MAX );
+
+  if( ctx->rpc_enabled ) {
+    fd_bank_t bank[1];
+    FD_TEST( fd_banks_bank_query( bank, ctx->banks, msg->bank_idx ) );
+    bank->data->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  }
+
+  fd_replay_oc_advanced_t * replay_msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  replay_msg->bank_idx = msg->bank_idx;
+  replay_msg->slot = msg->slot;
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_OC_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
 static inline int
 returnable_frag( fd_replay_tile_t *  ctx,
                  ulong               in_idx,
@@ -2398,18 +2386,14 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      if     ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE      ) ) process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
+      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+        process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
+      }
       else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
         fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-
-        /* Implement replay plugin API here */
-
-        switch( msg->kind ) {
-        case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC: break;
-        case FD_TOWER_SLOT_CONFIRMED_ROOTED:     break;
-        }
+        if( msg->kind==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) process_tower_optimistic_confirmed( ctx, stem, msg );
       }
-      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED   ) ) {
+      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED ) ) {
         fd_tower_slot_ignored_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_tower_slot_done_t ignored = {
           .replay_slot     = msg->slot,
@@ -2526,6 +2510,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * vinyl_req_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_req_pool_align(),   fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
+  void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
 # if FD_HAS_FLATCC
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
@@ -2602,6 +2587,7 @@ unprivileged_init( fd_topo_t *      topo,
         topo->workspaces[ vinyl_data->wksp_id ].wksp,
         fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
         vinyl_rq->id ) );
+    fd_accdb_admin_v2_delay_set( ctx->accdb_admin, tile->replay.write_delay_slots );
   }
   fd_accdb_init_from_topo( ctx->accdb, topo, tile );
 
@@ -2612,18 +2598,19 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->txncache );
 
   ctx->capture_ctx = NULL;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
-  }
-
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
     ctx->capture_ctx->capture_solcap = 1;
   }
 
+  ctx->dump_proto_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
-    ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
-    if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;
+    ctx->dump_proto_ctx                        = dump_proto_ctx_mem;
+    ctx->dump_proto_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
+    if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) {
+      ctx->dump_proto_ctx->dump_block_to_pb = !!tile->replay.dump_block_to_pb;
+    }
   }
 
 # if FD_HAS_FLATCC

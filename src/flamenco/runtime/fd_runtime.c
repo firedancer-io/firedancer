@@ -517,19 +517,20 @@ deprecate_rent_exemption_threshold( fd_bank_t *               bank,
                                     fd_accdb_user_t *         accdb,
                                     fd_funk_txn_xid_t const * xid,
                                     fd_capture_ctx_t *        capture_ctx ) {
-  fd_rent_t rent[1] = {0};
-  if( FD_UNLIKELY( !fd_sysvar_rent_read( accdb, xid, rent ) ) ) {
-    FD_LOG_CRIT(( "fd_sysvar_rent_read failed" ));
-  }
-  rent->lamports_per_uint8_year = fd_rust_cast_double_to_ulong(
-    (double)rent->lamports_per_uint8_year * rent->exemption_threshold );
-  rent->exemption_threshold     = FD_SIMD_0194_NEW_RENT_EXEMPTION_THRESHOLD;
+  /* We use the bank fields here to mirror Agave - in mainnet, devnet
+     and testnet Agave's bank rent.burn_percent field is different to
+     the value in the sysvar. When this feature is activated in Agave,
+     the sysvar inherits the value from the bank. */
+  fd_rent_t rent               = fd_bank_rent_get( bank );
+  rent.lamports_per_uint8_year = fd_rust_cast_double_to_ulong(
+    (double)rent.lamports_per_uint8_year * rent.exemption_threshold );
+  rent.exemption_threshold     = FD_SIMD_0194_NEW_RENT_EXEMPTION_THRESHOLD;
 
   /* We don't refresh the sysvar cache here. The cache is refreshed in
-     fd_sysvar_cache_restore, which is called at the start of every block
-     in fd_runtime_block_execute_prepare, after this function. */
-  fd_sysvar_rent_write( bank, accdb, xid, capture_ctx, rent );
-  fd_bank_rent_set( bank, *rent );
+     fd_sysvar_cache_restore, which is called at the start of every
+     block in fd_runtime_block_execute_prepare, after this function. */
+  fd_sysvar_rent_write( bank, accdb, xid, capture_ctx, &rent );
+  fd_bank_rent_set( bank, rent );
 }
 
 /* Starting a new epoch.
@@ -880,9 +881,9 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   */
 
 # if FD_HAS_FLATCC
-  uchar dump_txn = !!( runtime->log.capture_ctx &&
-                       fd_bank_slot_get( bank ) >= runtime->log.capture_ctx->dump_proto_start_slot &&
-                       runtime->log.capture_ctx->dump_txn_to_pb );
+  uchar dump_txn = !!( runtime->log.dump_proto_ctx &&
+                       fd_bank_slot_get( bank ) >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                       runtime->log.dump_proto_ctx->dump_txn_to_pb );
   if( FD_UNLIKELY( dump_txn ) ) {
     fd_dump_txn_to_protobuf( runtime, bank, txn_in, txn_out );
   }

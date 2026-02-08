@@ -166,6 +166,7 @@ test( fd_vinyl_io_t * io,
     case 5: { /* rewind */
       if( fd_vinyl_seq_ne( seq_present, seq_future ) ) break;
       ulong seq = seq_present - FD_VINYL_BSTREAM_BLOCK_SZ*fd_rng_coin_tosses( rng );
+      if( fd_vinyl_seq_lt( seq, seq_past ) ) break;
       /**/ bcache_rewind(     seq );
       fd_vinyl_io_rewind( io, seq );
       break;

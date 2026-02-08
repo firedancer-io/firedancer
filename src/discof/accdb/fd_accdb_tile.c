@@ -12,7 +12,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../vinyl/fd_vinyl.h"
 #include "../../vinyl/fd_vinyl_base.h"
-#include "../../vinyl/io/fd_vinyl_io_ur.h"
+#include "../../vinyl/io/ur/fd_vinyl_io_ur.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"
@@ -26,7 +26,10 @@
 #define NAME "accdb"
 #define MAX_INS 8
 
-#define IO_SPAD_MAX (32UL<<20)
+/* For io_ur backend, this controls the size of the write-back cache.
+   This should be larger than the cumulative record size of all unique
+   changed accounts in a slot. */
+#define IO_SPAD_MAX (128UL<<20)
 
 #define FD_VINYL_CLIENT_MAX (1024UL)
 #define FD_VINYL_REQ_MAX    (1024UL)
@@ -242,15 +245,17 @@ vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
     FD_LOG_ERR(( "io_uring_register_files failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  fd_io_uring_restriction_t res[3] = {
+  fd_io_uring_restriction_t res[4] = {
     { .opcode    = FD_IORING_RESTRICTION_SQE_OP,
       .sqe_op    = IORING_OP_READ },
+    { .opcode    = FD_IORING_RESTRICTION_SQE_OP,
+      .sqe_op    = IORING_OP_WRITE },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_REQUIRED,
       .sqe_flags = IOSQE_FIXED_FILE },
     { .opcode    = FD_IORING_RESTRICTION_SQE_FLAGS_ALLOWED,
-      .sqe_flags = IOSQE_IO_LINK | IOSQE_CQE_SKIP_SUCCESS }
+      .sqe_flags = 0 }
   };
-  if( FD_UNLIKELY( fd_io_uring_register_restrictions( ctx->ring->ioring_fd, res, 3U )<0 ) ) {
+  if( FD_UNLIKELY( fd_io_uring_register_restrictions( ctx->ring->ioring_fd, res, 4U )<0 ) ) {
     FD_LOG_ERR(( "io_uring_register_restrictions failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -647,6 +652,18 @@ metrics_write( fd_vinyl_tile_t * ctx ) {
   fd_vinyl_t *    vinyl = ctx->vinyl;
   fd_vinyl_io_t * io    = vinyl->io;
 
+  FD_MGAUGE_SET( ACCDB, ACCOUNTS,          vinyl->pair_cnt      );
+  FD_MGAUGE_SET( ACCDB, ACCOUNT_MAP_SLOTS, vinyl->meta->ele_max );
+
+  FD_MCNT_SET( ACCDB, READ_OPS_IO_CACHE,    io->cache_read_cnt     );
+  FD_MCNT_SET( ACCDB, READ_BYTES_IO_CACHE,  io->cache_read_tot_sz  );
+  FD_MCNT_SET( ACCDB, WRITE_OPS_IO_CACHE,   io->cache_write_cnt    );
+  FD_MCNT_SET( ACCDB, WRITE_BYTES_IO_CACHE, io->cache_write_tot_sz );
+  FD_MCNT_SET( ACCDB, READ_OPS_FILE,        io->file_read_cnt      );
+  FD_MCNT_SET( ACCDB, READ_BYTES_FILE,      io->file_read_tot_sz   );
+  FD_MCNT_SET( ACCDB, WRITE_OPS_FILE,       io->file_write_cnt     );
+  FD_MCNT_SET( ACCDB, WRITE_BYTES_FILE,     io->file_write_tot_sz  );
+
   FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_ANCIENT, io->seq_ancient );
   FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_PAST,    io->seq_past    );
   FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_PRESENT, io->seq_present );
@@ -699,7 +716,6 @@ before_credit( fd_vinyl_tile_t *   ctx,
   ulong accum_dead_cnt    = ctx->accum_dead_cnt;
   ulong accum_garbage_cnt = ctx->accum_garbage_cnt;
   ulong accum_garbage_sz  = ctx->accum_garbage_sz;
-  ulong accum_cache_hit   = 0UL;
 
   /* Enqueue up to burst_max requests from this client into the
      local request queue.  Using burst_max << FD_VINYL_REQ_MAX
@@ -795,6 +811,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
     ulong read_cnt   = 0UL;
     ulong append_cnt = 0UL;
 
+    ulong accum_cache_hit = 0UL;
     switch( req->type ) {
 
 #   include "../../vinyl/fd_vinyl_case_acquire.c"
@@ -811,9 +828,14 @@ before_credit( fd_vinyl_tile_t *   ctx,
     FD_MCNT_INC( ACCDB, REQUEST_BATCHES, 1UL );
     switch( req->type ) {
     case FD_VINYL_REQ_TYPE_ACQUIRE:
-      FD_MCNT_INC( ACCDB, REQUESTS_ACQUIRE, batch_cnt );
+      FD_MCNT_INC( ACCDB, REQUESTS_ACQUIRE,      batch_cnt       );
+      FD_MCNT_INC( ACCDB, READ_OPS_SHARED_CACHE, accum_cache_hit );
       break;
     case FD_VINYL_REQ_TYPE_RELEASE:
+      /* FIXME missing metrics:
+         - ReadBytes(SharedCache)
+         - WriteOps(SharedCache)
+         - WriteBytes(SharedCache) */
       FD_MCNT_INC( ACCDB, REQUESTS_RELEASE, batch_cnt );
       break;
     case FD_VINYL_REQ_TYPE_ERASE:
@@ -860,10 +882,6 @@ before_credit( fd_vinyl_tile_t *   ctx,
       FD_ALERT( !memcmp( &ele0[ ele_idx ].phdr, cphdr, sizeof(fd_vinyl_bstream_phdr_t) ), "corruption detected" );
       FD_CRIT ( ele0[ ele_idx ].seq     ==seq,                                            "corruption detected" );
       FD_CRIT ( ele0[ ele_idx ].line_idx==line_idx,                                       "corruption detected" );
-
-      /* Verify data integrity */
-
-      FD_ALERT( !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)cphdr, cpair_sz ), "corruption detected" );
 
       /* Decode the pair */
 
@@ -940,7 +958,6 @@ before_credit( fd_vinyl_tile_t *   ctx,
   ctx->accum_dead_cnt    = accum_dead_cnt;
   ctx->accum_garbage_cnt = accum_garbage_cnt;
   ctx->accum_garbage_sz  = accum_garbage_sz;
-  FD_MCNT_INC( ACCDB, CACHE_HITS, accum_cache_hit );
 }
 
 #define STEM_BURST (1UL)
@@ -962,7 +979,13 @@ fd_topo_run_tile_t fd_tile_vinyl = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .run                      = stem_run
+  .run                      = stem_run,
+
+  /* Depending on kernel version and file system, io_uring might spawn
+     kthreads to do write I/O.  Unless we set this, fd_sandbox sets
+     RLIMIT_NPROC to zero, which fails io_arm_poll_handler, which
+     bubbles up as an ECANCELED. */
+  .rlimit_nproc = 8UL
 };
 
 #undef NAME

@@ -5,6 +5,7 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../progcache/fd_prog_load.h"
 #include "../../progcache/fd_progcache_user.h"
+#include "../tests/fd_dump_pb.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../fd_pubkey_utils.h"
 #include "../fd_borrowed_account.h"
@@ -434,9 +435,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   /* For dumping syscalls for seed corpora */
-  int dump_syscall_to_pb = instr_ctx->runtime->log.capture_ctx &&
-                           fd_bank_slot_get( instr_ctx->bank ) >= instr_ctx->runtime->log.capture_ctx->dump_proto_start_slot &&
-                           instr_ctx->runtime->log.capture_ctx->dump_syscall_to_pb;
+  int dump_syscall_to_pb = instr_ctx->runtime->log.dump_proto_ctx &&
+                           fd_bank_slot_get( instr_ctx->bank )>=instr_ctx->runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                           instr_ctx->runtime->log.dump_proto_ctx->dump_syscall_to_pb;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/bpf_loader/src/lib.rs#L1525-L1528 */
   ulong r2_initial_value = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
@@ -540,17 +541,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                      ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
                      vm->segv_vaddr!=ULONG_MAX ) ) {
 
-      /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
-      if( FD_UNLIKELY( vm->segv_vaddr>>32UL==0UL ) ) {
-        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-      }
-
-      /* If the vaddr doesn't live in the input region, then we don't need to
-         bother trying to iterate through all of the borrowed accounts. */
-      if( FD_VADDR_TO_REGION( vm->segv_vaddr )!=FD_VM_INPUT_REGION ) {
-        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-      }
-
       /* If the vaddr of the access violation falls within the bounds of a
          serialized account vaddr range, then try to retrieve a more specific
          vm error based on the account's accesss permissions. */
@@ -579,21 +569,27 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
           /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1581-L1616 */
           if( fd_ulong_sat_add( vm->segv_vaddr, vm->segv_access_len ) <= region_data_vaddr_end ) {
             /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1592-L1601 */
-            if( vm->segv_access_type == FD_VM_ACCESS_TYPE_ST ) {
+            if( vm->segv_access_type==FD_VM_ACCESS_TYPE_ST ) {
               int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
               if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-                return borrow_err;
+                err = borrow_err;
               } else {
-                return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+                err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
               }
-            } else if ( vm->segv_access_type == FD_VM_ACCESS_TYPE_LD ) {
+            } else if( vm->segv_access_type==FD_VM_ACCESS_TYPE_LD ) {
               int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
               if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-                return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+                err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
               } else {
-                return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+                err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
               }
+            } else {
+              FD_LOG_CRIT(( "invariant violation: unsupported access type: %i", vm->segv_access_type ));
             }
+
+            FD_VM_PREPARE_ERR_OVERWRITE( vm );
+            FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+            return err;
           }
         }
       }

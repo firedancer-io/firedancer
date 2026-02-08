@@ -778,6 +778,12 @@ metric introduced.
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<enum name="RootPhase">
+    <int value="0" name="Db" label="Waiting on database server" />
+    <int value="1" name="Copy" label="Copying account data" />
+    <int value="2" name="Gc" label="Garbage collecting old account data" />
+</enum>
+
 <tile name="replay">
   <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
     <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
@@ -825,16 +831,19 @@ metric introduced.
   <counter name="AccdbCreated" summary="Number of account database records created" />
   <counter name="AccdbReverted" summary="Number of account database records reverted" />
   <counter name="AccdbRooted" summary="Number of account database entries rooted" />
+  <counter name="AccdbRootedBytes" summary="Number of bytes in account database entries rooted (including overhead)" />
   <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
   <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
 
-  <histogram name="RootSlotDurationSeconds" min="0.0001" max="1.0" converter="seconds">
+  <histogram name="RootSlotDurationSeconds" min="0.0005" max="1.0" converter="seconds">
     <summary>Time in seconds spent updating the rooted account store (one sample per block)</summary>
   </histogram>
 
   <histogram name="RootAccountDurationSeconds" min="0.0000001" max="0.1" converter="seconds">
     <summary>Time in seconds spent updating the rooted account store (one sample per block, normalized by account count)</summary>
   </histogram>
+
+  <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
 </tile>
 
 <enum name="RepairSentRequestTypes">
@@ -1206,12 +1215,6 @@ metric introduced.
 
 <tile name="tower">
 
-    <!-- Vote txns from TPU / Gossip -->
-
-    <counter name="VoteTxnInvalid" summary="Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)" />
-    <counter name="VoteTxnIgnored" summary="Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)" />
-    <counter name="VoteTxnMismatch" summary="Number of times a vote txn mismatched our own block id" />
-
     <!-- Tower voting decisions -->
 
     <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
@@ -1223,12 +1226,48 @@ metric introduced.
     <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
     <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
 
+    <!-- Vote txns from TPU / Gossip -->
+
+    <counter name="VoteTxnInvalid" summary="Number of invalid vote txns (malformed, bad signature, etc.)" />
+    <counter name="VoteTxnIgnored" summary="Number of ignored vote txns (unrecognized slot or block id)" />
+
+    <!-- DuplicateShreds from Gossip -->
+
+    <counter name="ProofErrChunkCnt" summary="Invalid DuplicateShred proof bad chunk cnt" />
+    <counter name="ProofErrChunkIdx" summary="Invalid DuplicateShred proof bad chunk idx" />
+    <counter name="ProofErrChunkLen" summary="Invalid DuplicateShred proof bad chunk len" />
+
+    <counter name="ProofErrShredSer" summary="Invalid DuplicateShred proof bad serialization" />
+    <counter name="ProofErrShredSlot" summary="Invalid DuplicateShred proof different slots" />
+    <counter name="ProofErrShredVersion" summary="Invalid DuplicateShred proof shred version mismatch" />
+    <counter name="ProofErrShredType" summary="Invalid DuplicateShred proof bad shred type" />
+    <counter name="ProofErrShredMerkle" summary="Invalid DuplicateShred proof bad merkle root" />
+    <counter name="ProofErrShredSignature" summary="Invalid DuplicateShred proof bad signature" />
+
+    <counter name="ProofVerifiedMerkle" summary="Merkle root conflict" />
+    <counter name="ProofVerifiedMeta" summary="Coding metadata conflict" />
+    <counter name="ProofVerifiedLast" summary="Last shred index conflict" />
+    <counter name="ProofVerifiedOverlap" summary="Overlapping FEC set conflict" />
+    <counter name="ProofVerifiedChained" summary="Chained merkle root conflict" />
+
+    <!-- DuplicateShreds we constructed from shreds -->
+
+    <counter name="ProofConstructed" summary="Number of duplicate proofs we constructed" />
+
     <!-- Tower slot metadata -->
 
-    <gauge name="RootSlot" summary="Current Tower root slot" />
-    <gauge name="VoteSlot" summary="Current Tower vote slot" />
-    <gauge name="ResetSlot" summary="Current Tower reset slot" />
-    <counter name="SlotIgnored" summary="Number of times we ignored a slot likely due to minority fork publish" />
+    <gauge name="ClusterRootSlot" summary="Cluster root slot (from on-chain vote account as of ReplaySlotProcessed)" />
+    <gauge name="ClusterVoteSlot" summary="Cluster vote slot (from on-chain vote account as of ReplaySlotProcessed)" />
+    <gauge name="LocalRootSlot" summary="Local root slot (root of local tower)" />
+    <gauge name="LocalVoteSlot" summary="Local vote slot (top of local tower)" />
+    <gauge name="ResetSlot" summary="Reset slot" />
+
+    <!-- Replay slot completed -->
+
+    <gauge name="ReplaySlotProcessed" summary="Most recent processed ReplaySlotCompleted slot" />
+    <gauge name="ReplaySlotIgnored" summary="Most recent ignored ReplaySlotCompleted slot" />
+    <counter name="ReplaySlotProcessed" summary="Number of processed ReplaySlotCompleted frags" />
+    <counter name="ReplaySlotIgnored" summary="Number of ignored ReplaySlotCompleted frags" />
 
     <!-- Hard forks / bank hash cmp tracking -->
 
@@ -1283,14 +1322,28 @@ metric introduced.
     <int value="3" name="Future" label="Blocks between future and ancient have not been written (no read, no write)" />
 </enum>
 
+<enum name="StorageType">
+    <int value="0" name="SharedCache" label="Record cache" />
+    <int value="1" name="IoCache" label="I/O layer cache" />
+    <int value="2" name="File" label="File access" />
+</enum>
+
 <tile name="accdb">
+    <!-- user friendly metrics -->
+    <gauge name="Accounts" summary="Current number of accounts" />
+    <counter name="ReadOps" enum="StorageType" summary="Total number of read operations" />
+    <counter name="ReadBytes" enum="StorageType" summary="Total number of bytes read" />
+    <counter name="WriteOps" enum="StorageType" summary="Total number of write operations" />
+    <counter name="WriteBytes" enum="StorageType" summary="Total number of bytes written" />
+
+    <!-- developer metrics -->
     <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
     <counter name="RequestBatches" summary="Number of request batches processed" />
     <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
     <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
     <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
     <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
-    <counter name="CacheHits" summary="Total number of cache hits" />
+    <gauge name="AccountMapSlots" summary="Account map capacity" />
 </tile>
 
 </metrics>
