@@ -64,11 +64,11 @@ int main( int argc, char ** argv ) {
   fd_pubkey_t voter_pubkey_1 = { .ul = { 7, 8 } };
 
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 0UL );
-  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, 0.0 );
+  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, 0.09 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
-  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 200UL, 0UL, 0UL, 0UL, 0.0 );
+  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 200UL, 0UL, 0UL, 0UL, 0.09 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
-  fd_stake_delegations_update( stake_delegations, &stake_account_2, &voter_pubkey_1, 300UL, 0UL, 0UL, 0UL, 0.0 );
+  fd_stake_delegations_update( stake_delegations, &stake_account_2, &voter_pubkey_1, 300UL, 0UL, 0UL, 0UL, 0.09 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
 
   fd_stake_delegation_t const * stake_delegation_0 = fd_stake_delegations_query( stake_delegations, &stake_account_0 );
@@ -78,7 +78,7 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegation_0->stake == 100UL );
   FD_TEST( stake_delegation_0->activation_epoch == 0UL );
   FD_TEST( stake_delegation_0->deactivation_epoch == 0UL );
-  FD_TEST( stake_delegation_0->warmup_cooldown_rate == 0.0 );
+  FD_TEST( stake_delegation_0->warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
   fd_stake_delegation_t const * stake_delegation_1 = fd_stake_delegations_query( stake_delegations, &stake_account_1 );
   FD_TEST( stake_delegation_1 );
@@ -87,7 +87,7 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegation_1->stake == 200UL );
   FD_TEST( stake_delegation_1->activation_epoch == 0UL );
   FD_TEST( stake_delegation_1->deactivation_epoch == 0UL );
-  FD_TEST( stake_delegation_1->warmup_cooldown_rate == 0.0 );
+  FD_TEST( stake_delegation_1->warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
   fd_stake_delegation_t const * stake_delegation_2 = fd_stake_delegations_query( stake_delegations, &stake_account_2 );
   FD_TEST( stake_delegation_2 );
@@ -96,25 +96,25 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegation_2->stake == 300UL );
   FD_TEST( stake_delegation_2->activation_epoch == 0UL );
   FD_TEST( stake_delegation_2->deactivation_epoch == 0UL );
-  FD_TEST( stake_delegation_2->warmup_cooldown_rate == 0.0 );
+  FD_TEST( stake_delegation_2->warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
   FD_TEST( !fd_stake_delegations_query( stake_delegations, &stake_account_3 ) );
 
-  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 200UL, 0UL, 0UL, 0UL, 0.0 );
+  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 200UL, 0UL, 0UL, 0UL, 0.09 );
   FD_TEST( stake_delegation_0 );
   FD_TEST( !memcmp( &stake_delegation_0->stake_account, &stake_account_0, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( &stake_delegation_0->vote_account, &voter_pubkey_0, sizeof(fd_pubkey_t) ) );
   FD_TEST( stake_delegation_0->stake == 200UL );
   FD_TEST( stake_delegation_0->activation_epoch == 0UL );
   FD_TEST( stake_delegation_0->deactivation_epoch == 0UL );
-  FD_TEST( stake_delegation_0->warmup_cooldown_rate == 0.0 );
+  FD_TEST( stake_delegation_0->warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
 
   fd_stake_delegations_remove( stake_delegations, &stake_account_1 );
   FD_TEST( !fd_stake_delegations_query( stake_delegations, &stake_account_1 ) );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
 
-  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 10000UL, 0UL, 0UL, 0UL, 0.0 );
+  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 10000UL, 0UL, 0UL, 0UL, 0.09 );
   stake_delegation_1 = fd_stake_delegations_query( stake_delegations, &stake_account_1 );
   FD_TEST( stake_delegation_1 );
   FD_TEST( !memcmp( &stake_delegation_1->stake_account, &stake_account_1, sizeof(fd_pubkey_t) ) );
@@ -122,7 +122,7 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegation_1->stake == 10000UL );
   FD_TEST( stake_delegation_1->activation_epoch == 0UL );
   FD_TEST( stake_delegation_1->deactivation_epoch == 0UL );
-  FD_TEST( stake_delegation_1->warmup_cooldown_rate == 0.0 );
+  FD_TEST( stake_delegation_1->warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
 
   FD_TEST( !fd_stake_delegations_delete( NULL ) );
@@ -135,9 +135,9 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegations );
 
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 0UL );
-  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, 0.0 );
+  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, 0.09 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
-  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 200UL, 0UL, 0UL, 0UL, 0.0 );
+  fd_stake_delegations_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 200UL, 0UL, 0UL, 0UL, 0.09 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
   fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_query( stake_delegations, &stake_account_0 );
   FD_TEST( stake_delegation );
@@ -158,7 +158,7 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegation->is_tombstone == 1 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
 
-  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, 0.0 );
+  fd_stake_delegations_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 100UL, 0UL, 0UL, 0UL, 0.09 );
   stake_delegation = fd_stake_delegations_query( stake_delegations, &stake_account_0 );
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->is_tombstone == 0 );

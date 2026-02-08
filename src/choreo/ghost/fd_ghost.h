@@ -182,11 +182,6 @@ fd_ghost_delete( void * ghost );
 
 /* Accessors */
 
-/* fd_ghost_gaddr returns the gaddr of ghost in the backing wksp. */
-
-ulong
-fd_ghost_gaddr( fd_ghost_t const * ghost );
-
 /* fd_ghost_{root,parent,child,sibling} returns a pointer in the
    caller's address space to the {root,parent,left-child,right-sibling}.
    Assumes ghost is a current local join and blk is a valid pointer to a

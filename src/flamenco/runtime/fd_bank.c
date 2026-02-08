@@ -366,7 +366,7 @@ fd_banks_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( max_total_banks>=FD_BANKS_MAX_BANKS ) ) {
+  if( FD_UNLIKELY( max_total_banks>FD_BANKS_MAX_BANKS ) ) {
     FD_LOG_WARNING(( "max_total_banks is too large" ));
     return NULL;
   }
@@ -824,8 +824,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
 
-  child_bank->refcnt = 0UL;
-
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 
   bank_l->locks = banks->locks;
@@ -865,7 +863,7 @@ fd_banks_stake_delegations_apply_delta( fd_bank_data_t *         bank,
           stake_delegation->activation_epoch,
           stake_delegation->deactivation_epoch,
           stake_delegation->credits_observed,
-          stake_delegation->warmup_cooldown_rate
+          fd_stake_delegations_warmup_cooldown_rate_to_double( stake_delegation->warmup_cooldown_rate )
       );
     } else {
       fd_stake_delegations_remove( stake_delegations_base, &stake_delegation->stake_account );
@@ -1264,6 +1262,7 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
   child_bank->sibling_idx = null_idx;
   child_bank->next        = null_idx;
   child_bank->flags       = FD_BANK_FLAGS_INIT;
+  child_bank->refcnt      = 0UL;
 
   /* Then make sure that the parent bank is valid and frozen. */
 

@@ -281,21 +281,20 @@ if [[ "$DB" == "funk" ]]; then
 [funk]
     heap_size_gib = $FUNK_PAGES
     max_account_records = $INDEX_MAX
-    max_database_transactions = 64
 EOF
 elif [[ "$DB" == "vinyl" ]]; then
   if [[ "$INDEX_MAX" -lt "1000000" ]]; then
     INDEX_MAX=1000000
   fi
+  INDEX_MAX=$(( INDEX_MAX * 2 ))
   cat <<EOF >> ${CONFIG_FILE}
 [funk]
     heap_size_gib = 2
     max_account_records = 1000000
-    max_database_transactions = 64
 [vinyl]
     enabled = true
     max_account_records = $INDEX_MAX
-    file_size_gib = $((FUNK_PAGES * 2))
+    file_size_gib = $((FUNK_PAGES * 4))
     max_cache_entries = 100000
     cache_size_gib = 10
     [vinyl.io_uring]

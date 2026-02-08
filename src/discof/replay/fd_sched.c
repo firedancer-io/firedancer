@@ -40,9 +40,9 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for res
 
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
 
-#define FD_SCHED_PARSER_OK          (0)
-#define FD_SCHED_PARSER_AGAIN_LATER (1)
-#define FD_SCHED_PARSER_BAD_BLOCK   (2)
+#define FD_SCHED_OK          (0)
+#define FD_SCHED_AGAIN_LATER (1)
+#define FD_SCHED_BAD_BLOCK   (2)
 
 
 /* Structs. */
@@ -273,7 +273,10 @@ static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block );
 
 static void
-maybe_switch_block( fd_sched_t * sched, ulong bank_idx );
+subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx );
+
+static int
+maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_idx );
 
 FD_FN_UNUSED static ulong
 find_and_stage_longest_unstaged_fork( fd_sched_t * sched, int lane_idx );
@@ -385,6 +388,11 @@ block_should_deactivate( fd_sched_block_t * block ) {
      will be deactivated if there's still nothing to dispatch by the
      time all in-flight tasks are completed. */
   return !block_is_activatable( block ) && !block_is_in_flight( block );
+}
+
+static inline int
+block_is_prunable( fd_sched_block_t * block ) {
+  return !block->in_rdisp && !block_is_in_flight( block );
 }
 
 static inline ulong
@@ -872,7 +880,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   block->fec_cnt++;
   sched->metrics->fec_cnt++;
 
-  if( FD_UNLIKELY( err==FD_SCHED_PARSER_BAD_BLOCK ) ) {
+  if( FD_UNLIKELY( err==FD_SCHED_BAD_BLOCK ) ) {
     handle_bad_block( sched, block );
     sched->metrics->bytes_dropped_cnt += block->fec_buf_sz-block->fec_buf_soff;
     return 0;
@@ -1119,7 +1127,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 }
 
 int
-fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data ) {
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data, ulong * out_dead_bank_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
 
   ulong bank_idx = ULONG_MAX;
@@ -1147,6 +1155,10 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
   }
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
 
+  if( FD_UNLIKELY( !block->in_sched ) ) {
+    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, slot %lu, parent slot %lu, idx %lu",
+                  block->slot, block->parent_slot, bank_idx ));
+  }
   if( FD_UNLIKELY( !block->staged ) ) {
     /* Invariant: only staged blocks can have in-flight transactions. */
     FD_LOG_CRIT(( "invariant violation: block->staged==0, slot %lu, parent slot %lu",
@@ -1302,7 +1314,10 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
                   bank_idx, block->slot, block->parent_slot ));
   }
 
-  maybe_switch_block( sched, bank_idx );
+  if( FD_UNLIKELY( FD_SCHED_BAD_BLOCK==maybe_switch_block( sched, bank_idx, out_dead_bank_idx ) ) ) {
+    return -2;
+  }
+
   return 0;
 }
 
@@ -1312,6 +1327,10 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
   FD_TEST( bank_idx<sched->block_cnt_max );
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  if( FD_UNLIKELY( !block->in_sched ) ) {
+    FD_LOG_CRIT(( "invariant violation: block->in_sched==0, slot %lu, parent slot %lu, idx %lu",
+                  block->slot, block->parent_slot, bank_idx ));
+  }
 
   FD_LOG_INFO(( "abandoning block %lu slot %lu", bank_idx, block->slot ));
   sched->print_buf_sz = 0UL;
@@ -1375,54 +1394,7 @@ fd_sched_advance_root( fd_sched_t * sched, ulong root_idx ) {
     return;
   }
 
-  fd_sched_block_t * head = old_root;
-  head->parent_idx        = ULONG_MAX;
-  fd_sched_block_t * tail = head;
-
-  while( head ) {
-    FD_TEST( head->in_sched );
-    head->in_sched = 0;
-
-    if( FD_UNLIKELY( !head->block_end_done ) ) {
-      sched->print_buf_sz = 0UL;
-      print_block_metrics( sched, head );
-      FD_LOG_DEBUG(( "block %lu:%lu replayed partially, pruning without full replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
-    }
-
-    ulong child_idx = head->child_idx;
-    while( child_idx!=ULONG_MAX ) {
-      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
-      /* Add children to be visited.  We abuse the parent_idx field to
-         link up the next block to visit. */
-      if( child!=new_root ) {
-        tail->parent_idx = child_idx;
-        tail             = child;
-        tail->parent_idx = ULONG_MAX;
-      }
-      child_idx = child->sibling_idx;
-    }
-
-    /* Prune the current block.  We will never publish halfway into a
-       staging lane, because anything on the rooted fork should have
-       finished replaying gracefully and be out of the dispatcher.  In
-       fact, anything that we are publishing away should be out of the
-       dispatcher at this point.  And there should be no more in-flight
-       transactions. */
-    if( FD_UNLIKELY( block_is_in_flight( head ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: block has transactions in flight (%u exec %u sigverify %u poh), slot %lu, parent slot %lu",
-                    head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->poh_hashing_in_flight_cnt, head->slot, head->parent_slot ));
-    }
-    if( FD_UNLIKELY( head->in_rdisp ) ) {
-      /* We should have removed it from the dispatcher when we were
-         notified of the new root, or when in-flight transactions were
-         drained. */
-      FD_LOG_CRIT(( "invariant violation: block is in the dispatcher, slot %lu, parent slot %lu",
-                    head->slot, head->parent_slot ));
-    }
-    sched->block_pool_popcnt--;
-    fd_sched_block_t * next = block_pool_ele( sched, head->parent_idx );
-    head = next;
-  }
+  subtree_prune( sched, sched->root_idx, root_idx );
 
   new_root->parent_idx = ULONG_MAX;
   sched->root_idx = root_idx;
@@ -1689,7 +1661,7 @@ verify_ticks( fd_sched_block_t * block ) {
 
 #define CHECK( cond )  do {             \
   if( FD_UNLIKELY( !(cond) ) ) {        \
-    return FD_SCHED_PARSER_AGAIN_LATER; \
+    return FD_SCHED_AGAIN_LATER;        \
   }                                     \
 } while( 0 )
 
@@ -1708,7 +1680,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
   while( 1 ) {
     while( block->txns_rem>0UL ) {
       int err;
-      if( FD_UNLIKELY( (err=fd_sched_parse_txn( sched, block, alut_ctx ))!=FD_SCHED_PARSER_OK ) ) {
+      if( FD_UNLIKELY( (err=fd_sched_parse_txn( sched, block, alut_ctx ))!=FD_SCHED_OK ) ) {
         return err;
       }
     }
@@ -1717,7 +1689,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         /* A valid block shouldn't contain more than this amount of
            microblocks. */
         FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks) >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, FD_SCHED_MAX_MBLK_PER_SLOT ));
-        return FD_SCHED_PARSER_BAD_BLOCK;
+        return FD_SCHED_BAD_BLOCK;
       }
 
       CHECK_LEFT( sizeof(fd_microblock_hdr_t) );
@@ -1764,7 +1736,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
           if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
             /* >1 to ignore low power hashing or hashing disabled */
             FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, tick idx %u, prev hashcnt %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->prev_tick_hashcnt, block->curr_tick_hashcnt, block->hashes_per_tick ));
-            return FD_SCHED_PARSER_BAD_BLOCK;
+            return FD_SCHED_BAD_BLOCK;
           }
         }
         block->prev_tick_hashcnt = block->curr_tick_hashcnt;
@@ -1800,7 +1772,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
     block->fec_sob      = 1;
     block->fec_eob      = 0;
   }
-  return FD_SCHED_PARSER_OK;
+  return FD_SCHED_OK;
 }
 
 FD_WARN_UNUSED static int
@@ -1827,7 +1799,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */
-    return FD_SCHED_PARSER_AGAIN_LATER;
+    return FD_SCHED_AGAIN_LATER;
   }
 
   /* FIXME: remove after static_instruction_limit */
@@ -1837,7 +1809,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     /* The block contains more transactions than a valid block would.
        Mark the block dead instead of keep processing it. */
     FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
-    return FD_SCHED_PARSER_BAD_BLOCK;
+    return FD_SCHED_BAD_BLOCK;
   }
 
   /* Try to expand ALUTs. */
@@ -1888,7 +1860,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   txn_bitset_insert( sched->poh_mixin_done_set, txn_idx );
 #endif
   block->txns_rem--;
-  return FD_SCHED_PARSER_OK;
+  return FD_SCHED_OK;
 }
 
 #undef CHECK
@@ -2187,9 +2159,11 @@ check_or_set_active_block( fd_sched_t * sched ) {
   }
 }
 
-/* It's safe to call this function more than once on the same block. */
+/* This function has two main jobs:
+   - Mark everything on the fork tree dying.
+   - Take blocks out of rdisp if possible. */
 static void
-subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
+subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block ) {
   if( FD_UNLIKELY( block->rooted ) ) {
     FD_LOG_CRIT(( "invariant violation: rooted block should not be abandoned, slot %lu, parent slot %lu",
                   block->slot, block->parent_slot ));
@@ -2246,6 +2220,9 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
     // txn_id to index into anything.  We might be able to just drop
     // txn_id on abandoned blocks.  Though would this leak transaction
     // content if the txn_id is recycled?
+    // Note that subtree pruning from sched isn't dependent on the
+    // in-flight check being present here, as is_prunable already checks
+    // for in-flight==0.
     int abandon = in_order && !block_is_in_flight( block );
 
     if( abandon ) {
@@ -2284,16 +2261,98 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
   ulong child_idx = block->child_idx;
   while( child_idx!=ULONG_MAX ) {
     fd_sched_block_t * child = block_pool_ele( sched, child_idx );
-    subtree_abandon( sched, child );
+    subtree_mark_and_maybe_prune_rdisp( sched, child );
     child_idx = child->sibling_idx;
   }
 }
 
+/* It's safe to call this function more than once on the same block.
+   The final call is when there are no more in-flight tasks for this
+   block, at which point the block will be pruned from sched. */
 static void
-maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
+subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
+  subtree_mark_and_maybe_prune_rdisp( sched, block );
+  if( block_is_prunable( block ) ) {
+    fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
+    if( FD_LIKELY( parent ) ) {
+      /* Splice the block out of its parent's children list. */
+      ulong block_idx = block_to_idx( sched, block );
+      ulong * idx_p = &parent->child_idx;
+      while( *idx_p!=block_idx ) {
+        idx_p = &(block_pool_ele( sched, *idx_p )->sibling_idx);
+      }
+      *idx_p = block->sibling_idx;
+    }
+    subtree_prune( sched, block_to_idx( sched, block ), ULONG_MAX );
+  }
+}
+
+static void
+subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
+  fd_sched_block_t * head = block_pool_ele( sched, bank_idx );
+  head->parent_idx        = ULONG_MAX;
+  fd_sched_block_t * tail = head;
+
+  while( head ) {
+    FD_TEST( head->in_sched );
+    head->in_sched = 0;
+
+    if( FD_UNLIKELY( !head->block_end_done ) ) {
+      sched->print_buf_sz = 0UL;
+      print_block_metrics( sched, head );
+      if( FD_LIKELY( head->block_start_done ) ) FD_LOG_DEBUG(( "block %lu:%lu replayed partially, pruning without full replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
+      else FD_LOG_DEBUG(( "block %lu:%lu replayed nothing, pruning without any replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
+    }
+
+    ulong child_idx = head->child_idx;
+    while( child_idx!=ULONG_MAX ) {
+      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      /* Add children to be visited.  We abuse the parent_idx field to
+         link up the next block to visit. */
+      if( child_idx!=except_idx ) {
+        tail->parent_idx = child_idx;
+        tail             = child;
+        tail->parent_idx = ULONG_MAX;
+      }
+      child_idx = child->sibling_idx;
+    }
+
+    /* Prune the current block.  We will never publish halfway into a
+       staging lane, because anything on the rooted fork should have
+       finished replaying gracefully and be out of the dispatcher.  In
+       fact, anything that we are publishing away should be out of the
+       dispatcher at this point.  And there should be no more in-flight
+       transactions. */
+    if( FD_UNLIKELY( block_is_in_flight( head ) ) ) {
+      FD_LOG_CRIT(( "invariant violation: block has transactions in flight (%u exec %u sigverify %u poh), slot %lu, parent slot %lu",
+                    head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->poh_hashing_in_flight_cnt, head->slot, head->parent_slot ));
+    }
+    if( FD_UNLIKELY( head->in_rdisp ) ) {
+      /* We should have removed it from the dispatcher when we were
+         notified of the new root, or when in-flight transactions were
+         drained. */
+      FD_LOG_CRIT(( "invariant violation: block is in the dispatcher, slot %lu, parent slot %lu",
+                    head->slot, head->parent_slot ));
+    }
+    sched->block_pool_popcnt--;
+
+    fd_sched_block_t * next = block_pool_ele( sched, head->parent_idx );
+
+    /* We don't have to clear the indices here since no one should be
+       accessing them.  Defensive programming. */
+    head->parent_idx  = ULONG_MAX;
+    head->child_idx   = ULONG_MAX;
+    head->sibling_idx = ULONG_MAX;
+
+    head = next;
+  }
+}
+
+static int
+maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_idx ) {
   /* This only happens rarely when there are dying in-flight blocks.
      Early exit and don't let dying blocks affect replay. */
-  if( FD_UNLIKELY( bank_idx!=sched->active_bank_idx ) ) return;
+  if( FD_UNLIKELY( bank_idx!=sched->active_bank_idx ) ) return FD_SCHED_OK;
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( block_is_done( block ) ) ) {
@@ -2310,6 +2369,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
        is a policy decision to minimize fork churn.  We could in theory
        reevaluate staging lane allocation here and do promotion/demotion
        as needed. */
+    int rv = FD_SCHED_OK;
     ulong child_idx = block->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_sched_block_t * child = block_pool_ele( sched, child_idx );
@@ -2322,7 +2382,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
                there are no transactions available yet. */
             sched->metrics->deactivate_no_txn_cnt++;
             try_activate_block( sched );
-            return;
+            return FD_SCHED_OK;
           }
           /* ... and it's immediately dispatchable, so switch the active
              block to it, and have the child inherit the head status of
@@ -2334,12 +2394,14 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
             FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
                           sched->staged_bitset, block->staging_lane, block->slot, block->parent_slot, child->slot, child->parent_slot ));
           }
-          return;
+          return FD_SCHED_OK;
         } else {
           /* ... but the child block is considered dead, likely because
              the parser considers it invalid. */
           FD_LOG_INFO(( "child block %lu is already dead", child->slot ));
           subtree_abandon( sched, child );
+          *out_dead_bank_idx = child_idx;
+          rv = FD_SCHED_BAD_BLOCK;
           break;
         }
       }
@@ -2351,6 +2413,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
     sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
     sched->metrics->deactivate_no_child_cnt++;
     try_activate_block( sched );
+    return rv;
   } else if( block_should_deactivate( block ) ) {
     /* We exhausted the active block, but it's not fully done yet.  We
        are just not getting FEC sets for it fast enough.  This could
@@ -2361,6 +2424,8 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
     sched->metrics->deactivate_no_txn_cnt++;
     try_activate_block( sched );
   }
+
+  return FD_SCHED_OK;
 }
 
 FD_FN_UNUSED static ulong

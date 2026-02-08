@@ -558,7 +558,7 @@ during_frag( fd_txsend_tile_ctx_t * ctx,
         ulong const vote_txn_sz = slot_done->vote_txn_sz;
 
         if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return;      /* no new vote to send */
-        if( FD_UNLIKELY( !slot_done->is_valid_vote ) ) return; /* invalid vote */
+        if( FD_UNLIKELY( !slot_done->has_vote_txn ) ) return; /* invalid vote */
 
         uchar vote_txn[ FD_TPU_MTU ];
         fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );

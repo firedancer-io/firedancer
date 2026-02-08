@@ -146,6 +146,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
     FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
     fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
+    memset( phdr, 0, sizeof(fd_vinyl_bstream_phdr_t) );
     phdr->ctl         = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
     phdr->key         = *key;
     phdr->info.val_sz = (uint)val_sz;
@@ -156,7 +157,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
     FD_CRIT( dst_rem >= sizeof(fd_account_meta_t), "corruption detected" );
     fd_account_meta_t * meta = (fd_account_meta_t *)dst;
-    memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
+    memset( meta, 0, sizeof(fd_account_meta_t) );
     memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
     meta->lamports   = lamports;
     meta->slot       = result->account_batch.slot;

@@ -169,8 +169,8 @@ fd_bls12_381_g1_sub_syscall( uchar       _r[ 96 ],
 
 int
 fd_bls12_381_g1_mul_syscall( uchar       _r[ 96 ],
-                             uchar const _a[ 96 ],
                              uchar const _n[ 32 ],
+                             uchar const _a[ 96 ],
                              int         big_endian ) {
   /* point a, scalar n are validated per SIMD-0388 */
   fd_bls12_381_g1aff_t a[1];
@@ -337,8 +337,8 @@ fd_bls12_381_g2_sub_syscall( uchar       _r[ 96*2 ],
 
 int
 fd_bls12_381_g2_mul_syscall( uchar       _r[ 96*2 ],
-                             uchar const _a[ 96*2 ],
                              uchar const _n[ 32 ],
+                             uchar const _a[ 96*2 ],
                              int         big_endian ) {
   /* point a, scalar n are validated per SIMD-0388 */
   fd_bls12_381_g2aff_t a[1];

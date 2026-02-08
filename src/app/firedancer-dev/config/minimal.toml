@@ -4,7 +4,6 @@ max_page_size = "huge"
 [funk]
 max_account_records = 1048576
 heap_size_gib = 20
-max_database_transactions = 1024
 
 [runtime.limits]
 max_live_slots = 512

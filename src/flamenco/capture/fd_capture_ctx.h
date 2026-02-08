@@ -127,27 +127,6 @@ struct fd_capture_ctx {
   fd_solcap_writer_t *     capture;
 
   ulong                    current_txn_idx;
-
-  /*======== PROTOBUF ========*/
-  char const *             dump_proto_output_dir;
-  char const *             dump_proto_sig_filter;
-  ulong                    dump_proto_start_slot;
-
-  /* Instruction Capture */
-  int                      dump_instr_to_pb;
-
-  /* Transaction Capture */
-  int                      dump_txn_to_pb;
-
-  /* Block Capture */
-  int                      dump_block_to_pb;
-
-  /* Syscall Capture */
-  int                      dump_syscall_to_pb;
-
-  /* ELF Capture */
-  int                      dump_elf_to_pb;
-
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 

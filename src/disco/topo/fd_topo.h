@@ -398,6 +398,7 @@ struct fd_topo_tile {
 
       ulong heap_size_gib;
       ulong max_live_slots;
+      ulong write_delay_slots;
 
       /* not specified in TOML */
 
@@ -432,6 +433,8 @@ struct fd_topo_tile {
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
+      char  dump_syscall_name_filter[ PATH_MAX ];
+      char  dump_instr_program_id_filter[ FD_BASE58_ENCODED_32_SZ ];
       int   dump_instr_to_pb;
       int   dump_txn_to_pb;
       int   dump_syscall_to_pb;
@@ -703,6 +706,7 @@ typedef struct {
   ulong        rlimit_file_cnt;
   ulong        rlimit_address_space;
   ulong        rlimit_data;
+  ulong        rlimit_nproc;
   int          for_tpool;
 
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );

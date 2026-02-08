@@ -3,7 +3,6 @@
 #include "fd_dump_pb.h"
 #include "fd_txn_harness.h"
 #include "../../../util/fd_util.h"
-#include "../../capture/fd_capture_ctx.h"
 #include "../fd_bank.h"
 #include "../fd_blockhashes.h"
 #include "../fd_system_ids.h"
@@ -60,8 +59,8 @@ typedef struct test_ctx {
   /* Block dump context */
   fd_block_dump_ctx_t * dump_ctx;
 
-  /* Capture context (required for dump function) */
-  fd_capture_ctx_t * capture_ctx;
+  /* Protobuf dumping context */
+  fd_dump_proto_ctx_t * dump_proto_ctx;
 } test_ctx_t;
 
 /* Setup function - initializes all test infrastructure */
@@ -147,19 +146,13 @@ test_ctx_setup( void ) {
   test_ctx->dump_ctx = fd_block_dump_context_join( fd_block_dump_context_new( dump_ctx_mem ) );
   FD_TEST( test_ctx->dump_ctx );
 
-  /* Allocate capture context */
-  ulong  capture_ctx_footprint = fd_capture_ctx_footprint();
-  void * capture_ctx_mem       = fd_wksp_alloc_laddr( test_ctx->wksp, fd_capture_ctx_align(), capture_ctx_footprint, wksp_tag++ );
-  FD_TEST( capture_ctx_mem );
+  /* Allocate and set up protobuf dumping context */
+  test_ctx->dump_proto_ctx = fd_wksp_alloc_laddr( test_ctx->wksp, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t), wksp_tag++ );
+  FD_TEST( test_ctx->dump_proto_ctx );
 
-  test_ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
-  FD_TEST( test_ctx->capture_ctx );
-
-  /* Set up capture context for dumping */
-  test_ctx->capture_ctx->dump_proto_output_dir = TEST_OUTPUT_DIR;
-  test_ctx->capture_ctx->dump_proto_sig_filter = NULL;
-  test_ctx->capture_ctx->dump_proto_start_slot = 0UL;
-  test_ctx->capture_ctx->dump_block_to_pb = 1;
+  test_ctx->dump_proto_ctx->dump_proto_output_dir = TEST_OUTPUT_DIR;
+  test_ctx->dump_proto_ctx->dump_proto_start_slot = 0UL;
+  test_ctx->dump_proto_ctx->dump_block_to_pb      = 1;
 
   /* Create output directory if it doesn't exist */
   mkdir( TEST_OUTPUT_DIR, 0755 );
@@ -172,8 +165,8 @@ static void
 test_ctx_teardown( test_ctx_t * test_ctx ) {
   if( !test_ctx ) return;
 
-  /* Clean up capture context */
-  fd_wksp_free_laddr( fd_capture_ctx_delete( fd_capture_ctx_leave( test_ctx->capture_ctx ) ) );
+  /* Clean up protobuf dumping context */
+  fd_wksp_free_laddr( test_ctx->dump_proto_ctx );
 
   /* Clean up dump context */
   fd_wksp_free_laddr( fd_block_dump_context_delete( fd_block_dump_context_leave( test_ctx->dump_ctx ) ) );
@@ -508,7 +501,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
       test_ctx->banks,
       test_ctx->child_bank,
       test_ctx->accdb,
-      test_ctx->capture_ctx
+      test_ctx->dump_proto_ctx
   );
 
   /* Verify output file was created */

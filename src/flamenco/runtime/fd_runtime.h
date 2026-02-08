@@ -110,16 +110,18 @@ struct fd_runtime {
   } accounts;
 
   struct {
-    int                  enable_log_collector;
-    fd_log_collector_t * log_collector; /* Log collector instance */
-    fd_capture_ctx_t *   capture_ctx;
+    int                   enable_log_collector;
+    fd_log_collector_t *  log_collector; /* Log collector instance */
+    fd_capture_ctx_t *    capture_ctx;
+    fd_dump_proto_ctx_t * dump_proto_ctx;
+
     /* Pointer to buffer used for dumping instructions and transactions
        into protobuf files. */
-    uchar *              dumping_mem;
+    uchar *               dumping_mem;
     /* Pointer to buffer used for tracing instructions and transactions
        into protobuf files. */
-    int                  enable_vm_tracing;
-    uchar *              tracing_mem;
+    int                   enable_vm_tracing;
+    uchar *               tracing_mem;
   } log;
 
   struct {

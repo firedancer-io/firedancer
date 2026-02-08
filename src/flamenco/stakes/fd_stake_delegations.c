@@ -2,9 +2,10 @@
 #include "../accdb/fd_accdb_pipe.h"
 #include "../runtime/program/fd_stake_program.h"
 
-#define POOL_NAME fd_stake_delegation_pool
-#define POOL_T    fd_stake_delegation_t
-#define POOL_NEXT next_
+#define POOL_NAME  fd_stake_delegation_pool
+#define POOL_T     fd_stake_delegation_t
+#define POOL_NEXT  next_
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               fd_stake_delegation_map
@@ -14,7 +15,20 @@
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
 #define MAP_KEY_HASH(key,seed) (fd_funk_rec_key_hash1( key->uc, seed ))
 #define MAP_NEXT               next_
+#define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
+
+
+static inline uchar
+fd_stake_delegations_warmup_cooldown_rate_enum( double warmup_cooldown_rate ) {
+  /* TODO: Replace with fd_double_eq */
+  if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 ) ) {
+    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025;
+  } else if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 ) ) {
+    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
+  }
+  FD_LOG_CRIT(( "Invalid warmup cooldown rate %f", warmup_cooldown_rate ));
+}
 
 static inline fd_stake_delegation_t *
 fd_stake_delegations_get_pool( fd_stake_delegations_t const * stake_delegations ) {
@@ -227,10 +241,10 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
   ulong idx = fd_stake_delegation_map_idx_query_const(
       stake_delegation_map,
       stake_account,
-      ULONG_MAX,
+      UINT_MAX,
       stake_delegation_pool );
 
-  if( idx!=ULONG_MAX ) {
+  if( idx!=UINT_MAX ) {
 
     fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, idx );
     if( FD_UNLIKELY( !stake_delegation ) ) {
@@ -239,10 +253,10 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
 
     stake_delegation->vote_account         = *vote_account;
     stake_delegation->stake                = stake;
-    stake_delegation->activation_epoch     = activation_epoch;
-    stake_delegation->deactivation_epoch   = deactivation_epoch;
+    stake_delegation->activation_epoch     = (ushort)fd_ulong_min( activation_epoch, USHORT_MAX );
+    stake_delegation->deactivation_epoch   = (ushort)fd_ulong_min( deactivation_epoch, USHORT_MAX );
     stake_delegation->credits_observed     = credits_observed;
-    stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
+    stake_delegation->warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_enum( warmup_cooldown_rate );
     stake_delegation->is_tombstone         = 0;
     return;
   }
@@ -257,10 +271,10 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->stake_account        = *stake_account;
   stake_delegation->vote_account         = *vote_account;
   stake_delegation->stake                = stake;
-  stake_delegation->activation_epoch     = activation_epoch;
-  stake_delegation->deactivation_epoch   = deactivation_epoch;
+  stake_delegation->activation_epoch     = (ushort)fd_ulong_min( activation_epoch, USHORT_MAX );
+  stake_delegation->deactivation_epoch   = (ushort)fd_ulong_min( deactivation_epoch, USHORT_MAX );
   stake_delegation->credits_observed     = credits_observed;
-  stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
+  stake_delegation->warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_enum( warmup_cooldown_rate );
   stake_delegation->is_tombstone         = 0;
 
   if( FD_UNLIKELY( !fd_stake_delegation_map_ele_insert(
@@ -287,7 +301,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
   ulong delegation_idx = fd_stake_delegation_map_idx_query(
       stake_delegation_map,
       stake_account,
-      ULONG_MAX,
+      UINT_MAX,
       stake_delegation_pool );
 
   if( stake_delegations->leave_tombstones_==1 ) {
@@ -295,7 +309,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
        update the entry's is_tombstone flag or insert a new entry. */
 
     fd_stake_delegation_t * stake_delegation = NULL;
-    if( delegation_idx!=ULONG_MAX ) {
+    if( delegation_idx!=UINT_MAX ) {
       /* The delegation was found, update the is_tombstone flag. */
       stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, delegation_idx );
     } else {
@@ -310,7 +324,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
   } else {
     /* If we are not configured to leave tombstones, we need to remove
        the entry from the map and release it from the pool. */
-    if( FD_UNLIKELY( delegation_idx == ULONG_MAX ) ) {
+    if( FD_UNLIKELY( delegation_idx==UINT_MAX ) ) {
       /* The delegation was not found, nothing to do. */
       return;
     }
@@ -322,12 +336,12 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
       FD_LOG_CRIT(( "unable to retrieve stake delegation" ));
     }
 
-    ulong idx = fd_stake_delegation_map_idx_remove( stake_delegation_map, stake_account, ULONG_MAX, stake_delegation_pool );
-    if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
+    ulong idx = fd_stake_delegation_map_idx_remove( stake_delegation_map, stake_account, UINT_MAX, stake_delegation_pool );
+    if( FD_UNLIKELY( idx==UINT_MAX ) ) {
       FD_LOG_CRIT(( "unable to remove stake delegation" ));
     }
 
-    stake_delegation->next_ = fd_stake_delegation_pool_idx_null( stake_delegation_pool );
+    stake_delegation->next_ = UINT_MAX;
 
     fd_stake_delegation_pool_idx_release( stake_delegation_pool, delegation_idx );
   }
@@ -385,7 +399,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       continue; /* ok */
 
     remove:
-      fd_stake_delegation_map_idx_remove( map, address, ULONG_MAX, pool );
+      fd_stake_delegation_map_idx_remove( map, address, UINT_MAX, pool );
       fd_stake_delegation_pool_ele_release( pool, delegation );
     }
   }
