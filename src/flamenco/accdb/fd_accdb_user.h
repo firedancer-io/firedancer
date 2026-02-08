@@ -7,7 +7,7 @@
 
 #define FD_ACCDB_FLAG_CREATE   (1)
 #define FD_ACCDB_FLAG_TRUNCATE (2)
-#define FD_ACCDB_FLAG_DONTZERO (3)
+#define FD_ACCDB_FLAG_DONTZERO (4)
 
 /* fd_accdb_user_vt_t specifies the interface (vtable) for the account
    DB client. */
