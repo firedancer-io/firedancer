@@ -16,6 +16,16 @@ uint logfile_fd, uint dir_fd, uint out_full_fd, uint out_inc_fd, uint ping_fd
 write: (not (or (eq (arg 0) dir_fd)
                 (eq (arg 0) ping_fd)))
 
+# When retrying a snapshot, any written content into the full or
+# incremental output snapshot files must be reset before another
+# snapshot can be loaded.
+ftruncate: (or (eq (arg 0) out_full_fd)
+               (eq (arg 0) out_inc_fd) )
+
+lseek: (or (eq (arg 0) out_full_fd)
+           (eq (arg 0) out_inc_fd) )
+
+
 # openssl: read
 #
 # OpenSSL calls read to receive bytes from a socket.  We will restrict
