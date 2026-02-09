@@ -2,9 +2,10 @@
 #include "../types/fd_types.h"
 #include "../runtime/program/fd_vote_program.h"
 
-#define POOL_NAME fd_vote_state_pool
-#define POOL_T    fd_vote_state_ele_t
-#define POOL_NEXT next_
+#define POOL_NAME  fd_vote_state_pool
+#define POOL_T     fd_vote_state_ele_t
+#define POOL_NEXT  next_
+#define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               fd_vote_state_map
@@ -14,6 +15,7 @@
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
 #define MAP_NEXT               next_
+#define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
 static fd_vote_state_ele_t *
@@ -88,7 +90,7 @@ fd_vote_states_new( void * mem,
     return NULL;
   }
 
-  for( ulong i=0UL; i<max_vote_accounts; i++ ) {
+  for( uint i=0UL; i<max_vote_accounts; i++ ) {
     fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_states_pool, i );
     vote_state->idx = i;
   }
@@ -180,10 +182,10 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
   ulong idx = fd_vote_state_map_idx_query_const(
       vote_state_map,
       vote_account,
-      ULONG_MAX,
+      UINT_MAX,
       vote_state_pool );
 
-  if( idx!=ULONG_MAX ) {
+  if( idx!=UINT_MAX ) {
     fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_state_pool, idx );
     if( FD_UNLIKELY( !vote_state ) ) {
       FD_LOG_CRIT(( "unable to retrieve vote state" ));
@@ -231,9 +233,9 @@ fd_vote_states_remove( fd_vote_states_t *  vote_states,
   ulong vote_state_idx = fd_vote_state_map_idx_query_const(
       vote_state_map,
       vote_account,
-      ULONG_MAX,
+      UINT_MAX,
       vote_state_pool );
-  if( FD_UNLIKELY( vote_state_idx == ULONG_MAX ) ) {
+  if( FD_UNLIKELY( vote_state_idx==UINT_MAX ) ) {
     /* The vote state was not found, nothing to do. */
     return;
   }
@@ -243,13 +245,13 @@ fd_vote_states_remove( fd_vote_states_t *  vote_states,
     FD_LOG_CRIT(( "unable to retrieve vote state" ));
   }
 
-  ulong idx = fd_vote_state_map_idx_remove( vote_state_map, vote_account, ULONG_MAX, vote_state_pool );
-  if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
+  ulong idx = fd_vote_state_map_idx_remove( vote_state_map, vote_account, UINT_MAX, vote_state_pool );
+  if( FD_UNLIKELY( idx==UINT_MAX ) ) {
     FD_LOG_CRIT(( "unable to remove vote state" ));
   }
 
   /* Set vote state's next_ pointer to the null idx. */
-  vote_state->next_ = fd_vote_state_pool_idx_null( vote_state_pool );
+  vote_state->next_ = UINT_MAX;
 
   fd_vote_state_pool_idx_release( vote_state_pool, vote_state_idx );
 }
@@ -358,9 +360,9 @@ fd_vote_states_query( fd_vote_states_t const * vote_states,
   ulong idx = fd_vote_state_map_idx_query_const(
       fd_vote_states_get_map( vote_states ),
       vote_account,
-      ULONG_MAX,
+      UINT_MAX,
       fd_vote_states_get_pool( vote_states ) );
-  if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( idx==UINT_MAX ) ) {
     return NULL;
   }
 

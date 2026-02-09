@@ -198,6 +198,10 @@ fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
 
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
 
+  /* It's safe to purge the account from the vote states since a vote
+     account cannot be deleted until it hasn't voted in the past two
+     epochs.  This guarantees that it is not going to be used for clock
+     or rewards calculations. */
   if( meta->lamports==0UL ) {
     fd_vote_states_remove( vote_states, pubkey );
     fd_bank_vote_states_end_locking_modify( bank );

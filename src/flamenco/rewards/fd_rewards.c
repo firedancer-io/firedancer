@@ -139,8 +139,9 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
     return;
   }
 
-  /* If the Vote account has the same amount of credits observed as the Stake account,
-      then the Vote account hasn't earnt any credits and so there is nothing to update.
+  /* If the Vote account has the same amount of credits observed as the
+     Stake account, then the Vote account hasn't earned any credits and
+     so there is nothing to update.
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
   if( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
@@ -260,6 +261,11 @@ calculate_stake_points_and_credits( fd_accdb_user_t *              accdb,
 
     points += (uint128)stake_amount * earned_credits;
 
+  }
+
+  if( vote_state->stake==0UL && points!=0 ) {
+    FD_BASE58_ENCODE_32_BYTES(vote_state->vote_account.uc, out);
+    FD_LOG_WARNING(( "Vote account %s has no stake but has points %lu", out, (ulong)points ));
   }
 
   result->points.ud = points;
@@ -563,8 +569,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
     fd_vote_state_credits_t * recalc_credit = !!runtime_stack->stakes.prev_vote_credits_used ?
                                               &runtime_stack->stakes.vote_credits[ vote_state_ele->idx ] : NULL;
-    ulong stake = !!runtime_stack->stakes.prev_vote_credits_used ? vote_state_ele->stake_t_1 : vote_state_ele->stake;
-    if( !stake ) continue;
+    if( recalc_credit && runtime_stack->stakes.vote_credits[ vote_state_ele->idx ].credits_cnt==0UL ) continue;
 
     /* redeem_rewards is actually just responsible for calculating the
        vote and stake rewards for each stake account.  It does not do

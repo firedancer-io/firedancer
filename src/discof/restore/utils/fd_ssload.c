@@ -240,6 +240,8 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_slot      = elem->last_slot;
     vote_state->stake               = elem->stake;
     vote_state->stake_t_1           = 0UL;
+
+    vote_state_credits[ vote_state->idx ].credits_cnt = 0UL;
   }
 
   /* Vote stakes for the previous epoch (E-1). */
