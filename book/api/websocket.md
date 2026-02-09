@@ -1915,30 +1915,24 @@ initially replay one but the cluster votes on the other one.
 | vote_latency                 | `number\|null` | The distance in slots between this slot and the slot which contains our vote for this slot.  This field is `null` if we have not yet landed a vote for this slot, and this message will be re-published once our vote lands. Due to forking or votes not landing, this field may be updated arbitrarily many times, or never |
 
 #### `slot.skipped_history`
-| frequency       | type       | example |
-|-----------------|------------|---------|
-| *Once* + *Live* | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
+| frequency | type       | example |
+|-----------|------------|---------|
+| *Once*    | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
-A list of all of the recent leader slots of the validator which were
-skipped. Only two epochs of leader slots are tracked, and skips prior
-to this are not retrieved.
+A list of leader slot of the validator from the current epoch which were
+skipped.
 
 The skipped slots include unrooted and unconfirmed slots of ours which
 are skipped on the currently active fork.
-
-If the validator identity is changed with a `set-identity` operation,
-the skipped history is republished with a list of skipped slots for the
-new validator identity.
 
 #### `slot.skipped_history_cluster`
 | frequency | type       | example |
 |-----------|------------|---------|
  *Once*     | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
-A list of all of the leader slots which were skipped in the current and
-immediately prior epoch.  Recent non-rooted slots may be included, and
-included skipped slots will not become unskipped as a later slot has
-rooted.
+A list of all of the leader slots which were skipped in the current
+epoch.  Recent non-rooted slots may be included, and included skipped
+slots will not become unskipped as a later slot has rooted.
 
 #### `slot.late_votes_history`
 | frequency | type       | example |

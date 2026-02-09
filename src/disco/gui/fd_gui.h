@@ -931,6 +931,22 @@ void
 fd_gui_handle_genesis_hash( fd_gui_t *    gui,
                             uchar const * msg );
 
+static inline ulong
+fd_gui_current_epoch_idx( fd_gui_t * gui ) {
+  ulong epoch_idx = ULONG_MAX;
+  ulong epoch     = ULONG_MAX;
+  for( ulong i = 0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
+      /* the "current" epoch is the smaller one */
+      if( FD_LIKELY( gui->epoch.epochs[ i ].epoch<epoch ) ) {
+        epoch = gui->epoch.epochs[ i ].epoch;
+        epoch_idx = i;
+      }
+    }
+  }
+  return epoch_idx;
+}
+
 static inline fd_gui_slot_t *
 fd_gui_get_slot( fd_gui_t const * gui, ulong _slot ) {
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
