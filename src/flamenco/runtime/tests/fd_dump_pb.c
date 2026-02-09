@@ -530,7 +530,7 @@ create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vot
   fd_vote_state_versioned_encode( &vsv, &encode_ctx );
 }
 
-static void
+static void FD_FN_UNUSED
 dump_prior_vote_accounts( fd_vote_states_t const *      vote_states,
                           fd_dump_account_key_node_t *  dumped_accounts_pool,
                           fd_dump_account_key_node_t ** dumped_accounts_root,
@@ -653,19 +653,19 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_bank_vote_states_end_locking_query( parent_bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
-  fd_vote_states_t const * vote_states_prev        = fd_bank_vote_states_prev_query( parent_bank );
-  block_context->epoch_ctx.vote_accounts_t_1       = fd_spad_alloc(
-      spad,
-      alignof(fd_exec_test_vote_account_t),
-      sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states_prev ) );
-  block_context->epoch_ctx.vote_accounts_t_1_count = 0U;
-  dump_prior_vote_accounts(
-      vote_states_prev,
-      dumped_accounts_pool,
-      &dumped_accounts_root,
-      block_context->epoch_ctx.vote_accounts_t_1,
-      &block_context->epoch_ctx.vote_accounts_t_1_count,
-      spad );
+  // fd_vote_states_t const * vote_states_prev        = fd_bank_vote_states_prev_query( parent_bank );
+  // block_context->epoch_ctx.vote_accounts_t_1       = fd_spad_alloc(
+  //     spad,
+  //     alignof(fd_exec_test_vote_account_t),
+  //     sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states_prev ) );
+  // block_context->epoch_ctx.vote_accounts_t_1_count = 0U;
+  // dump_prior_vote_accounts(
+  //     vote_states_prev,
+  //     dumped_accounts_pool,
+  //     &dumped_accounts_root,
+  //     block_context->epoch_ctx.vote_accounts_t_1,
+  //     &block_context->epoch_ctx.vote_accounts_t_1_count,
+  //     spad );
 
   // // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
   // fd_vote_states_t const * vote_states_prev_prev   = fd_bank_vote_states_prev_prev_query( parent_bank );

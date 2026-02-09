@@ -118,9 +118,9 @@ test_ctx_setup( void ) {
   FD_TEST( parent_vote_states );
   fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
 
-  fd_vote_states_t * parent_vote_states_prev = fd_bank_vote_states_prev_modify( test_ctx->parent_bank );
-  parent_vote_states_prev                    = fd_vote_states_join( fd_vote_states_new( parent_vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  FD_TEST( parent_vote_states_prev );
+  // fd_vote_states_t * parent_vote_states_prev = fd_bank_vote_states_prev_modify( test_ctx->parent_bank );
+  // parent_vote_states_prev                    = fd_vote_states_join( fd_vote_states_new( parent_vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  // FD_TEST( parent_vote_states_prev );
 
   /* ===== Create Child Bank ===== */
   ulong child_bank_idx = fd_banks_new_bank( test_ctx->child_bank, test_ctx->banks, test_ctx->parent_bank->data->idx, 0L )->data->idx;
@@ -361,23 +361,23 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   }
 
   /* Populate previous epoch vote accounts */
-  if( input_ctx.epoch_ctx.vote_accounts_t_1_count ) {
-    fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( test_ctx->parent_bank );
+  // if( input_ctx.epoch_ctx.vote_accounts_t_1_count ) {
+  //   fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( test_ctx->parent_bank );
 
-    for( pb_size_t i=0U; i<input_ctx.epoch_ctx.vote_accounts_t_1_count; i++ ) {
-      fd_exec_test_vote_account_t const * vote_acct = &input_ctx.epoch_ctx.vote_accounts_t_1[i];
-      if( !vote_acct->has_vote_account ) continue;
+  //   for( pb_size_t i=0U; i<input_ctx.epoch_ctx.vote_accounts_t_1_count; i++ ) {
+  //     fd_exec_test_vote_account_t const * vote_acct = &input_ctx.epoch_ctx.vote_accounts_t_1[i];
+  //     if( !vote_acct->has_vote_account ) continue;
 
-      fd_pubkey_t vote_address;
-      fd_memcpy( &vote_address, vote_acct->vote_account.address, sizeof(fd_pubkey_t) );
+  //     fd_pubkey_t vote_address;
+  //     fd_memcpy( &vote_address, vote_acct->vote_account.address, sizeof(fd_pubkey_t) );
 
-      fd_vote_state_ele_t * vote_state_ele = fd_vote_states_update_from_account( vote_states_prev,
-                                                                                 &vote_address,
-                                                                                 vote_acct->vote_account.data->bytes,
-                                                                                 vote_acct->vote_account.data->size );
-      vote_state_ele->stake = vote_acct->stake;
-    }
-  }
+  //     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_update_from_account( vote_states_prev,
+  //                                                                                &vote_address,
+  //                                                                                vote_acct->vote_account.data->bytes,
+  //                                                                                vote_acct->vote_account.data->size );
+  //     vote_state_ele->stake = vote_acct->stake;
+  //   }
+  // }
 
   // /* Populate previous-to-previous epoch vote accounts */
   // if( input_ctx.epoch_ctx.vote_accounts_t_2_count ) {

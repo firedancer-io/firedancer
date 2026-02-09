@@ -379,17 +379,6 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
   fd_bank_vote_states_end_locking_modify( bank );
 }
 
-/* Replace the vote states for T-1 (vote_states_prev) with the vote
-   states for T-1 (vote_states) */
-
-static void
-fd_runtime_update_vote_states_prev( fd_bank_t * bank ) {
-  fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_modify( bank );
-  fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( bank );
-  fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
-  fd_bank_vote_states_end_locking_query( bank );
-}
-
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
 static void
 fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
@@ -622,10 +611,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
      We use the current stake to populate the T-1 stake and the T-1
      stake to populate the T-2 stake. */
   fd_runtime_refresh_previous_stake_values( bank );
-
-  /* Update vote_states_prev with vote_states */
-
-  fd_runtime_update_vote_states_prev( bank );
 
   /* Now that our stakes caches have been updated, we can calculate the
      leader schedule for the upcoming epoch epoch using our new
@@ -1595,9 +1580,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       vote_state->stake_t_2 = vote_state->stake;
     }
   }
-
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( bank );
-  fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
 
   fd_bank_vote_states_end_locking_modify( bank );
 

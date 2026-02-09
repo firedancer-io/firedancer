@@ -146,7 +146,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
 }
 
 /* Common helper method for populating a previous epoch's vote cache. */
-static void
+static void FD_FN_UNUSED
 fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *            vote_states,
                                                    fd_exec_test_vote_account_t * vote_accounts,
                                                    pb_size_t                     vote_accounts_cnt,
@@ -351,14 +351,14 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_epoch_set( bank, fd_slot_to_epoch( epoch_schedule, parent_slot, NULL ) );
 
   /* Update vote cache for epoch T-1 */
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( bank );
-  fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
-      vote_states_prev,
-      test_ctx->epoch_ctx.vote_accounts_t_1,
-      test_ctx->epoch_ctx.vote_accounts_t_1_count,
-      runtime_stack,
-      runner->spad,
-      1 );
+  // fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( bank );
+  // fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
+  //     vote_states_prev,
+  //     test_ctx->epoch_ctx.vote_accounts_t_1,
+  //     test_ctx->epoch_ctx.vote_accounts_t_1_count,
+  //     runtime_stack,
+  //     runner->spad,
+  //     1 );
 
   // /* Update vote cache for epoch T-2 */
   // fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
