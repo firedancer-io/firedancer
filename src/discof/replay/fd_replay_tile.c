@@ -554,7 +554,7 @@ generate_epoch_info_msg( ulong                       epoch,
     ulong stake = current_epoch ? vote_state->stake_t_1 : vote_state->stake_t_2;
     if( FD_UNLIKELY( !stake ) ) continue;
 
-    stake_weights[ idx ].stake = vote_state->stake;
+    stake_weights[ idx ].stake = stake;
     memcpy( stake_weights[ idx ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
     memcpy( stake_weights[ idx ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
     idx++;
