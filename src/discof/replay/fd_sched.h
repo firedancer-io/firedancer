@@ -89,7 +89,7 @@ typedef struct fd_sched_fec fd_sched_fec_t;
    q - replay may either do it immediately or queue the task up. */
 #define FD_SCHED_TT_NULL          (0UL)
 #define FD_SCHED_TT_BLOCK_START   (1UL) /* (i) Start-of-block processing. */
-#define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing.  Also decrement refcnt for sched. */
+#define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing. */
 #define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
 #define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
 #define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
@@ -240,17 +240,15 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    the effects of the execution are now visible on any core that could
    execute a subsequent transaction.  Returns 0 on success, -1 if given
    the result of the task, the block turns out to be bad.  -1 is only
-   returned from PoH tasks.  -2 if sched modified the out pointer to
-   indicate that the bank in the out pointer should be marked dead and
-   drop its refcnt for sched; otherwise, out pointer will be unmodified.
-   -2 is only returned when a parent block of an already dead child
-   finishes replaying.
+   returned from PoH tasks.
 
    If a block has been abandoned or marked dead for any reason, it'll be
    pruned the moment in-flight task count hits 0 due to the last task
-   completing. */
+   completing.  Then, in the immediate ensuing stem run loop,
+   sched_pruned_next() will return the index for the corresponding bank
+   so the refcnt can be decremented for sched. */
 int
-fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data, ulong * out_dead_bank_idx );
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data );
 
 /* Abandon a block.  This means that we are no longer interested in
    executing the block.  This also implies that any block which chains
@@ -263,8 +261,10 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
 
    An abandoned block will be pruned from sched as soon as, and only if,
    the block has no more in-flight tasks associated with it.  No sooner,
-   no later.  After that point, the bank_idx may be recycled for another
-   block. */
+   no later.  In the immediate ensuing stem run loop,
+   sched_pruned_next() will return the index for the corresponding bank
+   so the refcnt can be decremented for sched.  After that point, the
+   bank_idx may be recycled for another block. */
 void
 fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx );
 
@@ -291,6 +291,14 @@ fd_sched_advance_root( fd_sched_t * sched, ulong root_idx );
    pipeline, and the new root will be safe for pruning. */
 void
 fd_sched_root_notify( fd_sched_t * sched, ulong root_idx );
+
+/* Returns the index of a bank whose refcnt should be decremented for
+   sched.  This function should be called in a loop to drain all
+   outstanding refcnt decrements before any other sched API is called in
+   a stem run loop.  Returns ULONG_MAX when there are no more
+   outstanding refrences from sched and the loop should break. */
+ulong
+fd_sched_pruned_block_next( fd_sched_t * sched );
 
 void
 fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
