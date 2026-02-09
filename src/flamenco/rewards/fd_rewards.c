@@ -370,8 +370,17 @@ redeem_rewards( fd_accdb_user_t *               accdb,
     return 1;
   }
 
-  /* FIXME: need to error out if the conversion from uint128 to u64 fails, also use 128 checked mul and div */
-  ulong rewards = (ulong)(stake_points_result.points.ud * (uint128)(total_rewards) / (uint128) total_points);
+  uint128 rewards_u128;
+  if( FD_UNLIKELY( __builtin_mul_overflow( stake_points_result.points.ud, (uint128)(total_rewards), &rewards_u128 ) ) )
+    FD_LOG_ERR(( "Rewards intermediate calculation should fit within u128" ));
+
+  FD_TEST( total_points );
+  rewards_u128 /=  (uint128) total_points;
+
+  if( FD_UNLIKELY( rewards_u128 > (uint128)ULONG_MAX ) )
+    FD_LOG_ERR(( "Rewards should fit within u64" ));
+
+  ulong rewards = (ulong)rewards_u128;
   if( rewards == 0 ) {
     return 1;
   }
