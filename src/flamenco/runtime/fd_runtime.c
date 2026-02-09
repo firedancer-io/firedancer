@@ -1525,6 +1525,12 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       if( !fd_stake_state_v2_is_stake( &stake_state )     ) continue;
       if( !stake_state.inner.stake.stake.delegation.stake ) continue;
 
+      if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.warmup_cooldown_rate!=0.25 &&
+                       stake_state.inner.stake.stake.delegation.warmup_cooldown_rate!=0.09 ) ) {
+        FD_BASE58_ENCODE_32_BYTES( account->pubkey, stake_b58 );
+        FD_LOG_ERR(( "Invalid warmup cooldown rate %f for stake account %s", stake_state.inner.stake.stake.delegation.warmup_cooldown_rate, stake_b58 ));
+      }
+
       fd_stake_delegations_update(
           stake_delegations,
           (fd_pubkey_t *)account->pubkey,
