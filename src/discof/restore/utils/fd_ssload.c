@@ -202,12 +202,9 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     );
   }
 
-  /* We also want to set the total stake to be the total amout of stake
+  /* We also want to set the total stake to be the total amount of stake
      at the end of the previous epoch. This value is used for the
      get_epoch_stake syscall.
-
-     FIXME: This needs to be updated at the epoch boundary and this
-     currently does NOT happen.
 
      A note on Agave's indexing scheme for their epoch_stakes
      structure:
@@ -228,7 +225,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   if( is_incremental ) fd_vote_states_init( vote_states );
-  /* Vote states for the current epoch. */
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
 
@@ -239,7 +235,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_timestamp = elem->last_timestamp;
     vote_state->last_vote_slot      = elem->last_slot;
     vote_state->stake               = elem->stake;
-    vote_state->stake_t_1           = 0UL;
 
     vote_state_credits[ vote_state->idx ].credits_cnt = 0UL;
   }
@@ -253,10 +248,10 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
        state credits from the end of the previous epoch in case we need
        to recalculate the stake reward partitions. */
     fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
-    vote_state_curr->stake_t_1      = elem->stake;
-    vote_state_curr->commission_t_1 = elem->commission;
+    vote_state_curr->stake_t_1 = elem->stake;
 
     vote_state_credits[ vote_state_curr->idx ].credits_cnt = elem->epoch_credits_history_len;
+    vote_state_credits[ vote_state_curr->idx ].commission  = elem->commission;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
       vote_state_credits[ vote_state_curr->idx ].epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
       vote_state_credits[ vote_state_curr->idx ].credits[ j ]      = elem->epoch_credits[ j ].credits;

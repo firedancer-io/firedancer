@@ -38,9 +38,7 @@ typedef struct {
    using the stake delegations cache. */
 static void
 fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
-                                        fd_stake_delegations_t * stake_delegations,
-                                        ulong                    epoch ) {
-  (void)epoch;
+                                        fd_stake_delegations_t * stake_delegations ) {
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -348,8 +346,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Refresh vote accounts to calculate stake delegations */
   fd_solfuzz_block_refresh_vote_accounts(
       vote_states,
-      stake_delegations,
-      fd_bank_epoch_get( bank ) );
+      stake_delegations );
   fd_bank_vote_states_end_locking_modify( bank );
 
   /* Update leader schedule */

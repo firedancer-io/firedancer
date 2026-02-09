@@ -263,11 +263,6 @@ calculate_stake_points_and_credits( fd_accdb_user_t *              accdb,
 
   }
 
-  if( vote_state->stake==0UL && points!=0 ) {
-    FD_BASE58_ENCODE_32_BYTES(vote_state->vote_account.uc, out);
-    FD_LOG_WARNING(( "Vote account %s has no stake but has points %lu", out, (ulong)points ));
-  }
-
   result->points.ud = points;
   result->new_credits_observed = new_credits_observed;
   result->force_credits_update_with_skipped_reward = 0;
@@ -382,7 +377,7 @@ redeem_rewards( fd_accdb_user_t *               accdb,
     return 1;
   }
 
-  uchar commission = !!recalc_vote_state_credits ? vote_state->commission_t_1 : vote_state->commission;
+  uchar commission = recalc_vote_state_credits ? recalc_vote_state_credits->commission : vote_state->commission;
   fd_commission_split_t split_result;
   fd_vote_commission_split( commission, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
@@ -593,7 +588,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     if ( capture_ctx && capture_ctx->capture_solcap ) {
-      uchar commission = !!runtime_stack->stakes.prev_vote_credits_used ? vote_state_ele->commission_t_1 : vote_state_ele->commission;
+      uchar commission = runtime_stack->stakes.prev_vote_credits_used ? recalc_credit->commission : vote_state_ele->commission;
       fd_capture_link_write_stake_reward_event( capture_ctx,
                                                 fd_bank_slot_get( bank ),
                                                 stake_delegation->stake_account,

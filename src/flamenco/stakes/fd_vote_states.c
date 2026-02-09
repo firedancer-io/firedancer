@@ -90,7 +90,12 @@ fd_vote_states_new( void * mem,
     return NULL;
   }
 
-  for( uint i=0UL; i<max_vote_accounts; i++ ) {
+  if( FD_UNLIKELY( max_vote_accounts>UINT_MAX ) ) {
+    FD_LOG_WARNING(( "max_vote_accounts is greater than UINT_MAX" ));
+    return NULL;
+  }
+
+  for( uint i=0U; i<max_vote_accounts; i++ ) {
     fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_states_pool, i );
     vote_state->idx = i;
   }
