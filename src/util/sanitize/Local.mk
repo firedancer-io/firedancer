@@ -1,6 +1,7 @@
 $(call add-hdrs,fd_asan.h fd_msan.h fd_sanitize.h)
 $(call make-lib,fd_fuzz_stub)
 $(call add-objs,fd_fuzz_stub,fd_fuzz_stub)
+$(call add-objs,fd_hfuzz_metrics_stubs,fd_util)
 
 ifdef FD_HAS_DEEPASAN_WATCH
 CPPFLAGS+=-DFD_HAS_DEEPASAN_WATCH=1
