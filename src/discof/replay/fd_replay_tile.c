@@ -528,8 +528,9 @@ generate_epoch_info_msg( ulong                       epoch,
                          fd_epoch_schedule_t const * epoch_schedule,
                          fd_vote_states_t const *    epoch_stakes,
                          fd_features_t const *       features,
-                         fd_epoch_info_msg_t *       epoch_info_msg ) {
-  fd_vote_stake_weight_t * stake_weights    = epoch_info_msg->weights;
+                         fd_epoch_info_msg_t *       epoch_info_msg,
+                         int                         current_epoch ) {
+  fd_vote_stake_weight_t * stake_weights = epoch_info_msg->weights;
 
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
@@ -549,7 +550,9 @@ generate_epoch_info_msg( ulong                       epoch,
   ulong idx = 0UL;
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, epoch_stakes ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-    if( FD_UNLIKELY( !vote_state->stake ) ) continue;
+
+    ulong stake = current_epoch ? vote_state->stake_t_1 : vote_state->stake_t_2;
+    if( FD_UNLIKELY( !stake ) ) continue;
 
     stake_weights[ idx ].stake = vote_state->stake;
     memcpy( stake_weights[ idx ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
@@ -572,20 +575,20 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL );
 
-  fd_vote_states_t const * vote_states_prev;
-  if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_query( bank );
-  else                             vote_states_prev = fd_bank_vote_states_prev_prev_query( bank );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
 
   fd_features_t const * features = fd_bank_features_query( bank );
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
-  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states_prev, features, epoch_info_msg );
+  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states, features, epoch_info_msg, current_epoch );
   ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+
+  fd_bank_vote_states_end_locking_query( bank );
 }
 
 /**********************************************************************/

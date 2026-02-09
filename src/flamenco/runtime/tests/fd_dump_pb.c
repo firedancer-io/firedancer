@@ -667,20 +667,20 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
       &block_context->epoch_ctx.vote_accounts_t_1_count,
       spad );
 
-  // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
-  fd_vote_states_t const * vote_states_prev_prev   = fd_bank_vote_states_prev_prev_query( parent_bank );
-  block_context->epoch_ctx.vote_accounts_t_2       = fd_spad_alloc(
-      spad,
-      alignof(fd_exec_test_vote_account_t),
-      sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states_prev_prev ) );
-  block_context->epoch_ctx.vote_accounts_t_2_count = 0U;
-  dump_prior_vote_accounts(
-      vote_states_prev_prev,
-      dumped_accounts_pool,
-      &dumped_accounts_root,
-      block_context->epoch_ctx.vote_accounts_t_2,
-      &block_context->epoch_ctx.vote_accounts_t_2_count,
-      spad );
+  // // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
+  // fd_vote_states_t const * vote_states_prev_prev   = fd_bank_vote_states_prev_prev_query( parent_bank );
+  // block_context->epoch_ctx.vote_accounts_t_2       = fd_spad_alloc(
+  //     spad,
+  //     alignof(fd_exec_test_vote_account_t),
+  //     sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states_prev_prev ) );
+  // block_context->epoch_ctx.vote_accounts_t_2_count = 0U;
+  // dump_prior_vote_accounts(
+  //     vote_states_prev_prev,
+  //     dumped_accounts_pool,
+  //     &dumped_accounts_root,
+  //     block_context->epoch_ctx.vote_accounts_t_2,
+  //     &block_context->epoch_ctx.vote_accounts_t_2_count,
+  //     spad );
 
   /* BlockContext -> acct_states
      Iterate over the set and dump all the account keys in one pass. */

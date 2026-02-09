@@ -270,19 +270,10 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   }
 
   /* Vote stakes for the previous epoch (E-2) */
-  fd_vote_states_t * vote_stakes_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
-  if( is_incremental ) fd_vote_states_init( vote_stakes_prev_prev );
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
-    fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote );
-    vote_state->node_account        = *(fd_pubkey_t *)elem->identity;
-    vote_state->commission          = elem->commission;
-    vote_state->last_vote_timestamp = elem->timestamp;
-    vote_state->last_vote_slot      = elem->slot;
-    vote_state->stake               = elem->stake;
-
     fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
-    vote_state_curr->stake_t_2 = vote_state->stake;
+    vote_state_curr->stake_t_2 = elem->stake;
   }
 
   fd_bank_vote_states_end_locking_modify( bank );

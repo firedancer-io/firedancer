@@ -36,7 +36,7 @@ typedef struct {
 /* Stripped down version of fd_refresh_vote_accounts that simply
    refreshes the stake delegation amount for each of the vote accounts
    using the stake delegations cache. */
-static void
+static void FD_FN_UNUSED
 fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
                                         fd_vote_states_t *       vote_states_prev,
                                         fd_vote_states_t *       vote_states_prev_prev,
@@ -360,23 +360,23 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       runner->spad,
       1 );
 
-  /* Update vote cache for epoch T-2 */
-  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
-  fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
-      vote_states_prev_prev,
-      test_ctx->epoch_ctx.vote_accounts_t_2,
-      test_ctx->epoch_ctx.vote_accounts_t_2_count,
-      runtime_stack,
-      runner->spad,
-      0 );
+  // /* Update vote cache for epoch T-2 */
+  // fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
+  // fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
+  //     vote_states_prev_prev,
+  //     test_ctx->epoch_ctx.vote_accounts_t_2,
+  //     test_ctx->epoch_ctx.vote_accounts_t_2_count,
+  //     runtime_stack,
+  //     runner->spad,
+  //     0 );
 
-  /* Refresh vote accounts to calculate stake delegations */
-  fd_solfuzz_block_refresh_vote_accounts(
-    vote_states,
-    vote_states_prev,
-    vote_states_prev_prev,
-    stake_delegations,
-    fd_bank_epoch_get( bank ) );
+  // /* Refresh vote accounts to calculate stake delegations */
+  // fd_solfuzz_block_refresh_vote_accounts(
+  //   vote_states,
+  //   vote_states_prev,
+  //   vote_states_prev_prev,
+  //   stake_delegations,
+  //   fd_bank_epoch_get( bank ) );
   fd_bank_vote_states_end_locking_modify( bank );
 
   /* Update leader schedule */
