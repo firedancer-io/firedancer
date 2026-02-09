@@ -122,6 +122,7 @@ struct fd_vote_state_ele {
   ulong       last_vote_slot;
   long        last_vote_timestamp;
   uchar       commission;
+  uchar       commission_t_1;
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 
