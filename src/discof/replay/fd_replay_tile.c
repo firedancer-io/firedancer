@@ -1646,15 +1646,10 @@ replay( fd_replay_tile_t *  ctx,
       fd_bank_t bank[1];
       fd_banks_bank_query( bank, ctx->banks, task->block_end->bank_idx );
       if( FD_LIKELY( !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
-      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for sched", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
-      bank->data->refcnt--;
       ulong dead_bank_idx;
       int err = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL, &dead_bank_idx );
       if( FD_UNLIKELY( err==-2 ) ) {
-        fd_bank_t dead_bank[1];
-        fd_banks_bank_query( dead_bank, ctx->banks, dead_bank_idx );
-        dead_bank->data->refcnt--;
-        FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for sched", dead_bank->data->idx, fd_bank_slot_get( dead_bank ), dead_bank->data->refcnt ));
+        // FIXME decrement dead_bank_idx refcnt
         break;
       }
       FD_TEST( err==0 );
@@ -1856,11 +1851,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( bank->data->flags&FD_BANK_FLAGS_DEAD ) ) {
     if( FD_UNLIKELY( reasm_fec->slot_complete ) ) publish_slot_dead( ctx, stem, bank );
     return;
-  }
-
-  if( FD_UNLIKELY( sched_fec->is_first_in_block ) ) {
-    bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
   }
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
