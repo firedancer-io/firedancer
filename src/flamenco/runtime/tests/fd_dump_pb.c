@@ -465,13 +465,14 @@ add_lut_accounts_to_dumped_accounts( fd_accdb_user_t *             accdb,
 static void
 create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vote_state,
                                                fd_spad_t *                   spad,
-                                               fd_exec_test_vote_account_t * out_vote_account ) {
+                                               fd_exec_test_vote_account_t * out_vote_account,
+                                               int                           is_t_1 ) {
   out_vote_account->has_vote_account = true;
   fd_memcpy( out_vote_account->vote_account.address, &vote_state->vote_account, sizeof(fd_pubkey_t) );
   out_vote_account->vote_account.executable = false;
   out_vote_account->vote_account.lamports = 100000UL;
   fd_memcpy( out_vote_account->vote_account.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
-  out_vote_account->stake = vote_state->stake;
+  out_vote_account->stake = is_t_1 ? vote_state->stake_t_1 : vote_state->stake_t_2;
 
   /* Construct the vote account data. Fill in missing fields with
      arbitrary defaults (since they're not used anyways) */
@@ -536,7 +537,8 @@ dump_prior_vote_accounts( fd_vote_states_t const *      vote_states,
                           fd_dump_account_key_node_t ** dumped_accounts_root,
                           fd_exec_test_vote_account_t * out_vote_accounts,
                           pb_size_t *                   out_vote_accounts_count,
-                          fd_spad_t *                   spad ) {
+                          fd_spad_t *                   spad,
+                          int                           is_t_1 ) {
 
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
@@ -548,7 +550,8 @@ dump_prior_vote_accounts( fd_vote_states_t const *      vote_states,
     create_synthetic_vote_account_from_vote_state(
         vote_state,
         spad,
-        &out_vote_accounts[(*out_vote_accounts_count)++] );
+        &out_vote_accounts[(*out_vote_accounts_count)++],
+        is_t_1 );
   }
 }
 
@@ -650,37 +653,38 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &vote_state->vote_account );
   }
-  fd_bank_vote_states_end_locking_query( parent_bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
-  // fd_vote_states_t const * vote_states_prev        = fd_bank_vote_states_prev_query( parent_bank );
-  // block_context->epoch_ctx.vote_accounts_t_1       = fd_spad_alloc(
-  //     spad,
-  //     alignof(fd_exec_test_vote_account_t),
-  //     sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states_prev ) );
-  // block_context->epoch_ctx.vote_accounts_t_1_count = 0U;
-  // dump_prior_vote_accounts(
-  //     vote_states_prev,
-  //     dumped_accounts_pool,
-  //     &dumped_accounts_root,
-  //     block_context->epoch_ctx.vote_accounts_t_1,
-  //     &block_context->epoch_ctx.vote_accounts_t_1_count,
-  //     spad );
+  block_context->epoch_ctx.vote_accounts_t_1 = fd_spad_alloc(
+      spad,
+      alignof(fd_exec_test_vote_account_t),
+      sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states ) );
+  block_context->epoch_ctx.vote_accounts_t_1_count = 0U;
+  dump_prior_vote_accounts(
+      vote_states,
+      dumped_accounts_pool,
+      &dumped_accounts_root,
+      block_context->epoch_ctx.vote_accounts_t_1,
+      &block_context->epoch_ctx.vote_accounts_t_1_count,
+      spad,
+      1 );
 
   // // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
-  // fd_vote_states_t const * vote_states_prev_prev   = fd_bank_vote_states_prev_prev_query( parent_bank );
-  // block_context->epoch_ctx.vote_accounts_t_2       = fd_spad_alloc(
-  //     spad,
-  //     alignof(fd_exec_test_vote_account_t),
-  //     sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states_prev_prev ) );
-  // block_context->epoch_ctx.vote_accounts_t_2_count = 0U;
-  // dump_prior_vote_accounts(
-  //     vote_states_prev_prev,
-  //     dumped_accounts_pool,
-  //     &dumped_accounts_root,
-  //     block_context->epoch_ctx.vote_accounts_t_2,
-  //     &block_context->epoch_ctx.vote_accounts_t_2_count,
-  //     spad );
+  block_context->epoch_ctx.vote_accounts_t_2 = fd_spad_alloc(
+    spad,
+    alignof(fd_exec_test_vote_account_t),
+    sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states ) );
+  block_context->epoch_ctx.vote_accounts_t_2_count = 0U;
+  dump_prior_vote_accounts(
+      vote_states,
+      dumped_accounts_pool,
+      &dumped_accounts_root,
+      block_context->epoch_ctx.vote_accounts_t_2,
+      &block_context->epoch_ctx.vote_accounts_t_2_count,
+      spad,
+      0 );
+
+  fd_bank_vote_states_end_locking_query( parent_bank );
 
   /* BlockContext -> acct_states
      Iterate over the set and dump all the account keys in one pass. */
