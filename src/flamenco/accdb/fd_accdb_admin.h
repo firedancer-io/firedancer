@@ -56,7 +56,7 @@ typedef struct fd_accdb_admin_base fd_accdb_admin_base_t;
 struct fd_accdb_admin {
   fd_accdb_admin_base_t base;
 
-  uchar impl[ 4096 ] __attribute__((aligned(64)));
+  uchar impl[ 32768 ] __attribute__((aligned(64)));
 };
 
 FD_PROTOTYPES_BEGIN
