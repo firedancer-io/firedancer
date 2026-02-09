@@ -550,9 +550,9 @@ main( int argc, char ** argv ) {
   fd_epoch_rewards_t * keys = fd_bank_epoch_rewards_modify( bank9 );
   keys->magic = 101UL;
 
-  /* Check that is now 2 free pool elements. */
+  /* Check that there are 3 free pool elements. */
 
-  FD_TEST( fd_bank_epoch_rewards_pool_free( fd_bank_get_epoch_rewards_pool( bank9->data ) ) == 2UL );
+  FD_TEST( fd_bank_epoch_rewards_pool_free( fd_bank_get_epoch_rewards_pool( bank9->data ) ) == 3UL );
 
   fd_epoch_rewards_t * keys2 = fd_bank_epoch_rewards_modify( bank9 );
   keys2->magic = 101UL;
