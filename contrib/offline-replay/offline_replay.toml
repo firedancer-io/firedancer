@@ -18,12 +18,6 @@
 [runtime]
     max_live_slots = 128
     max_fork_width = 4
-    [runtime.program_cache]
-        heap_size_mib = 4096
-[development]
-    sandbox = false
-    no_agave = true
-    no_clone = true
 [log]
     level_stderr = "INFO"
     path = "{log}"
@@ -32,10 +26,7 @@
 [snapshots]
     incremental_snapshots = false
     max_full_snapshots_to_keep = 5
-    [snapshots.sources]
-        servers = []
-        [snapshots.sources.gossip]
-            allow_any = false
-            allow_list = []
+    [snapshots.sources.gossip]
+        allow_any = false
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]

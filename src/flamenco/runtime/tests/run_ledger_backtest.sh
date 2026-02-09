@@ -244,11 +244,8 @@ cat <<EOF > ${CONFIG_FILE}
     max_full_snapshots_to_keep = 5
     max_incremental_snapshots_to_keep = 5
     incremental_snapshots = $HAS_INCREMENTAL
-    [snapshots.sources]
-        servers = []
-        [snapshots.sources.gossip]
+    [snapshots.sources.gossip]
             allow_any = false
-            allow_list = []
 [layout]
     snapshot_hash_tile_count = 1
     execrp_tile_count = $EXECRP_TILE_COUNT

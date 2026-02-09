@@ -185,14 +185,12 @@ while true; do
             export end_slot=$ROCKSDB_ROOTED_MAX
             export funk_pages=$BACKTEST_FUNK_PAGES
             export index_max=$INDEX_MAX
-            export heap_size=$HEAP_SIZE
             export log=$TEMP_LOG
 
             sed -i "s#{ledger}#${ledger}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{end_slot}#${end_slot}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{funk_pages}#${funk_pages}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{index_max}#${index_max}#g" "$LEDGER_DIR/offline_replay.toml"
-            sed -i "s#{heap_size}#${heap_size}#g" "$LEDGER_DIR/offline_replay.toml"
             sed -i "s#{log}#${log}#g" "$LEDGER_DIR/offline_replay.toml"
 
             echo "toml at: $LEDGER_DIR/offline_replay.toml"

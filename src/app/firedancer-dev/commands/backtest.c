@@ -35,19 +35,292 @@
 #include "../../../flamenco/capture/fd_capture_ctx.h"
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../../flamenco/runtime/tests/ledgers.h"
+#include "../../../flamenco/runtime/fd_rocksdb.h"
 
 #include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
+
+extern void fd_config_load_buf( fd_config_t * out, char const * buf, ulong sz, char const * path );
+extern void fd_config_validate( fd_config_t const * config );
+
+static char g_ledger_name[64] = {0};
+static char g_config_file[PATH_MAX] = {0};
+static char const * g_binary_path = NULL;
+
+static fd_ledger_config_t const *
+fd_ledger_config_find( char const * name ) {
+  if( !name ) return NULL;
+  for( ulong i = 0UL; i < FD_LEDGER_CONFIG_COUNT; i++ ) {
+    if( !fd_ledger_configs[ i ] ) break;
+    if( !strcmp( fd_ledger_configs[ i ]->test_name, name ) ) {
+      return fd_ledger_configs[ i ];
+    }
+  }
+  return NULL;
+}
+
+static void
+gcloud_auth( void ) {
+  char const * key_files[] = {
+    "/etc/firedancer-scratch-bucket-key.json",
+    "/etc/firedancer-ci-78fff3e07c8b.json",
+  };
+
+  for( ulong i = 0UL; i < sizeof(key_files)/sizeof(key_files[0]); i++ ) {
+    pid_t pid = fork();
+    if( FD_UNLIKELY( pid < 0 ) ) {
+      continue;
+    }
+
+    if( pid == 0 ) {
+      int devnull = open( "/dev/null", O_WRONLY );
+      if( devnull >= 0 ) {
+        dup2( devnull, STDOUT_FILENO );
+        dup2( devnull, STDERR_FILENO );
+        close( devnull );
+      }
+
+      char const * argv[] = { "gcloud", "auth", "activate-service-account", "--key-file", key_files[i], NULL };
+      execvp( "gcloud", (char **)argv );
+      exit( 1 );
+    }
+
+    int status;
+    waitpid( pid, &status, 0 );
+  }
+}
+
+static int
+download_ledger_from_gcloud( char const * ledger_name,
+                              char const * dump_dir ) {
+  gcloud_auth();
+
+  int pipefd[2];
+  if( FD_UNLIKELY( pipe( pipefd ) ) ) {
+    FD_LOG_WARNING(( "pipe() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+
+  pid_t gcloud_pid = fork();
+  if( FD_UNLIKELY( gcloud_pid < 0 ) ) {
+    FD_LOG_WARNING(( "fork() failed for gcloud (%i-%s)", errno, fd_io_strerror( errno ) ));
+    close( pipefd[0] );
+    close( pipefd[1] );
+    return -1;
+  }
+
+  if( gcloud_pid == 0 ) {
+    close( pipefd[0] );
+    if( FD_UNLIKELY( dup2( pipefd[1], STDOUT_FILENO ) < 0 ) ) {
+      FD_LOG_ERR(( "dup2() failed for gcloud stdout (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    close( pipefd[1] );
+
+    char gs_path[256];
+    snprintf( gs_path, sizeof(gs_path), "gs://firedancer-ci-resources/%s.tar.gz", ledger_name );
+
+    char const * argv[] = { "gcloud", "storage", "cat", gs_path, NULL };
+    execvp( "gcloud", (char **)argv );
+    FD_LOG_ERR(( "execvp() failed for gcloud (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  pid_t tar_pid = fork();
+  if( FD_UNLIKELY( tar_pid < 0 ) ) {
+    FD_LOG_WARNING(( "fork() failed for tar (%i-%s)", errno, fd_io_strerror( errno ) ));
+    close( pipefd[0] );
+    close( pipefd[1] );
+    return -1;
+  }
+
+  if( tar_pid == 0 ) {
+    close( pipefd[1] );
+    if( FD_UNLIKELY( dup2( pipefd[0], STDIN_FILENO ) < 0 ) ) {
+      FD_LOG_ERR(( "dup2() failed for tar stdin (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    close( pipefd[0] );
+
+    char const * argv[] = { "tar", "zxf", "-", "-C", dump_dir, NULL };
+    execvp( "tar", (char **)argv );
+    FD_LOG_ERR(( "execvp() failed for tar (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  close( pipefd[0] );
+  close( pipefd[1] );
+
+  int gcloud_status = 0;
+  int tar_status = 0;
+  if( FD_UNLIKELY( waitpid( gcloud_pid, &gcloud_status, 0 ) < 0 ) ) {
+    return -1;
+  }
+  if( FD_UNLIKELY( waitpid( tar_pid, &tar_status, 0 ) < 0 ) ) {
+    return -1;
+  }
+
+  if( !WIFEXITED( gcloud_status ) || WEXITSTATUS( gcloud_status ) != 0 ) {
+    return -1;
+  }
+  if( !WIFEXITED( tar_status ) || WEXITSTATUS( tar_status ) != 0 ) {
+    return -1;
+  }
+
+  return 0;
+}
+
+static void
+apply_ledger_config( fd_ledger_config_t const * ledger_config, config_t * config ) {
+  if( !ledger_config ) return;
+
+  if( ledger_config->vinyl ) {
+    config->firedancer.funk.heap_size_gib             = 2UL;
+    config->firedancer.funk.max_account_records       = 1000000UL;
+
+    config->firedancer.vinyl.enabled              = 1;
+    config->firedancer.vinyl.max_account_records  = ledger_config->index_max<1000000UL ? 2000000UL : ledger_config->index_max * 2UL;
+    config->firedancer.vinyl.file_size_gib        = ledger_config->funk_pages * 4UL;
+    config->firedancer.vinyl.max_cache_entries    = 100000UL;
+    config->firedancer.vinyl.cache_size_gib       = 10UL;
+    config->firedancer.vinyl.io_uring.enabled     = 1;
+  } else {
+    config->firedancer.funk.heap_size_gib             = ledger_config->funk_pages;
+    config->firedancer.funk.max_account_records       = ledger_config->index_max;
+  }
+
+  config->tiles.archiver.enabled  = 1;
+  config->tiles.archiver.end_slot = ledger_config->end_slot;
+  config->tiles.archiver.ingest_dead_slots = 0;
+  config->tiles.archiver.root_distance = 32;
+
+  char ledger_dir[256];
+  char ledger_name_stripped[256];
+  fd_cstr_ncpy( ledger_name_stripped, ledger_config->ledger_name, sizeof(ledger_name_stripped) );
+
+  char * vinyl_suffix = strstr( ledger_name_stripped, "-vinyl" );
+  if( vinyl_suffix && vinyl_suffix[ 6 ] == '\0' ) {
+    *vinyl_suffix = '\0';
+  }
+
+  char * dump_dir = getenv("DUMP_DIR");
+  if( dump_dir == NULL ) {
+    dump_dir = "dump";
+  }
+
+  fd_cstr_printf( ledger_dir, sizeof(ledger_dir), NULL, "%s/%s", dump_dir, ledger_name_stripped );
+
+  if( access( ledger_dir, F_OK )!=0 ) {
+    FD_LOG_NOTICE(( "Ledger directory does not exist, checking gcloud for ledger %s", ledger_config->ledger_name ));
+
+    if( FD_UNLIKELY( mkdir( ledger_dir, 0700 )!=0 ) ) {
+      FD_LOG_ERR(( "Failed to create ledger directory: %s", ledger_dir ));
+    }
+
+    FD_LOG_NOTICE(( "Downloading ledger from gcloud: %s", ledger_config->ledger_name ));
+
+    if( FD_UNLIKELY( download_ledger_from_gcloud( ledger_config->ledger_name, dump_dir ) ) ) {
+      rmdir( ledger_dir );
+      FD_LOG_ERR(( "Failed to download ledger: %s", ledger_config->ledger_name ));
+      return;
+    }
+
+    if( access( ledger_dir, F_OK )!=0 ) {
+      FD_LOG_ERR(( "Ledger directory still does not exist after download: %s", ledger_dir ));
+      return;
+    }
+
+    FD_LOG_NOTICE(( "Successfully downloaded and extracted ledger: %s", ledger_dir ));
+  }
+
+  if( FD_UNLIKELY( chmod( ledger_dir, 0700 )!=0 ) ) {
+    FD_LOG_ERR(( "Failed to chmod ledger directory: %s", ledger_dir ));
+  }
+
+  char shredcap_path[PATH_MAX];
+  fd_cstr_printf( shredcap_path, sizeof(shredcap_path), NULL, "%s/shreds.pcapng.zst", ledger_dir );
+
+  struct stat st;
+  if( stat( shredcap_path, &st )==0 ) {
+    fd_cstr_ncpy( config->tiles.archiver.ingest_mode, "shredcap", sizeof(config->tiles.archiver.ingest_mode) );
+    fd_cstr_ncpy( config->tiles.archiver.shredcap_path, shredcap_path, sizeof(config->tiles.archiver.shredcap_path) );
+  } else {
+    fd_cstr_ncpy( config->tiles.archiver.ingest_mode, "rocksdb", sizeof(config->tiles.archiver.ingest_mode) );
+    char rocksdb_path[PATH_MAX];
+    fd_cstr_printf( rocksdb_path, sizeof(rocksdb_path), NULL, "%s/rocksdb", ledger_dir );
+    fd_cstr_ncpy( config->tiles.archiver.rocksdb_path, rocksdb_path, sizeof(config->tiles.archiver.rocksdb_path) );
+
+    /* If end_slot is not set (ULONG_MAX), detect it from the rocksdb */
+    if( FD_UNLIKELY( ledger_config->end_slot==ULONG_MAX || ledger_config->end_slot==0UL ) ) {
+      fd_rocksdb_t db;
+      if( FD_LIKELY( !fd_rocksdb_init( &db, rocksdb_path ) ) ) {
+        char * err = NULL;
+        ulong last_slot;
+        if( FD_LIKELY( (last_slot = fd_rocksdb_last_slot(&db, &err))!=0UL ) ) {
+          config->tiles.archiver.end_slot = last_slot;
+          FD_LOG_NOTICE(( "Auto-detected end_slot from rocksdb: %lu", last_slot ));
+        } else {
+          fd_rocksdb_destroy( &db );
+          FD_LOG_ERR(( "Failed to get last slot from rocksdb: %s", err ));
+        }
+        fd_rocksdb_destroy( &db );
+      } else {
+        FD_LOG_ERR(( "Failed to open rocksdb at %s", rocksdb_path ));
+      }
+    }
+  }
+
+  fd_cstr_ncpy( config->paths.snapshots, ledger_dir, sizeof(config->paths.snapshots) );
+
+  if( ledger_config->vinyl ) {
+    char accounts_path[PATH_MAX];
+    fd_cstr_printf( accounts_path, sizeof(accounts_path), NULL, "%s/accounts.db", ledger_dir );
+    fd_cstr_ncpy( config->paths.accounts, accounts_path, sizeof(config->paths.accounts) );
+  }
+
+  config->firedancer.snapshots.incremental_snapshots = ledger_config->has_incremental;
+
+  config->development.snapshots.disable_lthash_verification = 1;
+
+  config->firedancer.layout.snapshot_hash_tile_count = 1UL;
+  config->firedancer.layout.execrp_tile_count        = 10UL;
+
+  config->firedancer.runtime.max_live_slots  = 32UL;
+  config->firedancer.runtime.max_fork_width  = 4UL;
+
+  config->tiles.replay.enable_features_cnt = ledger_config->enable_features_cnt;
+  for( ulong i = 0UL; i < ledger_config->enable_features_cnt && i < 16UL; i++ ) {
+    fd_cstr_ncpy( config->tiles.replay.enable_features[i],
+                  ledger_config->enable_features[i],
+                  sizeof(config->tiles.replay.enable_features[i]) );
+  }
+
+  config->firedancer.snapshots.sources.servers_cnt = 0;
+  config->firedancer.snapshots.sources.gossip.allow_any = 0;
+  config->firedancer.snapshots.sources.gossip.allow_list_cnt = 0;
+
+  if( ledger_config->genesis ) {
+    char genesis_path[PATH_MAX];
+    fd_cstr_printf( genesis_path, sizeof(genesis_path), NULL, "%s/genesis.bin", ledger_dir );
+    fd_cstr_ncpy( config->paths.genesis, genesis_path, sizeof(config->paths.genesis) );
+    config->gossip.entrypoints_cnt = 0;
+  } else {
+    config->gossip.entrypoints_cnt = 1;
+    snprintf( config->gossip.entrypoints[0], sizeof(config->gossip.entrypoints[0]), "0.0.0.0:1" );
+  }
+}
 
 static void
 backtest_topo( config_t * config ) {
 
   config->development.sandbox  = 0;
   config->development.no_clone = 1;
+  config->development.snapshots.disable_lthash_verification = 1;
 
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
   ulong lta_tile_cnt    = config->firedancer.layout.snapshot_hash_tile_count;
@@ -520,6 +793,34 @@ extern int * fd_log_private_shared_lock;
 
 static void
 backtest_cmd_topo( config_t * config ) {
+  if( g_ledger_name[0] != '\0' && !strcmp( g_ledger_name, "all" ) ) {
+    return;
+  }
+
+  if( g_ledger_name[0] != '\0' && !strcmp( g_ledger_name, "ci" ) ) {
+    return;
+  }
+
+  if( g_ledger_name[0] != '\0' ) {
+    fd_ledger_config_t const * ledger_config = fd_ledger_config_find( g_ledger_name );
+    if( ledger_config ) {
+      apply_ledger_config( ledger_config, config );
+    } else {
+      fd_ledger_config_t default_config = {
+        .funk_pages = 5UL,
+        .index_max = 2000000UL,
+        .end_slot = ULONG_MAX,
+        .genesis = 0,
+        .has_incremental = 0,
+        .vinyl = 0,
+        .enable_features = { "" },
+        .enable_features_cnt = 0UL,
+      };
+      fd_cstr_ncpy( default_config.test_name, g_ledger_name, sizeof(default_config.test_name) );
+      fd_cstr_ncpy( default_config.ledger_name, g_ledger_name, sizeof(default_config.ledger_name) );
+      apply_ledger_config( &default_config, config );
+    }
+  }
   backtest_topo( config );
 }
 
@@ -542,6 +843,58 @@ configure_args( void ) {
   return args;
 }
 
+__attribute__((constructor))
+static void
+backtest_parse_ledger_name_early( void ) {
+  FILE * fp = fopen( "/proc/self/cmdline", "rb" );
+  if( !fp ) return;
+
+  char cmdline[4096];
+  size_t n = fread( cmdline, 1, sizeof(cmdline) - 1, fp );
+  fclose( fp );
+  if( n == 0 ) return;
+  cmdline[n] = '\0';
+
+  char * argv[256];
+  int argc = 0;
+  size_t pos = 0;
+  while( pos < n && argc < 256 ) {
+    argv[argc++] = cmdline + pos;
+    while( pos < n && cmdline[pos] != '\0' ) pos++;
+    pos++;
+  }
+
+  if( argc > 0 ) {
+    g_binary_path = argv[0];
+  }
+
+  int is_backtest = 0;
+  for( int i = 0; i < argc; i++ ) {
+    if( !strcmp( argv[i], "--config" ) && (i + 1) < argc ) {
+      strncpy( g_config_file, argv[i+1], sizeof(g_config_file) - 1 );
+      g_config_file[ sizeof(g_config_file) - 1 ] = '\0';
+    }
+
+    if( !strcmp( argv[i], "backtest" ) ) {
+      is_backtest = 1;
+      if( (i + 1) < argc && argv[i+1] && argv[i+1][0] != '-' ) {
+        strncpy( g_ledger_name, argv[i+1], sizeof(g_ledger_name) - 1 );
+        g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
+      }
+    }
+
+    if( is_backtest ) {
+      if( !strcmp( argv[i], "--all" ) ) {
+        strncpy( g_ledger_name, "all", sizeof(g_ledger_name) - 1 );
+        g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
+      } else if( !strcmp( argv[i], "--ci" ) ) {
+        strncpy( g_ledger_name, "ci", sizeof(g_ledger_name) - 1 );
+        g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
+      }
+    }
+  }
+}
+
 void
 backtest_cmd_args( int *    pargc,
                    char *** pargv,
@@ -552,6 +905,21 @@ backtest_cmd_args( int *    pargc,
 
   args->backtest.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
 
+  int is_all = fd_env_strip_cmdline_contains( pargc, pargv, "--all" );
+  int is_ci  = fd_env_strip_cmdline_contains( pargc, pargv, "--ci"  );
+
+  if( is_all && is_ci ) {
+    FD_LOG_ERR(( "cannot specify both --all and --ci" ));
+  }
+
+  if( is_all ) {
+    strncpy( g_ledger_name, "all", sizeof(g_ledger_name) - 1 );
+    g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
+  } else if( is_ci ) {
+    strncpy( g_ledger_name, "ci", sizeof(g_ledger_name) - 1 );
+    g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
+  }
+
   if(      0==strcmp( db, "funk"  ) ) args->backtest.is_vinyl = 0;
   else if( 0==strcmp( db, "vinyl" ) ) args->backtest.is_vinyl = 1;
   else FD_LOG_ERR(( "invalid --db '%s' (must be 'funk' or 'vinyl')", db ));
@@ -560,6 +928,18 @@ backtest_cmd_args( int *    pargc,
 
   if( FD_UNLIKELY( strlen( vinyl_io )!=2UL ) ) FD_LOG_ERR(( "invalid --vinyl-io '%s'", vinyl_io ));
   fd_cstr_ncpy( args->backtest.vinyl_io, vinyl_io, sizeof(args->backtest.vinyl_io) );
+
+  if( *pargc > 0 ) {
+    char const * ledger_name = (*pargv)[0];
+    if( ledger_name && ledger_name[0] != '-' ) {
+      if( !is_all && !is_ci ) {
+        strncpy( g_ledger_name, ledger_name, sizeof(g_ledger_name) - 1 );
+        g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
+      }
+      (*pargc)--;
+      (*pargv)++;
+    }
+  }
 }
 
 void
@@ -574,6 +954,55 @@ backtest_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 static void
 fixup_config( config_t *     config,
               args_t const * args ) {
+
+  if( g_config_file[0] != '\0' ) {
+    char const * config_file_path = g_config_file;
+    FD_LOG_NOTICE(( "loading custom config from '%s'", config_file_path ));
+
+    char saved_snapshots[PATH_MAX];
+    fd_cstr_ncpy( saved_snapshots, config->paths.snapshots, sizeof(saved_snapshots) );
+    if( saved_snapshots[0] != '\0' && saved_snapshots[0] != '/' ) {
+      char abs_snapshots[PATH_MAX];
+      if( realpath( saved_snapshots, abs_snapshots ) ) {
+        fd_cstr_ncpy( config->paths.snapshots, abs_snapshots, sizeof(config->paths.snapshots) );
+      }
+    }
+
+    FILE * fp = fopen( config_file_path, "rb" );
+    if( FD_UNLIKELY( !fp ) ) {
+      FD_LOG_ERR(( "failed to open config file '%s' (%i-%s)",
+                   config_file_path, errno, fd_io_strerror( errno ) ));
+    }
+
+    if( FD_UNLIKELY( fseek( fp, 0L, SEEK_END ) ) ) {
+      FD_LOG_ERR(( "failed to seek config file '%s' (%i-%s)",
+                   config_file_path, errno, fd_io_strerror( errno ) ));
+    }
+    long file_size = ftell( fp );
+    if( FD_UNLIKELY( file_size < 0L ) ) {
+      FD_LOG_ERR(( "failed to get size of config file '%s' (%i-%s)",
+                   config_file_path, errno, fd_io_strerror( errno ) ));
+    }
+    rewind( fp );
+
+    char * config_buf = (char *)malloc( (ulong)file_size + 1UL );
+    if( FD_UNLIKELY( !config_buf ) ) {
+      FD_LOG_ERR(( "failed to allocate memory for config file '%s'", config_file_path ));
+    }
+
+    ulong bytes_read = fread( config_buf, 1UL, (ulong)file_size, fp );
+    if( FD_UNLIKELY( bytes_read != (ulong)file_size ) ) {
+      FD_LOG_ERR(( "failed to read config file '%s' (%i-%s)",
+                   config_file_path, errno, fd_io_strerror( errno ) ));
+    }
+    config_buf[ file_size ] = '\0';
+    fclose( fp );
+
+    fd_config_load_buf( config, config_buf, (ulong)file_size, config_file_path );
+
+    free( config_buf );
+  }
+
   if( args->backtest.vinyl_path[0] ) {
     fd_cstr_ncpy( config->paths.accounts, args->backtest.vinyl_path, sizeof(config->paths.accounts) );
   }
@@ -581,7 +1010,7 @@ fixup_config( config_t *     config,
   if( args->backtest.is_vinyl ) {
     config->firedancer.vinyl.enabled = 1;
 
-    config->firedancer.vinyl.file_size_gib       = config->firedancer.funk.heap_size_gib;
+    config->firedancer.vinyl.file_size_gib       = config->firedancer.funk.heap_size_gib * 4UL;
     config->firedancer.vinyl.max_account_records = config->firedancer.funk.max_account_records;
 
     char const * io_mode = args->backtest.vinyl_io;
@@ -597,8 +1026,85 @@ fixup_config( config_t *     config,
 }
 
 static void
+run_ledgers( fd_ledger_config_t const * const * ledger_configs,
+             ulong                              ledger_count ) {
+
+  ulong passed = 0UL;
+  ulong failed = 0UL;
+
+  char const * failed_tests[ 256 ];
+  ulong failed_count = 0UL;
+
+  for( ulong i = 0UL; i < ledger_count; i++ ) {
+    fd_ledger_config_t const * ledger = ledger_configs[ i ];
+    if( !ledger ) {
+      FD_LOG_WARNING(( "Ledger config is NULL at index %lu", i ));
+      continue;
+    }
+
+    FD_LOG_NOTICE(( "[%lu/%lu] Testing: %s", i+1, ledger_count, ledger->test_name ));
+
+    pid_t pid = fork();
+    if( pid < 0 ) {
+      FD_LOG_ERR(( "fork() failed for ledger %s (%i-%s)", ledger->test_name, errno, fd_io_strerror( errno ) ));
+    } else if( pid == 0 ) {
+      char const * argv[] = {
+        "firedancer-dev",
+        "backtest",
+        ledger->test_name,
+        "--no-watch",
+        NULL
+      };
+      execv( "/proc/self/exe", (char **)argv );
+      FD_LOG_ERR(( "execv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    } else {
+      int status;
+      if( FD_UNLIKELY( waitpid( pid, &status, 0 ) < 0 ) ) {
+        FD_LOG_ERR(( "waitpid() failed for ledger %s (%i-%s)", ledger->test_name, errno, fd_io_strerror( errno ) ));
+      }
+
+      if( WIFEXITED( status ) && WEXITSTATUS( status ) == 0 ) {
+        FD_LOG_NOTICE(( "PASS: %s", ledger->test_name ));
+        passed++;
+      } else {
+        FD_LOG_WARNING(( "FAIL: %s (exit code: %d)", ledger->test_name, WIFEXITED( status ) ? WEXITSTATUS( status ) : -1 ));
+        failed++;
+        if( failed_count < 256UL ) {
+          failed_tests[ failed_count++ ] = ledger->test_name;
+        }
+      }
+    }
+  }
+
+  FD_LOG_NOTICE(( "========================================" ));
+  FD_LOG_NOTICE(( "Summary:" ));
+  FD_LOG_NOTICE(( "  Passed: %lu", passed ));
+  FD_LOG_NOTICE(( "  Failed: %lu", failed ));
+  FD_LOG_NOTICE(( "  Total:  %lu", ledger_count ));
+
+  if( failed > 0UL ) {
+    FD_LOG_NOTICE(( "Failed tests:" ));
+    for( ulong i = 0UL; i < failed_count; i++ ) {
+      FD_LOG_NOTICE(( "  - %s", failed_tests[ i ] ));
+    }
+  }
+
+  FD_LOG_NOTICE(( "========================================" ));
+
+  exit( failed > 0UL ? 1 : 0 );
+}
+
+static void
 backtest_cmd_fn( args_t *   args,
                  config_t * config ) {
+  if( g_ledger_name[0] != '\0' && !strcmp( g_ledger_name, "all" ) ) {
+    run_ledgers( fd_ledger_configs, FD_LEDGER_CONFIG_COUNT );
+  }
+
+  if( g_ledger_name[0] != '\0' && !strcmp( g_ledger_name, "ci" ) ) {
+    run_ledgers( fd_ledger_ci_list, FD_LEDGER_CI_COUNT );
+  }
+
   fixup_config( config, args );
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
