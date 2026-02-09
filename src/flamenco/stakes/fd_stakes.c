@@ -14,11 +14,11 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    if( FD_UNLIKELY( !vote_state->stake ) ) continue;
+    if( FD_UNLIKELY( !vote_state->stake_t_2 ) ) continue;
 
     fd_memcpy( weights[ weights_cnt ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
     fd_memcpy( weights[ weights_cnt ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
-    weights[ weights_cnt ].stake = vote_state->stake;
+    weights[ weights_cnt ].stake = vote_state->stake_t_2;
     weights_cnt++;
   }
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
