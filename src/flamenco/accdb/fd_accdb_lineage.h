@@ -9,7 +9,7 @@
 /* FD_ACCDB_DEPTH_MAX specifies the max non-rooted fork depth.
    FIXME removing this limit is important for outage resilience */
 
-#define FD_ACCDB_DEPTH_MAX (128UL)
+#define FD_ACCDB_DEPTH_MAX (1024UL)
 
 struct fd_accdb_lineage {
 
