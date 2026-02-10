@@ -1846,6 +1846,11 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( sched_fec->is_first_in_block ) {
+    bank->data->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  }
+
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, bank );
   }
@@ -1958,7 +1963,10 @@ after_credit( fd_replay_tile_t *  ctx,
 
   ulong bank_idx;
   while( (bank_idx=fd_sched_pruned_block_next( ctx->sched ))!=ULONG_MAX ) {
-    //FIXME decrement refcnt for sched
+    fd_bank_t bank[1];
+    FD_TEST( fd_banks_bank_query( bank, ctx->banks, bank_idx ) );
+    bank->data->refcnt--;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for sched", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
   }
 
   /* If the published_root is not caught up to the consensus root, then
