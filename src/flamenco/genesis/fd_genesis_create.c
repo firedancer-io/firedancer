@@ -171,10 +171,11 @@ genesis_create( void *                       buf,
     };
     stake->stake = (fd_stake_t) {
       .delegation = (fd_delegation_t) {
-        .voter_pubkey       = options->vote_pubkey,
-        .stake              = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
-        .activation_epoch   = ULONG_MAX, /*  bootstrap stake denoted with ULONG_MAX */
-        .deactivation_epoch = ULONG_MAX
+        .voter_pubkey         = options->vote_pubkey,
+        .stake                = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
+        .activation_epoch     = ULONG_MAX, /* bootstrap stake denoted with ULONG_MAX */
+        .deactivation_epoch   = ULONG_MAX,
+        .warmup_cooldown_rate = 0.25
       },
       .credits_observed = 0UL
     };

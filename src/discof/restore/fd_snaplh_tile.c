@@ -166,7 +166,7 @@ should_process_lthash_request( fd_snaplh_t * ctx ) {
   return (ctx->lthash_req_seen % ctx->lthash_tile_sub_cnt)==ctx->lthash_tile_sub_idx;
 }
 
-FD_FN_UNUSED static void
+static void
 streamlined_hash( fd_snaplh_t *       restrict ctx,
                   fd_lthash_adder_t * restrict adder,
                   fd_lthash_value_t * restrict running_lthash,
@@ -200,7 +200,7 @@ streamlined_hash( fd_snaplh_t *       restrict ctx,
   else                         ctx->metrics.incremental.accounts_hashed++;
 }
 
-FD_FN_UNUSED static void
+static void
 handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
                                 ulong                     seq,
                                 fd_vinyl_bstream_phdr_t * acc_hdr ) {
@@ -281,7 +281,7 @@ rd_req_ctx_update_status( ulong rd_req_ctx,
   return rd_req_ctx_from_parts( rd_req_ctx_get_idx( rd_req_ctx ), status );
 }
 
-FD_FN_UNUSED static void
+static void
 handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
                                          fd_vinyl_io_rd_t * rd_req ) {
   ulong idx = rd_req_ctx_get_idx( rd_req->ctx );
@@ -325,7 +325,7 @@ consume_available_cqe( fd_snaplh_t * ctx ) {
   return 0UL;
 }
 
-FD_FN_UNUSED static void
+static void
 handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
                                 ulong                     seq,
                                 fd_vinyl_bstream_phdr_t * acc_hdr ) {
@@ -376,7 +376,7 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
   ctx->vinyl.pending_rd_req_cnt++;
 }
 
-FD_FN_UNUSED static void
+static void
 handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
   while( ctx->vinyl.pending_rd_req_cnt ) {
     fd_vinyl_io_rd_t * rd_req = NULL;
@@ -395,20 +395,18 @@ handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
   }
 }
 
-FD_FN_UNUSED static uint
+static void
 handle_lthash_completion( fd_snaplh_t * ctx,
                           fd_stem_context_t * stem ) {
-  fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
-  fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
   if( fd_seq_inc( ctx->wh_last_in_seq, 1UL )==ctx->wh_finish_fseq ) {
+    fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
+    fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
     fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
     uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
     fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
-    return FD_SNAPSHOT_STATE_IDLE;
   }
-  return ctx->state;
 }
 
 static void
@@ -425,6 +423,16 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
                      ulong         sz_comp,    /* compressed input size */
                      fd_stem_context_t * stem ) {
   FD_CRIT( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH, "incorrect in kind" );
+
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    /* skip all wh data frags when in error state. */
+    return;
+  }
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING  &&
+                   ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+    FD_LOG_ERR(( "invalid state for wh data frag %u", ctx->state ));
+    return;
+  }
 
   uchar const * rem    = fd_chunk_to_laddr_const( ctx->in[ in_idx ].base, chunk );
   ulong         rem_sz = sz_comp<<FD_VINYL_BSTREAM_BLOCK_LG_SZ;
@@ -465,7 +473,11 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
   }
 
   if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
-    ctx->state = handle_lthash_completion( ctx, stem );
+    /* handle_lthash_completion may succeed (complete) either when the
+       control frag that triggers it is received (conditional upon
+       having no pending wh data frags) or after all wh data frags have
+       been received and processed. */
+    handle_lthash_completion( ctx, stem );
   }
 }
 
@@ -473,6 +485,16 @@ static void
 handle_lv_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
                      ulong         chunk ) { /* compressed input pointer */
+
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    /* skip all lv data frags when in error state. */
+    return;
+  }
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING  ) ) {
+    FD_LOG_ERR(( "invalid state for lv data frag %u", ctx->state ));
+    return;
+  }
+
   if( FD_LIKELY( should_process_lthash_request( ctx ) ) ) {
     uchar const * indata = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
     ulong seq;
@@ -500,42 +522,59 @@ handle_control_frag( fd_snaplh_t * ctx,
                      ulong         tsorig,
                      ulong         tspub,
                     fd_stem_context_t * stem  ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    goto forward_msg;
+  };
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       fd_lthash_zero( &ctx->running_lthash );
       fd_lthash_zero( &ctx->running_lthash_sub );
       fd_lthash_adder_new( ctx->adder );
       fd_lthash_adder_new( ctx->adder_sub );
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      fd_lthash_zero( &ctx->running_lthash );
-      fd_lthash_zero( &ctx->running_lthash_sub );
-      fd_lthash_adder_new( ctx->adder );
-      fd_lthash_adder_new( ctx->adder_sub );
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      ctx->wh_finish_fseq = tsorig_tspub_to_fseq( tsorig, tspub );
+      if( FD_LIKELY( ctx->io_uring_enabled ) ) {
+        handle_vinyl_lthash_request_ur_consume_all( ctx );
+      }
+      /* handle_lthash_completion may succeed (complete) either here
+         (if there are no pending wh data frags) or after all wh data
+         frags have been received and processed. */
+      handle_lthash_completion( ctx, stem );
       break;
+    }
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
-    case FD_SNAPSHOT_MSG_CTRL_DONE:{
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->wh_finish_fseq = tsorig_tspub_to_fseq( tsorig, tspub );
-      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+    case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
 
-      if( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) {
-        if( FD_LIKELY( ctx->io_uring_enabled ) ) {
-          handle_vinyl_lthash_request_ur_consume_all( ctx );
-        }
-        ctx->state = handle_lthash_completion( ctx, stem );
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( FD_LIKELY( ctx->io_uring_enabled ) ) {
+        handle_vinyl_lthash_request_ur_consume_all( ctx );
       }
       break;
     }
@@ -545,14 +584,14 @@ handle_control_frag( fd_snaplh_t * ctx,
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
 
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      break;
-
-    default:
+    default: {
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
+      break;
+    }
   }
+
+forward_msg:
+  return;
 }
 
 static inline int

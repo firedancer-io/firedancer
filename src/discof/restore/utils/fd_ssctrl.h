@@ -78,10 +78,7 @@
 #define FD_SNAPSHOT_MSG_CTRL_DONE              (6UL) /* Current snapshot succeeded, commit work, go idle, and expect shutdown */
 #define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* Snapshot load successful, no work left to do, perform final cleanup and shut down*/
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
-
-/* snapla -> snapls */
-/* snaplh -> snaplv */
-#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD        (9UL) /* Hash result sent from snapla (snaplh) to snapls (snaplv) */
+#define FD_SNAPSHOT_MSG_CTRL_FINI              (9UL) /* Current snapshot has been fully loaded, finish processing */
 
 /* snapin -> snapls */
 /* snapin -> snapwm -> snaplv */
@@ -96,6 +93,9 @@
 /* snapwm -> snaplv -> snaplh */
 #define FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH   (15UL) /* Duplicate account(s) meta batch sent from snapwm to snaplv */
 
+/* snapla -> snapls */
+/* snaplh -> snaplv */
+#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD       (16UL) /* Hash result sent from snapla (snaplh) to snapls (snaplv) */
 
 
 /* Sent by snapct to tell snapld whether to load a local file or

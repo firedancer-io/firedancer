@@ -145,6 +145,8 @@ struct fd_sched_block {
   uint                rooted:1;                           /* Set if the block is rooted. */
   uint                dying:1;                            /* Set if the block has been abandoned and no transactions should be
                                                              scheduled from it. */
+  uint                refcnt:1;                           /* Starts at 1 when the block is added, set to 0 if caller has been
+                                                             informed to decrement refcnt for sched. */
   uint                in_sched:1;                         /* Set if the block is being tracked by the scheduler. */
   uint                in_rdisp:1;                         /* Set if the block is being tracked by the dispatcher, either as staged
                                                              or unstaged. */
@@ -204,6 +206,10 @@ struct fd_sched_metrics {
 };
 typedef struct fd_sched_metrics fd_sched_metrics_t;
 
+#define DEQUE_NAME ref_q
+#define DEQUE_T    ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 struct fd_sched {
   char                print_buf[ FD_SCHED_MAX_PRINT_BUF_SZ ];
   ulong               print_buf_sz;
@@ -234,6 +240,7 @@ struct fd_sched {
   txn_bitset_t        poh_mixin_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
   fd_sched_block_t *  block_pool; /* Just a flat array. */
   ulong               block_pool_popcnt;
+  ulong *             ref_q;
 };
 typedef struct fd_sched fd_sched_t;
 
@@ -275,8 +282,8 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block );
 static void
 subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx );
 
-static int
-maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_idx );
+static void
+maybe_switch_block( fd_sched_t * sched, ulong bank_idx );
 
 FD_FN_UNUSED static ulong
 find_and_stage_longest_unstaged_fork( fd_sched_t * sched, int lane_idx );
@@ -545,6 +552,7 @@ fd_sched_footprint( ulong block_cnt_max ) {
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
   l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) ); /* dispatcher */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  ); /* block pool */
+  l = FD_LAYOUT_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )                        );
   return FD_LAYOUT_FINI( l, fd_sched_align() );
 }
 
@@ -556,6 +564,7 @@ fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt ) {
   fd_sched_t * sched = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
   void * _rdisp      = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) );
   void * _bpool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  );
+  void * _ref_q      = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )                        );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   ulong seed = ((ulong)fd_tickcount()) ^ FD_SCHED_MAGIC;
@@ -592,6 +601,8 @@ fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt ) {
 
   sched->block_pool_popcnt = 0UL;
 
+  ref_q_new( _ref_q, block_cnt_max );
+
   return sched;
 }
 
@@ -606,9 +617,11 @@ fd_sched_join( void * mem, ulong block_cnt_max ) {
   /*           */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
   void * _rdisp = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) );
   void * _bpool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  );
+  void * _ref_q = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )                        );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->rdisp      = fd_rdisp_join( _rdisp );
+  sched->ref_q      = ref_q_join( _ref_q );
   sched->block_pool = _bpool;
 
   for( ulong i=0; i<block_cnt_max; i++ ) {
@@ -670,6 +683,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( fec->bank_idx<sched->block_cnt_max );
   FD_TEST( fec->parent_bank_idx<sched->block_cnt_max );
+  FD_TEST( ref_q_empty( sched->ref_q ) );
 
   fd_sched_block_t * block = block_pool_ele( sched, fec->bank_idx );
 
@@ -912,6 +926,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( ref_q_empty( sched->ref_q ) );
 
   ulong exec_ready_bitset0 = sched->txn_exec_ready_bitset[ 0 ];
   ulong exec_fully_ready_bitset = sched->sigverify_ready_bitset[ 0 ] & sched->poh_ready_bitset[ 0 ] & exec_ready_bitset0;
@@ -1103,6 +1118,10 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     out->task_type = FD_SCHED_TT_BLOCK_END;
     out->block_end->bank_idx = bank_idx;
     block->block_end_signaled = 1;
+    FD_TEST( block->refcnt );
+    block->refcnt = 0;
+    if( FD_UNLIKELY( !ref_q_avail( sched->ref_q ) ) ) FD_LOG_CRIT(( "ref_q full" ));
+    ref_q_push_tail( sched->ref_q, bank_idx );
     return 1UL;
   }
 
@@ -1127,7 +1146,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 }
 
 int
-fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data, ulong * out_dead_bank_idx ) {
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
 
   ulong bank_idx = ULONG_MAX;
@@ -1314,9 +1333,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
                   bank_idx, block->slot, block->parent_slot ));
   }
 
-  if( FD_UNLIKELY( FD_SCHED_BAD_BLOCK==maybe_switch_block( sched, bank_idx, out_dead_bank_idx ) ) ) {
-    return -2;
-  }
+  maybe_switch_block( sched, bank_idx );
 
   return 0;
 }
@@ -1379,6 +1396,7 @@ fd_sched_advance_root( fd_sched_t * sched, ulong root_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( root_idx<sched->block_cnt_max );
   FD_TEST( sched->root_idx<sched->block_cnt_max );
+  FD_TEST( ref_q_empty( sched->ref_q ) );
 
   fd_sched_block_t * new_root = block_pool_ele( sched, root_idx );
   fd_sched_block_t * old_root = block_pool_ele( sched, sched->root_idx );
@@ -1405,6 +1423,7 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( root_idx<sched->block_cnt_max );
   FD_TEST( sched->root_idx<sched->block_cnt_max );
+  FD_TEST( ref_q_empty( sched->ref_q ) );
 
   fd_sched_block_t * block    = block_pool_ele( sched, root_idx );
   fd_sched_block_t * old_root = block_pool_ele( sched, sched->root_idx );
@@ -1481,6 +1500,15 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
     sched->metrics->deactivate_pruned_cnt += fd_uint_if( old_active_bank_idx!=ULONG_MAX, 1U, 0U );
     try_activate_block( sched );
   }
+}
+
+ulong
+fd_sched_pruned_block_next( fd_sched_t * sched ) {
+  if( !ref_q_empty( sched->ref_q ) ) {
+    ulong bank_idx = ref_q_pop_head( sched->ref_q );
+    return bank_idx;
+  }
+  return ULONG_MAX;
 }
 
 void
@@ -1584,6 +1612,7 @@ add_block( fd_sched_t * sched,
   block->fec_eos              = 0;
   block->rooted               = 0;
   block->dying                = 0;
+  block->refcnt               = 1;
   block->in_sched             = 1;
   block->in_rdisp             = 0;
   block->block_start_signaled = 0;
@@ -2296,6 +2325,11 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
   while( head ) {
     FD_TEST( head->in_sched );
     head->in_sched = 0;
+    if( head->refcnt ) {
+      head->refcnt = 0;
+      if( FD_UNLIKELY( !ref_q_avail( sched->ref_q ) ) ) FD_LOG_CRIT(( "ref_q full" ));
+      ref_q_push_tail( sched->ref_q, block_to_idx( sched, head ) );
+    }
 
     if( FD_UNLIKELY( !head->block_end_done ) ) {
       sched->print_buf_sz = 0UL;
@@ -2348,11 +2382,11 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
   }
 }
 
-static int
-maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_idx ) {
+static void
+maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
   /* This only happens rarely when there are dying in-flight blocks.
      Early exit and don't let dying blocks affect replay. */
-  if( FD_UNLIKELY( bank_idx!=sched->active_bank_idx ) ) return FD_SCHED_OK;
+  if( FD_UNLIKELY( bank_idx!=sched->active_bank_idx ) ) return;
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( block_is_done( block ) ) ) {
@@ -2369,7 +2403,6 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_id
        is a policy decision to minimize fork churn.  We could in theory
        reevaluate staging lane allocation here and do promotion/demotion
        as needed. */
-    int rv = FD_SCHED_OK;
     ulong child_idx = block->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_sched_block_t * child = block_pool_ele( sched, child_idx );
@@ -2382,7 +2415,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_id
                there are no transactions available yet. */
             sched->metrics->deactivate_no_txn_cnt++;
             try_activate_block( sched );
-            return FD_SCHED_OK;
+            return;
           }
           /* ... and it's immediately dispatchable, so switch the active
              block to it, and have the child inherit the head status of
@@ -2394,14 +2427,12 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_id
             FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
                           sched->staged_bitset, block->staging_lane, block->slot, block->parent_slot, child->slot, child->parent_slot ));
           }
-          return FD_SCHED_OK;
+          return;
         } else {
           /* ... but the child block is considered dead, likely because
              the parser considers it invalid. */
           FD_LOG_INFO(( "child block %lu is already dead", child->slot ));
           subtree_abandon( sched, child );
-          *out_dead_bank_idx = child_idx;
-          rv = FD_SCHED_BAD_BLOCK;
           break;
         }
       }
@@ -2413,7 +2444,6 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_id
     sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
     sched->metrics->deactivate_no_child_cnt++;
     try_activate_block( sched );
-    return rv;
   } else if( block_should_deactivate( block ) ) {
     /* We exhausted the active block, but it's not fully done yet.  We
        are just not getting FEC sets for it fast enough.  This could
@@ -2424,8 +2454,6 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx, ulong * out_dead_bank_id
     sched->metrics->deactivate_no_txn_cnt++;
     try_activate_block( sched );
   }
-
-  return FD_SCHED_OK;
 }
 
 FD_FN_UNUSED static ulong

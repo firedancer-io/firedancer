@@ -167,6 +167,7 @@ handle_control_frag( fd_snapwh_t * ctx,
     break;
   default:
     FD_LOG_CRIT(( "received unexpected ssctrl msg type %lu", meta_ctl ));
+    break;
   }
 }
 
