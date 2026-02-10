@@ -128,7 +128,7 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
                 (int)ctx->server_sni_len, ctx->server_sni ));
 
   int connect_err = fd_bundle_client_do_connect( ctx, ip4_addr );
-  if( FD_UNLIKELY( connect_err ) ) {
+  if( FD_LIKELY( connect_err ) ) {
     if( FD_UNLIKELY( connect_err!=EINPROGRESS ) ) {
       FD_LOG_WARNING(( "connect(tcp_sock," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
                       FD_IP4_ADDR_FMT_ARGS( ip4_addr ), ctx->server_tcp_port,
