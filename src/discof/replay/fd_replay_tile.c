@@ -1849,6 +1849,11 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( sched_fec->is_first_in_block ) {
+    bank->data->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->data->idx, sched_fec->slot, bank->data->refcnt ));
+  }
+
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, bank );
   }
@@ -1890,8 +1895,6 @@ advance_published_root( fd_replay_tile_t * ctx ) {
     FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", consensus_root_b58 ));
   }
   ulong target_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
-
-  fd_sched_root_notify( ctx->sched, target_bank_idx );
 
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
@@ -1961,7 +1964,10 @@ after_credit( fd_replay_tile_t *  ctx,
 
   ulong bank_idx;
   while( (bank_idx=fd_sched_pruned_block_next( ctx->sched ))!=ULONG_MAX ) {
-    //FIXME decrement refcnt for sched
+    fd_bank_t bank[1];
+    FD_TEST( fd_banks_bank_query( bank, ctx->banks, bank_idx ) );
+    bank->data->refcnt--;
+    FD_LOG_DEBUG(( "bank (idx=%lu) refcnt decremented to %lu for sched", bank->data->idx, bank->data->refcnt ));
   }
 
   /* If the published_root is not caught up to the consensus root, then
@@ -2174,12 +2180,13 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
     fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
     FD_TEST( block_id_ele );
-
     ctx->consensus_root_slot     = msg->root_slot;
     ctx->consensus_root          = msg->root_block_id;
     ctx->consensus_root_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
     publish_root_advanced( ctx, stem );
+
+    fd_sched_root_notify( ctx->sched, ctx->consensus_root_bank_idx );
   }
 
   ulong distance = 0UL;
