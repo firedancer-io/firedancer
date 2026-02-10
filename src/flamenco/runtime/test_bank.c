@@ -429,6 +429,18 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_prune_dead_banks( banks ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
 
+  /* Case: dead bank is the left-most child of the parent. */
+  fd_banks_new_bank( bank_D, banks, bank_C->data->idx, 0L );
+
+  fd_banks_advance_root( banks, bank_G->data->idx );
+
+  fd_banks_new_bank( bank_W, banks, bank_G->data->idx, 0L );
+  fd_banks_new_bank( bank_I, banks, bank_G->data->idx, 0L );
+  fd_banks_new_bank( bank_C, banks, bank_G->data->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+
+
+
 }
 
 int

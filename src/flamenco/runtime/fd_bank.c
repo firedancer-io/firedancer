@@ -1167,13 +1167,32 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
       break;
     }
 
+    FD_LOG_DEBUG(( "pruning dead bank (idx=%lu)", bank->idx ));
+
     bank->flags = 0UL;
+
+    /* There are a few cases to consider:
+       1. The to-be-pruned bank is the left-most child of the parent.
+          This means that the parent bank's child idx is the
+          to-be-pruned bank.  In this case, we can simply make the
+          left-most sibling of the to-be-pruned bank the new left-most
+          child (set parent's banks child idx to the sibling).  The
+          sibling pointer can be null if the to-be-pruned bank is an
+          only child of the parent.
+       2. The to-be-pruned bank is some right child of the parent.  In
+          this case, the child bank which has a sibling pointer to the
+          to-be-pruned bank needs to be updated to point to the sibling
+          of the to-be-pruned bank.  The sibling can even be null if the
+          to-be-pruned bank is the right-most child of the parent.
+    */
 
     FD_TEST( bank->child_idx==null_idx );
     fd_bank_data_t * parent_bank = fd_banks_pool_ele( bank_pool, bank->parent_idx );
     if( parent_bank->child_idx==bank->idx ) {
-      parent_bank->child_idx = null_idx;
+      /* Case 1: left-most child */
+      parent_bank->child_idx = bank->sibling_idx;
     } else {
+      /* Case 2: some right child */
       fd_bank_data_t * curr_bank = fd_banks_pool_ele( bank_pool, parent_bank->child_idx );
       while( curr_bank->sibling_idx!=bank->idx ) curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->sibling_idx );
       curr_bank->sibling_idx = bank->sibling_idx;
