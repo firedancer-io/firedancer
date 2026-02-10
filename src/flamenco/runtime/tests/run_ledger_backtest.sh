@@ -28,7 +28,7 @@ DISABLE_LTHASH_VERIFICATION=true
 DB=${DB:="funk"}
 EXECRP_TILE_COUNT="10"
 INGEST_DEAD_SLOTS="false"
-ROOT_DISTANCE="32"
+ROOT_DISTANCE="2"
 
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
@@ -263,7 +263,7 @@ cat <<EOF > ${CONFIG_FILE}
     [tiles.rpc]
         enabled = false
 [runtime]
-    max_live_slots = 64
+    max_live_slots = 32
     max_fork_width = 4
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
