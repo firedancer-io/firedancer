@@ -133,7 +133,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
 
   fd_bank_capitalization_set( bank, manifest->capitalization );
-  fd_bank_transaction_count_set( bank, manifest->transaction_count );
+  fd_bank_txn_count_set( bank, manifest->transaction_count );
   fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
   fd_bank_tick_height_set( bank, manifest->tick_height );
   fd_bank_max_tick_height_set( bank, manifest->max_tick_height );

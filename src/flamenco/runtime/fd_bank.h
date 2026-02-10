@@ -206,7 +206,6 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             slot                       ) /* Slot */                                               \
   X(ulong,                             parent_slot                ) /* Parent slot */                                        \
   X(ulong,                             capitalization             ) /* Capitalization */                                     \
-  X(ulong,                             transaction_count          ) /* Transaction count */                                  \
   X(ulong,                             parent_signature_cnt       ) /* Parent signature count */                             \
   X(ulong,                             tick_height                ) /* Tick height */                                        \
   X(ulong,                             max_tick_height            ) /* Max tick height */                                    \
