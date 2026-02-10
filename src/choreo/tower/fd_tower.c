@@ -435,6 +435,44 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
   ulong              prev_vote_slot     = fd_tower_peek_tail_const( tower )->slot;
   fd_tower_forks_t * prev_vote_fork     = fd_forks_query( forks, prev_vote_slot );
+
+
+  if( FD_UNLIKELY( !prev_vote_fork->voted ) ) {
+
+    /* It's possible prev_vote_fork->voted is not set even though we
+       popped it from the top of our tower.  This can happen when there
+       are multiple nodes operating with the same vote account.
+
+       In a typical setup involving a primary staked node and backup
+       unstaked node, the two nodes' towers will usually be identical
+       but occassionally diverge when one node observes a minority fork
+       the other doesn't.  As a result, one node might be locked out
+       from voting for a fork that the other node is not.
+
+       This becomes a problem in our primary-backup setup when the
+       unstaked node is locked out but the staked node is not.  The
+       staked node ultimately lands the vote into the on-chain vote
+       account, so it's possible when the unstaked node reads back their
+       on-chain vote account to diff against their local tower, there
+       are votes in there they themselves did not vote for due to
+       lockout (fd_tower_reconcile).
+
+       As a result, `voted_block_id` will not be set for slots in their
+       tower, which normally would be an invariant violation because the
+       node must have set this value when they voted for the slot (and
+       pushed it to their tower).
+
+       So here we manually set the voted_block_id to replayed_block_id
+       if not already set. We know we must have replayed it, because to
+       observe the on-chain tower you must have replayed all the slots
+       in the tower. */
+
+    /* FIXME this needs to be thought through more carefully for set-identity. */
+
+    prev_vote_fork->voted          = 1;
+    prev_vote_fork->voted_block_id = prev_vote_fork->replayed_block_id;
+  }
+
   fd_hash_t        * prev_vote_block_id = &prev_vote_fork->voted_block_id;
   fd_ghost_blk_t   * prev_vote_blk      = fd_ghost_query( ghost, prev_vote_block_id );
 
