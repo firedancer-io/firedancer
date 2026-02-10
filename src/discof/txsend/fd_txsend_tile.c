@@ -201,12 +201,13 @@ during_housekeeping( fd_txsend_tile_ctx_t * ctx ) {
     FD_LOG_DEBUG(( "keyswitch: switching identity" ));
     ulong seq_must_complete = ctx->keyswitch->param;
     if( FD_UNLIKELY( fd_seq_lt( ctx->tower_in_expect_seq, seq_must_complete ) ) ) {
-      /* See fd_keyswitch.h, we need to flush any in-flight shreds from
+      /* See fd_keyswitch.h, we need to flush any in-flight votes from
          the leader pipeline before switching key. */
       FD_LOG_WARNING(( "Flushing in-flight unpublished votes from tower, must reach seq %lu, currently at %lu ...", seq_must_complete, ctx->tower_in_expect_seq ));
       return;
     }
 
+    /* It's not needed to reconnect existing connections. */
     fd_quic_set_identity_public_key( ctx->quic, ctx->keyswitch->bytes );
 
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
