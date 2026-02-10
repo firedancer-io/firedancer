@@ -113,6 +113,7 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
     entrypoints = [ "0.0.0.0:1" ]
 EOF
 
+$OBJDIR/bin/firedancer-dev configure fini all
 $OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/mainnet-376969880_current.toml
 
 # Run solcap-tools diff and check the summary for zero differences

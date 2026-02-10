@@ -171,6 +171,10 @@ union fdctl_args {
     char const * pos_arg;
     int          help;
   } tower;
+
+  struct {
+    ulong ready_slot;
+  } ready;
 };
 
 typedef union fdctl_args args_t;
