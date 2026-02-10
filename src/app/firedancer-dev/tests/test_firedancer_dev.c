@@ -1,10 +1,11 @@
 #define _GNU_SOURCE
 #include "../main.h"
 
-#include "../../fdctl/config.h"
-#include "../../fdctl/topology.h"
+#include "../../firedancer/topology.h"
+#include "../../firedancer/config.h"
 #include "../../platform/fd_sys_util.h"
 #include "../../shared/fd_config_file.h"
+#include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/ready.h"
 #include "../../shared_dev/boot/fd_dev_boot.h"
 #include "../../shared_dev/commands/wksp.h"
@@ -25,8 +26,8 @@ struct child_info {
 };
 
 static int
-fddev_configure( config_t * config,
-                 int        pipefd ) {
+firedancer_dev_configure( config_t * config,
+                          int        pipefd ) {
   (void)pipefd;
 
   fd_log_thread_set( "configure" );
@@ -57,8 +58,8 @@ fddev_configure( config_t * config,
 }
 
 static int
-fddev_wksp( config_t * config,
-            int        pipefd ) {
+firedancer_dev_wksp( config_t * config,
+                     int        pipefd ) {
   (void)pipefd;
 
   fd_log_thread_set( "wksp" );
@@ -75,24 +76,21 @@ fddev_wksp( config_t * config,
 }
 
 static int
-fddev_ready( config_t * config,
-             int        pipefd ) {
+firedancer_dev_ready( config_t * config,
+                      int        pipefd ) {
   (void)pipefd;
 
   fd_log_thread_set( "ready" );
   args_t args = {
-    .ready.ready_slot = 0UL,
+    .ready.ready_slot = 2UL,
   };
   ready_cmd_fn( &args, config );
   return 0;
 }
 
-void
-spawn_agave( config_t const * config );
-
 static int
-fddev_dev( config_t * config,
-           int        pipefd ) {
+firedancer_dev_dev( config_t * config,
+                    int        pipefd ) {
   fd_log_thread_set( "dev" );
   args_t args = {
     .dev.parent_pipefd      = pipefd,
@@ -105,7 +103,7 @@ fddev_dev( config_t * config,
   fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
   dev_cmd_perm( &args, chk, config );
   FD_TEST( !fd_cap_chk_err_cnt( chk ) );
-  dev_cmd_fn( &args, config, spawn_agave );
+  dev_cmd_fn( &args, config, NULL );
   return 0;
 }
 
@@ -169,9 +167,9 @@ init_log_memfd( void ) {
 }
 
 int
-fddev_test_run( int     argc,
-                char ** argv,
-                int (* run)( config_t * config ) ) {
+firedancer_dev_test_run( int     argc,
+                         char ** argv,
+                         int (* run)( config_t * config ) ) {
   int is_base_run = argc==1 ||
     (argc==5 && !strcmp( argv[ 1 ], "--log-path" ) && !strcmp( argv[ 3 ], "--log-level-stderr" ));
 
@@ -184,7 +182,7 @@ fddev_test_run( int     argc,
       fd_log_thread_set( "supervisor" );
 
       static config_t config[1];
-      fd_config_load( 0, 0, 1, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config );
+      fd_config_load( 1, 0, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config );
       fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();
       config->log.lock_fd = init_log_memfd();
@@ -207,8 +205,8 @@ fddev_test_run( int     argc,
   } else {
     fd_config_file_t _default = (fd_config_file_t){
       .name    = "default",
-      .data    = fdctl_default_config,
-      .data_sz = fdctl_default_config_sz,
+      .data    = firedancer_default_config,
+      .data_sz = firedancer_default_config_sz,
     };
 
     fd_config_file_t * configs[] = {
@@ -223,14 +221,14 @@ fddev_test_run( int     argc,
 }
 
 static int
-test_fddev( config_t * config ) {
-  struct child_info configure = fork_child( "fddev configure", config, fddev_configure );
+test_firedancer_dev( config_t * config ) {
+  struct child_info configure = fork_child( "firedancer-dev configure", config, firedancer_dev_configure );
   wait_children( &configure, 1UL, 15UL );
-  struct child_info wksp = fork_child( "fddev wksp", config, fddev_wksp );
+  struct child_info wksp = fork_child( "firedancer-dev wksp", config, firedancer_dev_wksp );
   wait_children( &wksp, 1UL, 60UL );
 
-  struct child_info dev = fork_child( "fddev dev", config, fddev_dev );
-  struct child_info ready = fork_child( "fddev ready", config, fddev_ready );
+  struct child_info dev = fork_child( "firedancer-dev dev", config, firedancer_dev_dev );
+  struct child_info ready = fork_child( "firedancer-dev ready", config, firedancer_dev_ready );
 
   struct child_info children[ 2 ] = { ready, dev };
   ulong exited = wait_children( children, 2UL, 30UL );
@@ -241,5 +239,5 @@ test_fddev( config_t * config ) {
 int
 main( int     argc,
       char ** argv ) {
-  return fddev_test_run( argc, argv, test_fddev );
+  return firedancer_dev_test_run( argc, argv, test_firedancer_dev );
 }
