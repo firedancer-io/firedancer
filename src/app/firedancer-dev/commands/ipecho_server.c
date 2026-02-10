@@ -24,7 +24,7 @@ ipecho_topo( fd_topo_t *  topo,
   fd_topob_wksp( topo, "all" );
   fd_topo_link_t * link = fd_topob_link( topo, "ipecho_out", "all", 4UL, 0UL, 1UL );
   link->permit_no_consumers = 1;
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0, 0 );
   tile->ipecho.expected_shred_version = 32;
   tile->ipecho.entrypoints_cnt = 0UL;
   tile->ipecho.bind_address = FD_IP4_ADDR(127,0,0,1);
