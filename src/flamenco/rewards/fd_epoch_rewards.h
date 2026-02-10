@@ -77,9 +77,9 @@ struct fd_epoch_stake_reward {
   ulong       credits_observed;
   ulong       lamports;
   /* Internal pointers for pool, dlist, and map. */
-  uint        prev;
-  uint        next;
-  uint        parent;
+  ushort      prev;
+  ushort      next;
+  ushort      parent;
   uint        next_map;
 };
 typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
@@ -89,7 +89,7 @@ typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
 #define DLIST_NAME  fd_epoch_stake_reward_dlist
 #define DLIST_ELE_T fd_epoch_stake_reward_t
-#define DLIST_IDX_T uint
+#define DLIST_IDX_T ushort
 #include "../../util/tmpl/fd_dlist.c"
 
 struct fd_epoch_rewards_iter {
