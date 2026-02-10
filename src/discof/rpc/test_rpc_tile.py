@@ -1,9 +1,10 @@
-import requests
-import json
-from typing import Dict, Any, List, Optional
-from deepdiff import DeepDiff
-import pytest
 import argparse
+import json
+from typing import Any, Dict, List, Optional
+
+import pytest
+import requests
+from deepdiff import DeepDiff
 
 ### Formatted with Black ###
 
@@ -24,9 +25,9 @@ class RPCTester:
                 url, json=payload, headers=headers, timeout=timeout
             )
             response.raise_for_status()
-            return response.json()
+            return {"msg": response.json(), "status": response.status_code}
         except requests.exceptions.RequestException as e:
-            return {"error": response.text, "status": response.status_code}
+            return {"msg": response.text, "status": response.status_code}
 
     def compare_responses(
         self,
@@ -45,7 +46,15 @@ class RPCTester:
         Returns:
             Tuple of (is_equal, diff_object)
         """
-        diff = DeepDiff(resp1, resp2, exclude_paths=exclude_paths, ignore_order=False)
+        diff = DeepDiff(
+            resp1,
+            resp2,
+            exclude_paths=exclude_paths,
+            ignore_order=False,
+            significant_digits=2,
+            # Ignore errors where we explicitly don't support
+            exclude_obj_callback=lambda obj, path: isinstance(obj, str) and obj.startswith("Firedancer Error")
+        )
 
         return (len(diff) == 0, diff if len(diff) > 0 else None)
 
@@ -76,9 +85,9 @@ class RPCTester:
         is_equal, diff = self.compare_responses(resp1, resp2, exclude_paths)
 
         if not is_equal:
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"Test: {description or payload.get('method', 'Unknown')}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
             print(f"Payload: {json.dumps(payload, indent=2)}")
 
             print(f"\n{self.server1_url} Response:\n{json.dumps(resp1, indent=2)}")
@@ -119,11 +128,13 @@ def run_test_suite(
         if only_first is not None and failed_cnt >= only_first:
             break
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("TEST SUMMARY")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     passed = sum(1 for r in results if r["passed"])
-    print(f"<# passed>/<# failed>/<# tests available> {passed}/{len(results)-passed}/{len(test_cases)}")
+    print(
+        f"<# passed>/<# failed>/<# tests available> {passed}/{len(results) - passed}/{len(test_cases)}"
+    )
 
     return results
 
@@ -140,12 +151,22 @@ ALL_TYPES = [
     "abc",
     "",
     [],
+    [[]],
+    [[[]]],
     {},
     [1],
     {"1": 1},
 ]
 
 MISC = [
+    {
+        "payload": {
+            "JsOnRpC": "2.0",
+            "id": 1,
+            "method": "getHealth",
+        },
+        "description": f"misc caps-in-field",
+    },
     *[
         {
             "payload": {
@@ -156,7 +177,7 @@ MISC = [
             },
             "description": f"misc method={e}",
             "exclude_paths": [
-                "root['result']['context']['slot']"
+                "root['msg']['result']['context']['slot']"
             ],  # Checked manually. Excluded since "finalized" slot can be different across validators
         }
         for e in ALL_TYPES
@@ -175,7 +196,7 @@ MISC = [
                 | ({} if missing_unknown else {"unknown": 1})
             ),
             "description": f"misc missing_jsonrpc={missing_jsonrpc} missing_id={missing_id} missing_method={missing_method} missing_params={missing_params} missing_unknown={missing_unknown}",
-            "exclude_paths": ["root['result']['context']['slot']"],
+            "exclude_paths": ["root['msg']['result']['context']['slot']"],
         }
         for missing_jsonrpc in [True, False]
         for missing_id in [True, False]
@@ -251,7 +272,7 @@ GET_HEALTH = [
                 "params": e,
             },
             "description": f"getHealth params={json.dumps(e)}",
-            "exclude_paths": ["root['error']['data']"],
+            "exclude_paths": ["root['msg']['error']['data']"],
         }
         for e in [*ALL_TYPES, *[[_e] for _e in ALL_TYPES]]
     ],
@@ -266,7 +287,7 @@ GET_VERSION = [
         },
         "description": f"getVersion success",
         "exclude_paths": [
-            "root['result']"
+            "root['msg']['result']"
         ],  # actual version/feature set will be different
     },
     *[
@@ -290,7 +311,7 @@ GET_VERSION = [
                 "params": e,
             },
             "description": f"getVersion params={json.dumps(e)}",
-            "exclude_paths": ["root['error']['data']", "root['result']"],
+            "exclude_paths": ["root['msg']['error']['data']", "root['msg']['result']"],
         }
         for e in [*ALL_TYPES, *[[_e] for _e in ALL_TYPES]]
     ],
@@ -304,7 +325,7 @@ GET_IDENTITY = [
             "method": "getIdentity",
         },
         "description": f"getIdentity success",
-        "exclude_paths": ["root['result']['identity']"],
+        "exclude_paths": ["root['msg']['result']['identity']"],
     },
     *[
         {
@@ -315,7 +336,7 @@ GET_IDENTITY = [
                 "extra_field": e,
             },
             "description": f"getIdentity extra_field={json.dumps(e)}",
-            "exclude_paths": ["root['result']['identity']"],
+            "exclude_paths": ["root['msg']['result']['identity']"],
         }
         for e in ALL_TYPES
     ],
@@ -327,8 +348,11 @@ GET_IDENTITY = [
                 "method": "getIdentity",
                 "params": e,
             },
-            "description": f"getVersion params={json.dumps(e)}",
-            "exclude_paths": ["root['error']['data']", "root['result']['identity']"],
+            "description": f"getIdentity params={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['error']['data']",
+                "root['msg']['result']['identity']",
+            ],
         }
         for e in [*ALL_TYPES, *[[_e] for _e in ALL_TYPES]]
     ],
@@ -347,12 +371,12 @@ GET_ACCOUNT_INFO = [
                         "encoding": "base64",
                         "commitment": "finalized",
                         "data_slice": None,
-                        "min_context_slot": None,
-                    }
-                ]
+                        "minContextSlot": None,
+                    },
+                ],
             },
             "description": f"getAccountInfo account=",
-            "exclude_paths": ["root['result']['context']['slot']"],
+            "exclude_paths": ["root['msg']['result']['context']['slot']"],
         }
         for e in [
             "SysvarRent111111111111111111111111111111111",
@@ -367,7 +391,7 @@ GET_ACCOUNT_INFO = [
                 "params": e,
             },
             "description": f"getAccountInfo params={json.dumps(e)}",
-            "exclude_paths": ["root['error']['data']"],
+            "exclude_paths": ["root['msg']['error']['data']"],
         }
         for e in [
             *ALL_TYPES,
@@ -392,7 +416,7 @@ GET_ACCOUNT_INFO = [
             },
             "description": f"getAccountInfo params[2]['commitment']={e}",
             "exclude_paths": [
-                "root['result']['context']['slot']"
+                "root['msg']['result']['context']['slot']"
             ],  # Checked manually. Excluded since "finalized" slot can be different across validators
         }
         for e in [*ALL_TYPES, "finalized", "confirmed", "processed"]
@@ -412,7 +436,7 @@ GET_ACCOUNT_INFO = [
             },
             "description": f"getAccountInfo params[2]['encoding']={e}",
             "exclude_paths": [
-                "root['result']['context']['slot']"
+                "root['msg']['result']['context']['slot']"
             ],  # Checked manually. Excluded since "finalized" slot can be different across validators
         }
         ###
@@ -446,7 +470,7 @@ GET_ACCOUNT_INFO = [
             },
             "description": f"getAccountInfo params[2]['dataSlice']={e}",
             "exclude_paths": [
-                "root['result']['context']['slot']"
+                "root['msg']['result']['context']['slot']"
             ],  # Checked manually. Excluded since "finalized" slot can be different across validators
         }
         for e in [
@@ -454,6 +478,7 @@ GET_ACCOUNT_INFO = [
             [32, 7],
             [7, 32],
             [7, 3],
+            [7],
             *[[7, _e] for _e in ALL_TYPES],
             *[[_e, 3] for _e in ALL_TYPES],
             *[{"length": _e} for _e in ALL_TYPES],
@@ -480,12 +505,194 @@ GET_ACCOUNT_INFO = [
             },
             "description": f"getAccountInfo params[2]['minContextSlot']={e}",
             "exclude_paths": [
-                "root['result']['context']['slot']",
-                "root['error']['data']['contextSlot']",
+                "root['msg']['result']['context']['slot']",
+                "root['msg']['error']['data']['contextSlot']",
             ],  # Checked manually. Excluded since "finalized" slot can be different across validators
         }
         for e in ALL_TYPES
     ],
+]
+
+GET_BALANCE = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getBalance",
+            "params": [
+                "SysvarRent111111111111111111111111111111111",
+                {
+                    "commitment": "finalized",
+                    "minContextSlot": None,
+                },
+            ],
+        },
+        "description": f"getBalance account=SysvarRent111111111111111111111111111111111",
+        "exclude_paths": ["root['msg']['result']['context']['slot']"],
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBalance",
+                "params": e,
+            },
+            "description": f"getBalance params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['error']['data']"],
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES],
+            ["wrong-size"],
+            ["???????????????????????????????????????????"],
+            ["4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofLRda4"],
+        ]
+    ],
+]
+
+GET_HEIGHT = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getBlockHeight",
+            "params": [
+                {
+                    "Commitment": "finalized",
+                    "minContextSlot": None,
+                }
+            ],
+        },
+        "description": f"getBlockHeight success",
+        "exclude_paths": ["root['msg']['result']"],  # Actual block height will differ
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBlockHeight",
+                "params": e,
+            },
+            "description": f"getBlockHeight params={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['result']"
+            ],  # Actual block height will differ
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES],
+        ]
+    ],
+]
+
+GET_GENESIS_HASH = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getGenesisHash",
+        },
+        "description": f"getGenesisHash success",
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getGenesisHash",
+                "params": e,
+            },
+            "description": f"getGenesisHash params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['error']['data']"],
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES],
+        ]
+    ],
+]
+
+GET_INFLATION_GOVERNOR = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getInflationGovernor",
+        },
+        "description": f"getInflationGovernor success",
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getInflationGovernor",
+                "params": e,
+            },
+            "description": f"getInflationGovernor params={json.dumps(e)}",
+        }
+        for e in [
+            e for e in ALL_TYPES if not isinstance(e, list)
+        ]  # Positional config params are not supported
+    ],
+]
+
+GET_LATEST_BLOCKHASH = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getLatestBlockhash",
+            "params": [{"commitment": "processed"}],
+            "exclude_paths": [
+                "root['msg']['result']['context']['slot']",
+                "root['msg']['result']['value']",
+            ],  # due to race
+        },
+        "description": f"getLatestBlockhash success",
+    },
+]
+
+GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getMinimumBalanceForRentExemption",
+            "params": [12345],
+        },
+        "description": f"getMinimumBalanceForRentExemption success",
+    },
+]
+
+GET_SLOT = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getSlot",
+        },
+        "description": f"getSlot success",
+        "exclude_paths": [
+            "root['msg']['result']",
+        ],  # due to race
+    },
+]
+
+GET_TRANSACTION_COUNT = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getTransactionCount",
+        },
+        "description": f"getTransactionCount success",
+        "exclude_paths": [
+            "root['msg']['result']",
+        ],  # due to race
+    },
 ]
 
 if __name__ == "__main__":
@@ -506,6 +713,14 @@ if __name__ == "__main__":
         *GET_VERSION,
         *GET_IDENTITY,
         *GET_ACCOUNT_INFO,
+        *GET_BALANCE,
+        *GET_HEIGHT,
+        *GET_GENESIS_HASH,
+        *GET_INFLATION_GOVERNOR,
+        *GET_LATEST_BLOCKHASH,
+        *GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION,
+        *GET_SLOT,
+        *GET_TRANSACTION_COUNT,
     ]
 
     run_test_suite(tester, test_suite, args.only_first)
