@@ -38,11 +38,15 @@ execve_as_root( int     argc,
   args[ argc+4 ] = NULL;
 
   /* ok to leak these dynamic strings because we are about to execve anyway */
-  char * envp[ 3 ] = {0};
+  char * envp[ 4 ] = {0};
   char * env;
   int    idx = 0;
   if( FD_LIKELY(( env = getenv( "FIREDANCER_CONFIG_TOML" ) )) ) {
     if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "FIREDANCER_CONFIG_TOML=%s", env ) == -1 ) )
+      FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_LIKELY(( env = getenv( "DUMP_DIR" ) )) ) {
+    if( FD_UNLIKELY( asprintf( &envp[ idx++ ], "DUMP_DIR=%s", env ) == -1 ) )
       FD_LOG_ERR(( "asprintf() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   if( FD_LIKELY(( env = getenv( "TERM" ) )) ) {
