@@ -1893,8 +1893,6 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   }
   ulong target_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
-  fd_sched_root_notify( ctx->sched, target_bank_idx );
-
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
   if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
@@ -2179,12 +2177,13 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
     fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
     FD_TEST( block_id_ele );
-
     ctx->consensus_root_slot     = msg->root_slot;
     ctx->consensus_root          = msg->root_block_id;
     ctx->consensus_root_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
     publish_root_advanced( ctx, stem );
+
+    fd_sched_root_notify( ctx->sched, ctx->consensus_root_bank_idx );
   }
 
   ulong distance = 0UL;

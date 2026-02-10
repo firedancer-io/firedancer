@@ -263,7 +263,7 @@ cat <<EOF > ${CONFIG_FILE}
     [tiles.rpc]
         enabled = false
 [runtime]
-    max_live_slots = 32
+    max_live_slots = 64
     max_fork_width = 4
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
