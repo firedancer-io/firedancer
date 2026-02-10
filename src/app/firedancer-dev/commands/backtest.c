@@ -196,8 +196,8 @@ apply_ledger_config( fd_ledger_config_t const * ledger_config, config_t * config
 
   config->tiles.archiver.enabled  = 1;
   config->tiles.archiver.end_slot = ledger_config->end_slot;
-  config->tiles.archiver.ingest_dead_slots = 0;
-  config->tiles.archiver.root_distance = 32;
+  config->tiles.archiver.ingest_dead_slots = ledger_config->ingest_dead_slots;
+  config->tiles.archiver.root_distance = ledger_config->root_distance;
 
   char ledger_dir[256];
   char ledger_name_stripped[256];
@@ -285,12 +285,12 @@ apply_ledger_config( fd_ledger_config_t const * ledger_config, config_t * config
 
   config->firedancer.snapshots.incremental_snapshots = ledger_config->has_incremental;
 
-  config->development.snapshots.disable_lthash_verification = 1;
+  config->development.snapshots.disable_lthash_verification = ledger_config->disable_lthash_verification;
 
   config->firedancer.layout.snapshot_hash_tile_count = 1UL;
   config->firedancer.layout.execrp_tile_count        = 10UL;
 
-  config->firedancer.runtime.max_live_slots  = 32UL;
+  config->firedancer.runtime.max_live_slots  = ledger_config->max_live_slots;
   config->firedancer.runtime.max_fork_width  = 4UL;
 
   config->tiles.replay.enable_features_cnt = ledger_config->enable_features_cnt;
@@ -320,7 +320,6 @@ backtest_topo( config_t * config ) {
 
   config->development.sandbox  = 0;
   config->development.no_clone = 1;
-  config->development.snapshots.disable_lthash_verification = 1;
 
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
   ulong lta_tile_cnt    = config->firedancer.layout.snapshot_hash_tile_count;
@@ -807,6 +806,10 @@ backtest_cmd_topo( config_t * config ) {
         .vinyl = 0,
         .enable_features = { "" },
         .enable_features_cnt = 0UL,
+        .ingest_dead_slots = 0,
+        .max_live_slots = 32UL,
+        .root_distance = 2UL,
+        .disable_lthash_verification = 1,
       };
       fd_cstr_ncpy( default_config.test_name, g_ledger_name, sizeof(default_config.test_name) );
       fd_cstr_ncpy( default_config.ledger_name, g_ledger_name, sizeof(default_config.ledger_name) );

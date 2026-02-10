@@ -20,6 +20,10 @@ typedef struct fd_ledger_config {
   int   vinyl;
   char  enable_features[ FD_LEDGER_MAX_FEATURES ][ 64UL ];
   ulong enable_features_cnt;
+  int   ingest_dead_slots;
+  ulong max_live_slots;
+  ulong root_distance;
+  int   disable_lthash_verification;
 } fd_ledger_config_t;
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_519_V3_0_0 = {
@@ -33,6 +37,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_519_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_519_V3_0_0_VINYL = {
@@ -46,6 +54,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_519_V3_0_0_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257066033_V3_0_0 = {
@@ -59,6 +71,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257066033_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257066844_V3_0_0 = {
@@ -72,6 +88,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257066844_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257067457_V3_0_0 = {
@@ -85,6 +105,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257067457_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257068890_V3_0_0 = {
@@ -98,6 +122,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257068890_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257181622_V3_0_0 = {
@@ -111,6 +139,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257181622_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_254462437_V3_0_0 = {
@@ -124,6 +156,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_254462437_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_262654839_V3_0_0 = {
@@ -137,6 +173,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_262654839_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257037451_V3_0_0 = {
@@ -150,6 +190,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257037451_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257035225_V3_0_0 = {
@@ -163,6 +207,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257035225_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257465453_V3_0_0 = {
@@ -176,6 +224,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257465453_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257058865_V3_0_0 = {
@@ -189,6 +241,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257058865_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257059815_V3_0_0 = {
@@ -202,6 +258,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257059815_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257061172_V3_0_0 = {
@@ -215,6 +275,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257061172_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257222682_V3_0_0 = {
@@ -228,6 +292,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257222682_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_264890264_V3_0_0 = {
@@ -241,6 +309,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_264890264_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257229353_V3_0_0 = {
@@ -254,6 +326,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257229353_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257257983_V3_0_0 = {
@@ -267,6 +343,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257257983_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_267728520_V3_0_0 = {
@@ -280,6 +360,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_267728520_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_267651942_V3_0_0 = {
@@ -293,6 +377,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_267651942_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_267081197_V3_0_0 = {
@@ -306,6 +394,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_267081197_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_267085604_V3_0_0 = {
@@ -319,6 +411,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_267085604_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_265688706_V3_0_0 = {
@@ -332,6 +428,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_265688706_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_265688706_V3_0_0_VINYL = {
@@ -345,6 +445,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_265688706_V3_0_0_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_265330432_V3_0_0 = {
@@ -358,6 +462,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_265330432_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_268575190_V3_0_0 = {
@@ -371,6 +479,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_268575190_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_268129380_V3_0_0 = {
@@ -384,6 +496,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_268129380_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_268163043_V3_0_0 = {
@@ -397,6 +513,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_268163043_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_269511381_V3_0_0 = {
@@ -410,6 +530,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_269511381_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_269567236_V3_0_0 = {
@@ -423,6 +547,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_269567236_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_266134813_V3_0_0 = {
@@ -436,6 +564,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_266134813_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_266545736_V3_0_0 = {
@@ -449,6 +581,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_266545736_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_267059180_V3_0_0 = {
@@ -462,6 +598,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_267059180_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_267580466_V3_0_0 = {
@@ -475,6 +615,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_267580466_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_268196194_V3_0_0 = {
@@ -488,6 +632,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_268196194_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_267766641_V3_0_0 = {
@@ -501,6 +649,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_267766641_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_269648145_V3_0_0 = {
@@ -514,6 +666,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_269648145_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_281688085_V3_0_0 = {
@@ -527,6 +683,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_281688085_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_277660422_V3_0_0 = {
@@ -540,6 +700,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_277660422_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_277876060_V3_0_0 = {
@@ -553,6 +717,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_277876060_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_277927063_V3_0_0 = {
@@ -566,6 +734,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_277927063_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_281375356_V3_0_0 = {
@@ -579,6 +751,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_281375356_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_251418170_V3_0_0 = {
@@ -592,6 +768,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_251418170_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_282232100_V3_0_0 = {
@@ -605,6 +785,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_282232100_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_282151715_V3_0_0 = {
@@ -618,6 +802,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_282151715_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_286450148_V3_0_0 = {
@@ -631,6 +819,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_286450148_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MULTI_EPOCH_PER_200_V3_0_0 = {
@@ -644,6 +836,10 @@ static const fd_ledger_config_t FD_LEDGER_MULTI_EPOCH_PER_200_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MULTI_EPOCH_PER_300_V3_0_0 = {
@@ -657,6 +853,10 @@ static const fd_ledger_config_t FD_LEDGER_MULTI_EPOCH_PER_300_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MULTI_EPOCH_PER_500_V3_0_0 = {
@@ -670,6 +870,10 @@ static const fd_ledger_config_t FD_LEDGER_MULTI_EPOCH_PER_500_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MULTI_EPOCH_PER_500_V3_0_0_VINYL = {
@@ -683,6 +887,10 @@ static const fd_ledger_config_t FD_LEDGER_MULTI_EPOCH_PER_500_V3_0_0_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_297489336_V3_0_0 = {
@@ -696,6 +904,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_297489336_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_300377724_V3_0_0 = {
@@ -709,6 +921,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_300377724_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_300645644_V3_0_0 = {
@@ -722,6 +938,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_300645644_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_300648964_V3_0_0 = {
@@ -735,6 +955,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_300648964_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_301359740_V3_0_0 = {
@@ -748,6 +972,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_301359740_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257181032_V3_0_0 = {
@@ -761,6 +989,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257181032_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257047660_V3_0_0 = {
@@ -774,6 +1006,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257047660_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_257047659_V3_0_0 = {
@@ -787,6 +1023,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_257047659_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_308445707_V3_0_0 = {
@@ -800,6 +1040,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_308445707_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_307395181_V3_0_0 = {
@@ -813,6 +1057,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_307395181_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_308392063_V3_0_0 = {
@@ -826,6 +1074,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_308392063_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_308392063_V3_0_0_VINYL = {
@@ -839,6 +1091,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_308392063_V3_0_0_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_350814254_V3_0_0 = {
@@ -852,6 +1108,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_350814254_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_350814254_V3_0_0_VINYL = {
@@ -865,6 +1125,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_350814254_V3_0_0_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_311586340_V3_0_0 = {
@@ -878,6 +1142,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_311586340_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_281546597_V3_0_0 = {
@@ -891,6 +1159,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_281546597_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_281546597_V3_0_0_VINYL = {
@@ -904,6 +1176,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_281546597_V3_0_0_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_324823213_V3_0_0 = {
@@ -917,6 +1193,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_324823213_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_325467935_V3_0_0 = {
@@ -930,6 +1210,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_325467935_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_283927487_V3_0_0 = {
@@ -943,6 +1227,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_283927487_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_321168308_V3_0_0 = {
@@ -956,6 +1244,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_321168308_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_327324660_V3_0_0 = {
@@ -969,6 +1261,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_327324660_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_370199634_V3_0_0 = {
@@ -982,6 +1278,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_370199634_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_370199634_V3_0_0_VINYL = {
@@ -995,6 +1295,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_370199634_V3_0_0_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_330219081_V3_0_0 = {
@@ -1008,6 +1312,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_330219081_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_372721907_V3_0_0 = {
@@ -1021,6 +1329,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_372721907_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_331691646_V3_0_0 = {
@@ -1034,6 +1346,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_331691646_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_378683870_V3_0_0 = {
@@ -1047,6 +1363,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_378683870_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_380592002_V3_0_0 = {
@@ -1060,6 +1380,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_380592002_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_336218682_V3_0_0 = {
@@ -1073,6 +1397,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_336218682_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_340269866_V3_0_0 = {
@@ -1086,6 +1414,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_340269866_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_340272018_V3_0_0 = {
@@ -1099,6 +1431,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_340272018_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_390056400_V3_0_0 = {
@@ -1112,6 +1448,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_390056400_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_346556000 = {
@@ -1125,6 +1465,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_346556000 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_346179946 = {
@@ -1138,6 +1482,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_346179946 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MULTI_BPF_LOADER_V3_0_0 = {
@@ -1151,6 +1499,10 @@ static const fd_ledger_config_t FD_LEDGER_MULTI_BPF_LOADER_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_LOCAL_MULTI_BOUNDARY = {
@@ -1164,6 +1516,10 @@ static const fd_ledger_config_t FD_LEDGER_LOCAL_MULTI_BOUNDARY = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_LOCAL_MULTI_BOUNDARY_VINYL = {
@@ -1177,6 +1533,10 @@ static const fd_ledger_config_t FD_LEDGER_LOCAL_MULTI_BOUNDARY_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_GENESIS_V3_0 = {
@@ -1190,6 +1550,10 @@ static const fd_ledger_config_t FD_LEDGER_GENESIS_V3_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_LOCALNET_STAKE_V3_0_0 = {
@@ -1203,6 +1567,10 @@ static const fd_ledger_config_t FD_LEDGER_LOCALNET_STAKE_V3_0_0 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_368528500_STRICTER_ABI = {
@@ -1216,6 +1584,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_368528500_STRICTER_ABI = {
   .vinyl = 0,
   .enable_features = { "sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r" },
   .enable_features_cnt = 1UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_368528500_DIRECT_MAPPING = {
@@ -1229,6 +1601,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_368528500_DIRECT_MAPPING = {
   .vinyl = 0,
   .enable_features = { "sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r", "DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA" },
   .enable_features_cnt = 2UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_362107883_DIRECT_MAPPING_2 = {
@@ -1242,6 +1618,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_362107883_DIRECT_MAPPING_2 = {
   .vinyl = 0,
   .enable_features = { "sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r", "DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA" },
   .enable_features_cnt = 2UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_413869565 = {
@@ -1255,6 +1635,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_413869565 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_376969880 = {
@@ -1268,6 +1652,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_376969880 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_DEVNET_422969842 = {
@@ -1281,6 +1669,10 @@ static const fd_ledger_config_t FD_LEDGER_DEVNET_422969842 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_376969880_R2 = {
@@ -1294,6 +1686,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_376969880_R2 = {
   .vinyl = 0,
   .enable_features = { "5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL" },
   .enable_features_cnt = 1UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_376969880_SIMD_339 = {
@@ -1307,6 +1703,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_376969880_SIMD_339 = {
   .vinyl = 0,
   .enable_features = { "H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5" },
   .enable_features_cnt = 1UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_MAINNET_378539412 = {
@@ -1320,6 +1720,10 @@ static const fd_ledger_config_t FD_LEDGER_MAINNET_378539412 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_384169347 = {
@@ -1333,6 +1737,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_384169347 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 64UL,
+  .root_distance = 32UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_384395810 = {
@@ -1346,6 +1754,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_384395810 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 1,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_BREAKPOINT_385786458 = {
@@ -1359,6 +1771,10 @@ static const fd_ledger_config_t FD_LEDGER_BREAKPOINT_385786458 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_BREAKPOINT_385786458_VINYL = {
@@ -1372,6 +1788,10 @@ static const fd_ledger_config_t FD_LEDGER_BREAKPOINT_385786458_VINYL = {
   .vinyl = 1,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_LOCALNET_DEPRECATE_RENT_EXEMPTION_THRESHOLD = {
@@ -1385,6 +1805,10 @@ static const fd_ledger_config_t FD_LEDGER_LOCALNET_DEPRECATE_RENT_EXEMPTION_THRE
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_LOCALNET_STATIC_INSTRUCTION_LIMIT = {
@@ -1398,6 +1822,10 @@ static const fd_ledger_config_t FD_LEDGER_LOCALNET_STATIC_INSTRUCTION_LIMIT = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_VOTE_STATES_V4_LOCAL = {
@@ -1411,6 +1839,10 @@ static const fd_ledger_config_t FD_LEDGER_VOTE_STATES_V4_LOCAL = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t FD_LEDGER_TESTNET_386300256 = {
@@ -1424,6 +1856,10 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_386300256 = {
   .vinyl = 0,
   .enable_features = { "" },
   .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
 };
 
 static const fd_ledger_config_t * const fd_ledger_configs[] = {
