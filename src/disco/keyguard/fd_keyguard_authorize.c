@@ -72,10 +72,12 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
 
   /* Vote account count will always be 2.  One byte is used to list the
      account count for the transaction and 1 byte for each account. */
-  if( data[ off ] != 2 ) return 0;
+  if( data[ off ]!=2 ) return 0;
   off += 3UL;
 
-  /* Instr data sz */
+  /* Move the cursor forward by the instruction data size.  The first
+     byte of the instruction data will be the discriminant.  Only allow
+     tower sync vote instructions (14). */
   bytes = fd_cu16_dec_sz( data+off, 3UL );
   off += bytes;
   if( data[off]!=14 ) return 0;
