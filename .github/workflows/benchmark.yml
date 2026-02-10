@@ -65,7 +65,7 @@ jobs:
           --log baseline.log --skip-checksum
         SPS_BASELINE=$(grep "Backtest playback done." baseline.log | awk -F 'sec/slot: ' '{print $2}')
         TOTAL_ELAPSED_BASELINE=$(grep "Backtest playback done." baseline.log | awk -F 'elapsed: ' '{print $2}' | awk '{print $1}')
-        SNAPSHOT_LOAD_BASELINE=$(grep "accounts from snapshot in" baseline.log | awk -F 'accounts from snapshot in ' '{print $2}' | awk '{print $1}')
+        SNAPSHOT_LOAD_BASELINE=$(grep "from snapshot in" baseline.log | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")
         echo "Baseline SEC_SLOT=$SPS_BASELINE"
         echo "Baseline TOTAL_ELAPSED=$TOTAL_ELAPSED_BASELINE"
         echo SPS_BASELINE=$SPS_BASELINE >> $GITHUB_ENV
@@ -73,7 +73,8 @@ jobs:
         echo "Baseline SNAPSHOT_LOAD=$SNAPSHOT_LOAD_BASELINE"
         echo SNAPSHOT_LOAD_BASELINE=$SNAPSHOT_LOAD_BASELINE >> $GITHUB_ENV
 
-        DEFAULT_MEM_BASELINE=$($OBJDIR/bin/firedancer-dev mem --mainnet | grep "Total Memory Locked" | awk -F ':' '/Total Memory Locked/ {gsub(/ bytes.*/,"",$2); printf "%.2f\n", $2/1024/1024/1024}')
+        DEFAULT_MEM_BYTES=$($OBJDIR/bin/firedancer-dev mem --mainnet | grep "Total Memory Locked" | grep -o '[0-9]* bytes' | grep -o '[0-9]*')
+        DEFAULT_MEM_BASELINE=$(echo "scale=2; $DEFAULT_MEM_BYTES / 1024 / 1024 / 1024" | bc)
         echo "Baseline DEFAULT_MEM=$DEFAULT_MEM_BASELINE"
         echo DEFAULT_MEM_BASELINE=$DEFAULT_MEM_BASELINE >> $GITHUB_ENV
 
@@ -93,7 +94,7 @@ jobs:
           --log new.log --skip-checksum
         SPS_NEWVAL=$(grep "Backtest playback done." new.log | awk -F 'sec/slot: ' '{print $2}')
         TOTAL_ELAPSED_NEWVAL=$(grep "Backtest playback done." new.log | awk -F 'elapsed: ' '{print $2}' | awk '{print $1}')
-        SNAPSHOT_LOAD_NEWVAL=$(grep "accounts from snapshot in" new.log | awk -F 'accounts from snapshot in ' '{print $2}' | awk '{print $1}')
+        SNAPSHOT_LOAD_NEWVAL=$(grep "from snapshot in" new.log | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")
         echo TOTAL_ELAPSED_NEWVAL=$TOTAL_ELAPSED_NEWVAL >> $GITHUB_ENV
         echo "New SEC_SLOT=$SPS_NEWVAL"
         echo SPS_NEWVAL=$SPS_NEWVAL >> $GITHUB_ENV
@@ -101,7 +102,8 @@ jobs:
         echo "New SNAPSHOT_LOAD=$SNAPSHOT_LOAD_NEWVAL"
         echo SNAPSHOT_LOAD_NEWVAL=$SNAPSHOT_LOAD_NEWVAL >> $GITHUB_ENV
 
-        DEFAULT_MEM_NEWVAL=$($OBJDIR/bin/firedancer-dev mem --mainnet | grep "Total Memory Locked" | awk -F ':' '/Total Memory Locked/ {gsub(/ bytes.*/,"",$2); printf "%.2f\n", $2/1024/1024/1024}')
+        DEFAULT_MEM_BYTES=$($OBJDIR/bin/firedancer-dev mem --mainnet | grep "Total Memory Locked" | grep -o '[0-9]* bytes' | grep -o '[0-9]*')
+        DEFAULT_MEM_NEWVAL=$(echo "scale=2; $DEFAULT_MEM_BYTES / 1024 / 1024 / 1024" | bc)
         echo "New DEFAULT_MEM=$DEFAULT_MEM_NEWVAL"
         echo DEFAULT_MEM_NEWVAL=$DEFAULT_MEM_NEWVAL >> $GITHUB_ENV
 
