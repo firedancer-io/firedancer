@@ -202,37 +202,9 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     );
   }
 
-  /* Vote stakes for the previous epoch (E-1). */
-  fd_vote_states_t * vote_stakes_prev = fd_bank_vote_states_prev_modify( bank );
-  if( is_incremental ) fd_vote_states_init( vote_stakes_prev );
-  for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
-    if( FD_UNLIKELY( !elem->stake ) ) continue;
-    /* First convert the epoch credits to the format expected by the
-       vote states.  We need to do this because we may need the vote
-       state credits from the end of the previous epoch in case we need
-       to recalculate the  */
-    vote_state_credits[ i ].credits_cnt = elem->epoch_credits_history_len;
-    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      vote_state_credits[ i ].epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
-      vote_state_credits[ i ].credits[ j ]      = elem->epoch_credits[ j ].credits;
-      vote_state_credits[ i ].prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
-    }
-
-    fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_stakes_prev, (fd_pubkey_t *)elem->vote );
-    vote_state->node_account        = *(fd_pubkey_t *)elem->identity;
-    vote_state->commission          = elem->commission;
-    vote_state->last_vote_timestamp = elem->timestamp;
-    vote_state->last_vote_slot      = elem->slot;
-    vote_state->stake               = elem->stake;
-  }
-
-  /* We also want to set the total stake to be the total amout of stake
+  /* We also want to set the total stake to be the total amount of stake
      at the end of the previous epoch. This value is used for the
      get_epoch_stake syscall.
-
-     FIXME: This needs to be updated at the epoch boundary and this
-     currently does NOT happen.
 
      A note on Agave's indexing scheme for their epoch_stakes
      structure:
@@ -251,31 +223,10 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
      in fd_ssmanifest_parser.c. */
   fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
 
-  /* Vote stakes for the previous epoch (E-2) */
-  fd_vote_states_t * vote_stakes_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
-  if( is_incremental ) fd_vote_states_init( vote_stakes_prev_prev );
-  for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
-    if( FD_UNLIKELY( !elem->stake ) ) continue;
-    fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote );
-    vote_state->node_account        = *(fd_pubkey_t *)elem->identity;
-    vote_state->commission          = elem->commission;
-    vote_state->last_vote_timestamp = elem->timestamp;
-    vote_state->last_vote_slot      = elem->slot;
-    vote_state->stake               = elem->stake;
-  }
-
-  /* Vote states for the current epoch. */
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   if( is_incremental ) fd_vote_states_init( vote_states );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
-
-    fd_vote_state_ele_t * vote_state_prev_prev = fd_vote_states_query( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote_account_pubkey );
-    ulong prev_prev_stake = vote_state_prev_prev ? vote_state_prev_prev->stake : 0UL;
-
-    fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_stakes_prev, (fd_pubkey_t *)elem->vote_account_pubkey );
-    ulong prev_stake = vote_state_prev ? vote_state_prev->stake : 0UL;
 
     fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote_account_pubkey );
 
@@ -284,9 +235,37 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_timestamp = elem->last_timestamp;
     vote_state->last_vote_slot      = elem->last_slot;
     vote_state->stake               = elem->stake;
-    vote_state->stake_t_1           = prev_stake;
-    vote_state->stake_t_2           = prev_prev_stake;
+
+    vote_state_credits[ vote_state->idx ].credits_cnt = 0UL;
   }
+
+  /* Vote stakes for the previous epoch (E-1). */
+  for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
+
+    /* First convert the epoch credits to the format expected by the
+       vote states.  We need to do this because we may need the vote
+       state credits from the end of the previous epoch in case we need
+       to recalculate the stake reward partitions. */
+    fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
+    vote_state_curr->stake_t_1 = elem->stake;
+
+    vote_state_credits[ vote_state_curr->idx ].credits_cnt = elem->epoch_credits_history_len;
+    vote_state_credits[ vote_state_curr->idx ].commission  = elem->commission;
+    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
+      vote_state_credits[ vote_state_curr->idx ].epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
+      vote_state_credits[ vote_state_curr->idx ].credits[ j ]      = elem->epoch_credits[ j ].credits;
+      vote_state_credits[ vote_state_curr->idx ].prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+    }
+  }
+
+  /* Vote stakes for the previous epoch (E-2) */
+  for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
+    fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
+    vote_state_curr->stake_t_2 = elem->stake;
+  }
+
   fd_bank_vote_states_end_locking_modify( bank );
 
   bank->data->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
