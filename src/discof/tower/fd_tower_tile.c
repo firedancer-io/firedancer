@@ -1049,15 +1049,8 @@ returnable_frag( ctx_t *             ctx,
                  ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
+  if( FD_UNLIKELY( !ctx->in[ in_idx ].mcache_only && ( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
-    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
-    ctx->halt_signing = 1;
-    ctx->keyswitch->result = ctx->out_seq;
-  }
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_DEDUP: {
