@@ -614,10 +614,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced = 0;
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
+        ctx->metrics.full_bytes_read   = 0UL;
+        ctx->metrics.incremental_bytes_read = 0UL;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
+        ctx->metrics.incremental_bytes_read = 0UL;
 
         fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
         fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
