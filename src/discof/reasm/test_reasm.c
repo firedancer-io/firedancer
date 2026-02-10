@@ -21,7 +21,7 @@ test_insert( fd_wksp_t * wksp ) {
   fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
   FD_TEST( reasm );
 
-  fd_reasm_fec_t * pool = reasm->pool;
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
   // ulong            null = pool_idx_null( pool );
 
   ancestry_t * ancestry = reasm->ancestry;
@@ -170,8 +170,8 @@ test_publish( fd_wksp_t * wksp ) {
   fd_reasm_fec_t * newr = fd_reasm_root( reasm );
   FD_TEST( newr );
   FD_TEST( 0==memcmp( newr, mr2, sizeof(fd_hash_t) ) );
-  FD_TEST( ancestry_ele_query( reasm->ancestry, mr2, NULL, reasm->pool ) != NULL );
-  FD_TEST( frontier_ele_query( reasm->frontier, mr4, NULL, reasm->pool ) != NULL );
+  FD_TEST( ancestry_ele_query( reasm->ancestry, mr2, NULL, reasm_pool( reasm ) ) != NULL );
+  FD_TEST( frontier_ele_query( reasm->frontier, mr4, NULL, reasm_pool( reasm ) ) != NULL );
   FD_TEST( !fd_reasm_query( reasm, mr0 ) );
   FD_TEST( !fd_reasm_query( reasm, mr1 ) );
   FD_TEST( !fd_reasm_query( reasm, mr3 ) );
@@ -188,7 +188,7 @@ test_slot_mr( fd_wksp_t * wksp ) {
   FD_TEST( reasm );
   FD_TEST( reasm->bid );
 
-  fd_reasm_fec_t * pool = reasm->pool;
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
   // ulong            null = pool_idx_null( pool );
 
   ancestry_t * ancestry = reasm->ancestry;
@@ -240,13 +240,13 @@ test_eqvoc( fd_wksp_t * wksp ) {
   FD_TEST( fec1a );
   FD_TEST( fec1a->eqvoc );
   FD_TEST( !fec1a->confirmed );
-  FD_TEST( fec1a==pool_ele( reasm->pool, *out_peek_index( reasm->out, 0 ) ) );
+  FD_TEST( fec1a==pool_ele( reasm_pool( reasm ), *out_peek_index( reasm->out, 0 ) ) );
 
   fd_reasm_fec_t * fec1b = fd_reasm_query( reasm, mr1b );
   FD_TEST( fec1b );
   FD_TEST( fec1b->eqvoc );
   FD_TEST( !fec1b->confirmed );
-  FD_TEST( fec1b==pool_ele( reasm->pool, *out_peek_index( reasm->out, 1 ) ) );
+  FD_TEST( fec1b==pool_ele( reasm_pool( reasm ), *out_peek_index( reasm->out, 1 ) ) );
 
   FD_TEST( !fd_reasm_pop( reasm ) ); /* everything is equivocating so nothing should get popped */
 
@@ -348,6 +348,7 @@ test_eqvoc_transitive( fd_wksp_t * wksp ) {
 
   FD_TEST( !fd_reasm_query( reasm, mr5 )->eqvoc );
   FD_TEST( !fd_reasm_query( reasm, mr5 )->confirmed );
+  fd_reasm_print( reasm );
 }
 
 int
@@ -360,10 +361,10 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  // test_insert( wksp );
-  // test_publish( wksp );
-  // test_slot_mr( wksp );
-  // test_eqvoc( wksp );
+  //test_insert( wksp );
+  //test_publish( wksp );
+  //test_slot_mr( wksp );
+  //test_eqvoc( wksp );
   test_eqvoc_transitive( wksp );
 
   fd_halt();
