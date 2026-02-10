@@ -146,13 +146,14 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_st
     }
 
     fd_vote_state_credits_t * vote_credits = &runtime_stack->stakes.vote_credits[ vote_state->idx ];
+    vote_credits->credits_cnt = 0UL;
     for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
          !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
          iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
       fd_vote_epoch_credits_t const * credit_ele = deq_fd_vote_epoch_credits_t_iter_ele_const( epoch_credits, iter );
-      vote_credits->epoch[ vote_state->idx ]        = (ushort)credit_ele->epoch;
-      vote_credits->credits[ vote_state->idx ]      = credit_ele->credits;
-      vote_credits->prev_credits[ vote_state->idx ] = credit_ele->prev_credits;
+      vote_credits->epoch[ vote_credits->credits_cnt ]        = (ushort)credit_ele->epoch;
+      vote_credits->credits[ vote_credits->credits_cnt ]      = credit_ele->credits;
+      vote_credits->prev_credits[ vote_credits->credits_cnt ] = credit_ele->prev_credits;
       vote_credits->credits_cnt++;
     }
   }
