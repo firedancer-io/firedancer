@@ -294,25 +294,6 @@ metric introduced.
 </enum>
 
 <tile name="txsend">
-    <counter name="UnstakedCi" summary="Total number of times we received contact info for an unstaked node" />
-    <counter name="CiRemoved" summary="Total number of times we removed contact info" />
-
-    <counter name="NewContactInfoQuicVote" enum="NewContactOutcome" summary="Total number of contact infos received and handled for QUIC Vote port" />
-    <counter name="NewContactInfoQuicTpu" enum="NewContactOutcome" summary="Total number of contact infos received and handled for QUIC TPU port" />
-    <counter name="NewContactInfoUdpVote" enum="NewContactOutcome" summary="Total number of contact infos received and handled for UDP Vote port" />
-    <counter name="NewContactInfoUdpTpu" enum="NewContactOutcome" summary="Total number of contact infos received and handled for UDP TPU port" />
-
-    <counter name="SendResultQuicVote" enum="TxnSendResult" summary="Total count of results from trying to send via QUIC Vote port" />
-    <counter name="SendResultQuicTpu" enum="TxnSendResult" summary="Total count of results from trying to send via QUIC TPU port" />
-    <counter name="SendResultUdpVote" enum="TxnSendResult" summary="Total count of results from trying to send via UDP Vote port" />
-    <counter name="SendResultUdpTpu" enum="TxnSendResult" summary="Total count of results from trying to send via UDP TPU port" />
-
-    <counter name="EnsureConnResultQuicVote" enum="TxsendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC Vote port" />
-    <counter name="EnsureConnResultQuicTpu" enum="TxsendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC TPU port" />
-
-    <counter name="HandshakeComplete" enum="TxsendQuicPorts" summary="Total number of times we completed a handshake" />
-    <counter name="QuicConnFinal" enum="TxsendQuicPorts" summary="Total number of times QUIC connection closed" />
-
     <!-- QUIC packet metrics -->
     <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />
     <counter name="ReceivedBytes" summary="Total bytes received via QUIC" />
