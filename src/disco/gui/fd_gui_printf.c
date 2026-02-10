@@ -422,15 +422,16 @@ fd_gui_printf_vote_state( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_skipped_history( fd_gui_t * gui ) {
+fd_gui_printf_skipped_history( fd_gui_t * gui, ulong epoch_idx ) {
   jsonp_open_envelope( gui->http, "slot", "skipped_history" );
     jsonp_open_array( gui->http, "value" );
-      for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1, FD_GUI_SLOTS_CNT ); i++ ) {
+      ulong start_slot = gui->epoch.epochs[ epoch_idx ].start_slot;
+      ulong end_slot   = gui->epoch.epochs[ epoch_idx ].end_slot;
+      for( ulong s=start_slot; s<fd_ulong_min( end_slot, start_slot+FD_GUI_SLOTS_CNT ); s++ ) {
         if( FD_LIKELY( gui->summary.slot_completed==ULONG_MAX ) ) break;
-        ulong _slot = gui->summary.slot_completed-i;
-        fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+        fd_gui_slot_t * slot = fd_gui_get_slot( gui, s );
 
-        if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
+        if( FD_UNLIKELY( !slot ) ) break;
         if( FD_UNLIKELY( slot->mine && slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
       }
     jsonp_close_array( gui->http );
@@ -438,15 +439,16 @@ fd_gui_printf_skipped_history( fd_gui_t * gui ) {
 }
 
 void
-fd_gui_printf_skipped_history_cluster( fd_gui_t * gui ) {
+fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch_idx ) {
   jsonp_open_envelope( gui->http, "slot", "skipped_history_cluster" );
     jsonp_open_array( gui->http, "value" );
-      for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1UL, FD_GUI_SLOTS_CNT ); i++ ) {
+      ulong start_slot = gui->epoch.epochs[ epoch_idx ].start_slot;
+      ulong end_slot   = gui->epoch.epochs[ epoch_idx ].end_slot;
+      for( ulong s=start_slot; s<fd_ulong_min( end_slot, start_slot+FD_GUI_SLOTS_CNT ); s++ ) {
         if( FD_LIKELY( gui->summary.slot_completed==ULONG_MAX ) ) break;
-        ulong _slot = gui->summary.slot_completed-i;
-        fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+        fd_gui_slot_t * slot = fd_gui_get_slot( gui, s );
 
-        if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
+        if( FD_UNLIKELY( !slot ) ) break;
         if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
       }
     jsonp_close_array( gui->http );

@@ -95,6 +95,7 @@
 
 struct fd_vote_state_credits {
   ulong  credits_cnt;
+  uchar  commission;
   ushort epoch       [ EPOCH_CREDITS_MAX ];
   ulong  credits     [ EPOCH_CREDITS_MAX ];
   ulong  prev_credits[ EPOCH_CREDITS_MAX ];
@@ -103,8 +104,8 @@ typedef struct fd_vote_state_credits fd_vote_state_credits_t;
 
 struct fd_vote_state_ele {
   /* Internal pool/map use */
-  ulong       idx;
-  ulong       next_;
+  uint        idx;
+  uint        next_;
 
   /* Vote account stake information which is derived from the stake
      delegations.  This information is used for leader schedule

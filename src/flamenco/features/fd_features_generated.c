@@ -1437,13 +1437,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xff\xf3\x40\x2b\x9c\xcb\xc2\xef\x87\x25\xc8\xa9\xa3\x0d\x78\x88\xc0\xd9\xaf\xad\x60\x5e\x1a\xdf\xe8\x84\x65\xac\x59\xd5\xe4\xd5"},
                                  /* JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG */
     .name                      = "enable_sbpf_v1_deployment_and_execution",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_sbpf_v2_deployment_and_execution)>>3,
     .id                        = {"\xd1\x6a\x9a\x26\x8a\x6a\x8e\x40\xcc\xea\xc9\x39\xd6\x21\x78\x58\x7e\x9e\x51\x6c\x8c\xab\x5a\xec\x85\xb1\x18\x7f\xa6\xd2\xb5\xdc"},
                                  /* F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP */
     .name                      = "enable_sbpf_v2_deployment_and_execution",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_sbpf_v3_deployment_and_execution)>>3,
     .id                        = {"\x9b\xbc\xe8\x7b\x1e\x38\xee\x66\x59\xb3\x0e\x4c\x46\xc7\xc0\xc8\xc2\xd4\xc4\x58\x7f\xcb\x89\x1a\xa1\x2a\x01\xd6\xe2\xf4\x69\xa1"},
@@ -1757,6 +1759,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "switch_to_chacha8_turbine",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, bls_pubkey_management_in_vote_account)>>3,
+    .id                        = {"\x1c\x6c\x8a\x1b\xb0\xb6\x27\x37\xd6\xc4\x05\x8b\x2f\x29\x96\x0b\x09\x31\xa0\xd5\xcd\x5f\x9d\x1a\xbb\x2a\xc0\x3a\xc6\x9f\xb6\x36"},
+                                 /* 2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq */
+    .name                      = "bls_pubkey_management_in_vote_account",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -2021,6 +2029,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x6a9db4aa29bdb608: return &ids[ 255 ];
   case 0x010f656d89a4e808: return &ids[ 256 ];
   case 0xfc12b1cef363afa7: return &ids[ 257 ];
+  case 0x3727b6b01b8a6c1c: return &ids[ 258 ];
   default: break;
   }
   return NULL;
@@ -2284,4 +2293,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian              
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==255UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==256UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==257UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==258UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

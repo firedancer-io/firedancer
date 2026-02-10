@@ -255,11 +255,13 @@ after_credit( fd_snapld_tile_t *  ctx,
         FD_LOG_WARNING(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         ctx->state = FD_SNAPSHOT_STATE_ERROR;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+        return; /* verbose return */
       }
     } else {
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_DATA, ctx->out_dc.chunk, (ulong)result, 0UL, 0UL, 0UL );
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, (ulong)result, ctx->out_dc.chunk0, ctx->out_dc.wmark );
       *charge_busy = 1;
+      return; /* verbose return */
     }
   } else {
     ulong data_len = ctx->out_dc.mtu;
@@ -338,8 +340,10 @@ returnable_frag( fd_snapld_tile_t *  ctx,
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return 0;
   };
+
+  int forward_msg = 1;
 
   switch( sig ) {
 
@@ -364,7 +368,8 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       fd_memcpy( msg_out, msg_in, sz );
       fd_stem_publish( stem, 0UL, sig, ctx->out_dc.chunk, sz, 0UL, 0UL, 0UL );
       ctx->out_dc.chunk = fd_dcache_compact_next( ctx->out_dc.chunk, ctx->out_dc.mtu, ctx->out_dc.chunk0, ctx->out_dc.wmark );
-      return 0;
+      forward_msg = 0; // we are forwarding the control message in the `fd_sstrl_init_t` message
+      break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
@@ -376,7 +381,8 @@ returnable_frag( fd_snapld_tile_t *  ctx,
            finishing state. */
         FD_TEST( ctx->is_https );
         ctx->pending_ctrl_sig = sig;
-        return 0; /* return directly to avoid fowarding the message */
+        forward_msg = 0;
+        break;
       }
       else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       break;
@@ -413,9 +419,10 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     }
   }
 
-forward_msg:
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 
   return 0;
 }

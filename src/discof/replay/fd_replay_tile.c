@@ -528,8 +528,9 @@ generate_epoch_info_msg( ulong                       epoch,
                          fd_epoch_schedule_t const * epoch_schedule,
                          fd_vote_states_t const *    epoch_stakes,
                          fd_features_t const *       features,
-                         fd_epoch_info_msg_t *       epoch_info_msg ) {
-  fd_vote_stake_weight_t * stake_weights    = epoch_info_msg->weights;
+                         fd_epoch_info_msg_t *       epoch_info_msg,
+                         int                         current_epoch ) {
+  fd_vote_stake_weight_t * stake_weights = epoch_info_msg->weights;
 
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
@@ -549,9 +550,11 @@ generate_epoch_info_msg( ulong                       epoch,
   ulong idx = 0UL;
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, epoch_stakes ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-    if( FD_UNLIKELY( !vote_state->stake ) ) continue;
 
-    stake_weights[ idx ].stake = vote_state->stake;
+    ulong stake = current_epoch ? vote_state->stake_t_1 : vote_state->stake_t_2;
+    if( FD_UNLIKELY( !stake ) ) continue;
+
+    stake_weights[ idx ].stake = stake;
     memcpy( stake_weights[ idx ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
     memcpy( stake_weights[ idx ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
     idx++;
@@ -572,20 +575,20 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL );
 
-  fd_vote_states_t const * vote_states_prev;
-  if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_query( bank );
-  else                             vote_states_prev = fd_bank_vote_states_prev_prev_query( bank );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
 
   fd_features_t const * features = fd_bank_features_query( bank );
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
-  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states_prev, features, epoch_info_msg );
+  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states, features, epoch_info_msg, current_epoch );
   ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+
+  fd_bank_vote_states_end_locking_query( bank );
 }
 
 /**********************************************************************/
@@ -1846,6 +1849,11 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( sched_fec->is_first_in_block ) {
+    bank->data->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->data->idx, sched_fec->slot, bank->data->refcnt ));
+  }
+
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, bank );
   }
@@ -1887,8 +1895,6 @@ advance_published_root( fd_replay_tile_t * ctx ) {
     FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", consensus_root_b58 ));
   }
   ulong target_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
-
-  fd_sched_root_notify( ctx->sched, target_bank_idx );
 
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
@@ -1958,7 +1964,10 @@ after_credit( fd_replay_tile_t *  ctx,
 
   ulong bank_idx;
   while( (bank_idx=fd_sched_pruned_block_next( ctx->sched ))!=ULONG_MAX ) {
-    //FIXME decrement refcnt for sched
+    fd_bank_t bank[1];
+    FD_TEST( fd_banks_bank_query( bank, ctx->banks, bank_idx ) );
+    bank->data->refcnt--;
+    FD_LOG_DEBUG(( "bank (idx=%lu) refcnt decremented to %lu for sched", bank->data->idx, bank->data->refcnt ));
   }
 
   /* If the published_root is not caught up to the consensus root, then
@@ -2171,12 +2180,13 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
     fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
     FD_TEST( block_id_ele );
-
     ctx->consensus_root_slot     = msg->root_slot;
     ctx->consensus_root          = msg->root_block_id;
     ctx->consensus_root_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
     publish_root_advanced( ctx, stem );
+
+    fd_sched_root_notify( ctx->sched, ctx->consensus_root_bank_idx );
   }
 
   ulong distance = 0UL;

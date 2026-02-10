@@ -36,8 +36,6 @@
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../flamenco/progcache/fd_progcache_admin.h"
 
-#include "../main.h"
-
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -526,6 +524,7 @@ backtest_cmd_topo( config_t * config ) {
 }
 
 extern configure_stage_t fd_cfg_stage_accdb;
+extern configure_stage_t fd_cfg_stage_keys;
 
 static args_t
 configure_args( void ) {

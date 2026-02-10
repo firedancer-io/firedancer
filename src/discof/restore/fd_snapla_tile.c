@@ -250,7 +250,7 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return;
   };
 
   switch( sig ) {
@@ -317,7 +317,6 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
     }
   }
 
-forward_msg:
   /* Forward the control message down the pipeline */
   fd_stem_publish( stem, FD_SNAPLA_OUT_CTRL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }

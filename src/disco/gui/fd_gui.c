@@ -208,9 +208,6 @@ fd_gui_set_identity( fd_gui_t *    gui,
 
   fd_gui_printf_identity_key( gui );
   fd_http_server_ws_broadcast( gui->http );
-
-  fd_gui_printf_identity_balance( gui );
-  fd_http_server_ws_broadcast( gui->http );
 }
 
 void
@@ -230,8 +227,6 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_turbine_slot,
     fd_gui_printf_repair_slot,
     fd_gui_printf_slot_caught_up,
-    fd_gui_printf_skipped_history,
-    fd_gui_printf_skipped_history_cluster,
     fd_gui_printf_tps_history,
     fd_gui_printf_tiles,
     fd_gui_printf_schedule_strategy,
@@ -270,6 +265,14 @@ fd_gui_ws_open( fd_gui_t * gui,
       fd_gui_printf_epoch( gui, i );
       FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     }
+  }
+
+  ulong epoch_idx = fd_gui_current_epoch_idx( gui );
+  if( FD_LIKELY( epoch_idx!=ULONG_MAX ) ) {
+    fd_gui_printf_skipped_history( gui, epoch_idx );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    fd_gui_printf_skipped_history_cluster( gui, epoch_idx );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
   /* Print peers last because it's the largest message and would
@@ -1462,22 +1465,6 @@ fd_gui_try_insert_ranking( fd_gui_t               * gui,
     TRY_INSERT_SLOT( rewards_per_cu, slot->slot, slot->compute_units==0UL ? 0UL : (slot->tips + slot->priority_fee + slot->transaction_fee) / slot->compute_units );
     TRY_INSERT_SLOT( compute_units,  slot->slot, slot->compute_units                                     );
 #undef TRY_INSERT_SLOT
-}
-
-static inline ulong
-fd_gui_current_epoch_idx( fd_gui_t * gui ) {
-  ulong epoch_idx = ULONG_MAX;
-  ulong epoch     = ULONG_MAX;
-  for( ulong i = 0UL; i<2UL; i++ ) {
-    if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
-      /* the "current" epoch is the smallest */
-      if( FD_LIKELY( gui->epoch.epochs[ i ].epoch<epoch ) ) {
-        epoch = gui->epoch.epochs[ i ].epoch;
-        epoch_idx = i;
-      }
-    }
-  }
-  return epoch_idx;
 }
 
 static void
