@@ -29,7 +29,7 @@ DB=${DB:="funk"}
 EXECRP_TILE_COUNT="10"
 INGEST_DEAD_SLOTS="false"
 ROOT_DISTANCE="2"
-
+MAX_LIVE_SLOTS="32"
 DOWNLOAD_ONLY=${DOWNLOAD_ONLY:-"false"}
 
 if [[ -n "$CI" ]]; then
@@ -137,6 +137,11 @@ while [[ $# -gt 0 ]]; do
         ;;
     --root-distance)
         ROOT_DISTANCE="$2"
+        shift
+        shift
+        ;;
+    --max-live-slots)
+        MAX_LIVE_SLOTS="$2"
         shift
         shift
         ;;
@@ -263,7 +268,7 @@ cat <<EOF > ${CONFIG_FILE}
     [tiles.rpc]
         enabled = false
 [runtime]
-    max_live_slots = 32
+    max_live_slots = $MAX_LIVE_SLOTS
     max_fork_width = 4
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
