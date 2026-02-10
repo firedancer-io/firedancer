@@ -84,7 +84,6 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
                                           PERFECT_HASH( ((uint)a08 | ((uint)a09<<8) | ((uint)a10<<16) | ((uint)a11<<24)) )
 
 #define FD_PACK_COST_PER_SIGNATURE                    (  720UL)
-#define FD_PACK_COST_PER_NON_STRICT_ED25519_SIGNATURE ( 2280UL)
 #define FD_PACK_COST_PER_ED25519_SIGNATURE            ( 2400UL)
 #define FD_PACK_COST_PER_SECP256K1_SIGNATURE          ( 6690UL)
 #define FD_PACK_COST_PER_SECP256R1_SIGNATURE          ( 4800UL)
