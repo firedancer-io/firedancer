@@ -1437,13 +1437,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xff\xf3\x40\x2b\x9c\xcb\xc2\xef\x87\x25\xc8\xa9\xa3\x0d\x78\x88\xc0\xd9\xaf\xad\x60\x5e\x1a\xdf\xe8\x84\x65\xac\x59\xd5\xe4\xd5"},
                                  /* JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG */
     .name                      = "enable_sbpf_v1_deployment_and_execution",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_sbpf_v2_deployment_and_execution)>>3,
     .id                        = {"\xd1\x6a\x9a\x26\x8a\x6a\x8e\x40\xcc\xea\xc9\x39\xd6\x21\x78\x58\x7e\x9e\x51\x6c\x8c\xab\x5a\xec\x85\xb1\x18\x7f\xa6\xd2\xb5\xdc"},
                                  /* F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP */
     .name                      = "enable_sbpf_v2_deployment_and_execution",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_sbpf_v3_deployment_and_execution)>>3,
     .id                        = {"\x9b\xbc\xe8\x7b\x1e\x38\xee\x66\x59\xb3\x0e\x4c\x46\xc7\xc0\xc8\xc2\xd4\xc4\x58\x7f\xcb\x89\x1a\xa1\x2a\x01\xd6\xe2\xf4\x69\xa1"},
