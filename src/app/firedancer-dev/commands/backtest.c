@@ -793,14 +793,6 @@ extern int * fd_log_private_shared_lock;
 
 static void
 backtest_cmd_topo( config_t * config ) {
-  if( g_ledger_name[0] != '\0' && !strcmp( g_ledger_name, "all" ) ) {
-    return;
-  }
-
-  if( g_ledger_name[0] != '\0' && !strcmp( g_ledger_name, "ci" ) ) {
-    return;
-  }
-
   if( g_ledger_name[0] != '\0' ) {
     fd_ledger_config_t const * ledger_config = fd_ledger_config_find( g_ledger_name );
     if( ledger_config ) {
@@ -868,7 +860,6 @@ backtest_parse_ledger_name_early( void ) {
     g_binary_path = argv[0];
   }
 
-  int is_backtest = 0;
   for( int i = 0; i < argc; i++ ) {
     if( !strcmp( argv[i], "--config" ) && (i + 1) < argc ) {
       strncpy( g_config_file, argv[i+1], sizeof(g_config_file) - 1 );
@@ -876,19 +867,8 @@ backtest_parse_ledger_name_early( void ) {
     }
 
     if( !strcmp( argv[i], "backtest" ) ) {
-      is_backtest = 1;
       if( (i + 1) < argc && argv[i+1] && argv[i+1][0] != '-' ) {
         strncpy( g_ledger_name, argv[i+1], sizeof(g_ledger_name) - 1 );
-        g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
-      }
-    }
-
-    if( is_backtest ) {
-      if( !strcmp( argv[i], "--all" ) ) {
-        strncpy( g_ledger_name, "all", sizeof(g_ledger_name) - 1 );
-        g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
-      } else if( !strcmp( argv[i], "--ci" ) ) {
-        strncpy( g_ledger_name, "ci", sizeof(g_ledger_name) - 1 );
         g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
       }
     }
@@ -905,21 +885,6 @@ backtest_cmd_args( int *    pargc,
 
   args->backtest.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
 
-  int is_all = fd_env_strip_cmdline_contains( pargc, pargv, "--all" );
-  int is_ci  = fd_env_strip_cmdline_contains( pargc, pargv, "--ci"  );
-
-  if( is_all && is_ci ) {
-    FD_LOG_ERR(( "cannot specify both --all and --ci" ));
-  }
-
-  if( is_all ) {
-    strncpy( g_ledger_name, "all", sizeof(g_ledger_name) - 1 );
-    g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
-  } else if( is_ci ) {
-    strncpy( g_ledger_name, "ci", sizeof(g_ledger_name) - 1 );
-    g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
-  }
-
   if(      0==strcmp( db, "funk"  ) ) args->backtest.is_vinyl = 0;
   else if( 0==strcmp( db, "vinyl" ) ) args->backtest.is_vinyl = 1;
   else FD_LOG_ERR(( "invalid --db '%s' (must be 'funk' or 'vinyl')", db ));
@@ -932,10 +897,8 @@ backtest_cmd_args( int *    pargc,
   if( *pargc > 0 ) {
     char const * ledger_name = (*pargv)[0];
     if( ledger_name && ledger_name[0] != '-' ) {
-      if( !is_all && !is_ci ) {
-        strncpy( g_ledger_name, ledger_name, sizeof(g_ledger_name) - 1 );
-        g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
-      }
+      strncpy( g_ledger_name, ledger_name, sizeof(g_ledger_name) - 1 );
+      g_ledger_name[ sizeof(g_ledger_name) - 1 ] = '\0';
       (*pargc)--;
       (*pargv)++;
     }
@@ -1026,85 +989,8 @@ fixup_config( config_t *     config,
 }
 
 static void
-run_ledgers( fd_ledger_config_t const * const * ledger_configs,
-             ulong                              ledger_count ) {
-
-  ulong passed = 0UL;
-  ulong failed = 0UL;
-
-  char const * failed_tests[ 256 ];
-  ulong failed_count = 0UL;
-
-  for( ulong i = 0UL; i < ledger_count; i++ ) {
-    fd_ledger_config_t const * ledger = ledger_configs[ i ];
-    if( !ledger ) {
-      FD_LOG_WARNING(( "Ledger config is NULL at index %lu", i ));
-      continue;
-    }
-
-    FD_LOG_NOTICE(( "[%lu/%lu] Testing: %s", i+1, ledger_count, ledger->test_name ));
-
-    pid_t pid = fork();
-    if( pid < 0 ) {
-      FD_LOG_ERR(( "fork() failed for ledger %s (%i-%s)", ledger->test_name, errno, fd_io_strerror( errno ) ));
-    } else if( pid == 0 ) {
-      char const * argv[] = {
-        "firedancer-dev",
-        "backtest",
-        ledger->test_name,
-        "--no-watch",
-        NULL
-      };
-      execv( "/proc/self/exe", (char **)argv );
-      FD_LOG_ERR(( "execv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    } else {
-      int status;
-      if( FD_UNLIKELY( waitpid( pid, &status, 0 ) < 0 ) ) {
-        FD_LOG_ERR(( "waitpid() failed for ledger %s (%i-%s)", ledger->test_name, errno, fd_io_strerror( errno ) ));
-      }
-
-      if( WIFEXITED( status ) && WEXITSTATUS( status ) == 0 ) {
-        FD_LOG_NOTICE(( "PASS: %s", ledger->test_name ));
-        passed++;
-      } else {
-        FD_LOG_WARNING(( "FAIL: %s (exit code: %d)", ledger->test_name, WIFEXITED( status ) ? WEXITSTATUS( status ) : -1 ));
-        failed++;
-        if( failed_count < 256UL ) {
-          failed_tests[ failed_count++ ] = ledger->test_name;
-        }
-      }
-    }
-  }
-
-  FD_LOG_NOTICE(( "========================================" ));
-  FD_LOG_NOTICE(( "Summary:" ));
-  FD_LOG_NOTICE(( "  Passed: %lu", passed ));
-  FD_LOG_NOTICE(( "  Failed: %lu", failed ));
-  FD_LOG_NOTICE(( "  Total:  %lu", ledger_count ));
-
-  if( failed > 0UL ) {
-    FD_LOG_NOTICE(( "Failed tests:" ));
-    for( ulong i = 0UL; i < failed_count; i++ ) {
-      FD_LOG_NOTICE(( "  - %s", failed_tests[ i ] ));
-    }
-  }
-
-  FD_LOG_NOTICE(( "========================================" ));
-
-  exit( failed > 0UL ? 1 : 0 );
-}
-
-static void
 backtest_cmd_fn( args_t *   args,
                  config_t * config ) {
-  if( g_ledger_name[0] != '\0' && !strcmp( g_ledger_name, "all" ) ) {
-    run_ledgers( fd_ledger_configs, FD_LEDGER_CONFIG_COUNT );
-  }
-
-  if( g_ledger_name[0] != '\0' && !strcmp( g_ledger_name, "ci" ) ) {
-    run_ledgers( fd_ledger_ci_list, FD_LEDGER_CI_COUNT );
-  }
-
   fixup_config( config, args );
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
