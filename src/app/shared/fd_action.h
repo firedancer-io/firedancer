@@ -171,6 +171,12 @@ union fdctl_args {
     char const * pos_arg;
     int          help;
   } tower;
+
+  struct {
+    char fxt_path[ PATH_MAX ];
+    char topo[ 64 ];
+  } trace;
+
 };
 
 typedef union fdctl_args args_t;

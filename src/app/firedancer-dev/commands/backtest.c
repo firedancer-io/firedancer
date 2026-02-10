@@ -342,15 +342,16 @@ backtest_topo( config_t * config ) {
 
     fd_topo_obj_t * accdb_data = setup_topo_accdb_cache( topo, &config->firedancer );
 
-    fd_topob_wksp( topo, "accdb_execrp" );
-    fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb_execrp", "metric_in", cpu_idx++, 0, 0 );
+    fd_topob_wksp( topo, "accdb" );
+    fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", cpu_idx++, 0, 0 );
     fd_topob_tile_uses( topo, accdb_tile,  accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, replay_tile, accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
 
-    fd_topob_wksp( topo, "accdb_replay" );
+    fd_topob_link( topo, "accdb_trace", "accdb", 256UL, 64UL, 1UL )->permit_no_consumers = 1;
+    fd_topob_tile_out( topo, "accdb", 0UL, "accdb_trace", 0UL );
   }
 
   /**********************************************************************/

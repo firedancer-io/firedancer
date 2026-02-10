@@ -1,0 +1,15 @@
+<traces>
+
+<category name="accdb">
+
+    <event name="vinyl_request_batch" type="DURATION" />
+
+    <event name="vinyl_io_poll" type="DURATION" />
+
+    <event name="vinyl_io_append" type="DURATION" />
+
+    <event name="vinyl_compact" type="DURATION" />
+
+</category>
+
+</traces>
