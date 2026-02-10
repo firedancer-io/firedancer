@@ -187,13 +187,8 @@ get_signature_cost( fd_txn_in_t const * txn_in, fd_bank_t * bank ) {
   /* No direct permalink, just factored out for readability */
   ulong secp256k1_verify_cost = fd_ulong_sat_mul( FD_PACK_COST_PER_SECP256K1_SIGNATURE, num_secp256k1_instruction_signatures );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L155-L160 */
-  ulong ed25519_verify_cost;
-  if( FD_FEATURE_ACTIVE_BANK( bank, ed25519_precompile_verify_strict ) ) {
-    ed25519_verify_cost = fd_ulong_sat_mul( FD_PACK_COST_PER_ED25519_SIGNATURE, num_ed25519_instruction_signatures );
-  } else {
-    ed25519_verify_cost = fd_ulong_sat_mul( FD_PACK_COST_PER_NON_STRICT_ED25519_SIGNATURE, num_ed25519_instruction_signatures );
-  }
+  /* https://github.com/anza-xyz/agave/blob/master/cost-model/src/cost_model.rs#L151 */
+  ulong ed25519_verify_cost = fd_ulong_sat_mul( FD_PACK_COST_PER_ED25519_SIGNATURE, num_ed25519_instruction_signatures );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L162-L167 */
   ulong secp256r1_verify_cost = 0UL;
