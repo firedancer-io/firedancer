@@ -324,6 +324,7 @@ redeem_rewards( fd_accdb_user_t *               accdb,
                 fd_stake_history_t const *      stake_history,
                 fd_stake_delegation_t const *   stake,
                 fd_vote_state_ele_t const *     vote_state,
+                uchar                           commission,
                 ulong                           rewarded_epoch,
                 ulong                           total_rewards,
                 uint128                         total_points,
@@ -505,6 +506,27 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
   return total_points;
 }
 
+/* Get commission rate for reward calculation
+
+   FIXME: permalink when Agave 4.0 is cut */
+static uchar
+get_commission_rate( fd_bank_t *         bank,
+                     fd_pubkey_t const * voter_acc,
+                     uchar               current_commission ) {
+  if( !FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+    return current_commission;
+  }
+
+  /* Delayed commission rate */
+  fd_vote_state_ele_t const * prev_prev_ele = fd_vote_states_query_const( fd_bank_vote_states_prev_prev_query( bank ), voter_acc );
+  if( FD_LIKELY( prev_prev_ele ) ) return prev_prev_ele->commission;
+
+  fd_vote_state_ele_t const * prev_ele = fd_vote_states_query_const( fd_bank_vote_states_prev_query( bank ), voter_acc );
+  if( FD_LIKELY( prev_ele ) ) return prev_ele->commission;
+
+  return current_commission;
+}
+
 /* Calculates epoch rewards for stake/vote accounts.
    Returns vote rewards, stake rewards, and the sum of all stake rewards
    in lamports.
@@ -575,6 +597,8 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                                               &runtime_stack->stakes.vote_credits[ vote_state_ele->idx ] : NULL;
     if( recalc_credit && runtime_stack->stakes.vote_credits[ vote_state_ele->idx ].credits_cnt==0UL ) continue;
 
+    uchar commission = get_commission_rate( bank, voter_acc, vote_state_ele->commission );
+
     /* redeem_rewards is actually just responsible for calculating the
        vote and stake rewards for each stake account.  It does not do
        rewards redemption: it is a misnomer. */
@@ -585,6 +609,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         stake_history,
         stake_delegation,
         vote_state_ele,
+        commission,
         rewarded_epoch,
         total_rewards,
         total_points,
