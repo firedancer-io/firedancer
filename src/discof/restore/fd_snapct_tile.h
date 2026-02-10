@@ -16,19 +16,31 @@
 #define FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL   ( 1) /* Waiting for peers when attempting to download an incremental snapshot */
 #define FD_SNAPCT_STATE_COLLECTING_PEERS                ( 2) /* First peer arrived, wait a little longer to see if a better one arrives */
 #define FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL    ( 3) /* Collecting peers to download an incremental snapshot */
+
 #define FD_SNAPCT_STATE_READING_FULL_FILE               ( 4) /* Full file looks better than peer, reading it from disk */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE              ( 5) /* Full file was read ok, confirm it decompressed and inserted ok */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET        ( 6) /* Resetting to load full snapshot from file again, confirm decompress and inserter are reset too */
-#define FD_SNAPCT_STATE_READING_INCREMENTAL_FILE        ( 7) /* Incremental file looks better than peer, reading it from disk */
-#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE       ( 8) /* Incremental file was read ok, confirm it decompressed and inserted ok */
-#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ( 9) /* Resetting to load incremental snapshot from file again, confirm decompress and inserter are reset too */
-#define FD_SNAPCT_STATE_READING_FULL_HTTP               (10) /* Peer was selected, reading full snapshot from HTTP */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP              (11) /* Full snapshot was downloaded ok, confirm it decompressed and inserted ok */
-#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET        (12) /* Resetting to load full snapshot from HTTP again, confirm decompress and inserter are reset too */
-#define FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP        (13) /* Peer was selected, reading incremental snapshot from HTTP */
-#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP       (14) /* Incremental snapshot was downloaded ok, confirm it decompressed and inserted ok */
-#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET (15) /* Resetting to load incremental snapshot from HTTP again, confirm decompress and inserter are reset too */
-#define FD_SNAPCT_STATE_SHUTDOWN                        (16) /* The tile is done, and has likely already exited */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI         ( 5) /* Full file was read ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE         ( 6) /* Full file was read ok, and all other tiles have finished processing it */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET        ( 7) /* Resetting to load full snapshot from file again, confirm decompress and inserter are reset too */
+
+#define FD_SNAPCT_STATE_READING_INCREMENTAL_FILE        ( 8) /* Incremental file looks better than peer, reading it from disk */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE  ( 9) /* Incremental file was read ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI  (10) /* Incremental file was read ok, and all other tiles have finished processing it */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET (11) /* Resetting to load incremental snapshot from file again, confirm decompress and inserter are reset too */
+
+#define FD_SNAPCT_STATE_READING_FULL_HTTP               (12) /* Peer was selected, reading full snapshot from HTTP */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE         (13) /* Full snapshot was downloaded ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI         (14) /* Full snapshot was downloaded ok, and all other tiles have finished processing it */
+#define FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET        (15) /* Resetting to load full snapshot from HTTP again, confirm decompress and inserter are reset too */
+
+#define FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP        (16) /* Peer was selected, reading incremental snapshot from HTTP */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE  (17) /* Incremental snapshot was downloaded ok, signal downstream to finish all pending operations */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI  (18) /* Incremental snapshot was downloaded ok, and all other tiles have finished processing it */
+#define FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET (19) /* Resetting to load incremental snapshot from HTTP again, confirm decompress and inserter are reset too */
+
+#define FD_SNAPCT_STATE_SHUTDOWN                        (20) /* The tile is done, and has likely already exited */
+
+
+
 
 static inline const char *
 fd_snapct_state_str( ulong state ) {
@@ -38,16 +50,20 @@ fd_snapct_state_str( ulong state ) {
     case FD_SNAPCT_STATE_COLLECTING_PEERS:                return "collecting_peers";
     case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL:    return "collecting_peers_incremental";
     case FD_SNAPCT_STATE_READING_FULL_FILE:               return "reading_full_file";
-    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE:              return "flushing_full_file";
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:         return "flushing_full_file_fini";
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:         return "flushing_full_file_done";
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:        return "flushing_full_file_reset";
     case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:        return "reading_incremental_file";
-    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE:       return "flushing_incremental_file";
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:  return "flushing_incremental_file_fini";
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:  return "flushing_incremental_file_done";
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET: return "flushing_incremental_file_reset";
     case FD_SNAPCT_STATE_READING_FULL_HTTP:               return "reading_full_http";
-    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP:              return "flushing_full_http";
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:         return "flushing_full_http_fini";
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:         return "flushing_full_http_done";
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:        return "flushing_full_http_reset";
     case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:        return "reading_incremental_http";
-    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP:       return "flushing_incremental_http";
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:  return "flushing_incremental_http_fini";
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:  return "flushing_incremental_http_done";
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET: return "flushing_incremental_http_reset";
     case FD_SNAPCT_STATE_SHUTDOWN:                        return "shutdown";
     default:                                              return "unknown";

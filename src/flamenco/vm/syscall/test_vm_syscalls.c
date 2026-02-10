@@ -258,6 +258,8 @@ main( int     argc,
   uchar input[ input_sz ];
   ulong const mem_regions_cnt = 4UL;
   fd_vm_input_region_t input_mem_regions[ mem_regions_cnt ];
+  set_memory_region( input, input_sz );
+
   input_mem_regions[0] = (fd_vm_input_region_t){ .haddr = (ulong)input,         .region_sz = 100UL, .address_space_reserved = 100UL, .is_writable = 1, .vaddr_offset = 0UL };
   input_mem_regions[1] = (fd_vm_input_region_t){ .haddr = (ulong)input + 100UL, .region_sz = 1UL,   .address_space_reserved = 1UL,   .is_writable = 1, .vaddr_offset = 100UL };
   input_mem_regions[2] = (fd_vm_input_region_t){ .haddr = (ulong)input + 101UL, .region_sz = 400UL, .address_space_reserved = 400UL, .is_writable = 1, .vaddr_offset = 101UL };
