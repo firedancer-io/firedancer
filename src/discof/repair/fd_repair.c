@@ -1,6 +1,5 @@
 #include "fd_repair.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../disco/keyguard/fd_keyguard_client.h"
 
 void *
 fd_repair_new( void * shmem, fd_pubkey_t * identity_key ) {

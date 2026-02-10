@@ -49,7 +49,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_GENESIS_CREATION_TIME_TESTNET (1580834132UL)
 #define FD_RUNTIME_GENESIS_CREATION_TIME_DEVNET  (1597081016UL)
 
-
 /* FeeStructure constants. Bank is always initialized with
    `FeeStructure::default()`
    https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/runtime/src/bank.rs#L1859

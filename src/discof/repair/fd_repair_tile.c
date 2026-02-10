@@ -22,6 +22,7 @@
 #include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../tower/fd_tower_tile.h"
@@ -218,6 +219,9 @@ struct ctx {
 
   ulong repair_seed;
 
+  fd_keyswitch_t * keyswitch;
+  int              halt_signing;
+
   fd_ip4_port_t repair_intake_addr;
   fd_ip4_port_t repair_serve_addr;
 
@@ -322,7 +326,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 /* Below functions manage the current pending sign requests. */
 
-sign_req_t *
+static sign_req_t *
 sign_map_insert( ctx_t *                 ctx,
                  fd_repair_msg_t const * msg,
                  pong_data_t const     * opt_pong_data ) {
@@ -338,9 +342,9 @@ sign_map_insert( ctx_t *                 ctx,
   return pending;
 }
 
-int
+static int
 sign_map_remove( ctx_t * ctx,
-                 ulong   key  ) {
+                 ulong   key ) {
   sign_req_t * pending = fd_signs_map_query( ctx->signs_map, key, NULL );
   if( FD_UNLIKELY( !pending ) ) return -1;
   fd_signs_map_remove( ctx->signs_map, pending );
@@ -406,7 +410,10 @@ static void
 fd_repair_send_sign_request( ctx_t                 * ctx,
                              out_ctx_t             * sign_out,
                              fd_repair_msg_t const * msg,
-                             pong_data_t     const * opt_pong_data ){
+                             pong_data_t     const * opt_pong_data ) {
+
+  if( FD_UNLIKELY( ctx->halt_signing ) ) FD_LOG_CRIT(( "can't dispatch sign requests while halting signing" ));
+
   /* New sign request */
   sign_req_t * pending = sign_map_insert( ctx, msg, opt_pong_data );
   if( FD_UNLIKELY( !pending ) ) return;
@@ -526,7 +533,8 @@ after_snap( ctx_t * ctx,
 }
 
 static inline void
-after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
+after_contact( ctx_t *                            ctx,
+               fd_gossip_update_message_t const * msg ) {
   fd_contact_info_t const * contact_info = msg->contact_info.contact_info;
   fd_ip4_port_t repair_peer = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ];
   if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
@@ -898,6 +906,11 @@ after_credit( ctx_t *             ctx,
               int *               charge_busy ) {
   long now = fd_log_wallclock();
 
+  if( FD_UNLIKELY( ctx->halt_signing ) ) {
+    *charge_busy = 1;
+    return;
+  }
+
   /* Verify that there is at least one sign tile with available credits.
      If not, we can't send any requests and leave early. */
   out_ctx_t * sign_out = sign_avail_credits( ctx );
@@ -935,13 +948,37 @@ after_credit( ctx_t *             ctx,
 
   fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot, charge_busy );
   if( FD_UNLIKELY( !cout ) ) return;
-
   fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
+}
+
+static void
+signs_queue_update_identity( ctx_t * ctx ) {
+  ulong queue_cnt = fd_signs_queue_cnt( ctx->sign_queue );
+  for( ulong i=0UL; i<queue_cnt; i++ ) {
+    sign_pending_t signable = fd_signs_queue_pop( ctx->sign_queue );
+    switch( signable.msg.kind ) {
+      case FD_REPAIR_KIND_PONG:
+        memcpy( signable.msg.pong.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
+        break;
+      case FD_REPAIR_KIND_SHRED:
+        memcpy( signable.msg.shred.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
+        break;
+      case FD_REPAIR_KIND_HIGHEST_SHRED:
+        memcpy( signable.msg.highest_shred.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
+        break;
+      case FD_REPAIR_KIND_ORPHAN:
+        memcpy( signable.msg.orphan.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
+        break;
+      default:
+        FD_LOG_CRIT(( "Unhandled repair kind %u", signable.msg.kind ));
+        break;
+    }
+    fd_signs_queue_push( ctx->sign_queue, signable );
+  }
 }
 
 static inline void
 during_housekeeping( ctx_t * ctx ) {
-  (void)ctx;
 # if DEBUG_LOGGING
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsdebug > (long)10e9 ) ) {
@@ -949,6 +986,35 @@ during_housekeeping( ctx_t * ctx ) {
     ctx->tsdebug = fd_log_wallclock();
   }
 # endif
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting" ));
+    FD_CRIT( ctx->halt_signing, "state machine corruption" );
+    ctx->halt_signing = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+
+    if( !ctx->halt_signing ) {
+      /* At this point, stop sending new sign requests to the sign tile
+         and wait for all outstanding sign requests to be received back
+         from the sign tile.  We also need to update any pending
+         outgoing sign requests with the new identity key. */
+      FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+      ctx->halt_signing = 1;
+      memcpy( ctx->identity_public_key.uc, ctx->keyswitch->bytes, 32UL );
+      ctx->protocol->identity_key = ctx->identity_public_key;
+      signs_queue_update_identity( ctx );
+    }
+
+    if( fd_signs_map_key_cnt( ctx->signs_map )==0UL ) {
+      /* Once there are no more in flight sign requests, we are ready to
+         say that the keyswitch is completed. */
+      FD_LOG_DEBUG(( "keyswitch: completed, no more outstanding stale sign requests" ));
+      fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    }
+  }
 }
 
 static void
@@ -960,8 +1026,8 @@ privileged_init( fd_topo_t *      topo,
   ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
   fd_memset( ctx, 0, sizeof(ctx_t) );
 
-  uchar const * identity_key = fd_keyload_load( tile->repair.identity_key_path, /* pubkey only: */ 0 );
-  fd_memcpy( ctx->identity_public_key.uc, identity_key + 32UL, sizeof(fd_pubkey_t) );
+  uchar const * identity_key = fd_keyload_load( tile->repair.identity_key_path, /* pubkey only: */ 1 );
+  fd_memcpy( ctx->identity_public_key.uc, identity_key, sizeof(fd_pubkey_t) );
 
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );
 }
@@ -994,6 +1060,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( ctx->signs_map, lg_sign_depth, 0UL                                    ) );
   ctx->sign_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->sign_queue                                                       ) );
   ctx->slot_metrics = fd_repair_metrics_join( fd_repair_metrics_new( ctx->slot_metrics                                                     ) );
+
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
+  ctx->halt_signing = 0;
 
   /* Process in links */
 

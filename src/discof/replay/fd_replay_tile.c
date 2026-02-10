@@ -18,6 +18,7 @@
 #include "../../discof/fd_accdb_topo.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v1.h"
@@ -38,7 +39,6 @@
 
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
-#include <errno.h>
 #include <stdio.h>
 
 /* Replay concepts:
@@ -157,7 +157,7 @@ struct fd_replay_tile {
      sent out get rooted at least one time.  The value is 0 otherwise.
      We can't become leader and pack blocks until this flag has been
      set.  This parallels the Agave 'has_new_vote_been_rooted'. */
-  int has_identity_vote_rooted;
+  int identity_vote_rooted;
   int wait_for_vote_to_start_leader;
 
   ulong        reasm_seed;
@@ -355,8 +355,6 @@ struct fd_replay_tile {
 
   int larger_max_cost_per_block;
 
-  fd_pubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
-
   /* When we transition to becoming leader, we can only unbecome the
      leader if we have received a block id from the FEC reassembler, and
      a message from PoH that the leader slot has ended.  After both of
@@ -374,6 +372,12 @@ struct fd_replay_tile {
   double      slot_duration_nanos;
   double      slot_duration_ticks;
   fd_bank_t   leader_bank[1];
+
+  fd_pubkey_t      identity_pubkey[1];
+  ulong            identity_idx;
+
+  fd_keyswitch_t * keyswitch;
+  int              halt_leader;
 
   ulong  resolv_tile_cnt;
 
@@ -637,17 +641,14 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
 
-  /* Update any required runtime state and handle any potential epoch
-     boundary change. */
+  /* Update required runtime state and handle potential boundary. */
 
   fd_bank_shred_cnt_set( bank, 0UL );
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
   fd_bank_tips_set( bank, 0UL );
+  fd_bank_identity_vote_idx_set( bank, ULONG_MAX );
 
-  fd_bank_has_identity_vote_set( bank, 0 );
-
-  /* Update block height. */
   fd_bank_block_height_set( bank, fd_bank_block_height_get( bank ) + 1UL );
 
   int is_epoch_boundary = 0;
@@ -907,6 +908,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
   fd_bank_shred_cnt_set( ctx->leader_bank, 0UL );
   fd_bank_tips_set( ctx->leader_bank, 0UL );
+  fd_bank_identity_vote_idx_set( ctx->leader_bank, ULONG_MAX );
 
   /* Update block height. */
   fd_bank_block_height_set( ctx->leader_bank, fd_bank_block_height_get( ctx->leader_bank ) + 1UL );
@@ -927,6 +929,34 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   ctx->leader_bank->data->refcnt++;
 
   return ctx->leader_bank;
+}
+
+static inline void
+maybe_switch_identity( fd_replay_tile_t * ctx ) {
+
+  if( FD_LIKELY( fd_keyswitch_state_query( ctx->keyswitch )!=FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) return;
+
+  /* Switch identity */
+
+  FD_LOG_DEBUG(( "keyswitch: switching identity" ));
+
+  memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
+  fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+
+  /* The next leader slot will be incorrect now that the identity has
+     switched.  The next leader slot normally gets updated based on the
+     reset slot returned by tower. */
+  ulong min_leader_slot = fd_ulong_max( ctx->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
+    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
+  } else {
+    ctx->next_leader_tickcount = LONG_MAX;
+  }
+
+  ctx->identity_vote_rooted = 0;
+  ctx->identity_idx++;
+  fd_vote_tracker_reset( ctx->vote_tracker );
 }
 
 static void
@@ -966,6 +996,8 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   ctx->leader_bank->data = NULL;
   ctx->recv_poh          = 0;
   ctx->is_leader         = 0;
+
+  maybe_switch_identity( ctx );
 }
 
 static void
@@ -1115,14 +1147,13 @@ static inline int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
+
+  if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_tickcount();
   if( FD_LIKELY( now<ctx->next_leader_tickcount ) ) return 0;
-
-  /* TODO:
-  if( FD_UNLIKELY( ctx->halted_switching_key ) ) return 0; */
 
   /* If a prior leader is still in the process of publishing their slot,
      delay ours to let them finish ... unless they are so delayed that
@@ -1249,7 +1280,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_became_leader_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
-  ctx->next_leader_slot = ULONG_MAX;
+  ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
 
   return 1;
@@ -1315,7 +1346,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
               ulong               chunk ) {
   /* If we are bootstrapping, we can't wait to wait for our identity
      vote to be rooted as this creates a circular dependency. */
-  ctx->has_identity_vote_rooted = 1;
+  ctx->identity_vote_rooted = 1;
 
   uchar const * lthash       = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   uchar const * genesis_hash = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t);
@@ -1898,10 +1929,10 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
-  if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
+  if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
     fd_bank_t root_bank[1];
     if( FD_UNLIKELY( !fd_banks_bank_query( root_bank, ctx->banks, target_bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: root bank not found for bank index %lu", target_bank_idx ));
-    if( FD_LIKELY( fd_bank_has_identity_vote_get( root_bank ) ) ) ctx->has_identity_vote_rooted = 1;
+    if( fd_bank_identity_vote_idx_get( root_bank )==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
@@ -2026,15 +2057,17 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 
   switch( sig>>32 ) {
     case FD_EXECRP_TT_TXN_EXEC: {
-      if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
+      if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
         /* Query the txn signature against our recently generated vote
            txn signatures.  If the query is successful, then we have
            seen our own vote transaction land and this should be marked
            in the bank.  We go through this exercise until we've seen
            our vote rooted. */
         fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, msg->txn_exec->txn_idx );
-        if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ) ) ) {
-          *fd_bank_has_identity_vote_modify( bank ) += 1;
+
+        fd_pubkey_t * identity_pubkey_out = NULL;
+        if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
+          fd_bank_identity_vote_idx_set( bank, ctx->identity_idx );
         }
       }
       if( FD_UNLIKELY( msg->txn_exec->err && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
@@ -2234,16 +2267,19 @@ static void
 process_vote_txn_sent( fd_replay_tile_t *  ctx,
                        fd_txn_m_t *        txnm ) {
   /* The send tile has signed and sent a vote.  Add this vote to the
-     vote tracker.  We go through this exercise until we've seen our
-     vote rooted. */
-  if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
-    uchar *    payload = ((uchar *)txnm) + sizeof(fd_txn_m_t);
+     vote tracker.  We go through this exercise until the client has
+     seen a vote corresponding to the current identity rooted. */
+  if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
+    uchar *    payload = (uchar *)txnm + sizeof(fd_txn_m_t);
     uchar      txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
     fd_txn_t * txn = (fd_txn_t *)txn_mem;
     if( FD_UNLIKELY( !fd_txn_parse( payload, txnm->payload_sz, txn_mem, NULL ) ) ) {
       FD_LOG_CRIT(( "Could not parse txn from send tile" ));
     }
-    fd_vote_tracker_insert( ctx->vote_tracker, fd_type_pun_const( payload+txn->signature_off ) );
+    /* The identity of the validator that the signed the vote will
+       always be the first signer in the vote transaction. */
+    fd_pubkey_t * vote_identity = fd_type_pun( payload+txn->acct_addr_off );
+    fd_vote_tracker_insert( ctx->vote_tracker, vote_identity, fd_type_pun_const( payload+txn->signature_off ) );
   }
 }
 
@@ -2365,10 +2401,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
       maybe_verify_shred_version( ctx );
       break;
     }
-    case IN_KIND_SNAP:
+    case IN_KIND_SNAP: {
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       maybe_verify_shred_version( ctx );
       break;
+    }
     case IN_KIND_EXECRP: {
       process_exec_task_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sig );
       break;
@@ -2465,6 +2502,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->replay.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
+  ctx->identity_idx         = 0UL;
 
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
     tile->replay.bundle.enabled = 0;
@@ -2635,7 +2673,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, ctx->vote_tracker_seed ) );
   FD_TEST( ctx->vote_tracker );
 
-  ctx->has_identity_vote_rooted = 0;
+  ctx->identity_vote_rooted = 0;
+
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
@@ -2659,6 +2698,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->block_id_map );
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
+
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+  ctx->halt_leader = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -2786,6 +2829,22 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
   return out_cnt;
 }
 
+static inline void
+during_housekeeping( fd_replay_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_CRIT( ctx->halt_leader, "state machine corruption" );
+    FD_LOG_DEBUG(( "keyswitch: unhalting leader" ));
+    ctx->halt_leader = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: halting leader" ));
+    ctx->halt_leader = 1;
+    if( !ctx->is_leader ) maybe_switch_identity( ctx );
+  }
+}
+
 #undef DEBUG_LOGGING
 
 /* counting carefully, after_credit can generate at most 7 frags and
@@ -2801,10 +2860,11 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_t)
 
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_BEFORE_FRAG     before_frag
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../disco/stem/fd_stem.c"
 

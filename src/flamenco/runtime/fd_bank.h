@@ -245,7 +245,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             slots_per_epoch            ) /* Slots per epoch */                                    \
   X(ulong,                             shred_cnt                  ) /* Shred count */                                        \
   X(ulong,                             epoch                      ) /* Epoch */                                              \
-  X(int,                               has_identity_vote          ) /* Has identity vote */
+  X(ulong,                             identity_vote_idx          ) /* Identity vote index */
 
 /* Defining pools for any CoW fields. */
 

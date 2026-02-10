@@ -7,6 +7,7 @@
 #include "../net/fd_net_tile.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../keyguard/fd_keyload.h"
+#include "../keyguard/fd_keyswitch.h"
 #include "../topo/fd_topo.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../ballet/lthash/fd_lthash.h"
@@ -52,6 +53,9 @@ struct fd_event_tile {
   fd_topo_t const * topo;
 
   int tile_shutdown_rendered[ FD_TOPO_MAX_TILES ];
+
+  int              halt_reconnect;
+  fd_keyswitch_t * keyswitch;
 
   ulong idle_cnt;
 
@@ -363,6 +367,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, 0U, ctx->seed ) ) );
 
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
   ctx->circq = fd_circq_join( fd_circq_new( _circq, 1UL<<30UL /* 1GiB */ ) );
   FD_TEST( ctx->circq );
 
@@ -450,16 +457,27 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static void
+during_housekeeping( fd_event_tile_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: switching identity" ));
+    memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
+    fd_event_client_set_identity( ctx->client, ctx->identity_pubkey );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
 #define STEM_BURST (1UL)
 #define STEM_LAZY ((long)10e6) /* 10ms */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_event_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_event_tile_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../stem/fd_stem.c"
 
