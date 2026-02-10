@@ -369,7 +369,7 @@ while true; do
 
                 ledger_name=$(basename $MISMATCH_DIR)
                 end_slot=$((NEXT_ROOTED_SLOT+5))
-                send_slack_message "Command to reproduce mismatch: \`\`\`src/flamenco/runtime/tests/run_ledger_backtest.sh -l $ledger_name -y 10 -m 2000000 -e $end_slot\`\`\`"
+                send_slack_message "Command to reproduce mismatch: \`\`\`build/native/gcc/bin/firedancer-dev backtest $ledger_name\`\`\`"
 
             fi
         done

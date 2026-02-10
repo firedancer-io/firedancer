@@ -1862,6 +1862,23 @@ static const fd_ledger_config_t FD_LEDGER_TESTNET_386300256 = {
   .disable_lthash_verification = 0,
 };
 
+static const fd_ledger_config_t FD_LEDGER_MAINNET_368528500_PERF = {
+  .test_name = "mainnet-368528500-perf",
+  .ledger_name = "mainnet-368528500-perf",
+  .funk_pages = 5UL,
+  .index_max = 2000000UL,
+  .end_slot = 368529500UL,
+  .genesis = 0,
+  .has_incremental = 0,
+  .vinyl = 0,
+  .enable_features = { "" },
+  .enable_features_cnt = 0UL,
+  .ingest_dead_slots = 0,
+  .max_live_slots = 32UL,
+  .root_distance = 2UL,
+  .disable_lthash_verification = 1,
+};
+
 static const fd_ledger_config_t * const fd_ledger_configs[] = {
   &FD_LEDGER_TESTNET_519_V3_0_0,
   &FD_LEDGER_TESTNET_519_V3_0_0_VINYL,
@@ -1971,6 +1988,7 @@ static const fd_ledger_config_t * const fd_ledger_configs[] = {
   &FD_LEDGER_TESTNET_384169347,
   &FD_LEDGER_TESTNET_384395810,
   &FD_LEDGER_TESTNET_386300256,
+  &FD_LEDGER_MAINNET_368528500_PERF,
 };
 #define FD_LEDGER_CONFIG_COUNT (sizeof(fd_ledger_configs) / sizeof(fd_ledger_configs[0]))
 
