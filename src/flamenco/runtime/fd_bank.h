@@ -992,7 +992,7 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
    the bank will be linked to its parent bank, but not yet replayable.
    After a call to fd_banks_clone_from_parent, the bank will be
    replayable.  This assumes that there is a parent bank which exists
-   and the there are available bank indices in the bank pool.  It also
+   and that there are available bank indices in the bank pool.  It also
    assumes that the parent bank is not dead. */
 
 fd_bank_t *
