@@ -824,6 +824,8 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
 
+  child_bank->refcnt = 0UL;
+
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 
   bank_l->locks = banks->locks;
@@ -1262,7 +1264,6 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
   child_bank->sibling_idx = null_idx;
   child_bank->next        = null_idx;
   child_bank->flags       = FD_BANK_FLAGS_INIT;
-  child_bank->refcnt      = 0UL;
 
   /* Then make sure that the parent bank is valid and frozen. */
 
