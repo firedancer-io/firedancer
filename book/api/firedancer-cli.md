@@ -1,6 +1,7 @@
 # `firedancer` Command Line Interface
 The Firedancer binary `firedancer` contains many subcommands which can
-be run from the command line.
+be run from the command line. `firedancer` also supports subcommands
+from the `fdctl` binary.
 
 ::: warning WARNING
 

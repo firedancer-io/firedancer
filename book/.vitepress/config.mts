@@ -72,8 +72,8 @@ export default defineConfig({
         {
           text: 'API',
           items: [
-            { text: 'Frankendancer Commands Line Interface', link: 'cli' },
-            { text: 'Firedancer Commands Line Interface', link: 'firedancer-cli' },
+            { text: 'Frankendancer Command Line Interface', link: 'cli' },
+            { text: 'Firedancer Command Line Interface', link: 'firedancer-cli' },
             { text: 'Metrics', link: 'metrics' },
             { text: 'WebSocket', link: 'websocket' },
           ]
