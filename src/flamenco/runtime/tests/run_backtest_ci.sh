@@ -32,7 +32,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-200-v3.0.0 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000 -y 3 -m 2000000 -e 346556337 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v3.0.0 -y 1 -m 3000 -e 108 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v3.0.0 -y 3 -m 2000000 -e 380592006 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary -y 1 -m 2000 -e 2325 -lt
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary -y 1 -m 1000 -e 2325 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v3.0 -y 1 -m 3000 -e 1280 -g -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-stake-v3.0.0 -y 1 -m 3000 -e 541 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-378539412 -y 5 -m 2000000 -e 378539445
