@@ -892,6 +892,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   }
 # else
   if( is_zstd ) {
+    fd_accdb_close_ro( ctx->accdb, ro );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
   }
 # endif

@@ -632,6 +632,13 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1254-L1265 */
   if( !(vm->stricter_abi_and_runtime_constraints && vm->direct_mapping) ) {
+
+    /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1261-L1263 */
+    if( FD_UNLIKELY( caller_account->serialized_data_len!=post_len ) ) {
+      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
+      return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+    }
+
     fd_memcpy( caller_account->serialized_data, fd_account_data( callee_meta ), post_len );
   }
 

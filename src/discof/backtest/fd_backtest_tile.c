@@ -447,13 +447,13 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       ctx->prev_root             = root_slot;
       fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+      dst->replay_slot           = msg->slot;
+      dst->replay_bank_idx       = msg->bank_idx;
       dst->vote_slot             = msg->slot;
       dst->reset_slot            = msg->slot;
       dst->reset_block_id        = msg->block_id;
       dst->root_slot             = root_slot;
       dst->root_block_id         = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
-      dst->replay_slot           = msg->slot;
-      dst->replay_bank_idx       = msg->bank_idx;
 
       fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
