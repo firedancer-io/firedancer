@@ -95,6 +95,10 @@ setsockopt: (or (and (eq (arg 1) SOL_SOCKET)
                 (and (eq (arg 1) IPPROTO_IPV6)
                      (eq (arg 2) IPV6_V6ONLY)))
 
+# bundle: get TCP socket connection error (for gRPC connection)
+getsockopt: (and (eq (arg 1) SOL_SOCKET)
+                 (eq (arg 2) SO_ERROR))
+
 # resolv: check if DNS queries use IPv6
 getsockname
 
