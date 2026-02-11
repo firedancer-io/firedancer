@@ -44,6 +44,7 @@ fd_rangeproofs_delta(
   }
 }
 
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/range_proof/mod.rs#L324 */
 int
 fd_rangeproofs_verify(
   fd_rangeproofs_range_proof_t const * range_proof,
@@ -350,12 +351,12 @@ fd_rangeproofs_verify(
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, idx );
 
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/range_proof/mod.rs#L441-L445 */
   if( FD_LIKELY( fd_ristretto255_point_eq_neg( res, a_res ) ) ) {
     return FD_RANGEPROOFS_SUCCESS;
   }
-
+  return FD_RANGEPROOFS_ERROR;
 #undef LOGN
 #undef N
 #undef MAX
-  return FD_RANGEPROOFS_ERROR;
 }
