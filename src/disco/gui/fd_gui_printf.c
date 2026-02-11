@@ -474,7 +474,7 @@ fd_gui_printf_late_votes_history( fd_gui_t * gui ) {
           for( ulong i=0UL; i<gui->summary.late_votes_sz; i++ ) jsonp_ulong( gui->http, NULL, gui->summary.late_votes[ i ] );
         jsonp_close_array( gui->http );
         jsonp_open_array( gui->http, "latency" );
-          for( long i=0UL; i<(long)gui->summary.late_votes_sz-1L; i++ ) {
+          for( long i=0UL; i<(long)gui->summary.late_votes_sz-1L; i+=2L ) {
             FD_TEST( (ulong)i+1<gui->summary.late_votes_sz );
             ulong s = gui->summary.late_votes[ i ];
             ulong s2 = gui->summary.late_votes[ i + 1 ];
