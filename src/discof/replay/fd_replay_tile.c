@@ -667,7 +667,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
 static void
 cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
-  if( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank->data ) ) ) {
+  if( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( NULL ) ) {
     fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
     slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
     slot_info->cost_tracker.vote_cost                    = cost_tracker->vote_cost;

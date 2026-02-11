@@ -288,20 +288,24 @@ struct fd_bank_cost_tracker {
 };
 typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
-#define POOL_NAME fd_bank_epoch_leaders_pool
-#define POOL_T    fd_bank_epoch_leaders_t
+#define POOL_NAME   fd_bank_epoch_leaders_pool
+#define POOL_T      fd_bank_epoch_leaders_t
+#define POOL_POISON 1
 #include "../../util/tmpl/fd_pool.c"
 
-#define POOL_NAME fd_bank_epoch_rewards_pool
-#define POOL_T    fd_bank_epoch_rewards_t
+#define POOL_NAME   fd_bank_epoch_rewards_pool
+#define POOL_T      fd_bank_epoch_rewards_t
+#define POOL_POISON 1
 #include "../../util/tmpl/fd_pool.c"
 
-#define POOL_NAME fd_bank_vote_states_pool
-#define POOL_T    fd_bank_vote_states_t
+#define POOL_NAME   fd_bank_vote_states_pool
+#define POOL_T      fd_bank_vote_states_t
+#define POOL_POISON 1
 #include "../../util/tmpl/fd_pool.c"
 
-#define POOL_NAME fd_bank_cost_tracker_pool
-#define POOL_T    fd_bank_cost_tracker_t
+#define POOL_NAME   fd_bank_cost_tracker_pool
+#define POOL_T      fd_bank_cost_tracker_t
+#define POOL_POISON 1
 #include "../../util/tmpl/fd_pool.c"
 
 /* Initialized.  Not yet replayable. */
@@ -344,6 +348,7 @@ struct fd_bank_data {
   ulong sibling_idx; /* index of the right-sibling in the node pool */
   ulong flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
   ulong bank_seq;    /* app-wide bank sequence number */
+  ulong banks_off;   /* this-banks_off -> fd_banks_data pointer */
 
   ulong refcnt; /* (r) reference count on the bank, see replay for more details */
 
@@ -371,22 +376,18 @@ struct fd_bank_data {
   /* Layout all information needed for non-templatized fields. */
 
   ulong cost_tracker_pool_idx;
-  ulong cost_tracker_pool_offset;
 
   int   stake_delegations_delta_dirty;
   uchar stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
   int   vote_states_dirty;
   ulong vote_states_pool_idx;
-  ulong vote_states_pool_offset;
 
   int   epoch_rewards_dirty;
   ulong epoch_rewards_pool_idx;
-  ulong epoch_rewards_pool_offset;
 
   int   epoch_leaders_dirty;
   ulong epoch_leaders_pool_idx;
-  ulong epoch_leaders_pool_offset;
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
@@ -427,64 +428,6 @@ struct fd_bank {
 };
 typedef struct fd_bank fd_bank_t;
 
-static inline void
-fd_bank_set_epoch_rewards_pool( fd_bank_data_t * bank, fd_bank_epoch_rewards_t * epoch_rewards_pool ) {
-  void * epoch_rewards_pool_mem = fd_bank_epoch_rewards_pool_leave( epoch_rewards_pool );
-  if( FD_UNLIKELY( !epoch_rewards_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave epoch rewards pool" ));
-  }
-  bank->epoch_rewards_pool_offset = (ulong)epoch_rewards_pool_mem - (ulong)bank;
-}
-
-static inline fd_bank_epoch_rewards_t *
-fd_bank_get_epoch_rewards_pool( fd_bank_data_t * bank ) {
-  return fd_bank_epoch_rewards_pool_join( (uchar *)bank + bank->epoch_rewards_pool_offset );
-}
-
-static inline void
-fd_bank_set_epoch_leaders_pool( fd_bank_data_t * bank, fd_bank_epoch_leaders_t * epoch_leaders_pool ) {
-  void * epoch_leaders_pool_mem = fd_bank_epoch_leaders_pool_leave( epoch_leaders_pool );
-  if( FD_UNLIKELY( !epoch_leaders_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave epoch leaders pool" ));
-  }
-  bank->epoch_leaders_pool_offset = (ulong)epoch_leaders_pool_mem - (ulong)bank;
-}
-
-static inline fd_bank_epoch_leaders_t *
-fd_bank_get_epoch_leaders_pool( fd_bank_data_t * bank ) {
-  return fd_bank_epoch_leaders_pool_join( (uchar *)bank + bank->epoch_leaders_pool_offset );
-}
-
-static inline void
-fd_bank_set_vote_states_pool( fd_bank_data_t * bank, fd_bank_vote_states_t * vote_states_pool ) {
-  void * vote_states_pool_mem = fd_bank_vote_states_pool_leave( vote_states_pool );
-  if( FD_UNLIKELY( !vote_states_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave vote states pool" ));
-  }
-  bank->vote_states_pool_offset = (ulong)vote_states_pool_mem - (ulong)bank;
-}
-
-static inline fd_bank_vote_states_t *
-fd_bank_get_vote_states_pool( fd_bank_data_t * bank ) {
-  return fd_bank_vote_states_pool_join( (uchar *)bank + bank->vote_states_pool_offset );
-}
-
-/* Do the same setup for the cost tracker pool. */
-
-static inline void
-fd_bank_set_cost_tracker_pool( fd_bank_data_t * bank, fd_bank_cost_tracker_t * cost_tracker_pool ) {
-  void * cost_tracker_pool_mem = fd_bank_cost_tracker_pool_leave( cost_tracker_pool );
-  if( FD_UNLIKELY( !cost_tracker_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
-  }
-  bank->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)bank;
-}
-
-static inline fd_bank_cost_tracker_t *
-fd_bank_get_cost_tracker_pool( fd_bank_data_t * bank ) {
-  return fd_bank_cost_tracker_pool_join( (uchar *)bank + bank->cost_tracker_pool_offset );
-}
-
 /* fd_bank_t is the alignment for the bank state. */
 
 ulong
@@ -524,10 +467,10 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 struct fd_banks_data {
   ulong magic;           /* ==FD_BANKS_MAGIC */
   ulong max_total_banks; /* Maximum number of banks */
-  ulong max_fork_width;  /* Maximum fork width executing through
-                                  any given slot. */
+  ulong max_fork_width;  /* Maximum fork width executing through any given slot. */
   ulong root_idx;        /* root idx */
   ulong bank_seq;        /* app-wide bank sequence number */
+  ulong hash_seed;       /* hash function seed */
 
   ulong pool_offset;     /* offset of pool from banks */
 
@@ -571,6 +514,11 @@ typedef struct fd_banks fd_banks_t;
 
 /* Bank accesssors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
+
+static inline fd_banks_data_t *
+fd_bank_data_owner( fd_bank_data_t * bank_data ) {
+  return (fd_banks_data_t *)( (uchar *)bank_data - bank_data->banks_off );
+}
 
 fd_epoch_rewards_t const *
 fd_bank_epoch_rewards_query( fd_bank_t * bank );
@@ -699,25 +647,9 @@ fd_banks_get_bank_pool( fd_banks_data_t * banks_data ) {
   return fd_banks_pool_join( (uchar *)banks_data + banks_data->pool_offset );
 }
 
-static inline void
-fd_banks_set_bank_pool( fd_banks_data_t * banks_data,
-                        fd_bank_data_t *  bank_pool ) {
-  void * bank_pool_mem = fd_banks_pool_leave( bank_pool );
-  if( FD_UNLIKELY( !bank_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave bank pool" ));
-  }
-  banks_data->pool_offset = (ulong)bank_pool_mem - (ulong)banks_data;
-}
-
 static inline fd_bank_idx_seq_t *
 fd_banks_get_dead_banks_deque( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->dead_banks_deque_offset );
-}
-
-static inline void
-fd_banks_set_dead_banks_deque( fd_banks_data_t *   banks_data,
-                               fd_bank_idx_seq_t * dead_banks_deque ) {
-  banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
 }
 
 static inline fd_bank_epoch_rewards_t *
@@ -725,27 +657,9 @@ fd_banks_get_epoch_rewards_pool( fd_banks_data_t * banks_data ) {
   return fd_bank_epoch_rewards_pool_join( (uchar *)banks_data + banks_data->epoch_rewards_pool_offset );
 }
 
-static inline void
-fd_banks_set_epoch_rewards_pool( fd_banks_data_t * banks_data, fd_bank_epoch_rewards_t * epoch_rewards_pool ) {
-  void * epoch_rewards_pool_mem = fd_bank_epoch_rewards_pool_leave( epoch_rewards_pool );
-  if( FD_UNLIKELY( !epoch_rewards_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave epoch rewards pool" ));
-  }
-  banks_data->epoch_rewards_pool_offset = (ulong)epoch_rewards_pool_mem - (ulong)banks_data;
-}
-
 static inline fd_bank_epoch_leaders_t *
 fd_banks_get_epoch_leaders_pool( fd_banks_data_t * banks_data ) {
   return fd_bank_epoch_leaders_pool_join( (uchar *)banks_data + banks_data->epoch_leaders_pool_offset );
-}
-
-static inline void
-fd_banks_set_epoch_leaders_pool( fd_banks_data_t * banks_data, fd_bank_epoch_leaders_t * epoch_leaders_pool ) {
-  void * epoch_leaders_pool_mem = fd_bank_epoch_leaders_pool_leave( epoch_leaders_pool );
-  if( FD_UNLIKELY( !epoch_leaders_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave epoch leaders pool" ));
-  }
-  banks_data->epoch_leaders_pool_offset = (ulong)epoch_leaders_pool_mem - (ulong)banks_data;
 }
 
 static inline fd_bank_vote_states_t *
@@ -753,28 +667,9 @@ fd_banks_get_vote_states_pool( fd_banks_data_t * banks_data ) {
   return fd_bank_vote_states_pool_join( (uchar *)banks_data + banks_data->vote_states_pool_offset );
 }
 
-static inline void
-fd_banks_set_vote_states_pool( fd_banks_data_t * banks_data, fd_bank_vote_states_t * vote_states_pool ) {
-  void * vote_states_pool_mem = fd_bank_vote_states_pool_leave( vote_states_pool );
-  if( FD_UNLIKELY( !vote_states_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave vote states pool" ));
-  }
-  banks_data->vote_states_pool_offset = (ulong)vote_states_pool_mem - (ulong)banks_data;
-}
-
 static inline fd_bank_cost_tracker_t *
 fd_banks_get_cost_tracker_pool( fd_banks_data_t * banks_data ) {
   return fd_bank_cost_tracker_pool_join( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
-}
-
-static inline void
-fd_banks_set_cost_tracker_pool( fd_banks_data_t * banks_data,
-                                fd_bank_cost_tracker_t * cost_tracker_pool ) {
-  void * cost_tracker_pool_mem = fd_bank_cost_tracker_pool_leave( cost_tracker_pool );
-  if( FD_UNLIKELY( !cost_tracker_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
-  }
-  banks_data->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)banks_data;
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */
