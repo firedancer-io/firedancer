@@ -329,6 +329,9 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
 
 static void
 fd_gui_scheduler_counts_snap( fd_gui_t * gui, long now ) {
+  ulong pack_tile_idx = fd_topo_find_tile( gui->topo, "pack", 0UL );
+  if( FD_UNLIKELY( pack_tile_idx==ULONG_MAX ) ) return;
+
   fd_gui_scheduler_counts_t * cur = gui->summary.scheduler_counts_snap[ gui->summary.scheduler_counts_snap_idx ];
   gui->summary.scheduler_counts_snap_idx = (gui->summary.scheduler_counts_snap_idx+1UL)%FD_GUI_SCHEDULER_COUNT_SNAP_CNT;
 
@@ -455,12 +458,9 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
 static void
 fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
                            fd_gui_txn_waterfall_t * cur ) {
+  memset( cur, 0, sizeof(fd_gui_txn_waterfall_t) );
   fd_topo_t * topo = gui->topo;
 
-  cur->out.block_success = 0UL;
-  cur->out.block_fail    = 0UL;
-
-  cur->out.bank_invalid = 0UL;
   for( ulong i=0UL; i<gui->summary.bank_tile_cnt; i++ ) {
     fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
 
@@ -480,11 +480,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
 
     cur->out.bank_invalid +=
         bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
-
-    /* These branches are unused in Frankendancer */
-    cur->out.bank_nonce_already_advanced = 0UL;
-    cur->out.bank_nonce_advance_failed   = 0UL;
-    cur->out.bank_nonce_wrong_blockhash  = 0UL;
   }
 
   for( ulong i=0UL; i<gui->summary.execle_tile_cnt; i++ ) {
@@ -503,52 +498,55 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.bank_nonce_wrong_blockhash  = execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
   }
 
-  fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
-  volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
+  ulong pack_tile_idx = fd_topo_find_tile( topo, "pack", 0UL );
+  if( pack_tile_idx!=ULONG_MAX ) {
+    fd_topo_tile_t const * pack = &topo->tiles[ pack_tile_idx ];
+    volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
 
-  cur->out.pack_invalid_bundle =
-      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
+    cur->out.pack_invalid_bundle =
+        pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
 
-  cur->out.pack_invalid =
-      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_CONFLICT ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_INVALID_NONCE ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ESTIMATION_FAIL ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE_ACCOUNT ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_MANY_ACCOUNTS ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_LARGE ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ADDR_LUT ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_UNAFFORDABLE ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE ) ]
-    - pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]; /* so we don't double count this, since its already accounted for in invalid_bundle */
+    cur->out.pack_invalid =
+        pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_CONFLICT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_INVALID_NONCE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ESTIMATION_FAIL ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE_ACCOUNT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_MANY_ACCOUNTS ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_LARGE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ADDR_LUT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_UNAFFORDABLE ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE ) ]
+      - pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]; /* so we don't double count this, since its already accounted for in invalid_bundle */
 
-  cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_EXPIRED ) ] +
-                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_EXPIRED ) ] +
-                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DELETED ) ] +
-                          pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_PRIORITY ) ];
+    cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_EXPIRED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_EXPIRED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DELETED ) ] +
+                            pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_PRIORITY ) ];
 
-  cur->out.pack_already_executed = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_ALREADY_EXECUTED ) ];
+    cur->out.pack_already_executed = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_ALREADY_EXECUTED ) ];
 
-  cur->out.pack_leader_slow = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ];
+    cur->out.pack_leader_slow = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ];
 
-  cur->out.pack_wait_full =
-      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_FROM_EXTRA ) ];
+    cur->out.pack_wait_full =
+        pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_FROM_EXTRA ) ];
 
-  cur->out.pack_retained = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS ) ];
+    cur->out.pack_retained = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS ) ];
 
-  ulong inserted_to_extra = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TO_EXTRA ) ];
-  ulong inserted_from_extra = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_FROM_EXTRA ) ]
-                              + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_FROM_EXTRA ) ];
-  cur->out.pack_retained += fd_ulong_if( inserted_to_extra>=inserted_from_extra, inserted_to_extra-inserted_from_extra, 0UL );
+    ulong inserted_to_extra = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TO_EXTRA ) ];
+    ulong inserted_from_extra = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_FROM_EXTRA ) ]
+                                + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_FROM_EXTRA ) ];
+    cur->out.pack_retained += fd_ulong_if( inserted_to_extra>=inserted_from_extra, inserted_to_extra-inserted_from_extra, 0UL );
 
-  cur->out.resolv_lut_failed = 0UL;
-  cur->out.resolv_expired    = 0UL;
-  cur->out.resolv_ancient    = 0UL;
-  cur->out.resolv_no_ledger  = 0UL;
-  cur->out.resolv_retained   = 0UL;
+    cur->in.pack_cranked =
+        pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
+  }
+
   for( ulong i=0UL; i<gui->summary.resolh_tile_cnt; i++ ) {
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolh", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
@@ -591,18 +589,14 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
   }
 
+  ulong dedup_tile_idx = fd_topo_find_tile( topo, "dedup", 0UL );
+  if( FD_UNLIKELY( dedup_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * dedup = &topo->tiles[ dedup_tile_idx ];
+    volatile ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
 
-  fd_topo_tile_t const * dedup = &topo->tiles[ fd_topo_find_tile( topo, "dedup", 0UL ) ];
-  volatile ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
-
-  cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_RESULT_DEDUP_FAILURE ) ]
-                           + dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_RESULT_BUNDLE_PEER_FAILURE ) ];
-
-
-  cur->out.verify_overrun   = 0UL;
-  cur->out.verify_duplicate = 0UL;
-  cur->out.verify_parse     = 0UL;
-  cur->out.verify_failed    = 0UL;
+    cur->out.dedup_duplicate = dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_RESULT_DEDUP_FAILURE ) ]
+                             + dedup_metrics[ MIDX( COUNTER, DEDUP, TRANSACTION_RESULT_BUNDLE_PEER_FAILURE ) ];
+  }
 
   for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
     fd_topo_tile_t const * verify = &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ];
@@ -620,12 +614,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.verify_duplicate += verify_metrics[ MIDX( COUNTER, VERIFY, TRANSACTION_RESULT_DEDUP_FAILURE ) ];
   }
 
-
-  cur->out.quic_overrun      = 0UL;
-  cur->out.quic_frag_drop    = 0UL;
-  cur->out.quic_abandoned    = 0UL;
-  cur->out.tpu_quic_invalid  = 0UL;
-  cur->out.tpu_udp_invalid   = 0UL;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
@@ -650,7 +638,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     }
   }
 
-  cur->out.net_overrun = 0UL;
   for( ulong i=0UL; i<gui->summary.net_tile_cnt; i++ ) {
     fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
     volatile ulong * net_metrics = fd_metrics_tile( net->metrics );
@@ -669,11 +656,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     bundle_txns_received = bundle_metrics[ MIDX( COUNTER, BUNDLE, TRANSACTION_RECEIVED ) ];
   }
 
-  cur->in.pack_cranked =
-      pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTED ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
-    + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
-
   if( FD_UNLIKELY( gui->summary.is_full_client ) ) {
     cur->in.gossip = 0UL;
     for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
@@ -681,7 +663,9 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
       volatile ulong const * verify_metrics = fd_metrics_tile( verify->metrics );
       cur->in.gossip += verify_metrics[ MIDX( COUNTER, VERIFY, GOSSIPED_VOTES_RECEIVED ) ];
     }
-  } else {
+  } else if( dedup_tile_idx!=ULONG_MAX ) {
+    fd_topo_tile_t const * dedup = &topo->tiles[ dedup_tile_idx ];
+    volatile ulong const * dedup_metrics = fd_metrics_tile( dedup->metrics );
     cur->in.gossip = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
   }
 
@@ -707,12 +691,11 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
                         fd_gui_txn_waterfall_t const * waterfall,
                         fd_gui_tile_stats_t *          stats,
                         long                           now ) {
+  memset( stats, 0, sizeof(fd_gui_tile_stats_t) );
   fd_topo_t const * topo = gui->topo;
 
   stats->sample_time_nanos = now;
 
-  stats->net_in_rx_bytes  = 0UL;
-  stats->net_out_tx_bytes = 0UL;
   for( ulong i=0UL; i<gui->summary.net_tile_cnt; i++ ) {
     fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", i ) ];
     volatile ulong * net_metrics = fd_metrics_tile( net->metrics );
@@ -729,7 +712,6 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
     stats->net_out_tx_bytes += sock_metrics[ MIDX( COUNTER, SOCK, TX_BYTES_TOTAL ) ];
   }
 
-  stats->quic_conn_cnt = 0UL;
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
@@ -767,10 +749,13 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
                             waterfall->out.verify_parse -
                             waterfall->out.verify_failed;
 
-  fd_topo_tile_t const * pack  = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
-  volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
-  stats->pack_buffer_cnt      = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS ) ];
-  stats->pack_buffer_capacity = pack->pack.max_pending_transactions;
+  ulong pack_tile_idx = fd_topo_find_tile( topo, "pack", 0UL );
+  if( pack_tile_idx!=ULONG_MAX ) {
+    fd_topo_tile_t const * pack  = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
+    volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
+    stats->pack_buffer_cnt      = pack_metrics[ MIDX( GAUGE, PACK, AVAILABLE_TRANSACTIONS ) ];
+    stats->pack_buffer_capacity = pack->pack.max_pending_transactions;
+  }
 
   stats->bank_txn_exec_cnt = waterfall->out.block_fail + waterfall->out.block_success;
 }
