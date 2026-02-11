@@ -1677,10 +1677,12 @@ state_process( fd_ssmanifest_parser_t * parser,
 
 
   if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_OWNER && parser->epoch_idx!=ULONG_MAX ) ) {
-    /* We're only interested in vote accounts with stakes>0. When stakes==0, we
-       decrement the counters so that we store all vote/stakes in a compact array. */
+    /* We're only interested in vote accounts with stakes>0 that have
+       valid epoch credits.  If these conditions are not met, we
+       decrement the counters so that we store all vote/stakes in a
+       compact array. */
     fd_snapshot_manifest_vote_stakes_t * vote_stakes = &parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ];
-    if( vote_stakes->stake==0 ) {
+    if( vote_stakes->stake==0UL && vote_stakes->epoch_credits_history_len==0UL ) {
       parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len--;
       parser->idx2--;
     }
