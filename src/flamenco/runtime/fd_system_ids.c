@@ -42,6 +42,7 @@ const fd_pubkey_t fd_solana_address_lookup_table_program_buffer_address   = { .u
 const fd_pubkey_t fd_solana_config_program_buffer_address                 = { .uc = { CONFIG_PROG_BUFFER_ID } };
 const fd_pubkey_t fd_solana_feature_program_buffer_address                = { .uc = { FEATURE_PROG_BUFFER_ID } };
 const fd_pubkey_t fd_solana_stake_program_buffer_address                  = { .uc = { STAKE_PROG_BUFFER_ID } };
+const fd_pubkey_t fd_solana_stake_program_vote_state_v4_buffer_address    = { .uc = { STAKE_PROG_VOTE_STATE_V4_BUFFER_ID } };
 const fd_pubkey_t fd_solana_slashing_program_buffer_address               = { .uc = { SLASHING_PROG_BUFFER_ID } };
 
 const fd_pubkey_t fd_solana_migration_authority                           = { .uc = { MIGRATION_AUTHORITY_ID } };

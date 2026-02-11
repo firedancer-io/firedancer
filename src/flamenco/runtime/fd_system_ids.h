@@ -51,6 +51,7 @@ extern const fd_pubkey_t fd_solana_address_lookup_table_program_buffer_address;
 extern const fd_pubkey_t fd_solana_config_program_buffer_address;
 extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
 extern const fd_pubkey_t fd_solana_stake_program_buffer_address;
+extern const fd_pubkey_t fd_solana_stake_program_vote_state_v4_buffer_address;
 extern const fd_pubkey_t fd_solana_slashing_program_buffer_address;
 
 /* BPF migration authority
