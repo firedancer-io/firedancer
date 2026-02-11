@@ -60,9 +60,7 @@ jobs:
       run: |
         sudo $OBJDIR/bin/firedancer-dev configure init keys
         rm -rf baseline.log
-        DUMP_DIR=../dump ./src/flamenco/runtime/tests/run_ledger_backtest.sh \
-          -l mainnet-368528500-perf -y 5 -m 2000000 -e 368529500 \
-          --log baseline.log --skip-checksum
+        DUMP_DIR=../dump $OBJDIR/bin/firedancer-dev backtest mainnet-368528500-perf --log-path baseline.log
         SPS_BASELINE=$(grep "Backtest playback done." baseline.log | awk -F 'sec/slot: ' '{print $2}')
         TOTAL_ELAPSED_BASELINE=$(grep "Backtest playback done." baseline.log | awk -F 'elapsed: ' '{print $2}' | awk '{print $1}')
         SNAPSHOT_LOAD_BASELINE=$(grep "from snapshot in" baseline.log | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")
@@ -89,9 +87,7 @@ jobs:
       run: |
         rm -rf new.log
         sudo $OBJDIR/bin/firedancer-dev configure init keys
-        DUMP_DIR=../dump ./src/flamenco/runtime/tests/run_ledger_backtest.sh \
-          -l mainnet-368528500-perf -y 5 -m 2000000 -e 368529500 \
-          --log new.log --skip-checksum
+        DUMP_DIR=../dump $OBJDIR/bin/firedancer-dev backtest mainnet-368528500-perf --log-path new.log
         SPS_NEWVAL=$(grep "Backtest playback done." new.log | awk -F 'sec/slot: ' '{print $2}')
         TOTAL_ELAPSED_NEWVAL=$(grep "Backtest playback done." new.log | awk -F 'elapsed: ' '{print $2}' | awk '{print $1}')
         SNAPSHOT_LOAD_NEWVAL=$(grep "from snapshot in" new.log | grep -o "from snapshot in [0-9.]*" | grep -o "[0-9.]*")

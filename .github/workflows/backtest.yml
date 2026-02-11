@@ -68,13 +68,8 @@ jobs:
         run: |
           echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
-      - name: download ledgers
-        timeout-minutes: 30
-        run: |
-          DUMP_DIR=../dump DOWNLOAD_ONLY=true ${{ inputs.script }}
-
       - name: run backtest
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
