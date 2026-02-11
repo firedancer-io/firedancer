@@ -251,7 +251,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state_curr->stake_t_1 = elem->stake;
 
     vote_state_credits[ vote_state_curr->idx ].credits_cnt = elem->epoch_credits_history_len;
-    vote_state_credits[ vote_state_curr->idx ].commission  = elem->commission;
+    vote_state_credits[ vote_state_curr->idx ].commission  = (uchar)elem->commission;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
       vote_state_credits[ vote_state_curr->idx ].epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
       vote_state_credits[ vote_state_curr->idx ].credits[ j ]      = elem->epoch_credits[ j ].credits;
