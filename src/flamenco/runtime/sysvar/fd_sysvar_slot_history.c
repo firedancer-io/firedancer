@@ -5,9 +5,6 @@
 
 /* FIXME These constants should be header defines */
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L37 */
-#define FD_SLOT_HISTORY_MAX_ENTRIES (1024UL * 1024UL)
-
 /* TODO: move into separate bitvec library */
 #define FD_SLOT_HISTORY_BITS_PER_BLOCK (8UL * sizeof(ulong))
 
@@ -164,4 +161,16 @@ fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
       return FD_SLOT_HISTORY_SLOT_NOT_FOUND;
     }
   }
+}
+
+ulong
+fd_sysvar_slot_history_newest( fd_slot_history_global_t const * history ) {
+  FD_TEST( history->has_bits );
+  return history->next_slot - 1UL;
+}
+
+ulong
+fd_sysvar_slot_history_len( fd_slot_history_global_t const * history ) {
+  FD_TEST( history->has_bits );
+  return history->bits_len;
 }
