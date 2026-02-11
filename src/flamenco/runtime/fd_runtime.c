@@ -513,6 +513,33 @@ deprecate_rent_exemption_threshold( fd_bank_t *               bank,
   fd_bank_rent_set( bank, rent );
 }
 
+// https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391
+static void
+fd_compute_and_apply_new_feature_activations( fd_bank_t *               bank,
+                                              fd_accdb_user_t *         accdb,
+                                              fd_funk_txn_xid_t const * xid,
+                                              fd_runtime_stack_t *      runtime_stack,
+                                              fd_capture_ctx_t *        capture_ctx ) {
+  /* Activate new features
+      https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391 */
+  fd_features_activate( bank, accdb, xid, capture_ctx );
+  fd_features_restore( bank, accdb, xid );
+
+  /* SIMD-0194: deprecate_rent_exemption_threshold
+      https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, deprecate_rent_exemption_threshold ) ) ) {
+    deprecate_rent_exemption_threshold( bank, accdb, xid, capture_ctx );
+  }
+
+  /* Apply builtin program feature transitions
+      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
+  fd_apply_builtin_program_feature_transitions( bank, accdb, xid, runtime_stack, capture_ctx );
+
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, vote_state_v4 ) ) ) {
+    fd_upgrade_core_bpf_program( bank, accdb, xid, runtime_stack, &fd_solana_stake_program_id, &fd_solana_stake_program_vote_state_v4_buffer_address, capture_ctx );
+  }
+}
+
 /* Starting a new epoch.
   New epoch:        T
   Just ended epoch: T-1
@@ -538,6 +565,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                               fd_runtime_stack_t *      runtime_stack ) {
 
   FD_LOG_NOTICE(( "fd_process_new_epoch start, epoch: %lu, slot: %lu", fd_bank_epoch_get( bank ), fd_bank_slot_get( bank ) ));
+  long start = fd_log_wallclock();
 
   runtime_stack->stakes.prev_vote_credits_used = 0;
 
@@ -546,24 +574,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
   }
 
-  long start = fd_log_wallclock();
-
-  /* Activate new features
-     https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
-
-  fd_features_activate( bank, accdb, xid, capture_ctx );
-  fd_features_restore( bank, accdb, xid );
-
-  /* SIMD-0194: deprecate_rent_exemption_threshold
-     https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
-  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, deprecate_rent_exemption_threshold ) ) ) {
-    deprecate_rent_exemption_threshold( bank, accdb, xid, capture_ctx );
-  }
-
-  /* Apply builtin program feature transitions
-     https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
-
-  fd_apply_builtin_program_feature_transitions( bank, accdb, xid, runtime_stack, capture_ctx );
+  fd_compute_and_apply_new_feature_activations( bank, accdb, xid, runtime_stack, capture_ctx );
 
   /* Get the new rate activation epoch */
   int _err[1];

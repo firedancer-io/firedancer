@@ -116,6 +116,15 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
                                 fd_core_bpf_migration_config_t const * config,
                                 fd_capture_ctx_t *                     capture_ctx );
 
+void
+fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
+                             fd_accdb_user_t *                      accdb,
+                             fd_funk_txn_xid_t const *              xid,
+                             fd_runtime_stack_t *                   runtime_stack,
+                             fd_pubkey_t const *                    builtin_program_id,
+                             fd_pubkey_t const *                    source_buffer_address,
+                             fd_capture_ctx_t *                     capture_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_builtin_programs_h */
