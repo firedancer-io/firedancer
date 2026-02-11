@@ -14,11 +14,11 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    if( FD_UNLIKELY( !vote_state->stake ) ) continue;
+    if( FD_UNLIKELY( !vote_state->stake_t_2 ) ) continue;
 
     fd_memcpy( weights[ weights_cnt ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
     fd_memcpy( weights[ weights_cnt ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
-    weights[ weights_cnt ].stake = vote_state->stake;
+    weights[ weights_cnt ].stake = vote_state->stake_t_2;
     weights_cnt++;
   }
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
@@ -198,6 +198,10 @@ fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
 
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
 
+  /* It's safe to purge the account from the vote states since a vote
+     account cannot be deleted until it hasn't voted in the past two
+     epochs.  This guarantees that it is not going to be used for clock
+     or rewards calculations. */
   if( meta->lamports==0UL ) {
     fd_vote_states_remove( vote_states, pubkey );
     fd_bank_vote_states_end_locking_modify( bank );

@@ -62,6 +62,13 @@ struct fd_snaplv_tile {
   } hash_accum;
 
   fd_lthash_value_t   running_lthash;
+  fd_lthash_value_t   full_lthash;
+
+  struct {
+    ulong exp_sig;
+    ulong ack_cnt;
+    int   wait;
+  } fail;
 
   struct {
     struct {
@@ -299,15 +306,22 @@ handle_control_frag( fd_snaplv_t *       ctx,
                      ulong               tspub ) {
   (void)in_idx;
 
-  int forward_to_ct = 1UL;
+  if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLH ) {
+    if( FD_UNLIKELY( !ctx->fail.wait ) ) FD_LOG_CRIT(( "received unexpected sig %lu msg from snaplh", sig ));
+    if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) ) FD_LOG_CRIT(( "received incorrect sig %lu msg from snaplh", sig ));
+    ctx->fail.ack_cnt++;
+    return;
+  }
 
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return;
   };
+
+  int forward_to_ct = 1;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
@@ -316,6 +330,15 @@ handle_control_frag( fd_snaplv_t *       ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       fd_lthash_zero( &ctx->running_lthash );
+
+      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
+        fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
+        fd_lthash_zero( &ctx->full_lthash );
+      } else {
+        /* incr lthash always starts from full lthash. */
+        memcpy( &ctx->hash_accum.calculated_lthash, &ctx->full_lthash, sizeof(fd_lthash_value_t) );
+      }
+
       break;
     }
 
@@ -324,8 +347,8 @@ handle_control_frag( fd_snaplv_t *       ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       ctx->hash_accum.ack_sig          = sig;
       ctx->hash_accum.awaiting_results = 1;
-      forward_to_ct = 0UL;
       handle_vinyl_lthash_request_drain_all( ctx, stem );
+      forward_to_ct = 0;
       break; /* the ack is sent when all hashes are received */
     }
 
@@ -345,6 +368,10 @@ handle_control_frag( fd_snaplv_t *       ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      ctx->fail.exp_sig = FD_SNAPSHOT_MSG_CTRL_FAIL;
+      ctx->fail.ack_cnt = 0UL;
+      ctx->fail.wait = 1;
+      forward_to_ct = 0;
       break;
     }
 
@@ -360,7 +387,6 @@ handle_control_frag( fd_snaplv_t *       ctx,
     }
   }
 
-forward_msg:
   /* Forward the control message down the pipeline */
   fd_stem_publish( stem, ctx->out_link[ OUT_LINK_LH ].idx, sig, 0UL, 0UL, 0UL, tsorig, tspub );
   if( !forward_to_ct ) return;
@@ -379,7 +405,7 @@ handle_hash_frag( fd_snaplv_t * ctx,
   }
   if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING &&
                    ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-    FD_LOG_ERR(( "invalid state for data frag %u", ctx->state ));
+    if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWM) ) FD_LOG_ERR(( "invalid state for data frag %u", ctx->state ));
     return;
   }
   switch( sig ) {
@@ -414,7 +440,7 @@ handle_hash_frag( fd_snaplv_t * ctx,
 
 static inline int
 returnable_frag( fd_snaplv_t *       ctx,
-                 ulong               in_idx FD_PARAM_UNUSED,
+                 ulong               in_idx,
                  ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
@@ -450,7 +476,11 @@ after_credit( fd_snaplv_t *        ctx,
 
   handle_vinyl_lthash_pending_list( ctx, stem );
 
-  if( FD_UNLIKELY( ctx->hash_accum.received_lthashes==ctx->num_hash_tiles && ctx->hash_accum.awaiting_results ) ) {
+  if( FD_UNLIKELY( ctx->hash_accum.awaiting_results && ctx->hash_accum.received_lthashes==ctx->num_hash_tiles ) ) {
+
+    ctx->hash_accum.awaiting_results  = 0;
+    ctx->hash_accum.received_lthashes = 0UL;
+
     fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
 
     int test = memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) );
@@ -460,19 +490,25 @@ after_credit( fd_snaplv_t *        ctx,
                         FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
                         FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
       transition_malformed( ctx, stem );
+      return;
     } else {
       FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
+      fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->hash_accum.ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+
+      if( ctx->full ) {
+        fd_memcpy( &ctx->full_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) );
+      }
     }
-    ctx->hash_accum.received_lthashes = 0UL;
-    ctx->hash_accum.hash_check_done = 1;
   }
 
-  if( FD_UNLIKELY( ctx->hash_accum.awaiting_results && ctx->hash_accum.hash_check_done ) ) {
-    fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->hash_accum.ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-    ctx->hash_accum.awaiting_results = 0;
-    ctx->hash_accum.hash_check_done  = 0;
+  if( FD_UNLIKELY( ctx->fail.wait && ctx->fail.ack_cnt==ctx->num_hash_tiles ) ) {
+    fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->fail.exp_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+    ctx->fail.exp_sig = 0UL;
+    ctx->fail.ack_cnt = 0UL;
+    ctx->fail.wait = 0;
+    return;
   }
 }
 
@@ -600,6 +636,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
   fd_lthash_zero( &ctx->running_lthash );
+  fd_lthash_zero( &ctx->full_lthash );
+
+  ctx->fail.exp_sig = 0UL;
+  ctx->fail.ack_cnt = 0UL;
+  ctx->fail.wait    = 0;
 }
 
 #define STEM_BURST (FD_SNAPLV_STEM_BURST)

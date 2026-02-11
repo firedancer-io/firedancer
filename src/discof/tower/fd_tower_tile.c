@@ -649,8 +649,6 @@ replay_slot_completed( ctx_t *                      ctx,
     return;
   }
 
-  fd_eqvoc_set_leader_schedule( ctx->eqvoc, fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, 383520485 ) );
-
   /* Initialize the xid. */
 
   fd_funk_txn_xid_t xid = { .ul = { slot_completed->slot, slot_completed->bank_idx } };

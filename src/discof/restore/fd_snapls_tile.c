@@ -209,14 +209,16 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return;
   };
+
+  int forward_msg = 1;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      if( !recv_acks( ctx, in_idx, sig ) ) return;
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       fd_lthash_zero( &ctx->running_lthash );
@@ -225,7 +227,7 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
-      if( !recv_acks( ctx, in_idx, sig ) ) return;
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
       if( FD_UNLIKELY( memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
@@ -233,6 +235,7 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
                           FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
                           FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
         transition_malformed( ctx, stem );
+        forward_msg = 0;
         break;
       } else {
         FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
@@ -245,7 +248,7 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
-      if( !recv_acks( ctx, in_idx, sig ) ) return;
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }
@@ -258,14 +261,14 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
-      if( !recv_acks( ctx, in_idx, sig ) ) return;
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      if( !recv_acks( ctx, in_idx, sig ) ) return;
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
     }
@@ -276,9 +279,10 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
     }
   }
 
-forward_msg:
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static void

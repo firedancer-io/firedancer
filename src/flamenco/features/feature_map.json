@@ -206,8 +206,8 @@
   {"name":"get_sysvar_syscall_enabled", "pubkey": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq","hardcode_for_fuzzing":1},
   {"name":"disable_sbpf_v0_execution", "pubkey": "XTestFeature1111111111111111111111111111111","comment":"IMPORTANT: NEED REKEY"},
   {"name":"reenable_sbpf_v0_execution", "pubkey": "TestFeature21111111111111111111111111111111","comment":"for test only"},
-  {"name":"enable_sbpf_v1_deployment_and_execution", "pubkey": "JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG"},
-  {"name":"enable_sbpf_v2_deployment_and_execution", "pubkey": "F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP"},
+  {"name":"enable_sbpf_v1_deployment_and_execution", "pubkey": "JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG","hardcode_for_fuzzing":1},
+  {"name":"enable_sbpf_v2_deployment_and_execution", "pubkey": "F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP","hardcode_for_fuzzing":1},
   {"name":"enable_sbpf_v3_deployment_and_execution", "pubkey": "BUwGLeF3Lxyfv1J1wY8biFHBB2hrk2QhbNftQf3VV3cC"},
   {"name":"migrate_feature_gate_program_to_core_bpf","pubkey":"4eohviozzEeivk1y9UbrnekbAFMDQyJz5JjA9Y6gyvky","hardcode_for_fuzzing":1},
   {"name":"migrate_config_program_to_core_bpf","pubkey":"2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV","cleaned_up":[2,3,0],"hardcode_for_fuzzing":1},
@@ -256,5 +256,6 @@
   {"name":"alt_bn128_little_endian","pubkey":"bn2oPgpkzQPT3tohMaAsMVGjhDmmDa4jCaVPqCFmtxM"},
   {"name":"enable_bls12_381_syscall","pubkey":"b1sraWPVFdcUizB2LV5wQTeMuK8M313bi5bHjco5eVU"},
   {"name":"enable_alt_bn128_g2_syscalls","pubkey":"bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH"},
-  {"name":"switch_to_chacha8_turbine","pubkey":"CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB"}
+  {"name":"switch_to_chacha8_turbine","pubkey":"CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB"},
+  {"name":"bls_pubkey_management_in_vote_account","pubkey":"2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq"}
 ]

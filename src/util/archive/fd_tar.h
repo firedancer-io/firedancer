@@ -21,7 +21,7 @@
 #define FD_TAR_BLOCK_SZ (512UL)
 
 struct __attribute__((packed)) fd_tar_meta {
-# define FD_TAR_NAME_SZ (100)
+# define FD_TAR_NAME_SZ 100
   /* 0x000 */ char name    [ FD_TAR_NAME_SZ ];
   /* 0x064 */ char mode    [   8 ];
   /* 0x06c */ char uid     [   8 ];
@@ -31,7 +31,8 @@ struct __attribute__((packed)) fd_tar_meta {
   /* 0x094 */ char chksum  [   8 ];
   /* 0x09c */ char typeflag;
   /* 0x09d */ char linkname[ 100 ];
-  /* 0x101 */ char magic   [   6 ];
+# define FD_TAR_MAGIC_SZ 5
+  /* 0x101 */ char magic   [ FD_TAR_MAGIC_SZ+1 ];
   /* 0x107 */ char version [   2 ];
   /* 0x109 */ char uname   [  32 ];
   /* 0x129 */ char gname   [  32 ];

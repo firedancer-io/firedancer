@@ -121,9 +121,10 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_query( bank );
-  fd_vote_stake_weight_t * epoch_weights         = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt      = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
+  fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
+  fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( bank );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_states, epoch_weights );
+  fd_bank_vote_states_end_locking_query( bank );
 
   /* Derive leader schedule */
 
@@ -378,27 +379,6 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
   fd_bank_vote_states_end_locking_modify( bank );
 }
 
-/* Replace the vote states for T-2 (vote_states_prev_prev) with the vote
-   states for T-1 (vote_states_prev) */
-
-static void
-fd_runtime_update_vote_states_prev_prev( fd_bank_t * bank ) {
-  fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
-  fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_query( bank );
-  fd_memcpy( vote_states_prev_prev, vote_states_prev, FD_VOTE_STATES_FOOTPRINT );
-}
-
-/* Replace the vote states for T-1 (vote_states_prev) with the vote
-   states for T-1 (vote_states) */
-
-static void
-fd_runtime_update_vote_states_prev( fd_bank_t * bank ) {
-  fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_modify( bank );
-  fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( bank );
-  fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
-  fd_bank_vote_states_end_locking_query( bank );
-}
-
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
 static void
 fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
@@ -632,14 +612,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
      stake to populate the T-2 stake. */
   fd_runtime_refresh_previous_stake_values( bank );
 
-  /* Update vote_states_prev_prev with vote_states_prev */
-
-  fd_runtime_update_vote_states_prev_prev( bank );
-
-  /* Update vote_states_prev with vote_states */
-
-  fd_runtime_update_vote_states_prev( bank );
-
   /* Now that our stakes caches have been updated, we can calculate the
      leader schedule for the upcoming epoch epoch using our new
      vote_states_prev_prev (stakes for T-2). */
@@ -661,7 +633,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 int *                     is_epoch_boundary ) {
 
   ulong const slot = fd_bank_slot_get( bank );
-  if( slot != 0UL ) {
+  if( FD_LIKELY( slot != 0UL ) ) {
     fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
     ulong prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
@@ -676,13 +648,13 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
       FD_LOG_DEBUG(( "Epoch boundary starting" ));
       fd_runtime_process_new_epoch( banks, bank, accdb, xid, capture_ctx, prev_epoch, runtime_stack );
       *is_epoch_boundary = 1;
+    } else {
+      *is_epoch_boundary = 0;
     }
+
+    fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
   } else {
     *is_epoch_boundary = 0;
-  }
-
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
   }
 }
 
@@ -1614,12 +1586,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       vote_state->stake_t_2 = vote_state->stake;
     }
   }
-
-  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( bank );
-  fd_memcpy( vote_states_prev_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
-
-  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_modify( bank );
-  fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
 
   fd_bank_vote_states_end_locking_modify( bank );
 

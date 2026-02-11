@@ -139,8 +139,9 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
     return;
   }
 
-  /* If the Vote account has the same amount of credits observed as the Stake account,
-      then the Vote account hasn't earnt any credits and so there is nothing to update.
+  /* If the Vote account has the same amount of credits observed as the
+     Stake account, then the Vote account hasn't earned any credits and
+     so there is nothing to update.
 
       https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L148 */
   if( FD_UNLIKELY( credits_in_vote == credits_in_stake ) ) {
@@ -385,8 +386,9 @@ redeem_rewards( fd_accdb_user_t *               accdb,
     return 1;
   }
 
+  uchar commission = recalc_vote_state_credits ? recalc_vote_state_credits->commission : vote_state->commission;
   fd_commission_split_t split_result;
-  fd_vote_commission_split( vote_state->commission, rewards, &split_result );
+  fd_vote_commission_split( commission, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
     return 1;
   }
@@ -545,7 +547,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
   ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
 
-  fd_vote_states_t * vote_states = !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_modify( bank ) : fd_bank_vote_states_locking_modify( bank );
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
 
   fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_modify( bank );
   fd_epoch_rewards_init( epoch_rewards );
@@ -567,12 +569,11 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
     fd_pubkey_t const *   voter_acc      = &stake_delegation->vote_account;
     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, voter_acc );
-    if( FD_UNLIKELY( !vote_state_ele ) ) {
-      continue;
-    }
+    if( FD_UNLIKELY( !vote_state_ele ) ) continue;
 
-    fd_vote_state_credits_t * realc_credit = !!runtime_stack->stakes.prev_vote_credits_used ?
-                                             &runtime_stack->stakes.vote_credits[ vote_state_ele->idx ] : NULL;
+    fd_vote_state_credits_t * recalc_credit = !!runtime_stack->stakes.prev_vote_credits_used ?
+                                              &runtime_stack->stakes.vote_credits[ vote_state_ele->idx ] : NULL;
+    if( recalc_credit && runtime_stack->stakes.vote_credits[ vote_state_ele->idx ].credits_cnt==0UL ) continue;
 
     /* redeem_rewards is actually just responsible for calculating the
        vote and stake rewards for each stake account.  It does not do
@@ -588,7 +589,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         total_rewards,
         total_points,
         new_warmup_cooldown_rate_epoch,
-        realc_credit,
+        recalc_credit,
         calculated_stake_rewards );
 
     if( FD_UNLIKELY( err!=0 ) ) {
@@ -596,11 +597,12 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     if ( capture_ctx && capture_ctx->capture_solcap ) {
+      uchar commission = runtime_stack->stakes.prev_vote_credits_used ? recalc_credit->commission : vote_state_ele->commission;
       fd_capture_link_write_stake_reward_event( capture_ctx,
                                                 fd_bank_slot_get( bank ),
                                                 stake_delegation->stake_account,
                                                 *voter_acc,
-                                                vote_state_ele->commission,
+                                                commission,
                                                 (long)calculated_stake_rewards->voter_rewards,
                                                 (long)calculated_stake_rewards->staker_rewards,
                                                 (long)calculated_stake_rewards->new_credits_observed );
@@ -611,7 +613,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_epoch_rewards_insert( epoch_rewards, &stake_delegation->stake_account, calculated_stake_rewards->new_credits_observed, calculated_stake_rewards->staker_rewards );
   }
 
-  if( !runtime_stack->stakes.prev_vote_credits_used ) fd_bank_vote_states_end_locking_modify( bank );
+  fd_bank_vote_states_end_locking_modify( bank );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.

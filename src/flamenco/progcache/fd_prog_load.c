@@ -133,6 +133,7 @@ fd_prog_load_elf( fd_accdb_user_t *         accdb,
     *out_offset = 0UL;
 
   } else {
+    fd_accdb_close_ro( accdb, prog );
     return NULL;
   }
 

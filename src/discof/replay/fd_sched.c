@@ -1379,6 +1379,7 @@ fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_i
   block->block_end_signaled     = 1;
   block->block_start_done       = 1;
   block->block_end_done         = 1;
+  block->refcnt                 = 0;
   if( FD_LIKELY( parent_bank_idx!=ULONG_MAX ) ) {
     fd_sched_block_t * parent_block = block_pool_ele( sched, parent_bank_idx );
     block->parent_slot = parent_block->slot;
@@ -2326,6 +2327,7 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
     FD_TEST( head->in_sched );
     head->in_sched = 0;
     if( head->refcnt ) {
+      FD_TEST( !head->block_end_done );
       head->refcnt = 0;
       if( FD_UNLIKELY( !ref_q_avail( sched->ref_q ) ) ) FD_LOG_CRIT(( "ref_q full" ));
       ref_q_push_tail( sched->ref_q, block_to_idx( sched, head ) );

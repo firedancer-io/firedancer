@@ -3,22 +3,6 @@
 #include "../../../util/bits/fd_uwide.h"
 
 void
-fd_instr_info_accumulate_starting_lamports( fd_instr_info_t * instr,
-                                            fd_txn_out_t *    txn_out,
-                                            ushort            idx_in_callee,
-                                            ushort            idx_in_txn ) {
-  if( FD_LIKELY( !instr->is_duplicate[ idx_in_callee ] ) ) {
-    fd_accdb_rw_t const * ref = &txn_out->accounts.account[ idx_in_txn ];
-    if( ref ) {
-      fd_uwide_inc(
-        &instr->starting_lamports_h, &instr->starting_lamports_l,
-        instr->starting_lamports_h, instr->starting_lamports_l,
-        fd_accdb_ref_lamports( ref->ro ) );
-    }
-  }
-}
-
-void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                    fd_bank_t *            bank,
                                    fd_txn_in_t const *    txn_in,
@@ -67,7 +51,7 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
     fd_accdb_rw_t const * ref = &txn_out->accounts.account[ idx_in_txn ];
 
-    if( !ref || instr->is_duplicate[i] ) {
+    if( instr->is_duplicate[i] ) {
       continue;
     }
 

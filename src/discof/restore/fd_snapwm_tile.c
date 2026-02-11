@@ -158,16 +158,15 @@ static void
 handle_control_frag( fd_snapwm_tile_t *  ctx,
                      ulong               sig,
                     fd_stem_context_t *  stem ) {
-  ulong tsorig = 0UL;
-  ulong tspub  = 0UL;
-
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return;
   };
+
+  int forward_msg = 1;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
@@ -214,10 +213,6 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       if( ctx->vinyl.txn_active ) {
         fd_snapwm_vinyl_txn_commit( ctx, stem );
       }
-
-      if( !ctx->lthash_disabled ) {
-        seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
-      }
       break;
     }
 
@@ -232,10 +227,6 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
 
       /* FIXME re-enable fd_snapwm_vinyl_txn_commit here once recovery
          is fully implemented. */
-
-      if( !ctx->lthash_disabled ) {
-        seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
-      }
       break;
     }
 
@@ -246,13 +237,10 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       /* FIXME re-enable fd_snapwm_vinyl_txn_commit here once recovery
          is fully implemented. */
 
-      if( !ctx->lthash_disabled ) {
-        seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
-      }
-
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
         FD_LOG_WARNING(( "slot deltas verification failed" ));
         transition_malformed( ctx, stem );
+        forward_msg = 0;
         break;
       }
       break;
@@ -261,19 +249,19 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_ERROR: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      fd_snapwm_vinyl_wd_fini( ctx );
-      if( ctx->vinyl.txn_active ) {
-        fd_snapwm_vinyl_txn_cancel( ctx );
-      }
-      if( !ctx->lthash_disabled ) {
-        seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
-      }
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      fd_snapwm_vinyl_wd_fini( ctx );
+      if( ctx->vinyl.txn_active ) {
+        fd_snapwm_vinyl_txn_cancel( ctx );
+      }
+      if( ctx->full ) {
+        fd_snapwm_vinyl_meta_clean_all( ctx->vinyl.map );
+      }
       break;
     }
 
@@ -290,9 +278,17 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
     }
   }
 
-forward_msg:
-  /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, tsorig, tspub );
+  if( FD_LIKELY( forward_msg ) ) {
+    /* Encode wr_seq into tsorig and tspub.  Downstream will make use
+      of wr_seq when needed.  */
+    ulong tsorig = 0UL;
+    ulong tspub  = 0UL;
+    if( !ctx->lthash_disabled ) {
+      seq_to_tsorig_tspub( &tsorig, &tspub, ((fd_vinyl_io_wd_t const *)ctx->vinyl.io_wd)->wr_seq );
+    }
+    /* Forward the control message down the pipeline */
+    fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, tsorig, tspub );
+  }
 }
 
 static inline void

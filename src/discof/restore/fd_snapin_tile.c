@@ -590,8 +590,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
-    goto forward_msg;
+    return;
   };
+
+  int forward_msg = 1;
 
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
@@ -614,10 +616,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced = 0;
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
+        ctx->metrics.full_bytes_read   = 0UL;
+        ctx->metrics.incremental_bytes_read = 0UL;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
+        ctx->metrics.incremental_bytes_read = 0UL;
 
         fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
         fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
@@ -662,6 +667,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
           FD_LOG_WARNING(( "slot deltas verification failed" ));
           transition_malformed( ctx, stem );
+          forward_msg = 0;
           break;
         }
       }
@@ -698,7 +704,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      if( !ctx->use_vinyl && ctx->full ) {
+      if( ctx->full ) {
         fd_accdb_v1_clear( ctx->accdb_admin );
       }
 
@@ -725,9 +731,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
   }
 
-forward_msg:
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static inline int

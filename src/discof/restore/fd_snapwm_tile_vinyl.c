@@ -227,6 +227,9 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
        this can be done without a lock. */
     fd_snapwm_vinyl_init_admin( ctx, 0/*do_rwlock*/ );
   }
+
+  ctx->vinyl.txn_active = 0;
+  ctx->vinyl.txn_commit = 0;
 }
 
 ulong
@@ -290,6 +293,11 @@ fd_snapwm_vinyl_txn_begin( fd_snapwm_tile_t * ctx ) {
   FD_CRIT( !ctx->vinyl.txn_active, "txn_begin called while already in txn" );
   FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
   fd_vinyl_io_t * io = ctx->vinyl.io_mm;
+
+  if( FD_UNLIKELY( ctx->vinyl.txn_commit ) ) {
+    FD_LOG_CRIT(( "unable to perform txn_begin after a completed txn_commit" ));
+    return;
+  }
 
   /* Finish any outstanding writes */
   int commit_err = fd_vinyl_io_commit( io, FD_VINYL_IO_FLAG_BLOCKING );
@@ -447,6 +455,8 @@ next:
   int sync_err = fd_vinyl_io_sync( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );
   if( FD_UNLIKELY( sync_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_sync(io_mm) failed (%i-%s)", sync_err, fd_vinyl_strerror( sync_err ) ));
   vinyl_mm_sync( ctx );
+
+  ctx->vinyl.txn_commit = 1;
 
   dt += fd_log_wallclock();
   FD_LOG_INFO(( "vinyl txn_commit took %g seconds", (double)dt/1e9 ));
@@ -815,4 +825,16 @@ fd_snapwm_vinyl_update_admin( fd_snapwm_tile_t * ctx,
 
   if( FD_UNLIKELY( !!do_rwlock ) ) fd_rwlock_unwrite( &ctx->vinyl.admin->lock );
   return 1;
+}
+
+void
+fd_snapwm_vinyl_meta_clean_all( fd_vinyl_meta_t * join ) {
+  fd_vinyl_meta_ele_t * ele0      = join->ele;
+  ulong                 ele_max   = join->ele_max;
+  void *                ctx       = join->ctx;
+
+  for( ulong ele_idx=0; ele_idx<ele_max; ele_idx++ ) {
+    fd_vinyl_meta_ele_t * ele = ele0 + ele_idx;
+    fd_vinyl_meta_private_ele_free( ctx, ele );
+  }
 }

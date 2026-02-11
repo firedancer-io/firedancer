@@ -71,9 +71,14 @@ typedef struct fd_tower_slot_confirmed fd_tower_slot_confirmed_t;
 
 struct fd_tower_slot_done {
 
-  /* The completed replay slot which triggered this message */
+  /* This tower_slot_done message is 1-to-1 with the completion of a
+     replayed slot.  When that slot was done, the bank_idx was sent to
+     tower, which tower used to query the bank and populate the vote
+     accounts.  Tower needs to send back the bank_idx to replay so it
+     can decrement the reference count on the bank. */
 
   ulong replay_slot;
+  ulong replay_bank_idx;
 
   /* The slot being voted on.  There is not always a vote slot (locked
      out, failed switch threshhold, etc.) and will be set to ULONG_MAX
@@ -105,15 +110,8 @@ struct fd_tower_slot_done {
   fd_hash_t root_block_id;
 
   /* The number of leaves in the forks tree. */
-  ulong     active_fork_cnt;
 
-  /* This tower_slot_done message is 1-to-1 with the completion of a
-     replayed slot.  When that slot was done, the bank_idx was sent to
-     tower, which tower used to query the bank and populate the vote
-     accounts.  Tower needs to send back the bank_idx to replay so it
-     can decrement the reference count on the bank. */
-
-  ulong replay_bank_idx;
+  ulong active_fork_cnt;
 
   /* This always contains a vote transaction with our current tower,
      regardless of whether there is a new vote slot or not (ie. vote
@@ -138,10 +136,12 @@ struct fd_tower_slot_done {
 
   /* The latest balance in lamports of our vote account, or ULONG_MAX if
      our account is not found. */
+
   ulong vote_acct_bal;
 
-  /* Our current on-chain tower with vote latencies optionally included. */
-  ulong tower_cnt;
+  /* Our current on-chain tower with latencies optionally included. */
+
+  ulong           tower_cnt;
   fd_voter_vote_t tower[ FD_TOWER_VOTE_MAX ];
 };
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;

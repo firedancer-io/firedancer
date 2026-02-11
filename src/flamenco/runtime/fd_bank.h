@@ -267,18 +267,6 @@ struct fd_bank_vote_states {
 };
 typedef struct fd_bank_vote_states fd_bank_vote_states_t;
 
-struct fd_bank_vote_states_prev {
-  ulong next;
-  uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
-};
-typedef struct fd_bank_vote_states_prev fd_bank_vote_states_prev_t;
-
-struct fd_bank_vote_states_prev_prev {
-  ulong next;
-  uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
-};
-typedef struct fd_bank_vote_states_prev_prev fd_bank_vote_states_prev_prev_t;
-
 struct fd_bank_cost_tracker {
   ulong next;
   uchar data[FD_COST_TRACKER_FOOTPRINT] __attribute__((aligned(FD_COST_TRACKER_ALIGN)));
@@ -295,14 +283,6 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
 #define POOL_NAME fd_bank_vote_states_pool
 #define POOL_T    fd_bank_vote_states_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_vote_states_prev_pool
-#define POOL_T    fd_bank_vote_states_prev_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_vote_states_prev_prev_pool
-#define POOL_T    fd_bank_vote_states_prev_prev_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define POOL_NAME fd_bank_cost_tracker_pool
@@ -392,14 +372,6 @@ struct fd_bank_data {
   int   epoch_leaders_dirty;
   ulong epoch_leaders_pool_idx;
   ulong epoch_leaders_pool_offset;
-
-  int   vote_states_prev_dirty;
-  ulong vote_states_prev_pool_idx;
-  ulong vote_states_prev_pool_offset;
-
-  int   vote_states_prev_prev_dirty;
-  ulong vote_states_prev_prev_pool_idx;
-  ulong vote_states_prev_prev_pool_offset;
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
@@ -422,8 +394,6 @@ struct fd_banks_locks {
   fd_rwlock_t epoch_rewards_pool_lock;
   fd_rwlock_t epoch_leaders_pool_lock;
   fd_rwlock_t vote_states_pool_lock;
-  fd_rwlock_t vote_states_prev_pool_lock;
-  fd_rwlock_t vote_states_prev_prev_pool_lock;
 
   /* These locks are per bank and are used to atomically update their
      corresponding fields in each bank.  The locks are indexed by the
@@ -482,34 +452,6 @@ fd_bank_set_vote_states_pool( fd_bank_data_t * bank, fd_bank_vote_states_t * vot
 static inline fd_bank_vote_states_t *
 fd_bank_get_vote_states_pool( fd_bank_data_t * bank ) {
   return fd_bank_vote_states_pool_join( (uchar *)bank + bank->vote_states_pool_offset );
-}
-
-static inline void
-fd_bank_set_vote_states_prev_pool( fd_bank_data_t * bank, fd_bank_vote_states_prev_t * vote_states_prev_pool ) {
-  void * vote_states_prev_pool_mem = fd_bank_vote_states_prev_pool_leave( vote_states_prev_pool );
-  if( FD_UNLIKELY( !vote_states_prev_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave vote states prev pool" ));
-  }
-  bank->vote_states_prev_pool_offset = (ulong)vote_states_prev_pool_mem - (ulong)bank;
-}
-
-static inline fd_bank_vote_states_prev_t *
-fd_bank_get_vote_states_prev_pool( fd_bank_data_t * bank ) {
-  return fd_bank_vote_states_prev_pool_join( (uchar *)bank + bank->vote_states_prev_pool_offset );
-}
-
-static inline void
-fd_bank_set_vote_states_prev_prev_pool( fd_bank_data_t * bank, fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool ) {
-  void * vote_states_prev_prev_pool_mem = fd_bank_vote_states_prev_prev_pool_leave( vote_states_prev_prev_pool );
-  if( FD_UNLIKELY( !vote_states_prev_prev_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave vote states prev prev pool" ));
-  }
-  bank->vote_states_prev_prev_pool_offset = (ulong)vote_states_prev_prev_pool_mem - (ulong)bank;
-}
-
-static inline fd_bank_vote_states_prev_prev_t *
-fd_bank_get_vote_states_prev_prev_pool( fd_bank_data_t * bank ) {
-  return fd_bank_vote_states_prev_prev_pool_join( (uchar *)bank + bank->vote_states_prev_prev_pool_offset );
 }
 
 /* Do the same setup for the cost tracker pool. */
@@ -591,8 +533,6 @@ struct fd_banks_data {
   ulong epoch_rewards_pool_offset;
   ulong epoch_leaders_pool_offset;
   ulong vote_states_pool_offset;
-  ulong vote_states_prev_pool_offset;
-  ulong vote_states_prev_prev_pool_offset;
 };
 typedef struct fd_banks_data fd_banks_data_t;
 
@@ -616,18 +556,6 @@ fd_bank_epoch_leaders_query( fd_bank_t const * bank );
 
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank );
-
-fd_vote_states_t const *
-fd_bank_vote_states_prev_query( fd_bank_t * bank );
-
-fd_vote_states_t *
-fd_bank_vote_states_prev_modify( fd_bank_t * bank );
-
-fd_vote_states_t const *
-fd_bank_vote_states_prev_prev_query( fd_bank_t * bank );
-
-fd_vote_states_t *
-fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank );
 
 fd_vote_states_t const *
 fd_bank_vote_states_locking_query( fd_bank_t * bank );
@@ -794,34 +722,6 @@ fd_banks_set_vote_states_pool( fd_banks_data_t * banks_data, fd_bank_vote_states
     FD_LOG_CRIT(( "Failed to leave vote states pool" ));
   }
   banks_data->vote_states_pool_offset = (ulong)vote_states_pool_mem - (ulong)banks_data;
-}
-
-static inline fd_bank_vote_states_prev_t *
-fd_banks_get_vote_states_prev_pool( fd_banks_data_t * banks_data ) {
-  return fd_bank_vote_states_prev_pool_join( (uchar *)banks_data + banks_data->vote_states_prev_pool_offset );
-}
-
-static inline void
-fd_banks_set_vote_states_prev_pool( fd_banks_data_t * banks_data, fd_bank_vote_states_prev_t * vote_states_prev_pool ) {
-  void * vote_states_prev_pool_mem = fd_bank_vote_states_prev_pool_leave( vote_states_prev_pool );
-  if( FD_UNLIKELY( !vote_states_prev_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave vote states prev pool" ));
-  }
-  banks_data->vote_states_prev_pool_offset = (ulong)vote_states_prev_pool_mem - (ulong)banks_data;
-}
-
-static inline fd_bank_vote_states_prev_prev_t *
-fd_banks_get_vote_states_prev_prev_pool( fd_banks_data_t * banks_data ) {
-  return fd_bank_vote_states_prev_prev_pool_join( (uchar *)banks_data + banks_data->vote_states_prev_prev_pool_offset );
-}
-
-static inline void
-fd_banks_set_vote_states_prev_prev_pool( fd_banks_data_t * banks_data, fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool ) {
-  void * vote_states_prev_prev_pool_mem = fd_bank_vote_states_prev_prev_pool_leave( vote_states_prev_prev_pool );
-  if( FD_UNLIKELY( !vote_states_prev_prev_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave vote states prev prev pool" ));
-  }
-  banks_data->vote_states_prev_prev_pool_offset = (ulong)vote_states_prev_prev_pool_mem - (ulong)banks_data;
 }
 
 static inline fd_bank_cost_tracker_t *
