@@ -338,24 +338,21 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L77-L141 */
+/* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L71-L136 */
 static int
 fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *      runtime,
                                                              fd_bank_t *         bank,
                                                              fd_txn_in_t const * txn_in,
                                                              fd_txn_out_t *      txn_out ) {
-  /* Note that in Agave, although this function is called after the
-     compute budget limits are sanitized, if the transaction age checks
-     fail, then we return the transaction age error instead of the
-     compute budget error.
-     https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L128-L136 */
-  int err = fd_check_transaction_age( runtime, bank, txn_in, txn_out );
+
+  /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L94-L123 */
+  int err = fd_sanitize_compute_unit_limits( txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L103 */
-  err = fd_sanitize_compute_unit_limits( txn_out );
+  /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L124-L131 */
+  err = fd_check_transaction_age( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
