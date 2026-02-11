@@ -74,7 +74,8 @@ fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx,
     .sin_port        = fd_ushort_bswap( ctx->server_tcp_port )
   };
   errno = 0;
-  connect( ctx->tcp_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) );
+  if( FD_LIKELY( 0==connect( ctx->tcp_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) ) ) ) return 0;
+  if( errno == EISCONN ) return 0;
   return errno;
 }
 
