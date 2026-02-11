@@ -1,7 +1,7 @@
 #include "fd_txsend_tile.h"
+#include "../../disco/fd_txn_m.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../disco/fd_txn_m.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "generated/fd_txsend_tile_seccomp.h"
@@ -195,6 +195,23 @@ static void
 during_housekeeping( fd_txsend_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->recal_next <= ctx->now ) ) {
     ctx->recal_next = fd_clock_default_recal( ctx->clock );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: switching identity" ));
+    ulong seq_must_complete = ctx->keyswitch->param;
+    if( FD_UNLIKELY( fd_seq_lt( ctx->tower_in_expect_seq, seq_must_complete ) ) ) {
+      /* See fd_keyswitch.h, we need to flush any in-flight votes from
+         the leader pipeline before switching key. */
+      FD_LOG_WARNING(( "Flushing in-flight unpublished votes from tower, must reach seq %lu, currently at %lu ...", seq_must_complete, ctx->tower_in_expect_seq ));
+      return;
+    }
+
+    /* It's not needed to reconnect existing connections. */
+    fd_quic_set_identity_public_key( ctx->quic, ctx->keyswitch->bytes );
+
+    memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 
@@ -512,6 +529,11 @@ before_frag( fd_txsend_tile_ctx_t * ctx,
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
+
+  if( FD_LIKELY( ctx->in_links[in_idx].kind==IN_KIND_TOWER ) ) {
+    ctx->tower_in_expect_seq = seq+1UL;
+  }
+
   return 0;
 }
 
@@ -701,6 +723,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->src_ip_addr = tile->txsend.ip_addr;
   ctx->src_port    = tile->txsend.txsend_src_port;
+
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
+  ctx->tower_in_expect_seq = 0UL;
+
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
   /* Initialize input links */

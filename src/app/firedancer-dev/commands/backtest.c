@@ -73,7 +73,7 @@ backtest_topo( config_t * config ) {
   fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", cpu_idx++, 0, 0 );
 
   fd_topob_wksp( topo, "replay" );
-  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 0 );
+  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 1 );
 
   /* specified by [tiles.replay] */
 

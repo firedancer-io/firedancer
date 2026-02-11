@@ -269,8 +269,8 @@ preimage_pong( fd_hash_t const * ping_token, uchar * preimage_buf, ulong preimag
   }
 # endif
   ulong prefix_sz = sizeof(FD_REPAIR_PONG_PREIMAGE_PREFIX) - 1 /* subtract NUL */;
-  memcpy( preimage_buf,        FD_REPAIR_PONG_PREIMAGE_PREFIX, prefix_sz         );
-  memcpy( preimage_buf + prefix_sz, ping_token, sizeof(fd_hash_t) );
+  memcpy( preimage_buf,             FD_REPAIR_PONG_PREIMAGE_PREFIX, prefix_sz         );
+  memcpy( preimage_buf + prefix_sz, ping_token,                     sizeof(fd_hash_t) );
   return preimage_buf;
 }
 

@@ -28,6 +28,7 @@
 #include <unistd.h>  /* for keylog close(2) */
 
 #include "../../ballet/hex/fd_hex.h"
+#include "../../ballet/x509/fd_x509_mock.h"
 #include "../../tango/tempo/fd_tempo.h"
 #include "../../util/log/fd_dtrace.h"
 
@@ -555,6 +556,16 @@ fd_quic_init( fd_quic_t * quic ) {
   state->max_inflight_frame_cnt_conn = limits->inflight_frame_cnt - limits->min_inflight_frame_cnt_conn * (limits->conn_cnt-1);
 
   return quic;
+}
+
+FD_QUIC_API void
+fd_quic_set_identity_public_key( fd_quic_t * quic,
+                                 uchar const public_key[ static 32 ] ) {
+  memcpy( quic->config.identity_public_key, public_key, 32UL );
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_tls_t * tls = &state->tls->tls;
+  memcpy( tls->cert_public_key, public_key, 32UL );
+  fd_x509_mock_cert( tls->cert_x509, tls->cert_public_key );
 }
 
 /* fd_quic_enc_level_to_pn_space maps of encryption level in [0,4) to
