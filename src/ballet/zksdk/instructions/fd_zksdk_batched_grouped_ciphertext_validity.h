@@ -70,7 +70,7 @@ struct __attribute__((packed)) fd_zksdk_grp_ciph_3h_val_context {
   uchar pubkey1 [ 32 ]; // point
   uchar pubkey2 [ 32 ]; // point
   uchar pubkey3 [ 32 ]; // point
-  grp_ciph_3h_t grouped_ciphertext; // 4x points
+  grp_ciph_3h_t grouped_ciphertext[1]; // 4x points
 };
 typedef struct fd_zksdk_grp_ciph_3h_val_context fd_zksdk_grp_ciph_3h_val_context_t;
 
@@ -78,8 +78,8 @@ struct __attribute__((packed)) fd_zksdk_batched_grp_ciph_3h_val_context {
   uchar pubkey1 [ 32 ]; // point
   uchar pubkey2 [ 32 ]; // point
   uchar pubkey3 [ 32 ]; // point
-  grp_ciph_3h_t grouped_ciphertext_lo; // 4x points
-  grp_ciph_3h_t grouped_ciphertext_hi; // 4x points
+  grp_ciph_3h_t grouped_ciphertext_lo[1]; // 4x points
+  grp_ciph_3h_t grouped_ciphertext_hi[1]; // 4x points
 };
 typedef struct fd_zksdk_batched_grp_ciph_3h_val_context fd_zksdk_batched_grp_ciph_3h_val_context_t;
 
@@ -99,7 +99,7 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
   fd_zksdk_transcript_t *                  transcript );
 
 int
-fd_zksdk_verify_proof_batched_grouped_ciphertext_3_handles_validity(
+fd_zksdk_verify_proof_direct_grouped_ciphertext_3_handles_validity(
   fd_zksdk_grp_ciph_3h_val_proof_t const * proof,
   uchar const                              pubkey1    [ 32 ],
   uchar const                              pubkey2    [ 32 ],
@@ -112,6 +112,7 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_3_handles_validity(
   uchar const                              handle1_hi [ 32 ],
   uchar const                              handle2_hi [ 32 ],
   uchar const                              handle3_hi [ 32 ],
+  uchar const                              challenge_t[ 32 ],
   int  const                               batched,
   fd_zksdk_transcript_t *                  transcript );
 

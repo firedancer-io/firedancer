@@ -185,7 +185,7 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L190-L244 
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L190-L244
      Note: we use a slightly different MSM but they're equivalent. */
 
   /* Compute scalars */

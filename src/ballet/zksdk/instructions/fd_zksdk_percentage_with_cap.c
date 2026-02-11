@@ -117,7 +117,7 @@ fd_zksdk_verify_proof_percentage_with_cap(
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L482-L513 
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L482-L513
      Note: we use a slightly different MSM but they're equivalent. */
   uchar ww[ 32 ];
   fd_curve25519_scalar_mul( ww, w, w );
