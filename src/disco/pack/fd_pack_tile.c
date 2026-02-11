@@ -135,6 +135,7 @@ typedef struct {
   int          is_bundle; /* is the current transaction a bundle */
 
   uchar executed_txn_sig[ 64UL ];
+  uchar txn_committed;
 
   /* One of the FD_PACK_STRATEGY_* values defined above */
   int      strategy;
@@ -855,6 +856,13 @@ during_frag( fd_pack_ctx_t * ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_REPLAY: {
+    if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
+      fd_replay_txn_executed_t const * txn_executed = fd_type_pun_const( dcache_entry );
+      ctx->txn_committed = !!txn_executed->is_committable;
+      if( FD_UNLIKELY( !txn_executed->is_committable ) ) return;
+      memcpy( ctx->executed_txn_sig, fd_txn_get_signatures( TXN(txn_executed->txn), txn_executed->txn->payload ), FD_TXN_SIGNATURE_SZ );
+      return;
+    }
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
 
     /* There was a leader transition.  Handle it. */
@@ -1014,6 +1022,10 @@ after_frag( fd_pack_ctx_t *     ctx,
   ulong leader_slot = ULONG_MAX;
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_REPLAY:
+      if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED && ctx->txn_committed ) ) {
+        ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
+        FD_MCNT_INC( PACK, TRANSACTION_ALREADY_EXECUTED, deleted );
+      }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
       leader_slot = ctx->_became_leader->slot;
 
@@ -1234,7 +1246,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "executed_txn" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
-    else if( FD_LIKELY( !strcmp( link->name, "execrp_sig"   ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
