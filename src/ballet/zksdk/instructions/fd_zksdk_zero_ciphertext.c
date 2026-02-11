@@ -44,8 +44,9 @@ fd_zksdk_verify_proof_zero_ciphertext(
 
   /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L104-L108
      Reject identity pubkey and ciphertext.commitment. */
-  if( FD_UNLIKELY( fd_memeq( pubkey,         fd_ristretto255_compressed_zero, 32 )
-                || fd_memeq( &ciphertext[0], fd_ristretto255_compressed_zero, 32 ) ) ) {
+  if( FD_UNLIKELY( fd_memeq( pubkey,          fd_ristretto255_compressed_zero, 32 )
+                || fd_memeq( &ciphertext[0],  fd_ristretto255_compressed_zero, 32 )
+                || fd_memeq( &ciphertext[32], fd_ristretto255_compressed_zero, 32 ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
 
