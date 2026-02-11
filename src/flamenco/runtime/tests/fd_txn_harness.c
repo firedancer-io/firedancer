@@ -79,6 +79,11 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                               fd_exec_test_txn_context_t const * test_ctx ) {
   fd_accdb_user_t * accdb = runner->accdb;
 
+  /* Reject fuzz inputs with too many accounts. */
+  if( FD_UNLIKELY( test_ctx->account_shared_data_count > 4UL * MAX_TX_ACCOUNT_LOCKS ) ) {
+    return NULL;
+  }
+
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 

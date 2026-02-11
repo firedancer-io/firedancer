@@ -315,6 +315,11 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   fd_stake_delegations_init( stake_delegations );
 
+  /* Reject fuzz inputs with too many accounts, 64 txns per microblock. */
+  if( FD_UNLIKELY( test_ctx->acct_states_count > 64UL * 4UL * MAX_TX_ACCOUNT_LOCKS ) ) {
+    return NULL;
+  }
+
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {

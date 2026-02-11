@@ -82,7 +82,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   /* Allocate objects */
   ulong const txn_max  = 16UL;
-  ulong const rec_max  = 1024UL;
+  ulong const rec_max  = 41088UL;
   ulong const spad_max = 1500000000UL; /* 1.5GB to accommodate 128 accounts 10MB each */
   ulong const bank_max = 1UL;
   ulong const fork_max = 1UL;
