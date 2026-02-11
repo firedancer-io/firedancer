@@ -57,7 +57,7 @@ struct fd_snapshot_manifest_vote_account {
      deposited into the validator's vote account, from 0 to 100%.
      The remaning percentage of inflation rewards is distributed to
      all delegated stake accounts by stake weight. */
-  uchar commission;
+  ushort commission;
 
   /* The epoch credits array tracks the history of how many credits the
      provided vote account earned in each of the past epochs.  The
@@ -125,7 +125,7 @@ struct fd_snapshot_manifest_vote_stakes {
   long  timestamp;
 
   /* The validator's commission rate as of the given epoch. */
-  uchar commission;
+  ushort commission;
 
   /* The epoch credits array tracks the history of how many credits the
      provided vote account earned in each of the past epochs.  The
