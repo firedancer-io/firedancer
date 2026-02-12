@@ -62,7 +62,8 @@ void
 fd_vote_timestamps_insert( fd_vote_timestamps_t * vote_ts,
                            ushort                 fork_idx,
                            fd_pubkey_t            pubkey,
-                           ulong                  timestamp );
+                           ulong                  timestamp,
+                           ulong                  stake );
 
 void
 fd_vote_timestamps_insert_root( fd_vote_timestamps_t * vote_ts,
