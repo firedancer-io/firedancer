@@ -56,7 +56,6 @@
 struct fd_sched;
 typedef struct fd_sched fd_sched_t;
 
-
 struct fd_sched_alut_ctx {
   fd_accdb_user_t   accdb[1];
   fd_funk_txn_xid_t xid[1];
