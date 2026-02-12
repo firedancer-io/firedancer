@@ -14,6 +14,7 @@
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/store/fd_store.h"
+#include "../../disco/shred/fd_fec_set.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../discof/fd_accdb_topo.h"
 #include "../../discof/reasm/fd_reasm.h"
@@ -87,7 +88,7 @@
 #define IN_KIND_RESOLV     ( 4)
 #define IN_KIND_POH        ( 5)
 #define IN_KIND_EXECRP     ( 6)
-#define IN_KIND_SHRED      ( 7)
+#define IN_KIND_REPAIR     ( 7)
 #define IN_KIND_TXSEND     ( 8)
 #define IN_KIND_GUI        ( 9)
 #define IN_KIND_RPC        (10)
@@ -178,8 +179,9 @@ struct fd_replay_tile {
 
   fd_hash_t expected_bank_hash;
 
-  ulong        reasm_seed;
-  fd_reasm_t * reasm;
+  ulong            reasm_seed;
+  fd_reasm_t     * reasm;
+  fd_reasm_fec_t * reasm_evicted;       /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
 
   fd_sched_t * sched;
 
@@ -418,6 +420,7 @@ struct fd_replay_tile {
   fd_replay_out_link_t replay_out[1];
 
   fd_replay_out_link_t epoch_out[1];
+
 
   /* The gui tile needs to reliably own a reference to the most recent
      completed active bank.  Replay needs to know if the gui as a
@@ -1478,7 +1481,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1613,7 +1616,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted ); /* FIXME manifest block_id */
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -1901,8 +1904,10 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
     reasm_fec->bank_seq = reasm_fec->parent_bank_seq;
 
+    FD_TEST( reasm_fec->bank_idx!=ULONG_MAX );
+
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    if( FD_UNLIKELY( block_id_ele->latest_fec_idx>reasm_fec->fec_set_idx ) ) {
+    if( FD_UNLIKELY( block_id_ele->latest_fec_idx>=reasm_fec->fec_set_idx ) ) {
       FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is at least as old as the latest FEC set (slot=%lu, fec_set_idx=%u)", reasm_fec->slot, reasm_fec->fec_set_idx, block_id_ele->slot, block_id_ele->latest_fec_idx ));
       return;
     }
@@ -2034,35 +2039,36 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   for( fd_reasm_fec_t * curr = reasm_fec;; ) {
     curr = fd_reasm_parent( ctx->reasm, curr );
-    if( FD_UNLIKELY( !curr ) ) return; /* If can't connect, drop the FEC. */
+    FD_TEST( curr );
     if( FD_LIKELY( !curr->slot_complete ) ) continue;
-
-    FD_TEST( path_cnt<=FD_BANKS_MAX_BANKS );
-    path[ path_cnt++ ] = curr;
 
     fd_bank_t curr_bank[1];
     if( FD_LIKELY( fd_banks_bank_query( curr_bank, ctx->banks, curr->bank_idx ) && curr_bank->data->bank_seq==curr->bank_seq ) ) break;
+
+    FD_TEST( path_cnt<=FD_BANKS_MAX_BANKS );
+    path[ path_cnt++ ] = curr;
   }
 
   for( ulong i=path_cnt; i>0UL; i-- ) {
-    fd_reasm_fec_t * slot_fecs[ FD_SHRED_BLK_MAX/32 ]; /* TODO: replace with fix-32 macro. */
     fd_reasm_fec_t * leaf = path[ i-1 ];
 
     /* If there's not capacity in the sched or banks, return early and
        drop the FEC.  We have inserted as much as we can for now. */
-    if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )<leaf->fec_set_idx ) ) return;
+    if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched ) < (leaf->fec_set_idx/FD_FEC_SHRED_CNT + 1) ) ) return;
     if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return;
 
     /* Gather all FECs for this slot; */
+    fd_reasm_fec_t * slot_fecs[ FD_FEC_BLK_MAX ];
     fd_reasm_fec_t * curr = leaf;
     for(;;) {
-      slot_fecs[ curr->fec_set_idx ] = curr;
+      slot_fecs[ curr->fec_set_idx/FD_FEC_SHRED_CNT ] = curr;
       if( curr->fec_set_idx==0U ) break;
       curr = fd_reasm_parent( ctx->reasm, curr );
       FD_TEST( curr );
     }
+    FD_LOG_NOTICE(( "backfilling FEC sets for slot %lu from fec_set_idx %u to fec_set_idx %u", leaf->slot, leaf->fec_set_idx, curr->fec_set_idx ));
 
-    for( ulong j=0UL; j<=leaf->fec_set_idx; j++ ) {
+    for( ulong j=0UL; j<=leaf->fec_set_idx/FD_FEC_SHRED_CNT; j++ ) {
       insert_fec_set( ctx, stem, slot_fecs[ j ] );
     }
   }
@@ -2198,6 +2204,25 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* if reasm evicted is set, publish starting from reasm_evicted down
+     to the leaf node to repair so repair can re-request for it */
+
+  if( FD_UNLIKELY( ctx->reasm_evicted ) ) {
+    fd_replay_fec_evicted_t evicted = (fd_replay_fec_evicted_t){ .mr = ctx->reasm_evicted->key, .slot = ctx->reasm_evicted->slot, .fec_set_idx = ctx->reasm_evicted->fec_set_idx, .bank_idx = ctx->reasm_evicted->bank_idx };
+    fd_memcpy( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ), &evicted, sizeof(fd_replay_fec_evicted_t) );
+    fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_REASM_EVICTED, ctx->replay_out->chunk,  sizeof(fd_replay_fec_evicted_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_fec_evicted_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+    /* eviction policy only evicts chains of nodes until there is a
+       fork, so guaranteed that the evict path is always the left-child */
+    fd_reasm_pool_release( ctx->reasm, ctx->reasm_evicted );
+    ctx->reasm_evicted = fd_reasm_child( ctx->reasm, ctx->reasm_evicted ); /* indexes into pool, safe to use */
+
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
   int evict_banks = 0;
@@ -2223,6 +2248,16 @@ after_credit( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( ctx->is_leader && frontier_indices[i]==ctx->leader_bank->data->idx ) ) continue;
       mark_bank_dead( ctx, stem, bank->data->idx );
       fd_sched_block_abandon( ctx->sched, bank->data->idx );
+
+      /* evict it from reasm - we can guarantee this is a leaf because
+         no new bank is allocated until a slot boundary.  If a fec has
+         children that are of a different slot, then it would never be
+         evicted from banks because that means the bank finished
+         executing on that slot. */
+      fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->data->idx ];
+      fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
+      FD_TEST( fec && fec->child == ULONG_MAX );
+      ctx->reasm_evicted = fd_reasm_remove( ctx->reasm, fec, ctx->store );
     }
   }
 
@@ -2235,16 +2270,6 @@ before_frag( fd_replay_tile_t * ctx,
              ulong              in_idx,
              ulong              seq FD_PARAM_UNUSED,
              ulong              sig ) {
-
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
-    /* If reasm is full, we can not insert any more FEC sets.  We must
-       not consume any frags from shred_out until reasm can process more
-       FEC sets. */
-
-    if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
-      return -1;
-    }
-  }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT && sig!=FD_GOSSIP_UPDATE_TAG_WFS_DONE ) ) return 1;
   return 0;
@@ -2446,8 +2471,9 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
-process_fec_complete( fd_replay_tile_t * ctx,
-                      uchar const *      shred_buf ) {
+process_fec_complete( fd_replay_tile_t *  ctx,
+                      fd_stem_context_t * stem,
+                      uchar const *       shred_buf ) {
   fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
 
   fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
@@ -2461,11 +2487,23 @@ process_fec_complete( fd_replay_tile_t * ctx,
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
 
-  if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
-    FD_LOG_CRIT(( "unimplemented" )); /* TODO reasm eviction */
-  }
   if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
-  FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec ) );
+  fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, &ctx->reasm_evicted );
+
+  if( FD_UNLIKELY( !fec ) ) {
+    /* reasm failed to insert.  We don't want to just put this back on
+       the returnable_frag queue because it's unclear whether this FEC
+       is truly something we want to process.  Therefore our best option
+       is to punt it and "go around."  reasm_insert populates it's last
+       pool element with the data of the failed insert, so we make sure
+       to publish the failed insert data to repair in after_credit. */
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->reasm_evicted && ctx->reasm_evicted->bank_idx != ULONG_MAX ) ) {
+    mark_bank_dead( ctx, stem, ctx->reasm_evicted->bank_idx );
+    fd_sched_block_abandon( ctx->sched, ctx->reasm_evicted->bank_idx );
+  }
 }
 
 static void
@@ -2653,11 +2691,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
       }
       break;
     }
-    case IN_KIND_SHRED: {
+    case IN_KIND_REPAIR: {
       /* TODO: This message/sz should be defined. */
       if( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC ) {
         /* If receive a FEC complete message. */
-        process_fec_complete( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        process_fec_complete( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }
@@ -2967,7 +3005,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
+    else if( !strcmp( link->name, "repair_out"    ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "gui_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
