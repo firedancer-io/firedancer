@@ -225,6 +225,13 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
 
+      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+        FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
+
       /* FIXME re-enable fd_snapwm_vinyl_txn_commit here once recovery
          is fully implemented. */
       break;
@@ -238,7 +245,8 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
          is fully implemented. */
 
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-        FD_LOG_WARNING(( "slot deltas verification failed" ));
+        if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+        else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;

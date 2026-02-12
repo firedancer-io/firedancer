@@ -231,6 +231,8 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
       if( FD_UNLIKELY( memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
+        /* SnapshotError::MismatchedHash
+           https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L479 */
         FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
                           FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
                           FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
