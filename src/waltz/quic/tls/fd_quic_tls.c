@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/uio.h>
 
 /* fd_tls callbacks provided by fd_quic *******************************/
 
