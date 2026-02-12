@@ -198,7 +198,7 @@ fdos_kern_main( fdos_kern_args_t * args ) {
   setup_lstar();
 
   FD_LOG_NOTICE(( "Entering ring 3 user stack top %#lx", args->stack_user_top_gvaddr ));
-  ulong const user_stack_top_gpaddr = args->stack_user_top_gvaddr;
+  ulong const user_stack_top_gpaddr = args->stack_user_top_gvaddr-8UL;
   if( setjmp()==0 ) {
     enter_ring3( user_stack_top_gpaddr, (ulong)hello_ring3 );
   } else {
