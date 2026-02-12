@@ -2,10 +2,12 @@
 #include "fd_hpack.h"
 #include "fd_hpack_private.h"
 
+#if FD_HAS_HOSTED
 #include <unistd.h> /* fork */
 #include <stdlib.h> /* exit */
 #include <sys/wait.h> /* wait */
 #include <sys/syscall.h> /* syscall */
+#endif
 
 FD_STATIC_ASSERT( FD_H2_HDR_UNKNOWN==0, num );
 

@@ -1,7 +1,7 @@
+ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_solfuzz.h)
 $(call add-objs,fd_solfuzz fd_solfuzz_exec,fd_flamenco_test)
 
-ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_dump_pb.h)
 $(call add-objs,fd_dump_pb,fd_flamenco)
 endif
