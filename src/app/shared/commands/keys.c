@@ -44,7 +44,7 @@ keys_cmd_args( int *    pargc,
 
 err:
     FD_LOG_ERR(( "unrecognized subcommand `%s`\nusage:\n"
-                 "  keys new key <path-to-keyfile>\n"
+                 "  keys new <path-to-keyfile>\n"
                  "  keys pubkey <path-to-keyfile>\n",
                  *pargv[0] ));
 }

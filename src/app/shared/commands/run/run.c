@@ -768,7 +768,7 @@ run_firedancer_init( config_t * config,
                      int        check_configure ) {
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->paths.identity_key ));
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new %s --config <toml>`", config->paths.identity_key, config->paths.identity_key ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
