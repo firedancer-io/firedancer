@@ -1,4 +1,5 @@
 #include "fd_vote_timestamps.h"
+#include "fd_vote_timestamps_private.h"
 
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -38,6 +39,8 @@ int main( int argc, char ** argv ) {
   fd_vote_timestamps_t * vote_timestamps = fd_vote_timestamps_join( fd_vote_timestamps_new( mem, 16UL, 4, 128UL, 0UL ) );
   FD_TEST( vote_timestamps );
 
+  fd_vote_timestamp_ele_t * fork_pool = fd_vote_timestamps_get_fork_pool( vote_timestamps );
+
   ushort fork_idx = fd_vote_timestamps_init( vote_timestamps, 0UL, 0 );
   FD_TEST( fork_idx==0 );
 
@@ -49,21 +52,50 @@ int main( int argc, char ** argv ) {
 
   FD_TEST( 5U==fd_vote_timestamps_index_cnt( vote_timestamps ) );
   FD_TEST( 0==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, fork_idx ) );
+  fd_vote_timestamp_ele_t * fork = fd_vote_timestamp_pool_ele( fork_pool, vote_timestamps->root_idx );
+  FD_TEST( fork->snapshot_idx!=UCHAR_MAX );
+
 
 
   ushort child_idx = fd_vote_timestamps_attach_child( vote_timestamps, fork_idx, 1UL, 0 );
-  (void)child_idx;
 
-  fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_A, 11 );
-  fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_B, 11 );
-  fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_C, 11 );
-  fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_D, 11 );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_A, 11, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_B, 11, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_C, 11, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_D, 11, 0UL );
   FD_TEST( 5U==fd_vote_timestamps_index_cnt( vote_timestamps ) );
   FD_TEST( 4==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx ) );
 
   ulong timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx );
   FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
 
-  FD_LOG_NOTICE(( "pass" ));
+  ushort child_idx2 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx, 2UL, 0 );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx2, pubkey_F, 11, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx2, pubkey_A, 15, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx2, pubkey_B, 15, 0UL );
+  FD_TEST( 6UL==fd_vote_timestamps_index_cnt( vote_timestamps ) );
+  FD_TEST( 3==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx2 ) );
+  timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx2 );
+  FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
 
+  ushort child_idx3 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx, 3UL, 0 );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx3, pubkey_F, 11, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx3, pubkey_A, 15, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx3, pubkey_B, 15, 0UL );
+  FD_TEST( 6UL==fd_vote_timestamps_index_cnt( vote_timestamps ) );
+  FD_TEST( 3==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx3 ) );
+  timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx3 );
+  FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
+
+  /* Make sure the eviction policy is working. */
+  ushort child_idx4 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx2, 4UL, 0 );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx4, pubkey_C, 16, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx4, pubkey_A, 15, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx4, pubkey_B, 15, 0UL );
+  FD_TEST( 6UL==fd_vote_timestamps_index_cnt( vote_timestamps ) );
+  FD_TEST( 3==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx4 ) );
+  timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx4 );
+  FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
+
+  FD_LOG_NOTICE(( "pass" ));
 }
