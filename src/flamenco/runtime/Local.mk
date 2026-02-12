@@ -19,9 +19,11 @@ endif
 $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
 
+ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_txncache_shmem.h fd_txncache.h)
 $(call add-objs,fd_txncache_shmem fd_txncache,fd_flamenco)
+endif
 endif
 
 $(call add-hdrs,fd_cost_tracker.h)
