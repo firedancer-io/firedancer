@@ -62,13 +62,16 @@ struct fd_snaplv_tile {
   } hash_accum;
 
   fd_lthash_value_t   running_lthash;
-  fd_lthash_value_t   full_lthash;
 
   struct {
     ulong exp_sig;
     ulong ack_cnt;
     int   wait;
   } fail;
+
+  struct {
+    fd_lthash_value_t full_lthash;
+  } recovery;
 
   struct {
     struct {
@@ -333,10 +336,13 @@ handle_control_frag( fd_snaplv_t *       ctx,
 
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
         fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
-        fd_lthash_zero( &ctx->full_lthash );
+        fd_lthash_zero( &ctx->recovery.full_lthash );
       } else {
-        /* incr lthash always starts from full lthash. */
-        ctx->hash_accum.calculated_lthash = ctx->full_lthash;
+        /* The lthash for the incremental snapshot is computed starting
+           from the full snapshot lthash.  Since an init message may
+           be received after a fail message, always start from the
+           recovery value. */
+        ctx->hash_accum.calculated_lthash = ctx->recovery.full_lthash;
       }
 
       break;
@@ -356,6 +362,10 @@ handle_control_frag( fd_snaplv_t *       ctx,
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      /* back up full_lthash for future recovery. */
+      if( sig==FD_SNAPSHOT_MSG_CTRL_NEXT ) {
+        ctx->recovery.full_lthash = ctx->hash_accum.calculated_lthash;
+      }
       break;
     }
 
@@ -498,10 +508,6 @@ after_credit( fd_snaplv_t *        ctx,
                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
       fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->hash_accum.ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-
-      if( ctx->full ) {
-        ctx->full_lthash = ctx->hash_accum.calculated_lthash;
-      }
     }
   }
 
@@ -638,7 +644,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
   fd_lthash_zero( &ctx->running_lthash );
-  fd_lthash_zero( &ctx->full_lthash );
+  fd_lthash_zero( &ctx->recovery.full_lthash );
 
   ctx->fail.exp_sig = 0UL;
   ctx->fail.ack_cnt = 0UL;
