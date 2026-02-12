@@ -262,38 +262,6 @@ typedef struct {
   uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
 } fd_shred_ctx_t;
 
-/* shred features are generally considered active at the epoch *following*
-   the epoch in which the feature gate is activated.
-
-   As an optimization, when the activation slot is received, it is converted
-   into the first slot of the subsequent epoch.  This allows for a more
-   efficient check (shred_slot >= feature_slot) and avoids the overhead of
-   repeatedly converting slots into epochs for comparison.
-
-   In Agave, this is done with check_feature_activation():
-   https://github.com/anza-xyz/agave/blob/v3.1.4/turbine/src/cluster_nodes.rs#L771
-   https://github.com/anza-xyz/agave/blob/v3.1.4/core/src/shred_fetch_stage.rs#L456
-
-   Note that this function does not currently handle warmup epochs (i.e.,
-   local clusters).  This limitation is acceptable for now, as it only
-   affects thetransition period during which a feature is being
-   implemented and activated. */
-static inline ulong
-fd_shred_get_feature_activation_slot0( ulong feature_slot, fd_shred_ctx_t * ctx ) {
-  /* we need info about the epoch schedule (specifically slot_cnt).
-     if we don't know any schedule (yet), we return ULONG_MAX, i.e. feature inactive. */
-  fd_epoch_leaders_t * lsched = ctx->stake_ci->epoch_info[ 0 ].lsched
-    ? ctx->stake_ci->epoch_info[ 0 ].lsched
-    : ctx->stake_ci->epoch_info[ 1 ].lsched;
-  if( lsched==NULL ) {
-    return ULONG_MAX;
-  }
-  /* compute the activation epoch, add one, return the first slot. */
-  fd_epoch_schedule_t default_schedule[1] = {{ lsched->slot_cnt, lsched->slot_cnt, 0, 0, 0 }};
-  ulong feature_epoch = 1 + fd_slot_to_epoch( default_schedule, feature_slot, NULL );
-  return fd_epoch_slot0( default_schedule, feature_epoch );
-}
-
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
@@ -467,9 +435,7 @@ during_frag( fd_shred_ctx_t * ctx,
       /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
           the shred tile needs to be aware of.  Since this requires the
           bank, we are forced (so far) to receive them from the poh tile
-          (as a POH_PKT_TYPE_FEAT_ACT_SLOT).  This is not elegant, and it
-          should be revised in the future (TODO), but it provides a
-          "temporary" working solution to handle features activation. */
+          (as a POH_PKT_TYPE_FEAT_ACT_SLOT). */
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_features_activation_t)) ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
@@ -477,10 +443,6 @@ during_frag( fd_shred_ctx_t * ctx,
 
       fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
       memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
-
-      for( ulong i=0; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
-        ctx->features_activation->slots[i] = fd_shred_get_feature_activation_slot0( ctx->features_activation->slots[i], ctx );
-      }
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending
