@@ -690,6 +690,7 @@ EOF
     -Dthread-local-storage=false \
     -Dsingle-thread=true \
     -Dsemihost=false \
+    -Dio-float-exact=false \
     -Dprefix="$PREFIX/cross/x86"
   meson compile -C build-x86
   meson install -C build-x86
