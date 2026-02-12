@@ -1627,6 +1627,12 @@ fd_log_private_stack_discover( ulong   stack_sz,
   *_stack1 = stack1;
 }
 
+#elif FD_LOG_STYLE==1 /* generic embedded target */
+
+#include "fd_log.h"
+
+FD_FN_UNUSED static inline void _unused( void ) {} /* required due to -Wpedantic */
+
 #else
 #error "Unknown FD_LOG_STYLE"
 #endif

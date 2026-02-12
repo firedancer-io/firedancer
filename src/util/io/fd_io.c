@@ -700,6 +700,10 @@ fd_io_strsignal( int sig ) {
   return "unknown";
 }
 
+#elif FD_LOG_STYLE==1 /* generic embedded target */
+
+FD_FN_UNUSED static inline void _unused( void ) {} /* required due to -Wpedantic */
+
 #else
 #error "Unknown FD_IO_STYLE"
 #endif
