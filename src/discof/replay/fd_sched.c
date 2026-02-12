@@ -1325,6 +1325,8 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         } else {
           /* This is a tick.  No need to mixin.  Check the hash value
              right away. */
+          block->poh_hash_cmp_done_cnt++;
+          mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, msg->mblk_idx );
           if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk_desc->end_hash, sizeof(fd_hash_t) ) ) ) {
             FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
             FD_BASE58_ENCODE_32_BYTES( mblk_desc->end_hash->hash, ref_str );
@@ -1332,8 +1334,6 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
             handle_bad_block( sched, block );
             return -1;
           }
-          block->poh_hash_cmp_done_cnt++;
-          mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, msg->mblk_idx );
         }
         /* Try to drain the mixin queue. */
         int mixin_res;
@@ -2073,6 +2073,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   int rv = 2;
   if( FD_LIKELY( mblk->curr_txn_idx==mblk_desc->end_txn_idx ) ) {
     /* Ready to compute the final hash for this microblock. */
+    block->poh_hash_cmp_done_cnt++;
+    mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, in_progress_idx );
     uchar * root = fd_bmtree_commit_fini( block->bmtree );
     uchar mixin_buf[ 64 ];
     fd_memcpy( mixin_buf, mblk->curr_hash, 32UL );
@@ -2084,8 +2086,6 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
       FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %u, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk->mblk_idx, our_str, ref_str, mblk_desc->hashcnt, start_txn_idx, mblk_desc->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
       return -1;
     }
-    block->poh_hash_cmp_done_cnt++;
-    mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, in_progress_idx );
   } else {
     /* There are more transactions to mixin in this microblock. */
     mblk_in_progress_slist_idx_push_head( block->mblks_mixin_in_progress, in_progress_idx, block->mblk_in_progress_pool );
