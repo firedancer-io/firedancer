@@ -2,6 +2,7 @@
 
 struct fd_vote_timestamp_index_ele {
   fd_pubkey_t pubkey;
+  ulong       epoch_stakes[ 2UL ];
   ushort      refcnt;
   uint        next;
 };
@@ -61,6 +62,21 @@ typedef struct snapshot_key snapshot_key_ele_t;
 
 /*********************************************************************/
 
+/* ts_est_ele_t is a temporary struct used for sorting vote accounts by
+   last vote timestamp for clock sysvar calculation. */
+   struct ts_est_ele {
+    ulong       timestamp;
+    fd_w_u128_t stake; /* should really be fine as ulong, but we match Agave */
+  };
+  typedef struct ts_est_ele ts_est_ele_t;
+
+#define SORT_NAME  sort_stake_ts
+#define SORT_KEY_T ts_est_ele_t
+#define SORT_BEFORE(a,b) ( (a).timestamp < (b).timestamp )
+#include "../../util/tmpl/fd_sort.c"
+
+/* ***************************/
+
 struct fd_vote_timestamp_delta_ele {
   ulong timestamp;
   uint  pubkey_idx;
@@ -79,11 +95,14 @@ struct fd_vote_timestamps {
   ulong  snapshot_cnt;
   ulong  snapshot_keys_dlist_offset;
   ulong  snapshot_keys_pool_offset;
+
+  ts_est_ele_t ts_eles[ 40200 ]; /* TODO:FIXME: this has to be configurable */
 };
 typedef struct fd_vote_timestamps fd_vote_timestamps_t;
 
 struct fd_vote_timestamp_ele {
   ulong  slot;
+  ushort epoch;
   /* left child, right sibling tree pointers */
   ushort parent_idx;
   ushort child_idx;
@@ -244,8 +263,11 @@ fd_vote_timestamps_new( void * shmem,
       FD_LOG_WARNING(( "Failed to create vote timestamp snapshot ele map" ));
       return NULL;
     }
+
     key->map_offset = (ulong)snapshot_ele_map - (ulong)vote_timestamps;
-    snapshot_key_pool_ele_release( snapshot_keys_pool, key );
+  }
+  for( uchar i=0; i<max_snaps; i++ ) {
+    snapshot_key_pool_idx_release( snapshot_keys_pool, i );
   }
   FD_SCRATCH_ALLOC_FINI( l, fd_vote_timestamps_align() );
 
@@ -262,7 +284,8 @@ fd_vote_timestamps_join( void * shmem ) {
 
 ushort
 fd_vote_timestamps_init( fd_vote_timestamps_t * vote_ts,
-                         ulong                  slot ) {
+                         ulong                  slot,
+                         ushort                 epoch ) {
   /* Assign a fork node on the fork pool */
   fd_vote_timestamp_ele_t * pool     = fd_vote_timestamps_get_fork_pool( vote_ts );
   fd_vote_timestamp_ele_t * fork     = fd_vote_timestamp_pool_ele_acquire( pool );
@@ -273,6 +296,7 @@ fd_vote_timestamps_init( fd_vote_timestamps_t * vote_ts,
   fork->child_idx   = USHORT_MAX;
   fork->sibling_idx = USHORT_MAX;
   fork->slot        = slot;
+  fork->epoch       = epoch;
 
   /* Setup the snapshot key for the root fork. */
 
@@ -296,7 +320,8 @@ fd_vote_timestamps_init( fd_vote_timestamps_t * vote_ts,
 ushort
 fd_vote_timestamps_attach_child( fd_vote_timestamps_t * vote_ts,
                                  ushort                 parent_fork_idx,
-                                 ulong                  slot ) {
+                                 ulong                  slot,
+                                 ushort                 epoch ) {
 
   fd_vote_timestamp_ele_t * pool = fd_vote_timestamps_get_fork_pool( vote_ts );
 
@@ -333,6 +358,7 @@ fd_vote_timestamps_attach_child( fd_vote_timestamps_t * vote_ts,
   child->sibling_idx  = USHORT_MAX;
   child->child_idx    = USHORT_MAX;
   child->slot         = slot;
+  child->epoch        = epoch;
   child->deltas_cnt   = 0UL;
   child->snapshot_idx = UCHAR_MAX;
 
@@ -400,35 +426,33 @@ fd_vote_timestamps_insert( fd_vote_timestamps_t * vote_ts,
   fd_vote_timestamp_ele_t * fork      = fd_vote_timestamp_pool_ele( fork_pool, fork_idx );
 
   /* Now just add the entry to the delta list. */
-  fd_vote_timestamp_delta_ele_t * delta = &fork->deltas[ fork->deltas_cnt++ ];
+  fd_vote_timestamp_delta_ele_t * delta = &fork->deltas[ fork->deltas_cnt ];
   delta->timestamp  = timestamp;
   delta->pubkey_idx = pubkey_idx;
+  fork->deltas_cnt++;
 }
 
 void
 fd_vote_timestamps_insert_root( fd_vote_timestamps_t * vote_ts,
                                 fd_pubkey_t            pubkey,
-                                ulong                  timestamp ) {
+                                ulong                  timestamp,
+                                ulong                  stake ) {
 
   /* First update and query index.  Figure out pubkey index if not one
      exists, otherwise allocate a new entry in the index. */
   fd_vote_timestamp_index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
   fd_vote_timestamp_index_map_t * index_map  = fd_vote_timestamps_get_index_map( vote_ts );
 
-  fd_vote_timestamp_index_ele_t * ele = fd_vote_timestamp_index_map_ele_query( index_map, &pubkey, NULL, index_pool );
-  if( FD_LIKELY( ele ) ) {
-    FD_LOG_CRIT(( "pubkey already exists in index" ));
-  } else {
-    ele = fd_vote_timestamp_index_pool_ele_acquire( index_pool );
-    ele->pubkey = pubkey;
-    ele->refcnt = 1UL;
-
-    FD_TEST( fd_vote_timestamp_index_map_ele_insert( index_map, ele, index_pool ) );
-  }
-  uint pubkey_idx = (uint)fd_vote_timestamp_index_pool_idx( index_pool, ele );
-
   fd_vote_timestamp_ele_t * fork_pool = fd_vote_timestamps_get_fork_pool( vote_ts );
   fd_vote_timestamp_ele_t * fork      = fd_vote_timestamp_pool_ele( fork_pool, vote_ts->root_idx );
+
+  fd_vote_timestamp_index_ele_t * ele = fd_vote_timestamp_index_pool_ele_acquire( index_pool );
+  ele->pubkey = pubkey;
+  ele->refcnt = 1UL;
+  ele->epoch_stakes[ fork->epoch % 2UL ] = stake;
+
+  FD_TEST( fd_vote_timestamp_index_map_ele_insert( index_map, ele, index_pool ) );
+  uint pubkey_idx = (uint)fd_vote_timestamp_index_pool_idx( index_pool, ele );
 
   snapshot_ele_t *     snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, fork->snapshot_idx );
   snapshot_ele_map_t * snapshot_map = fd_vote_timestamps_get_snapshot_ele_map( vote_ts, fork->snapshot_idx );
@@ -450,6 +474,7 @@ prune_and_get_snapshot( fd_vote_timestamps_t * vote_ts,
      2. Don't evict the "best" snapshot (closest to the fork idx) */
   fd_vote_timestamp_ele_t * fork_pool = fd_vote_timestamps_get_fork_pool( vote_ts );
 
+  FD_LOG_NOTICE(("FORK IDX: %hu", fork_idx));
   fd_vote_timestamp_ele_t * fork = fd_vote_timestamp_pool_ele( fork_pool, fork_idx );
   fd_vote_timestamp_ele_t * root = fd_vote_timestamp_pool_ele( fork_pool, vote_ts->root_idx );
 
@@ -459,14 +484,20 @@ prune_and_get_snapshot( fd_vote_timestamps_t * vote_ts,
   (*parent_snapshot_path_cnt)++;
 
   fd_vote_timestamp_ele_t * curr = fork;
-  while( curr->snapshot_idx!=UCHAR_MAX ) {
+  while( curr->snapshot_idx==UCHAR_MAX ) {
+    FD_LOG_NOTICE(("PATH IDX"));
     curr = fd_vote_timestamp_pool_ele( fork_pool, curr->parent_idx );
     parent_snapshot_path[*parent_snapshot_path_cnt] = (ushort)fd_vote_timestamp_pool_idx( fork_pool, curr );
     (*parent_snapshot_path_cnt)++;
   }
 
+  FD_LOG_NOTICE(("PARENT SNAPSHOT PATH CNT: %hu", *parent_snapshot_path_cnt));
+
   uchar best_snapshot_idx = curr->snapshot_idx;
   uchar root_snapshot_idx = root->snapshot_idx;
+
+  FD_LOG_NOTICE(("BEST SNAPSHOT IDX: %u", best_snapshot_idx));
+  FD_LOG_NOTICE(("ROOT SNAPSHOT IDX: %u", root_snapshot_idx));
 
   snapshot_key_dlist_t * snapshot_keys_dlist = fd_vote_timestamps_get_snapshot_keys_dlist( vote_ts );
   snapshot_key_ele_t *   snapshot_keys_pool  = fd_vote_timestamps_get_snapshot_keys_pool( vote_ts );
@@ -487,10 +518,12 @@ prune_and_get_snapshot( fd_vote_timestamps_t * vote_ts,
       key = snapshot_key_dlist_ele_pop_head( snapshot_keys_dlist, snapshot_keys_pool );
       idx = (uchar)snapshot_key_pool_idx( snapshot_keys_pool, key );
     }
+    FD_LOG_NOTICE(("EVICTED KEY IDX: %u", idx));
     snapshot_key_pool_ele_release( snapshot_keys_pool, key );
   }
 
   snapshot_key_ele_t * new_key = snapshot_key_pool_ele_acquire( snapshot_keys_pool );
+  FD_LOG_NOTICE(("NEW KEY IDX: %u", (uchar)snapshot_key_pool_idx( snapshot_keys_pool, new_key )));
   snapshot_key_dlist_ele_push_tail( snapshot_keys_dlist, new_key, snapshot_keys_pool );
   return (uchar)snapshot_key_pool_idx( snapshot_keys_pool, new_key );
 }
@@ -500,6 +533,8 @@ apply_delta( ulong                     base_slot,
              snapshot_ele_t *          snapshot,
              snapshot_ele_map_t *      snapshot_map,
              fd_vote_timestamp_ele_t * fork ) {
+
+  FD_LOG_NOTICE(("APPLYING DELTAS %u", fork->deltas_cnt));
   for( ushort i=0; i<fork->deltas_cnt; i++ ) {
     /* We have the property that timestamps are always increasing for
        the same pubkey.  When a pubkey is evicted from the index, then
@@ -542,7 +577,7 @@ apply_snapshot( snapshot_ele_t *     snapshot,
   }
 }
 
-void
+ulong
 fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
                                   ushort                 fork_idx ) {
   fd_vote_timestamp_ele_t * fork_pool = fd_vote_timestamps_get_fork_pool( vote_ts );
@@ -554,6 +589,7 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
 
   snapshot_ele_t *     snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, fork->snapshot_idx );
   snapshot_ele_map_t * snapshot_map = fd_vote_timestamps_get_snapshot_ele_map( vote_ts, fork->snapshot_idx );
+  FD_LOG_NOTICE(("SNAPSHOT CNT: %u", (uint)snapshot_ele_map_verify( snapshot_map, 0, snapshot )));
 
   /* We now have the path of all of the vote timestamp entries that we
      have to apply.  We also have the snapshot index that we can use to
@@ -562,6 +598,7 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
   fd_vote_timestamp_ele_t * curr_fork = NULL;
   for( ushort i=0; i<path_cnt; i++ ) {
     curr_fork = fd_vote_timestamp_pool_ele( fork_pool, path[i] );
+    FD_LOG_NOTICE(("CURR FORK IDX: %hu", (ushort)fd_vote_timestamp_pool_idx( fork_pool, curr_fork )));
     apply_delta( fork->slot, snapshot, snapshot_map, curr_fork );
   }
   FD_TEST( curr_fork );
@@ -570,6 +607,55 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
   snapshot_ele_t *     prev_snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, curr_fork->snapshot_idx );
   snapshot_ele_map_t * prev_snapshot_map = fd_vote_timestamps_get_snapshot_ele_map( vote_ts, curr_fork->snapshot_idx );
   apply_snapshot( snapshot, snapshot_map, fork->slot, prev_snapshot, prev_snapshot_map, curr_fork->slot );
+
+
+  fd_vote_timestamp_index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
+
+  /* Iterate through the snapshot to get the stake for each pubkey. */
+
+  ulong ts_ele_cnt = 0UL;
+  uint128 total_stake = 0UL;
+  for( snapshot_ele_map_iter_t iter = snapshot_ele_map_iter_init( snapshot_map, snapshot );
+       !snapshot_ele_map_iter_done( iter, snapshot_map, snapshot );
+       iter = snapshot_ele_map_iter_next( iter, snapshot_map, snapshot ) ) {
+    uint                            ele_idx      = (uint)snapshot_ele_map_iter_idx( iter, snapshot_map, snapshot );
+    snapshot_ele_t *                snapshot_ele = snapshot_ele_map_iter_ele( iter, snapshot_map, snapshot );
+    fd_vote_timestamp_index_ele_t * ele          = fd_vote_timestamp_index_pool_ele( index_pool, ele_idx );
+
+    ulong stake      = ele->epoch_stakes[ fork->epoch % 2UL ];
+    ulong timestamp  = snapshot_ele->timestamp;
+    ulong slot_delta = snapshot_ele->slot_age;
+    FD_LOG_NOTICE(("ITER %u %lu", ele_idx, slot_delta));
+
+
+    /* TODO:FIXME: get the right slot duration on boot */
+    ulong offset   = fd_ulong_sat_mul( 400e9, slot_delta );
+    ulong estimate = timestamp + (offset / ((ulong)1e9));
+
+    vote_ts->ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
+      .timestamp = estimate,
+      .stake     = { .ud=stake },
+    };
+    ts_ele_cnt++;
+
+    total_stake += stake;
+  }
+
+  sort_stake_ts_inplace( vote_ts->ts_eles, ts_ele_cnt );
+
+  /* Populate estimate with the stake-weighted median timestamp.
+    https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L59-L68 */
+  uint128 stake_accumulator = 0;
+  ulong   estimate          = 0UL;
+  for( ulong i=0UL; i<ts_ele_cnt; i++ ) {
+    stake_accumulator = fd_uint128_sat_add( stake_accumulator, vote_ts->ts_eles[i].stake.ud );
+    if( stake_accumulator>(total_stake/2UL) ) {
+      estimate = vote_ts->ts_eles[ i ].timestamp;
+      break;
+    }
+  }
+  return estimate;
+
 }
 
 ushort

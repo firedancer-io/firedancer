@@ -38,20 +38,20 @@ int main( int argc, char ** argv ) {
   fd_vote_timestamps_t * vote_timestamps = fd_vote_timestamps_join( fd_vote_timestamps_new( mem, 16UL, 4, 128UL, 0UL ) );
   FD_TEST( vote_timestamps );
 
-  ushort fork_idx = fd_vote_timestamps_init( vote_timestamps, 0UL );
+  ushort fork_idx = fd_vote_timestamps_init( vote_timestamps, 0UL, 0 );
   FD_TEST( fork_idx==0 );
 
-  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_A, 10 );
-  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_B, 11 );
-  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_C, 10 );
-  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_D, 10 );
-  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_E, 10 );
+  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_A, 10, 100UL );
+  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_B, 10, 200UL );
+  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_C, 10, 300UL );
+  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_D, 10, 400UL );
+  fd_vote_timestamps_insert_root( vote_timestamps, pubkey_E, 10, 500UL );
 
   FD_TEST( 5U==fd_vote_timestamps_index_cnt( vote_timestamps ) );
   FD_TEST( 0==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, fork_idx ) );
 
 
-  ushort child_idx = fd_vote_timestamps_attach_child( vote_timestamps, fork_idx, 1UL );
+  ushort child_idx = fd_vote_timestamps_attach_child( vote_timestamps, fork_idx, 1UL, 0 );
   (void)child_idx;
 
   fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_A, 11 );
@@ -60,6 +60,9 @@ int main( int argc, char ** argv ) {
   fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_D, 11 );
   FD_TEST( 5U==fd_vote_timestamps_index_cnt( vote_timestamps ) );
   FD_TEST( 4==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx ) );
+
+  ulong timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx );
+  FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
 
   FD_LOG_NOTICE(( "pass" ));
 
