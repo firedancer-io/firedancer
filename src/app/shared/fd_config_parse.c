@@ -126,6 +126,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
+  CFG_POP      ( ulong,  development.replay.scheduler_depth                  );
 
   return config;
 }
