@@ -6,6 +6,9 @@
 
 #define FD_FEC_SHRED_CNT 32
 
+/* Maximum number of FECs in a slot is max number of shreds in a slot / 32 shreds per FEC */
+#define FD_FEC_BLK_MAX (FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT)
+
 /* When using Merkle shreds, an FEC set is essentially the transmission
    granularity.  Each FEC set has likely dozens of packets, but you have
    to construct the entire FEC set before you can send the first byte.

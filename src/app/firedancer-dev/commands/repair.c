@@ -945,14 +945,11 @@ repair_cmd_fn_inflight( args_t *   args,
   ulong            inflights_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->inflights );
   fd_inflights_t * inflights       = (fd_inflights_t *)fd_wksp_laddr( repair_wksp->wksp, inflights_gaddr );
 
-  ulong inflight_dlist_off = (ulong)inflights->outstanding_dl - (ulong)repair_ctx->inflights;
-  ulong inflight_pool_off  = (ulong)inflights->pool - (ulong)repair_ctx->inflights;
-
-  fd_inflight_dlist_t * inflight_dlist = (fd_inflight_dlist_t *)fd_wksp_laddr( repair_wksp->wksp, inflights_gaddr + inflight_dlist_off  );
-  fd_inflight_t *       inflight_pool  = (fd_inflight_t *)      fd_wksp_laddr( repair_wksp->wksp, inflights_gaddr + inflight_pool_off );
+  ulong inflight_pool_off = (ulong)inflights->pool - (ulong)repair_ctx->inflights;
+  fd_inflight_t * inflight_pool = (fd_inflight_t *)fd_wksp_laddr( repair_wksp->wksp, inflights_gaddr + inflight_pool_off );
 
   for( ;; ) {
-    fd_inflights_print( inflight_dlist, inflight_pool );
+    fd_inflights_print( inflights->outstanding_dl, inflight_pool );
     sleep( 1 );
   }
 }
@@ -971,12 +968,11 @@ repair_cmd_fn_requests( args_t *   args,
   fd_forest_reqslist_t * orphlist = fd_forest_orphlist( forest );
 
   for( ;; ) {
-    printf("%-15s %-12s %-12s %-12s %-20s %-12s %-10s\n",
-            "Slot", "Consumed Idx", "Buffered Idx", "Complete Idx",
-            "First Shred Timestamp", "Turbine Cnt", "Repair Cnt");
-    printf("%-15s %-12s %-12s %-12s %-20s %-12s %-10s\n",
+    printf("%-15s %-12s %-12s %-12s %-20s %-12s\n",
+            "Slot", "Buffered Idx", "Complete Idx", "First Shred ts", "Turbine Cnt", "Repair Cnt");
+    printf("%-15s %-12s %-12s %-12s %-20s %-12s\n",
             "---------------", "------------", "------------", "------------",
-            "--------------------", "------------", "----------");
+            "--------------------", "------------");
     for( fd_forest_reqslist_iter_t iter = fd_forest_reqslist_iter_fwd_init( dlist, pool );
         !fd_forest_reqslist_iter_done( iter, dlist, pool );
         iter = fd_forest_reqslist_iter_fwd_next( iter, dlist, pool ) ) {

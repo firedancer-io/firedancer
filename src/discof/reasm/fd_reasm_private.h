@@ -46,7 +46,7 @@
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 #define DEQUE_NAME             out
-#define DEQUE_T                ulong
+#define DEQUE_T                fd_hash_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct xid {
@@ -64,18 +64,18 @@ typedef struct xid xid_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_reasm {
-  ulong            slot0;       /* special initialization slot. chains first FEC */
-  ulong            root;        /* pool idx of the root FEC set */
-  ulong            pool_gaddr;  /* gaddr of the pool of FEC nodes backing the above maps / tree */
-  ancestry_t *     ancestry;    /* map of mr->fec. non-leaves of the connected tree */
-  frontier_t *     frontier;    /* map of mr->fec. leaves of the connected tree */
-  orphaned_t *     orphaned;    /* map of mr->fec. non-roots of the orphaned subtrees */
-  subtrees_t *     subtrees;    /* map of mr->fec. roots of the orphaned subtrees */
-  dlist_t          _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
-  dlist_t        * subtreel;    /* the join to the dlist */
-  ulong *          bfs;         /* internal queue of pool idxs for BFS */
-  ulong *          out;         /* delivery queue of pool idxs to output */
-  xid_t *          xid;         /* map of (slot, fec_set_idx)->mr */
+  ulong        slot0;       /* special initialization slot. chains first FEC */
+  ulong        root;        /* pool idx of the root FEC set */
+  ulong        pool_gaddr;  /* gaddr of the pool of FEC nodes backing the above maps / tree */
+  ancestry_t * ancestry;    /* map of mr->fec. non-leaves of the connected tree */
+  frontier_t * frontier;    /* map of mr->fec. leaves of the connected tree */
+  orphaned_t * orphaned;    /* map of mr->fec. non-roots of the orphaned subtrees */
+  subtrees_t * subtrees;    /* map of mr->fec. roots of the orphaned subtrees */
+  dlist_t      _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
+  dlist_t *    subtreel;    /* the join to the dlist */
+  ulong *      bfs;         /* internal queue of pool idxs for BFS */
+  fd_hash_t *  out;         /* delivery queue of mrs to output */
+  xid_t *      xid;         /* map of (slot, fec_set_idx)->mr */
 };
 
 static inline fd_reasm_fec_t *
