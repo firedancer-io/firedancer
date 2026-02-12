@@ -29,7 +29,9 @@ struct fd_txsend_out {
 typedef struct fd_txsend_out fd_txsend_out_t;
 
 struct peer_entry {
+  int initialized;
   int tombstoned;
+
   fd_pubkey_t pubkey;
 
   uint             quic_ip_addrs[ 2UL ];
