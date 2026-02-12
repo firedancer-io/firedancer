@@ -118,6 +118,7 @@
      this are detailed below. */
 
 #include "../bits/fd_bits.h"
+#include "../sanitize/fd_msan.h"
 
 #ifndef POOL_NAME
 #error "Define POOL_NAME"
@@ -152,6 +153,13 @@
 
 #ifndef POOL_SENTINEL
 #define POOL_SENTINEL 0
+#endif
+
+/* POOL_POISON enables integration with MSan to detect read of
+   uninitialized memory. */
+
+#ifndef POOL_POISON
+#define POOL_POISON 0
 #endif
 
 /* 0 - local use only
@@ -454,6 +462,9 @@ POOL_(idx_acquire)( POOL_T * join ) {
   ulong idx = meta->free_top;
   meta->free_top = (ulong)join[ idx ].POOL_NEXT;
   meta->free--;
+# if POOL_POISON
+  fd_msan_poison( &join[ idx ], sizeof(POOL_T) );
+# endif
   return idx;
 }
 
@@ -496,6 +507,7 @@ FD_PROTOTYPES_END
 #undef POOL_
 
 #undef POOL_MAGIC
+#undef POOL_POISON
 #undef POOL_SENTINEL
 #undef POOL_IDX_T
 #undef POOL_NEXT

@@ -331,6 +331,13 @@
 #define POOL_LAZY 0
 #endif
 
+/* POOL_POISON enables integration with MSan to detect read of
+   uninitialized memory. */
+
+#ifndef POOL_POISON
+#define POOL_POISON 0
+#endif
+
 /* Common pool error codes (FIXME: probably should get around to making
    unified error codes and string handling across all util at least so
    we don't have to do this in the generator itself) */
@@ -358,6 +365,7 @@
 #if POOL_IMPL_STYLE!=2 /* need header */
 
 #include "../bits/fd_bits.h"
+#include "../sanitize/fd_msan.h"
 
 struct __attribute__((aligned(POOL_ALIGN))) POOL_(shmem_private) {
 
@@ -718,6 +726,9 @@ POOL_(acquire_lazy)( POOL_(t) *   join,
       ulong new_ver_lazy = POOL_(private_vidx)( ver+2UL, ele_nxt );
       if( FD_LIKELY( POOL_(private_cas)( _l, ver_lazy, new_ver_lazy )==ver_lazy ) ) { /* opt for low contention */
         ele = ele0 + ele_idx;
+#       if POOL_POISON
+        fd_msan_poison( ele, sizeof(POOL_ELE_T) );
+#       endif
         break;
       }
     } else if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
@@ -793,6 +804,9 @@ POOL_(acquire)( POOL_(t) *   join,
 
         if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) ) { /* opt for low contention */
           ele = ele0 + ele_idx;
+#         if POOL_POISON
+          fd_msan_poison( ele, sizeof(POOL_ELE_T) );
+#         endif
           break;
         }
       }
@@ -1067,6 +1081,7 @@ POOL_(strerror)( int err ) {
 #undef POOL_STATIC
 #undef POOL_VER_WIDTH
 
+#undef POOL_POISON
 #undef POOL_LAZY
 #undef POOL_IMPL_STYLE
 #undef POOL_MAGIC
