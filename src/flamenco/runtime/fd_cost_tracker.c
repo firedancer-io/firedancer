@@ -52,7 +52,6 @@ fd_cost_tracker_footprint( void ) {
 
 void *
 fd_cost_tracker_new( void * shmem,
-                     int    larger_max_cost_per_block,
                      ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -75,8 +74,6 @@ fd_cost_tracker_new( void * shmem,
   FD_TEST( map );
 
   cost_tracker->pool_offset = (ulong)_accounts-(ulong)cost_tracker;
-
-  cost_tracker->cost_tracker->larger_max_cost_per_block = larger_max_cost_per_block;
 
   (void)_accounts;
 
@@ -127,8 +124,6 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
     cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
   }
 
-  if( FD_UNLIKELY( cost_tracker->larger_max_cost_per_block ) ) cost_tracker->block_cost_limit = LARGER_MAX_COST_PER_BLOCK;
-
   /* https://github.com/anza-xyz/agave/blob/v3.0.1/runtime/src/bank.rs#L4059-L4066 */
   if( FD_FEATURE_ACTIVE( slot, features, raise_account_cu_limit ) ) {
     cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->block_cost_limit, 40UL ) / 100UL;
@@ -140,7 +135,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
 
   cost_tracker_outer_t * outer = fd_type_pun( cost_tracker );
   outer->accounts_used = 0UL;
-  account_cost_map_reset( fd_type_pun( outer+1UL ) );
+  account_cost_map_reset( account_cost_map_join( fd_type_pun( outer+1UL ) ) );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L313-L321 */

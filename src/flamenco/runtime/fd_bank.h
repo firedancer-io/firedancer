@@ -260,7 +260,8 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             slots_per_epoch          ) /* Slots per epoch */                                    \
   X(ulong,                             shred_cnt                ) /* Shred count */                                        \
   X(ulong,                             epoch                    ) /* Epoch */                                              \
-  X(int,                               has_identity_vote        ) /* Has identity vote */
+  X(int,                               has_identity_vote        ) /* Has identity vote */                                  \
+  X(int,                               larger_max_cost_per_block) /* override cost tracker limits? */
 
 /* Defining pools for any CoW fields. */
 
@@ -730,7 +731,6 @@ void *
 fd_banks_new( void * mem,
               ulong  max_total_banks,
               ulong  max_fork_width,
-              int    larger_max_cost_per_block,
               ulong  seed );
 
 /* fd_banks_join() joins a new fd_banks_t struct.  It takes in a local

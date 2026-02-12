@@ -7,7 +7,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
   fd_banks_t banksl_join[1];
-  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), locks );
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 8888UL ), locks );
   /* Create the following fork tree with refcnts:
 
          P(0)
@@ -280,7 +280,7 @@ test_bank_dead_eviction( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
   fd_banks_t banksl_join[1];
-  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), locks );
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 8888UL ), locks );
   fd_bank_data_t * bank_data_pool = fd_banks_get_bank_pool( banks->data );
 
   fd_bank_t bank_P[1];
@@ -472,7 +472,7 @@ main( int argc, char ** argv ) {
   for( ulong i=0UL; i<fp; i+=8 ) FD_STORE( ulong, mem+i, fd_ulong_hash( i ) );
 # endif
 
-  mem = fd_banks_new( mem, 16UL, 4UL, 0, 8888UL );
+  mem = fd_banks_new( mem, 16UL, 4UL, 8888UL );
   FD_TEST( mem );
 
   /* Init banks */

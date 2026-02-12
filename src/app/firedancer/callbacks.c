@@ -52,9 +52,8 @@ banks_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 banks_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  int larger_max_cost_per_block = fd_pod_queryf_int( topo->props, 0, "obj.%lu.larger_max_cost_per_block", obj->id );
   ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
-  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), larger_max_cost_per_block, seed ) );
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), seed ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_banks = {

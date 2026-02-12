@@ -272,7 +272,6 @@ void *
 fd_banks_new( void * shmem,
               ulong  max_total_banks,
               ulong  max_fork_width,
-              int    larger_max_cost_per_block,
               ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -361,18 +360,9 @@ fd_banks_new( void * shmem,
     FD_LOG_WARNING(( "Failed to create vote states pool" ));
     return NULL;
   }
-
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) );
-  if( FD_UNLIKELY( !cost_tracker_pool ) ) {
+  if( FD_UNLIKELY( !fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) ) ) ) {
     FD_LOG_WARNING(( "Failed to create cost tracker pool" ));
     return NULL;
-  }
-  for( ulong i=0UL; i<max_fork_width; i++ ) {
-    fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
-    if( FD_UNLIKELY( !fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, larger_max_cost_per_block, seed ) ) ) ) {
-      FD_LOG_WARNING(( "Failed to create cost tracker" ));
-      return NULL;
-    }
   }
   if( FD_UNLIKELY( !fd_banks_dead_new( dead_banks_deque_mem ) ) ) {
     FD_LOG_WARNING(( "Failed to create banks dead deque" ));
@@ -617,10 +607,10 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   /* If the bank has been marked as dead from the time that it was
      initialized, don't bother copying over any data and return NULL. */
-     if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
-      fd_rwlock_unwrite( &banks->locks->banks_lock );
-      return NULL;
-    }
+  if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
+    fd_rwlock_unwrite( &banks->locks->banks_lock );
+    return NULL;
+  }
 
   /* Then make sure that the parent bank is valid and frozen. */
 
@@ -663,6 +653,8 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   }
   child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
   fd_rwlock_new( &bank_l->locks->cost_tracker_lock[ child_bank->idx ] );
+  fd_cost_tracker_new( fd_bank_cost_tracker_locking_modify( bank_l ), banks->data->hash_seed );
+  fd_bank_cost_tracker_end_locking_modify( bank_l );
 
   /* The lthash has already been copied over, we just need to initialize
      the lock for the current bank. */
@@ -1273,11 +1265,12 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
   /* We need to acquire a cost tracker element. */
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks->data );
-  if( FD_UNLIKELY( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( NULL ) ) ) {
-    fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->data->cost_tracker_pool_idx );
+  if( FD_UNLIKELY( bank->data->cost_tracker_pool_idx==fd_bank_cost_tracker_pool_idx_null( NULL ) ) ) {
+    bank->data->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
   }
-  bank->data->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_unwrite( &banks->locks->cost_tracker_lock[ bank->data->idx ] );
+  fd_rwlock_new( &banks->locks->cost_tracker_lock[ bank->data->idx ] );
+  fd_cost_tracker_new( fd_bank_cost_tracker_locking_modify( bank ), banks->data->hash_seed );
+  fd_bank_cost_tracker_end_locking_modify( bank );
 
   bank->data->stake_delegations_delta_dirty = 0;
   fd_rwlock_unwrite( &banks->locks->stake_delegations_delta_lock[ bank->data->idx ] );

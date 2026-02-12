@@ -765,6 +765,9 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
     fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
     FD_TEST( cost_tracker );
     fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
+    if( fd_bank_larger_max_cost_per_block_get( bank ) ) {
+      cost_tracker->block_cost_limit = LARGER_MAX_COST_PER_BLOCK;
+    }
     fd_bank_cost_tracker_end_locking_modify( bank );
   }
 
