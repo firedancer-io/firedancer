@@ -50,6 +50,9 @@
    more ingest, more ready, more done ...
    ... */
 
+#define FD_SCHED_MIN_DEPTH 478
+#define FD_SCHED_MAX_DEPTH FD_RDISP_MAX_DEPTH
+
 struct fd_sched;
 typedef struct fd_sched fd_sched_t;
 
@@ -154,16 +157,33 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_sched_{align,footprint} return the required alignment and
    footprint in bytes for a region of memory to be used as a scheduler.
+   footprint silently returns 0 if params are invalid (thus convenient
+   to validate params).
+
+   depth controls the reorder buffer transaction count (~1 million
+   recommended for live replay, ~10k recommended for async replay).
    block_cnt_max is the maximum number of blocks that will be tracked by
    the scheduler. */
-ulong fd_sched_align    ( void );
-ulong fd_sched_footprint( ulong block_cnt_max );
+
+ulong
+fd_sched_align( void );
+
+ulong
+fd_sched_footprint( ulong depth,           /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MAX_DEPTH] */
+                    ulong block_cnt_max ); /* >= 1 */
+
+/* fd_sched_new creates a sched object backed by the given memory region
+   (conforming to align() and footprint()).  Returns NULL if any
+   parameter is invalid. */
 
 void *
-fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt );
+fd_sched_new( void * mem,
+              ulong  depth,
+              ulong  block_cnt_max,
+              ulong  exec_cnt );
 
 fd_sched_t *
-fd_sched_join( void * mem, ulong block_cnt_max );
+fd_sched_join( void * mem );
 
 /* Add the data in the FEC set to the scheduler.  If is_last_fec is 1,
    then this is the last FEC set in the block.  Transactions may span

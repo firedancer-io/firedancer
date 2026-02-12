@@ -170,6 +170,10 @@ struct fd_configf {
 
   struct {
     int hard_fork_fatal;
+
+    struct {
+      ulong scheduler_depth;
+    } replay;
   } development;
 
   struct {

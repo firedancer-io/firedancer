@@ -1534,6 +1534,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
 
+    tile->replay.sched_depth       = config->firedancer.development.replay.scheduler_depth;
     tile->replay.max_live_slots    = config->firedancer.runtime.max_live_slots;
     tile->replay.write_delay_slots = config->firedancer.vinyl.write_delay_slots;
 
