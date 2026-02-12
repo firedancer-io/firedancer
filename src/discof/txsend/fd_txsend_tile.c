@@ -214,7 +214,7 @@ after_credit( fd_txsend_tile_t *  ctx,
   *charge_busy = fd_quic_service( ctx->quic, fd_log_wallclock() );
   *opt_poll_in = !*charge_busy; /* refetch credits to prevent above documented situation */
 
-  if( FD_UNLIKELY( ctx->leader_schedules<2UL ) ) return;
+  if( FD_UNLIKELY( ctx->voted_slot==ULONG_MAX || ctx->leader_schedules<2UL ) ) return;
 
   fd_pubkey_t const * leaders[ 7UL ];
 
@@ -315,6 +315,10 @@ static inline void
 handle_contact_info_update( fd_txsend_tile_t *                 ctx,
                             fd_gossip_update_message_t const * msg ) {
   peer_entry_t * entry = &ctx->peers[ msg->contact_info.idx ];
+
+  int needs_insert = !entry->initialized || entry->tombstoned;
+  entry->initialized = 1;
+
   if( FD_UNLIKELY( entry->tombstoned ) ) {
     FD_TEST( peer_map_ele_remove( ctx->peer_map, &entry->pubkey, NULL, ctx->peers ) );
     entry->quic_last_connected[ 0 ] = 0L;
@@ -362,7 +366,7 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
     }
   }
 
-  FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
+  if( FD_UNLIKELY( needs_insert ) ) FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
 }
 
 static inline void
@@ -564,7 +568,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_quic_init( ctx->quic ));
 
   for( ulong i=0UL; i<FD_CONTACT_INFO_TABLE_SIZE; i++ ) {
+    ctx->peers[ i ].initialized = 0;
     ctx->peers[ i ].tombstoned = 0;
+
     for( ulong j=0UL; j<2UL; j++ ) {
       ctx->peers[ i ].quic_ip_addrs[ j ] = 0;
       ctx->peers[ i ].quic_ports   [ j ] = 0;
