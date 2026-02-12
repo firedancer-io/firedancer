@@ -39,6 +39,7 @@ struct fd_epoch_info_msg_t {
   ulong                  slot_cnt;          /* Number of slots in the epoch */
   ulong                  excluded_stake;    /* Total stake that is excluded from leader selection */
   ulong                  vote_keyed_lsched; /* Whether vote account keyed leader schedule is active */
+  fd_epoch_schedule_t    epoch_schedule;    /* Epoch schedule */
   fd_features_t          features;          /* Feature activation slots */
   fd_vote_stake_weight_t weights[];         /* Flexible array member (must be last) */
 };

@@ -534,7 +534,7 @@ generate_epoch_info_msg( ulong                       epoch,
 
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
-  epoch_info_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
   epoch_info_msg->excluded_stake    = 0UL;
   epoch_info_msg->vote_keyed_lsched = 1UL;
 
@@ -562,7 +562,8 @@ generate_epoch_info_msg( ulong                       epoch,
   epoch_info_msg->staked_cnt = idx;
   sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
 
-  epoch_info_msg->features = *features;
+  epoch_info_msg->epoch_schedule = *epoch_schedule;
+  epoch_info_msg->features       = *features;
 
   return fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt );
 }
