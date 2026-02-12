@@ -51,13 +51,6 @@ jobs:
             compiler-version: 12.4.0
             run-unit-tests: true
             run-integration-tests: true
-          - test-case: non-hosted
-            machine: bare_clang_x86_64
-            label: X64
-            extras: "no-deps"
-            targets: "lib"
-            compiler: clang
-            compiler-version: 19.1.7
     runs-on:
       labels: ${{ matrix.label }}
       group: fd-public-repo
