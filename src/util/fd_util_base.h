@@ -667,7 +667,11 @@ fd_type_pun_const( void const * p ) {
    UndefinedBehaviorSanitizer instrumentation.  For some functions, this
    can improve instrumented compile time by ~30x. */
 
+#if FD_HAS_MSAN
+#define FD_FN_UNSANITIZED __attribute__((no_sanitize("memory")))
+#else
 #define FD_FN_UNSANITIZED __attribute__((no_sanitize("address", "undefined")))
+#endif
 
 /* FD_FN_SENSITIVE instruments the compiler to sanitize sensitive functions.
    https://eprint.iacr.org/2023/1713 (Sec 3.2)
