@@ -18,7 +18,7 @@
                                                                                 ((!c0)<<0)|((!c1)<<1)|((!c2)<<2)|((!c3)<<3) ) )
 #define wv_mul(a,b)  _mm256_mullo_epi64( (a), (b) ) /* [ a0 *b0     a1 *b1     ... a3 *b3     ] */
 
-FD_FN_PURE void
+FD_FN_UNSANITIZED FD_FN_PURE void
 fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed_,
                               ulong *                    FD_RESTRICT out,
                               void const * FD_RESTRICT * FD_RESTRICT buf_,

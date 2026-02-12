@@ -182,7 +182,9 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   /* Data (set by caller) */
 
   ulong bank_idx;
+  ulong bank_seq;
   ulong parent_bank_idx;
+  ulong parent_bank_seq;
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 
@@ -239,7 +241,7 @@ fd_reasm_delete( void * reasm );
    found, NULL otherwise. */
 
 fd_reasm_fec_t *
-fd_reasm_query( fd_reasm_t const * reasm,
+fd_reasm_query( fd_reasm_t       * reasm,
                 fd_hash_t  const * merkle_root );
 
 /* fd_reasm_{root,parent,child,sibling} returns a pointer in the

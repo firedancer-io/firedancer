@@ -106,7 +106,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * ctx,
 
 #       define EMPTY ((uchar[16]){0})
         /* assume this is a new connection, since this is an Initial packet */
-        if( keys && memcmp( keys->pkt_key, EMPTY, sizeof( keys->pkt_key ) ) != 0 ) {
+        if( memcmp( keys->pkt_key, EMPTY, sizeof( keys->pkt_key ) ) != 0 ) {
           /* load the appropriate cid into peer_conn_id */
           ulong peer_conn_id = key_idx == 0 ? fd_ulong_load_8( initial->src_conn_id )
                                             : fd_ulong_load_8( initial->dst_conn_id );

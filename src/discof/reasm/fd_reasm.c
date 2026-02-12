@@ -81,18 +81,18 @@ fd_reasm_new( void * shmem,
   void * xid      = FD_SCRATCH_ALLOC_APPEND( l, xid_align(),         xid_footprint     ( lgf_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_reasm_align() ) == (ulong)shmem + footprint );
 
-  reasm->slot0    = ULONG_MAX;
-  reasm->root     = pool_idx_null( pool                    );
-  reasm->pool     = pool_new     ( pool,     fec_max       );
-  reasm->ancestry = ancestry_new ( ancestry, fec_max, seed );
-  reasm->frontier = frontier_new ( frontier, fec_max, seed );
-  reasm->orphaned = orphaned_new ( orphaned, fec_max, seed );
-  reasm->subtrees = subtrees_new ( subtrees, fec_max, seed );
-  /*             */ dlist_new    ( reasm->_subtrlf         );
-  reasm->bfs      = bfs_new      ( bfs,      fec_max       );
-  reasm->out      = out_new      ( out,      fec_max       );
-  reasm->bid      = bid_new      ( bid,      lgf_max, seed );
-  reasm->xid      = xid_new      ( xid,      lgf_max, seed );
+  reasm->slot0      = ULONG_MAX;
+  reasm->root       = pool_idx_null( pool                    );
+  reasm->pool_gaddr = fd_wksp_gaddr_fast( wksp, pool_join( pool_new( pool, fec_max ) ) );
+  reasm->ancestry   = ancestry_new( ancestry, fec_max, seed );
+  reasm->frontier   = frontier_new( frontier, fec_max, seed );
+  reasm->orphaned   = orphaned_new( orphaned, fec_max, seed );
+  reasm->subtrees   = subtrees_new( subtrees, fec_max, seed );
+  /*               */ dlist_new   ( reasm->_subtrlf         );
+  reasm->bfs        = bfs_new     ( bfs,      fec_max       );
+  reasm->out        = out_new     ( out,      fec_max       );
+  reasm->bid        = bid_new     ( bid,      lgf_max, seed );
+  reasm->xid        = xid_new     ( xid,      lgf_max, seed );
 
   return shmem;
 }
@@ -105,8 +105,7 @@ fd_reasm_join( void * shreasm ) {
     FD_LOG_WARNING(( "NULL reasm" ));
     return NULL;
   }
-
-  reasm->pool     = pool_join    ( reasm->pool     );
+  /* pool join handled in fd_reasm_new */
   reasm->ancestry = ancestry_join( reasm->ancestry );
   reasm->frontier = frontier_join( reasm->frontier );
   reasm->orphaned = orphaned_join( reasm->orphaned );
@@ -148,14 +147,14 @@ fd_reasm_delete( void * shreasm ) {
   return reasm;
 }
 
-fd_reasm_fec_t       * fd_reasm_root         ( fd_reasm_t       * reasm                                 ) { return pool_ele      ( reasm->pool, reasm->root      ); }
-fd_reasm_fec_t const * fd_reasm_root_const   ( fd_reasm_t const * reasm                                 ) { return pool_ele_const( reasm->pool, reasm->root      ); }
-fd_reasm_fec_t       * fd_reasm_parent       ( fd_reasm_t       * reasm, fd_reasm_fec_t       * child   ) { return pool_ele      ( reasm->pool, child->parent    ); }
-fd_reasm_fec_t const * fd_reasm_parent_const ( fd_reasm_t const * reasm, fd_reasm_fec_t const * child   ) { return pool_ele_const( reasm->pool, child->parent    ); }
-fd_reasm_fec_t       * fd_reasm_child        ( fd_reasm_t       * reasm, fd_reasm_fec_t       * parent  ) { return pool_ele      ( reasm->pool, parent->child    ); }
-fd_reasm_fec_t const * fd_reasm_child_const  ( fd_reasm_t const * reasm, fd_reasm_fec_t const * parent  ) { return pool_ele_const( reasm->pool, parent->child    ); }
-fd_reasm_fec_t       * fd_reasm_sibling      ( fd_reasm_t       * reasm, fd_reasm_fec_t       * sibling ) { return pool_ele      ( reasm->pool, sibling->sibling ); }
-fd_reasm_fec_t const * fd_reasm_sibling_const( fd_reasm_t const * reasm, fd_reasm_fec_t const * sibling ) { return pool_ele_const( reasm->pool, sibling->sibling ); }
+fd_reasm_fec_t       * fd_reasm_root         ( fd_reasm_t       * reasm                                 ) { return pool_ele      ( reasm_pool      ( reasm ), reasm->root      ); }
+fd_reasm_fec_t const * fd_reasm_root_const   ( fd_reasm_t const * reasm                                 ) { return pool_ele_const( reasm_pool_const( reasm ), reasm->root      ); }
+fd_reasm_fec_t       * fd_reasm_parent       ( fd_reasm_t       * reasm, fd_reasm_fec_t       * child   ) { return pool_ele      ( reasm_pool      ( reasm ), child->parent    ); }
+fd_reasm_fec_t const * fd_reasm_parent_const ( fd_reasm_t const * reasm, fd_reasm_fec_t const * child   ) { return pool_ele_const( reasm_pool_const( reasm ), child->parent    ); }
+fd_reasm_fec_t       * fd_reasm_child        ( fd_reasm_t       * reasm, fd_reasm_fec_t       * parent  ) { return pool_ele      ( reasm_pool      ( reasm ), parent->child    ); }
+fd_reasm_fec_t const * fd_reasm_child_const  ( fd_reasm_t const * reasm, fd_reasm_fec_t const * parent  ) { return pool_ele_const( reasm_pool_const( reasm ), parent->child    ); }
+fd_reasm_fec_t       * fd_reasm_sibling      ( fd_reasm_t       * reasm, fd_reasm_fec_t       * sibling ) { return pool_ele      ( reasm_pool      ( reasm ), sibling->sibling ); }
+fd_reasm_fec_t const * fd_reasm_sibling_const( fd_reasm_t const * reasm, fd_reasm_fec_t const * sibling ) { return pool_ele_const( reasm_pool_const( reasm ), sibling->sibling ); }
 
 ulong
 fd_reasm_slot0( fd_reasm_t * reasm ) {
@@ -164,7 +163,7 @@ fd_reasm_slot0( fd_reasm_t * reasm ) {
 
 ulong
 fd_reasm_free( fd_reasm_t * reasm ) {
-  return pool_free( reasm->pool );
+  return pool_free( reasm_pool( reasm ) );
 }
 
 fd_reasm_fec_t *
@@ -172,7 +171,7 @@ fd_reasm_peek( fd_reasm_t * reasm ) {
   for( out_iter_t iter = out_iter_init( reasm->out       );
                         !out_iter_done( reasm->out, iter );
                   iter = out_iter_next( reasm->out, iter ) ) {
-    fd_reasm_fec_t * fec = pool_ele( reasm->pool, *out_iter_ele( reasm->out, iter ) );
+    fd_reasm_fec_t * fec = pool_ele( reasm_pool( reasm ), *out_iter_ele( reasm->out, iter ) );
     if( FD_LIKELY( !fec->popped && ( !fec->eqvoc || fec->confirmed ) ) ) return fec;
   }
   return NULL;
@@ -181,7 +180,7 @@ fd_reasm_peek( fd_reasm_t * reasm ) {
 fd_reasm_fec_t *
 fd_reasm_pop( fd_reasm_t * reasm ) {
   while( FD_LIKELY( !out_empty( reasm->out ) ) ) {
-    fd_reasm_fec_t * fec = pool_ele( reasm->pool, out_pop_head( reasm->out ) );
+    fd_reasm_fec_t * fec = pool_ele( reasm_pool( reasm ), out_pop_head( reasm->out ) );
     if( FD_LIKELY( !fec->popped && ( !fec->eqvoc || fec->confirmed ) ) ) {
       fec->popped = 1;
       return fec;
@@ -191,21 +190,23 @@ fd_reasm_pop( fd_reasm_t * reasm ) {
 }
 
 fd_reasm_fec_t *
-fd_reasm_query( fd_reasm_t const * reasm,
+fd_reasm_query( fd_reasm_t       * reasm,
                 fd_hash_t  const * merkle_root ) {
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
   fd_reasm_fec_t * fec = NULL;
-  fec =                  ancestry_ele_query( reasm->ancestry, merkle_root, NULL, reasm->pool );
-  fec = fd_ptr_if( !fec, frontier_ele_query( reasm->frontier, merkle_root, NULL, reasm->pool ), fec );
-  fec = fd_ptr_if( !fec, orphaned_ele_query( reasm->orphaned, merkle_root, NULL, reasm->pool ), fec );
-  fec = fd_ptr_if( !fec, subtrees_ele_query( reasm->subtrees, merkle_root, NULL, reasm->pool ), fec );
+  fec =                  ancestry_ele_query( reasm->ancestry, merkle_root, NULL, pool );
+  fec = fd_ptr_if( !fec, frontier_ele_query( reasm->frontier, merkle_root, NULL, pool ), fec );
+  fec = fd_ptr_if( !fec, orphaned_ele_query( reasm->orphaned, merkle_root, NULL, pool ), fec );
+  fec = fd_ptr_if( !fec, subtrees_ele_query( reasm->subtrees, merkle_root, NULL, pool ), fec );
   return fec;
 }
 
 void
 fd_reasm_confirm( fd_reasm_t * reasm,
                   fd_hash_t *  block_id ) {
-  fd_reasm_fec_t * fec = ancestry_ele_query( reasm->ancestry, block_id, NULL, reasm->pool );
-  fec = fd_ptr_if( !fec, frontier_ele_query( reasm->frontier, block_id, NULL, reasm->pool ), fec );
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  fd_reasm_fec_t * fec = ancestry_ele_query( reasm->ancestry, block_id, NULL, pool );
+  fec = fd_ptr_if( !fec, frontier_ele_query( reasm->frontier, block_id, NULL, pool ), fec );
 
   /* TODO there is a potential optimization where we don't actually need
      to confirm every FEC and instead just confirm at the slot-level.
@@ -215,7 +216,7 @@ fd_reasm_confirm( fd_reasm_t * reasm,
 
   while( FD_LIKELY( fec && !fec->confirmed ) ) {
     fec->confirmed = 1;
-    if( FD_LIKELY( !fec->popped ) ) out_push_head( reasm->out, pool_idx( reasm->pool, fec ) );
+    if( FD_LIKELY( !fec->popped ) ) out_push_head( reasm->out, pool_idx( pool, fec ) );
     fec = fd_reasm_parent( reasm, fec );
   }
 }
@@ -235,10 +236,11 @@ fd_reasm_confirm( fd_reasm_t * reasm,
 static void
 overwrite_invalid_cmr( fd_reasm_t     * reasm,
                        fd_reasm_fec_t * child ) {
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
   if( FD_UNLIKELY( child->fec_set_idx==0 && !fd_reasm_query( reasm, &child->cmr ) ) ) {
     bid_t * parent_bid = bid_query( reasm->bid, child->slot - child->parent_off, NULL );
     if( FD_LIKELY( parent_bid ) ) {
-      fd_reasm_fec_t * parent = pool_ele( reasm->pool, parent_bid->idx );
+      fd_reasm_fec_t * parent = pool_ele( pool, parent_bid->idx );
       if( FD_LIKELY( parent ) ) {
         FD_BASE58_ENCODE_32_BYTES( child->cmr.key,  cmr_b58        );
         FD_BASE58_ENCODE_32_BYTES( parent->key.key, parent_key_b58 );
@@ -257,7 +259,7 @@ overwrite_invalid_cmr( fd_reasm_t     * reasm,
 static void
 eqvoc( fd_reasm_t     * reasm,
        fd_reasm_fec_t * root ) {
-  fd_reasm_fec_t * pool = reasm->pool;
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
   ulong *          bfs  = reasm->bfs;
   bfs_push_tail( bfs, pool_idx( pool, root ) );
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
@@ -276,13 +278,14 @@ static void
 link( fd_reasm_t     * reasm,
       fd_reasm_fec_t * parent,
       fd_reasm_fec_t * child ) {
-  child->parent = pool_idx( reasm->pool, parent );
-  if( FD_LIKELY( parent->child == pool_idx_null( reasm->pool ) ) ) {
-    parent->child = pool_idx( reasm->pool, child ); /* set as left-child. */
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  child->parent = pool_idx( pool, parent );
+  if( FD_LIKELY( parent->child == pool_idx_null( pool ) ) ) {
+    parent->child = pool_idx( pool, child ); /* set as left-child. */
   } else {
-    fd_reasm_fec_t * sibling = pool_ele( reasm->pool, parent->child );
-    while( FD_LIKELY( sibling->sibling != pool_idx_null( reasm->pool ) ) ) sibling = pool_ele( reasm->pool, sibling->sibling );
-    sibling->sibling = pool_idx( reasm->pool, child ); /* set as right-sibling. */
+    fd_reasm_fec_t * sibling = pool_ele( pool, parent->child );
+    while( FD_LIKELY( sibling->sibling != pool_idx_null( pool ) ) ) sibling = pool_ele( pool, sibling->sibling );
+    sibling->sibling = pool_idx( pool, child ); /* set as right-sibling. */
   }
 }
 
@@ -304,14 +307,13 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   FD_LOG_NOTICE(( "inserting (%lu %u) %s %s. %u %d %d", slot, fec_set_idx, merkle_root_b58, chained_merkle_root_b58, data_cnt, data_complete, slot_complete ));
 # endif
 
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
 # if FD_REASM_USE_HANDHOLDING
-  FD_TEST( pool_free( reasm->pool ) );
+  FD_TEST( pool_free( pool ) );
   FD_TEST( !fd_reasm_query( reasm, merkle_root ) );
 # endif
 
-  fd_reasm_fec_t * pool = reasm->pool;
   ulong            null = pool_idx_null( pool );
-
   ancestry_t * ancestry = reasm->ancestry;
   frontier_t * frontier = reasm->frontier;
   orphaned_t * orphaned = reasm->orphaned;
@@ -340,9 +342,11 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->popped          = 0;
   fec->bank_idx        = null;
   fec->parent_bank_idx = null;
+  fec->bank_seq        = null;
+  fec->parent_bank_seq = null;
 
   if( FD_UNLIKELY( !chained_merkle_root ) ) { /* initialize the reasm with the root */
-    FD_TEST( reasm->root==pool_idx_null( reasm->pool ) );
+    FD_TEST( reasm->root==pool_idx_null( pool ) );
     fec->confirmed      = 1;
     fec->popped         = 1;
     bid_t * bid         = bid_insert( reasm->bid, slot );
@@ -362,7 +366,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   if( FD_UNLIKELY( slot_complete ) ) {
     bid_t * bid = bid_query( reasm->bid, slot, NULL );
     if( FD_UNLIKELY( bid ) ) {
-      fd_reasm_fec_t * orig_fec = pool_ele( reasm->pool, bid->idx );
+      fd_reasm_fec_t * orig_fec = pool_ele( pool, bid->idx );
       FD_BASE58_ENCODE_32_BYTES( orig_fec->key.key, prev_block_id_b58 );
       FD_BASE58_ENCODE_32_BYTES( fec->key.key,      curr_block_id_b58 );
       FD_LOG_WARNING(( "equivocating block_id for FEC slot: %lu fec_set_idx: %u prev: %s curr: %s", fec->slot, fec->fec_set_idx, prev_block_id_b58, curr_block_id_b58 )); /* it's possible there's equivocation... */
@@ -412,7 +416,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     bfs_push_tail( bfs, dlist_iter_idx( iter, dlist, pool ) );
   }
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
-    fd_reasm_fec_t * orphan_root = pool_ele( reasm->pool, bfs_pop_head( bfs ) );
+    fd_reasm_fec_t * orphan_root = pool_ele( pool, bfs_pop_head( bfs ) );
     overwrite_invalid_cmr( reasm, orphan_root ); /* case 2: received child before parent */
     if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
       link( reasm, fec, orphan_root );
@@ -465,11 +469,11 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   if( FD_LIKELY( !xid ) ) {
     xid = xid_insert( reasm->xid, ( slot << 32 ) | fec_set_idx );
     if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx ));
-    xid->idx = pool_idx( reasm->pool, fec );
+    xid->idx = pool_idx( pool, fec );
   }
   else {
     eqvoc( reasm, fec );
-    eqvoc( reasm, pool_ele( reasm->pool, xid->idx ) );
+    eqvoc( reasm, pool_ele( pool, xid->idx ) );
   }
   if( FD_UNLIKELY( parent && parent->eqvoc && !parent->confirmed ) ) eqvoc( reasm, fec );
 
@@ -481,15 +485,16 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 static fd_reasm_fec_t *
 publish_remove( fd_reasm_t *      reasm,
                 fd_hash_t const * merkle_root ) {
-  fd_reasm_fec_t *          fec = ancestry_ele_remove( reasm->ancestry, merkle_root, NULL, reasm->pool );
-  if( FD_UNLIKELY( !fec ) ) fec = frontier_ele_remove( reasm->frontier, merkle_root, NULL, reasm->pool );
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  fd_reasm_fec_t *          fec = ancestry_ele_remove( reasm->ancestry, merkle_root, NULL, pool );
+  if( FD_UNLIKELY( !fec ) ) fec = frontier_ele_remove( reasm->frontier, merkle_root, NULL, pool );
   return fec;
 }
 
 fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
 # if FD_REASM_USE_HANDHOLDING
-  if( FD_UNLIKELY( !pool_ele( reasm->pool, reasm->root ) ) ) { FD_LOG_WARNING(( "missing root" )); return NULL; }
+  if( FD_UNLIKELY( !pool_ele( reasm_pool( reasm ), reasm->root ) ) ) { FD_LOG_WARNING(( "missing root" )); return NULL; }
   if( FD_UNLIKELY( !fd_reasm_query( reasm, merkle_root ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( merkle_root->key, merkle_root_b58 );
     FD_LOG_WARNING(( "merkle root %s not found", merkle_root_b58 ));
@@ -497,7 +502,7 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
   }
 # endif
 
-  fd_reasm_fec_t *  pool = reasm->pool;
+  fd_reasm_fec_t *  pool = reasm_pool( reasm );
   ulong             null = pool_idx_null( pool );
   fd_reasm_fec_t  * oldr = pool_ele( pool, reasm->root );
   fd_reasm_fec_t  * newr = fd_reasm_query( reasm, merkle_root );
@@ -554,7 +559,7 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
 
 FD_FN_UNUSED static void
 print( fd_reasm_t const * reasm, fd_reasm_fec_t const * fec, int space, const char * prefix ) {
-  fd_reasm_fec_t * pool = reasm->pool;
+  fd_reasm_fec_t const * pool = reasm_pool_const( reasm );
 
   if( fec == NULL ) return;
 
@@ -577,36 +582,65 @@ print( fd_reasm_t const * reasm, fd_reasm_fec_t const * fec, int space, const ch
   }
 }
 
+static void
+ancestry_print( fd_reasm_t const * reasm, fd_reasm_fec_t const * fec, int space, const char * prefix, fd_reasm_fec_t const * prev, ulong recurse_depth ) {
+  fd_reasm_fec_t const * pool = reasm_pool_const( reasm );
+  if( fec == NULL ) return;
+  recurse_depth++;
+  if( recurse_depth == 2048 ) {
+    FD_BASE58_ENCODE_32_BYTES( fec->key.key, key_b58 );
+    FD_LOG_NOTICE(("Cutting off ancestry print at depth %lu, slot %lu. Continue printing with this root key %s.", recurse_depth, fec->slot, key_b58 ));
+    return;
+  }
+  fd_reasm_fec_t const * child = fd_reasm_child_const( reasm, fec );
+
+  if( !prev ||  /* root OR */
+      ( fec->slot_complete || (!prev->eqvoc && fec->eqvoc) || fec->child == pool_idx_null( pool ) || child->sibling != pool_idx_null( pool ) )) {
+    if( space > 0 ) printf( "\n" );
+    for( int i = 0; i < space; i++ ) printf( " " );
+    printf( "%s", prefix );
+
+    FD_BASE58_ENCODE_32_BYTES( fec->key.key, key_b58 );
+    key_b58[5] = '\0'; /* only print first 5 characters of key_b58 */
+    printf( "%lu(%u) %s", fec->slot, fec->fec_set_idx, key_b58 );
+    if( fec->eqvoc )     printf( " [eqvoc]" );
+    if( fec->is_leader ) printf( " [leader]" );
+    space += 5;
+    fflush(stdout);
+  }
+
+  char new_prefix[1024]; /* FIXME size this correctly */
+
+  while( child ) {
+    if( pool_ele_const( pool, child->sibling ) ) {
+      sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
+      ancestry_print( reasm, child, space, new_prefix, fec, recurse_depth );
+    } else {
+      sprintf( new_prefix, "└── " ); /* end branch */
+      ancestry_print( reasm, child, space, new_prefix, fec, recurse_depth );
+    }
+    child = pool_ele_const( pool, child->sibling );
+  }
+}
+
 void
 fd_reasm_print( fd_reasm_t const * reasm ) {
   FD_LOG_NOTICE( ( "\n\n[Reasm]" ) );
-  fd_reasm_fec_t * pool = reasm->pool;
+  fd_reasm_fec_t const * pool = reasm_pool_const( reasm );
 
-  printf( "\n\n[Frontier]\n" );
-  frontier_t * frontier = reasm->frontier;
-  for( frontier_iter_t iter = frontier_iter_init(       frontier, pool );
-                             !frontier_iter_done( iter, frontier, pool );
-                       iter = frontier_iter_next( iter, frontier, pool ) ) {
-    fd_reasm_fec_t const * fec = pool_ele_const( reasm->pool, iter.ele_idx );
-    FD_BASE58_ENCODE_32_BYTES( fec->key.key, key_b58 );
-    printf( "(%lu, %u) %s\n", fec->slot, fec->fec_set_idx, key_b58 );
+  if( FD_LIKELY( reasm->root != pool_idx_null( pool ) ) ) {
+    printf( "\n\n[Connected Fecs]\n" );
+    ancestry_print( reasm, fd_reasm_root_const( reasm ), 0, "", NULL, 0 );
   }
 
-  printf( "\n\n[Subtrees]\n" );
-  subtrees_t * subtrees = reasm->subtrees;
-  for( subtrees_iter_t iter = subtrees_iter_init(       subtrees, pool );
-                             !subtrees_iter_done( iter, subtrees, pool );
-                       iter = subtrees_iter_next( iter, subtrees, pool ) ) {
-    fd_reasm_fec_t const * fec = pool_ele_const( reasm->pool, iter.ele_idx );
-    FD_BASE58_ENCODE_32_BYTES( fec->key.key, key_b58 );
-    printf( "(%lu, %u) %s\n", fec->slot, fec->fec_set_idx, key_b58 );
+  printf( "\n\n[Unconnected Fecs]\n" );
+  dlist_t const * subtreel = reasm->_subtrlf;
+  for( dlist_iter_t iter = dlist_iter_fwd_init( subtreel,       pool );
+                          !dlist_iter_done    ( iter, subtreel, pool );
+                    iter = dlist_iter_fwd_next( iter, subtreel, pool ) ) {
+    fd_reasm_fec_t const * fec = pool_ele_const( pool, iter );
+    ancestry_print( reasm, fec, 0, "", NULL, 0 );
   }
-
-  // print( reasm, pool_ele_const( reasm->pool, reasm->root ), 0, "" );
-  // printf( "\n\n" );
-  // for( out_iter_t iter = out_iter_init( reasm->out ); !out_iter_done( reasm->out, iter ); iter = out_iter_next( reasm->out, iter ) ) {
-  //   ulong * idx = out_iter_ele( reasm->out, iter );
-  //   printf( "%s\n", FD_BASE58_ENC_32_ALLOCA( pool_ele_const( reasm->pool, *idx ) ) );
-  // }
   printf( "\n\n" );
+  fflush(stdout);
 }

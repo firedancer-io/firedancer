@@ -254,6 +254,7 @@ typedef struct {
     };
   } pending_batch;
 
+  fd_epoch_schedule_t            epoch_schedule[1];
   fd_shred_features_activation_t features_activation[1];
   /* too large to be left in the stack */
   fd_shred_dest_idx_t scratchpad_dests[ FD_SHRED_DEST_MAX_FANOUT*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
@@ -271,32 +272,25 @@ typedef struct {
    efficient check (shred_slot >= feature_slot) and avoids the overhead of
    repeatedly converting slots into epochs for comparison.
 
+   This function is only for Firedancer, while Frankendancer already receives
+   the final activation slot from POH tile.
+
    In Agave, this is done with check_feature_activation():
    https://github.com/anza-xyz/agave/blob/v3.1.4/turbine/src/cluster_nodes.rs#L771
-   https://github.com/anza-xyz/agave/blob/v3.1.4/core/src/shred_fetch_stage.rs#L456
-
-   Note that this function does not currently handle warmup epochs (i.e.,
-   local clusters).  This limitation is acceptable for now, as it only
-   affects thetransition period during which a feature is being
-   implemented and activated. */
+   https://github.com/anza-xyz/agave/blob/v3.1.4/core/src/shred_fetch_stage.rs#L456 */
 static inline ulong
 fd_shred_get_feature_activation_slot0( ulong feature_slot, fd_shred_ctx_t * ctx ) {
   /* if the feature does not have an activation slot yet, return ULONG_MAX */
   if( FD_UNLIKELY( feature_slot==ULONG_MAX ) ) {
     return ULONG_MAX;
   }
-  /* we need info about the epoch schedule (specifically slot_cnt).
-     if we don't know any schedule (yet), we return ULONG_MAX, i.e. feature inactive. */
-  fd_epoch_leaders_t * lsched = ctx->stake_ci->epoch_info[ 0 ].lsched
-    ? ctx->stake_ci->epoch_info[ 0 ].lsched
-    : ctx->stake_ci->epoch_info[ 1 ].lsched;
-  if( lsched==NULL ) {
+  /* if we don't have an epoch schedule yet, return ULONG_MAX */
+  if( FD_UNLIKELY( ctx->epoch_schedule->slots_per_epoch==0 ) ) {
     return ULONG_MAX;
   }
   /* compute the activation epoch, add one, return the first slot. */
-  fd_epoch_schedule_t default_schedule[1] = {{ lsched->slot_cnt, lsched->slot_cnt, 0, 0, 0 }};
-  ulong feature_epoch = 1 + fd_slot_to_epoch( default_schedule, feature_slot, NULL );
-  return fd_epoch_slot0( default_schedule, feature_epoch );
+  ulong feature_epoch = 1 + fd_slot_to_epoch( ctx->epoch_schedule, feature_slot, NULL );
+  return fd_epoch_slot0( ctx->epoch_schedule, feature_epoch );
 }
 
 FD_FN_CONST static inline ulong
@@ -468,14 +462,11 @@ during_frag( fd_shred_ctx_t * ctx,
 
     fd_stake_ci_epoch_msg_init( ctx->stake_ci, epoch_msg );
 
-    /* Store the feature activation slots, note that they will be incorrect
-       from the shred tile's POV until after_frag, as the conversion to the
-       correct epoch+1 slot cannot happen until fd_stake_ci_epoch_msg_fini
-       commits the new lsched.
-
-       This avoids activating the feature prematurely before we have an lsched. */
-    ctx->features_activation->enforce_fixed_fec_set     = epoch_msg->features.enforce_fixed_fec_set;
-    ctx->features_activation->switch_to_chacha8_turbine = epoch_msg->features.switch_to_chacha8_turbine;
+    *ctx->epoch_schedule                                = epoch_msg->epoch_schedule;
+    ctx->features_activation->enforce_fixed_fec_set     = fd_shred_get_feature_activation_slot0(
+      epoch_msg->features.enforce_fixed_fec_set, ctx );
+    ctx->features_activation->switch_to_chacha8_turbine = fd_shred_get_feature_activation_slot0(
+      epoch_msg->features.switch_to_chacha8_turbine, ctx );
 
     return;
   }
@@ -497,9 +488,7 @@ during_frag( fd_shred_ctx_t * ctx,
       /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
           the shred tile needs to be aware of.  Since this requires the
           bank, we are forced (so far) to receive them from the poh tile
-          (as a POH_PKT_TYPE_FEAT_ACT_SLOT).  This is not elegant, and it
-          should be revised in the future (TODO), but it provides a
-          "temporary" working solution to handle features activation. */
+          (as a POH_PKT_TYPE_FEAT_ACT_SLOT). */
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_features_activation_t)) ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
@@ -507,10 +496,6 @@ during_frag( fd_shred_ctx_t * ctx,
 
       fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
       memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
-
-      for( ulong i=0; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
-        ctx->features_activation->slots[i] = fd_shred_get_feature_activation_slot0( ctx->features_activation->slots[i], ctx );
-      }
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending
@@ -852,12 +837,6 @@ after_frag( fd_shred_ctx_t *    ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_stake_ci_epoch_msg_fini( ctx->stake_ci );
-
-    /* Correct the feature activation slots to the epoch+1 slot */
-    for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
-      ctx->features_activation->slots[i] =
-        fd_shred_get_feature_activation_slot0( ctx->features_activation->slots[i], ctx );
-    }
     return;
   }
 
@@ -1521,8 +1500,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_batch.slot           = 0UL;
   memset( ctx->pending_batch.payload, 0, sizeof(ctx->pending_batch.payload) );
 
-  for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ )
+  memset( ctx->epoch_schedule, 0, sizeof(ctx->epoch_schedule) );
+  for( ulong i=0UL; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
     ctx->features_activation->slots[i] = FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED;
+  }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

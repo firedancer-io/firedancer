@@ -10,7 +10,6 @@
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
 
-#define FD_SCHED_MAX_DEPTH                 (FD_RDISP_MAX_DEPTH>>2)
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
 #define FD_SCHED_MAX_EXEC_TILE_CNT         (64UL)
@@ -37,6 +36,9 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(fd_microblock_hdr_t), resize buffer for res
 FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for residual data );
 
 #define FD_SCHED_MAX_TXN_PER_FEC           ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/FD_TXN_MIN_SERIALIZED_SZ+1UL) /* 478 */
+
+FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
+FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
 
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
 
@@ -215,6 +217,7 @@ struct fd_sched {
   ulong               print_buf_sz;
   fd_sched_metrics_t  metrics[ 1 ];
   ulong               canary; /* == FD_SCHED_MAGIC */
+  ulong               depth;         /* Immutable. */
   ulong               block_cnt_max; /* Immutable. */
   ulong               exec_cnt;      /* Immutable. */
   long                txn_in_flight_last_tick;
@@ -232,8 +235,8 @@ struct fd_sched {
   ulong               staged_head_bank_idx[ FD_SCHED_MAX_STAGING_LANES ]; /* Head of the linear chain in each staging lane, ignored if bit i is
                                                                              not set in the bitset. */
   ulong               txn_pool_free_cnt;
-  fd_txn_p_t          txn_pool[ FD_SCHED_MAX_DEPTH ];
-  uint                txn_idx_to_parse_idx[ FD_SCHED_MAX_DEPTH ];
+  fd_txn_p_t *        txn_pool;
+  uint *              txn_idx_to_parse_idx;
   ulong               tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
   txn_bitset_t        exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
   txn_bitset_t        sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
@@ -483,13 +486,13 @@ print_histogram( fd_sched_t * sched, fd_histf_t * hist, ulong converter, char * 
 FD_FN_UNUSED static void
 print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
   fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, FD_SCHED_MAX_DEPTH, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
   fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, prev_tick_hashcnt %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, FD_SCHED_MAX_DEPTH, block->block_pool_max_popcnt, sched->block_cnt_max, block->prev_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->prev_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -509,7 +512,7 @@ print_metrics( fd_sched_t * sched ) {
 FD_FN_UNUSED static void
 print_sched( fd_sched_t * sched ) {
   fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
-                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->txn_pool_free_cnt, FD_SCHED_MAX_DEPTH, sched->block_pool_popcnt, sched->block_cnt_max );
+                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
   fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
   if( active_block ) print_block_debug( sched, active_block );
   for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
@@ -540,35 +543,73 @@ handle_bad_block( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 /* Public functions. */
 
-ulong fd_sched_align( void ) {
+ulong
+fd_sched_align( void ) {
   return fd_ulong_max( alignof(fd_sched_t),
          fd_ulong_max( fd_rdisp_align(),
          fd_ulong_max( alignof(fd_sched_block_t), 64UL ))); /* Minimally cache line aligned. */
 }
 
 ulong
-fd_sched_footprint( ulong block_cnt_max ) {
+fd_sched_footprint( ulong depth,
+                    ulong block_cnt_max ) {
+  if( FD_UNLIKELY( depth<FD_SCHED_MIN_DEPTH || depth>FD_SCHED_MAX_DEPTH ) ) return 0UL; /* bad depth */
+  if( FD_UNLIKELY( !block_cnt_max ) ) return 0UL; /* bad block_cnt_max */
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
-  l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) ); /* dispatcher */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  ); /* block pool */
-  l = FD_LAYOUT_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )                        );
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                         );
+  l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( depth, block_cnt_max ) ); /* dispatcher */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)     ); /* block pool */
+  l = FD_LAYOUT_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )           );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txn_p_t),       depth*sizeof(fd_txn_p_t)                   ); /* txn_pool */
+  l = FD_LAYOUT_APPEND( l, sizeof(uint),              depth*sizeof(uint)                         ); /* txn_idx_to_parse_idx */
   return FD_LAYOUT_FINI( l, fd_sched_align() );
 }
 
 void *
-fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt ) {
-  FD_TEST( exec_cnt && exec_cnt<=FD_SCHED_MAX_EXEC_TILE_CNT );
+fd_sched_new( void * mem,
+              ulong  depth,
+              ulong  block_cnt_max,
+              ulong  exec_cnt ) {
+
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_sched_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem (%p)", mem ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( depth<32UL || depth>FD_SCHED_MAX_DEPTH ) ) {
+    FD_LOG_WARNING(( "bad depth (%lu)", depth ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !block_cnt_max ) ) {
+    FD_LOG_WARNING(( "bad block_cnt_max (%lu)", block_cnt_max ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !exec_cnt || exec_cnt>FD_SCHED_MAX_EXEC_TILE_CNT ) ) {
+    FD_LOG_WARNING(( "bad exec_cnt (%lu)", exec_cnt ));
+    return NULL;
+  }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_sched_t * sched = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
-  void * _rdisp      = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) );
-  void * _bpool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  );
-  void * _ref_q      = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )                        );
+  fd_sched_t * sched    = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                         );
+  void *       _rdisp   = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( depth, block_cnt_max ) );
+  void *       _bpool   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)     );
+  void *       _ref_q   = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )           );
+  fd_txn_p_t * txn_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),       depth*sizeof(fd_txn_p_t)                   );
+  uint * txn_idx_to_parse_idx = FD_SCRATCH_ALLOC_APPEND( l, sizeof(uint),        depth*sizeof(uint)                         );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
+  sched->txn_pool             = txn_pool;
+  sched->txn_idx_to_parse_idx = txn_idx_to_parse_idx;
+
   ulong seed = ((ulong)fd_tickcount()) ^ FD_SCHED_MAGIC;
-  fd_rdisp_new( _rdisp, FD_SCHED_MAX_DEPTH, block_cnt_max, seed );
+  fd_rdisp_new( _rdisp, depth, block_cnt_max, seed );
 
   fd_sched_block_t * bpool = (fd_sched_block_t *)_bpool;
   for( ulong i=0; i<block_cnt_max; i++ ) {
@@ -582,6 +623,7 @@ fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt ) {
   sched->txn_in_flight_last_tick = LONG_MAX;
 
   sched->canary               = FD_SCHED_MAGIC;
+  sched->depth                = depth;
   sched->block_cnt_max        = block_cnt_max;
   sched->exec_cnt             = exec_cnt;
   sched->root_idx             = ULONG_MAX;
@@ -593,7 +635,7 @@ fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt ) {
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->poh_ready_bitset[ 0 ]       = fd_ulong_mask_lsb( (int)exec_cnt );
 
-  sched->txn_pool_free_cnt = FD_SCHED_MAX_DEPTH-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
+  sched->txn_pool_free_cnt = depth-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
 
   txn_bitset_new( sched->exec_done_set );
   txn_bitset_new( sched->sigverify_done_set );
@@ -607,17 +649,24 @@ fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt ) {
 }
 
 fd_sched_t *
-fd_sched_join( void * mem, ulong block_cnt_max ) {
-  fd_sched_t * sched = (fd_sched_t *)mem;
+fd_sched_join( void * mem ) {
+
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  fd_sched_t * sched         = (fd_sched_t *)mem;
+  ulong        depth         = sched->depth;
+  ulong        block_cnt_max = sched->block_cnt_max;
 
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
-  FD_TEST( sched->block_cnt_max==block_cnt_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  /*           */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
-  void * _rdisp = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) );
-  void * _bpool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  );
-  void * _ref_q = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )                        );
+  /*           */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                         );
+  void * _rdisp = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( depth, block_cnt_max ) );
+  void * _bpool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)     );
+  void * _ref_q = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )           );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->rdisp      = fd_rdisp_join( _rdisp );
@@ -793,7 +842,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     }
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, FD_SCHED_MAX_DEPTH-sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
   if( FD_UNLIKELY( block->dying ) ) {
@@ -957,7 +1006,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu is not activatable nor has anything in-flight", sched->active_bank_idx ));
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, FD_SCHED_MAX_DEPTH-sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
   if( FD_UNLIKELY( !block->block_start_signaled ) ) {
@@ -1161,7 +1210,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
     case FD_SCHED_TT_TXN_EXEC:
     case FD_SCHED_TT_TXN_SIGVERIFY: {
       (void)data;
-      FD_TEST( txn_idx<FD_SCHED_MAX_DEPTH );
+      FD_TEST( txn_idx < sched->depth );
       bank_idx = sched->tile_to_bank_idx[ exec_idx ];
       break;
     }
@@ -1189,7 +1238,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
                   block->slot, block->parent_slot ));
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, FD_SCHED_MAX_DEPTH-sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
   int exec_tile_idx = (int)exec_idx;
@@ -1276,6 +1325,8 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         } else {
           /* This is a tick.  No need to mixin.  Check the hash value
              right away. */
+          block->poh_hash_cmp_done_cnt++;
+          mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, msg->mblk_idx );
           if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk_desc->end_hash, sizeof(fd_hash_t) ) ) ) {
             FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
             FD_BASE58_ENCODE_32_BYTES( mblk_desc->end_hash->hash, ref_str );
@@ -1283,8 +1334,6 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
             handle_bad_block( sched, block );
             return -1;
           }
-          block->poh_hash_cmp_done_cnt++;
-          mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, msg->mblk_idx );
         }
         /* Try to drain the mixin queue. */
         int mixin_res;
@@ -1588,7 +1637,7 @@ add_block( fd_sched_t * sched,
   block->mblk_tick_cnt               = 0U;
   block->mblk_unhashed_cnt           = 0U;
   block->hashcnt                     = 0UL;
-  block->txn_pool_max_popcnt         = FD_SCHED_MAX_DEPTH-sched->txn_pool_free_cnt;
+  block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt;
   block->block_pool_max_popcnt       = sched->block_pool_popcnt;
 
   mblk_in_progress_bitset_full( block->mblk_in_progress_pool_free_bitset );
@@ -2024,6 +2073,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   int rv = 2;
   if( FD_LIKELY( mblk->curr_txn_idx==mblk_desc->end_txn_idx ) ) {
     /* Ready to compute the final hash for this microblock. */
+    block->poh_hash_cmp_done_cnt++;
+    mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, in_progress_idx );
     uchar * root = fd_bmtree_commit_fini( block->bmtree );
     uchar mixin_buf[ 64 ];
     fd_memcpy( mixin_buf, mblk->curr_hash, 32UL );
@@ -2035,8 +2086,6 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
       FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %u, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk->mblk_idx, our_str, ref_str, mblk_desc->hashcnt, start_txn_idx, mblk_desc->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
       return -1;
     }
-    block->poh_hash_cmp_done_cnt++;
-    mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, in_progress_idx );
   } else {
     /* There are more transactions to mixin in this microblock. */
     mblk_in_progress_slist_idx_push_head( block->mblks_mixin_in_progress, in_progress_idx, block->mblk_in_progress_pool );

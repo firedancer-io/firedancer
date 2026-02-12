@@ -397,6 +397,7 @@ struct fd_topo_tile {
       int    wait_for_vote_to_start_leader;
 
       ulong heap_size_gib;
+      ulong sched_depth;
       ulong max_live_slots;
       ulong write_delay_slots;
 

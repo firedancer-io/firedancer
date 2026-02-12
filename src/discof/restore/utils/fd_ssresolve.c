@@ -260,7 +260,7 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
   char const * location     = NULL;
 
   for( ulong i=0UL; i<header_cnt; i++ ) {
-    if( FD_UNLIKELY( !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
+    if( FD_UNLIKELY( headers[ i ].name_len == 8 && !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
       if( FD_UNLIKELY( !headers [ i ].value_len || headers[ i ].value[ 0 ]!='/' ) ) {
         FD_LOG_WARNING(( "invalid location header `%.*s`", (int)headers[ i ].value_len, headers[ i ].value ));
         return FD_SSRESOLVE_ADVANCE_ERROR;
@@ -270,6 +270,11 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
       location = headers[ i ].value;
       break;
     }
+  }
+
+  if( FD_UNLIKELY( !location_len ) ) {
+    FD_LOG_WARNING(( "no location header in redirect response" ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
   if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) return FD_SSRESOLVE_ADVANCE_ERROR;

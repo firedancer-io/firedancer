@@ -1944,3 +1944,10 @@ telemetry = true
     # the layout will be ignored.
     [development.snapshots]
         disable_lthash_verification = true
+
+    [development.replay]
+        # scheduler_depth controls the number of transactions tracked by
+        # the replay scheduler.  Larger values can result in faster
+        # replay times (particularly during heavy forking) at the cost
+        # of greater memory use.
+        scheduler_depth = 1048576

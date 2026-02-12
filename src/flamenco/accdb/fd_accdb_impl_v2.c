@@ -1,6 +1,7 @@
 #include "fd_accdb_impl_v2.h"
 #include "fd_accdb_funk.h"
 #include "fd_vinyl_req_pool.h"
+#include <stdatomic.h>
 
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v2_t)<=alignof(fd_accdb_user_t), layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_user_v2_t)<=sizeof(fd_accdb_user_t),  layout );
@@ -132,12 +133,16 @@ funk_rec_acquire( fd_accdb_user_v2_t const * accdb,
                   _Bool                      is_write ) {
   *out_rec = NULL;
 
+  fd_accdb_lineage_t const *                    lineage   = accdb->lineage;
   fd_funk_rec_map_shmem_t const *               shmap     = accdb->funk->rec_map->map;
   fd_funk_rec_map_shmem_private_chain_t const * chain_tbl = fd_funk_rec_map_shmem_private_chain_const( shmap, 0UL );
   fd_funk_rec_map_shmem_private_chain_t const * chain     = chain_tbl + chain_idx;
   fd_funk_rec_t *                               rec_tbl   = accdb->funk->rec_pool->ele;
   ulong                                         rec_max   = fd_funk_rec_pool_ele_max( accdb->funk->rec_pool );
-  ulong                                         ver_cnt   = FD_VOLATILE_CONST( chain->ver_cnt );
+
+  uint            ele_idx   = chain->head_cidx;
+  ulong _Atomic * ver_cnt_p = (ulong _Atomic *)&chain->ver_cnt;
+  ulong           ver_cnt   = atomic_load_explicit( ver_cnt_p, memory_order_acquire );
 
   /* Start a speculative transaction for the chain containing revisions
      of the account key we are looking for. */
@@ -145,33 +150,40 @@ funk_rec_acquire( fd_accdb_user_v2_t const * accdb,
   if( FD_UNLIKELY( fd_funk_rec_map_private_vcnt_ver( ver_cnt )&1 ) ) {
     return ACQUIRE_FAILED; /* chain is locked */
   }
-  FD_COMPILER_MFENCE();
-  uint ele_idx = chain->head_cidx;
 
   /* Walk the map chain, bail at the first entry
      (Each chain is sorted newest-to-oldest) */
   fd_funk_rec_t * best = NULL;
-  for( ulong i=0UL; i<cnt; i++, ele_idx=rec_tbl[ ele_idx ].map_next ) {
+  for( ulong i=0UL; i<cnt; i++ ) {
+    uint ele_next = rec_tbl[ ele_idx ].map_next;
+    if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
+      return ACQUIRE_FAILED;
+    }
+
+    if( FD_UNLIKELY( ele_idx>=rec_max ) ) {
+      FD_LOG_CRIT(( "funk_rec_acquire detected memory corruption: invalid ele_idx at node %lu:%u (rec_max %lu)",
+                    chain_idx, ele_idx, rec_max ));
+    }
+
     fd_funk_rec_t * rec = &rec_tbl[ ele_idx ];
 
     /* Skip over unrelated records (hash collision) */
-    if( FD_UNLIKELY( !fd_funk_rec_key_eq( rec->pair.key, key ) ) ) continue;
+    if( FD_UNLIKELY( !fd_funk_rec_key_eq( rec->pair.key, key ) ) ) goto next;
 
-    /* Confirm that record is part of the current fork
-       FIXME this has bad performance / pointer-chasing */
-    if( FD_UNLIKELY( !fd_accdb_lineage_has_xid( accdb->lineage, rec->pair.xid ) ) ) continue;
+    /* Confirm that record is part of the current fork */
+    if( FD_UNLIKELY( !fd_accdb_lineage_has_xid( lineage, rec->pair.xid ) ) ) goto next;
 
-    if( FD_UNLIKELY( rec->map_next==ele_idx ) ) {
-      FD_LOG_CRIT(( "fd_accdb_search_chain detected cycle" ));
-    }
-    if( rec->map_next > rec_max ) {
-      if( FD_UNLIKELY( !fd_funk_rec_map_private_idx_is_null( rec->map_next ) ) ) {
-        FD_LOG_CRIT(( "fd_accdb_search_chain detected memory corruption: rec->map_next %u is out of bounds (rec_max %lu)",
-                      rec->map_next, rec_max ));
-      }
+    if( FD_UNLIKELY( ele_next==ele_idx ) ) {
+      FD_LOG_CRIT(( "funk_rec_acquire detected cycle" ));
     }
     best = rec;
     break;
+
+next:
+    ele_idx = ele_next;
+  }
+  if( FD_UNLIKELY( !best && ele_idx!=FD_FUNK_REC_IDX_NULL ) ) {
+    FD_LOG_CRIT(( "funk_rec_acquire detected malformed chain (%lu): found more nodes than chain header indicated (%lu)", chain_idx, cnt ));
   }
 
   /* Found a record, acquire a lock */
@@ -190,7 +202,7 @@ funk_rec_acquire( fd_accdb_user_v2_t const * accdb,
   }
 
   /* Retry if there was contention at the hash map */
-  if( FD_UNLIKELY( FD_VOLATILE_CONST( chain->ver_cnt )!=ver_cnt ) ) {
+  if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
     if( best ) {
       if( is_write ) fd_funk_rec_write_unlock( best );
       else           fd_funk_rec_read_unlock ( best );

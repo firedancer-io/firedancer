@@ -520,6 +520,7 @@ extern int * fd_log_private_shared_lock;
 
 static void
 backtest_cmd_topo( config_t * config ) {
+  config->firedancer.development.replay.scheduler_depth = 8192UL;
   backtest_topo( config );
 }
 
