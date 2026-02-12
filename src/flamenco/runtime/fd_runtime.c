@@ -456,8 +456,8 @@ fd_feature_activate( fd_bank_t *               bank,
   if( FD_UNLIKELY( !fd_feature_decode( &feature, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ) ) ) {
     FD_LOG_WARNING(( "cannot activate feature %s, corrupt account data", addr_b58 ));
     FD_LOG_HEXDUMP_NOTICE(( "corrupt feature account", fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ));
-    fd_accdb_close_ro( accdb, ro );
   }
+  fd_accdb_close_ro( accdb, ro );
 
   if( feature.is_active ) {
     FD_LOG_DEBUG(( "feature %s already activated at slot %lu", addr_b58, feature.activation_slot ));
