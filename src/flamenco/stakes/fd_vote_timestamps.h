@@ -44,6 +44,10 @@ fd_vote_timestamps_t *
 fd_vote_timestamps_join( void * shmem );
 
 ushort
+fd_vote_timestamps_init( fd_vote_timestamps_t * vote_ts,
+                         ulong                  slot );
+
+ushort
 fd_vote_timestamps_attach_child( fd_vote_timestamps_t * vote_ts,
                                  ushort                 parent_fork_idx,
                                  ulong                  slot );
@@ -59,8 +63,20 @@ fd_vote_timestamps_insert( fd_vote_timestamps_t * vote_ts,
                            ulong                  timestamp );
 
 void
-fd_vote_times_stamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
+fd_vote_timestamps_insert_root( fd_vote_timestamps_t * vote_ts,
+                                fd_pubkey_t            pubkey,
+                                ulong                  timestamp );
+
+void
+fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
                                     ushort                 fork_idx );
+
+ushort
+fd_vote_timestamps_slot_votes_cnt( fd_vote_timestamps_t * vote_ts,
+                                   ushort                 fork_idx );
+
+uint
+fd_vote_timestamps_index_cnt( fd_vote_timestamps_t * vote_ts );
 
 FD_PROTOTYPES_END
 
