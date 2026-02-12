@@ -275,6 +275,9 @@ typedef struct {
    https://github.com/anza-xyz/agave/blob/v3.1.4/turbine/src/cluster_nodes.rs#L771
    https://github.com/anza-xyz/agave/blob/v3.1.4/core/src/shred_fetch_stage.rs#L456
 
+   This function is only for Firedancer, while Frankendancer already receives
+   the final activation slot from POH tile.
+
    Note that this function does not currently handle warmup epochs (i.e.,
    local clusters).  This limitation is acceptable for now, as it only
    affects thetransition period during which a feature is being
@@ -497,9 +500,7 @@ during_frag( fd_shred_ctx_t * ctx,
       /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
           the shred tile needs to be aware of.  Since this requires the
           bank, we are forced (so far) to receive them from the poh tile
-          (as a POH_PKT_TYPE_FEAT_ACT_SLOT).  This is not elegant, and it
-          should be revised in the future (TODO), but it provides a
-          "temporary" working solution to handle features activation. */
+          (as a POH_PKT_TYPE_FEAT_ACT_SLOT). */
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_features_activation_t)) ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
@@ -507,10 +508,6 @@ during_frag( fd_shred_ctx_t * ctx,
 
       fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
       memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
-
-      for( ulong i=0; i<FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT; i++ ) {
-        ctx->features_activation->slots[i] = fd_shred_get_feature_activation_slot0( ctx->features_activation->slots[i], ctx );
-      }
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending

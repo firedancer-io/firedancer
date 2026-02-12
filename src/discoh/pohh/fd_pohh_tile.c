@@ -1357,8 +1357,10 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
       POH_PKT_TYPE_FEAT_ACT_SLOT.  This is not elegant, and it should
       be revised in the future (TODO), but it provides a "temporary"
       working solution to handle features activation. */
-  fd_memcpy( ctx->features_activation->slots, features_activation, sizeof(fd_shred_features_activation_t) );
-  ctx->features_activation_avail = 1UL;
+  if( FD_UNLIKELY( !fd_memeq( ctx->features_activation->slots, features_activation, sizeof(fd_shred_features_activation_t) ) ) ) {
+    fd_memcpy( ctx->features_activation->slots, features_activation, sizeof(fd_shred_features_activation_t) );
+    ctx->features_activation_avail = 1UL;
+  }
 
   fd_ext_poh_write_unlock();
 }
