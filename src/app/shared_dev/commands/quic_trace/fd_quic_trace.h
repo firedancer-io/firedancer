@@ -63,14 +63,14 @@ struct fd_quic_trace_frame_ctx {
 
 typedef struct fd_quic_trace_frame_ctx fd_quic_trace_frame_ctx_t;
 
-#define translate_ptr( ptr ) __extension__({                 \
+#define translate_ptr( ptr ) __extension__({                   \
   ulong rel   = (ulong)(ptr) - fd_quic_trace_tile_ctx_raddr; \
   ulong laddr = (ulong)fd_quic_trace_tile_ctx_remote + rel;  \
   (__typeof__(ptr))(laddr);                                  \
 })
 
 #define tile_member( ctx_ptr, field, is_send ) \
-*fd_ptr_if( is_send, &(((fd_txsend_tile_t*)(ctx_ptr))->field), &(((fd_quic_ctx_t*)(ctx_ptr))->field))
+*fd_ptr_if( is_send, &(((fd_txsend_tile_ctx_t*)(ctx_ptr))->field), &(((fd_quic_ctx_t*)(ctx_ptr))->field))
 
 
 FD_PROTOTYPES_BEGIN
