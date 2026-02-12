@@ -12,6 +12,8 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../waltz/quic/fd_quic.h"
 
+#define DEBUG_PEERS 1
+
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
 #define IN_KIND_EPOCH  (2UL)
@@ -320,6 +322,14 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
   entry->initialized = 1;
 
   if( FD_UNLIKELY( entry->tombstoned ) ) {
+#if DEBUG_PEERS
+    char base58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( msg->contact_info.contact_info->pubkey.uc, NULL, base58 );
+    char base582[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( entry->pubkey.uc, NULL, base582 );
+    FD_LOG_NOTICE(( "removing peer idx %lu pubkey %s (%s)", msg->contact_info.idx, base58, base582 ));
+#endif
+
     FD_TEST( peer_map_ele_remove( ctx->peer_map, &entry->pubkey, NULL, ctx->peers ) );
     entry->quic_last_connected[ 0 ] = 0L;
     entry->quic_last_connected[ 1 ] = 0L;
@@ -329,9 +339,10 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
       entry->udp_ip_addrs [ i ] = 0U;
       entry->udp_ports    [ i ] = 0U;
     }
-  }
 
-  entry->tombstoned = 0;
+    entry->tombstoned = 0;
+  }
+  
   entry->pubkey = msg->contact_info.contact_info->pubkey;
 
   static ulong const quic_socket_idx[ 2UL ] = {
@@ -366,13 +377,21 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
     }
   }
 
-  if( FD_UNLIKELY( needs_insert ) ) FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
+  if( FD_UNLIKELY( needs_insert ) ) {
+#if DEBUG_PEERS
+    char base58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( msg->contact_info.contact_info->pubkey.uc, NULL, base58 );
+    FD_LOG_NOTICE(( "adding peer idx %lu pubkey %s", msg->contact_info.idx, base58 ));
+#endif
+
+    FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
+  }
 }
 
 static inline void
 handle_contact_info_remove( fd_txsend_tile_t *                 ctx,
                             fd_gossip_update_message_t const * msg ) {
-  peer_entry_t * entry = &ctx->peers[ msg->contact_info.idx ];
+  peer_entry_t * entry = &ctx->peers[ msg->contact_info_remove.idx ];
   entry->tombstoned = 1;
 }
 
