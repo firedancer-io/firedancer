@@ -153,6 +153,35 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
   return 0;
 }
 
+/* verification of epoch stakes from manifest
+   TODO: is leader schedule epoch always 1 slot ahead of bank epoch?
+   https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
+static int
+verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+  ulong min_required_epoch = manifest->epoch;
+  ulong max_required_epoch = manifest->epoch + 1;
+
+  /* ensure all required epochs are present in epoch stakes */
+  for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
+    int found = 0;
+    for( ulong j=0UL; j<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
+      if( manifest->epoch_stakes[j].epoch==i ) {
+        found = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !found ) ) {
+      /* VerifyEpochStakesError::StakesNotFound
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L667 */
+      FD_LOG_WARNING(( "stakes not found for epoch %lu in manifest", i ));
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
 static int
 verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
                                    ulong              bank_slot ) {
@@ -407,6 +436,12 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   ctx->bank_slot = manifest->slot;
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
     FD_LOG_WARNING(( "slot deltas verification failed" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
+  if( FD_UNLIKELY( verify_epoch_stakes( manifest ) ) ) {
+    FD_LOG_WARNING(( "epoch stakes verification failed" ));
     transition_malformed( ctx, ctx->stem );
     return;
   }
