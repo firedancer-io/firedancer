@@ -1,4 +1,4 @@
-# Self-hosted x86 environment suitable for use as ring 0
+# Self-hosted x86 environment
 
 BUILDDIR?=bare/clang/x86_64
 

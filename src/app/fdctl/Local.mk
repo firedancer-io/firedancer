@@ -20,6 +20,7 @@ include src/app/fdctl/version.h
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
+ifdef FD_HAS_HOSTED
 
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 
@@ -27,7 +28,6 @@ $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 $(call add-objs,topology,fd_fdctl)
 $(call add-objs,config,fd_fdctl)
 
-ifdef FD_HAS_HOSTED
 ifdef FD_HAS_THREADS
 
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-agave-hash
