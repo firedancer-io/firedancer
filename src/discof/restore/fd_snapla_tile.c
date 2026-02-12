@@ -7,7 +7,6 @@
 
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssparse.h"
-#include "utils/fd_ssmanifest_parser.h"
 
 #define NAME "snapla"
 
@@ -27,9 +26,8 @@ struct fd_snapla_tile {
   uchar             data[ FD_RUNTIME_ACC_SZ_MAX ];
   ulong             acc_data_sz;
 
-  fd_ssparse_t *           ssparse;
-  fd_ssmanifest_parser_t * manifest_parser;
-  fd_lthash_value_t        running_lthash;
+  fd_ssparse_t *    ssparse;
+  fd_lthash_value_t running_lthash;
 
   struct {
     uchar pubkey[ FD_HASH_FOOTPRINT ];
@@ -64,8 +62,6 @@ struct fd_snapla_tile {
     ulong       chunk;
     ulong       mtu;
   } out;
-
-  fd_snapshot_manifest_t manifest[1];
 };
 
 typedef struct fd_snapla_tile fd_snapla_tile_t;
@@ -77,17 +73,15 @@ should_shutdown( fd_snapla_tile_t * ctx ) {
 
 static ulong
 scratch_align( void ) {
-  return fd_ulong_max( alignof(fd_snapla_tile_t),
-                       fd_ulong_max( fd_ssparse_align(), fd_ssmanifest_parser_align() ) );
+  return fd_ulong_max( alignof(fd_snapla_tile_t), fd_ssparse_align() );
 }
 
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapla_tile_t),    sizeof(fd_snapla_tile_t)         );
-  l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),           fd_ssparse_footprint( 1UL<<24UL ) );
-  l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint()  );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapla_tile_t), sizeof(fd_snapla_tile_t)          );
+  l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),        fd_ssparse_footprint( 1UL<<24UL ) );
   return FD_LAYOUT_FINI( l, alignof(fd_snapla_tile_t) );
 }
 
@@ -173,18 +167,8 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_STATUS_CACHE:
         /* ignore */
         break;
-      case FD_SSPARSE_ADVANCE_MANIFEST: {
-        int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
-          result->manifest.data,
-          result->manifest.data_sz,
-          result->manifest.acc_vec_map,
-          result->manifest.acc_vec_pool );
-        if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
-          transition_malformed( ctx, stem );
-          return 0;
-        }
+      case FD_SSPARSE_ADVANCE_MANIFEST:
         break;
-      }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
         if( FD_LIKELY( should_hash_account( ctx ) && result->account_header.lamports!=0UL ) ) {
           FD_TEST( ctx->acc_data_sz==0UL );
@@ -265,7 +249,6 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
       fd_memset( &ctx->account_hdr, 0, sizeof(ctx->account_hdr) );
       fd_lthash_zero( &ctx->running_lthash );
       fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
       fd_lthash_adder_new( ctx->adder );
       if( ctx->full ) ctx->metrics.full.accounts_hashed = 0UL;
       ctx->metrics.incremental.accounts_hashed = 0UL;
@@ -382,9 +365,8 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapla_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapla_tile_t),   sizeof(fd_snapla_tile_t)        );
-  void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),           fd_ssparse_footprint( 1UL<<24UL ));
-  void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
+  fd_snapla_tile_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapla_tile_t), sizeof(fd_snapla_tile_t) );
+  void *             _ssparse = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),       fd_ssparse_footprint( 1UL<<24UL ) );
 
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt  ));
@@ -408,12 +390,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ssparse = fd_ssparse_new( _ssparse, 1UL<<24UL, 0UL );
   FD_TEST( ctx->ssparse );
 
-  ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
-  FD_TEST( ctx->manifest_parser );
-
   fd_ssparse_batch_enable( ctx->ssparse, 1 );
   fd_lthash_adder_new( ctx->adder );
-  fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
   ctx->metrics.full.accounts_hashed        = 0UL;
   ctx->metrics.incremental.accounts_hashed = 0UL;
