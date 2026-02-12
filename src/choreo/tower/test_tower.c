@@ -1,3 +1,4 @@
+#include "test_tower_util.h"
 #include "fd_epoch_stakes.h"
 #include "fd_tower.c"
 #include "fd_tower_forks.h"
@@ -223,24 +224,6 @@ static uchar scratch[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN
 //   // /* skip comparing sig and data_sz (populated outside serialize) */
 //   // FD_TEST( 0==memcmp( restore + off, checkpt + off, sizeof(restore) - off ) );
 // }
-
-void
-make_vote_account( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_accts_t * out ) {
-  fd_voter_t voter = {
-    .kind = FD_VOTER_V3,
-    .v3 = {
-      .node_pubkey = *pubkey,
-      .votes_cnt = 1,
-      .votes = {
-        { .slot = vote, .conf = conf },
-      },
-    }
-  };
-
-  memcpy( out->data, &voter, sizeof(fd_voter_t) );
-  out->stake = stake;
-  out->addr = *pubkey;
-}
 
 void test_tower_serde( fd_wksp_t * wksp ) {
   fd_txn_p_t          txnp[1];
