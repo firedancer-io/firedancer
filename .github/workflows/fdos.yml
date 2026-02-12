@@ -1,10 +1,9 @@
-
 name: FiredancerOS
 on:
   workflow_call:
   workflow_dispatch:
 concurrency:
-  group: tests_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: fdos_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   build_fdos:
