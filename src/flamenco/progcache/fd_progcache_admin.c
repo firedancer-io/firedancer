@@ -532,17 +532,23 @@ fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
 
   /* Acquire reference to ELF binary data */
 
-  ulong progdata_sz = progdata_meta->dlen;
-  uchar const * progdata = NULL;
+  uchar const * elf_bin    = NULL;
+  ulong         elf_bin_sz = progdata_meta->dlen;
   if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    progdata = (uchar const *)fd_account_data( progdata_meta ) + PROGRAMDATA_METADATA_SIZE;
+    if( FD_UNLIKELY( elf_bin_sz<PROGRAMDATA_METADATA_SIZE ) ) return;
+
+    elf_bin     = (uchar const *)fd_account_data( progdata_meta ) + PROGRAMDATA_METADATA_SIZE;
+    elf_bin_sz -= PROGRAMDATA_METADATA_SIZE;
   } else if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    progdata = (uchar const *)fd_account_data( progdata_meta ) + LOADER_V4_PROGRAM_DATA_OFFSET;
+    if( FD_UNLIKELY( elf_bin_sz<LOADER_V4_PROGRAM_DATA_OFFSET ) ) return;
+
+    elf_bin     = (uchar const *)fd_account_data( progdata_meta ) + LOADER_V4_PROGRAM_DATA_OFFSET;
+    elf_bin_sz -= LOADER_V4_PROGRAM_DATA_OFFSET;
   } else if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
              !memcmp( progdata_meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    progdata = (uchar const *)fd_account_data( progdata_meta );
+    elf_bin = (uchar const *)fd_account_data( progdata_meta );
   }
-  if( FD_UNLIKELY( !progdata ) ) return;
+  if( FD_UNLIKELY( !elf_bin ) ) return;
 
   /* Allocate a funk_rec */
 
@@ -572,7 +578,7 @@ fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
   fd_sbpf_elf_info_t elf_info[1];
 
   fd_progcache_rec_t * rec = NULL;
-  if( FD_LIKELY( fd_sbpf_elf_peek( elf_info, progdata, progdata_sz, &config )==FD_SBPF_ELF_SUCCESS ) ) {
+  if( FD_LIKELY( fd_sbpf_elf_peek( elf_info, elf_bin, elf_bin_sz, &config )==FD_SBPF_ELF_SUCCESS ) ) {
 
     fd_funk_t * funk          = cache->funk;
     ulong       rec_align     = fd_progcache_rec_align();
@@ -584,7 +590,7 @@ fd_progcache_inject_rec( fd_progcache_admin_t *    cache,
                   rec_align, rec_footprint ));
     }
 
-    rec = fd_progcache_rec_new( rec_mem, elf_info, &config, load_slot, features, progdata, progdata_sz, scratch, scratch_sz );
+    rec = fd_progcache_rec_new( rec_mem, elf_info, &config, load_slot, features, elf_bin, elf_bin_sz, scratch, scratch_sz );
     if( !rec ) {
       fd_funk_val_flush( funk_rec, funk->alloc, funk->wksp );
     }
