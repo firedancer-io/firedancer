@@ -450,6 +450,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "shred_out"     );
   fd_topob_wksp( topo, "repair_shred"  );
+  fd_topob_wksp( topo, "replay_repair" );
   fd_topob_wksp( topo, "replay_epoch"  );
   fd_topob_wksp( topo, "replay_execrp" );
   fd_topob_wksp( topo, "replay_out"    );
@@ -614,6 +615,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, FD_TPU_REASM_MTU,              config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,             1UL );
+  /**/                 fd_topob_link( topo, "replay_repair", "replay_repair", 128UL,                                    sizeof(fd_replay_evicted_t),   1UL );
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  128UL,                                    FD_EPOCH_OUT_MTU,              1UL ); /* TODO: This should be 2 but requires fixing STEM_BURST */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL );
                        fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),  1UL );

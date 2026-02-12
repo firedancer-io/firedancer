@@ -1434,7 +1434,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1568,7 +1568,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store ); /* FIXME manifest block_id */
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -2186,16 +2186,6 @@ before_frag( fd_replay_tile_t * ctx,
              ulong              seq FD_PARAM_UNUSED,
              ulong              sig ) {
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
-    /* If reasm is full, we can not insert any more FEC sets.  We must
-       not consume any frags from shred_out until reasm can process more
-       FEC sets. */
-
-    if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
-      return -1;
-    }
-  }
-
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT && sig!=FD_GOSSIP_UPDATE_TAG_WFS_DONE ) ) return 1;
   return 0;
 }
@@ -2409,11 +2399,8 @@ process_fec_complete( fd_replay_tile_t * ctx,
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
 
-  if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
-    FD_LOG_CRIT(( "unimplemented" )); /* TODO reasm eviction */
-  }
   if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
-  FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec ) );
+  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store );
 }
 
 static void
@@ -2970,7 +2957,6 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
 
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_BEFORE_FRAG     before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"

@@ -296,8 +296,16 @@ fd_reasm_pop( fd_reasm_t * reasm );
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
    make one or more FEC sets available for in-order delivery.  Caller
-   can consume these FEC sets via fd_reasm_pop.  This function assumes
-   that the reasm is not full (fd_reasm_full() returns 0).
+   can consume these FEC sets via fd_reasm_pop.
+
+   If the reasm is full (fd_reasm_full() returns 1), reasm_insert will
+   evict a FEC set by the policy outlined in reasm_evict.  The evicted
+   FEC set will be removed from reasm, and the evicted FEC metadata will
+   be added to the evicted queue.  The most FEC evictions one insert can
+   cause is up to 1024 FEC sets, or the max number of FECs in one slot.
+   Thus the evicted queue has capacity for up to 1024 FEC sets, and
+   should in general be cleared/popped between every call of
+   fd_reasm_insert.
 
    See top-level documentation for further details on insertion. */
 
@@ -311,7 +319,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  ushort            data_cnt,
                  int               data_complete,
                  int               slot_complete,
-                 int               leader );
+                 int               leader,
+                 fd_store_t      * opt_store );
 
 /* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
    beginning from this FEC then becomes the canonical chain of FEC sets
