@@ -2421,7 +2421,9 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
         jsonp_ulong       ( peers->http, "num_pull_response_entries_rx_duplicate",  cur->network_health_pull_response_crds_rx_duplicate );
         jsonp_ulong_as_str( peers->http, "total_stake",                             cur->network_health_total_stake                     );
         jsonp_ulong       ( peers->http, "total_peers",                             cur->network_health_total_peers                     );
-        jsonp_ulong_as_str( peers->http, "connected_stake",                         cur->network_health_connected_stake                 );
+        jsonp_ulong_as_str( peers->http, "connected_stake",                         cur->network_health_connected_stake[ FD_METRICS_ENUM_GOSSIP_CONNECTION_STATUS_V_ONLINE_IDX ]      );
+        jsonp_ulong_as_str( peers->http, "mismatching_stake",                       cur->network_health_connected_stake[ FD_METRICS_ENUM_GOSSIP_CONNECTION_STATUS_V_MISMATCHING_IDX ] );
+        jsonp_ulong_as_str( peers->http, "offline_stake",                           cur->network_health_connected_stake[ FD_METRICS_ENUM_GOSSIP_CONNECTION_STATUS_V_OFFLINE_IDX ]     );
         jsonp_ulong       ( peers->http, "connected_staked_peers",                  cur->network_health_connected_staked_peers          );
         jsonp_ulong       ( peers->http, "connected_unstaked_peers",                cur->network_health_connected_unstaked_peers        );
       jsonp_close_object( peers->http );

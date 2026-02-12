@@ -37,6 +37,8 @@ fd_gui_new( void *                shmem,
             int                   snapshots_enabled,
             int                   is_voting,
             int                   schedule_strategy,
+            fd_pubkey_t *         wfs_bank_hash,
+            ushort                shred_version,
             fd_topo_t *           topo,
             long                  now ) {
 
@@ -63,7 +65,9 @@ fd_gui_new( void *                shmem,
 
   gui->leader_slot = ULONG_MAX;
   gui->summary.schedule_strategy = schedule_strategy;
-
+  gui->summary.wfs_state = fd_int_if( !!memcmp( wfs_bank_hash->uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ), FD_GUI_WFS_INIT, FD_GUI_WFS_DONE );
+  gui->summary.boot_progress.wfs_bank_hash = *wfs_bank_hash;
+  gui->summary.shred_version = shred_version;
 
   gui->next_sample_400millis = now;
   gui->next_sample_100millis = now;
@@ -791,8 +795,10 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   /* state transitions */
   if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
-  } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX ) ) {
+  } else if( FD_LIKELY( snapshot_phase==FD_SNAPCT_STATE_SHUTDOWN && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX && gui->summary.wfs_state==FD_GUI_WFS_DONE ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
+  } else if( FD_UNLIKELY( gui->summary.wfs_state!=FD_GUI_WFS_DONE && snapshot_phase==FD_SNAPCT_STATE_SHUTDOWN ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_WFS;
   } else if( FD_LIKELY( snapshot_phase==FD_SNAPCT_STATE_READING_FULL_FILE
                      || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI
                      || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE
@@ -857,6 +863,9 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       /* Use the latest compression ratio to estimate decompressed size */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current = _insert_accounts;
 
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_WFS: {
       break;
     }
     case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP: {

@@ -32,7 +32,6 @@ struct fd_crds_metrics {
 
   ulong peer_staked_cnt;
   ulong peer_unstaked_cnt;
-  ulong peer_visible_stake;
   ulong peer_evicted_cnt;
 
   ulong purged_cnt;

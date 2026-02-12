@@ -107,12 +107,17 @@ struct fd_gui_validator_info {
 #define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP               (1)
 #define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT        (2)
 #define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT (3)
-#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  (4)
-#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      (5)
+#define FD_GUI_BOOT_PROGRESS_TYPE_WFS                          (4)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  (5)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      (6)
 
 #define FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        (0UL)
 #define FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX (1UL)
 #define FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT             (2UL)
+
+#define FD_GUI_WFS_INIT  (1)
+#define FD_GUI_WFS_START (2)
+#define FD_GUI_WFS_DONE  (3)
 
 #define FD_GUI_SLOT_LEVEL_INCOMPLETE               (0)
 #define FD_GUI_SLOT_LEVEL_COMPLETED                (1)
@@ -570,6 +575,9 @@ struct fd_gui {
     char const * version;
     char const * cluster;
 
+    int    wfs_state;
+    ushort shred_version;
+
     ulong vote_distance;
     int vote_state;
 
@@ -606,7 +614,7 @@ struct fd_gui {
       } startup_progress;
       struct { /* used in the full client */
         uchar phase;
-        long joining_gossip_time_nanos;
+        long  joining_gossip_time_nanos;
         struct {
           ulong  slot;
           uint   peer_addr;
@@ -626,6 +634,10 @@ struct fd_gui {
           char  insert_path[ PATH_MAX ];
           ulong insert_accounts_current;
         } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
+
+        long        wfs_time_nanos;
+        fd_pubkey_t wfs_bank_hash;
+        ushort      wfs_shred_version;
 
         long  catching_up_time_nanos;
         ulong catching_up_first_replay_slot;
@@ -799,6 +811,8 @@ fd_gui_new( void *                shmem,
             int                   snapshots_enabled,
             int                   is_voting,
             int                   schedule_strategy,
+            fd_pubkey_t *         wfs_bank_hash,
+            ushort                shred_version,
             fd_topo_t *           topo,
             long                  now );
 

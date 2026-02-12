@@ -39,6 +39,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t)                                                  );
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries, tile->gossip.entrypoints_cnt ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t)                                  );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t)                                  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -106,30 +107,6 @@ gossip_ping_tracker_change_fn( void *        _ctx,
   ctx->gossvf_out->chunk = fd_dcache_compact_next( ctx->gossvf_out->chunk, sizeof(fd_gossip_ping_update_t), ctx->gossvf_out->chunk0, ctx->gossvf_out->wmark );
 }
 
-static inline int
-maybe_done_waiting_for_supermajority( fd_gossip_tile_ctx_t * ctx, long now ) {
-  if( FD_UNLIKELY( !ctx->my_contact_info->shred_version || !ctx->wfs_stakes_cnt ) ) return 0;
-
-  ulong offline_stake  = 0UL;
-  ulong online_stake   = 0UL;
-  ulong mismatch_stake = 0UL;
-
-  for( ulong i=0UL; i<ctx->wfs_stakes_cnt; i++ ) {
-    fd_contact_info_t const * ci = fd_gossip_contact_info_lookup( ctx->gossip, &ctx->wfs_stakes[ i ].identity );
-
-    if( !ci || (now - ci->wallclock_nanos > 15*1000L*1000L*1000L) ) {
-      offline_stake += ctx->wfs_stakes[ i ].stake;
-    } else if( ci->shred_version==ctx->my_contact_info->shred_version ) {
-      online_stake += ctx->wfs_stakes[ i ].stake;
-    } else {
-      mismatch_stake += ctx->wfs_stakes[ i ].stake;
-    }
-  }
-
-  ulong total_stake = offline_stake + online_stake + mismatch_stake;
-  return fd_ulong_if( !!total_stake, (100UL * online_stake) / total_stake, 0UL) > 80UL;
-}
-
 static inline void
 during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   ctx->last_wallclock = fd_log_wallclock();
@@ -144,13 +121,49 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
-  if( FD_UNLIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_START && ctx->last_wallclock>ctx->wfs_next_check_5secs ) ) {
-    if( FD_UNLIKELY( maybe_done_waiting_for_supermajority( ctx, ctx->last_wallclock ) ) ) {
+  /* In the typical case, we care about participation with respect to
+     epoch_stakes.  The exception is during a cluster restart, where
+     manifest_stakes is used to determine if the supermajority
+     threshold is met. */
+  fd_stake_weight_t * stakes;
+  ulong               stakes_cnt = 0UL;
+  if( FD_UNLIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_START ) ) {
+    stakes = ctx->manifest_stakes;
+    stakes_cnt = ctx->manifest_stakes_cnt;
+  } else if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) {
+    stakes = ctx->epoch_stakes;
+    stakes_cnt = ctx->epoch_stakes_cnt;
+  }
+
+  if( FD_UNLIKELY( stakes_cnt && ctx->last_wallclock>ctx->stake_update_5secs ) ) {
+    ulong offline_stake     = 0UL;
+    ulong online_stake      = 0UL;
+    ulong mismatch_stake    = 0UL;
+
+    for( ulong i=0UL; i<stakes_cnt; i++ ) {
+      fd_contact_info_t const * ci = fd_gossip_contact_info_lookup( ctx->gossip, &stakes[ i ].key );
+
+      if( !ci || (ctx->last_wallclock - ci->wallclock_nanos > 15*1000L*1000L*1000L) ) {
+        offline_stake += stakes[ i ].stake;
+      } else if( ci->shred_version==ctx->my_contact_info->shred_version ) {
+        online_stake += stakes[ i ].stake;
+      } else {
+        mismatch_stake += stakes[ i ].stake;
+      }
+    }
+
+    ulong total_stake = offline_stake + online_stake + mismatch_stake;
+
+    if( FD_UNLIKELY( fd_ulong_if( !!total_stake, (100UL * online_stake) / total_stake, 0UL) > 80UL ) ) {
         ctx->wfs_state = FD_GOSSIP_WFS_STATE_DONE;
         fd_stem_publish( ctx->stem, ctx->gossip_out->idx, FD_GOSSIP_UPDATE_TAG_WFS_DONE, ctx->gossip_out->chunk, 0UL, 0UL, 0UL, 0UL );
     }
 
-    ctx->wfs_next_check_5secs += 5*1000L*1000L*1000L;
+    FD_MGAUGE_SET( GOSSIP, CRDS_PEER_TOTAL_STAKE_ONLINE,      online_stake   );
+    FD_MGAUGE_SET( GOSSIP, CRDS_PEER_TOTAL_STAKE_OFFLINE,     mismatch_stake );
+    FD_MGAUGE_SET( GOSSIP, CRDS_PEER_TOTAL_STAKE_MISMATCHING, offline_stake  );
+
+    ctx->stake_update_5secs += 5*1000L*1000L*1000L;
   }
 }
 
@@ -183,7 +196,6 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
 
   FD_MGAUGE_SET( GOSSIP, CRDS_PEER_STAKED_COUNT,   crds_metrics->peer_staked_cnt );
   FD_MGAUGE_SET( GOSSIP, CRDS_PEER_UNSTAKED_COUNT, crds_metrics->peer_unstaked_cnt );
-  FD_MGAUGE_SET( GOSSIP, CRDS_PEER_TOTAL_STAKE,    crds_metrics->peer_visible_stake );
   FD_MCNT_SET(   GOSSIP, CRDS_PEER_EVICTED_COUNT,  crds_metrics->peer_evicted_cnt );
 
   FD_MGAUGE_SET( GOSSIP, CRDS_PURGED_COUNT,         crds_metrics->purged_cnt );
@@ -236,8 +248,8 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
-  ulong stakes_cnt = compute_id_weights_from_vote_weights( ctx->stake_weights_converted, msg->weights, msg->staked_cnt );
-  fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights_converted, stakes_cnt );
+  ctx->epoch_stakes_cnt = compute_id_weights_from_vote_weights( ctx->epoch_stakes, msg->weights, msg->staked_cnt );
+  fd_gossip_stakes_update( ctx->gossip, ctx->epoch_stakes, ctx->epoch_stakes_cnt );
 }
 
 static void
@@ -302,22 +314,21 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
     case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
     case IN_KIND_SNAPIN_MANIF:    {
-      if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
-
-      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
+      if( FD_UNLIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_INIT && fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
         ctx->wfs_state = FD_GOSSIP_WFS_STATE_START;
         break;
       }
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-
+      fd_vote_stake_weight_t stakes[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+      FD_TEST( manifest->vote_accounts_len*sizeof(manifest->vote_accounts[ 0 ]) <= sizeof(stakes) );;
       for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
-          if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-
-          fd_memcpy( ctx->wfs_stakes[ ctx->wfs_stakes_cnt ].identity.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-          ctx->wfs_stakes[ ctx->wfs_stakes_cnt ].stake = manifest->vote_accounts[ i ].stake;
-          ctx->wfs_stakes_cnt++;
+        fd_memcpy( stakes[ i ].id_key.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
+        fd_memcpy( stakes[ i ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
+        stakes[ i ].stake = manifest->vote_accounts[ i ].stake;
       }
+      ctx->manifest_stakes_cnt = compute_id_weights_from_vote_weights( ctx->manifest_stakes, stakes, manifest->vote_accounts_len );
+
       break;
     }
     default: FD_LOG_ERR(("unreachable"));
@@ -376,9 +387,13 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   void * _gossip             = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries, tile->gossip.entrypoints_cnt ) );
-  void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
+  void * _manifest_stakes    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
+  void * _epoch_stakes       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
 
-  ctx->stake_weights_converted = (fd_stake_weight_t *)_stake_weights;
+  ctx->manifest_stakes = (fd_stake_weight_t *)_manifest_stakes;
+  ctx->manifest_stakes_cnt = 0UL;
+  ctx->epoch_stakes = (fd_stake_weight_t *)_epoch_stakes;
+  ctx->epoch_stakes_cnt = 0UL;
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
 
@@ -388,11 +403,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_locks_obj_id!=ULONG_MAX );
 
   ctx->wfs_state  = fd_int_if( memcmp( tile->gossip.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ), FD_GOSSIP_WFS_STATE_START, FD_GOSSIP_WFS_STATE_DONE );
-  ctx->wfs_bank_idx = ULONG_MAX;
-  ctx->wfs_stakes_cnt = 0UL;
-  ctx->wfs_next_check_5secs = fd_log_wallclock();
-
-  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
+  ctx->stake_update_5secs = fd_log_wallclock();
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ulong sign_in_tile_idx = ULONG_MAX;

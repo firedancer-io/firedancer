@@ -1173,7 +1173,6 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.larger_max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle",   i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1182,7 +1181,6 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topo_obj_t * banks_locks_obj = setup_topo_banks_locks( topo, "banks_locks" );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower",  0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1725,6 +1723,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.websocket_compression     = 1;
     tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
+
+    tile->gui.shred_version = config->consensus.expected_shred_version;
+    if( FD_LIKELY( !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) ) ) {
+      memset( tile->gui.wait_for_supermajority_with_bank_hash.uc, 0, sizeof(fd_pubkey_t) );
+    } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->gui.wait_for_supermajority_with_bank_hash.uc ) ) ) {
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] failed to parse" ));
+    }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rpc" ) ) ) {
 

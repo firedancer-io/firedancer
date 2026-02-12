@@ -545,6 +545,8 @@ Some interesting transitions are,
         "loading_incremental_snapshot_decompress_bytes_compressed": null,
         "loading_incremental_snapshot_insert_bytes_decompressed": null,
         "loading_incremental_snapshot_insert_accounts": null,
+        "waiting_for_supermajority_bank_hash": null,
+        "waiting_for_supermajority_shred_version": null,
         "catching_up_elapsed": null,
         "catching_up_first_replay_slot": null,
     }
@@ -568,6 +570,8 @@ Some interesting transitions are,
 | loading_{full\|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of inserted accounts from the snapshot into the validator's accounts database. Otherwise, `null` |
+| waiting_for_supermajority_bank_hash                                   | `string`        | If the phase is at least `waiting_for_supermajority`, this is the bank hash of the bank associated with the snapshot slot, which is also the cluster restart slot |
+| waiting_for_supermajority_shred_version                               | `number`        | If the phase is at least `waiting_for_supermajority`, this is the shred version for this node. The shred version is an identifier derived from the genesis hash as well as the "hard forks" bank field. Any time a cluster is restarted, there is a deliberate deviation from the canonical blockchain progression which is explicitly tracked in this field. A given cluster and cluster restart history will have a unique shred version |
 | catching_up_elapsed_seconds                                           | `number`        | If the phase is `catching_up`, this is the duration, in seconds, the validator has spent catching up to the current slot |
 | catching_up_first_replay_slot                                         | `number`        | If the phase is `catching_up`, this is the first slot that exited the replay pipeline after booting |
 
@@ -1431,6 +1435,8 @@ which is specified below.
         "total_staked_peers": "911",
         "total_unstaked_peers": "5334",
         "connected_stake": "123456789",
+        "mismatching_stake": "12345",
+        "offline_stake": "123456",
         "connected_staked_peers": 623,
         "connected_unstaked_peers": 1432,
     },
@@ -1476,16 +1482,24 @@ which is specified below.
 
 
 **`GossipNetworkHealth`**
-| Field                                                              | Type     | Description |
-|--------------------------------------------------------------------|----------|-------------|
+| Field                                                               | Type     | Description |
+|---------------------------------------------------------------------|----------|-------------|
 | num_{push\|pull_response}\_entries_rx_{success\|failure\|duplicate} | `number` | The number of Gossip Table entries that this node has ever received. `success` means only entries that were fully received and included in the Table are counted. `failure` means only entries that was dropped for any reason, including parsing failures or invariant violations, are counted. `duplicate` refers to entries that were dropped as duplicates. {push\|pull_request} means that only entries received via Gossip {push\|pull_request} messages are counted |
 | num_{push\|pull_response}\_messages_rx_{success\|failure}           | `number` | The number of Gossip messages that this node has ever received. `success` means only messages that were fully valid, even if any entries they contain were dropped. `failure` means only messages that was dropped for any reason, including parsing failures or invariant violations, are counted. `duplicate` refers to messages that were dropped as duplicates. {push\|pull_request} is the type of Gossip message counted |
-| total_stake                                                        | `number` | The total active stake on the Solana network for the current epoch. The information is derived from the getLeaderSchedule rpc call at startup and is fixed for the duration of the epoch |
-| total_staked_peers                                                 | `number` | The total number of peers on the current epoch leader schedule also active on Gossip.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
-| total_unstaked_peers                                               | `number` | The total number of peers active on gossip, not including peers on the leader schedule.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
-| connected_stake                                                    | `number` | The sum of active stake across all peers with a ContactInfo entry in the Gossip Table.  The stake quantity is taken from the leader schedule, and reflects the activate stake at the start of the current epoch |
-| connected_staked_peers                                             | `number` | The number of currently connected peers that have nonzero active stake |
-| connected_unstaked_peers                                           | `number` | The number of currently connected peers without any stake currently active |
+| total_stake                                                         | `number` | The total active stake on the Solana network for the current epoch. The information is derived from the getLeaderSchedule rpc call at startup and is fixed for the duration of the epoch |
+| total_staked_peers                                                  | `number` | The total number of peers on the current epoch leader schedule also active on Gossip.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
+| total_unstaked_peers                                                | `number` | The total number of peers active on gossip, not including peers on the leader schedule.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
+| connected_stake                                                     | `number` | The sum of active stake across all peers with a ContactInfo entry from the last 15 seconds in the Gossip Table having a shred version matching ours |
+| mismatching_stake                                                   | `number` | The same as connected_stake, but for nodes having a shred version not matching ours |
+| offline_stake                                                       | `number` | The sum of active stake that is neither connected nor mismatching |
+| connected_staked_peers                                              | `number` | The number of currently connected peers that have nonzero active stake |
+| connected_unstaked_peers                                            | `number` | The number of currently connected peers without any stake currently active |
+
+Stake quantities are based on stakes used to generate the leader
+schedule, and reflect the activate stake at the start of the current
+epoch. The exception is if the validator is in wait_for_supermajority
+mode, during which stake quantities reflect the latest known active
+stake.
 
 **`GossipNetworkTraffic`**
 | Field            | Type       | Description |

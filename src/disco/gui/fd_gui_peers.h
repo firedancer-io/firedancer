@@ -224,7 +224,7 @@ struct fd_gui_peers_gossip_stats {
   ulong network_health_pull_response_msg_tx;
   ulong network_health_total_stake; /* lamports */
   ulong network_health_total_peers;
-  ulong network_health_connected_stake; /* lamports */
+  ulong network_health_connected_stake[ FD_METRICS_ENUM_GOSSIP_CONNECTION_STATUS_CNT ]; /* lamports */
   ulong network_health_connected_staked_peers;
   ulong network_health_connected_unstaked_peers;
   ulong network_ingress_total_bytes;

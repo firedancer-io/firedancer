@@ -329,10 +329,13 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) );
 
-  gossip_stats->network_health_total_stake = 0UL; /* todo ... fetch from RPC */
-  gossip_stats->network_health_total_peers = 0UL; /* todo ... fetch from RPC */
+  gossip_stats->network_health_total_stake = 0UL; /* TODO: deprecate */
+  gossip_stats->network_health_total_peers = 0UL; /* TODO: deprecate */
 
-  gossip_stats->network_health_connected_stake          = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_TOTAL_STAKE ) );
+  gossip_stats->network_health_connected_stake[ FD_METRICS_ENUM_GOSSIP_CONNECTION_STATUS_V_ONLINE_IDX ]      = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_TOTAL_STAKE_ONLINE )      );
+  gossip_stats->network_health_connected_stake[ FD_METRICS_ENUM_GOSSIP_CONNECTION_STATUS_V_OFFLINE_IDX ]     = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_TOTAL_STAKE_OFFLINE )     );
+  gossip_stats->network_health_connected_stake[ FD_METRICS_ENUM_GOSSIP_CONNECTION_STATUS_V_MISMATCHING_IDX ] = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_TOTAL_STAKE_MISMATCHING ) );
+
   gossip_stats->network_health_connected_staked_peers   = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_STAKED_COUNT ) );
   gossip_stats->network_health_connected_unstaked_peers = fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( GAUGE, GOSSIP, CRDS_PEER_UNSTAKED_COUNT ) );
 

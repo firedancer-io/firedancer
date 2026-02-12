@@ -34,7 +34,18 @@ struct fd_gossip_tile_ctx {
   long   last_wallclock;
   long   last_tickcount;
 
-  fd_stake_weight_t * stake_weights_converted;
+  /* To match Agave, we need to track the latest active stakes from the
+     snapshot manifest during wait_for_supermajority mode.
+
+     The condition for complete = 1 is 80% of the cluster has joined
+    gossip. "joining gossip" is based on contact info CRDS values
+    with a wallclock timestamp in the last 15 seconds. */
+  fd_stake_weight_t * manifest_stakes;
+  ulong               manifest_stakes_cnt;
+  fd_stake_weight_t * epoch_stakes;
+  ulong               epoch_stakes_cnt;
+  long                stake_update_5secs;
+  int                 wfs_state;
 
   fd_gossip_in_ctx_t in[ 128UL ];
 
@@ -50,23 +61,6 @@ struct fd_gossip_tile_ctx {
   ushort            net_id;
   fd_ip4_udp_hdrs_t net_out_hdr[ 1 ];
   fd_rng_t          rng[ 1 ];
-
-
-  /* The condition for complete = 1 is 80% of the cluster has joined
-     gossip. "joining gossip" is based on contact info CRDS values
-     with a wallclock timestamp in the last 15 seconds.
-
-     We keep copy of the snapshot bank's votes states in an array here
-     for quick look up. */
-  struct fd_gossip_wfs_stake {
-    fd_pubkey_t identity;
-    ulong       stake;
-  } wfs_stakes[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-  ulong                 wfs_stakes_cnt;
-  int                   wfs_state;
-  ulong                 wfs_bank_idx;
-  long                  wfs_next_check_5secs;
-  fd_banks_t            banks[1];
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;

@@ -557,7 +557,6 @@ remove_contact_info( fd_crds_t *         crds,
   if( FD_LIKELY( ci->stake ) ) crds->metrics->peer_staked_cnt--;
   else                         crds->metrics->peer_unstaked_cnt--;
 
-  crds->metrics->peer_visible_stake -= ci->stake;
 
   if( FD_LIKELY( !!ci->contact_info.fresh_dlist.in_list ) ) {
     crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, ci, crds->pool );
@@ -1040,7 +1039,6 @@ fd_crds_insert( fd_crds_t *                         crds,
 
       if( FD_LIKELY( incumbent->stake ) ) crds->metrics->peer_staked_cnt--;
       else                                crds->metrics->peer_unstaked_cnt--;
-      crds->metrics->peer_visible_stake -= incumbent->stake;
     }
 
     if( FD_LIKELY( incumbent->stake ) ) {
@@ -1108,7 +1106,6 @@ fd_crds_insert( fd_crds_t *                         crds,
 
     if( FD_LIKELY( candidate->stake ) ) crds->metrics->peer_staked_cnt++;
     else                                crds->metrics->peer_unstaked_cnt++;
-    crds->metrics->peer_visible_stake += candidate->stake;
   }
 
   publish_update_msg( crds, candidate, candidate_view, payload, now, stem );

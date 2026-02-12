@@ -363,6 +363,9 @@ struct fd_topo_tile {
 
       int websocket_compression;
       int frontend_release_channel;
+
+      fd_pubkey_t wait_for_supermajority_with_bank_hash;
+      ushort shred_version;
     } gui;
 
     struct {
