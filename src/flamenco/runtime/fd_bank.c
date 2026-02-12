@@ -361,11 +361,6 @@ fd_banks_new( void * shmem,
     FD_LOG_WARNING(( "Failed to create vote states pool" ));
     return NULL;
   }
-  fd_bank_vote_states_t * vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, 0UL );
-  if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
-    FD_LOG_WARNING(( "Failed to create vote states" ));
-    return NULL;
-  }
 
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) );
   if( FD_UNLIKELY( !cost_tracker_pool ) ) {
@@ -401,6 +396,7 @@ fd_banks_new( void * shmem,
   banks_data->max_fork_width  = max_fork_width;
   banks_data->root_idx        = ULONG_MAX;
   banks_data->bank_seq        = 0UL;  /* FIXME randomize across runs? */
+  banks_data->hash_seed       = seed;
 
   if( FD_UNLIKELY( !fd_stake_delegations_new( banks_data->stake_delegations_root, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) ) ) {
     FD_LOG_WARNING(( "Unable to create stake delegations root" ));
@@ -562,8 +558,14 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   bank->epoch_leaders_pool_idx = fd_bank_epoch_leaders_pool_idx_null( fd_banks_get_epoch_leaders_pool( banks->data ) );
   bank->epoch_leaders_dirty    = 0;
 
-  bank->vote_states_pool_idx   = fd_bank_vote_states_pool_idx( fd_banks_get_vote_states_pool( banks->data ), fd_bank_vote_states_pool_ele_acquire( fd_banks_get_vote_states_pool( banks->data ) ) );
-  bank->vote_states_dirty      = 1;
+  fd_bank_vote_states_t * vote_states_pool = fd_banks_get_vote_states_pool( banks->data );
+  bank->vote_states_pool_idx = fd_bank_vote_states_pool_idx_acquire( vote_states_pool );
+  bank->vote_states_dirty    = 1;
+  fd_bank_vote_states_t * vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->vote_states_pool_idx );
+  if( FD_UNLIKELY( !fd_vote_states_new( vote_states->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, banks->data->hash_seed ) ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states" ));
+    return NULL;
+  }
   fd_rwlock_new( &bank_l->locks->vote_states_lock[ bank->idx ] );
 
   bank->cost_tracker_pool_idx  = fd_bank_cost_tracker_pool_idx_null( NULL );
