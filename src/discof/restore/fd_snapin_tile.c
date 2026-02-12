@@ -369,7 +369,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   if( !!ctx->use_vinyl && !!ctx->txncache_entries_len_vinyl_ptr ) {
-    memcpy( ctx->txncache_entries_len_vinyl_ptr, &ctx->txncache_entries_len, sizeof(ulong) );
+    *ctx->txncache_entries_len_vinyl_ptr = ctx->txncache_entries_len;
   }
 
   FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txncache_entries_len ));

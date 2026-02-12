@@ -39,7 +39,7 @@ fd_vote_state_v4_create_new( fd_vote_init_v2_t const *     vote_init_v2,
 
   /* Important: BLS pubkey proof of possesion MUST be validated first */
   vote_state->has_bls_pubkey_compressed        = 1;
-  memcpy( &vote_state->bls_pubkey_compressed, &vote_init_v2->authorized_voter_bls_pubkey, sizeof(fd_bls_pubkey_compressed_t) );
+  vote_state->bls_pubkey_compressed = vote_init_v2->authorized_voter_bls_pubkey;
 
   vote_state->authorized_withdrawer            = vote_init_v2->authorized_withdrawer;
   vote_state->inflation_rewards_commission_bps = vote_init_v2->inflation_rewards_commission_bps;
@@ -137,7 +137,7 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *              ct
   /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L528-L530 */
   if( FD_LIKELY( bls_pubkey!=NULL ) ) {
     self->has_bls_pubkey_compressed = 1;
-    memcpy( &self->bls_pubkey_compressed, bls_pubkey, sizeof(fd_bls_pubkey_compressed_t) );
+    self->bls_pubkey_compressed = *bls_pubkey;
   }
 
   return 0;
