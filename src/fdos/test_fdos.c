@@ -164,21 +164,12 @@ main( int     argc,
   ulong msr_star = ((ulong)0x08 << 3) | /* kernel CS */
                    ((ulong)0x18 << 3);  /* user CS */
 
-  struct {
-    struct kvm_msrs msrs;
-    struct kvm_msr_entry entry[1];
-  } msr_req = {
-    .msrs = {
-      .nmsrs = 1
-    },
-    .entry = {
-      {
-        .index = FD_X86_MSR_STAR,
-        .data  = msr_star,
-      }
-    }
-  };
-  if( FD_UNLIKELY( ioctl( vcpu_fd, KVM_SET_MSRS, &msr_req )<0 ) ) {
+  __attribute__((aligned(alignof(struct kvm_msrs)))) uchar msrs_buf[ sizeof(struct kvm_msrs) + sizeof(struct kvm_msr_entry) ];
+  struct kvm_msrs * msr_req = fd_type_pun( msrs_buf );
+  msr_req->nmsrs = 1;
+  msr_req->entries[0].index = FD_X86_MSR_STAR;
+  msr_req->entries[0].data  = msr_star;
+  if( FD_UNLIKELY( ioctl( vcpu_fd, KVM_SET_MSRS, msr_req )<0 ) ) {
     FD_LOG_ERR(( "KVM_SET_MSRS failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
