@@ -3,34 +3,58 @@ OUTPUT_FORMAT(elf64-x86-64)
 
 PHDRS
 {
-  ROM  PT_LOAD AT(0) FLAGS(4);
+  ROM  PT_LOAD FLAGS(4);
   CODE PT_LOAD FLAGS(5);
   RAM  PT_LOAD FLAGS(6);
 }
 
 SECTIONS
 {
-  .text 0x2001000 : AT(0x1000) ALIGN(4K)
-  {
+  . = 0xffffffff80000000;
+
+  .text : AT(ADDR(.text) - 0xffffffff80000000) {
     *(.text)
   } :CODE
 
-  .rodata 0x3001000 : AT(LOADADDR(.text) + SIZEOF(.text)) ALIGN(4K)
-  {
-    *(.eh_frame)
+  . = ALIGN(4K);
+
+  .rodata : AT(ADDR(.rodata) - 0xffffffff80000000) {
     *(.rodata)
     *(.rodata.*)
   } :ROM
 
-  .data 0x4001000 : AT(LOADADDR(.rodata) + SIZEOF(.rodata)) ALIGN(4K)
-  {
+  . = ALIGN(4K);
+
+  .data : AT(ADDR(.data) - 0xffffffff80000000) {
     *(.data)
   } :RAM
 
-  .bss (0x4001000 + SIZEOF(.data)) (NOLOAD) : AT(LOADADDR(.data) + SIZEOF(.data)) ALIGN(4K)
-  {
+  .bss : AT(ADDR(.bss) - 0xffffffff80000000) {
     *(.bss)
   } :RAM
+
+  .got.plt (INFO) : { *(.got.plt) }
+	ASSERT(SIZEOF(.got.plt) == 0, "Unexpected GOT entries detected!")
+
+  .got : {
+		*(.got) *(.igot.*)
+	}
+	ASSERT(SIZEOF(.got) == 0, "Unexpected GOT entries detected!")
+
+  .plt : {
+		*(.plt) *(.plt.*) *(.iplt)
+	}
+	ASSERT(SIZEOF(.plt) == 0, "Unexpected run-time procedure linkages detected!")
+
+	.rel.dyn : {
+		*(.rel.*) *(.rel_*)
+	}
+	ASSERT(SIZEOF(.rel.dyn) == 0, "Unexpected run-time relocations (.rel) detected!")
+
+	.rela.dyn : {
+		*(.rela.*) *(.rela_*)
+	}
+	ASSERT(SIZEOF(.rela.dyn) == 0, "Unexpected run-time relocations (.rela) detected!")
 
   /DISCARD/ :
   {

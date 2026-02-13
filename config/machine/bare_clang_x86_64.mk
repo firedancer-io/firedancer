@@ -34,7 +34,7 @@ CFLAGS+=\
   -nostdlib \
   -nostartfiles \
   -nodefaultlibs \
-  -mcmodel=medium \
+  -mcmodel=kernel \
   -mno-red-zone
 
 FD_HAS_INT128:=1

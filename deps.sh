@@ -674,7 +674,7 @@ c_args = [
   '-nostdlib',
   '-nostartfiles',
   '-nodefaultlibs',
-  '-mcmodel=medium',
+  '-mcmodel=kernel',
   '-mno-red-zone'
   ]
 needs_exe_wrapper = true
