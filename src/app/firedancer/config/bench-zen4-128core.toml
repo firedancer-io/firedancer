@@ -12,7 +12,7 @@
   sign_tile_count = 2
 
 [development.genesis]
-  fund_initial_accounts = 32768
+  fund_initial_accounts = 1000
 
 [development.bench]
   benchg_tile_count = 20

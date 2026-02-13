@@ -20,7 +20,7 @@ agave_thread_main( void * _args ) {
 void
 fddev_bench_cmd_fn( args_t *   args,
                     config_t * config ) {
-  bench_cmd_fn( args, config, 0 );
+  bench_cmd_fn( args, config );
 
   pthread_t agave;
   pthread_create( &agave, NULL, agave_thread_main, (void *)config );
@@ -32,6 +32,7 @@ fddev_bench_cmd_fn( args_t *   args,
 action_t fd_action_bench = {
   .name             = "bench",
   .args             = bench_cmd_args,
+  .topo             = bench_topo,
   .fn               = fddev_bench_cmd_fn,
   .perm             = dev_cmd_perm,
   .is_local_cluster = 1,

@@ -218,7 +218,10 @@ parse_response( char *                     response,
   if( FD_UNLIKELY( -2==http_len ) ) return FD_RPC_CLIENT_PENDING;
   else if( FD_UNLIKELY( -1==http_len ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
 
-  if( FD_UNLIKELY( status!=200 ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
+  if( FD_UNLIKELY( status!=200 ) ) {
+    if( status==503 ) return FD_RPC_CLIENT_ERR_UNAVAILABLE;
+    return FD_RPC_CLIENT_ERR_MALFORMED;
+  }
 
   ulong content_length = fd_rpc_phr_content_length( headers, num_headers );
   if( FD_UNLIKELY( content_length==ULONG_MAX ) ) return FD_RPC_CLIENT_ERR_MALFORMED;

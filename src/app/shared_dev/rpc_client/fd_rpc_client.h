@@ -11,13 +11,14 @@
    interoperability.  It is not fuzzed or hardened, and should not be
    used in any code that matters. */
 
-#define FD_RPC_CLIENT_SUCCESS       (0)
-#define FD_RPC_CLIENT_PENDING       (-1)
-#define FD_RPC_CLIENT_ERR_NOT_FOUND (-2)
-#define FD_RPC_CLIENT_ERR_TOO_LARGE (-3)
-#define FD_RPC_CLIENT_ERR_TOO_MANY  (-4)
-#define FD_RPC_CLIENT_ERR_MALFORMED (-5)
-#define FD_RPC_CLIENT_ERR_NETWORK   (-6)
+#define FD_RPC_CLIENT_SUCCESS          (0)
+#define FD_RPC_CLIENT_PENDING         (-1)
+#define FD_RPC_CLIENT_ERR_NOT_FOUND   (-2)
+#define FD_RPC_CLIENT_ERR_TOO_LARGE   (-3)
+#define FD_RPC_CLIENT_ERR_TOO_MANY    (-4)
+#define FD_RPC_CLIENT_ERR_MALFORMED   (-5)
+#define FD_RPC_CLIENT_ERR_NETWORK     (-6)
+#define FD_RPC_CLIENT_ERR_UNAVAILABLE (-7)
 
 #define FD_RPC_CLIENT_ALIGN     (8UL)
 #define FD_RPC_CLIENT_FOOTPRINT (273424UL)
@@ -58,14 +59,15 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST static inline char const *
 fd_rpc_client_strerror( long err ) {
   switch( err ) {
-    case FD_RPC_CLIENT_SUCCESS:       return "Success";
-    case FD_RPC_CLIENT_PENDING:       return "Pending";
-    case FD_RPC_CLIENT_ERR_NOT_FOUND: return "Not found";
-    case FD_RPC_CLIENT_ERR_TOO_LARGE: return "Request too large";
-    case FD_RPC_CLIENT_ERR_TOO_MANY:  return "Too many requests in flight";
-    case FD_RPC_CLIENT_ERR_MALFORMED: return "Malformed response";
-    case FD_RPC_CLIENT_ERR_NETWORK:   return "Network error";
-    default:                          return "Unknown error";
+    case FD_RPC_CLIENT_SUCCESS:         return "Success";
+    case FD_RPC_CLIENT_PENDING:         return "Pending";
+    case FD_RPC_CLIENT_ERR_NOT_FOUND:   return "Not found";
+    case FD_RPC_CLIENT_ERR_TOO_LARGE:   return "Request too large";
+    case FD_RPC_CLIENT_ERR_TOO_MANY:    return "Too many requests in flight";
+    case FD_RPC_CLIENT_ERR_MALFORMED:   return "Malformed response";
+    case FD_RPC_CLIENT_ERR_NETWORK:     return "Network error";
+    case FD_RPC_CLIENT_ERR_UNAVAILABLE: return "RPC server unavailable";
+    default:                            return "Unknown error";
   }
 }
 
