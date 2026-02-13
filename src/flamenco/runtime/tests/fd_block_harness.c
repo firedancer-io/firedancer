@@ -104,6 +104,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_st
 
     fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &vote_address );
+    if( !vote_state ) continue;
     if( is_t_1 ) {
       vote_state->stake_t_1 = stake;
     } else {
@@ -218,6 +219,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_runtime_stack_t * runtime_stack = runner->runtime_stack;
 
+  memset( bank->locks, 0, sizeof( fd_banks_locks_t ) );
   fd_banks_clear_bank( banks, bank, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
 
   /* Generate unique ID for funk txn */
@@ -607,11 +609,16 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *          runn
   effects->leader_schedule.leaders_slot0     = ls_slot0;
   effects->leader_schedule.leaders_slot_cnt  = slots_in_epoch;
   effects->leader_schedule.leaders_sched_cnt = slots_in_epoch;
-  effects->leader_schedule.leader_pub_cnt    = fd_solfuzz_block_hash_epoch_leaders(
-      runner, effects_leaders,
-      LEADER_SCHEDULE_HASH_SEED,
-      effects->leader_schedule.leader_schedule_hash
-  );
+  if( FD_UNLIKELY( !effects_leaders ) ) {
+    effects->leader_schedule.leader_pub_cnt = 0UL;
+    fd_memset( effects->leader_schedule.leader_schedule_hash, 0, 16 );
+  } else {
+    effects->leader_schedule.leader_pub_cnt = fd_solfuzz_block_hash_epoch_leaders(
+        runner, effects_leaders,
+        LEADER_SCHEDULE_HASH_SEED,
+        effects->leader_schedule.leader_schedule_hash
+    );
+  }
 }
 
 ulong
