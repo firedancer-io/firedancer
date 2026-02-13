@@ -44,10 +44,11 @@ typedef struct snapshot_ele snapshot_ele_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct snapshot_key {
-  uchar prev;
-  uchar next;
-  ulong offset;
-  ulong map_offset;
+  ushort fork_idx;
+  uchar  prev;
+  uchar  next;
+  ulong  offset;
+  ulong  map_offset;
 };
 typedef struct snapshot_key snapshot_key_ele_t;
 

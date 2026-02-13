@@ -12,7 +12,6 @@ fd_vote_timestamps_footprint( ulong max_live_slots,
                               ulong max_vote_accs ) {
   ulong map_chain_cnt = 2048UL;
 
-
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_vote_timestamps_align(),            sizeof(fd_vote_timestamps_t) );
   l = FD_LAYOUT_APPEND( l, fd_vote_timestamp_pool_align(),        fd_vote_timestamp_pool_footprint( max_live_slots ) );
@@ -81,7 +80,6 @@ fd_vote_timestamps_new( void * shmem,
     FD_LOG_WARNING(( "Failed to create vote timestamp snapshot keys pool" ));
     return NULL;
   }
-
 
   snapshot_key_dlist_t * snapshot_keys = snapshot_key_dlist_join( snapshot_key_dlist_new( snapshot_keys_dlist_mem ) );
   if( FD_UNLIKELY( !snapshot_keys ) ) {
@@ -196,12 +194,76 @@ fd_vote_timestamps_attach_child( fd_vote_timestamps_t * vote_ts,
   return child_idx;
 }
 
+static void
+apply_root_delta( fd_vote_timestamps_t *    vote_ts,
+                  fd_vote_timestamp_ele_t * new_root,
+                  fd_vote_timestamp_ele_t * old_root ) {
+
+  fd_vote_timestamp_index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
+
+  snapshot_ele_map_t * snapshot_map = fd_vote_timestamps_get_snapshot_ele_map( vote_ts, old_root->snapshot_idx );
+  snapshot_ele_t *     snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, old_root->snapshot_idx );
+
+  /* NOTE: After this point, the snapshot has incorrect slot age, but
+     I think this is okay because slot age gets overriden anyway?
+     TODO:FIXME: confirm that this is true. */
+  for( ushort i=0; i<new_root->deltas_cnt; i++ ) {
+    /* We have the property that timestamps are always increasing for
+       the same pubkey.  When a pubkey is evicted from the index, then
+       we will clear all entries for that pubkey in all snapshots in the
+       case it gets renewed. */
+    fd_vote_timestamp_delta_ele_t * delta = &new_root->deltas[i];
+
+    fd_vote_timestamp_index_ele_t * ele = fd_vote_timestamp_index_pool_ele( index_pool, delta->pubkey_idx );
+    ele->refcnt--;
+
+    snapshot_ele_t * snapshot_ele = snapshot_ele_map_ele_query( snapshot_map, &delta->pubkey_idx, NULL, snapshot );
+    if( FD_LIKELY( snapshot_ele ) ) {
+      snapshot_ele->idx       = delta->pubkey_idx;
+      snapshot_ele->timestamp = delta->timestamp;
+      snapshot_ele->slot_age  = new_root->slot - old_root->slot;
+    } else {
+      snapshot_ele            = &snapshot[delta->pubkey_idx];
+      snapshot_ele->idx       = delta->pubkey_idx;
+      snapshot_ele->timestamp = delta->timestamp;
+      snapshot_ele->slot_age  = new_root->slot - old_root->slot;
+      snapshot_ele_map_ele_insert( snapshot_map, snapshot_ele, snapshot );
+    }
+  }
+  /* We no longer need the deltas here so we can clear them. */
+  new_root->deltas_cnt = 0;
+}
+
 void
 fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
                                  ushort                 new_root_idx ) {
   fd_vote_timestamp_ele_t * pool     = fd_vote_timestamps_get_fork_pool( vote_ts );
   fd_vote_timestamp_ele_t * new_root = fd_vote_timestamp_pool_ele( pool, new_root_idx );
   fd_vote_timestamp_ele_t * head     = fd_vote_timestamp_pool_ele( pool, vote_ts->root_idx );
+
+  FD_CRIT( new_root->parent_idx==vote_ts->root_idx, "new root is not a child of the current root" );
+
+  /* The new root node can either have a snapshot or not.  If the new
+     root does, we can go ahead and free the snapshot the root has.
+     We can also update the root pointer. */
+  snapshot_key_ele_t * snapshot_keys_pool = fd_vote_timestamps_get_snapshot_keys_pool( vote_ts );
+  snapshot_key_ele_t * old_root_key       = snapshot_key_pool_ele( snapshot_keys_pool, head->snapshot_idx );
+  if( FD_UNLIKELY( new_root->snapshot_idx!=UCHAR_MAX ) ) {
+    FD_LOG_WARNING(("ADVANCING ROOT TO NODE WITH SNAPSHOT"));
+    old_root_key->fork_idx = USHORT_MAX;
+    head->snapshot_idx     = UCHAR_MAX;
+    snapshot_key_pool_ele_release( snapshot_keys_pool, old_root_key );
+  } else {
+    /* This means that we need to apply the delta from the new root onto
+       the old root's snapshot.  Then transfer ownership of the snapshot
+       to the new_root. */
+    FD_LOG_WARNING(("ADVANCING ROOT TO NODE WITHOUT SNAPSHOT"));
+    apply_root_delta( vote_ts, new_root, head );
+
+    old_root_key->fork_idx = new_root_idx;
+    new_root->snapshot_idx = head->snapshot_idx;
+    head->snapshot_idx     = UCHAR_MAX;
+  }
 
   head->next = USHORT_MAX;
   fd_vote_timestamp_ele_t * tail = head;
@@ -222,12 +284,36 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
     }
 
     fd_vote_timestamp_ele_t * next = fd_vote_timestamp_pool_ele( pool, head->next );
+
+    if( FD_UNLIKELY( head->snapshot_idx!=UCHAR_MAX ) ) {
+      snapshot_key_ele_t * key = snapshot_key_pool_ele( snapshot_keys_pool, head->snapshot_idx );
+      key->fork_idx = USHORT_MAX;
+      snapshot_key_pool_ele_release( snapshot_keys_pool, key );
+      head->snapshot_idx = UCHAR_MAX;
+      snapshot_key_dlist_t * dlist = fd_vote_timestamps_get_snapshot_keys_dlist( vote_ts );
+      snapshot_key_dlist_idx_remove( dlist, head->snapshot_idx, snapshot_keys_pool );
+    }
+
+    fd_vote_timestamp_index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
+    for( ushort i=0; i<head->deltas_cnt; i++ ) {
+      fd_vote_timestamp_delta_ele_t * delta = &head->deltas[i];
+      fd_vote_timestamp_index_ele_t * ele = fd_vote_timestamp_index_pool_ele( index_pool, delta->pubkey_idx );
+      ele->refcnt--;
+    }
+    head->deltas_cnt = 0;
+
+    FD_LOG_WARNING(("ELEMENT RELEASE"));
+
     fd_vote_timestamp_pool_ele_release( pool, head );
     head = next;
   }
 
   new_root->parent_idx = USHORT_MAX;
   vote_ts->root_idx    = new_root_idx;
+
+  /* Now clear all evictable entries from the index.
+     TODO:FIXME: implement another map ontop of the index pool to track
+     entries that are candidates for eviction. */
 }
 
 void
@@ -252,8 +338,7 @@ fd_vote_timestamps_insert( fd_vote_timestamps_t * vote_ts,
     ele = fd_vote_timestamp_index_pool_ele_acquire( index_pool );
     ele->pubkey = pubkey;
     ele->refcnt = 1UL;
-    ele->epoch_stakes[ fork->epoch % 2UL ] = stake; /* TODO:FIXME: this probably isn't right. */
-
+    ele->epoch_stakes[ fork->epoch % 2UL ] = stake;
     FD_TEST( fd_vote_timestamp_index_map_ele_insert( index_map, ele, index_pool ) );
   }
 
@@ -282,7 +367,7 @@ fd_vote_timestamps_insert_root( fd_vote_timestamps_t * vote_ts,
 
   fd_vote_timestamp_index_ele_t * ele = fd_vote_timestamp_index_pool_ele_acquire( index_pool );
   ele->pubkey = pubkey;
-  ele->refcnt = 1UL;
+  ele->refcnt = 0UL;
   ele->epoch_stakes[ fork->epoch % 2UL ] = stake;
 
   FD_TEST( fd_vote_timestamp_index_map_ele_insert( index_map, ele, index_pool ) );
@@ -347,39 +432,17 @@ prune_and_get_snapshot( fd_vote_timestamps_t * vote_ts,
       idx = (uchar)snapshot_key_pool_idx( snapshot_keys_pool, key );
     }
     FD_LOG_NOTICE(("EVICTED KEY IDX: %u", idx));
+    fd_vote_timestamp_ele_t * fork = fd_vote_timestamp_pool_ele( fork_pool, key->fork_idx );
+    fork->snapshot_idx = UCHAR_MAX;
+    key->fork_idx      = USHORT_MAX;
     snapshot_key_pool_ele_release( snapshot_keys_pool, key );
   }
 
   snapshot_key_ele_t * new_key = snapshot_key_pool_ele_acquire( snapshot_keys_pool );
+  new_key->fork_idx = fork_idx;
   FD_LOG_NOTICE(("SNAPSHOT KEY IDX: %u", (uchar)snapshot_key_pool_idx( snapshot_keys_pool, new_key )));
   snapshot_key_dlist_ele_push_tail( snapshot_keys_dlist, new_key, snapshot_keys_pool );
   return (uchar)snapshot_key_pool_idx( snapshot_keys_pool, new_key );
-}
-
-static void
-apply_delta( ulong                     base_slot,
-             snapshot_ele_t *          snapshot,
-             snapshot_ele_map_t *      snapshot_map,
-             fd_vote_timestamp_ele_t * fork ) {
-
-  FD_LOG_NOTICE(("APPLYING DELTAS %u", fork->deltas_cnt));
-  for( ushort i=0; i<fork->deltas_cnt; i++ ) {
-    /* We have the property that timestamps are always increasing for
-       the same pubkey.  When a pubkey is evicted from the index, then
-       we will clear all entries for that pubkey in all snapshots in the
-       case it gets renewed. */
-    fd_vote_timestamp_delta_ele_t * delta = &fork->deltas[i];
-    snapshot_ele_t * snapshot_ele = snapshot_ele_map_ele_query( snapshot_map, &delta->pubkey_idx, NULL, snapshot );
-    if( FD_LIKELY( snapshot_ele ) ) {
-      /* If it is already found do nothing */
-    } else {
-      snapshot_ele            = &snapshot[delta->pubkey_idx];
-      snapshot_ele->idx       = delta->pubkey_idx;
-      snapshot_ele->timestamp = delta->timestamp;
-      snapshot_ele->slot_age  = base_slot - fork->slot;
-      snapshot_ele_map_ele_insert( snapshot_map, snapshot_ele, snapshot );
-    }
-  }
 }
 
 static void
@@ -402,6 +465,32 @@ apply_snapshot( snapshot_ele_t *     snapshot,
     snapshot_ele->timestamp = prev_snapshot[ele_idx].timestamp;
     snapshot_ele->slot_age  = base_slot - prev_slot;
     snapshot_ele_map_ele_insert( snapshot_map, snapshot_ele, snapshot );
+  }
+}
+
+static void
+apply_delta( ulong                     base_slot,
+             snapshot_ele_t *          snapshot,
+             snapshot_ele_map_t *      snapshot_map,
+             fd_vote_timestamp_ele_t * fork ) {
+
+  FD_LOG_NOTICE(("APPLYING DELTAS %u", fork->deltas_cnt));
+  for( ushort i=0; i<fork->deltas_cnt; i++ ) {
+    /* We have the property that timestamps are always increasing for
+       the same pubkey.  When a pubkey is evicted from the index, then
+       we will clear all entries for that pubkey in all snapshots in the
+       case it gets renewed. */
+    fd_vote_timestamp_delta_ele_t * delta = &fork->deltas[i];
+    snapshot_ele_t * snapshot_ele = snapshot_ele_map_ele_query( snapshot_map, &delta->pubkey_idx, NULL, snapshot );
+    if( FD_LIKELY( !snapshot_ele ) ) {
+      /* If it is already found do nothing */
+    } else {
+      snapshot_ele            = &snapshot[delta->pubkey_idx];
+      snapshot_ele->idx       = delta->pubkey_idx;
+      snapshot_ele->timestamp = delta->timestamp;
+      snapshot_ele->slot_age  = base_slot - fork->slot;
+      snapshot_ele_map_ele_insert( snapshot_map, snapshot_ele, snapshot );
+    }
   }
 }
 
@@ -451,6 +540,10 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
     ulong timestamp  = snapshot_ele->timestamp;
     ulong slot_delta = snapshot_ele->slot_age;
 
+    if( FD_UNLIKELY( slot_delta>432000UL ) ) {
+      /* TODO:FIXME: Schedule entry for eviction. */
+    }
+
     /* TODO:FIXME: get the right slot duration on boot */
     ulong offset   = fd_ulong_sat_mul( 400e9, slot_delta );
     ulong estimate = timestamp + (offset / ((ulong)1e9));
@@ -482,18 +575,4 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
 
   /* TODO: Let the runtime handle the timestamp adjusting. */
 
-}
-
-ushort
-fd_vote_timestamps_slot_votes_cnt( fd_vote_timestamps_t * vote_ts,
-                                   ushort                 fork_idx ) {
-  fd_vote_timestamp_ele_t * fork_pool = fd_vote_timestamps_get_fork_pool( vote_ts );
-  fd_vote_timestamp_ele_t * fork      = fd_vote_timestamp_pool_ele( fork_pool, fork_idx );
-  return fork->deltas_cnt;
-}
-
-uint
-fd_vote_timestamps_index_cnt( fd_vote_timestamps_t * vote_ts ) {
-  fd_vote_timestamp_index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
-  return (uint)fd_vote_timestamp_index_pool_used( index_pool );
 }
