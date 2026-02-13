@@ -1,13 +1,16 @@
 #define _GNU_SOURCE
 #include "fd_bundle_tile_private.h"
+#include "fd_bundle_tile.h"
 #include "../metrics/fd_metrics.h"
 #include "../topo/fd_topo.h"
 #include "../keyguard/fd_keyload.h"
-#include "../plugin/fd_plugin.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../waltz/openssl/fd_openssl_tile.h"
 
+#if FD_HAS_OPENSSL
 #include <errno.h>
+#endif
+
 #include <dirent.h> /* opendir */
 #include <stdio.h> /* snprintf */
 #include <fcntl.h> /* F_SETFL */
@@ -76,7 +79,7 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
 
   int bundle_status = fd_bundle_client_status( ctx );
-  FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
+  FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
   ctx->bundle_status_recent = (uchar)bundle_status;
 }
 
@@ -86,7 +89,7 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   int  status          = fd_bundle_client_status( ctx );
   long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
   long now_ns          = fd_log_wallclock();
-  if( FD_UNLIKELY( status!=FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
+  if( FD_UNLIKELY( status!=FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
     FD_LOG_WARNING(( "No bundle server connection in the last %ld seconds", log_interval_ns/(long)1e9 ) );
     ctx->last_bundle_status_log_nanos = now_ns;
   }
@@ -103,9 +106,9 @@ fd_bundle_tile_publish_block_engine_update(
     fd_bundle_tile_t *  ctx,
     fd_stem_context_t * stem
 ) {
-  fd_plugin_msg_block_engine_update_t * update =
+  fd_bundle_block_engine_update_t * update =
       fd_chunk_to_laddr( ctx->plugin_out.mem, ctx->plugin_out.chunk );
-  memset( update, 0, sizeof(fd_plugin_msg_block_engine_update_t) );
+  memset( update, 0, sizeof(fd_bundle_block_engine_update_t) );
 
   strncpy( update->name, "jito", sizeof(update->name) );
 
@@ -127,14 +130,14 @@ fd_bundle_tile_publish_block_engine_update(
   fd_stem_publish(
       stem,
       ctx->plugin_out.idx,
-      FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE,
+      (ulong)ctx->bundle_status_recent,
       ctx->plugin_out.chunk,
-      sizeof(fd_plugin_msg_block_engine_update_t),
+      sizeof(fd_bundle_block_engine_update_t),
       0UL, /* ctl */
       0UL, /* seq */
       tspub
   );
-  ctx->plugin_out.chunk = fd_dcache_compact_next( ctx->plugin_out.chunk, sizeof(fd_plugin_msg_block_engine_update_t), ctx->plugin_out.chunk0, ctx->plugin_out.wmark );
+  ctx->plugin_out.chunk = fd_dcache_compact_next( ctx->plugin_out.chunk, sizeof(fd_bundle_block_engine_update_t), ctx->plugin_out.chunk0, ctx->plugin_out.wmark );
 }
 
 static void
@@ -424,7 +427,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( verify_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing bundle_verif link" ));
   ctx->verify_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ verify_out_idx ] ], verify_out_idx );
 
-  ulong plugin_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_plugi", tile->kind_id );
+  ulong plugin_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_status", tile->kind_id );
   if( plugin_out_idx!=ULONG_MAX ) {
     ctx->plugin_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ plugin_out_idx ] ], plugin_out_idx );
   } else {
@@ -441,7 +444,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->keepalive_interval = (long)tile->bundle.keepalive_interval_nanos;
 
   ctx->bundle_status_plugin = 127;
-  ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
+  ctx->bundle_status_recent = FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
   ctx->last_bundle_status_log_nanos = fd_log_wallclock();
 
   fd_bundle_tile_parse_endpoint( ctx, tile );
