@@ -43,7 +43,9 @@ fd_stem_publish( fd_stem_context_t * stem,
   ulong * seqp = &stem->seqs[ out_idx ];
   ulong   seq  = *seqp;
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
-  FD_TEST( stem->cr_avail[ out_idx ]>=stem->cr_decrement_amount ); /* Ensure producer BURST is set correctly */
+  if( FD_UNLIKELY( stem->cr_avail[ out_idx ]<stem->cr_decrement_amount ) ) { /* Ensure producer BURST is set correctly */
+    FD_LOG_ERR(("BURST underprovisioned out_idx=%lu cr_avail=%lu min_cr_avail=%lu cr_decrement_amount=%lu", out_idx, stem->cr_avail[ out_idx ], stem->min_cr_avail[ out_idx ], stem->cr_decrement_amount ));
+  }
   stem->cr_avail[ out_idx ] -= stem->cr_decrement_amount;
   *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
   *seqp = fd_seq_inc( seq, 1UL );

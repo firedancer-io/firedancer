@@ -593,6 +593,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
           fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz, 0UL, 0UL, 0UL );
           ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz, ctx->gui_out.chunk0, ctx->gui_out.wmark );
+          early_exit = 1;
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
