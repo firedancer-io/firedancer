@@ -201,7 +201,7 @@ fd_config_fillh( fd_config_t * config ) {
 
 static void
 fd_config_fill_net( fd_config_t * config ) {
-  if( FD_UNLIKELY( !strcmp( config->net.interface, "" ) && !config->development.netns.enabled ) ) {
+  if( FD_UNLIKELY( !strcmp( config->net.interface, "" ) ) ) {
     uint ifindex;
     int result = fd_net_util_internet_ifindex( &ifindex );
     if( FD_UNLIKELY( -1==result && errno!=ENODEV ) ) FD_LOG_ERR(( "could not get network device index (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -217,69 +217,40 @@ fd_config_fill_net( fd_config_t * config ) {
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( !strcmp( config->net.interface, "" ) ) {
-      memcpy( config->net.interface, config->development.netns.interface0, sizeof(config->net.interface) );
-    }
+  if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
+    FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
+  uint iface_ip;
+  if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
+    FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
 
-    if( !strcmp( config->development.pktgen.fake_dst_ip, "" ) ) {
-      memcpy( config->development.pktgen.fake_dst_ip, config->development.netns.interface1_addr, sizeof(config->development.netns.interface1_addr) );
-    }
-
-    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->net.interface ) ) ) {
-      FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
-                   "[development.netns] functionality to run Firedancer in a network namespace "
-                   "for development, the configuration file must specify that "
-                   "[development.netns.interface0] is the same as [net.interface]" ));
-    }
-
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->net.ip_addr ) ) )
-      FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
-  } else { /* !config->development.netns.enabled */
-    if( FD_UNLIKELY( !if_nametoindex( config->net.interface ) ) )
-      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->net.interface ));
-    uint iface_ip;
-    if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
-      FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
-
-    if( FD_UNLIKELY( config->is_firedancer ) ) {
-      if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
-        uint gossip_ip_addr = iface_ip;
-        int  has_gossip_ip4 = 0;
-        if( FD_UNLIKELY( strlen( config->firedancer.gossip.host )<=15UL ) ) {
-          /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
-          has_gossip_ip4 = fd_cstr_to_ip4_addr( config->firedancer.gossip.host, &gossip_ip_addr );
-        }
-        if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
-          FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
-                      "transactions, but it is part of a private network and will not be routable "
-                      "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( gossip_ip_addr ) ));
-      } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
-        FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
-                    "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
-                    "and will not be routable for other Solana network nodes. If you are running "
-                    "behind a NAT and this interface is publicly reachable, you can continue by "
-                    "manually specifying the IP address to advertise in your configuration under "
-                    "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
+      uint gossip_ip_addr = iface_ip;
+      int  has_gossip_ip4 = 0;
+      if( FD_UNLIKELY( strlen( config->firedancer.gossip.host )<=15UL ) ) {
+        /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
+        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->firedancer.gossip.host, &gossip_ip_addr );
       }
+      if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
+        FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
+                     "transactions, but it is part of a private network and will not be routable "
+                     "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( gossip_ip_addr ) ));
+    } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
+      FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
+                   "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
+                   "and will not be routable for other Solana network nodes. If you are running "
+                   "behind a NAT and this interface is publicly reachable, you can continue by "
+                   "manually specifying the IP address to advertise in your configuration under "
+                   "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
     }
-
-    config->net.ip_addr = iface_ip;
   }
+
+  config->net.ip_addr = iface_ip;
 }
 
 void
 fd_config_fill( fd_config_t * config,
-                int           netns,
                 int           is_local_cluster ) {
-  if( FD_UNLIKELY( netns ) ) {
-    config->development.netns.enabled = 1;
-    strncpy( config->net.interface,
-             config->development.netns.interface0,
-             sizeof(config->net.interface) );
-    config->net.interface[ sizeof(config->net.interface) - 1 ] = '\0';
-  }
-
   struct utsname utsname;
   if( FD_UNLIKELY( -1==uname( &utsname ) ) )
     FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -415,7 +386,6 @@ fd_config_fill( fd_config_t * config,
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.netns.enabled ) )                       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_max_cost_per_block ) )     FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) ) FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )  FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
@@ -598,12 +568,6 @@ fd_config_validate( fd_config_t const * config ) {
     FD_LOG_ERR(( "`tiles.bundle.keepalive_interval_millis` must be in range [3000, 3,600,000]" ));
   }
 
-  CFG_HAS_NON_EMPTY( development.netns.interface0 );
-  CFG_HAS_NON_EMPTY( development.netns.interface0_mac );
-  CFG_HAS_NON_EMPTY( development.netns.interface0_addr );
-  CFG_HAS_NON_EMPTY( development.netns.interface1 );
-  CFG_HAS_NON_EMPTY( development.netns.interface1_mac );
-  CFG_HAS_NON_EMPTY( development.netns.interface1_addr );
   CFG_HAS_NON_EMPTY( development.core_dump );
 
   CFG_HAS_NON_ZERO( development.genesis.target_tick_duration_micros );
@@ -624,7 +588,6 @@ fd_config_validate( fd_config_t const * config ) {
 
 void
 fd_config_load( int           is_firedancer,
-                int           netns,
                 int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,
@@ -656,7 +619,7 @@ fd_config_load( int           is_firedancer,
     fd_config_validate( config );
   }
 
-  fd_config_fill( config, netns, is_local_cluster);
+  fd_config_fill( config, is_local_cluster );
 }
 
 int

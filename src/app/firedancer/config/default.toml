@@ -993,9 +993,6 @@ telemetry = true
     # only one interface is supported for networking.  If this is
     # empty, the default is the interface used to route to 8.8.8.8,
     # you can check what this is with `ip route get 8.8.8.8`
-    #
-    # If developing under a network namespace with [netns] enabled,
-    # this should be the same as [development.netns.interface0].
     interface = ""
 
     # Optional IPv4 bind address for peer-to-peer traffic.  For
@@ -1690,50 +1687,6 @@ telemetry = true
     # an error if it detects a hard fork.  If false, the validator will
     # log the hard fork event and continue running.
     hard_fork_fatal = false
-
-    # It can be convenient during development to use a network namespace
-    # for running Firedancer.  This allows us to send packets at a local
-    # Firedancer instance and have them go through more of the kernel
-    # XDP stack than would be possible by just using the loopback
-    # interface.  We have special support for creating a pair of virtual
-    # interfaces that are routable to each other.
-    #
-    # Because of how Firedancer uses UDP and XDP together, we do not
-    # receive packets when binding to the loopback interface.  This can
-    # make local development difficult.  Network namespaces are one
-    # solution, they allow us to create a pair of virtual interfaces on
-    # the machine which can route to each other.
-    #
-    # If this configuration is enabled, `firedancer-dev` will create two
-    # network namespaces and a link between them to send packets back
-    # and forth.  When this option is enabled, the interface to bind to
-    # in the net configuration must be one of the virtual interfaces.
-    # Firedancer will be launched by `firedancer` within that namespace.
-    #
-    # This is a development only configuration, network namespaces are
-    # not suitable for production use due to performance overhead.  In
-    # development when running with `firedancer-dev`, this can also be
-    # enabled with the `--netns` command line argument.
-    [development.netns]
-        # If enabled, `firedancer-dev` will ensure the network
-        # namespaces are configured properly, can route to each other,
-        # and that running Firedancer will run it inside the namespace
-        # for interface0
-        enabled = false
-
-        # Name of the first network namespace.
-        interface0 = "veth_test_xdp_0"
-        # MAC address of the first network namespace.
-        interface0_mac = "52:F1:7E:DA:2C:E0"
-        # IP address of the first network namespace.
-        interface0_addr = "198.18.0.1"
-
-        # Name of the second network namespace.
-        interface1 = "veth_test_xdp_1"
-        # MAC address of the second network namespace.
-        interface1_mac = "52:F1:7E:DA:2C:E1"
-        # IP address of the second network namespace.
-        interface1_addr = "198.18.0.2"
 
     [development.gossip]
         # Under normal operating conditions, a validator should always

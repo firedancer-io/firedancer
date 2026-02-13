@@ -13,10 +13,6 @@ static int fini_device( char const * device );
 static int
 enabled( fd_config_t const * config ) {
 
-  /* if we're running in a network namespace, we configure ethtool on
-     the virtual device as part of netns setup, not here */
-  if( config->development.netns.enabled ) return 0;
-
   /* only enable if network stack is XDP */
   if( 0!=strcmp( config->net.provider, "xdp" ) ) return 0;
 

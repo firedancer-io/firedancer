@@ -298,14 +298,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
 
-  CFG_POP      ( bool,   development.netns.enabled                        );
-  CFG_POP      ( cstr,   development.netns.interface0                     );
-  CFG_POP      ( cstr,   development.netns.interface0_mac                 );
-  CFG_POP      ( cstr,   development.netns.interface0_addr                );
-  CFG_POP      ( cstr,   development.netns.interface1                     );
-  CFG_POP      ( cstr,   development.netns.interface1_mac                 );
-  CFG_POP      ( cstr,   development.netns.interface1_addr                );
-
   CFG_POP      ( bool,   development.gossip.allow_private_address         );
 
   CFG_POP      ( ulong,  development.genesis.hashes_per_tick              );

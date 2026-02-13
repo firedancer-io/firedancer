@@ -213,7 +213,6 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   /* FIXME this allocates lots of memory unnecessarily */
   initialize_workspaces( config );
   initialize_stacks( config );
-  fdctl_setup_netns( config, 1 );
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
