@@ -3,11 +3,11 @@
 #define _GNU_SOURCE /* SOL_TCP */
 #include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
+#include "fd_bundle_tile.h"
 #include "proto/block_engine.pb.h"
 #include "proto/bundle.pb.h"
 #include "proto/packet.pb.h"
 #include "../fd_txn_m.h"
-#include "../plugin/fd_plugin.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
 #include "../../ballet/base58/fd_base58.h"
@@ -408,8 +408,8 @@ static void
 fd_bundle_client_log_status( fd_bundle_tile_t * ctx ) {
   int status = fd_bundle_client_status( ctx );
 
-  int const connected_now    = ( status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
-  int const connected_before = ( ctx->bundle_status_logged==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
+  int const connected_now    = ( status==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
+  int const connected_before = ( ctx->bundle_status_logged==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
 
   if( FD_UNLIKELY( connected_now!=connected_before ) ) {
     long ts = fd_log_wallclock();
@@ -952,26 +952,21 @@ fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks = {
   .ping_ack         = fd_bundle_client_grpc_ping_ack,
 };
 
-/* Decrease verbosity */
-#define DISCONNECTED FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED
-#define CONNECTING   FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTING
-#define CONNECTED    FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED
-
 int
 fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
   if( FD_UNLIKELY( ( !ctx->tcp_sock_connected ) |
                    ( !ctx->grpc_client        ) ) ) {
-    return DISCONNECTED;
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
   }
 
   fd_h2_conn_t * conn = fd_grpc_client_h2_conn( ctx->grpc_client );
   if( FD_UNLIKELY( !conn ) ) {
-    return DISCONNECTED; /* no conn */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED; /* no conn */
   }
   if( FD_UNLIKELY( conn->flags &
       ( FD_H2_CONN_FLAGS_DEAD |
         FD_H2_CONN_FLAGS_SEND_GOAWAY ) ) ) {
-    return DISCONNECTED;
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
   }
 
   if( FD_UNLIKELY( conn->flags &
@@ -979,29 +974,29 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
         FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 |
         FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     |
         FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) ) {
-    return CONNECTING; /* connection is not ready */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* connection is not ready */
   }
 
   if( FD_UNLIKELY( ctx->auther.state != FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) {
-    return CONNECTING; /* not authenticated */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* not authenticated */
   }
 
   if( FD_UNLIKELY( ( !ctx->builder_info_avail       ) |
                    ( !ctx->packet_subscription_live ) |
                    ( !ctx->bundle_subscription_live ) ) ) {
-    return CONNECTING; /* not fully connected */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* not fully connected */
   }
 
   if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, fd_bundle_now() ) ) ) {
-    return DISCONNECTED; /* possible timeout */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED; /* possible timeout */
   }
 
   if( FD_UNLIKELY( !fd_grpc_client_is_connected( ctx->grpc_client ) ) ) {
-    return CONNECTING;
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING;
   }
 
   /* As far as we know, the bundle connection is alive and well. */
-  return CONNECTED;
+  return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED;
 }
 
 #undef DISCONNECTED

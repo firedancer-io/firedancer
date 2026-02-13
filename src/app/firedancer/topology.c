@@ -17,6 +17,7 @@
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_topob_vinyl.h"
 #include "../../disco/topo/fd_cpu_topo.h"
+#include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/tile/fd_tile_private.h"
 #include "../../discof/restore/fd_snapin_tile_private.h"
@@ -1008,7 +1009,14 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "sign_pack",      0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_pack",      0UL                                                );
 
-    /* TODO: bundle gui support needs to be integrated here */
+    if( config->tiles.gui.enabled ) { /* GUI is the only consumer of bundle_status */
+      fd_topob_wksp( topo, "bundle_status" );
+      /* bundle_status must be kind of deep, to prevent exhausting
+         shared flow control credits when publishing many packets at
+         once. */
+      fd_topob_link( topo, "bundle_status", "bundle_status", 128UL, sizeof(fd_bundle_block_engine_update_t), 1UL );
+      fd_topob_tile_out( topo, "bundle", 0UL, "bundle_status", 0UL );
+    }
   }
 
   /* Sign links don't need to be reliable because they are synchronous,
@@ -1230,6 +1238,9 @@ fd_topo_initialize( config_t * config ) {
     if( FD_LIKELY( snapshots_enabled ) ) {
     /**/                 fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapct_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapin_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    }
+    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+    /**/                 fd_topob_tile_in( topo, "gui",     0UL,           "metric_in", "bundle_status", 0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
   }
 

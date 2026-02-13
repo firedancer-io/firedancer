@@ -8,6 +8,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_p.h"
+#include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../choreo/tower/fd_tower.h"
@@ -865,6 +866,10 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
 
 int
 fd_gui_poll( fd_gui_t * gui, long now );
+
+void
+fd_gui_handle_block_engine_update( fd_gui_t *                              gui,
+                                   fd_bundle_block_engine_update_t const * update );
 
 void
 fd_gui_handle_shred( fd_gui_t * gui,

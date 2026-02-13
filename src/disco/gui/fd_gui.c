@@ -2440,11 +2440,9 @@ fd_gui_handle_genesis_hash( fd_gui_t *    gui,
   }
 }
 
-static void
-fd_gui_handle_block_engine_update( fd_gui_t *    gui,
-                                   uchar const * msg ) {
-  fd_plugin_msg_block_engine_update_t const * update = (fd_plugin_msg_block_engine_update_t const *)msg;
-
+void
+fd_gui_handle_block_engine_update( fd_gui_t *                              gui,
+                                   fd_bundle_block_engine_update_t const * update ) {
   gui->block_engine.has_block_engine = 1;
 
   /* copy strings and ensure null termination within bounds */
@@ -3021,10 +3019,6 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_GENESIS_HASH_KNOWN: {
       fd_gui_handle_genesis_hash( gui, msg );
-      break;
-    }
-    case FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE: {
-      fd_gui_handle_block_engine_update( gui, msg );
       break;
     }
     default:

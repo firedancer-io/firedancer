@@ -56,6 +56,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_GENESI_OUT    (14UL) /* firedancer only */
 #define IN_KIND_SNAPIN        (15UL) /* firedancer only */
 #define IN_KIND_EXECRP_REPLAY (16UL) /* firedancer only */
+#define IN_KIND_BUNDLE        (17UL)
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -565,6 +566,10 @@ after_frag( fd_gui_ctx_t *      ctx,
                                       trailer->tips );
       break;
     }
+    case IN_KIND_BUNDLE: {
+      fd_gui_handle_block_engine_update( ctx->gui, (fd_bundle_block_engine_update_t *)src );
+      break;
+    }
     default: FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
   }
 }
@@ -826,6 +831,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT;    /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;        /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "execrp_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;        /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_pohh" ) || !strcmp( link->name, "execle_poh" ) ) ) {
