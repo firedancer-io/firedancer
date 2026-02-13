@@ -1,10 +1,11 @@
 import argparse
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 import pytest
 import requests
 from deepdiff import DeepDiff
+from deepdiff.helper import COLORED_COMPACT_VIEW
 
 ### Formatted with Black ###
 
@@ -26,7 +27,7 @@ class RPCTester:
             )
             response.raise_for_status()
             return {"msg": response.json(), "status": response.status_code}
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             return {"msg": response.text, "status": response.status_code}
 
     def compare_responses(
@@ -34,6 +35,7 @@ class RPCTester:
         resp1: Dict[str, Any],
         resp2: Dict[str, Any],
         exclude_paths: Optional[List[str]] = None,
+        prediff: Optional[Callable] = None,
     ) -> tuple[bool, Optional[DeepDiff]]:
         """
         Compare two JSON responses
@@ -46,6 +48,9 @@ class RPCTester:
         Returns:
             Tuple of (is_equal, diff_object)
         """
+        if prediff is not None:
+          resp1, resp2 = prediff(resp1, resp2)
+
         diff = DeepDiff(
             resp1,
             resp2,
@@ -53,7 +58,8 @@ class RPCTester:
             ignore_order=False,
             significant_digits=2,
             # Ignore errors where we explicitly don't support
-            exclude_obj_callback=lambda obj, path: isinstance(obj, str) and obj.startswith("Firedancer Error")
+            exclude_obj_callback=lambda obj, path: isinstance(obj, str) and obj.startswith("Firedancer Error"),
+            view=COLORED_COMPACT_VIEW
         )
 
         return (len(diff) == 0, diff if len(diff) > 0 else None)
@@ -62,6 +68,7 @@ class RPCTester:
         self,
         payload: Dict[str, Any],
         exclude_paths: Optional[List[str]] = None,
+        prediff: Optional[Callable] = None,
         description: str = "",
     ) -> bool:
         """
@@ -76,22 +83,21 @@ class RPCTester:
             True if responses match, False otherwise
         """
 
-        print(f"-- {description or payload.get('method', 'Unknown')} --")
+        print(f"-- {description} --")
 
         resp1 = self.make_rpc_call(self.server1_url, payload)
         resp2 = self.make_rpc_call(self.server2_url, payload)
 
         # Compare responses
-        is_equal, diff = self.compare_responses(resp1, resp2, exclude_paths)
+        is_equal, diff = self.compare_responses(resp1, resp2, exclude_paths, prediff)
 
         if not is_equal:
             print(f"\n{'=' * 60}")
-            print(f"Test: {description or payload.get('method', 'Unknown')}")
+            print(f"Test: {description}")
             print(f"{'=' * 60}")
             print(f"Payload: {json.dumps(payload, indent=2)}")
 
-            print(f"\n{self.server1_url} Response:\n{json.dumps(resp1, indent=2)}")
-            print(f"\n{self.server2_url} Response:\n{json.dumps(resp2, indent=2)}")
+            print(diff)
 
             print("\n✗ FAIL: Responses differ")
 
@@ -110,6 +116,7 @@ def run_test_suite(
             - payload: The RPC request
             - exclude_paths: Optional paths to ignore
             - description: Optional test description
+            - prediff: function to preprocess response before diff
         only_first: quit test suite early after first failing only_first tests
     """
     results = []
@@ -118,9 +125,10 @@ def run_test_suite(
     for i, test_case in enumerate(test_cases, 1):
         payload = test_case["payload"]
         exclude_paths = test_case.get("exclude_paths")
+        prediff = test_case.get("prediff")
         description = test_case.get("description", f"Test case {i}")
 
-        result = tester.test_rpc_method(payload, exclude_paths, description)
+        result = tester.test_rpc_method(payload, exclude_paths, prediff, description)
         results.append({"test": description, "passed": result})
 
         failed_cnt += int(not result)
@@ -695,6 +703,31 @@ GET_TRANSACTION_COUNT = [
     },
 ]
 
+def get_cluster_nodes_prediff(resp1, resp2):
+  if any(not isinstance(resp.get('msg', {}).get('result', {}), list) for resp in (resp1, resp2)):
+    return resp1, resp2
+
+  for resp in (resp1, resp2):
+    list_of_dicts = resp['msg']['result']
+    resp['msg']['result'] = { n.get('pubkey', None):n for n in list_of_dicts}
+
+  # Only compare intersection, since nodes will have different gossip tables
+  resp1['msg']['result'] = {k:v for k,v in resp1['msg']['result'].items() if k in resp2}
+  resp2['msg']['result'] = {k:v for k,v in resp1['msg']['result'].items() if k in resp1}
+  return (resp1, resp2)
+
+GET_CLUSTER_NODES = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getClusterNodes",
+        },
+        "description": f"getClusterNodes success",
+        "prediff": get_cluster_nodes_prediff
+    },
+]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some data")
     parser.add_argument(
@@ -721,6 +754,7 @@ if __name__ == "__main__":
         *GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION,
         *GET_SLOT,
         *GET_TRANSACTION_COUNT,
+        *GET_CLUSTER_NODES,
     ]
 
     run_test_suite(tester, test_suite, args.only_first)
