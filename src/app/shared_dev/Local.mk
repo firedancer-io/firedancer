@@ -27,7 +27,6 @@ $(call add-objs,commands/pktgen/fd_pktgen_tile,fddev_shared)
 $(call add-objs,commands/udpecho/fd_udpecho_tile,fddev_shared)
 
 # fddev configure stages
-$(call add-objs,commands/configure/netns,fddev_shared)
 $(call add-objs,commands/configure/keys,fddev_shared)
 $(call add-objs,commands/configure/kill,fddev_shared)
 $(call add-objs,commands/configure/genesis,fddev_shared)

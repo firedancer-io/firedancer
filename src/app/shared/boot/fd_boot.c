@@ -182,8 +182,6 @@ fd_main_init( int *                      pargc,
       if( FD_UNLIKELY( user_config==MAP_FAILED ) ) FD_LOG_ERR(( "failed to read user config file `%s` (%d-%s)", opt_user_config_path, errno, fd_io_strerror( errno ) ));
     }
 
-    int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
-
     char const * default_config = NULL;
     ulong default_config_sz = 0UL;
     for( ulong i=0UL; configs[ i ]; i++ ) {
@@ -201,7 +199,7 @@ fd_main_init( int *                      pargc,
     determine_override_config( pargc, pargv, configs,
                                &override_config, &override_config_path, &override_config_sz );
 
-    fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
+    fd_config_load( is_firedancer, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
