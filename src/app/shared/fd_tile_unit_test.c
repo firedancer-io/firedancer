@@ -136,7 +136,6 @@ fd_topo_tile_t *
 fd_tile_unit_test_init( char const *         default_topo_config_path,
                         char const *         override_topo_config_path,
                         char const *         user_topo_config_path,
-                        int                  netns,
                         int                  is_firedancer,
                         int                  is_local_cluster,
                         void (*fd_topo_initialize_)(config_t *),
@@ -183,7 +182,7 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
   /* Load config. */
   fd_memset( out_config, 0, sizeof( config_t ) ); /* This step is needed (see w->wksp check). */
 
-  fd_config_load( is_firedancer, netns, is_local_cluster,
+  fd_config_load( is_firedancer, is_local_cluster,
                   default_config, default_config_sz,
                   override_config, override_topo_config_path, override_config_sz,
                   user_config, user_config_sz, user_topo_config_path,

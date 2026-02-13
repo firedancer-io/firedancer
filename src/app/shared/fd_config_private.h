@@ -33,7 +33,6 @@ fd_config_load_buf( config_t *   out,
 
 void
 fd_config_fill( fd_config_t * config,
-                int           netns,
                 int           is_local_cluster );
 
 /* fd_config_validate() checks that the configuration object provided is

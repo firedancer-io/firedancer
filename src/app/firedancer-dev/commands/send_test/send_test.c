@@ -254,7 +254,6 @@ send_test_cmd_fn( args_t *   args ,
   fd_topo_print_log( 0, &config->topo );
 
   run_firedancer_init( config, !args->dev.no_init_workspaces, 1 );
-  fdctl_setup_netns( config, 1 );
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
