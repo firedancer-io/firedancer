@@ -1694,8 +1694,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, relax_intrabatch_account_locks)>>3,
-    .id                        = {"\xc6\xa7\x00\xfe\xbb\x94\x60\x86\xa8\x6e\x35\x1e\xe3\x45\x26\x30\x79\xd9\xef\x65\x88\xe3\x0f\x1d\xc6\x94\x10\x7c\xf8\x74\x15\x35"},
-                                 /* ENTRYnPAoT5Swwx73YDGzMp3XnNH1kxacyvLosRHza1i */
+    .id                        = {"\x34\x2b\x0f\xf3\x77\x8f\xe3\x99\x3b\x5a\xc5\xab\x87\xb5\x93\xeb\xbe\x0c\xcc\xdd\x77\x66\x11\x5d\x6c\xfc\xa1\x1e\x9b\x0e\x0f\xac"},
+                                 /* 4WeHX6QoXCCwqbSFgi6dxnB6QsPo6YApaNTH7P4MLQ99 */
     .name                      = "relax_intrabatch_account_locks",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -2018,7 +2018,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x520c5e674243fab5: return &ids[ 244 ];
   case 0xf08a42c3c040e908: return &ids[ 245 ];
   case 0x8c7bee4552d93e0c: return &ids[ 246 ];
-  case 0x866094bbfe00a7c6: return &ids[ 247 ];
+  case 0x99e38f77f30f2b34: return &ids[ 247 ];
   case 0x7c4802b8ba3fa849: return &ids[ 248 ];
   case 0xab2a2311ca83eb09: return &ids[ 249 ];
   case 0x55792888a8cf31ef: return &ids[ 250 ];

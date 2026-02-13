@@ -397,8 +397,8 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx,
 
       /* Erase value if existing is newer */
       if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {  /* key exists */
-        ulong exist_slot = ele->phdr.info.ul[ 1 ];
-        ulong cur_slot   =      phdr.info.ul[ 1 ];
+        ulong exist_slot = fd_snapin_vinyl_pair_info_slot( &ele->phdr.info );
+        ulong cur_slot   = fd_snapin_vinyl_pair_info_slot( &phdr.info );
         if( exist_slot > cur_slot ) {
           ctx->metrics.accounts_ignored++;
           FD_COMPILER_MFENCE();
@@ -546,52 +546,65 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
 
   for( ulong acc_i=0UL; acc_i<acc_cnt; acc_i++ ) {
 
-    fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)src;
+    fd_vinyl_bstream_phdr_t * src_phdr = (fd_vinyl_bstream_phdr_t*)src;
+    /* phdr's recovery_seq may need to be updated, and this cannot
+       happen on the src dcache. */
+    fd_vinyl_bstream_phdr_t phdr = *src_phdr;
 
-    ulong val_esz    = fd_vinyl_bstream_ctl_sz  ( phdr->ctl );
+    ulong val_esz    = fd_vinyl_bstream_ctl_sz  ( phdr.ctl );
 
     ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
     uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
     uchar * dst     = pair;
 
-    ulong const account_header_slot = phdr->info.ul[1];
+    ulong const account_header_slot = fd_snapin_vinyl_pair_info_slot( &phdr.info );
 
     ctx->metrics.accounts_loaded++;
 
+    int do_meta_update = ctx->full || !ctx->lthash_disabled;
+
+    ulong recovery_seq = 0UL;
+
     fd_vinyl_meta_ele_t * ele = NULL;
-    if( ctx->full ) {
-      ulong memo = fd_vinyl_key_memo( map->seed, &phdr->key );
-      ele = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
+    if( FD_LIKELY( do_meta_update ) ) {
+      ulong memo = fd_vinyl_key_memo( map->seed, &phdr.key );
+      ele = fd_vinyl_meta_prepare_nolock( map, &phdr.key, memo );
       if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
 
       if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
         /* Drop current value if existing is newer */
-        ulong const exist_slot = ele->phdr.info.ul[ 1 ];
+        ulong const exist_slot = fd_snapin_vinyl_pair_info_slot( &ele->phdr.info );
         if( FD_UNLIKELY( exist_slot > account_header_slot ) ) {
           ctx->metrics.accounts_ignored++;
           src += pair_sz;
           continue;
         } else {
           fd_snapwm_vinyl_duplicate_accounts_batch_append( ctx, &ele->phdr, ele->seq );
+          recovery_seq = ele->seq;
         }
         ctx->metrics.accounts_replaced++;
       } else {
         ctx->vinyl.pair_cnt++;
       }
 
+      fd_snapin_vinyl_pair_info_update_recovery_seq( &phdr.info, recovery_seq );
       ele->memo      = memo;
-      ele->phdr.ctl  = phdr->ctl;
-      ele->phdr.key  = phdr->key;
-      ele->phdr.info = phdr->info;
+      ele->phdr.ctl  = phdr.ctl;
+      ele->phdr.key  = phdr.key;
+      ele->phdr.info = phdr.info;
       ele->seq       = ULONG_MAX; /* later init */
       ele->line_idx  = ULONG_MAX;
     }
 
-    fd_memcpy( dst, src, pair_sz );
+    /* sizeof(fd_vinyl_bstream_phdr_t) is less than the minimum
+       pair_sz==FD_VINYL_BSTREAM_BLOCK_SZ. */
+    ulong off = sizeof(fd_vinyl_bstream_phdr_t);
+    fd_memcpy( dst,     &phdr,   off );
+    fd_memcpy( dst+off, src+off, pair_sz-off );
     src += pair_sz;
 
     ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
-    if( ctx->full ) ele->seq = seq_after;
+    if( FD_LIKELY( do_meta_update ) ) ele->seq = seq_after;
   }
 
   fd_snapwm_vinyl_duplicate_accounts_batch_fini( ctx, stem );
@@ -828,13 +841,269 @@ fd_snapwm_vinyl_update_admin( fd_snapwm_tile_t * ctx,
 }
 
 void
-fd_snapwm_vinyl_meta_clean_all( fd_vinyl_meta_t * join ) {
-  fd_vinyl_meta_ele_t * ele0      = join->ele;
-  ulong                 ele_max   = join->ele_max;
-  void *                ctx       = join->ctx;
+fd_snapwm_vinyl_recovery_seq_backup( fd_snapwm_tile_t * ctx ) {
+  ctx->vinyl.recovery.seq_ancient = ctx->vinyl.io_mm->seq_ancient;
+  ctx->vinyl.recovery.seq_past    = ctx->vinyl.io_mm->seq_past;
+  ctx->vinyl.recovery.seq_present = ctx->vinyl.io_mm->seq_present;
+  ctx->vinyl.recovery.seq_future  = ctx->vinyl.io_mm->seq_future;
+}
 
+void
+fd_snapwm_vinyl_recovery_seq_apply( fd_snapwm_tile_t * ctx ) {
+  ctx->vinyl.io_mm->seq_ancient = ctx->vinyl.recovery.seq_ancient;
+  ctx->vinyl.io_mm->seq_past    = ctx->vinyl.recovery.seq_past;
+  ctx->vinyl.io_mm->seq_present = ctx->vinyl.recovery.seq_present;
+  ctx->vinyl.io_mm->seq_future  = ctx->vinyl.recovery.seq_future;
+}
+
+void
+fd_snapwm_vinyl_revert_full( fd_snapwm_tile_t * ctx  ) {
+  fd_vinyl_meta_t *     map     = ctx->vinyl.map;
+  fd_vinyl_meta_ele_t * ele0    = map->ele;
+  ulong                 ele_max = map->ele_max;
+  void *                map_ctx = map->ctx;
+
+  long dt = -fd_log_wallclock();
   for( ulong ele_idx=0; ele_idx<ele_max; ele_idx++ ) {
     fd_vinyl_meta_ele_t * ele = ele0 + ele_idx;
-    fd_vinyl_meta_private_ele_free( ctx, ele );
+    fd_vinyl_meta_private_ele_free( map_ctx, ele );
   }
+
+  /* Apply changes and resync */
+  fd_snapwm_vinyl_recovery_seq_apply( ctx );
+  int sync_err = fd_vinyl_io_sync( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( sync_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_sync(io_mm) failed (%i-%s)", sync_err, fd_vinyl_strerror( sync_err ) ));
+  vinyl_mm_sync( ctx );
+
+  dt += fd_log_wallclock();
+  FD_LOG_INFO(( "vinyl revert_full took %g seconds", (double)dt/1e9 ));
+}
+
+void
+fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx ) {
+  FD_CRIT( ctx->vinyl.txn_active, "txn_commit called while not in txn" );
+  FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
+  fd_vinyl_io_t * io = ctx->vinyl.io_mm;
+
+  long dt = -fd_log_wallclock();
+
+  /* Finish any outstanding writes */
+
+  int commit_err = fd_vinyl_io_commit( io, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
+
+  /* Hint to kernel to start prefetching to speed up reads */
+
+  uchar * mmio      = fd_vinyl_mmio   ( io ); FD_TEST( mmio );
+  ulong   mmio_sz   = fd_vinyl_mmio_sz( io );
+
+  ulong txn_seq0 = ctx->vinyl.recovery.seq_present;
+  ulong txn_seq1 = ctx->vinyl.io_mm->seq_present;
+  FD_LOG_INFO(( "vinyl meta_recovery starting for seq [%lu,%lu)", txn_seq0, txn_seq1 ));
+  ulong txn_sz   = txn_seq1-txn_seq0;
+  FD_CRIT( fd_vinyl_seq_le( txn_seq0, txn_seq1 ), "invalid txn seq range" );
+  FD_CRIT( txn_seq1 <= mmio_sz,                   "invalid txn seq range" );
+  if( FD_UNLIKELY( fd_vinyl_seq_eq( txn_seq0, txn_seq1 ) ) ) return;
+
+  void *  madv_base = (void *)fd_ulong_align_dn( (ulong)mmio+txn_seq0, FD_SHMEM_NORMAL_PAGE_SZ );
+  ulong   madv_sz   = /*    */fd_ulong_align_up(             txn_sz,   FD_SHMEM_NORMAL_PAGE_SZ );
+  if( FD_UNLIKELY( madvise( madv_base, madv_sz, MADV_SEQUENTIAL ) ) ) {
+    FD_LOG_WARNING(( "madvise(addr=%p,sz=%lu,MADV_SEQUENTIAL) failed (%i-%s)",
+                     madv_base, madv_sz,
+                     errno, fd_io_strerror( errno ) ));
+  }
+
+  fd_vinyl_meta_t * meta_map = ctx->vinyl.map;
+  for( ulong seq=txn_seq0; fd_vinyl_seq_lt( seq, txn_seq1 ); ) {
+
+    fd_vinyl_bstream_block_t * incr_block = (void *)( mmio+seq );
+
+    /* Speculatively read block info */
+    ulong                   ctl       = FD_VOLATILE_CONST( incr_block->ctl  );
+    fd_vinyl_bstream_phdr_t incr_phdr = FD_VOLATILE_CONST( incr_block->phdr );
+
+    ulong val_esz    = fd_vinyl_bstream_ctl_sz  ( ctl );
+    int   block_type = fd_vinyl_bstream_ctl_type( ctl );
+    ulong block_sz;
+
+    if( FD_LIKELY( block_type==FD_VINYL_BSTREAM_CTL_TYPE_PAIR ) ) {
+      block_sz = fd_vinyl_bstream_pair_sz( val_esz );
+      ulong memo = fd_vinyl_key_memo( meta_map->seed, &incr_phdr.key );
+
+      /* recovery_seq must be read from the bstream pair, and not from
+         the meta map ele, because ele->hdr.info and phdr.info may
+         start disagreeing on this value as the recovery proceeds.
+         Consider what happens when there are multiple duplicates for
+         the same account in the incremental snapshot. */
+      ulong recovery_seq = fd_snapin_vinyl_pair_info_recovery_seq( &incr_phdr.info );
+
+      /* query the meta map element. */
+      ulong found_ele_idx = 0UL;
+      int found_ele = !fd_vinyl_meta_query_fast( meta_map->ele /*ele0*/,
+                                                 meta_map->ele_max,
+                                                 &incr_phdr.key,
+                                                 memo,
+                                                 &found_ele_idx );
+
+      /* Consider these two generic cases, labeled A and B:
+
+            bstream:  [     full     |   incr   |   free  )
+            revert:                 (*)->.......)
+            case A :  [    A0        |  A1   A2 |         )
+            case B :  [              |  B1   B2 |         )
+
+        with these pair -> recovery_seq:
+            A0 ->  0 (sentinel)
+            A1 -> A0
+            A2 -> A1
+
+            B1 ->  0 (sentinel)
+            B2 -> B1
+
+        Cases A1 and B1 have a recovery_seq in the full snapshot range,
+        and are processed below in the "if" branch.  Cases A2 and B2
+        have a recovery_seq in the incr range, and are processed in the
+        "else" branch.  In these 4 cases, the corresponding bstream
+        pair will be cleared.
+
+        Note that bstream pairs are read/processed from left to right,
+        i.e. A1 then A2, or B1 then B2.
+
+        Case A1: the meta map element needs to be updated with bstream
+                 seq A0.
+
+        Case B1: this account (bstream pair) was introduced during incr
+                 snapshot load, and should be discarded.  Its meta map
+                 element is therefore freed.
+
+        Case A2: its recovery_seq in the bstream pair's info points to
+                 A1, but the meta map element has already been updated
+                 to A0.  In this case, the meta map element exists,
+                 and it is necessary to verify that the meta map
+                 element's seq points to a bstream seq in the full
+                 snapshot range.  A2 is then discarded.
+
+        Case B2: its recovery_seq in the bstream pair's info points to
+                 B1, but the meta map element has already been freed.
+                 In this case there is nothing else to do.
+      */
+      if( FD_LIKELY( recovery_seq<ctx->vinyl.recovery.seq_present ) ) {
+        /* The meta map element must exist. */
+        if( FD_UNLIKELY( !found_ele ) ) {
+          FD_BASE58_ENCODE_32_BYTES( incr_phdr.key.uc, phdr_key_b58 );
+          FD_LOG_CRIT(( "element seq %lu for key %s memo %016lx not found", seq, phdr_key_b58, memo ));
+        }
+
+        fd_vinyl_meta_ele_t * ele = meta_map->ele + found_ele_idx;
+
+        /* The meta map element must be in use. */
+        if( !fd_vinyl_meta_ele_in_use( ele ) ) {
+          FD_BASE58_ENCODE_32_BYTES( incr_phdr.key.uc, phdr_key_b58 );
+          FD_LOG_CRIT(( "element seq %lu for key %s memo %016lx not in use", seq, phdr_key_b58, memo ));
+        }
+
+        /* Either free the meta map element or update it. */
+        if( FD_UNLIKELY( !recovery_seq ) ) {
+          fd_vinyl_meta_private_ele_free( meta_map->ctx, ele );
+        } else {
+          fd_vinyl_bstream_block_t * full_block = (void *)( mmio+recovery_seq );
+          fd_vinyl_bstream_phdr_t    full_phdr  = FD_VOLATILE_CONST( full_block->phdr );
+          ulong incr_slot = fd_snapin_vinyl_pair_info_slot( &incr_phdr.info );
+          ulong full_slot = fd_snapin_vinyl_pair_info_slot( &full_phdr.info );
+
+          if( FD_UNLIKELY( full_slot>=incr_slot ) ) {
+            FD_LOG_CRIT(( "revert incr snapshot full_slot %lu >= incr_slot %lu", full_slot, incr_slot ));
+          }
+
+          /* Update meta map element. */
+          ele->memo     = fd_vinyl_key_memo( meta_map->seed, &full_phdr.key );
+          ele->phdr     = full_phdr;
+          ele->seq      = recovery_seq;
+          ele->line_idx = ULONG_MAX;
+        }
+      } else{
+        /* Only if the meta map element exists, verify that its
+           recovery_seq points to a seq inside the full snapshot range. */
+        if( FD_UNLIKELY( found_ele ) ) {
+          fd_vinyl_meta_ele_t * ele = meta_map->ele + found_ele_idx;
+          if( !fd_vinyl_meta_ele_in_use( ele ) ) {
+            FD_BASE58_ENCODE_32_BYTES( incr_phdr.key.uc, phdr_key_b58 );
+            FD_LOG_CRIT(( "element seq %lu for key %s memo %016lx not in use", seq, phdr_key_b58, memo ));
+          }
+          ulong ele_recovery_seq = fd_snapin_vinyl_pair_info_recovery_seq( &ele->phdr.info );
+
+          if( FD_UNLIKELY( ele_recovery_seq>=ctx->vinyl.recovery.seq_present ) ) {
+            FD_BASE58_ENCODE_32_BYTES( incr_phdr.key.uc, phdr_key_b58 );
+            FD_LOG_CRIT(( "element seq %lu for key %s memo %016lx recovery_seq %lu with ele_recovery_seq %lu in the incr region", seq, phdr_key_b58, memo, recovery_seq, ele_recovery_seq ));
+          }
+        }
+      }
+      /* FIXME memset may not be necessary? */
+      fd_memset( incr_block, 0, block_sz );
+    } else if( block_type==FD_VINYL_BSTREAM_CTL_TYPE_ZPAD ) {
+      block_sz = FD_VINYL_BSTREAM_BLOCK_SZ;
+    } else {
+      FD_LOG_CRIT(( "unexpected block type %d", block_type ));
+    }
+
+    if( FD_UNLIKELY( !block_sz ) ) {
+      FD_LOG_CRIT(( "Invalid block header at vinyl seq %lu, ctl=%016lx (zero block_sz)", seq, ctl ));
+    }
+    if( FD_UNLIKELY( block_sz > 64UL<<20 ) ) {
+      FD_LOG_CRIT(( "Invalid block header at vinyl seq %lu, ctl=%016lx, block_sz=%lu (unreasonably large block size)", seq, ctl, block_sz ));
+    }
+
+    seq += block_sz;
+  }
+
+  /* Apply changes and resync */
+  fd_snapwm_vinyl_recovery_seq_apply( ctx );
+  int sync_err = fd_vinyl_io_sync( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( sync_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_sync(io_mm) failed (%i-%s)", sync_err, fd_vinyl_strerror( sync_err ) ));
+  vinyl_mm_sync( ctx );
+
+  dt += fd_log_wallclock();
+  FD_LOG_INFO(( "vinyl revert_incr took %g seconds", (double)dt/1e9 ));
+}
+
+void
+fd_snapin_vinyl_pair_info_from_parts( fd_vinyl_info_t * info,
+                                      ulong             val_sz,
+                                      ulong             recovery_seq,
+                                      ulong             slot ) {
+  ulong enc_seq = recovery_seq >> FD_VINYL_BSTREAM_BLOCK_LG_SZ;
+  ulong ul0 = ( ( enc_seq<<32 )     ) | ( ( val_sz<<32 )>>32);
+  ulong ul1 = ( ( enc_seq>>32 )<<48 ) | ( (   slot<<16 )>>16);
+  info->ul[ 0 ] = ul0;
+  info->ul[ 1 ] = ul1;
+}
+
+void
+fd_snapin_vinyl_pair_info_update_recovery_seq( fd_vinyl_info_t * info,
+                                               ulong             recovery_seq ) {
+  fd_snapin_vinyl_pair_info_from_parts( info,
+                                        fd_snapin_vinyl_pair_info_val_sz( info ),
+                                        recovery_seq,
+                                        fd_snapin_vinyl_pair_info_slot( info ) );
+}
+
+ulong
+fd_snapin_vinyl_pair_info_val_sz ( fd_vinyl_info_t const * info ) {
+  return (ulong)info->ui[0];
+}
+
+ulong
+fd_snapin_vinyl_pair_info_recovery_seq( fd_vinyl_info_t const * info ) {
+  ulong enc_seq0 = info->ul[ 0 ];
+  ulong enc_seq1 = info->ul[ 1 ];
+  ulong enc_seq  = ( ( enc_seq1>>48 )<<32 ) | ( enc_seq0>>32 );
+  ulong recovery_seq  = enc_seq << FD_VINYL_BSTREAM_BLOCK_LG_SZ;
+  return recovery_seq;
+}
+
+ulong
+fd_snapin_vinyl_pair_info_slot( fd_vinyl_info_t const * info ) {
+  ulong slot = info->ul[ 1 ];
+  slot = ( slot<<16 )>>16;
+  return slot;
 }

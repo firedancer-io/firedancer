@@ -3,7 +3,6 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/uio.h>
 #include "fd_udpsock.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
