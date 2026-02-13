@@ -4,7 +4,7 @@
 #include "fd_zksdk_common.h"
 
 /* FD_ZKSDK_INSTR_{...} identify ZK ElGamal Proof Program instructions.
-   https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/instruction.rs#L53 */
+   https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/instruction.rs#L53 */
 
 #define FD_ZKSDK_INSTR_CLOSE_CONTEXT_STATE                                  ((uchar) 0)
 #define FD_ZKSDK_INSTR_VERIFY_ZERO_CIPHERTEXT                               ((uchar) 1)
@@ -65,7 +65,7 @@ static const ulong fd_zksdk_proof_sz[] = {
 };
 
 /* ProofContextStateMeta
-   https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/state.rs#L71 */
+   https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/state.rs#L71 */
 struct __attribute__((packed)) fd_zksdk_proof_ctx_state_meta {
   uchar ctx_state_authority[ 32 ];
   uchar proof_type;

@@ -1,6 +1,6 @@
 #include "../fd_zksdk_private.h"
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L522 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L522 */
 static inline void
 percentage_with_cap_hash_context( fd_zksdk_transcript_t * transcript,
                                   uchar const             percentage_commitment[ 32 ],
@@ -13,7 +13,7 @@ percentage_with_cap_hash_context( fd_zksdk_transcript_t * transcript,
   fd_merlin_transcript_append_u64      ( transcript, FD_TRANSCRIPT_LITERAL("max-value"), max_value );
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L413 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L413 */
 static inline int
 fd_zksdk_verify_proof_percentage_with_cap(
   fd_zksdk_percentage_with_cap_proof_t const * proof,
@@ -43,7 +43,7 @@ fd_zksdk_verify_proof_percentage_with_cap(
   fd_ristretto255_point_t y[1];
   fd_ristretto255_point_t res[1];
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L421-L426 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L421-L426 */
   if( FD_UNLIKELY( fd_memeq( percentage_commitment, fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( delta_commitment,      fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( claimed_commitment,    fd_ristretto255_compressed_zero, 32 ) ) ) {
@@ -89,11 +89,11 @@ fd_zksdk_verify_proof_percentage_with_cap(
 
   /* Finalize transcript and extract challenges */
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L428-L435 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L428-L435 */
   percentage_with_cap_hash_context( transcript, percentage_commitment, delta_commitment, claimed_commitment, max_value );
   fd_zksdk_transcript_domsep_percentage_with_cap_proof( transcript );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L438-L481 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L438-L481 */
   uchar m[ 32 ];
   fd_curve25519_scalar_from_u64( m, max_value );
 
@@ -117,7 +117,7 @@ fd_zksdk_verify_proof_percentage_with_cap(
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L482-L513
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L482-L513
      Note: we use a slightly different MSM but they're equivalent. */
   uchar ww[ 32 ];
   fd_curve25519_scalar_mul( ww, w, w );
@@ -149,14 +149,14 @@ fd_zksdk_verify_proof_percentage_with_cap(
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 7 );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L515-L519 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/percentage_with_cap.rs#L515-L519 */
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_SUCCESS;
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/percentage_with_cap.rs#L133 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/percentage_with_cap.rs#L133 */
 int
 fd_zksdk_instr_verify_proof_percentage_with_cap( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];

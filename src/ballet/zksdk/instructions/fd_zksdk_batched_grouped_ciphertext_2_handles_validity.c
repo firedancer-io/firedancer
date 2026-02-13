@@ -1,6 +1,6 @@
 #include "../fd_zksdk_private.h"
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L163 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L163 */
 static inline void
 batched_grouped_ciphertext_validity_hash_context( fd_zksdk_transcript_t * transcript,
                                                   uchar const             pubkey1 [ 32 ],
@@ -14,7 +14,7 @@ batched_grouped_ciphertext_validity_hash_context( fd_zksdk_transcript_t * transc
   fd_zksdk_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("grouped-ciphertext-hi"), (uchar *)grouped_ciphertext_hi, sizeof(grp_ciph_2h_t) );
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L106 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L106 */
 static inline int
 fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
   fd_zksdk_grp_ciph_2h_val_proof_t const * proof,
@@ -24,22 +24,22 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
   grp_ciph_2h_t const *                    grouped_ciphertext_hi,
   fd_zksdk_transcript_t *                  transcript ) {
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L117-L122 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L117-L122 */
   if( FD_UNLIKELY( fd_memeq( pubkey1,                           fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( grouped_ciphertext_lo->commitment, fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( grouped_ciphertext_hi->commitment, fd_ristretto255_compressed_zero, 32 ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L124-L131 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L124-L131 */
   batched_grouped_ciphertext_validity_hash_context( transcript, pubkey1, pubkey2, grouped_ciphertext_lo, grouped_ciphertext_hi );
   fd_zksdk_transcript_domsep_batched_grp_ciph_val_proof( transcript, 2 );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L133 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L133 */
   uchar t[ 32 ];
   fd_zksdk_transcript_challenge_scalar( t, transcript, FD_TRANSCRIPT_LITERAL("t") );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L135-L160
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/batched_grouped_ciphertext_validity/handles_2.rs#L135-L160
      Note: in our impl, t is embedded in the final MSM. */
   return fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
     proof,
@@ -57,7 +57,7 @@ fd_zksdk_verify_proof_batched_grouped_ciphertext_2_handles_validity(
   );
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_grouped_ciphertext_validity/handles_2.rs#L126 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_grouped_ciphertext_validity/handles_2.rs#L126 */
 int
 fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_2_handles_validity( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];

@@ -1,29 +1,29 @@
 #include "../fd_zksdk_private.h"
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L83 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L83 */
 int
 fd_zksdk_instr_verify_proof_batched_range_proof_u128( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];
   fd_zksdk_batched_range_proof_context_t const * context = _context;
   fd_zksdk_range_proof_u128_proof_t const *      proof   = _proof;
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L84 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L84 */
   uchar batch_len = 0;
   int val = batched_range_proof_context_try_into( &batch_len, context );
   if( FD_UNLIKELY( val != FD_ZKSDK_VERIFY_PROOF_SUCCESS ) ) {
     return val;
   }
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L87-L89
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L87-L89
      This can never happen: `commitments: [PodPedersenCommitment; MAX_COMMITMENTS]` */
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L91-L99
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L91-L99
      We validate this inside fd_rangeproofs_verify() */
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L101 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L101 */
   batched_range_proof_context_new_transcript( transcript, context );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L104-L106 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u128.rs#L104-L106 */
   const fd_rangeproofs_ipp_proof_t ipp_proof = {
     7,
     proof->ipp_lr_vec,

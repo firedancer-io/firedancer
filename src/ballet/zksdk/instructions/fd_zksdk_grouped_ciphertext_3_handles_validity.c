@@ -1,6 +1,6 @@
 #include "../fd_zksdk_private.h"
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L299 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L299 */
 static inline void
 grouped_ciphertext_validity_hash_context(
   fd_zksdk_transcript_t * transcript,
@@ -14,7 +14,7 @@ grouped_ciphertext_validity_hash_context(
   fd_zksdk_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("grouped-ciphertext"), (uchar *)grouped_ciphertext, sizeof(grp_ciph_3h_t) );
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L163 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L163 */
 static inline int
 fd_zksdk_verify_proof_grouped_ciphertext_3_handles_validity(
   fd_zksdk_grp_ciph_3h_val_proof_t const * proof,
@@ -24,17 +24,17 @@ fd_zksdk_verify_proof_grouped_ciphertext_3_handles_validity(
   grp_ciph_3h_t const *                    grouped_ciphertext,
   fd_zksdk_transcript_t *                  transcript ) {
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L174-L179 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L174-L179 */
   if( FD_UNLIKELY( fd_memeq( pubkey1,                        fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( pubkey2,                        fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( grouped_ciphertext->commitment, fd_ristretto255_compressed_zero, 32 ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L181-187 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L181-187 */
   grouped_ciphertext_validity_hash_context( transcript, pubkey1, pubkey2, pubkey3, grouped_ciphertext );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L188-194 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L188-194 */
   return fd_zksdk_verify_proof_direct_grouped_ciphertext_3_handles_validity(
     proof,
     pubkey1,
@@ -54,7 +54,7 @@ fd_zksdk_verify_proof_grouped_ciphertext_3_handles_validity(
   );
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L198 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L198 */
 int
 fd_zksdk_verify_proof_direct_grouped_ciphertext_3_handles_validity(
   fd_zksdk_grp_ciph_3h_val_proof_t const * proof,
@@ -165,10 +165,10 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_3_handles_validity(
 
   /* Finalize transcript and extract challenges */
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L206 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L206 */
   fd_zksdk_transcript_domsep_grp_ciph_val_proof( transcript, 3 );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L208-L220 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L208-L220 */
   int val = FD_TRANSCRIPT_SUCCESS;
   val |= fd_zksdk_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_0"), proof->y0);
   val |= fd_zksdk_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_1"), proof->y1);
@@ -188,7 +188,7 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_3_handles_validity(
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L221-L290
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L221-L290
      Note: we use a slightly different MSM but they're equivalent. */
 
   /* Compute scalars */
@@ -214,14 +214,14 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_3_handles_validity(
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, batched ? 16 : 12 );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L292-L296 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_3.rs#L292-L296 */
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y0 ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_SUCCESS;
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/grouped_ciphertext_validity/handles_3.rs#L118 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/grouped_ciphertext_validity/handles_3.rs#L118 */
 int
 fd_zksdk_instr_verify_proof_grouped_ciphertext_3_handles_validity( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];

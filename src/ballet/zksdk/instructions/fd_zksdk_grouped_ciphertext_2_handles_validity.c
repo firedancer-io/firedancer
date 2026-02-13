@@ -1,6 +1,6 @@
 #include "../fd_zksdk_private.h"
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L161 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L161 */
 static inline void
 grouped_ciphertext_validity_hash_context( fd_zksdk_transcript_t * transcript,
                                           uchar const             pubkey1 [ 32 ],
@@ -17,16 +17,16 @@ fd_zksdk_verify_proof_grouped_ciphertext_2_handles_validity( fd_zksdk_grp_ciph_2
                                                              uchar const                              pubkey2 [ 32 ],
                                                              grp_ciph_2h_t const *                    grouped_ciphertext,
                                                              fd_zksdk_transcript_t *                  transcript ) {
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L155-L159 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L155-L159 */
   if( FD_UNLIKELY( fd_memeq( pubkey1,                        fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( grouped_ciphertext->commitment, fd_ristretto255_compressed_zero, 32 ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L161-L166 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L161-L166 */
   grouped_ciphertext_validity_hash_context( transcript, pubkey1, pubkey2, grouped_ciphertext );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L167 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L167 */
   return fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
     proof,
     pubkey1,
@@ -43,7 +43,7 @@ fd_zksdk_verify_proof_grouped_ciphertext_2_handles_validity( fd_zksdk_grp_ciph_2
   );
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L170
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L170
    In Agave, the verify_direct() is a method of the NON-batched proof.
    The batched proof is converted into a non-batched proof with 3 mul.
    However, verify_direct() is doing a MSM so we can embed the 3 mul
@@ -163,10 +163,10 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
 
   /* Finalize transcript and extract challenges */
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L177 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L177 */
   fd_zksdk_transcript_domsep_grp_ciph_val_proof( transcript, 2 );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L179-L189 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L179-L189 */
   int val = FD_TRANSCRIPT_SUCCESS;
   val |= fd_zksdk_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_0"), proof->y0);
   val |= fd_zksdk_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_1"), proof->y1);
@@ -185,7 +185,7 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L190-L244
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L190-L244
      Note: we use a slightly different MSM but they're equivalent. */
 
   /* Compute scalars */
@@ -212,14 +212,14 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, idx );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L246-L250 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/grouped_ciphertext_validity/handles_2.rs#L246-L250 */
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y0 ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_SUCCESS;
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/grouped_ciphertext_validity/handles_2.rs#L109 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/grouped_ciphertext_validity/handles_2.rs#L109 */
 int
 fd_zksdk_instr_verify_proof_grouped_ciphertext_2_handles_validity( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];

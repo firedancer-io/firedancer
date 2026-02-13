@@ -1,6 +1,6 @@
 #include "../fd_zksdk_private.h"
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L166 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L167 */
 static inline void
 zero_ciphertext_hash_context( fd_zksdk_transcript_t * transcript,
                               uchar const             pubkey    [ 32 ],
@@ -9,7 +9,7 @@ zero_ciphertext_hash_context( fd_zksdk_transcript_t * transcript,
   fd_zksdk_transcript_append_ciphertext( transcript, FD_TRANSCRIPT_LITERAL("ciphertext"), ciphertext );
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L98 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L98 */
 static inline int
 fd_zksdk_verify_proof_zero_ciphertext(
   fd_zksdk_zero_ciphertext_proof_t const * proof,
@@ -42,7 +42,7 @@ fd_zksdk_verify_proof_zero_ciphertext(
   fd_ristretto255_point_t y[1];
   fd_ristretto255_point_t res[1];
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L104-L108
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L104-L109
      Reject identity pubkey and ciphertext.commitment. */
   if( FD_UNLIKELY( fd_memeq( pubkey,          fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( &ciphertext[0],  fd_ristretto255_compressed_zero, 32 )
@@ -75,11 +75,11 @@ fd_zksdk_verify_proof_zero_ciphertext(
 
   /* Finalize transcript and extract challenges */
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L110-L111 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L111-L112 */
   zero_ciphertext_hash_context( transcript, pubkey, ciphertext );
   fd_zksdk_transcript_domsep_zero_ciphertext_proof( transcript );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L118-L125 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L119-L126 */
   int val = FD_TRANSCRIPT_SUCCESS;
   val |= fd_zksdk_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_P"), proof->yp);
   if( FD_UNLIKELY( val != FD_TRANSCRIPT_SUCCESS ) ) {
@@ -95,7 +95,7 @@ fd_zksdk_verify_proof_zero_ciphertext(
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L140
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L141
      Note: we use a slightly different MSM but they're equivalent. */
 
   /* Compute scalars */
@@ -108,14 +108,14 @@ fd_zksdk_verify_proof_zero_ciphertext(
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 5 );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L159-L163 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L160-L164 */
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_SUCCESS;
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/zero_ciphertext.rs#L88 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/zero_ciphertext.rs#L88 */
 int
 fd_zksdk_instr_verify_proof_zero_ciphertext( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];

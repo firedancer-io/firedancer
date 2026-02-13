@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_zksdk_transcript_fd_transcript_h
 #define HEADER_fd_src_ballet_zksdk_transcript_fd_transcript_h
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/transcript.rs
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/transcript.rs
    The implementation of transcript.rs is split between this file and
    rangeproofs/fd_rangeproofs_transcript.h. */
 

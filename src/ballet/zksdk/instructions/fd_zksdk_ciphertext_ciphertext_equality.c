@@ -1,6 +1,6 @@
 #include "../fd_zksdk_private.h"
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L263 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L263 */
 static inline void
 ciphertext_ciphertext_equality_hash_context( fd_zksdk_transcript_t * transcript,
                                              uchar const             pubkey1    [ 32 ],
@@ -13,7 +13,7 @@ ciphertext_ciphertext_equality_hash_context( fd_zksdk_transcript_t * transcript,
   fd_zksdk_transcript_append_ciphertext( transcript, FD_TRANSCRIPT_LITERAL("second-ciphertext"), ciphertext2 );
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L147 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L147 */
 static inline int
 fd_zksdk_verify_proof_ciphertext_ciphertext_equality(
   fd_zksdk_ciph_ciph_eq_proof_t const * proof,
@@ -47,7 +47,7 @@ fd_zksdk_verify_proof_ciphertext_ciphertext_equality(
   fd_ristretto255_point_t y0[1];
   fd_ristretto255_point_t res[1];
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L158-L164 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L158-L164 */
   if( FD_UNLIKELY( fd_memeq( pubkey1,          fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( pubkey2,          fd_ristretto255_compressed_zero, 32 )
                 || fd_memeq( &ciphertext1[0],  fd_ristretto255_compressed_zero, 32 )
@@ -100,11 +100,11 @@ fd_zksdk_verify_proof_ciphertext_ciphertext_equality(
 
   /* Finalize transcript and extract challenges */
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L166-L173 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L166-L173 */
   ciphertext_ciphertext_equality_hash_context( transcript, pubkey1, pubkey2, ciphertext1, ciphertext2 );
   fd_zksdk_transcript_domsep_ciph_ciph_eq_proof( transcript );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L185-L195 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L185-L195 */
   int val = FD_TRANSCRIPT_SUCCESS;
   val |= fd_zksdk_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_0"), proof->y0);
   val |= fd_zksdk_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_1"), proof->y1);
@@ -124,7 +124,7 @@ fd_zksdk_verify_proof_ciphertext_ciphertext_equality(
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L196-L254
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L196-L254
      Note: we use a slightly different MSM but they're equivalent. */
   uchar ww[ 32 ];
   fd_curve25519_scalar_mul( ww, w, w );
@@ -148,14 +148,14 @@ fd_zksdk_verify_proof_ciphertext_ciphertext_equality(
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 11 );
 
-  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L256-L260 */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/ciphertext_ciphertext_equality.rs#L256-L260 */
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y0 ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_SUCCESS;
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/proof_data/ciphertext_ciphertext_equality.rs#L122 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/ciphertext_ciphertext_equality.rs#L122 */
 int
 fd_zksdk_instr_verify_proof_ciphertext_ciphertext_equality( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];
