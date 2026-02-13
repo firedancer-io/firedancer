@@ -178,7 +178,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
      in the SlotHistory should be present in the txncache. */
   fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
   for( ulong i=newest_slot; i>newest_slot-slot_set.ele_cnt; i-- ) {
-    if( FD_LIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, i ) )==FD_SLOT_HISTORY_SLOT_FOUND ) {
+    if( FD_LIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, i )==FD_SLOT_HISTORY_SLOT_FOUND ) ) {
       if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &i, NULL, slot_set.pool )==NULL ) ) {
         /* VerifySlotDeltasError::SlotNotFoundInDeltas
            https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147
