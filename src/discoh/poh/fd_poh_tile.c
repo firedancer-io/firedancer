@@ -1348,11 +1348,11 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
       the shred tile needs to be aware of.  Since their computation
       requires the bank, we are forced (so far) to receive them here
       from the Rust side, before forwarding them to the shred tile as
-      POH_PKT_TYPE_FEAT_ACT_SLOT.  This is not elegant, and it should
-      be revised in the future (TODO), but it provides a "temporary"
-      working solution to handle features activation. */
-  fd_memcpy( ctx->features_activation->slots, features_activation, sizeof(fd_shred_features_activation_t) );
-  ctx->features_activation_avail = 1UL;
+      POH_PKT_TYPE_FEAT_ACT_SLOT. */
+  if( FD_UNLIKELY( !fd_memeq( ctx->features_activation->slots, features_activation, sizeof(fd_shred_features_activation_t) ) ) ) {
+    fd_memcpy( ctx->features_activation->slots, features_activation, sizeof(fd_shred_features_activation_t) );
+    ctx->features_activation_avail = 1UL;
+  }
 
   fd_ext_poh_write_unlock();
 }
