@@ -174,10 +174,24 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
+      /* When lthash verification is disabled, vinyl txn operation can
+         be used, providing a fast revert mechanism when the incr
+         snapshot is cancelled.  However, when the lthash verification
+         is enabled, the meta map needs to be updated as the accounts
+         are processed, in order to detemine which duplicates are new
+         and which are old.  This prevents us from using txn_commit
+         when lthash is enabled.  (In more detail: the need of having
+         recovery_seq in the pair's phdr info makes an update on the
+         bstream during txn_commit not feasible, since it would require
+         recomputing the pair's integrity hashes).  For the case when
+         lthash verification is enabled, there is a recovery mechanism
+         in place. */
+      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR && ctx->lthash_disabled ) {
         fd_snapwm_vinyl_txn_begin( ctx );
       }
       fd_snapwm_vinyl_wd_init( ctx );
+      /* backup bstream seq, independent of whether full or incr. */
+      fd_snapwm_vinyl_recovery_seq_backup( ctx );
 
       /* There is a way to avoid a lock here: every other writer, in
          particular the write tiles that update wr_seq, have already
@@ -204,12 +218,7 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
-
       fd_snapwm_vinyl_wd_fini( ctx );
-
-      /* FIXME vinyl_txn_commit should not happen in fini (it should
-         happen either in NEXT or DONE).  This is a temporary patch,
-         it will be corrected in an upcoming PR.  TODO. */
       if( ctx->vinyl.txn_active ) {
         fd_snapwm_vinyl_txn_commit( ctx, stem );
       }
@@ -225,6 +234,13 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
 
+      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+        FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
+
       /* FIXME re-enable fd_snapwm_vinyl_txn_commit here once recovery
          is fully implemented. */
       break;
@@ -234,11 +250,9 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      /* FIXME re-enable fd_snapwm_vinyl_txn_commit here once recovery
-         is fully implemented. */
-
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-        FD_LOG_WARNING(( "slot deltas verification failed" ));
+        if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+        else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
@@ -256,11 +270,14 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       fd_snapwm_vinyl_wd_fini( ctx );
-      if( ctx->vinyl.txn_active ) {
-        fd_snapwm_vinyl_txn_cancel( ctx );
-      }
       if( ctx->full ) {
-        fd_snapwm_vinyl_meta_clean_all( ctx->vinyl.map );
+        fd_snapwm_vinyl_revert_full( ctx );
+      } else {
+        if( ctx->vinyl.txn_active ) {
+          fd_snapwm_vinyl_txn_cancel( ctx );
+        } else {
+          fd_snapwm_vinyl_revert_incr( ctx );
+        }
       }
       break;
     }

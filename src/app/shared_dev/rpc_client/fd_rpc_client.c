@@ -28,6 +28,7 @@ fd_rpc_client_new( void * mem,
     rpc->requests[ i ].state = FD_RPC_CLIENT_STATE_NONE;
     rpc->fds[ i ].fd = -1;
     rpc->fds[ i ].events = POLLIN | POLLOUT;
+    rpc->fds[ i ].revents = 0;
   }
   return (void *)rpc;
 }

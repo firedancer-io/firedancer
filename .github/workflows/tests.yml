@@ -77,7 +77,7 @@ jobs:
         if: ${{ !contains(matrix.extras, 'no-deps') }}
 
       - uses: ./.github/actions/hugepages
-        if: ${{ matrix.targets != 'check' }}
+        if: ${{ matrix.run-unit-tests || matrix.run-integration-tests }}
 
       - uses: ./.github/actions/cpusonline
 

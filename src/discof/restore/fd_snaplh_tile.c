@@ -357,7 +357,7 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
 
   /* Populate the empty slot and submit */
   fd_vinyl_bstream_phdr_t * in_phdr = &ctx->vinyl.pending.phdr[ free_i ];
-  memcpy( in_phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t) );
+  *in_phdr = *acc_hdr;
   ulong val_esz = fd_vinyl_bstream_ctl_sz( acc_hdr->ctl );
   ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
 

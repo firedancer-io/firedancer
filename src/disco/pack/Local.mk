@@ -1,3 +1,4 @@
+ifdef FD_HAS_HOSTED
 ifdef FD_HAS_DOUBLE
 $(call add-hdrs,fd_pack.h fd_est_tbl.h fd_compute_budget_program.h fd_microblock.h fd_pack_rebate_sum.h)
 $(call add-objs,fd_pack,fd_ballet)
@@ -28,6 +29,7 @@ endif
 ifdef FD_ARCH_SUPPORTS_SANDBOX
 ifdef FD_HAS_SECP256K1 # FIXME silly
 $(call make-unit-test,test_pack_tile,test_pack_tile,fdctl_shared fdctl_platform fd_disco fd_flamenco fd_ballet fd_tango fd_waltz fd_reedsol fd_funk fd_util)
+endif
 endif
 endif
 endif

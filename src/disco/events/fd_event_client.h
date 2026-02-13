@@ -3,7 +3,6 @@
 
 #include "fd_circq.h"
 #include "../keyguard/fd_keyguard_client.h"
-#include <complex.h>
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h>

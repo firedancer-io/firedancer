@@ -143,11 +143,49 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     return -1;
   }
 
+  /* Sanity checks for slot history:
+     https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L586 */
+
+  ulong newest_slot = fd_sysvar_slot_history_newest( &decoded.o );
+  if( FD_UNLIKELY( newest_slot!=ctx->bank_slot ) ) {
+    /* VerifySlotHistoryError::InvalidNewestSlot
+       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L621 */
+    FD_LOG_WARNING(( "SlotHistory sysvar has an invalid newest slot: %lu != bank slot: %lu", newest_slot, ctx->bank_slot ));
+    return -1;
+  }
+
+  ulong slot_history_len = fd_sysvar_slot_history_len( &decoded.o );
+  if( FD_UNLIKELY( slot_history_len!=FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
+    /* VerifySlotHistoryError::InvalidNumEntries
+       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L625 */
+    FD_LOG_WARNING(( "SLotHistory sysvar has invalid number of entries: %lu != expected: %lu", slot_history_len, FD_SLOT_HISTORY_MAX_ENTRIES ));
+    return -1;
+  }
+
+  /* All slots in the txncache should be present in the slot history */
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
     if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+      /* VerifySlotDeltasError::SlotNotFoundInHistory
+         https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L144
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L593 */
       FD_LOG_WARNING(( "slot %lu missing from SlotHistory sysvar account", entry->slot ));
       return -1;
+    }
+  }
+
+  /* The most recent slots (up to the number of slots in the txncache)
+     in the SlotHistory should be present in the txncache. */
+  fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+  for( ulong i=newest_slot; i>newest_slot-slot_set.ele_cnt; i-- ) {
+    if( FD_LIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, i ) )==FD_SLOT_HISTORY_SLOT_FOUND ) {
+      if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &i, NULL, slot_set.pool )==NULL ) ) {
+        /* VerifySlotDeltasError::SlotNotFoundInDeltas
+           https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147
+           https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L609 */
+        FD_LOG_WARNING(( "slot %lu missing from slot deltas but present in SlotHistory", i ));
+        return -1;
+      }
     }
   }
   return 0;
@@ -158,6 +196,9 @@ verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
                                    ulong              bank_slot ) {
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
+    /* VerifySlotDeltasError::SlotGreaterThanMaxRoot
+       https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L138
+       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L550 */
     if( FD_UNLIKELY( entry->slot>bank_slot ) ) return -1;
   }
   return 0;
@@ -369,7 +410,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   if( !!ctx->use_vinyl && !!ctx->txncache_entries_len_vinyl_ptr ) {
-    memcpy( ctx->txncache_entries_len_vinyl_ptr, &ctx->txncache_entries_len, sizeof(ulong) );
+    *ctx->txncache_entries_len_vinyl_ptr = ctx->txncache_entries_len;
   }
 
   FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txncache_entries_len ));
@@ -398,6 +439,8 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk );
 
   if( FD_UNLIKELY( ctx->advertised_slot!=manifest->slot ) ) {
+    /* SnapshotError::MismatchedSlot:
+       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L472 */
     FD_LOG_WARNING(( "snapshot manifest bank slot %lu does not match advertised slot %lu from snapshot peer",
                      manifest->slot, ctx->advertised_slot ));
     transition_malformed( ctx, ctx->stem );
@@ -550,6 +593,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
           fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz, 0UL, 0UL, 0UL );
           ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz, ctx->gui_out.chunk0, ctx->gui_out.wmark );
+          early_exit = 1;
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
@@ -652,6 +696,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
+      if( !ctx->use_vinyl ) {
+        if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+          FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
+      }
+
       /* Backup metric counters */
       ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
@@ -665,7 +718,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       if( !ctx->use_vinyl ) {
         if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-          FD_LOG_WARNING(( "slot deltas verification failed" ));
+          if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+          else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;

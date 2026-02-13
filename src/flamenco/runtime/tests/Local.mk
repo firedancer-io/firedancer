@@ -1,8 +1,10 @@
+ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_solfuzz.h)
 $(call add-objs,fd_solfuzz fd_solfuzz_exec,fd_flamenco_test)
 
 $(call add-hdrs,fd_dump_pb.h)
 $(call add-objs,fd_dump_pb,fd_flamenco)
+endif
 
 $(call add-hdrs,fd_instr_harness.h fd_txn_harness.h)
 $(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_harness_common fd_vm_harness,fd_flamenco_test)

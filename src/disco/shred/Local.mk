@@ -2,8 +2,10 @@ $(call add-objs,fd_shred_dest,fd_disco)
 $(call add-objs,fd_shredder,fd_disco)
 $(call add-objs,fd_fec_resolver,fd_disco)
 $(call add-objs,fd_stake_ci,fd_disco)
+ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_shred_tile,fd_disco)
+endif
 endif
 $(call make-unit-test,test_shred_dest,test_shred_dest,fd_disco fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_shred_dest_conformance,test_shred_dest_conformance,fd_disco fd_flamenco fd_ballet fd_util)
