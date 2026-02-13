@@ -203,14 +203,15 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
-        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;
-        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced = 0;
-        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
-        ctx->vinyl.pair_cnt            = 0UL;
+        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0UL;
+        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced = 0UL;
+        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0UL;
+        ctx->vinyl.pair_cnt            = ctx->vinyl.full_pair_cnt            = 0UL;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
+        ctx->vinyl.pair_cnt            = ctx->vinyl.full_pair_cnt;
       }
       break;
     }
@@ -233,6 +234,7 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
+      ctx->vinyl.full_pair_cnt            = ctx->vinyl.pair_cnt;
 
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
         FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
