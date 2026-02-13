@@ -41,8 +41,8 @@ int main( int argc, char ** argv ) {
 
   fd_vote_timestamp_ele_t * fork_pool = fd_vote_timestamps_get_fork_pool( vote_timestamps );
 
-  ushort fork_idx = fd_vote_timestamps_init( vote_timestamps, 0UL, 0 );
-  FD_TEST( fork_idx==0 );
+  ushort root_idx = fd_vote_timestamps_init( vote_timestamps, 0UL, 0 );
+  FD_TEST( root_idx==0 );
 
   fd_vote_timestamps_insert_root( vote_timestamps, pubkey_A, 10, 100UL );
   fd_vote_timestamps_insert_root( vote_timestamps, pubkey_B, 10, 200UL );
@@ -50,22 +50,27 @@ int main( int argc, char ** argv ) {
   fd_vote_timestamps_insert_root( vote_timestamps, pubkey_D, 10, 400UL );
   fd_vote_timestamps_insert_root( vote_timestamps, pubkey_E, 10, 500UL );
 
-  FD_TEST( 5U==fd_vote_timestamps_index_cnt( vote_timestamps ) );
-  FD_TEST( 0==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, fork_idx ) );
-  fd_vote_timestamp_ele_t * fork = fd_vote_timestamp_pool_ele( fork_pool, vote_timestamps->root_idx );
-  FD_TEST( fork->snapshot_idx!=UCHAR_MAX );
+  FD_TEST( 5U==fd_vote_timestamp_index_pool_used(fd_vote_timestamps_get_index_pool( vote_timestamps ) ) );
+  fd_vote_timestamp_ele_t * root = fd_vote_timestamp_pool_ele( fork_pool, vote_timestamps->root_idx );
+  FD_TEST( root->deltas_cnt==0 );
+  FD_TEST( root->snapshot_idx!=UCHAR_MAX );
+  FD_TEST( root->parent_idx==USHORT_MAX );
+  FD_TEST( root->child_idx==USHORT_MAX );
+  FD_TEST( root->sibling_idx==USHORT_MAX );
 
-
-
-  ushort child_idx = fd_vote_timestamps_attach_child( vote_timestamps, fork_idx, 1UL, 0 );
-
+  ushort child_idx = fd_vote_timestamps_attach_child( vote_timestamps, root_idx, 1UL, 0 );
   fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_A, 11, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_B, 11, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_C, 11, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_D, 11, 0UL );
-  FD_TEST( 5U==fd_vote_timestamps_index_cnt( vote_timestamps ) );
-  FD_TEST( 4==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx ) );
-
+  FD_TEST( 5U==fd_vote_timestamp_index_pool_used(fd_vote_timestamps_get_index_pool( vote_timestamps ) ) );
+  fd_vote_timestamp_ele_t * child_fork = fd_vote_timestamp_pool_ele( fork_pool, child_idx );
+  FD_TEST( child_fork->deltas_cnt==4 );
+  FD_TEST( root->child_idx==child_idx );
+  FD_TEST( child_fork->parent_idx==root_idx );
+  FD_TEST( child_fork->child_idx==USHORT_MAX );
+  FD_TEST( child_fork->sibling_idx==USHORT_MAX );
+  FD_TEST( root->snapshot_idx!=UCHAR_MAX );
   ulong timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx );
   FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
 
@@ -73,29 +78,94 @@ int main( int argc, char ** argv ) {
   fd_vote_timestamps_insert( vote_timestamps, child_idx2, pubkey_F, 11, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx2, pubkey_A, 15, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx2, pubkey_B, 15, 0UL );
-  FD_TEST( 6UL==fd_vote_timestamps_index_cnt( vote_timestamps ) );
-  FD_TEST( 3==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx2 ) );
+  FD_TEST( 6U==fd_vote_timestamp_index_pool_used(fd_vote_timestamps_get_index_pool( vote_timestamps ) ) );
   timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx2 );
   FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
+  fd_vote_timestamp_ele_t * child_fork2 = fd_vote_timestamp_pool_ele( fork_pool, child_idx2 );
+  FD_TEST( child_fork->child_idx==child_idx2 );
+  FD_TEST( child_fork2->parent_idx==child_idx );
+  FD_TEST( child_fork2->child_idx==USHORT_MAX );
+  FD_TEST( child_fork2->sibling_idx==USHORT_MAX );
+  FD_TEST( child_fork2->deltas_cnt==3 );
+  FD_TEST( root->snapshot_idx!=UCHAR_MAX );
 
   ushort child_idx3 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx, 3UL, 0 );
   fd_vote_timestamps_insert( vote_timestamps, child_idx3, pubkey_F, 11, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx3, pubkey_A, 15, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx3, pubkey_B, 15, 0UL );
-  FD_TEST( 6UL==fd_vote_timestamps_index_cnt( vote_timestamps ) );
-  FD_TEST( 3==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx3 ) );
+  FD_TEST( 6U==fd_vote_timestamp_index_pool_used(fd_vote_timestamps_get_index_pool( vote_timestamps ) ) );
   timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx3 );
   FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
+  fd_vote_timestamp_ele_t * child_fork3 = fd_vote_timestamp_pool_ele( fork_pool, child_idx3 );
+  FD_TEST( child_fork->child_idx==child_idx2 );
+  FD_TEST( child_fork2->sibling_idx==child_idx3 );
+  FD_TEST( child_fork3->parent_idx==child_idx );
+  FD_TEST( child_fork3->child_idx==USHORT_MAX );
+  FD_TEST( child_fork3->sibling_idx==USHORT_MAX );
+  FD_TEST( child_fork3->deltas_cnt==3 );
+  FD_TEST( root->snapshot_idx!=UCHAR_MAX );
 
-  /* Make sure the eviction policy is working. */
+  /* Make sure the eviction policy is working.  At this point we expect
+     LRU eviction to kick in excluding the root and the best option.
+     In this case the best option is child_idx_2, so we expect child_idx
+     to have its snapshot evicted. */
   ushort child_idx4 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx2, 4UL, 0 );
   fd_vote_timestamps_insert( vote_timestamps, child_idx4, pubkey_C, 16, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx4, pubkey_A, 15, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx4, pubkey_B, 15, 0UL );
-  FD_TEST( 6UL==fd_vote_timestamps_index_cnt( vote_timestamps ) );
-  FD_TEST( 3==fd_vote_timestamps_slot_votes_cnt( vote_timestamps, child_idx4 ) );
   timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx4 );
   FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
+  fd_vote_timestamp_ele_t * child_fork4 = fd_vote_timestamp_pool_ele( fork_pool, child_idx4 );
+  FD_TEST( child_fork4->parent_idx==child_idx2 );
+  FD_TEST( child_fork4->snapshot_idx!=UCHAR_MAX );
+  FD_TEST( child_fork->snapshot_idx==UCHAR_MAX );
+  FD_TEST( child_fork4->deltas_cnt==3 );
+  FD_TEST( root->snapshot_idx!=UCHAR_MAX );
+
+  /* Now try to make a child off of child_idx and see if the skipped
+     delta gets applied correctly.  We also should expect to see
+     child_idx2's snapshot to be evicted.  Make sure that the root's
+     snapshot idx does not get evicted. */
+  ushort child_idx5 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx, 5UL, 0 );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx5, pubkey_A, 20, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx5, pubkey_B, 20, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx5, pubkey_C, 20, 0UL );
+  timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx5 );
+  FD_TEST( child_fork2->snapshot_idx==UCHAR_MAX );
+  FD_TEST( root->snapshot_idx!=UCHAR_MAX );
+  FD_LOG_NOTICE(( "timestamp: %lu", timestamp ));
+
+  ushort child_idx6 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx2, 6UL, 0 );
+  timestamp = fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx6 );
+  FD_TEST( child_fork3->snapshot_idx==UCHAR_MAX );
+  FD_TEST( root->snapshot_idx!=UCHAR_MAX );
+
+  /* Advance the root to a node that does not have a snapshot: in this
+     case move to child_idx.  This node also has no siblings so only
+     the old root will get pruned. */
+  fd_vote_timestamps_advance_root( vote_timestamps, child_idx );
+  /* TODO: Asserts here.  Make sure that the values in the snapshot are
+     what we expect them to be.  Also validate the fork structure at
+     this point. */
+  fd_vote_timestamp_ele_t * new_root = fd_vote_timestamp_pool_ele( fork_pool, vote_timestamps->root_idx );
+  FD_TEST( new_root->deltas_cnt==0 );
+  FD_TEST( new_root->snapshot_idx!=UCHAR_MAX );
+  snapshot_ele_t *     snapshot = fd_vote_timestamps_get_snapshot( vote_timestamps, new_root->snapshot_idx );
+  snapshot_ele_map_t * snapshot_map = fd_vote_timestamps_get_snapshot_ele_map( vote_timestamps, new_root->snapshot_idx );
+  ulong ts_10_cnt = 0UL;
+  ulong ts_11_cnt = 0UL;
+  for( snapshot_ele_map_iter_t iter = snapshot_ele_map_iter_init( snapshot_map, snapshot );
+       !snapshot_ele_map_iter_done( iter, snapshot_map, snapshot );
+       iter = snapshot_ele_map_iter_next( iter, snapshot_map, snapshot ) ) {
+    snapshot_ele_t * ele = snapshot_ele_map_iter_ele( iter, snapshot_map, snapshot );
+    FD_TEST( ele->timestamp==10 || ele->timestamp==11 );
+    if( ele->timestamp==10 ) ts_10_cnt++;
+    else ts_11_cnt++;
+  }
+  FD_TEST( ts_10_cnt==1 );
+  FD_TEST( ts_11_cnt==4 );
+
+
 
   FD_LOG_NOTICE(( "pass" ));
 }

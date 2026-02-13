@@ -75,13 +75,6 @@ ulong
 fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
                                   ushort                 fork_idx );
 
-ushort
-fd_vote_timestamps_slot_votes_cnt( fd_vote_timestamps_t * vote_ts,
-                                   ushort                 fork_idx );
-
-uint
-fd_vote_timestamps_index_cnt( fd_vote_timestamps_t * vote_ts );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_vote_timestamps_h */
