@@ -355,8 +355,9 @@ validate( fd_topo_t const * topo ) {
 }
 
 void
-fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores ) {
+fd_topob_auto_layout_cpus( fd_topo_t *      topo,
+                           fd_topo_cpus_t * cpus,
+                           int              reserve_agave_cores ) {
   /* Incredibly simple automatic layout system for now ... just assign
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
@@ -436,9 +437,6 @@ fd_topob_auto_layout( fd_topo_t * topo,
     tile->cpu_idx = ULONG_MAX;
   }
 
-  fd_topo_cpus_t cpus[1];
-  fd_topo_cpus_init( cpus );
-
   ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
   int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
 
@@ -471,6 +469,31 @@ fd_topob_auto_layout( fd_topo_t * topo,
     cpu_assigned[ topo->blocklist_cores_cpu_idx[ i ] ] = 1;
   }
 
+  /* Compute total number of available physical cores */
+  ulong available_physical = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    if( !cpu_assigned[ i ] && !pairs_assigned[ i ] ) available_physical++;
+  }
+
+  /* Compute total number of tiles that need assignment */
+  ulong tiles_to_assign = 0UL;
+  for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+    for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
+      if( !strcmp( topo->tiles[ j ].name, ORDERED[ i ] ) ) {
+        tiles_to_assign++;
+        break;
+      }
+    }
+  }
+
+  /* If we have enough physical cores (excluding HT siblings) for all
+     tiles that need assignment, exclude HT siblings so that no tile
+     gets scheduled on a hyperthread pair.
+     For Frankendancer, we reserve 2x cores so we have enough for Agave */
+  int skip_ht_pairs = reserve_agave_cores
+    ? (available_physical>=2*tiles_to_assign) /* Frankendancer */
+    : (available_physical>=tiles_to_assign);  /* Firedancer */
+
   ulong cpu_idx = 0UL;
   while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
 
@@ -495,7 +518,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
             }
           }
 
-          if( FD_UNLIKELY( is_ht_critical ) ) {
+          if( FD_UNLIKELY( is_ht_critical || skip_ht_pairs ) ) {
             ulong try_assign = cpu_idx;
             while( cpu_assigned[ cpu_ordering[ try_assign ] ] || (cpus->cpu[ cpu_ordering[ try_assign ] ].sibling!=ULONG_MAX && cpu_assigned[ cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ]) ) {
               try_assign++;
@@ -545,6 +568,14 @@ fd_topob_auto_layout( fd_topo_t * topo,
       }
     }
   }
+}
+
+void
+fd_topob_auto_layout( fd_topo_t * topo,
+                      int         reserve_agave_cores ) {
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+  fd_topob_auto_layout_cpus( topo, cpus, reserve_agave_cores );
 }
 
 ulong

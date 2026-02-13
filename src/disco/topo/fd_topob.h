@@ -5,6 +5,7 @@
    functions for creating a useful topology. */
 
 #include "../../disco/topo/fd_topo.h"
+#include "fd_cpu_topo.h"
 
 /* A link in the topology is either unpolled or polled.  Almost all
    links are polled, which means a tile which has this link as an in
@@ -136,11 +137,18 @@ fd_topob_tile_out( fd_topo_t *  topo,
                    ulong        link_kind_id );
 
 /* Automatically layout the tiles onto CPUs in the topology for a
-   best effort. */
+   best effort.  fd_topob_auto_layout reads CPU topology from the OS.
+   fd_topob_auto_layout_cpus takes a pre-built CPU topology, useful
+   for testing. */
 
 void
 fd_topob_auto_layout( fd_topo_t * topo,
                       int         reserve_agave_cores );
+
+void
+fd_topob_auto_layout_cpus( fd_topo_t *      topo,
+                           fd_topo_cpus_t * cpus,
+                           int              reserve_agave_cores );
 
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates
