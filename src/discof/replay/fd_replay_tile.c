@@ -163,10 +163,7 @@ struct fd_replay_tile {
   ulong        reasm_seed;
   fd_reasm_t * reasm;
 
-  /* Replay state machine. */
-  fd_sched_t *         sched;
-  ulong                exec_cnt;
-  fd_replay_out_link_t exec_out[ 1 ]; /* Sending work down to exec tiles */
+  fd_sched_t * sched;
 
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
@@ -379,6 +376,8 @@ struct fd_replay_tile {
 
   int in_kind[ 128 ];
   fd_replay_in_link_t in[ 128 ];
+
+  fd_replay_out_link_t exec_out[ 1 ];
 
   fd_replay_out_link_t replay_out[1];
 
@@ -794,6 +793,25 @@ publish_slot_dead( fd_replay_tile_t *  ctx,
   slot_dead->block_id               = ctx->block_id_arr[ bank->data->idx ].block_id;
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_DEAD, ctx->replay_out->chunk, sizeof(fd_replay_slot_dead_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_dead_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
+static void
+publish_txn_executed( fd_replay_tile_t *  ctx,
+                      fd_stem_context_t * stem,
+                      ulong               txn_idx ) {
+  fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
+  fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ) );
+  *txn_executed->txn = *fd_sched_get_txn( ctx->sched, txn_idx );
+  txn_executed->txn_err = txn_info->txn_err;
+  txn_executed->is_committable = !!(txn_info->flags&FD_SCHED_TXN_IS_COMMITTABLE);
+  txn_executed->is_fees_only = !!(txn_info->flags&FD_SCHED_TXN_IS_FEES_ONLY);
+  txn_executed->tick_parsed = txn_info->tick_parsed;
+  txn_executed->tick_sigverify_disp = txn_info->tick_sigverify_disp;
+  txn_executed->tick_sigverify_done = txn_info->tick_sigverify_done;
+  txn_executed->tick_exec_disp = txn_info->tick_exec_disp;
+  txn_executed->tick_exec_done = txn_info->tick_exec_done;
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_TXN_EXECUTED, ctx->replay_out->chunk, sizeof(*txn_executed), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(*txn_executed), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
 static void
@@ -2057,7 +2075,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
           *fd_bank_has_identity_vote_modify( bank ) += 1;
         }
       }
-      if( FD_UNLIKELY( msg->txn_exec->err && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
+      if( FD_UNLIKELY( !msg->txn_exec->is_committable && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead. */
         fd_banks_mark_bank_dead( ctx->banks, bank->data->idx );
@@ -2074,9 +2092,26 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
+      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, msg->txn_exec->txn_idx );
+      txn_info->flags |= FD_SCHED_TXN_EXEC_DONE;
+      if( FD_LIKELY( !(txn_info->flags&FD_SCHED_TXN_SIGVERIFY_DONE)||!txn_info->txn_err ) ) { /* Set execution status if sigverify hasn't happened yet or if sigverify was a success. */
+        txn_info->txn_err = msg->txn_exec->txn_err;
+        txn_info->flags  |= fd_ulong_if( msg->txn_exec->is_committable, FD_SCHED_TXN_IS_COMMITTABLE, 0UL );
+        txn_info->flags  |= fd_ulong_if( msg->txn_exec->is_fees_only,   FD_SCHED_TXN_IS_FEES_ONLY,   0UL );
+      }
+      if( FD_UNLIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) { /* UNLIKELY because generally exec happens before sigverify. */
+        publish_txn_executed( ctx, stem, msg->txn_exec->txn_idx );
+      }
       break;
     }
     case FD_EXECRP_TT_TXN_SIGVERIFY: {
+      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, msg->txn_sigverify->txn_idx );
+      txn_info->flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
+      if( FD_UNLIKELY( msg->txn_sigverify->err ) ) {
+        txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+        txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
+        txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
+      }
       if( FD_UNLIKELY( msg->txn_sigverify->err && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
@@ -2095,6 +2130,9 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
+      if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
+        publish_txn_executed( ctx, stem, msg->txn_exec->txn_idx );
+      }
       break;
     }
     case FD_EXECRP_TT_POH_HASH: {
@@ -2640,8 +2678,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 # endif
 
-  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "execrp" );
-
   ctx->is_booted = 0;
 
   ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
@@ -2649,7 +2685,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, tile->replay.fec_max, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
 
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->exec_cnt ) );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
   FD_TEST( ctx->sched );
 
   FD_TEST( fd_vinyl_req_pool_new( vinyl_req_pool_mem, 1UL, 1UL ) );
@@ -2709,26 +2745,16 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
-  *ctx->replay_out = out1( topo, tile, "replay_out" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
-
-  ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_execrp", 0UL );
-  FD_TEST( idx!=ULONG_MAX );
-  fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
-
-  fd_replay_out_link_t * exec_out = ctx->exec_out;
-  exec_out->idx    = idx;
-  exec_out->mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-  exec_out->chunk0 = fd_dcache_compact_chunk0( exec_out->mem, link->dcache );
-  exec_out->wmark  = fd_dcache_compact_wmark( exec_out->mem, link->dcache, link->mtu );
-  exec_out->chunk  = exec_out->chunk0;
+  *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
+  *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
 
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
-    idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
     FD_TEST( idx!=ULONG_MAX );
-    link = &topo->links[ tile->out_link_id[ idx ] ];
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
 
 
     fd_capture_link_buf_t * cap_repl_out = ctx->cap_repl_out;
