@@ -100,22 +100,19 @@ typedef struct fd_configh fd_configh_t;
 
 struct fd_configf {
   struct {
-    ulong max_account_records;
-    ulong heap_size_gib;
-  } funk;
-
-  struct {
-    int   enabled;
-    ulong max_account_records;
+    ulong max_accounts;
     ulong file_size_gib;
-    ulong max_cache_entries;
+    ulong max_unrooted_account_size_gib;
     ulong cache_size_gib;
     ulong write_delay_slots;
+    int   in_memory_only;
+    char  io_provider[ 12 ];
+    ulong mean_account_footprint;
+
     struct {
-       int  enabled;
-       uint queue_depth;
+      uint queue_depth;
     } io_uring;
-  } vinyl;
+  } accounts;
 
   struct {
     int  enable_block_production;

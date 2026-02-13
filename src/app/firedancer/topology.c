@@ -102,7 +102,7 @@ setup_topo_funk( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_database_transactions, "obj.%lu.txn_max",  obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, heap_size_gib*(1UL<<30),   "obj.%lu.heap_max", obj->id ) );
   ulong funk_footprint = fd_funk_footprint( max_database_transactions, max_account_records );
-  if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [funk] parameters" ));
+  if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [accounts] parameters" ));
 
   /* Increase workspace partition count */
   ulong wksp_idx = fd_topo_find_wksp( topo, wksp_name );
@@ -193,7 +193,7 @@ setup_topo_accdb_meta( fd_topo_t *    topo,
      new entries.  meta_limit must be larger than the requested max
      account records.  The calculation is verbose intentionally, to
      make it easy to upgrade in the future if necessary. */
-  ulong const meta_rec   = config->vinyl.max_account_records;
+  ulong const meta_rec   = config->accounts.max_accounts;
   ulong       meta_max   = fd_ulong_pow2_up( meta_rec );
   ulong       meta_limit = ( meta_max*3UL )/4UL;
   if( FD_UNLIKELY( meta_limit<meta_rec ) ) {
@@ -220,7 +220,7 @@ setup_topo_accdb_cache( fd_topo_t *    topo,
                         fd_configf_t * config ) {
   fd_topob_wksp( topo, "accdb_data" );
   fd_topo_obj_t * line_obj = fd_topob_obj( topo, "vinyl_data", "accdb_data" );
-  ulong const heap_max = config->vinyl.cache_size_gib<<30;
+  ulong const heap_max = config->accounts.cache_size_gib<<30;
   fd_pod_insertf_ulong( topo->props, heap_max, "obj.%lu.data_sz", line_obj->id );
   fd_pod_insert_ulong( topo->props, "accdb.data", line_obj->id );
   return line_obj;
@@ -385,7 +385,7 @@ fd_topo_initialize( config_t * config ) {
   ulong snaplh_tile_cnt = config->firedancer.layout.snapshot_hash_tile_count;
 
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
-  int vinyl_enabled     = !!config->firedancer.vinyl.enabled;
+  int vinyl_enabled     = !config->firedancer.accounts.in_memory_only;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
   int rpc_enabled       = config->tiles.rpc.enabled;
   int telemetry_enabled = config->telemetry && strcmp( config->tiles.event.url, "" );
@@ -1206,9 +1206,11 @@ fd_topo_initialize( config_t * config ) {
   }
 
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
-      config->firedancer.funk.max_account_records,
-      config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots,
-      config->firedancer.funk.heap_size_gib );
+      config->firedancer.accounts.max_accounts,
+      config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots,
+      config->firedancer.accounts.in_memory_only
+          ? config->firedancer.accounts.file_size_gib
+          : config->firedancer.accounts.max_unrooted_account_size_gib );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* TODO: Should be readonly? */
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL  ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1242,9 +1244,9 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<32UL ) ) {
     FD_LOG_ERR(( "max_live_slots must be >= 32 in order to support tower rooting" ));
   }
-  if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots+config->firedancer.vinyl.write_delay_slots>FD_ACCDB_MAX_DEPTH_MAX ) ) {
+  if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots+config->firedancer.accounts.write_delay_slots>FD_ACCDB_MAX_DEPTH_MAX ) ) {
     FD_LOG_ERR(( "max_live_slots+write_delay_slots (%lu+%lu) exceeds compile-time limit FD_ACCDB_MAX_DEPTH_MAX (%lu)",
-                 config->firedancer.runtime.max_live_slots, config->firedancer.vinyl.write_delay_slots, FD_ACCDB_MAX_DEPTH_MAX ));
+                 config->firedancer.runtime.max_live_slots, config->firedancer.accounts.write_delay_slots, FD_ACCDB_MAX_DEPTH_MAX ));
   }
 
   fd_topo_obj_t * acc_pool_obj = setup_topo_acc_pool( topo, config->firedancer.runtime.max_account_cnt );
@@ -1421,7 +1423,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->genesi.target_gid      = config->gid;
     tile->genesi.target_uid      = config->uid;
-    tile->genesi.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots;
+    tile->genesi.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 
@@ -1517,11 +1519,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
     tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
-    tile->snapin.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots;
+    tile->snapin.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
     tile->snapin.funk_obj_id     = fd_pod_query_ulong( config->topo.props, "funk",     ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
 
-    tile->snapin.use_vinyl = !!config->firedancer.vinyl.enabled;
+    tile->snapin.use_vinyl = !config->firedancer.accounts.in_memory_only;
     tile->snapin.lthash_disabled = !!config->development.snapshots.disable_lthash_verification;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwm" ) ) ) {
@@ -1560,7 +1562,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( wm_wr_link_id!=ULONG_MAX );
     fd_topo_link_t * wm_wr_link = &config->topo.links[ wm_wr_link_id ];
     tile->snaplh.dcache_obj_id = wm_wr_link->dcache_obj_id;
-    tile->snaplh.io_uring_enabled = !!config->firedancer.vinyl.io_uring.enabled;
+    tile->snaplh.io_uring_enabled = !strcmp(config->firedancer.accounts.io_provider, "io_uring");
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snaplv" ) ) )  {
 
@@ -1598,7 +1600,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.sched_depth       = config->firedancer.development.replay.scheduler_depth;
     tile->replay.max_live_slots    = config->firedancer.runtime.max_live_slots;
-    tile->replay.write_delay_slots = config->firedancer.vinyl.write_delay_slots;
+    tile->replay.write_delay_slots = config->firedancer.accounts.write_delay_slots;
 
     strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
 
@@ -1630,7 +1632,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.acc_pool_obj_id  = fd_pod_query_ulong( config->topo.props, "acc_pool",  ULONG_MAX ); FD_TEST( tile->execrp.acc_pool_obj_id !=ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
-    tile->execrp.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots;
+    tile->execrp.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
     tile->execrp.capture_start_slot = config->capture.capture_start_slot;
     strncpy( tile->execrp.solcap_capture, config->capture.solcap_capture, sizeof(tile->execrp.solcap_capture) );
@@ -1649,7 +1651,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
-    tile->tower.accdb_max_depth    = config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots;
+    tile->tower.accdb_max_depth    = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
     tile->tower.max_vote_lookahead = config->tiles.tower.max_vote_lookahead;
     tile->tower.debug_logging      = config->tiles.tower.debug_logging;
     strncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
@@ -1684,7 +1686,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "resolv" ) ) ) {
 
-    tile->resolv.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots;
+    tile->resolv.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
 
@@ -1714,7 +1716,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.acc_pool_obj_id  = fd_pod_query_ulong( config->topo.props, "acc_pool",  ULONG_MAX );
 
     tile->execle.max_live_slots  = config->firedancer.runtime.max_live_slots;
-    tile->execle.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots;
+    tile->execle.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
     strncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
@@ -1783,7 +1785,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
 
     tile->rpc.max_live_slots  = config->firedancer.runtime.max_live_slots;
-    tile->rpc.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots;
+    tile->rpc.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
     strncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
 
@@ -1837,13 +1839,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->accdb.meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "accdb.meta_map",  ULONG_MAX );
     tile->accdb.meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "accdb.meta_pool", ULONG_MAX );
-    tile->accdb.line_max         = config->firedancer.vinyl.max_cache_entries;
+    tile->accdb.line_max         = (config->firedancer.accounts.cache_size_gib << 30) / config->firedancer.accounts.mean_account_footprint;
     tile->accdb.data_obj_id      = fd_pod_query_ulong( config->topo.props, "accdb.data",      ULONG_MAX );
     fd_cstr_ncpy( tile->accdb.bstream_path, config->paths.accounts, sizeof(tile->accdb.bstream_path) );
     tile->accdb.pair_cnt_limit   = fd_pod_query_ulong( config->topo.props, "accdb.meta_limit",  ULONG_MAX );
-    tile->accdb.io_type = config->firedancer.vinyl.io_uring.enabled ?
+    tile->accdb.io_type = !strcmp(config->firedancer.accounts.io_provider, "io_uring") ?
         FD_VINYL_IO_TYPE_UR : FD_VINYL_IO_TYPE_BD;
-    tile->accdb.uring_depth = config->firedancer.vinyl.io_uring.queue_depth;
+    tile->accdb.uring_depth = config->firedancer.accounts.io_uring.queue_depth;
 
     /* Minimum bound for cache entry count */
     ulong required_cache_entries = 0UL;
@@ -1857,8 +1859,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       required_cache_entries += quota_max;
     }
     if( FD_UNLIKELY( required_cache_entries > tile->accdb.line_max ) ) {
-      FD_LOG_WARNING(( "insufficient [accdb.max_cache_entries] (%lu) for config, increasing cache entry limit to %lu and continuing",
-                       tile->accdb.line_max, required_cache_entries ));
       tile->accdb.line_max = required_cache_entries;
     }
 

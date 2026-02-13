@@ -8,7 +8,7 @@
 
 static int
 enabled( config_t const * config ) {
-  return !!config->firedancer.vinyl.enabled;
+  return !config->firedancer.accounts.in_memory_only;
 }
 
 static void
@@ -38,7 +38,7 @@ init( config_t const * config ) {
     FD_LOG_ERR(( "fstat(`%s`) failed (%i-%s)", config->paths.accounts, errno, fd_io_strerror( errno ) ));
   }
 
-  ulong bstream_sz = config->firedancer.vinyl.file_size_gib<<30;
+  ulong bstream_sz = config->firedancer.accounts.file_size_gib<<30;
   if( (ulong)st.st_size < bstream_sz ) {
     FD_LOG_NOTICE(( "RUN: `fallocate -l %lu %s`", bstream_sz, config->paths.accounts ));
     int err = posix_fallocate( vinyl_fd, 0L, (long)bstream_sz );
@@ -73,9 +73,9 @@ check( config_t const * config,
     else                PARTIALLY_CONFIGURED( "stat(`%s`) failed (%i-%s)", config->paths.accounts, errno, fd_io_strerror( errno ) );
   }
 
-  ulong bstream_sz = config->firedancer.vinyl.file_size_gib<<30;
+  ulong bstream_sz = config->firedancer.accounts.file_size_gib<<30;
   if( FD_UNLIKELY( (ulong)st.st_size < bstream_sz ) )
-    PARTIALLY_CONFIGURED( "accounts database `%s` needs to be resized (have %lu GiB, want %lu GiB)", config->paths.accounts, (ulong)(st.st_size>>30), config->firedancer.vinyl.file_size_gib );
+    PARTIALLY_CONFIGURED( "accounts database `%s` needs to be resized (have %lu GiB, want %lu GiB)", config->paths.accounts, (ulong)(st.st_size>>30), config->firedancer.accounts.file_size_gib );
 
   CHECK( check_file( config->paths.accounts, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
   CONFIGURE_OK();

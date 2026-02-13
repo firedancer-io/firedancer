@@ -176,12 +176,22 @@ telemetry = true
     # Firedancer instance.
     genesis = ""
 
-    # Absolute path where to store the `accounts.db` file containing all
-    # account data from the chain.  If no path is provided, it defaults
-    # to the `accounts.db` path within the base directory above.  The
-    # account data is large, several hundred gigabytes and growing, and
-    # should be placed on a disk with fast read and write bandwidth, as
-    # it can easily be a performance bottleneck for the validator.
+    # File path to account database file.
+    #
+    # The account database contains a copy of all accounts on the
+    # network.  The validator preallocates the entire database on
+    # startup (see [accounts.file_size_gib], often several hundred
+    # gigabytes and growing).
+    #
+    # The account DB file should be backed by fast local storage, e.g.
+    # NVMe.  Validator performance is sensitive to disk latency.
+    #
+    # The validator recreates the account database file from a snapshot
+    # on every startup.  It is therefore not necessary to back up this
+    # file.
+    #
+    # If no path is provided, it defaults to the `accounts.db` path
+    # within the base directory above.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
@@ -527,56 +537,65 @@ telemetry = true
     # deadlocked waiting on their votes to land.
     wait_for_vote_to_start_leader = true
 
-# This section configures the "funk" account database.  Currently, funk
-# stores all Solana accounts.  In future versions of Firedancer, most
-# accounts will be offloaded to the "groove" database.
-#
-# FIXME rename 'funk' to human-readable name like 'accounts.live_db'
-[funk]
-    # The size of the funk heap in gigabytes.  This value must be large
-    # enough to store all Solana accounts uncompressed.
-    heap_size_gib = 40
-
-    # The max amount of records that the funk instance can store.
-    # Each Solana account uses at least one record.  Additional records
-    # are used for account changes that are not yet finalized by
-    # consensus (typically takes 13 seconds).
-    max_account_records = 300_000_000
-
-# FIXME rename 'vinyl' to human-readable name like 'accounts.root_db'
-[vinyl]
-    # If set to true, enable the disk-backed account storage engine.
-    # This causes rooted (finalized) accounts to get moved to disk.
+# This section configures the account database.
+[accounts]
+    # Controls the account index size.
     #
-    # If set to false, all accounts are stored in DRAM.
-    enabled = false
-
-    # Max number of accounts that can be stored in the vinyl index.
-    # The index is stored in DRAM.  Each record consumes about 120 bytes
-    # of space.
-    max_account_records = 30_000_000
+    # If the account state exceeds the configured number of accounts,
+    # the validator will crash.
+    #
+    # The account index is stored in memory and preallocated.  A limit
+    # of 1 billion accounts requires approx 100 GB index space.
+    max_accounts = 30_000_000
 
     # File size of the account database file (see [paths.accounts]).
     # The entire account database is physically preallocated.
     file_size_gib = 16
 
-    # Number of accounts of the vinyl in-memory cache.
-    max_cache_entries = 1_000_000
+    # The validator keeps account changes that have not yet been
+    # finalized (rooted) by consensus in memory.  This setting controls
+    # how much memory is reserved for such account changes.
+    # If the amount of inflight account changes exceeds this limit, the
+    # validator will crash.
+    max_unrooted_account_size_gib = 16
 
-    # DRAM reservation for the vinyl in-memory cache.
-    cache_size_gib = 2
+    # Keep frequently accessed accounts in memory to improve
+    # performance.
+    cache_size_gib = 4
 
-    # Delay writing of accounts to disk by a number of slots.
+    # Delay writing of accounts to disk by a number of slots to reduce
+    # disk write rate.
+    #
     # An account only gets written to disk when it is unchanged for more
-    # or equal the specified number of slots.  This greatly reduces disk
-    # I/O.
+    # or equal the specified number of slots.
     write_delay_slots = 64
 
-    # Faster disk I/O using io_uring.
+    # Keep all accounts in memory and ignore [paths.accounts].
     #
-    # Firedancer can use modern kernel APIs to improve database
-    # performance.  Under the hood, this enables parallel disk reads,
-    # and improved bandwidth by offloading data copies to hardware.
+    # If enabled, allocates [accounts.file_size_gib] memory and ignores
+    # [accounts.{cache_size_gib,max_unrooted_account_size_gib}].
+    in_memory_only = true
+
+    # The provider determines which Linux I/O API is used.
+    # Possible values for the option are:
+    #
+    #  "io_uring" (default)
+    #   The fastest and recommended mode, but requires a recent Linux
+    #   kernel version.  Under the hood, does asynchronous parallel
+    #   accesses to disk.  [paths.accounts] should be backed by an ext4
+    #   or XFS file system, or be a block device when using this mode.
+    #
+    #  "portable"
+    #   This is the slowest mode, but it supports any kernel version
+    #   and any file system.
+    io_provider = "io_uring"
+
+    # The expected mean size of recently accessed accounts.
+    #
+    # This heuristic is used to pack accounts into caches optimally.
+    mean_account_footprint = 256
+
+    # io_uring specific options
     #
     # io_uring requires a recent kernel (Linux 6.5 feature equivalent).
     # Popular OS distributions (e.g. Ubuntu or RHEL) backport newer
@@ -590,11 +609,7 @@ telemetry = true
     # - IORING_SETUP_CQSIZE (Linux 5.5)
     # - IORING_SETUP_NO_MMAP (Linux 6.5)
     # - IORING_REGISTER_RESTRICTIONS (Linux 5.16)
-    [vinyl.io_uring]
-        # If io_uring is disabled, Firedancer falls back to portable
-        # blocking I/O.
-        enabled = true
-
+    [accounts.io_uring]
         # Pipeline depth for parallel I/O operations.
         queue_depth = 2048
 
