@@ -415,7 +415,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
   }
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1643https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1632 */
+  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1632 */
   case MATCH_ID_OP( BLS_G2_BE, FD_VM_SYSCALL_SOL_CURVE_MUL ):
   case MATCH_ID_OP( BLS_G2_LE, FD_VM_SYSCALL_SOL_CURVE_MUL ): {
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
