@@ -94,9 +94,9 @@ echo "
         enable_features = [ \"$ONE_OFFS\" ]
     [tiles.gui]
         enabled = false
-[funk]
-    heap_size_gib = $FUNK_PAGES
-    max_account_records = $INDEX_MAX
+[accounts]
+    file_size_gib = $FUNK_PAGES
+    max_accounts = $INDEX_MAX
 [runtime]
     max_live_slots = 128
     max_fork_width = 32

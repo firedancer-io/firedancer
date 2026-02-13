@@ -93,17 +93,15 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.snapshot_hash_tile_count                     );
   CFG_POP      ( uint,   layout.snapwr_tile_count                            );
 
-  CFG_POP      ( ulong,  funk.max_account_records                            );
-  CFG_POP      ( ulong,  funk.heap_size_gib                                  );
-
-  CFG_POP      ( bool,   vinyl.enabled                                       );
-  CFG_POP      ( ulong,  vinyl.max_account_records                           );
-  CFG_POP      ( ulong,  vinyl.file_size_gib                                 );
-  CFG_POP      ( ulong,  vinyl.max_cache_entries                             );
-  CFG_POP      ( ulong,  vinyl.cache_size_gib                                );
-  CFG_POP      ( ulong,  vinyl.write_delay_slots                             );
-  CFG_POP      ( bool,   vinyl.io_uring.enabled                              );
-  CFG_POP      ( uint,   vinyl.io_uring.queue_depth                          );
+  CFG_POP      ( ulong,  accounts.max_accounts                               );
+  CFG_POP      ( ulong,  accounts.file_size_gib                              );
+  CFG_POP      ( ulong,  accounts.max_unrooted_account_size_gib              );
+  CFG_POP      ( ulong,  accounts.cache_size_gib                             );
+  CFG_POP      ( ulong,  accounts.write_delay_slots                          );
+  CFG_POP      ( bool,   accounts.in_memory_only                             );
+  CFG_POP      ( cstr,   accounts.io_provider                                );
+  CFG_POP      ( ulong,  accounts.mean_account_footprint                     );
+  CFG_POP      ( uint,   accounts.io_uring.queue_depth                       );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( ulong,  runtime.max_account_cnt                             );

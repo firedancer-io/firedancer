@@ -283,9 +283,9 @@ EOF
 
 if [[ "$DB" == "funk" ]]; then
   cat <<EOF >> ${CONFIG_FILE}
-[funk]
-    heap_size_gib = $FUNK_PAGES
-    max_account_records = $INDEX_MAX
+[accounts]
+    file_size_gib = $FUNK_PAGES
+    max_accounts = $INDEX_MAX
 EOF
 elif [[ "$DB" == "vinyl" ]]; then
   if [[ "$INDEX_MAX" -lt "1000000" ]]; then
@@ -293,17 +293,13 @@ elif [[ "$DB" == "vinyl" ]]; then
   fi
   INDEX_MAX=$(( INDEX_MAX * 2 ))
   cat <<EOF >> ${CONFIG_FILE}
-[funk]
-    heap_size_gib = 2
-    max_account_records = 1000000
-[vinyl]
-    enabled = true
-    max_account_records = $INDEX_MAX
+[accounts]
+    in_memory_only = false
+    max_accounts = $INDEX_MAX
     file_size_gib = $((FUNK_PAGES * 4))
-    max_cache_entries = 100000
+    max_unrooted_account_size_gib = 2
     cache_size_gib = 10
-    [vinyl.io_uring]
-        enabled = true
+    io_provider = "io_uring"
 EOF
 fi
 

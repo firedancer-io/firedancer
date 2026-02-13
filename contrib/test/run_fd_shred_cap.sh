@@ -83,9 +83,9 @@ SHREDCAP=$(ls $DUMP/$LEDGER/*shredcap | head -n1)
 echo "
 [layout]
     execrp_tile_count = 8
-[funk]
-    max_account_records = 150000000
-    heap_size_gib = 100
+[accounts]
+    max_accounts = 150000000
+    file_size_gib = 100
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384

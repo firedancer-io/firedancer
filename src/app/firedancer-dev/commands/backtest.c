@@ -56,7 +56,7 @@ backtest_topo( config_t * config ) {
   ulong snaplh_tile_cnt = config->firedancer.layout.snapshot_hash_tile_count;
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
-  int vinyl_enabled            = !!config->firedancer.vinyl.enabled;
+  int vinyl_enabled            = !config->firedancer.accounts.in_memory_only;
   int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
 
@@ -80,9 +80,11 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "funk" );
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
-      config->firedancer.funk.max_account_records,
-      config->firedancer.runtime.max_live_slots + config->firedancer.vinyl.write_delay_slots,
-      config->firedancer.funk.heap_size_gib );
+      config->firedancer.accounts.max_accounts,
+      config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots,
+      config->firedancer.accounts.in_memory_only
+          ? config->firedancer.accounts.file_size_gib
+          : config->firedancer.accounts.max_unrooted_account_size_gib );
   fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topob_wksp( topo, "progcache" );
@@ -569,14 +571,11 @@ fixup_config( config_t *     config,
   }
 
   if( args->backtest.is_vinyl ) {
-    config->firedancer.vinyl.enabled = 1;
-
-    config->firedancer.vinyl.file_size_gib       = config->firedancer.funk.heap_size_gib;
-    config->firedancer.vinyl.max_account_records = config->firedancer.funk.max_account_records;
+    config->firedancer.accounts.in_memory_only = 0;
 
     char const * io_mode = args->backtest.vinyl_io;
-    if(      0==strcmp( io_mode, "ur" ) ) config->firedancer.vinyl.io_uring.enabled = 1;
-    else if( 0==strcmp( io_mode, "bd" ) ) {}
+    if(      0==strcmp( io_mode, "ur" ) ) fd_cstr_ncpy( config->firedancer.accounts.io_provider, "io_uring",  sizeof(config->firedancer.accounts.io_provider) );
+    else if( 0==strcmp( io_mode, "bd" ) ) fd_cstr_ncpy( config->firedancer.accounts.io_provider, "portable",  sizeof(config->firedancer.accounts.io_provider) );
     else FD_LOG_ERR(( "unsupported --vinyl-io '%s' (valid options are 'bd' and 'ur')", io_mode ));
   }
 

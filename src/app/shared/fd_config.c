@@ -477,8 +477,18 @@ fd_config_validatef( fd_configf_t const * config ) {
     }
   }
 
-  CFG_HAS_NON_ZERO( vinyl.max_account_records );
-  CFG_HAS_NON_ZERO( vinyl.file_size_gib       );
+  CFG_HAS_NON_ZERO( accounts.max_accounts           );
+  CFG_HAS_NON_ZERO( accounts.file_size_gib          );
+  CFG_HAS_NON_ZERO( accounts.mean_account_footprint );
+  if( FD_UNLIKELY( !config->accounts.in_memory_only ) ) {
+    CFG_HAS_NON_ZERO( accounts.cache_size_gib                );
+    CFG_HAS_NON_ZERO( accounts.max_unrooted_account_size_gib );
+  }
+
+  if( 0!=strcmp( config->accounts.io_provider, "io_uring" ) &&
+      0!=strcmp( config->accounts.io_provider, "portable" ) ) {
+    FD_LOG_ERR(( "unsupported `accounts.io_provider`: \"%s\"", config->accounts.io_provider ));
+  }
 }
 
 static void
