@@ -776,11 +776,14 @@ fd_bundle_client_handle_builder_fee_info(
     return;
   }
 
-  ctx->builder_commission = (uchar)res.commission;
-  if( FD_UNLIKELY( !fd_base58_decode_32( res.pubkey, ctx->builder_pubkey ) ) ) {
+  uchar decoded_builder_pubkey[ 32 ];
+  if( FD_UNLIKELY( !fd_base58_decode_32( res.pubkey, decoded_builder_pubkey ) ) ) {
     FD_LOG_HEXDUMP_WARNING(( "Invalid pubkey in BlockBuilderFeeInfoResponse", res.pubkey, strnlen( res.pubkey, sizeof(res.pubkey) ) ));
     return;
   }
+
+  ctx->builder_commission = (uchar)res.commission; /* Apply update atomically */
+  fd_memcpy( ctx->builder_pubkey, decoded_builder_pubkey, sizeof(ctx->builder_pubkey) );
 
   long validity_duration_ns = (long)( 60e9 * 5. ); /* 5 minutes */
   ctx->builder_info_avail = 1;
