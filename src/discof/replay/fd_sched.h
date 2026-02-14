@@ -56,7 +56,6 @@
 struct fd_sched;
 typedef struct fd_sched fd_sched_t;
 
-
 struct fd_sched_alut_ctx {
   fd_accdb_user_t   accdb[1];
   fd_funk_txn_xid_t xid[1];
@@ -83,6 +82,24 @@ struct fd_sched_fec {
   fd_sched_alut_ctx_t alut_ctx[ 1 ];
 };
 typedef struct fd_sched_fec fd_sched_fec_t;
+
+/* The state of a transaction.  Non mutually exclusive. */
+#define FD_SCHED_TXN_EXEC_DONE      (0x0001UL)
+#define FD_SCHED_TXN_SIGVERIFY_DONE (0x0002UL)
+#define FD_SCHED_TXN_IS_COMMITTABLE (0x0004UL)
+#define FD_SCHED_TXN_IS_FEES_ONLY   (0x0008UL)
+#define FD_SCHED_TXN_REPLAY_DONE    (FD_SCHED_TXN_EXEC_DONE|FD_SCHED_TXN_SIGVERIFY_DONE)
+
+struct fd_sched_txn_info {
+   ulong flags;
+   int   txn_err;
+   long  tick_parsed;
+   long  tick_sigverify_disp;
+   long  tick_sigverify_done;
+   long  tick_exec_disp;
+   long  tick_exec_done;
+};
+typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 
 /* The scheduler may return one of the following types of tasks for the
    replay tile.
@@ -266,7 +283,12 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    pruned the moment in-flight task count hits 0 due to the last task
    completing.  Then, in the immediate ensuing stem run loop,
    sched_pruned_next() will return the index for the corresponding bank
-   so the refcnt can be decremented for sched. */
+   so the refcnt can be decremented for sched.
+
+   The transaction at the given index may be freed upon return from this
+   function.  Nonetheless, as long as there is no intervening FEC
+   ingestion, it would still be safe to query the transaction using
+   get_txn(). */
 int
 fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data );
 
@@ -325,6 +347,9 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
 
 fd_txn_p_t *
 fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx );
+
+fd_sched_txn_info_t *
+fd_sched_get_txn_info( fd_sched_t * sched, ulong txn_idx );
 
 fd_hash_t *
 fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );

@@ -18,7 +18,6 @@
 #include "../../choreo/tower/fd_epoch_stakes.h"
 #include "../../discof/fd_accdb_topo.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
-#include "../../discof/replay/fd_execrp.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_accdb_pipe.h"
@@ -59,11 +58,10 @@
 
 #define IN_KIND_DEDUP  (0)
 #define IN_KIND_EPOCH  (1)
-#define IN_KIND_EXECRP (2)
+#define IN_KIND_REPLAY (2)
 #define IN_KIND_GOSSIP (3)
 #define IN_KIND_IPECHO (4)
-#define IN_KIND_REPLAY (5)
-#define IN_KIND_SHRED  (6)
+#define IN_KIND_SHRED  (5)
 
 #define OUT_IDX 0
 
@@ -1055,13 +1053,6 @@ returnable_frag( ctx_t *             ctx,
     fd_stake_ci_epoch_msg_fini( ctx->stake_ci );
     return 0;
   }
-  case IN_KIND_EXECRP: {
-    if( FD_LIKELY( (sig>>32)==FD_EXECRP_TT_TXN_EXEC ) ) {
-      fd_execrp_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-      count_vote_txn( ctx, TXN(msg->txn), msg->txn->payload );
-    }
-    return 0;
-  }
   case IN_KIND_GOSSIP: {
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED ) ) {
       fd_gossip_update_message_t const  * msg             = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
@@ -1087,7 +1078,15 @@ returnable_frag( ctx_t *             ctx,
     return 0;
   }
   case IN_KIND_REPLAY: {
-    if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+    if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
+      fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk ) );
+      /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank_utils.rs#L53
+
+         Agave counts votes from replay only if it was completely
+         successful in execution. */
+      if( FD_UNLIKELY( !txn_executed->is_committable || txn_executed->is_fees_only || txn_executed->txn_err ) ) return 0;
+      count_vote_txn( ctx, TXN(txn_executed->txn), txn_executed->txn->payload );
+    } else if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_replay_slot_completed_t * slot_completed = (fd_replay_slot_completed_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       replay_slot_completed( ctx, slot_completed, tsorig, stem );
     } else if( FD_LIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
@@ -1227,7 +1226,6 @@ unprivileged_init( fd_topo_t *      topo,
 
     if     ( FD_LIKELY( !strcmp( link->name, "dedup_resolv"  ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_execrp" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;

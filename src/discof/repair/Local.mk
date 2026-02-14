@@ -1,5 +1,7 @@
+ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_repair_tile,fd_discof)
+endif
 endif
 $(call add-objs,fd_policy,fd_discof)
 $(call add-hdrs,fd_policy.h)

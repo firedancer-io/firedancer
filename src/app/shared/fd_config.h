@@ -319,16 +319,6 @@ struct fd_config {
     int core_dump_level;
 
     struct {
-      int  enabled;
-      char interface0     [ 16 ];
-      char interface0_mac [ 32 ];
-      char interface0_addr[ 16 ];
-      char interface1     [ 16 ];
-      char interface1_mac [ 32 ];
-      char interface1_addr[ 16 ];
-    } netns;
-
-    struct {
       int allow_private_address;
     } gossip;
 
@@ -556,7 +546,6 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_config_load( int           is_firedancer,
-                int           netns,
                 int           is_local_cluster,
                 char const *  default_config,
                 ulong         default_config_sz,

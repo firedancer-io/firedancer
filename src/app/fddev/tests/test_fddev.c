@@ -184,7 +184,7 @@ fddev_test_run( int     argc,
       fd_log_thread_set( "supervisor" );
 
       static config_t config[1];
-      fd_config_load( 0, 0, 1, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config );
+      fd_config_load( 0, 1, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config );
       fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();
       config->log.lock_fd = init_log_memfd();

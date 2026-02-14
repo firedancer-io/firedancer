@@ -11,6 +11,7 @@
 #define REPLAY_SIG_RESET          (3)
 #define REPLAY_SIG_BECAME_LEADER  (4)
 #define REPLAY_SIG_OC_ADVANCED    (5)
+#define REPLAY_SIG_TXN_EXECUTED   (6)
 
 struct fd_replay_slot_completed {
   ulong slot;
@@ -86,11 +87,25 @@ struct fd_replay_root_advanced {
 };
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 
+struct fd_replay_txn_executed {
+  fd_txn_p_t txn[ 1 ];
+  int is_committable;
+  int is_fees_only;
+  int txn_err;
+  long  tick_parsed;
+  long  tick_sigverify_disp;
+  long  tick_sigverify_done;
+  long  tick_exec_disp;
+  long  tick_exec_done;
+};
+typedef struct fd_replay_txn_executed fd_replay_txn_executed_t;
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_root_advanced_t   root_advanced;
   fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
+  fd_replay_txn_executed_t    txn_executed;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

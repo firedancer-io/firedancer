@@ -431,7 +431,7 @@ fd_gui_printf_skipped_history( fd_gui_t * gui, ulong epoch_idx ) {
         if( FD_LIKELY( gui->summary.slot_completed==ULONG_MAX ) ) break;
         fd_gui_slot_t * slot = fd_gui_get_slot( gui, s );
 
-        if( FD_UNLIKELY( !slot ) ) break;
+        if( FD_UNLIKELY( !slot ) ) continue;
         if( FD_UNLIKELY( slot->mine && slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
       }
     jsonp_close_array( gui->http );
@@ -448,7 +448,7 @@ fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch_idx ) {
         if( FD_LIKELY( gui->summary.slot_completed==ULONG_MAX ) ) break;
         fd_gui_slot_t * slot = fd_gui_get_slot( gui, s );
 
-        if( FD_UNLIKELY( !slot ) ) break;
+        if( FD_UNLIKELY( !slot ) ) continue;
         if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
       }
     jsonp_close_array( gui->http );

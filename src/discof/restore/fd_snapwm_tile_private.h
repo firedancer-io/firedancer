@@ -77,6 +77,7 @@ struct fd_snapwm_tile {
     ulong   bstream_sz;
 
     ulong pair_cnt;
+    ulong full_pair_cnt;
 
     /* Vinyl in either io_wd or io_mm mode */
     fd_vinyl_io_t * io;
@@ -98,6 +99,13 @@ struct fd_snapwm_tile {
 
     ulong              wr_cnt;
     fd_vinyl_admin_t * admin;
+
+   struct {
+      ulong seq_ancient;
+      ulong seq_past;
+      ulong seq_present;
+      ulong seq_future;
+   } recovery;
   } vinyl;
 };
 
@@ -276,13 +284,83 @@ int
 fd_snapwm_vinyl_update_admin( fd_snapwm_tile_t * ctx,
                               int                do_rwlock );
 
-/* fd_snapwm_vinyl_meta_clean_all frees all elements of the vinyl meta
-   map, invoking fd_vinyl_meta_private_ele_free on each of them.  This
-   is typically needed when recovering from an error during a full
-   snapshot loading process. */
+/* fd_snapwm_vinyl_recovery_seq_{backup,apply} are helper functions
+   that handle vinyl io bstream seq backup and apply (for recovery).
+   Both operate on vinyl io_mm seq values, since this is the io that
+   keeps track of those values.  That means that backup must happen
+   after io init, and apply must happen before io sync.  */
 
 void
-fd_snapwm_vinyl_meta_clean_all( fd_vinyl_meta_t * join );
+fd_snapwm_vinyl_recovery_seq_backup( fd_snapwm_tile_t * ctx );
+
+void
+fd_snapwm_vinyl_recovery_seq_apply( fd_snapwm_tile_t * ctx );
+
+/* fd_snapwm_vinyl_revert_full provides the mechanism to revert any
+   changes that happened during a full snapshot load that has been
+   cancelled.  It frees all elements of the vinyl meta map.  Finally,
+   it reverts the bstream seq(s) in vinyl io and syncs the bstream. */
+
+void
+fd_snapwm_vinyl_revert_full( fd_snapwm_tile_t * ctx );
+
+/* fd_snapwm_vinyl_revert_incr provides the mechanism to revert any
+   changes that happened during an incr snapshot load that has been
+   cancelled.  To do this, every bstream pair's phdr info, as well
+   as the corresponding meta map element's phdr info, is modified to
+   include val_sz (32 bits), recovery_seq (48 bits) and slot (48 bits)
+   in the info length of 16 bytes (128 bits).  When a new account is
+   written to the bstream, recovery_seq=0UL is assigned (which works
+   as a sentinel value).  When an account is a duplicate update of an
+   existing account, the update's recovery_seq corresponds to the seq
+   value of the existing account in the bstream.  This is essentially
+   a reference to the account that is being superseded.
+
+      bstream:  [     full     |  incr  |   free  )
+      revert:                 (*)->......)
+
+   To revert the incremental snapshot, the function walks the bstream
+   from recovery seq_present (*) towards the future, until all pairs
+   are processed.  If the recovery_seq (in the pair's phdr info) is
+   0UL (the sentinel) this account was a new account, and the meta map
+   entry needs to be freed.  If the recovery_seq is less than the
+   recovery seq_present, the phdr of the pair at recovery_seq is read,
+   and used to update the meta map element.  If the recovery_seq is
+   greater or equal to the recovery seq_present, this means that the
+   update was a duplicate on the incr snapshot itself, and it can
+   be discarded altogether.
+   Note that as the recovery process moves forward, the meta map entry
+   and an account update on the incr side of the bstream may see
+   different revovery_seq values (e.g. consider what happens with
+   chained duplicate updates).  This means that the true recovery_seq
+   is the one in the phdr info of the bstream pair.
+   Finally, it reverts the bstream seq(s) in vinyl io and syncs the
+   bstream. */
+
+void
+fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx );
+
+/* fd_snapin_vinyl_pair_info_{from_parts,update_recovery_seq} are
+   helper functions to update the pair's info.
+   fd_snapin_vinyl_pair_info_{val_sz,recovery_seq,slot} are helper
+   functions to retrieve the corresponding values.
+   In order to facilitate a recovery process, in particular when an
+   incr snapshot is cancelled, every bstream pair's phdr info, as well
+   as the corresponding meta map element's phdr info, is modified to
+   include val_sz (32 bits), recovery_seq (48 bits) and slot (48 bits)
+   in the info length of 16 bytes (128 bits). */
+
+void
+fd_snapin_vinyl_pair_info_from_parts( fd_vinyl_info_t * info,
+                                      ulong             val_sz,
+                                      ulong             recovery_seq,
+                                      ulong             slot );
+void
+fd_snapin_vinyl_pair_info_update_recovery_seq( fd_vinyl_info_t * info,
+                                               ulong             recovery_seq );
+ulong fd_snapin_vinyl_pair_info_val_sz      ( fd_vinyl_info_t const * info );
+ulong fd_snapin_vinyl_pair_info_recovery_seq( fd_vinyl_info_t const * info );
+ulong fd_snapin_vinyl_pair_info_slot        ( fd_vinyl_info_t const * info );
 
 FD_PROTOTYPES_END
 

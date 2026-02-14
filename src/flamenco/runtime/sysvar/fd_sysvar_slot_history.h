@@ -10,6 +10,9 @@
 #define FD_SLOT_HISTORY_SLOT_NOT_FOUND (-2)
 #define FD_SLOT_HISTORY_SLOT_TOO_OLD   (-3)
 
+/* https://github.com/solana-labs/solana/blob/v1.18.26/sdk/program/src/slot_history.rs#L43 */
+#define FD_SLOT_HISTORY_MAX_ENTRIES (1024UL * 1024UL)
+
 /* The slot history sysvar contains a bit-vector indicating which slots
    have been processed in the current epoch. */
 
@@ -40,5 +43,15 @@ fd_sysvar_slot_history_read( fd_accdb_user_t *         accdb,
 int
 fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
                                   ulong                            slot );
+
+/* fd_sysvar_slot_history_newest returns the most recent slot in the
+   slot history. See https://github.com/solana-labs/solana/blob/v1.18.26/sdk/program/src/slot_history.rs#L87 */
+ulong
+fd_sysvar_slot_history_newest( fd_slot_history_global_t const * history );
+
+/* fd_sysvar_slot_history_len returns the number of slot history
+   entries. */
+ulong
+fd_sysvar_slot_history_len( fd_slot_history_global_t const * history );
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_history_h */

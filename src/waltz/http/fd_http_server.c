@@ -1218,7 +1218,7 @@ static void
 fd_http_server_reserve( fd_http_server_t * http,
                         ulong              len ) {
   /* fd_http_server_reserve should not be called after
-     fd_http_server_compress */
+     fd_http_ws_compress_maybe */
   FD_TEST( http->stage_comp_len == 0 );
 
   ulong remaining = http->oring_sz-((http->stage_off%http->oring_sz)+http->stage_len);

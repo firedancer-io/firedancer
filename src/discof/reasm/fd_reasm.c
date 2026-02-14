@@ -342,6 +342,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->popped          = 0;
   fec->bank_idx        = null;
   fec->parent_bank_idx = null;
+  fec->bank_seq        = null;
+  fec->parent_bank_seq = null;
 
   if( FD_UNLIKELY( !chained_merkle_root ) ) { /* initialize the reasm with the root */
     FD_TEST( reasm->root==pool_idx_null( pool ) );

@@ -56,8 +56,6 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sandbox user" );
   if( FD_LIKELY( getgid()!=config->gid ) )
     fd_cap_chk_cap(        chk, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
-  if( FD_UNLIKELY( config->development.netns.enabled ) )
-    fd_cap_chk_cap(        chk, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
   if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
@@ -280,11 +278,6 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     strncpy( child_names[ child_cnt ], "agave", 32 );
     child_cnt++;
-  }
-
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, NULL ) ) )
-      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
   }
 
   errno = 0;
@@ -727,7 +720,7 @@ fdctl_check_configure( config_t const * config ) {
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message ));
 
-  if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->net.provider, "xdp" ) ) ) {
+  if( FD_LIKELY( 0==strcmp( config->net.provider, "xdp" ) ) ) {
     if( fd_cfg_stage_bonding.enabled( config ) ) {
       check = fd_cfg_stage_bonding.check( config, FD_CONFIGURE_CHECK_TYPE_RUN );
       if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
@@ -768,7 +761,7 @@ run_firedancer_init( config_t * config,
                      int        check_configure ) {
   struct stat st;
   int err = stat( config->paths.identity_key, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->paths.identity_key ));
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new %s --config <toml>`", config->paths.identity_key, config->paths.identity_key ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->paths.identity_key, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
@@ -785,26 +778,6 @@ run_firedancer_init( config_t * config,
   if( check_configure ) fdctl_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
-}
-
-void
-fdctl_setup_netns( config_t * config,
-                   int        stay ) {
-  if( !config->development.netns.enabled ) return;
-
-  int original_netns_;
-  int * original_netns = stay ? NULL : &original_netns_;
-  if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->net.interface, original_netns ) ) )
-    FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->net.interface, errno, fd_io_strerror( errno ) ));
-
-  if( 0==strcmp( config->net.provider, "xdp" ) ) {
-    fd_cfg_stage_ethtool_channels.init( config );
-    fd_cfg_stage_ethtool_offloads.init( config );
-    fd_cfg_stage_ethtool_loopback.init( config );
-  }
-
-  if( FD_UNLIKELY( original_netns && -1==fd_net_util_netns_restore( original_netns_ ) ) )
-    FD_LOG_ERR(( "failed to restore network namespace (fd=%d) (%i-%s)", original_netns_, errno, fd_io_strerror( errno ) ));
 }
 
 /* The boot sequence is a little bit involved...

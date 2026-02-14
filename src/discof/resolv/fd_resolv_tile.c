@@ -258,6 +258,7 @@ peek_alut( fd_resolv_ctx_t *  ctx,
       &fd_txn_get_address_tables_const( txn )[ alut_idx ];
   fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, txn_payload+addr_lut->addr_off );
 
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
   fd_accdb_ro_t ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, &addr_lut_acc ) ) ) {
     return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;

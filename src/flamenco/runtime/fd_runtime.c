@@ -456,8 +456,8 @@ fd_feature_activate( fd_bank_t *               bank,
   if( FD_UNLIKELY( !fd_feature_decode( &feature, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ) ) ) {
     FD_LOG_WARNING(( "cannot activate feature %s, corrupt account data", addr_b58 ));
     FD_LOG_HEXDUMP_NOTICE(( "corrupt feature account", fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ));
-    fd_accdb_close_ro( accdb, ro );
   }
+  fd_accdb_close_ro( accdb, ro );
 
   if( feature.is_active ) {
     FD_LOG_DEBUG(( "feature %s already activated at slot %lu", addr_b58, feature.activation_slot ));
@@ -722,6 +722,7 @@ fd_runtime_load_txn_address_lookup_tables(
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
     fd_accdb_ro_t alut_ro[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, alut_ro, xid, &addr_lut_acc ) ) ) {
+      fd_alut_interp_delete( interp );
       return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
     }
 
@@ -732,7 +733,10 @@ fd_runtime_load_txn_address_lookup_tables(
         fd_accdb_ref_data_const( alut_ro ),
         fd_accdb_ref_data_sz   ( alut_ro ) );
     fd_accdb_close_ro( accdb, alut_ro );
-    if( FD_UNLIKELY( err ) ) return err;
+    if( FD_UNLIKELY( err ) ) {
+      fd_alut_interp_delete( interp );
+      return err;
+    }
   }
 
   fd_alut_interp_delete( interp );
