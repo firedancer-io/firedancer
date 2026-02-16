@@ -76,17 +76,7 @@ undiagonalize(vu_t *row0, vu_t *row2, vu_t *row3) {
 
 static inline __attribute__((always_inline)) void
 compress_pre( vu_t        rows[4],
-              uint  const cv[ static 8 ],
-              uchar const block[ static FD_BLAKE3_BLOCK_SZ ],
-              uint        block_len,
-              ulong       ctr,
-              uint        flags ) {
-  rows[0] = vu_ld( cv   );
-  rows[1] = vu_ld( cv+4 );
-  rows[2] = vu( FD_BLAKE3_IV[0], FD_BLAKE3_IV[1], FD_BLAKE3_IV[2], FD_BLAKE3_IV[3] );
-  rows[3] = vu( (uint)(ctr&UINT_MAX), (uint)(ctr>>32),
-                block_len,            flags );
-
+              uchar const block[ static FD_BLAKE3_BLOCK_SZ ] ) {
   vu_t m0 = vb_ldu( block    ); vu_t m1 = vb_ldu( block+16 );
   vu_t m2 = vb_ldu( block+32 ); vu_t m3 = vb_ldu( block+48 );
 
@@ -259,12 +249,17 @@ fd_blake3_sse_compress1( uchar * restrict       out,
                     (void *)out, (void *)msg, msg_sz, counter, flags ));
   assert( msg_sz<=FD_BLAKE3_CHUNK_SZ );
 
-  uint cv[8] = { FD_BLAKE3_IV[0], FD_BLAKE3_IV[1], FD_BLAKE3_IV[2], FD_BLAKE3_IV[3],
-                 FD_BLAKE3_IV[4], FD_BLAKE3_IV[5], FD_BLAKE3_IV[6], FD_BLAKE3_IV[7] };
+  vu_t h0, h1;
   if( FD_UNLIKELY( in_chain ) ) {
-    memcpy( cv, in_chain, FD_BLAKE3_OUTCHAIN_SZ );
+    h0 = vu_ldu( in_chain );
+    h1 = vu_ldu( in_chain+16 );
+  } else {
+    h0 = vu( FD_BLAKE3_IV[0], FD_BLAKE3_IV[1], FD_BLAKE3_IV[2], FD_BLAKE3_IV[3] );
+    h1 = vu( FD_BLAKE3_IV[4], FD_BLAKE3_IV[5], FD_BLAKE3_IV[6], FD_BLAKE3_IV[7] );
   }
+
   vu_t rows[4];
+  vu_t iv = vu( FD_BLAKE3_IV[0], FD_BLAKE3_IV[1], FD_BLAKE3_IV[2], FD_BLAKE3_IV[3] );
 
   uint flag_mask = ~fd_uint_if( flags&FD_BLAKE3_FLAG_PARENT,
                                 FD_BLAKE3_FLAG_CHUNK_START|FD_BLAKE3_FLAG_CHUNK_END,
@@ -296,27 +291,35 @@ fd_blake3_sse_compress1( uchar * restrict       out,
       /* FIXME better document and polish the transition from the compress
                part to the expand part. */
       fd_memcpy( out,       block, FD_BLAKE3_BLOCK_SZ    ); /* FIXME DOCUMENT OVERLOADING OF OUT ARGUMENT */
-      fd_memcpy( out_chain, cv,    FD_BLAKE3_OUTCHAIN_SZ );
+      vu_stu( out_chain,    h0 );
+      vu_stu( out_chain+16, h1 );
       FD_BLAKE3_TRACE(( "fd_blake3_sse_compress1: done (XOF mode)" ));
       return;
     }
 
     FD_BLAKE3_TRACE(( "fd_blake3_sse_compress1: sz=%u counter=%u flags=%x", block_sz, (uint)counter, block_flags ));
-    compress_pre( rows, cv, block, block_sz, counter, block_flags );
+    rows[0] = h0;
+    rows[1] = h1;
+    rows[2] = iv;
+    rows[3] = vu( (uint)(counter&UINT_MAX), (uint)(counter>>32), block_sz, block_flags );
+
+    compress_pre( rows, block );
+
     if( FD_UNLIKELY( in_chain ) ) {
       /* FIXME UGLY */
-      vu_stu( out+32, vu_xor( vu_ld( cv   ), rows[2] ) );
-      vu_stu( out+48, vu_xor( vu_ld( cv+4 ), rows[3] ) );
+      vu_stu( out+32, vu_xor( h0, rows[2] ) );
+      vu_stu( out+48, vu_xor( h1, rows[3] ) );
     }
-    vu_st( cv,   vu_xor( rows[0], rows[2] ) );
-    vu_st( cv+4, vu_xor( rows[1], rows[3] ) );
+    h0 = vu_xor( rows[0], rows[2] );
+    h1 = vu_xor( rows[1], rows[3] );
+
     msg    += FD_BLAKE3_BLOCK_SZ;
     msg_sz -= block_sz;
     block_flags = flags;
   } while( (int)msg_sz>0 );
 
-  vu_stu( out,    vu_ld( cv   ) );
-  vu_stu( out+16, vu_ld( cv+4 ) );
+  vu_stu( out,    h0 );
+  vu_stu( out+16, h1 );
 
   FD_BLAKE3_TRACE(( "fd_blake3_sse_compress1: done" ));
 }

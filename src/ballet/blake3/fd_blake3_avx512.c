@@ -125,6 +125,194 @@ round_fn16( wwu_t v[16],
   v[0x4] = wwu_ror(v[0x4], 7);
 }
 
+static inline __attribute__((always_inline)) void
+fd_blake3_avx512_compress16_uniform( ulong const * restrict batch_data,
+                                     uint                    batch_sz,
+                                     ulong const * restrict ctr_vec,
+                                     uint const * restrict  batch_flags,
+                                     void * const * restrict _batch_hash,
+                                     uint                    out_sz,
+                                     void const * restrict   batch_cv ) {
+  wwu_t const iv0 = wwu_bcast( FD_BLAKE3_IV[0] );
+  wwu_t const iv1 = wwu_bcast( FD_BLAKE3_IV[1] );
+  wwu_t const iv2 = wwu_bcast( FD_BLAKE3_IV[2] );
+  wwu_t const iv3 = wwu_bcast( FD_BLAKE3_IV[3] );
+  wwu_t const iv4 = wwu_bcast( FD_BLAKE3_IV[4] );
+  wwu_t const iv5 = wwu_bcast( FD_BLAKE3_IV[5] );
+  wwu_t const iv6 = wwu_bcast( FD_BLAKE3_IV[6] );
+  wwu_t const iv7 = wwu_bcast( FD_BLAKE3_IV[7] );
+
+  wwu_t h0=iv0; wwu_t h1=iv1; wwu_t h2=iv2; wwu_t h3=iv3;
+  wwu_t h4=iv4; wwu_t h5=iv5; wwu_t h6=iv6; wwu_t h7=iv7;
+  if( FD_UNLIKELY( batch_cv ) ) {
+    __m256i const ** cv_vec = (__m256i const **)batch_cv;
+    /* Load 16 CVs directly into 512-bit registers by combining pairs */
+    wwu_t cv0  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 0] ) ), _mm256_loadu_si256( cv_vec[ 8] ), 1 );
+    wwu_t cv1  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 1] ) ), _mm256_loadu_si256( cv_vec[ 9] ), 1 );
+    wwu_t cv2  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 2] ) ), _mm256_loadu_si256( cv_vec[10] ), 1 );
+    wwu_t cv3  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 3] ) ), _mm256_loadu_si256( cv_vec[11] ), 1 );
+    wwu_t cv4  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 4] ) ), _mm256_loadu_si256( cv_vec[12] ), 1 );
+    wwu_t cv5  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 5] ) ), _mm256_loadu_si256( cv_vec[13] ), 1 );
+    wwu_t cv6  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 6] ) ), _mm256_loadu_si256( cv_vec[14] ), 1 );
+    wwu_t cv7  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 7] ) ), _mm256_loadu_si256( cv_vec[15] ), 1 );
+    /* Transpose 8x16 -> 16x8 using unpacklo/hi pattern - each CV has 8 words, we have 16 CVs */
+    wwu_t t0 = _mm512_unpacklo_epi32( cv0, cv1 ); wwu_t t1 = _mm512_unpackhi_epi32( cv0, cv1 );
+    wwu_t t2 = _mm512_unpacklo_epi32( cv2, cv3 ); wwu_t t3 = _mm512_unpackhi_epi32( cv2, cv3 );
+    wwu_t t4 = _mm512_unpacklo_epi32( cv4, cv5 ); wwu_t t5 = _mm512_unpackhi_epi32( cv4, cv5 );
+    wwu_t t6 = _mm512_unpacklo_epi32( cv6, cv7 ); wwu_t t7 = _mm512_unpackhi_epi32( cv6, cv7 );
+    wwu_t u0 = _mm512_unpacklo_epi64( t0, t2 ); wwu_t u1 = _mm512_unpackhi_epi64( t0, t2 );
+    wwu_t u2 = _mm512_unpacklo_epi64( t1, t3 ); wwu_t u3 = _mm512_unpackhi_epi64( t1, t3 );
+    wwu_t u4 = _mm512_unpacklo_epi64( t4, t6 ); wwu_t u5 = _mm512_unpackhi_epi64( t4, t6 );
+    wwu_t u6 = _mm512_unpacklo_epi64( t5, t7 ); wwu_t u7 = _mm512_unpackhi_epi64( t5, t7 );
+    h0 = _mm512_shuffle_i32x4( u0, u4, 0x88 ); h4 = _mm512_shuffle_i32x4( u0, u4, 0xdd );
+    h1 = _mm512_shuffle_i32x4( u1, u5, 0x88 ); h5 = _mm512_shuffle_i32x4( u1, u5, 0xdd );
+    h2 = _mm512_shuffle_i32x4( u2, u6, 0x88 ); h6 = _mm512_shuffle_i32x4( u2, u6, 0xdd );
+    h3 = _mm512_shuffle_i32x4( u3, u7, 0x88 ); h7 = _mm512_shuffle_i32x4( u3, u7, 0xdd );
+  }
+
+  wwu_t ctr_lo = wwu( ctr_vec[ 0],     ctr_vec[ 1],     ctr_vec[ 2],     ctr_vec[ 3],
+                      ctr_vec[ 4],     ctr_vec[ 5],     ctr_vec[ 6],     ctr_vec[ 7],
+                      ctr_vec[ 8],     ctr_vec[ 9],     ctr_vec[10],     ctr_vec[11],
+                      ctr_vec[12],     ctr_vec[13],     ctr_vec[14],     ctr_vec[15] );
+  wwu_t ctr_hi = wwu( ctr_vec[ 0]>>32, ctr_vec[ 1]>>32, ctr_vec[ 2]>>32, ctr_vec[ 3]>>32,
+                      ctr_vec[ 4]>>32, ctr_vec[ 5]>>32, ctr_vec[ 6]>>32, ctr_vec[ 7]>>32,
+                      ctr_vec[ 8]>>32, ctr_vec[ 9]>>32, ctr_vec[10]>>32, ctr_vec[11]>>32,
+                      ctr_vec[12]>>32, ctr_vec[13]>>32, ctr_vec[14]>>32, ctr_vec[15]>>32 );
+  wwu_t flags = wwu_ldu( batch_flags );
+
+  wwv_t W_lo = wwv_ld( batch_data );
+  wwv_t W_hi = wwv_ld( batch_data+8 );
+  wwv_t wwv_64 = wwv_bcast( FD_BLAKE3_BLOCK_SZ );
+  wwu_t wwu_64 = wwu_bcast( FD_BLAKE3_BLOCK_SZ );
+  wwu_t hu[8] = {0};
+  int is_parent = wwu_ne( wwu_and( flags, wwu_bcast( FD_BLAKE3_FLAG_PARENT ) ), wwu_zero() );
+
+  for( ulong off=0UL; off<batch_sz; off+=FD_BLAKE3_BLOCK_SZ ) {
+    int block_first = (off==0UL);
+    int block_last  = (off+FD_BLAKE3_BLOCK_SZ==batch_sz);
+    uint root_mask  = block_last ? UINT_MAX : ~FD_BLAKE3_FLAG_ROOT;
+    wwu_t block_flags = wwu_and( flags, wwu_bcast( root_mask ) );
+    int chunk_flags = block_last ? FD_BLAKE3_FLAG_CHUNK_END : 0;
+    if( out_sz==32 ) {
+      chunk_flags |= block_first ? FD_BLAKE3_FLAG_CHUNK_START : 0;
+    }
+    block_flags = wwu_or( block_flags, wwu_if( is_parent, wwu_zero(), wwu_bcast( (uint)chunk_flags ) ) );
+
+    ulong _W0; ulong _W1; ulong _W2; ulong _W3; ulong _W4; ulong _W5; ulong _W6; ulong _W7;
+    ulong _W8; ulong _W9; ulong _Wa; ulong _Wb; ulong _Wc; ulong _Wd; ulong _We; ulong _Wf;
+    wwv_unpack( W_lo, _W0, _W1, _W2, _W3, _W4, _W5, _W6, _W7 );
+    wwv_unpack( W_hi, _W8, _W9, _Wa, _Wb, _Wc, _Wd, _We, _Wf );
+    uchar const * W0 = (uchar const *)_W0; uchar const * W1 = (uchar const *)_W1;
+    uchar const * W2 = (uchar const *)_W2; uchar const * W3 = (uchar const *)_W3;
+    uchar const * W4 = (uchar const *)_W4; uchar const * W5 = (uchar const *)_W5;
+    uchar const * W6 = (uchar const *)_W6; uchar const * W7 = (uchar const *)_W7;
+    uchar const * W8 = (uchar const *)_W8; uchar const * W9 = (uchar const *)_W9;
+    uchar const * Wa = (uchar const *)_Wa; uchar const * Wb = (uchar const *)_Wb;
+    uchar const * Wc = (uchar const *)_Wc; uchar const * Wd = (uchar const *)_Wd;
+    uchar const * We = (uchar const *)_We; uchar const * Wf = (uchar const *)_Wf;
+
+    wwu_t m[16];
+    m[0x0] = wwu_ldu( W0 );  m[0x1] = wwu_ldu( W1 );
+    m[0x2] = wwu_ldu( W2 );  m[0x3] = wwu_ldu( W3 );
+    m[0x4] = wwu_ldu( W4 );  m[0x5] = wwu_ldu( W5 );
+    m[0x6] = wwu_ldu( W6 );  m[0x7] = wwu_ldu( W7 );
+
+    wwu_t v[16] = {
+        h0,     h1,     h2,       h3,
+        h4,     h5,     h6,       h7,
+        iv0,    iv1,    iv2,      iv3,
+        ctr_lo, ctr_hi, wwu_64,   block_flags,
+    };
+
+    m[0x8] = wwu_ldu( W8 );  m[0x9] = wwu_ldu( W9 );
+    m[0xa] = wwu_ldu( Wa );  m[0xb] = wwu_ldu( Wb );
+    m[0xc] = wwu_ldu( Wc );  m[0xd] = wwu_ldu( Wd );
+    m[0xe] = wwu_ldu( We );  m[0xf] = wwu_ldu( Wf );
+
+    wwu_transpose_16x16( m[0x0], m[0x1], m[0x2], m[0x3], m[0x4], m[0x5], m[0x6], m[0x7],
+                         m[0x8], m[0x9], m[0xa], m[0xb], m[0xc], m[0xd], m[0xe], m[0xf],
+                         m[0x0], m[0x1], m[0x2], m[0x3], m[0x4], m[0x5], m[0x6], m[0x7],
+                         m[0x8], m[0x9], m[0xa], m[0xb], m[0xc], m[0xd], m[0xe], m[0xf] );
+
+    round_fn16( v, m, 0 );
+    round_fn16( v, m, 1 );
+    round_fn16( v, m, 2 );
+    round_fn16( v, m, 3 );
+    round_fn16( v, m, 4 );
+    round_fn16( v, m, 5 );
+    round_fn16( v, m, 6 );
+
+    if( FD_UNLIKELY( out_sz==64 ) ) {
+      hu[0] = wwu_xor( h0, v[ 8] );
+      hu[1] = wwu_xor( h1, v[ 9] );
+      hu[2] = wwu_xor( h2, v[10] );
+      hu[3] = wwu_xor( h3, v[11] );
+      hu[4] = wwu_xor( h4, v[12] );
+      hu[5] = wwu_xor( h5, v[13] );
+      hu[6] = wwu_xor( h6, v[14] );
+      hu[7] = wwu_xor( h7, v[15] );
+    }
+    h0 = wwu_xor( v[ 0], v[ 8] );
+    h1 = wwu_xor( v[ 1], v[ 9] );
+    h2 = wwu_xor( v[ 2], v[10] );
+    h3 = wwu_xor( v[ 3], v[11] );
+    h4 = wwu_xor( v[ 4], v[12] );
+    h5 = wwu_xor( v[ 5], v[13] );
+    h6 = wwu_xor( v[ 6], v[14] );
+    h7 = wwu_xor( v[ 7], v[15] );
+
+    W_lo = wwv_add( W_lo, wwv_64 );
+    W_hi = wwv_add( W_hi, wwv_64 );
+  }
+
+  wwu_t o0; wwu_t o1; wwu_t o2; wwu_t o3; wwu_t o4; wwu_t o5; wwu_t o6; wwu_t o7;
+  wwu_t o8; wwu_t o9; wwu_t oA; wwu_t oB; wwu_t oC; wwu_t oD; wwu_t oE; wwu_t oF;
+
+  wwu_transpose_16x16( h0,   h1,   h2,   h3,   h4,   h5,   h6,   h7,
+                       hu[0],hu[1],hu[2],hu[3],hu[4],hu[5],hu[6],hu[7],
+                       o0,   o1,   o2,   o3,   o4,   o5,   o6,   o7,
+                       o8,   o9,   oA,   oB,   oC,   oD,   oE,   oF );
+
+  uint * const * batch_hash = (uint * const *)_batch_hash;
+  if( FD_LIKELY( out_sz==32 ) ) {
+    wu_stu( batch_hash[ 0], _mm512_castsi512_si256( o0 ) );
+    wu_stu( batch_hash[ 1], _mm512_castsi512_si256( o1 ) );
+    wu_stu( batch_hash[ 2], _mm512_castsi512_si256( o2 ) );
+    wu_stu( batch_hash[ 3], _mm512_castsi512_si256( o3 ) );
+    wu_stu( batch_hash[ 4], _mm512_castsi512_si256( o4 ) );
+    wu_stu( batch_hash[ 5], _mm512_castsi512_si256( o5 ) );
+    wu_stu( batch_hash[ 6], _mm512_castsi512_si256( o6 ) );
+    wu_stu( batch_hash[ 7], _mm512_castsi512_si256( o7 ) );
+    wu_stu( batch_hash[ 8], _mm512_castsi512_si256( o8 ) );
+    wu_stu( batch_hash[ 9], _mm512_castsi512_si256( o9 ) );
+    wu_stu( batch_hash[10], _mm512_castsi512_si256( oA ) );
+    wu_stu( batch_hash[11], _mm512_castsi512_si256( oB ) );
+    wu_stu( batch_hash[12], _mm512_castsi512_si256( oC ) );
+    wu_stu( batch_hash[13], _mm512_castsi512_si256( oD ) );
+    wu_stu( batch_hash[14], _mm512_castsi512_si256( oE ) );
+    wu_stu( batch_hash[15], _mm512_castsi512_si256( oF ) );
+  } else if( out_sz==64 ) {
+    wwu_stu( batch_hash[ 0], o0 );
+    wwu_stu( batch_hash[ 1], o1 );
+    wwu_stu( batch_hash[ 2], o2 );
+    wwu_stu( batch_hash[ 3], o3 );
+    wwu_stu( batch_hash[ 4], o4 );
+    wwu_stu( batch_hash[ 5], o5 );
+    wwu_stu( batch_hash[ 6], o6 );
+    wwu_stu( batch_hash[ 7], o7 );
+    wwu_stu( batch_hash[ 8], o8 );
+    wwu_stu( batch_hash[ 9], o9 );
+    wwu_stu( batch_hash[10], oA );
+    wwu_stu( batch_hash[11], oB );
+    wwu_stu( batch_hash[12], oC );
+    wwu_stu( batch_hash[13], oD );
+    wwu_stu( batch_hash[14], oE );
+    wwu_stu( batch_hash[15], oF );
+  } else {
+    FD_LOG_ERR(( "Invalid out_sz %u", out_sz ));
+  }
+}
+
 void
 fd_blake3_avx512_compress16( ulong                   batch_cnt,
                              void const   * restrict _batch_data,
@@ -155,6 +343,20 @@ fd_blake3_avx512_compress16( ulong                   batch_cnt,
                              NULL,
                              NULL );
     return;
+  }
+
+  if( FD_LIKELY( !lthash && batch_cnt==16 ) ) {
+    uint sz0 = batch_sz[0];
+    if( FD_LIKELY( sz0 && !(sz0 & (FD_BLAKE3_BLOCK_SZ-1U)) ) ) {
+      int uniform = 1;
+      for( ulong i=1UL; i<16UL; i++ ) {
+        uniform &= (batch_sz[i]==sz0);
+      }
+      if( FD_LIKELY( uniform ) ) {
+        fd_blake3_avx512_compress16_uniform( batch_data, sz0, ctr_vec, batch_flags, _batch_hash, out_sz, batch_cv );
+        return;
+      }
+    }
   }
 
 #if FD_BLAKE3_TRACING
@@ -260,39 +462,30 @@ fd_blake3_avx512_compress16( ulong                   batch_cnt,
   wwu_t h0=iv0; wwu_t h1=iv1; wwu_t h2=iv2; wwu_t h3=iv3;
   wwu_t h4=iv4; wwu_t h5=iv5; wwu_t h6=iv6; wwu_t h7=iv7;
   if( FD_UNLIKELY( batch_cv ) ) {
-    /* If the input chaining value is overridden, transpose the input
-       to AVX512 representation.  (wwu 16x8 transpose)  FIXME There's
-       probably a way to do this using AVX512 instead of AVX. */
+    /* Transpose the input chaining values to AVX512 representation using native 512-bit ops */
     __m256i const ** cv_vec = (__m256i const **)batch_cv;
-    wu_t cv_lo[8]; wu_t cv_hi[8];
-    cv_lo[ 0 ] = _mm256_loadu_si256( cv_vec[  0 ] );
-    cv_lo[ 1 ] = _mm256_loadu_si256( cv_vec[  1 ] );
-    cv_lo[ 2 ] = _mm256_loadu_si256( cv_vec[  2 ] );
-    cv_lo[ 3 ] = _mm256_loadu_si256( cv_vec[  3 ] );
-    cv_lo[ 4 ] = _mm256_loadu_si256( cv_vec[  4 ] );
-    cv_lo[ 5 ] = _mm256_loadu_si256( cv_vec[  5 ] );
-    cv_lo[ 6 ] = _mm256_loadu_si256( cv_vec[  6 ] );
-    cv_lo[ 7 ] = _mm256_loadu_si256( cv_vec[  7 ] );
-    cv_hi[ 0 ] = _mm256_loadu_si256( cv_vec[  8 ] );
-    cv_hi[ 1 ] = _mm256_loadu_si256( cv_vec[  9 ] );
-    cv_hi[ 2 ] = _mm256_loadu_si256( cv_vec[ 10 ] );
-    cv_hi[ 3 ] = _mm256_loadu_si256( cv_vec[ 11 ] );
-    cv_hi[ 4 ] = _mm256_loadu_si256( cv_vec[ 12 ] );
-    cv_hi[ 5 ] = _mm256_loadu_si256( cv_vec[ 13 ] );
-    cv_hi[ 6 ] = _mm256_loadu_si256( cv_vec[ 14 ] );
-    cv_hi[ 7 ] = _mm256_loadu_si256( cv_vec[ 15 ] );
-    wu_transpose_8x8( cv_lo[0], cv_lo[1], cv_lo[2], cv_lo[3], cv_lo[4], cv_lo[5], cv_lo[6], cv_lo[7],
-                      cv_lo[0], cv_lo[1], cv_lo[2], cv_lo[3], cv_lo[4], cv_lo[5], cv_lo[6], cv_lo[7] );
-    wu_transpose_8x8( cv_hi[0], cv_hi[1], cv_hi[2], cv_hi[3], cv_hi[4], cv_hi[5], cv_hi[6], cv_hi[7],
-                      cv_hi[0], cv_hi[1], cv_hi[2], cv_hi[3], cv_hi[4], cv_hi[5], cv_hi[6], cv_hi[7] );
-    h0 = _mm512_inserti64x4( _mm512_castsi256_si512( cv_lo[ 0 ] ), cv_hi[ 0 ], 1 );
-    h1 = _mm512_inserti64x4( _mm512_castsi256_si512( cv_lo[ 1 ] ), cv_hi[ 1 ], 1 );
-    h2 = _mm512_inserti64x4( _mm512_castsi256_si512( cv_lo[ 2 ] ), cv_hi[ 2 ], 1 );
-    h3 = _mm512_inserti64x4( _mm512_castsi256_si512( cv_lo[ 3 ] ), cv_hi[ 3 ], 1 );
-    h4 = _mm512_inserti64x4( _mm512_castsi256_si512( cv_lo[ 4 ] ), cv_hi[ 4 ], 1 );
-    h5 = _mm512_inserti64x4( _mm512_castsi256_si512( cv_lo[ 5 ] ), cv_hi[ 5 ], 1 );
-    h6 = _mm512_inserti64x4( _mm512_castsi256_si512( cv_lo[ 6 ] ), cv_hi[ 6 ], 1 );
-    h7 = _mm512_inserti64x4( _mm512_castsi256_si512( cv_lo[ 7 ] ), cv_hi[ 7 ], 1 );
+    /* Load 16 CVs directly into 512-bit registers by combining pairs */
+    wwu_t cv0  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 0] ) ), _mm256_loadu_si256( cv_vec[ 8] ), 1 );
+    wwu_t cv1  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 1] ) ), _mm256_loadu_si256( cv_vec[ 9] ), 1 );
+    wwu_t cv2  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 2] ) ), _mm256_loadu_si256( cv_vec[10] ), 1 );
+    wwu_t cv3  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 3] ) ), _mm256_loadu_si256( cv_vec[11] ), 1 );
+    wwu_t cv4  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 4] ) ), _mm256_loadu_si256( cv_vec[12] ), 1 );
+    wwu_t cv5  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 5] ) ), _mm256_loadu_si256( cv_vec[13] ), 1 );
+    wwu_t cv6  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 6] ) ), _mm256_loadu_si256( cv_vec[14] ), 1 );
+    wwu_t cv7  = _mm512_inserti64x4( _mm512_castsi256_si512( _mm256_loadu_si256( cv_vec[ 7] ) ), _mm256_loadu_si256( cv_vec[15] ), 1 );
+    /* Transpose 8x16 -> 16x8 using unpacklo/hi pattern */
+    wwu_t t0 = _mm512_unpacklo_epi32( cv0, cv1 ); wwu_t t1 = _mm512_unpackhi_epi32( cv0, cv1 );
+    wwu_t t2 = _mm512_unpacklo_epi32( cv2, cv3 ); wwu_t t3 = _mm512_unpackhi_epi32( cv2, cv3 );
+    wwu_t t4 = _mm512_unpacklo_epi32( cv4, cv5 ); wwu_t t5 = _mm512_unpackhi_epi32( cv4, cv5 );
+    wwu_t t6 = _mm512_unpacklo_epi32( cv6, cv7 ); wwu_t t7 = _mm512_unpackhi_epi32( cv6, cv7 );
+    wwu_t u0 = _mm512_unpacklo_epi64( t0, t2 ); wwu_t u1 = _mm512_unpackhi_epi64( t0, t2 );
+    wwu_t u2 = _mm512_unpacklo_epi64( t1, t3 ); wwu_t u3 = _mm512_unpackhi_epi64( t1, t3 );
+    wwu_t u4 = _mm512_unpacklo_epi64( t4, t6 ); wwu_t u5 = _mm512_unpackhi_epi64( t4, t6 );
+    wwu_t u6 = _mm512_unpacklo_epi64( t5, t7 ); wwu_t u7 = _mm512_unpackhi_epi64( t5, t7 );
+    h0 = _mm512_shuffle_i32x4( u0, u4, 0x88 ); h4 = _mm512_shuffle_i32x4( u0, u4, 0xdd );
+    h1 = _mm512_shuffle_i32x4( u1, u5, 0x88 ); h5 = _mm512_shuffle_i32x4( u1, u5, 0xdd );
+    h2 = _mm512_shuffle_i32x4( u2, u6, 0x88 ); h6 = _mm512_shuffle_i32x4( u2, u6, 0xdd );
+    h3 = _mm512_shuffle_i32x4( u3, u7, 0x88 ); h7 = _mm512_shuffle_i32x4( u3, u7, 0xdd );
   }
 
   wwu_t ctr_lo = wwu( ctr_vec[ 0],     ctr_vec[ 1],     ctr_vec[ 2],     ctr_vec[ 3],
@@ -381,7 +574,6 @@ fd_blake3_avx512_compress16( ulong                   batch_cnt,
          so use that as a hint when to suppress the 'CHUNK_START' flag. */
       chunk_flags = wwu_or( chunk_flags, wwu_if( block_first, wwu_bcast( FD_BLAKE3_FLAG_CHUNK_START ), wwu_zero() ) );
     }
-    wwu_t block_sz = wwu_min( wwu_sub( sz, off ), wwu_64 );
     block_flags = wwu_or( block_flags, wwu_if( is_parent, wwu_zero(), chunk_flags ) );
 
     /* Check if we are done compressing */
@@ -419,6 +611,7 @@ fd_blake3_avx512_compress16( ulong                   batch_cnt,
     m[0x2] = wwu_ldu( W2 );  m[0x3] = wwu_ldu( W3 );
     m[0x4] = wwu_ldu( W4 );  m[0x5] = wwu_ldu( W5 );
     m[0x6] = wwu_ldu( W6 );  m[0x7] = wwu_ldu( W7 );
+    wwu_t block_sz = wwu_min( wwu_sub( sz, off ), wwu_64 );
     m[0x8] = wwu_ldu( W8 );  m[0x9] = wwu_ldu( W9 );
     m[0xa] = wwu_ldu( Wa );  m[0xb] = wwu_ldu( Wb );
     m[0xc] = wwu_ldu( Wc );  m[0xd] = wwu_ldu( Wd );
@@ -502,50 +695,50 @@ compress: (void)0;
 
     } else { /* LtHash mode */
 
-      /* d[i] contains output_off+(i*4) 32-bit words across output[0..8] */
+      /* d[i] contains output_off+(i*4) 32-bit words across output[0..8]
+         Compute XORs and transpose in-place to keep everything in registers */
       FD_BLAKE3_TRACE(( "fd_blake3_avx512_compress16: expand lanes" ));
-      wwu_t d[ 16 ] = {
-        wwu_xor( v[0x0], v[0x8] ),
-        wwu_xor( v[0x1], v[0x9] ),
-        wwu_xor( v[0x2], v[0xa] ),
-        wwu_xor( v[0x3], v[0xb] ),
-        wwu_xor( v[0x4], v[0xc] ),
-        wwu_xor( v[0x5], v[0xd] ),
-        wwu_xor( v[0x6], v[0xe] ),
-        wwu_xor( v[0x7], v[0xf] ),
-        wwu_xor( h0,     v[0x8] ),
-        wwu_xor( h1,     v[0x9] ),
-        wwu_xor( h2,     v[0xa] ),
-        wwu_xor( h3,     v[0xb] ),
-        wwu_xor( h4,     v[0xc] ),
-        wwu_xor( h5,     v[0xd] ),
-        wwu_xor( h6,     v[0xe] ),
-        wwu_xor( h7,     v[0xf] )
-      };
 
-      /* Transpose each 8x8 block */
-      wwu_transpose_16x16( d[0x0], d[0x1], d[0x2], d[0x3], d[0x4], d[0x5], d[0x6], d[0x7],
-                           d[0x8], d[0x9], d[0xa], d[0xb], d[0xc], d[0xd], d[0xe], d[0xf],
-                           d[0x0], d[0x1], d[0x2], d[0x3], d[0x4], d[0x5], d[0x6], d[0x7],
-                           d[0x8], d[0x9], d[0xa], d[0xb], d[0xc], d[0xd], d[0xe], d[0xf] );
+      /* Interleave computations to keep v[8-f] hot in cache while computing both halves */
+      wwu_t d0  = wwu_xor( v[0x0], v[0x8] );
+      wwu_t d8  = wwu_xor( h0,     v[0x8] );
+      wwu_t d1  = wwu_xor( v[0x1], v[0x9] );
+      wwu_t d9  = wwu_xor( h1,     v[0x9] );
+      wwu_t d2  = wwu_xor( v[0x2], v[0xa] );
+      wwu_t da  = wwu_xor( h2,     v[0xa] );
+      wwu_t d3  = wwu_xor( v[0x3], v[0xb] );
+      wwu_t db  = wwu_xor( h3,     v[0xb] );
+      wwu_t d4  = wwu_xor( v[0x4], v[0xc] );
+      wwu_t dc  = wwu_xor( h4,     v[0xc] );
+      wwu_t d5  = wwu_xor( v[0x5], v[0xd] );
+      wwu_t dd  = wwu_xor( h5,     v[0xd] );
+      wwu_t d6  = wwu_xor( v[0x6], v[0xe] );
+      wwu_t de  = wwu_xor( h6,     v[0xe] );
+      wwu_t d7  = wwu_xor( v[0x7], v[0xf] );
+      wwu_t df  = wwu_xor( h7,     v[0xf] );
 
-      /* Reduce-add into d[0] */
-      d[0x0] = wwh_add( d[0x0], d[0x1] ); /* sum(l[0 1]) */
-      d[0x2] = wwh_add( d[0x2], d[0x3] ); /* sum(l[2 3]) */
-      d[0x4] = wwh_add( d[0x4], d[0x5] ); /* sum(l[4 5]) */
-      d[0x6] = wwh_add( d[0x6], d[0x7] ); /* sum(l[6 7]) */
-      d[0x8] = wwh_add( d[0x8], d[0x9] ); /* sum(l[8 9]) */
-      d[0xa] = wwh_add( d[0xa], d[0xb] ); /* sum(l[a b]) */
-      d[0xc] = wwh_add( d[0xc], d[0xd] ); /* sum(l[c d]) */
-      d[0xe] = wwh_add( d[0xe], d[0xf] ); /* sum(l[e f]) */
-      d[0x0] = wwh_add( d[0x0], d[0x2] ); /* sum(l[0 1 2 3]) */
-      d[0x4] = wwh_add( d[0x4], d[0x6] ); /* sum(l[4 5 6 7]) */
-      d[0x8] = wwh_add( d[0x8], d[0xa] ); /* sum(l[8 9 a b]) */
-      d[0xc] = wwh_add( d[0xc], d[0xe] ); /* sum(l[c d e f]) */
-      d[0x0] = wwh_add( d[0x0], d[0x4] ); /* sum(l[0 1 2 3 4 5 6 7]) */
-      d[0x8] = wwh_add( d[0x8], d[0xc] ); /* sum(l[8 9 a b c d e f]) */
-      d[0x0] = wwh_add( d[0x0], d[0x8] ); /* sum(l[0 1 2 3 4 5 6 7 8 9 a b c d e f]) */
-      wwh_st( lthash, d[0x0] );
+      /* Transpose in-place to avoid extra temporaries */
+      wwu_transpose_16x16( d0, d1, d2, d3, d4, d5, d6, d7,
+                           d8, d9, da, db, dc, dd, de, df,
+                           d0, d1, d2, d3, d4, d5, d6, d7,
+                           d8, d9, da, db, dc, dd, de, df );
+
+      /* Reduce-add reusing the transposed registers */
+      d0 = wwh_add( d0, d1 ); /* sum(l[0 1]) */
+      d2 = wwh_add( d2, d3 ); /* sum(l[2 3]) */
+      d4 = wwh_add( d4, d5 ); /* sum(l[4 5]) */
+      d6 = wwh_add( d6, d7 ); /* sum(l[6 7]) */
+      d8 = wwh_add( d8, d9 ); /* sum(l[8 9]) */
+      da = wwh_add( da, db ); /* sum(l[a b]) */
+      dc = wwh_add( dc, dd ); /* sum(l[c d]) */
+      de = wwh_add( de, df ); /* sum(l[e f]) */
+      d0 = wwh_add( d0, d2 ); /* sum(l[0 1 2 3]) */
+      d4 = wwh_add( d4, d6 ); /* sum(l[4 5 6 7]) */
+      d8 = wwh_add( d8, da ); /* sum(l[8 9 a b]) */
+      dc = wwh_add( dc, de ); /* sum(l[c d e f]) */
+      d0 = wwh_add( d0, d4 ); /* sum(l[0 1 2 3 4 5 6 7]) */
+      d8 = wwh_add( d8, dc ); /* sum(l[8 9 a b c d e f]) */
+      wwh_st( lthash, wwh_add( d0, d8 ) ); /* sum(l[0..f]) */
 
       /* Wind up for next iteration */
       lthash += 32; /* 64 byte stride */
@@ -659,9 +852,48 @@ fd_blake3_avx512_compress16_fast( uchar const * restrict msg,
   wwu_t h0=iv0; wwu_t h1=iv1; wwu_t h2=iv2; wwu_t h3=iv3;
   wwu_t h4=iv4; wwu_t h5=iv5; wwu_t h6=iv6; wwu_t h7=iv7;
 
+  /* Precompute base addresses to reduce address calculation overhead */
+  uchar const * msg0 = msg + (0x0<<lg_sz);
+  uchar const * msg1 = msg + (0x1<<lg_sz);
+  uchar const * msg2 = msg + (0x2<<lg_sz);
+  uchar const * msg3 = msg + (0x3<<lg_sz);
+  uchar const * msg4 = msg + (0x4<<lg_sz);
+  uchar const * msg5 = msg + (0x5<<lg_sz);
+  uchar const * msg6 = msg + (0x6<<lg_sz);
+  uchar const * msg7 = msg + (0x7<<lg_sz);
+  uchar const * msg8 = msg + (0x8<<lg_sz);
+  uchar const * msg9 = msg + (0x9<<lg_sz);
+  uchar const * msga = msg + (0xa<<lg_sz);
+  uchar const * msgb = msg + (0xb<<lg_sz);
+  uchar const * msgc = msg + (0xc<<lg_sz);
+  uchar const * msgd = msg + (0xd<<lg_sz);
+  uchar const * msge = msg + (0xe<<lg_sz);
+  uchar const * msgf = msg + (0xf<<lg_sz);
+
   ulong off = 0UL;
   do {
     ulong const off_next = off+FD_BLAKE3_BLOCK_SZ;
+
+    /* Prefetch next block's data if not the last iteration */
+    if( FD_LIKELY( off_next < sz ) ) {
+      _mm_prefetch( msg0 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg1 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg2 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg3 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg4 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg5 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg6 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg7 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg8 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msg9 + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msga + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msgb + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msgc + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msgd + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msge + off_next, _MM_HINT_T0 );
+      _mm_prefetch( msgf + off_next, _MM_HINT_T0 );
+    }
+
     int chunk_flags =
         ( off     ==0UL ? FD_BLAKE3_FLAG_CHUNK_START : 0 ) |
         ( off_next==sz  ? FD_BLAKE3_FLAG_CHUNK_END   : 0 );
@@ -669,27 +901,14 @@ fd_blake3_avx512_compress16_fast( uchar const * restrict msg,
     wwu_t flags_vec = wwu_bcast( flags_ );
 
     wwu_t m[16];
-    m[0x0] = wwu_ldu( msg + (0x0<<lg_sz) + off );
-    m[0x1] = wwu_ldu( msg + (0x1<<lg_sz) + off );
-    m[0x2] = wwu_ldu( msg + (0x2<<lg_sz) + off );
-    m[0x3] = wwu_ldu( msg + (0x3<<lg_sz) + off );
-    m[0x4] = wwu_ldu( msg + (0x4<<lg_sz) + off );
-    m[0x5] = wwu_ldu( msg + (0x5<<lg_sz) + off );
-    m[0x6] = wwu_ldu( msg + (0x6<<lg_sz) + off );
-    m[0x7] = wwu_ldu( msg + (0x7<<lg_sz) + off );
-    m[0x8] = wwu_ldu( msg + (0x8<<lg_sz) + off );
-    m[0x9] = wwu_ldu( msg + (0x9<<lg_sz) + off );
-    m[0xa] = wwu_ldu( msg + (0xa<<lg_sz) + off );
-    m[0xb] = wwu_ldu( msg + (0xb<<lg_sz) + off );
-    m[0xc] = wwu_ldu( msg + (0xc<<lg_sz) + off );
-    m[0xd] = wwu_ldu( msg + (0xd<<lg_sz) + off );
-    m[0xe] = wwu_ldu( msg + (0xe<<lg_sz) + off );
-    m[0xf] = wwu_ldu( msg + (0xf<<lg_sz) + off );
-
-    wwu_transpose_16x16( m[0x0], m[0x1], m[0x2], m[0x3], m[0x4], m[0x5], m[0x6], m[0x7],
-                         m[0x8], m[0x9], m[0xa], m[0xb], m[0xc], m[0xd], m[0xe], m[0xf],
-                         m[0x0], m[0x1], m[0x2], m[0x3], m[0x4], m[0x5], m[0x6], m[0x7],
-                         m[0x8], m[0x9], m[0xa], m[0xb], m[0xc], m[0xd], m[0xe], m[0xf] );
+    m[0x0] = wwu_ldu( msg0 + off );
+    m[0x1] = wwu_ldu( msg1 + off );
+    m[0x2] = wwu_ldu( msg2 + off );
+    m[0x3] = wwu_ldu( msg3 + off );
+    m[0x4] = wwu_ldu( msg4 + off );
+    m[0x5] = wwu_ldu( msg5 + off );
+    m[0x6] = wwu_ldu( msg6 + off );
+    m[0x7] = wwu_ldu( msg7 + off );
 
     wwu_t v[16] = {
         h0,     h1,     h2,     h3,
@@ -697,6 +916,20 @@ fd_blake3_avx512_compress16_fast( uchar const * restrict msg,
         iv0,    iv1,    iv2,    iv3,
         ctr_lo, ctr_hi, sz_vec, flags_vec,
     };
+
+    m[0x8] = wwu_ldu( msg8 + off );
+    m[0x9] = wwu_ldu( msg9 + off );
+    m[0xa] = wwu_ldu( msga + off );
+    m[0xb] = wwu_ldu( msgb + off );
+    m[0xc] = wwu_ldu( msgc + off );
+    m[0xd] = wwu_ldu( msgd + off );
+    m[0xe] = wwu_ldu( msge + off );
+    m[0xf] = wwu_ldu( msgf + off );
+
+    wwu_transpose_16x16( m[0x0], m[0x1], m[0x2], m[0x3], m[0x4], m[0x5], m[0x6], m[0x7],
+                         m[0x8], m[0x9], m[0xa], m[0xb], m[0xc], m[0xd], m[0xe], m[0xf],
+                         m[0x0], m[0x1], m[0x2], m[0x3], m[0x4], m[0x5], m[0x6], m[0x7],
+                         m[0x8], m[0x9], m[0xa], m[0xb], m[0xc], m[0xd], m[0xe], m[0xf] );
 
     round_fn16( v, m, 0 );
     round_fn16( v, m, 1 );
