@@ -337,7 +337,7 @@ resolve_peer( char const *            peer,
   return resolved;
 }
 
-static void
+void
 resolve_gossip_entrypoints( config_t * config ) {
   ulong entrypoint_cnt = config->gossip.entrypoints_cnt;
   for( ulong i=0UL; i<entrypoint_cnt; i++ ) {
