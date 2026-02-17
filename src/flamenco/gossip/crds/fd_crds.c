@@ -757,7 +757,7 @@ crds_entry_init( fd_gossip_value_t const * value,
   out_value->stake           = stake;
 
   fd_crds_generate_hash( sha, value_bytes, value_bytes_len, out_value->value_hash );
-  out_value->hash.hash_prefix = fd_ulong_bswap( fd_ulong_load_8( out_value->value_hash ) );
+  out_value->hash.hash_prefix = fd_ulong_load_8( out_value->value_hash );
 
   if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
     out_value->node_instance.token = value->node_instance->token;
@@ -782,7 +782,7 @@ void
 insert_purged( fd_crds_t *   crds,
                uchar const * hash,
                long          now ) {
-  ulong hash_prefix = fd_ulong_bswap( fd_ulong_load_8( hash ) );
+  ulong hash_prefix = fd_ulong_load_8( hash );
   if( purged_treap_ele_query( crds->purged.treap, hash_prefix, crds->purged.pool ) ) {
     return;
   }
@@ -844,7 +844,7 @@ void
 fd_crds_insert_failed_insert( fd_crds_t *   crds,
                               uchar const * hash,
                               long          now ) {
-  ulong hash_prefix = fd_ulong_bswap( fd_ulong_load_8( hash ) );
+  ulong hash_prefix = fd_ulong_load_8( hash );
   if( purged_treap_ele_query( crds->purged.treap, hash_prefix, crds->purged.pool ) ) {
     return;
   }
