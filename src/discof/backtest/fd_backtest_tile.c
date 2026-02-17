@@ -105,6 +105,21 @@ struct fd_backt_tile {
   ulong dead_shred_cnt;
   ulong root_slot;
   ulong root_shred_cnt;
+
+  /* Mirrors shred tile's store metrics. */
+
+  struct {
+    ulong      store_insert_acquire;
+    ulong      store_insert_release;
+    fd_histf_t store_insert_wait[ 1 ];
+    fd_histf_t store_insert_work[ 1 ];
+    ulong      store_insert_cnt;
+    ulong      store_insert_full_cnt;
+    ulong      store_insert_duplicate_cnt;
+    ulong      store_insert_mr;           /* first 8 bytes of most recently inserted merkle root */
+    ulong      store_insert_full_mr;      /* first 8 bytes of most recently attempted insert of a merkle root when store was full */
+    ulong      store_insert_duplicate_mr; /* first 8 bytes of most recently inserted merkle root that was a duplicate */
+  } metrics[ 1 ];
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -255,7 +270,6 @@ after_credit( fd_backt_tile_t *   ctx,
 
   int process = ctx->shreds_cnt>=2UL || (ctx->reading_slot>ctx->end_slot && ctx->shreds_cnt );
   if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
-  if( FD_UNLIKELY( !fd_store_root( ctx->store ) ) ) return; /* todo: hacky, remove, replay initializes this and asserts otherwise */
 
   *charge_busy = 1;
   ctx->idle_cnt = 0UL;
@@ -272,16 +286,16 @@ after_credit( fd_backt_tile_t *   ctx,
      ledgers which may not have merkle roots or chained merkle roots. */
   fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = shred->fec_set_idx };
   if( FD_UNLIKELY( ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx ) ) {
-    fd_store_shacq ( ctx->store );
+    fd_store_slock_acquire ( ctx->store );
     fd_store_insert( ctx->store, 0, &mr );
-    fd_store_shrel ( ctx->store );
+    fd_store_slock_release ( ctx->store );
   }
 
+  fd_store_slock_acquire( ctx->store );
   fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
-  fd_store_exacq( ctx->store ); /* FIXME shacq after store changes */
   fd_memcpy( fec->data+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
-  fd_store_exrel( ctx->store ); /* FIXME */
+  fd_store_slock_release( ctx->store ); /* drop(fec) */
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
   ctx->shreds_cnt--;
@@ -573,6 +587,26 @@ unprivileged_init( fd_topo_t *      topo,
 
   *ctx->shred_out = out1( topo, tile, "shred_out" );
   *ctx->tower_out = out1( topo, tile, "tower_out" );
+
+  ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
+
+  fd_memset( ctx->metrics, 0, sizeof(ctx->metrics) );
+
+  fd_histf_join( fd_histf_new( ctx->metrics->store_insert_wait,    FD_MHIST_SECONDS_MIN( SHRED, STORE_INSERT_WAIT ),
+                                                                   FD_MHIST_SECONDS_MAX( SHRED, STORE_INSERT_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->store_insert_work,    FD_MHIST_SECONDS_MIN( SHRED, STORE_INSERT_WORK ),
+                                                                   FD_MHIST_SECONDS_MAX( SHRED, STORE_INSERT_WORK ) ) );
+
+  ctx->store->metrics.slock_acquire        = &ctx->metrics->store_insert_acquire;
+  ctx->store->metrics.slock_release        = &ctx->metrics->store_insert_release;
+  ctx->store->metrics.slock_wait           = ctx->metrics->store_insert_wait;
+  ctx->store->metrics.slock_work           = ctx->metrics->store_insert_work;
+  ctx->store->metrics.insert_cnt           = &ctx->metrics->store_insert_cnt;
+  ctx->store->metrics.insert_full_cnt      = &ctx->metrics->store_insert_full_cnt;
+  ctx->store->metrics.insert_duplicate_cnt = &ctx->metrics->store_insert_duplicate_cnt;
+  ctx->store->metrics.insert_mr            = &ctx->metrics->store_insert_mr;
+  ctx->store->metrics.insert_full_mr       = &ctx->metrics->store_insert_full_mr;
+  ctx->store->metrics.insert_duplicate_mr  = &ctx->metrics->store_insert_duplicate_mr;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

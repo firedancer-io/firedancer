@@ -166,7 +166,7 @@ test_publish( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * oldr = fd_reasm_root( reasm );
   FD_TEST( oldr );
-  fd_reasm_publish( reasm, mr2 );
+  fd_reasm_publish( reasm, mr2, NULL );
   fd_reasm_fec_t * newr = fd_reasm_root( reasm );
   FD_TEST( newr );
   FD_TEST( 0==memcmp( newr, mr2, sizeof(fd_hash_t) ) );

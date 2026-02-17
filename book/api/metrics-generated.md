@@ -659,8 +659,16 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with repair shreds. Bytes include network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv</span> | counter | The number of times we received a turbine shred |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with turbine shreds. Bytes include network headers |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to insert a new FEC set |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent on inserting a new FEC set |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;acquire</span> | counter | Count of slock acquires for insert |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;release</span> | counter | Count of slock releases for insert |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting to acquire the slock for insert |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent working before releasing the slock for insert |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;cnt</span> | counter | Count of inserts |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;full_&#8203;cnt</span> | counter | Count of inserts when store was full |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;duplicate_&#8203;cnt</span> | counter | Count of duplicate inserts |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;mr</span> | gauge | First 8 bytes of most recently inserted merkle root |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;full_&#8203;mr</span> | gauge | First 8 bytes of most recently inserted merkle root when store was full |
+| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;duplicate_&#8203;mr</span> | gauge | First 8 bytes of most recently inserted duplicate merkle root |
 
 </div>
 
@@ -894,12 +902,22 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to read a FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
-| <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;work</span> | histogram | Time in seconds spent on publishing a new FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;acquire</span> | counter | Count of store slock acquires for query |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;release</span> | counter | Count of store slock releases for query |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;wait</span> | histogram | Time in seconds spent waiting to acquire the slock for query |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;work</span> | histogram | Time in seconds spent working before releasing the slock for query |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;cnt</span> | counter | Count of queries |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;missing_&#8203;cnt</span> | counter | Count of queries where merkle root was missing |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;mr</span> | gauge | First 8 bytes of most recently queried merkle root |
+| <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;missing_&#8203;mr</span> | gauge | First 8 bytes of most recently queried missing merkle root |
+| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;acquire</span> | counter | Count of store xlock acquires for remove |
+| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;release</span> | counter | Count of store xlock releases for remove |
+| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;wait</span> | histogram | Time in seconds spent waiting to acquire the xlock for remove |
+| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;work</span> | histogram | Time in seconds spent working before releasing the xlock for remove |
+| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;cnt</span> | counter | Count of removes |
+| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;missing_&#8203;cnt</span> | counter | Count of removes where merkle root was missing |
+| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;mr</span> | gauge | First 8 bytes of most recently removed merkle root |
+| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;missing_&#8203;mr</span> | gauge | First 8 bytes of most recently removed missing merkle root |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | The slot at which our node has most recently rooted |
 | <span class="metrics-name">replay_&#8203;root_&#8203;distance</span> | gauge | The distance in slots between our current root and the current reset slot |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | The slot at which we are currently leader, or 0 if none |
@@ -1034,6 +1052,7 @@
 | <span class="metrics-name">tower_&#8203;cluster_&#8203;vote_&#8203;slot</span> | gauge | Cluster vote slot (from on-chain vote account as of ReplaySlotProcessed) |
 | <span class="metrics-name">tower_&#8203;local_&#8203;root_&#8203;slot</span> | gauge | Local root slot (root of local tower) |
 | <span class="metrics-name">tower_&#8203;local_&#8203;vote_&#8203;slot</span> | gauge | Local vote slot (top of local tower) |
+| <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
 | <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;processed</span> | gauge | Most recent processed ReplaySlotCompleted slot |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;ignored</span> | gauge | Most recent ignored ReplaySlotCompleted slot |

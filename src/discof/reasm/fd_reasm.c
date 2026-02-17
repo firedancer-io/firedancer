@@ -467,11 +467,10 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   xid_t * xid = xid_query( reasm->xid, (slot<<32) | fec_set_idx, NULL );
   if( FD_LIKELY( !xid ) ) {
-    xid = xid_insert( reasm->xid, ( slot << 32 ) | fec_set_idx );
+    xid = xid_insert( reasm->xid, (slot<<32) | fec_set_idx );
     if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx ));
     xid->idx = pool_idx( pool, fec );
-  }
-  else {
+  } else {
     eqvoc( reasm, fec );
     eqvoc( reasm, pool_ele( pool, xid->idx ) );
   }
@@ -484,15 +483,19 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
 static fd_reasm_fec_t *
 publish_remove( fd_reasm_t *      reasm,
-                fd_hash_t const * merkle_root ) {
+                fd_hash_t const * merkle_root,
+                fd_store_t *      opt_store ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
-  fd_reasm_fec_t *          fec = ancestry_ele_remove( reasm->ancestry, merkle_root, NULL, pool );
-  if( FD_UNLIKELY( !fec ) ) fec = frontier_ele_remove( reasm->frontier, merkle_root, NULL, pool );
+  fd_reasm_fec_t * fec  = ancestry_ele_remove( reasm->ancestry, merkle_root, NULL, pool );
+  if( FD_UNLIKELY( !fec      ) ) fec = frontier_ele_remove( reasm->frontier, merkle_root, NULL, pool );
+  if( FD_LIKELY  ( opt_store ) ) fd_store_remove( opt_store, merkle_root );
   return fec;
 }
 
 fd_reasm_fec_t *
-fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
+fd_reasm_publish( fd_reasm_t      * reasm,
+                  fd_hash_t const * merkle_root,
+                  fd_store_t      * opt_store ) {
 # if FD_REASM_USE_HANDHOLDING
   if( FD_UNLIKELY( !pool_ele( reasm_pool( reasm ), reasm->root ) ) ) { FD_LOG_WARNING(( "missing root" )); return NULL; }
   if( FD_UNLIKELY( !fd_reasm_query( reasm, merkle_root ) ) ) {
@@ -510,30 +513,30 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
   /* First, remove the previous root, and push it as the first element
      of the BFS queue. */
 
-  fd_reasm_fec_t * head = publish_remove( reasm, &oldr->key ); /* initialize BFS queue */
-  head->next            = null;                                /* clear map next */
-  fd_reasm_fec_t * tail = head;                                /* tail of BFS queue */
+  fd_reasm_fec_t * head = publish_remove( reasm, &oldr->key, opt_store ); /* initialize BFS queue */
+  head->next            = null;                                       /* clear map next */
+  fd_reasm_fec_t * tail = head;                                       /* tail of BFS queue */
 
   /* Second, BFS down the tree, pruning all of root's ancestors and also
      any descendants of those ancestors. */
 
   while( FD_LIKELY( head ) ) {
-    fd_reasm_fec_t * child = pool_ele( pool, head->child );                  /* left-child */
-    while( FD_LIKELY( child ) ) {                                            /* iterate over children */
-      if( FD_LIKELY( child != newr ) ) {                                     /* stop at new root */
-        tail->next = pool_idx( pool, publish_remove( reasm, &child->key ) ); /* remove node from map to reuse `.next` */
-        tail       = pool_ele( pool, tail->next );                           /* push onto BFS queue (so descendants can be pruned) */
-        tail->next = null;                                                   /* clear map next */
+    fd_reasm_fec_t * child = pool_ele( pool, head->child );                             /* left-child */
+    while( FD_LIKELY( child ) ) {                                                       /* iterate over children */
+      if( FD_LIKELY( child != newr ) ) {                                                /* stop at new root */
+        tail->next = pool_idx( pool, publish_remove( reasm, &child->key, opt_store ) ); /* remove node from map to reuse `.next` */
+        tail       = pool_ele( pool, tail->next );                                      /* push onto BFS queue (so descendants can be pruned) */
+        tail->next = null;                                                              /* clear map next */
       }
-      child = pool_ele( pool, child->sibling );                              /* right-sibling */
+      child = pool_ele( pool, child->sibling );                                         /* right-sibling */
     }
     bid_t * bid = bid_query( reasm->bid, head->slot, NULL );
-    if( FD_UNLIKELY( bid ) ) bid_remove( reasm->bid, bid  ); /* only first FEC */
+    if( FD_UNLIKELY( bid ) ) bid_remove( reasm->bid, bid  );                            /* only the last FEC of a slot is in bid (block id) */
 
-    /* remove from the xid map */
-    xid_t * xid = xid_query( reasm->xid, ( head->slot << 32 ) | head->fec_set_idx, NULL );
+    xid_t * xid = xid_query( reasm->xid, (head->slot<<32) | head->fec_set_idx, NULL );
     if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid not found for slot: %lu fec_set_idx: %u", head->slot, head->fec_set_idx ));
-    xid_remove( reasm->xid, xid );
+    xid->cnt--;
+    if( FD_LIKELY( !xid->cnt ) ) xid_remove( reasm->xid, xid );
 
     fd_reasm_fec_t * next = pool_ele( pool, head->next ); /* pophead */
     head->free = 1;

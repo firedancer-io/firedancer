@@ -237,8 +237,18 @@ typedef struct {
     ulong repair_rcv_bytes;
     ulong turbine_rcv_cnt;
     ulong turbine_rcv_bytes;
+
+    ulong      store_insert_acquire;
+    ulong      store_insert_release;
     fd_histf_t store_insert_wait[ 1 ];
     fd_histf_t store_insert_work[ 1 ];
+    ulong      store_insert_cnt;
+    ulong      store_insert_full_cnt;
+    ulong      store_insert_duplicate_cnt;
+    ulong      store_insert_mr;           /* first 8 bytes of most recently inserted merkle root */
+    ulong      store_insert_full_mr;      /* first 8 bytes of most recently attempted insert of a merkle root when store was full */
+    ulong      store_insert_duplicate_mr; /* first 8 bytes of most recently inserted merkle root that was a duplicate */
+
   } metrics[ 1 ];
 
   struct {
@@ -346,8 +356,17 @@ metrics_write( fd_shred_ctx_t * ctx ) {
 
   FD_MCNT_SET  ( SHRED, INVALID_BLOCK_ID,           ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, SHRED_REJECTED_UNCHAINED,   ctx->metrics->shred_rejected_unchained_cnt );
+
+  FD_MCNT_SET  ( SHRED, STORE_INSERT_ACQUIRE,       ctx->metrics->store_insert_acquire         );
+  FD_MCNT_SET  ( SHRED, STORE_INSERT_RELEASE,       ctx->metrics->store_insert_release         );
   FD_MHIST_COPY( SHRED, STORE_INSERT_WAIT,          ctx->metrics->store_insert_wait            );
   FD_MHIST_COPY( SHRED, STORE_INSERT_WORK,          ctx->metrics->store_insert_work            );
+  FD_MCNT_SET  ( SHRED, STORE_INSERT_CNT,           ctx->metrics->store_insert_cnt             );
+  FD_MCNT_SET  ( SHRED, STORE_INSERT_FULL_CNT,      ctx->metrics->store_insert_full_cnt        );
+  FD_MCNT_SET  ( SHRED, STORE_INSERT_DUPLICATE_CNT, ctx->metrics->store_insert_duplicate_cnt   );
+  FD_MGAUGE_SET( SHRED, STORE_INSERT_MR,            ctx->metrics->store_insert_mr              );
+  FD_MGAUGE_SET( SHRED, STORE_INSERT_FULL_MR,       ctx->metrics->store_insert_full_mr         );
+  FD_MGAUGE_SET( SHRED, STORE_INSERT_DUPLICATE_MR,  ctx->metrics->store_insert_duplicate_mr    );
 
   FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result             );
 }
@@ -1058,26 +1077,41 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* Insert shreds into the store. We do this regardless of whether
          we are leader. */
 
+      fd_store_fec_t * fec = NULL;
+
+      /* Set metrics pointers. */
+
+      ctx->store->metrics.slock_acquire = &ctx->metrics->store_insert_acquire;
+      ctx->store->metrics.slock_release = &ctx->metrics->store_insert_release;
+      ctx->store->metrics.slock_wait    = ctx->metrics->store_insert_wait;
+      ctx->store->metrics.slock_work    = ctx->metrics->store_insert_work;
+
       /* See top-level documentation in fd_store.h under CONCURRENCY to
          understand why it is safe to use a Store read vs. write lock in
          Shred tile. */
 
-      long shacq_start, shacq_end, shrel_end;
-      fd_store_fec_t * fec = NULL;
-      FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+      FD_STORE_SLOCK_BEGIN( ctx->store ) {
         fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ) );
-      } FD_STORE_SHARED_LOCK_END;
+      } FD_STORE_SLOCK_END
 
-      if( FD_UNLIKELY( !fec ) ) {
-        /* fec can be null for several reasons, but the most likely case
-           that Firedancer can run into during regular operation is when
-           it is our leader slot and someone is sending us back our own
-           FEC set shreds.  We could end up trying to insert our own FEC
-           set twice.  In development, this can also occur if you run
-           with a staked key and switch to another staked key without
-           changing the turbine receive port. */
-        return;
-      }
+
+      /* Firedancer is configured such that the store never fills up, as
+         the reasm is responsible for also evicting from store (based on
+         its eviction policy, see fd_reasm.h). fec is only NULL when the
+         store is full, so this is either a bug or misconfiguration. */
+
+      if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "store full" ));
+
+      /* It's safe to memcpy the FEC payload outside of the shared lock,
+         because the store ele is guaranteed to remain valid here.  It
+         is not possible for a fd_store_remove to interleave, because
+         remove is only called by replay_tile, which (crucially) is only
+         sent this FEC via stem publish after we have finished copying.
+
+         Copying outside the shared lock scope also means that we can
+         lower the duration for which the shared lock is held, and
+         enables replay to acquire the exclusive lock for removes
+         without getting starved. */
 
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
         fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );
@@ -1087,8 +1121,8 @@ after_frag( fd_shred_ctx_t *    ctx,
           /* This code is only reachable if shred tile has completed the
              FEC set, which implies it was able to validate it, yet
              somehow the total payload sz of this FEC set exceeds the
-             maximum payload sz. This indicates either a serious bug or
-             shred tile is compromised so log_crit. */
+             maximum payload sz.  This indicates either a serious bug or
+             shred tile is compromised so FD_LOG_CRIT. */
 
           FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds FD_STORE_DATA_MAX: %lu. Ignoring FEC set.", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, FD_STORE_DATA_MAX ));
         }
@@ -1096,20 +1130,6 @@ after_frag( fd_shred_ctx_t *    ctx,
         fec->data_sz += payload_sz;
         if( FD_LIKELY( i<32UL ) ) fec->block_offs[ i ] = (uint)payload_sz + fd_uint_if( i==0UL, 0UL, fec->block_offs[ i-1UL ] );
       }
-
-      /* It's safe to memcpy the FEC payload outside of the shared-lock,
-         because the fec object ptr is guaranteed to be valid.  It is
-         not possible for a store_publish to free/invalidate the fec
-         object during the data memcpy, because the free can only happen
-         after the fec is linked to its parent, which happens in the
-         repair tile, and crucially, only after we call stem publish in
-         this tile.  Copying outside the shared lock scope also means
-         that we can lower the duration for which the shared lock is
-         held, and enables replay to acquire the exclusive lock and
-         avoid getting starved. */
-
-      fd_histf_sample( ctx->metrics->store_insert_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
-      fd_histf_sample( ctx->metrics->store_insert_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
     }
 
     if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
@@ -1493,6 +1513,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics->repair_rcv_bytes             = 0UL;
   ctx->metrics->turbine_rcv_cnt              = 0UL;
   ctx->metrics->turbine_rcv_bytes            = 0UL;
+
+  if( FD_LIKELY( ctx->store ) ) {
+    ctx->store->metrics.insert_cnt           = &ctx->metrics->store_insert_cnt;
+    ctx->store->metrics.insert_full_cnt      = &ctx->metrics->store_insert_full_cnt;
+    ctx->store->metrics.insert_duplicate_cnt = &ctx->metrics->store_insert_duplicate_cnt;
+    ctx->store->metrics.insert_mr            = &ctx->metrics->store_insert_mr;
+    ctx->store->metrics.insert_full_mr       = &ctx->metrics->store_insert_full_mr;
+    ctx->store->metrics.insert_duplicate_mr  = &ctx->metrics->store_insert_duplicate_mr;
+  }
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.txn_cnt        = 0UL;
