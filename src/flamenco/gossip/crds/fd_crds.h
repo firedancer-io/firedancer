@@ -1,10 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
 #define HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
 
-#include "../fd_gossip_private.h"
+#include "../fd_gossip_message.h"
 #include "../fd_gossip_out.h"
 
-#include "../../../disco/metrics/generated/fd_metrics_gossip.h"
+#include "../../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../../ballet/sha256/fd_sha256.h"
 
 struct fd_crds_entry_private;
@@ -149,10 +149,11 @@ fd_crds_insert_failed_insert( fd_crds_t *   crds,
    *Hashing is performed if a failure condition warrants a purge insert. */
 
 int
-fd_crds_checks_fast( fd_crds_t *                         crds,
-                     fd_gossip_view_crds_value_t const * candidate,
-                     uchar const *                       payload,
-                     uchar                               from_push_msg );
+fd_crds_checks_fast( fd_crds_t *               crds,
+                     fd_gossip_value_t const * value,
+                     uchar const *             value_bytes,
+                     ulong                     value_bytes_len,
+                     uchar                     from_push_msg );
 
 /* fd_crds_insert inserts and indexes a CRDS value into the data store
    as a CRDS entry, so that it can be returned by future queries. This
@@ -174,13 +175,14 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
    Returns NULL if the insertion fails for any reason. */
 
 fd_crds_entry_t const *
-fd_crds_insert( fd_crds_t *                         crds,
-                fd_gossip_view_crds_value_t const * candidate_view,
-                uchar const *                       payload,
-                ulong                               origin_stake,
-                uchar                               is_from_me,
-                long                                now,
-                fd_stem_context_t *                 stem );
+fd_crds_insert( fd_crds_t *               crds,
+                fd_gossip_value_t const * value,
+                uchar const *             value_bytes,
+                ulong                     value_bytes_len,
+                ulong                     origin_stake,
+                uchar                     is_from_me,
+                long                      now,
+                fd_stem_context_t *       stem );
 
 /* fd_crds_has_staked_node returns true if any node in the cluster is
    observed to have stake. This is used in timeout calculations, which
@@ -193,9 +195,6 @@ void
 fd_crds_entry_value( fd_crds_entry_t const * entry,
                      uchar const **          value_bytes,
                      ulong *                 value_sz );
-
-uchar const *
-fd_crds_entry_pubkey( fd_crds_entry_t const * entry );
 
 /* fd_crds_entry_hash returns a pointer to the 32b sha256 hash of the
    entry's value hash. This is used for constructing a bloom filter. */
@@ -215,7 +214,8 @@ fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry );
 
    Assumes crds entry is a contact info (check with
    fd_crds_entry_is_contact_info) */
-fd_contact_info_t *
+
+fd_gossip_contact_info_t *
 fd_crds_entry_contact_info( fd_crds_entry_t const * entry );
 
 /* fd_crds tracks Contact Info entries with a sidetable that holds the
@@ -225,7 +225,7 @@ fd_crds_entry_contact_info( fd_crds_entry_t const * entry );
    structure corresponding to pubkey. returns NULL if there is no such
    entry. */
 
-fd_contact_info_t const *
+fd_gossip_contact_info_t const *
 fd_crds_contact_info_lookup( fd_crds_t const * crds,
                              uchar const *     pubkey );
 
@@ -259,7 +259,8 @@ fd_crds_peer_inactive( fd_crds_t *   crds,
 
 /* fd_crds_bucket_* sample APIs are meant to be used by fd_active_set.
    Each bucket has a unique sampler. */
-fd_contact_info_t const *
+
+uchar const *
 fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
                                   fd_rng_t *  rng,
                                   ulong       bucket );
@@ -289,7 +290,7 @@ fd_crds_bucket_add( fd_crds_t *   crds,
    appropriately.  On success, the returned fd_contact_info_t is a
    contact info suitable for sending a gossip pull request. */
 
-fd_contact_info_t const *
+fd_gossip_contact_info_t const *
 fd_crds_peer_sample( fd_crds_t const * crds,
                      fd_rng_t *        rng );
 

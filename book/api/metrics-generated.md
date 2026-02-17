@@ -792,8 +792,6 @@
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;count</span> | gauge | The number of purged data store entries |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;expired_&#8203;count</span> | counter | The number of purged entries expired from the purged list due to age |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;evicted_&#8203;count</span> | counter | The number of purged entries evicted from the data store to make space for new entries |
-| <span class="metrics-name">gossip_&#8203;contact_&#8203;info_&#8203;unrecognized_&#8203;socket_&#8203;tags</span> | counter | The number of unrecognized socket tags seen in Contact Infos |
-| <span class="metrics-name">gossip_&#8203;contact_&#8203;info_&#8203;ipv6</span> | counter | The number of IPv6 addresses seen in Contact Infos |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">upserted_&#8203;pull_&#8203;response</span>"} | counter | Outcome of incoming CRDS messages (Pull Response (upserted)) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">upserted_&#8203;push</span>"} | counter | Outcome of incoming CRDS messages (Push (upserted)) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;stale</span>"} | counter | Outcome of incoming CRDS messages (Pull Response (newer entry already present in table)) |

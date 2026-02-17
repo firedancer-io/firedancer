@@ -110,9 +110,7 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
     /* TODO: Need some kind of state machine here, to ensure we switch
        in sync with the signing tile.  Currently, we might send out a
        badly signed message before the signing tile has switched. */
-    fd_memcpy( ctx->my_contact_info->pubkey.uc, ctx->keyswitch->bytes, 32UL );
-    fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, ctx->last_wallclock );
-
+    fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, ctx->last_wallclock );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
@@ -164,9 +162,6 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
 
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
-
-  FD_MCNT_SET( GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS, metrics->ci_rx_unrecognized_socket_tag_cnt );
-  FD_MCNT_SET( GOSSIP, CONTACT_INFO_IPV6,                     metrics->ci_rx_ipv6_address_cnt );
 }
 
 void
@@ -286,7 +281,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->gossip.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  fd_memcpy( ctx->my_contact_info->pubkey.uc, fd_type_pun_const( fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 ) ), 32UL );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 ) );
   FD_TEST( fd_rng_secure( &ctx->rng_seed, 4UL ) );
   FD_TEST( fd_rng_secure( &ctx->rng_idx,  8UL ) );
 }
@@ -391,36 +386,36 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->my_contact_info->shred_version = tile->gossip.shred_version;
 
-  ctx->my_contact_info->wallclock_nanos                   = ctx->last_wallclock;
-  ctx->my_contact_info->instance_creation_wallclock_nanos = tile->gossip.boot_timestamp_nanos;
+  ctx->my_contact_info->outset = (ulong)FD_NANOSEC_TO_MICRO( tile->gossip.boot_timestamp_nanos );
 
-  ctx->my_contact_info->version.client      = FD_CONTACT_INFO_VERSION_CLIENT_FIREDANCER;
+  ctx->my_contact_info->version.client      = FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER;
   ctx->my_contact_info->version.major       = (ushort)firedancer_major_version;
   ctx->my_contact_info->version.minor       = (ushort)firedancer_minor_version;
   ctx->my_contact_info->version.patch       = (ushort)firedancer_patch_version;
   ctx->my_contact_info->version.commit      = firedancer_commit_ref;
   ctx->my_contact_info->version.feature_set = FD_FEATURE_SET_ID;
 
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ]            = (fd_ip4_port_t){ .addr = tile->gossip.ports.gossip   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.gossip )   };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ports.tvu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tvu )      };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_FORWARDS ]      = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ]          = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ]     = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ]            = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.gossip   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.gossip )   };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tvu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tvu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ]     = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
 
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_ip4_port_t){ .addr = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_ip4_port_t){ .addr = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_ip4_port_t){ .addr = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC ]               = (fd_ip4_port_t){ .addr = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC_PUBSUB ]        = (fd_ip4_port_t){ .addr = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB ]        = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
 
   ctx->gossip = fd_gossip_join( fd_gossip_new( _gossip,
                                                ctx->rng,
                                                tile->gossip.max_entries,
                                                tile->gossip.entrypoints_cnt,
                                                tile->gossip.entrypoints,
+                                               ctx->identity_key->uc,
                                                ctx->my_contact_info,
                                                ctx->last_wallclock,
                                                gossip_send_fn,
@@ -511,7 +506,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
    */
 
-FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+FD_GOSSIP_MSG_MAX_CRDS*2UL<=FD_PING_TRACKER_MAX+1UL,
+FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+17UL/*FD_GOSSIP_MSG_MAX_CRDS*/*2UL<=FD_PING_TRACKER_MAX+1UL,
                   "Gossip stem burst needs recalculating" );
 #define STEM_BURST ( FD_PING_TRACKER_MAX+1UL )
 

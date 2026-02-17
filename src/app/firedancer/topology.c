@@ -574,7 +574,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "genesi_out",    "genesi_out",    2UL,                                      10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
   /**/                 fd_topob_link( topo, "ipecho_out",    "ipecho_out",    2UL,                                      0UL,                           1UL );
-  FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", config->net.ingress_buffer_size,          sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
+  FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", config->net.ingress_buffer_size,          sizeof(fd_gossip_message_t)+FD_NET_MTU, 1UL );
   /**/                 fd_topob_link( topo, "gossip_gossvf", "gossip_gossvf", 65536UL*4UL,                              sizeof(fd_gossip_ping_update_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
   /**/                 fd_topob_link( topo, "gossip_out",    "gossip_out",    65536UL*4UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
 

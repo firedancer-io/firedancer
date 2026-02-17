@@ -7,7 +7,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../waltz/openssl/fd_openssl_tile.h"
 
 #include <errno.h>
@@ -307,18 +307,18 @@ static void
 on_snapshot_hash( fd_snapct_tile_t *                 ctx,
                   fd_ip4_port_t                      addr,
                   fd_gossip_update_message_t const * msg ) {
-  ulong         full_slot = msg->snapshot_hashes.full->slot;
+  ulong         full_slot = msg->snapshot_hashes->full_slot;
   ulong         incr_slot = 0UL;
   uchar const * incr_hash = NULL;
 
-  for( ulong i=0UL; i<msg->snapshot_hashes.incremental_len; i++ ) {
-    if( FD_LIKELY( msg->snapshot_hashes.incremental[ i ].slot>incr_slot ) ) {
-      incr_slot = msg->snapshot_hashes.incremental[ i ].slot;
-      incr_hash = msg->snapshot_hashes.incremental[ i ].hash;
+  for( ulong i=0UL; i<msg->snapshot_hashes->incremental_len; i++ ) {
+    if( FD_LIKELY( msg->snapshot_hashes->incremental[ i ].slot>incr_slot ) ) {
+      incr_slot = msg->snapshot_hashes->incremental[ i ].slot;
+      incr_hash = msg->snapshot_hashes->incremental[ i ].hash;
     }
   }
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, msg->snapshot_hashes.full->hash, incr_hash );
+  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, msg->snapshot_hashes->full_hash, incr_hash );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
@@ -1057,12 +1057,12 @@ gossip_frag( fd_snapct_tile_t *  ctx,
          sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
          sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES ) ) return;
 
-  fd_gossip_update_message_t const * msg    = fd_chunk_to_laddr_const( ctx->gossip_in_mem, chunk );
-  fd_pubkey_t const *                pubkey = (fd_pubkey_t const *)msg->origin_pubkey;
+  fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->gossip_in_mem, chunk );
   switch( msg->tag ) {
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
-      FD_TEST( msg->contact_info.idx<GOSSIP_PEERS_MAX );
-      gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info.idx;
+      FD_TEST( msg->contact_info->idx<GOSSIP_PEERS_MAX );
+      fd_pubkey_t const * pubkey = (fd_pubkey_t const *)msg->origin;
+      gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info->idx;
       if( FD_UNLIKELY( !fd_pubkey_eq( &entry->pubkey, pubkey ) ) ) {
         /* Initialize the new gossip entry, which may or may not be allowed */
         FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
@@ -1087,12 +1087,15 @@ gossip_frag( fd_snapct_tile_t *  ctx,
           }
         }
         FD_TEST(  ULONG_MAX==gossip_ci_map_idx_query_const( ctx->gossip.ci_map, pubkey, ULONG_MAX, ctx->gossip.ci_table ) );
-        if( entry->allowed ) gossip_ci_map_idx_insert( ctx->gossip.ci_map, msg->contact_info.idx, ctx->gossip.ci_table );
+        if( entry->allowed ) gossip_ci_map_idx_insert( ctx->gossip.ci_map, msg->contact_info->idx, ctx->gossip.ci_table );
       }
       if( !entry->allowed ) break;
       /* Maybe update the RPC address of a new or existing allowed gossip peer */
       fd_ip4_port_t cur_addr = entry->rpc_addr;
-      fd_ip4_port_t new_addr = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
+      fd_ip4_port_t new_addr;
+      new_addr.addr = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].is_ipv6 ? 0 : msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].ip4;
+      new_addr.port = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].port;
+
       if( FD_UNLIKELY( new_addr.l!=cur_addr.l ) ) {
         entry->rpc_addr = new_addr;
         if( FD_LIKELY( !!cur_addr.l ) ) {
@@ -1113,22 +1116,18 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       break;
     }
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
-      FD_TEST( msg->contact_info_remove.idx<GOSSIP_PEERS_MAX );
-      gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info_remove.idx;
-      if( FD_UNLIKELY( !fd_pubkey_eq( &entry->pubkey, pubkey ) ) ) {
-        FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
-        break;
-      }
-      ulong rem_idx = gossip_ci_map_idx_remove( ctx->gossip.ci_map, pubkey, ULONG_MAX, ctx->gossip.ci_table );
+      FD_TEST( msg->contact_info_remove->idx<GOSSIP_PEERS_MAX );
+      gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info_remove->idx;
+      ulong rem_idx = gossip_ci_map_idx_remove( ctx->gossip.ci_map, &entry->pubkey, ULONG_MAX, ctx->gossip.ci_table );
       if( rem_idx==ULONG_MAX ) break;
-      FD_TEST( entry->allowed && rem_idx==msg->contact_info_remove.idx );
+      FD_TEST( entry->allowed && rem_idx==msg->contact_info_remove->idx );
       fd_ip4_port_t addr = entry->rpc_addr;
       if( FD_LIKELY( !!addr.l ) ) {
         int removed = fd_ssping_remove( ctx->ssping, addr );
         if( FD_LIKELY( removed ) ) fd_sspeer_selector_remove( ctx->selector, addr );
       }
       if( !ctx->config.sources.gossip.allow_any ) {
-        FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+        FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, pubkey_b58 );
         FD_LOG_WARNING(( "allowed gossip peer removed with public key `%s` and RPC address `" FD_IP4_ADDR_FMT ":%hu`",
                          pubkey_b58, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
       }
@@ -1136,7 +1135,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       break;
     }
     case FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES: {
-      ulong idx = gossip_ci_map_idx_query_const( ctx->gossip.ci_map, pubkey, ULONG_MAX, ctx->gossip.ci_table );
+      ulong idx = gossip_ci_map_idx_query_const( ctx->gossip.ci_map, (fd_pubkey_t const *)msg->origin, ULONG_MAX, ctx->gossip.ci_table );
       if( FD_LIKELY( idx!=ULONG_MAX ) ) {
         gossip_ci_entry_t * entry = ctx->gossip.ci_table + idx;
         FD_TEST( entry->allowed );

@@ -4,7 +4,7 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
 #include "../../discof/repair/fd_repair.h"
@@ -294,10 +294,14 @@ handle_new_contact_info( fd_capture_tile_ctx_t * ctx,
   fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( buf );
   char tvu_buf[1024];
   char repair_buf[1024];
-  fd_ip4_port_t tvu    = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ];
-  fd_ip4_port_t repair = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ];
+  fd_ip4_port_t tvu, repair;
+  tvu.addr = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].is_ipv6 ? 0 : msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].ip4;
+  tvu.port = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].port;
 
-  FD_BASE58_ENCODE_32_BYTES( msg->contact_info.contact_info->pubkey.uc, pubkey_b58 );
+  repair.addr = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].is_ipv6 ? 0 : msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].ip4;
+  repair.port = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].port;
+
+  FD_BASE58_ENCODE_32_BYTES( msg->origin, pubkey_b58 );
   if( FD_UNLIKELY( tvu.l!=0UL ) ){
     snprintf( tvu_buf, sizeof(tvu_buf),
               "%u,%u(tvu),%s,%d\n",
