@@ -1,12 +1,10 @@
 #ifndef FD_SRC_APP_FIREDANCER_DEV_COMMANDS_SEND_TEST_HELPERS_C
 #define FD_SRC_APP_FIREDANCER_DEV_COMMANDS_SEND_TEST_HELPERS_C
 
-#include "../../../../disco/fd_disco.h"
 #include "../../../../choreo/tower/fd_tower.h"
 #include "../../../../flamenco/leaders/fd_leaders_base.h"
-#include "../../../../disco/pack/fd_microblock.h"
 #include "../../../../discof/tower/fd_tower_tile.h"
-#include "../../../../flamenco/gossip/fd_gossip_types.h"
+#include "../../../../flamenco/gossip/fd_gossip_message.h"
 #include "../../../../util/net/fd_ip4.h"
 
 #include <stdio.h>
@@ -76,26 +74,20 @@ parse_gossip_line( char * line ) {
   char * tpu_quic     = strtok( NULL, " |\t" );  FD_TEST( tpu_quic );
 
   /* solana gossip output does not contain all 4 we care about - for now, use these two */
-  fd_ip4_port_t * udp_tpu  = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU];
-  fd_ip4_port_t * quic_tpu = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_QUIC];
-  fd_ip4_port_t * udp_vote = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_VOTE];
-  fd_ip4_port_t * quic_vote = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC];
+  fd_gossip_socket_t * udp_tpu   = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU ];
+  fd_gossip_socket_t * quic_tpu  = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC ];
+  fd_gossip_socket_t * udp_vote  = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE ];
+  fd_gossip_socket_t * quic_vote = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ];
 
   /* Set pubkey, IP, ports - 'gossip' should send all in net order */
-  FD_TEST( fd_base58_decode_32( pubkey_token, msg.origin_pubkey ) );
+  FD_TEST( fd_base58_decode_32( pubkey_token, msg.origin ) );
 
   uint ip_addr;
   FD_TEST( fd_cstr_to_ip4_addr( ip_token, &ip_addr ) );
-  udp_tpu->addr  = ip_addr;
-  quic_tpu->addr = ip_addr;
-
-  ushort udp_port_net  = fd_cstr_to_ushort( tpu_udp  ); FD_TEST( udp_port_net  );
-  ushort quic_port_net = fd_cstr_to_ushort( tpu_quic ); FD_TEST( quic_port_net );
-  udp_tpu->port  = fd_ushort_bswap( udp_port_net  );
-  quic_tpu->port = fd_ushort_bswap( quic_port_net );
-
-  fd_memset( udp_vote,  0, sizeof(fd_ip4_port_t) );
-  fd_memset( quic_vote, 0, sizeof(fd_ip4_port_t) );
+  *udp_tpu = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = ip_addr, .port = fd_ushort_bswap( fd_cstr_to_ushort( tpu_udp ) ) };
+  *quic_tpu = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = ip_addr, .port = fd_ushort_bswap( fd_cstr_to_ushort( tpu_quic ) ) };
+  fd_memset( udp_vote,  0, sizeof(fd_gossip_socket_t) );
+  fd_memset( quic_vote, 0, sizeof(fd_gossip_socket_t) );
 
   return msg;
 }

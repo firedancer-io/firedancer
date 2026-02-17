@@ -5,7 +5,7 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "generated/fd_txsend_tile_seccomp.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 
 #include <sys/random.h>
 
@@ -346,13 +346,13 @@ static inline void
 handle_contact_info_update( fd_txsend_tile_ctx_t *               ctx,
                             fd_gossip_update_message_t const * msg ) {
   static uint const socket_idx[FD_TXSEND_PORT_CNT] = {
-    FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC,
-    FD_CONTACT_INFO_SOCKET_TPU_QUIC,
-    FD_CONTACT_INFO_SOCKET_TPU_VOTE,
-    FD_CONTACT_INFO_SOCKET_TPU
+    FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC,
+    FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC,
+    FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE,
+    FD_GOSSIP_CONTACT_INFO_SOCKET_TPU
   };
 
-  fd_txsend_conn_entry_t * entry  = fd_txsend_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin_pubkey), NULL );
+  fd_txsend_conn_entry_t * entry  = fd_txsend_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin), NULL );
   if( FD_UNLIKELY( !entry ) ) {
     /* Skip if UNSTAKED */
     ctx->metrics.unstaked_ci_rcvd++;
@@ -361,14 +361,14 @@ handle_contact_info_update( fd_txsend_tile_ctx_t *               ctx,
 
   for( ulong i=0UL; i<FD_TXSEND_PORT_CNT; i++ ) {
 
-    fd_ip4_port_t const * socket   = &msg->contact_info.contact_info->sockets[ socket_idx[i] ];
-    uint                  new_ip   = socket->addr;
-    ushort                new_port = fd_ushort_bswap( socket->port ); /* convert port to host order */
-    uint                  old_ip   = entry->ip4s[i];
-    ushort                old_port = entry->ports[i];
+    fd_gossip_socket_t const * socket   = &msg->contact_info->value->sockets[ socket_idx[i] ];
+    uint                       new_ip   = socket->is_ipv6 ? 0U : socket->ip4;
+    ushort                     new_port = fd_ushort_bswap( socket->port ); /* convert port to host order */
+    uint                       old_ip   = entry->ip4s[i];
+    ushort                     old_port = entry->ports[i];
 
     if( FD_UNLIKELY( !new_ip || !new_port ) ) {
-      FD_BASE58_ENCODE_32_BYTES( msg->origin_pubkey, origin_pubkey_b58 );
+      FD_BASE58_ENCODE_32_BYTES( msg->origin, origin_pubkey_b58 );
       FD_LOG_DEBUG(( "Unroutable contact info for pubkey %s", origin_pubkey_b58 ));
       ctx->metrics.new_contact_info[i][FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_UNROUTABLE_IDX]++;
       continue;
@@ -399,7 +399,7 @@ handle_contact_info_update( fd_txsend_tile_ctx_t *               ctx,
 static inline void
 handle_contact_info_removal( fd_txsend_tile_ctx_t *                ctx FD_PARAM_UNUSED,
                               fd_gossip_update_message_t const * msg FD_PARAM_UNUSED ) {
-  fd_txsend_conn_entry_t * entry = fd_txsend_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin_pubkey), NULL );
+  fd_txsend_conn_entry_t * entry = fd_txsend_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin), NULL );
   if( FD_LIKELY( entry ) ) {
     for( ulong i=0UL; i<FD_TXSEND_PORT_QUIC_CNT; i++ ) {
       if( FD_UNLIKELY( entry->conn[i] ) ) fd_quic_conn_close( entry->conn[i], 0 );

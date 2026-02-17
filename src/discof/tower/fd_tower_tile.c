@@ -17,11 +17,9 @@
 #include "../../disco/fd_txn_m.h"
 #include "../../choreo/tower/fd_epoch_stakes.h"
 #include "../../discof/fd_accdb_topo.h"
-#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_accdb_pipe.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -1053,8 +1051,8 @@ returnable_frag( ctx_t *             ctx,
   case IN_KIND_GOSSIP: {
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED ) ) {
       fd_gossip_update_message_t const  * msg             = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
-      fd_gossip_duplicate_shred_t const * duplicate_shred = &msg->duplicate_shred;
-      fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin_pubkey );
+      fd_gossip_duplicate_shred_t const * duplicate_shred = msg->duplicate_shred;
+      fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin );
 
       FD_BASE58_ENCODE_32_BYTES( from->uc, from_b58 );
 

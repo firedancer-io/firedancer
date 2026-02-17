@@ -1,8 +1,5 @@
-#include "../fd_gossip_types.h"
-#include "../fd_gossip_private.h"
-
 struct fd_crds_contact_info_entry {
-  fd_contact_info_t contact_info[1];
+  fd_gossip_contact_info_t contact_info[1];
   struct{
     ulong next;
   } pool;

@@ -15,7 +15,7 @@
 #include "../net/fd_net_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../util/net/fd_net_headers.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
@@ -866,23 +866,25 @@ after_frag( fd_shred_ctx_t *    ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     if( ctx->gossip_upd_buf->tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) {
-      fd_contact_info_t const * ci = ctx->gossip_upd_buf->contact_info.contact_info;
-      fd_ip4_port_t tvu_addr = ci->sockets[ FD_CONTACT_INFO_SOCKET_TVU ];
+      fd_gossip_contact_info_t const * ci = ctx->gossip_upd_buf->contact_info->value;
+      fd_ip4_port_t tvu_addr;
+      tvu_addr.addr = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].is_ipv6 ? 0U : ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].ip4;
+      tvu_addr.port = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].port;
       if( !tvu_addr.l ){
-        fd_stake_ci_dest_remove( ctx->stake_ci, &ci->pubkey );
+        fd_stake_ci_dest_remove( ctx->stake_ci, fd_type_pun_const( ctx->gossip_upd_buf->origin ) );
       } else {
-        fd_stake_ci_dest_update( ctx->stake_ci, &ci->pubkey, tvu_addr.addr, fd_ushort_bswap( tvu_addr.port ) );
+        fd_stake_ci_dest_update( ctx->stake_ci, fd_type_pun_const( ctx->gossip_upd_buf->origin ), tvu_addr.addr, fd_ushort_bswap( tvu_addr.port ) );
       }
     } else if( ctx->gossip_upd_buf->tag==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ) {
-      if( FD_UNLIKELY( !memcmp( ctx->identity_key->uc, ctx->gossip_upd_buf->origin_pubkey, 32UL ) ) ) {
+      if( FD_UNLIKELY( !memcmp( ctx->identity_key->uc, ctx->gossip_upd_buf->origin, 32UL ) ) ) {
         /* If our own contact info was dropped, we update with dummy IP
            instead of removing since stake_ci expects our contact info
            in the sdests table all the time. fd_stake_ci_new initializes
            both ei->sdests with our contact info so this should always
            update (and not append). */
-        fd_stake_ci_dest_update( ctx->stake_ci, (fd_pubkey_t *)ctx->gossip_upd_buf->origin_pubkey, 1U, 0U );
+        fd_stake_ci_dest_update( ctx->stake_ci, fd_type_pun_const( ctx->gossip_upd_buf->origin ), 1U, 0U );
       } else {
-        fd_stake_ci_dest_remove( ctx->stake_ci, (fd_pubkey_t *)ctx->gossip_upd_buf->origin_pubkey );
+        fd_stake_ci_dest_remove( ctx->stake_ci, fd_type_pun_const( ctx->gossip_upd_buf->origin ) );
       }
     }
     return;

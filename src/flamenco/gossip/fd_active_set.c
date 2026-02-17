@@ -159,14 +159,12 @@ fd_active_set_rotate( fd_active_set_t * active_set,
 
   fd_active_set_peer_t * replace = entry->nodes[ replace_idx ];
 
-  fd_contact_info_t const * new_peer = fd_crds_bucket_sample_and_remove( crds, active_set->rng, bucket );
-  if( FD_UNLIKELY( !new_peer ) ) {
-    return ULONG_MAX;
-  }
+  uchar const * new_peer = fd_crds_bucket_sample_and_remove( crds, active_set->rng, bucket );
+  if( FD_UNLIKELY( !new_peer ) ) return ULONG_MAX;
 
   fd_bloom_initialize( replace->bloom, num_bloom_filter_items );
-  fd_bloom_insert( replace->bloom, new_peer->pubkey.uc, 32UL );
-  fd_memcpy( replace->pubkey, new_peer->pubkey.uc, 32UL );
+  fd_bloom_insert( replace->bloom, new_peer, 32UL );
+  fd_memcpy( replace->pubkey, new_peer, 32UL );
   entry->nodes_len = fd_ulong_min( entry->nodes_len+1UL, 12UL );
   return bucket*12UL+replace_idx;
 }

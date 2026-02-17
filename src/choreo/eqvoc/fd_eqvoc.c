@@ -187,13 +187,11 @@ construct_proof( fd_shred_t const *          shred1,
                  fd_shred_t const *          shred2,
                  fd_gossip_duplicate_shred_t chunks_out[static FD_EQVOC_CHUNK_CNT] ) {
 
-  long wallclock = fd_log_wallclock() / (long)1e6; /* ms */
   for (uchar i = 0; i < FD_EQVOC_CHUNK_CNT; i++ ) {
     chunks_out[i].index       = i;
     chunks_out[i].slot        = shred1->slot;
     chunks_out[i].num_chunks  = FD_EQVOC_CHUNK_CNT;
     chunks_out[i].chunk_index = i;
-    chunks_out[i].wallclock   = wallclock;
   }
 
   ulong shred1_sz = fd_shred_sz( shred1 );

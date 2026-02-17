@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_txbuild_h
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_txbuild_h
 
-#include "fd_gossip_private.h"
+#include "../../util/fd_util_base.h"
 
 /* fd_gossip_txbuild_t provides a set of APIs to incrementally build a
    push or pull response message from CRDS values.  The caller is
@@ -19,7 +19,7 @@ struct fd_gossip_txbuild {
    ulong tag;
    ulong off;
    ulong sz;
-  } crds[ FD_GOSSIP_MSG_MAX_CRDS ];
+  } crds[ 17UL ];
 };
 
 typedef struct fd_gossip_txbuild fd_gossip_txbuild_t;
