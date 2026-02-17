@@ -1395,8 +1395,6 @@ privileged_init( fd_topo_t *      topo,
   if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, on_resolve, ctx ) );
   else                                                ctx->ssresolver = NULL;
 
-  /* FIXME: We will keep too many snapshots if we have local snapshots
-     but elect not to use them due to their age. */
   fd_ssarchive_remove_old_snapshots( tile->snapct.snapshots_path,
                                      tile->snapct.max_full_snapshots_to_keep,
                                      tile->snapct.max_incremental_snapshots_to_keep );
