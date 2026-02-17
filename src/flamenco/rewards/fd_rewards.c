@@ -418,19 +418,18 @@ epoch_duration_in_years( fd_bank_t const * bank,
   return (double)slots_in_epoch / (double)fd_bank_slots_per_year_get( bank );
 }
 
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2128 */
+/*  https://github.com/anza-xyz/agave/blob/3eb0a7b7bcf5a5f2346b9a39b92c6896fe8fe668/runtime/src/bank.rs#L2400 */
 static void
-calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   bank,
-                                            ulong                               prev_epoch_capitalization,
-                                            ulong                               prev_epoch,
-                                            fd_prev_epoch_inflation_rewards_t * rewards ) {
+calculate_epoch_inflation_rewards( fd_bank_t const *                   bank,
+                                   ulong                               capitalization,
+                                   ulong                               epoch,
+                                   fd_epoch_inflation_rewards_t *      rewards ) {
   double slot_in_year = slot_in_year_for_inflation( bank );
-
+  double epoch_duration_in_years_ = epoch_duration_in_years( bank, epoch );
   rewards->validator_rate               = validator( fd_bank_inflation_query( bank ), slot_in_year );
   rewards->foundation_rate              = foundation( fd_bank_inflation_query( bank ), slot_in_year );
-  rewards->prev_epoch_duration_in_years = epoch_duration_in_years( bank, prev_epoch );
-  rewards->validator_rewards            = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
-  FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year ));
+  rewards->validator_rewards_lamports   = (ulong)(rewards->validator_rate * (double)capitalization * epoch_duration_in_years_);
+  FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards_lamports, rewards->validator_rate, epoch_duration_in_years_, capitalization, slot_in_year ));
 }
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/lib.rs#L29 */
@@ -706,14 +705,14 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                     fd_capture_ctx_t *                     capture_ctx,
                                     ulong                                  prev_epoch,
                                     fd_partitioned_rewards_calculation_t * result ) {
-  fd_prev_epoch_inflation_rewards_t rewards;
+  fd_epoch_inflation_rewards_t rewards;
 
-  calculate_previous_epoch_inflation_rewards( bank,
-                                              fd_bank_capitalization_get( bank ),
-                                              prev_epoch,
-                                              &rewards );
+  calculate_epoch_inflation_rewards( bank,
+                                     fd_bank_capitalization_get( bank ),
+                                     prev_epoch,
+                                     &rewards );
 
-  ulong total_rewards = rewards.validator_rewards;
+  ulong total_rewards = rewards.validator_rewards_lamports;
 
   uint128 points = calculate_validator_rewards( bank,
                                                 accdb,
@@ -731,7 +730,6 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   result->validator_rewards            = total_rewards;
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
-  result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
   result->capitalization               = fd_bank_capitalization_get( bank );
 }
 
