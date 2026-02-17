@@ -1264,10 +1264,9 @@ snapld_frag( fd_snapct_tile_t *  ctx,
   }
 }
 
-/* FIXME rename */
 static void
-snapin_frag( fd_snapct_tile_t *  ctx,
-             ulong               sig ) {
+ctrl_ack_frag( fd_snapct_tile_t *  ctx,
+               ulong               sig ) {
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP ||
@@ -1366,7 +1365,7 @@ returnable_frag( fd_snapct_tile_t *  ctx,
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLD ) {
     snapld_frag( ctx, sig, sz, chunk );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
-    snapin_frag( ctx, sig );
+    ctrl_ack_frag( ctx, sig );
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
   return 0;
 }
