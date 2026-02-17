@@ -1,5 +1,6 @@
 #include "fd_reasm.h"
 #include "fd_reasm_private.h"
+#include "../../ballet/shred/fd_shred.h"
 
 #define LOGGING 0
 
@@ -10,9 +11,9 @@ fd_reasm_align( void ) {
 
 FD_FN_CONST ulong
 fd_reasm_footprint( ulong fec_max ) {
-  int lgf_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
+  ulong max_fec_per_slot = FD_SHRED_BLK_MAX / 32; /* untrue until fix-32. TODO probably replace with macro after fix-32 is active */
+  int lgf_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max + ( fec_max / max_fec_per_slot ) ) ); /* capacity for fec_max fecs + (fec_max / 1024) more block ids */
   return FD_LAYOUT_FINI(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -31,7 +32,6 @@ fd_reasm_footprint( ulong fec_max ) {
       subtrees_align(),    subtrees_footprint( fec_max ) ),
       bfs_align(),         bfs_footprint     ( fec_max ) ),
       out_align(),         out_footprint     ( fec_max ) ),
-      bid_align(),         bid_footprint     ( lgf_max ) ),
       xid_align(),         xid_footprint     ( lgf_max ) ),
     fd_reasm_align() );
 }
@@ -65,7 +65,8 @@ fd_reasm_new( void * shmem,
 
   fd_memset( shmem, 0, footprint );
 
-  int lgf_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
+  ulong max_fec_per_slot = FD_SHRED_BLK_MAX / 32; /* untrue until fix-32. TODO probably replace with macro after fix-32 is active */
+  int lgf_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max + ( fec_max / max_fec_per_slot ) ) ); /* capacity for fec_max fecs + (fec_max / 1024) more block ids */
 
   fd_reasm_t * reasm;
   FD_SCRATCH_ALLOC_INIT( l, shmem );
@@ -77,7 +78,6 @@ fd_reasm_new( void * shmem,
   void * subtrees = FD_SCRATCH_ALLOC_APPEND( l, subtrees_align(),    subtrees_footprint( fec_max ) );
   void * bfs      = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),         bfs_footprint     ( fec_max ) );
   void * out      = FD_SCRATCH_ALLOC_APPEND( l, out_align(),         out_footprint     ( fec_max ) );
-  void * bid      = FD_SCRATCH_ALLOC_APPEND( l, bid_align(),         bid_footprint     ( lgf_max ) );
   void * xid      = FD_SCRATCH_ALLOC_APPEND( l, xid_align(),         xid_footprint     ( lgf_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_reasm_align() ) == (ulong)shmem + footprint );
 
@@ -91,7 +91,6 @@ fd_reasm_new( void * shmem,
   /*               */ dlist_new   ( reasm->_subtrlf         );
   reasm->bfs        = bfs_new     ( bfs,      fec_max       );
   reasm->out        = out_new     ( out,      fec_max       );
-  reasm->bid        = bid_new     ( bid,      lgf_max, seed );
   reasm->xid        = xid_new     ( xid,      lgf_max, seed );
 
   return shmem;
@@ -113,7 +112,6 @@ fd_reasm_join( void * shreasm ) {
   reasm->subtreel = dlist_join   ( reasm->_subtrlf );
   reasm->bfs      = bfs_join     ( reasm->bfs      );
   reasm->out      = out_join     ( reasm->out      );
-  reasm->bid      = bid_join     ( reasm->bid      );
   reasm->xid      = xid_join     ( reasm->xid      );
 
   return reasm;
@@ -216,6 +214,14 @@ fd_reasm_confirm( fd_reasm_t * reasm,
 
   while( FD_LIKELY( fec && !fec->confirmed ) ) {
     fec->confirmed = 1;
+
+    xid_t * xid = xid_query( reasm->xid, (fec->slot << 32) | fec->fec_set_idx, NULL );
+    xid->idx    = pool_idx( pool, fec );
+    if( FD_UNLIKELY( fec->slot_complete ) ) {
+      xid_t * bid = xid_query( reasm->xid, ( fec->slot << 32 ) | UINT_MAX, NULL );
+      bid->idx    = pool_idx( pool, fec );
+    }
+
     if( FD_LIKELY( !fec->popped ) ) out_push_head( reasm->out, pool_idx( pool, fec ) );
     fec = fd_reasm_parent( reasm, fec );
   }
@@ -238,7 +244,7 @@ overwrite_invalid_cmr( fd_reasm_t     * reasm,
                        fd_reasm_fec_t * child ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
   if( FD_UNLIKELY( child->fec_set_idx==0 && !fd_reasm_query( reasm, &child->cmr ) ) ) {
-    bid_t * parent_bid = bid_query( reasm->bid, child->slot - child->parent_off, NULL );
+    xid_t * parent_bid = xid_query( reasm->xid, (child->slot - child->parent_off) << 32 | UINT_MAX, NULL );
     if( FD_LIKELY( parent_bid ) ) {
       fd_reasm_fec_t * parent = pool_ele( pool, parent_bid->idx );
       if( FD_LIKELY( parent ) ) {
@@ -287,6 +293,21 @@ link( fd_reasm_t     * reasm,
     while( FD_LIKELY( sibling->sibling != pool_idx_null( pool ) ) ) sibling = pool_ele( pool, sibling->sibling );
     sibling->sibling = pool_idx( pool, child ); /* set as right-sibling. */
   }
+}
+
+/* Assumes caller is de-duplicating FEC sets of the same merkle root. */
+static xid_t *
+xid_update( fd_reasm_t * reasm, ulong slot, uint fec_set_idx, ulong pool_idx ) {
+  xid_t * xid = xid_query( reasm->xid, (slot << 32) | fec_set_idx, NULL );
+  if( FD_UNLIKELY( xid ) ) {
+    xid->cnt++;
+  } else {
+    xid = xid_insert( reasm->xid, (slot << 32) | fec_set_idx );
+    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx )); // TODO remove after reasm eviction is implemented
+    xid->idx = pool_idx;
+    xid->cnt = 1;
+  }
+  return xid;
 }
 
 fd_reasm_fec_t *
@@ -349,11 +370,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     FD_TEST( reasm->root==pool_idx_null( pool ) );
     fec->confirmed      = 1;
     fec->popped         = 1;
-    bid_t * bid         = bid_insert( reasm->bid, slot );
-    bid->idx            = pool_idx( pool, fec );
-    xid_t * xid         = xid_insert( reasm->xid, ( slot << 32 ) | fec_set_idx );
-    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx ));
-    xid->idx            = pool_idx( pool, fec );
+    /*                 */ xid_update( reasm, slot, UINT_MAX,    pool_idx( pool, fec ) );
+    /*                 */ xid_update( reasm, slot, fec_set_idx, pool_idx( pool, fec ) );
     reasm->root         = pool_idx( pool, fec );
     reasm->slot0        = slot;
     frontier_ele_insert( reasm->frontier, fec, pool );
@@ -364,16 +382,14 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   FD_TEST( memcmp( &fec->cmr, chained_merkle_root, sizeof(fd_hash_t) ) == 0 );
 
   if( FD_UNLIKELY( slot_complete ) ) {
-    bid_t * bid = bid_query( reasm->bid, slot, NULL );
+    xid_t * bid = xid_query( reasm->xid, (slot << 32) | UINT_MAX, NULL );
     if( FD_UNLIKELY( bid ) ) {
       fd_reasm_fec_t * orig_fec = pool_ele( pool, bid->idx );
       FD_BASE58_ENCODE_32_BYTES( orig_fec->key.key, prev_block_id_b58 );
       FD_BASE58_ENCODE_32_BYTES( fec->key.key,      curr_block_id_b58 );
       FD_LOG_WARNING(( "equivocating block_id for FEC slot: %lu fec_set_idx: %u prev: %s curr: %s", fec->slot, fec->fec_set_idx, prev_block_id_b58, curr_block_id_b58 )); /* it's possible there's equivocation... */
-    } else {
-      bid      = bid_insert( reasm->bid, slot );
-      bid->idx = pool_idx( pool, fec );
     }
+    xid_update( reasm, slot, UINT_MAX, pool_idx( pool, fec ) );
   }
 
   overwrite_invalid_cmr( reasm, fec ); /* case 1: received parent before child */
@@ -466,14 +482,11 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      2. this FEC's parent equivocates. */
 
   xid_t * xid = xid_query( reasm->xid, (slot<<32) | fec_set_idx, NULL );
-  if( FD_LIKELY( !xid ) ) {
-    xid = xid_insert( reasm->xid, (slot<<32) | fec_set_idx );
-    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx ));
-    xid->idx = pool_idx( pool, fec );
-  } else {
+  if( FD_UNLIKELY( xid ) ) {
     eqvoc( reasm, fec );
-    eqvoc( reasm, pool_ele( pool, xid->idx ) );
+    eqvoc( reasm, pool_ele( pool, xid->idx ) ); /* first appearance of this xid */
   }
+  xid_update( reasm, slot, fec_set_idx, pool_idx( pool, fec ) );
   if( FD_UNLIKELY( parent && parent->eqvoc && !parent->confirmed ) ) eqvoc( reasm, fec );
 
   /* Finally, return the newly inserted FEC. */
@@ -530,12 +543,13 @@ fd_reasm_publish( fd_reasm_t      * reasm,
       }
       child = pool_ele( pool, child->sibling );                                         /* right-sibling */
     }
-    bid_t * bid = bid_query( reasm->bid, head->slot, NULL );
-    if( FD_UNLIKELY( bid ) ) bid_remove( reasm->bid, bid  );                            /* only the last FEC of a slot is in bid (block id) */
-
-    xid_t * xid = xid_query( reasm->xid, (head->slot<<32) | head->fec_set_idx, NULL );
-    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid not found for slot: %lu fec_set_idx: %u", head->slot, head->fec_set_idx ));
-    xid->cnt--;
+    if( FD_UNLIKELY( head->slot_complete ) ) {
+      xid_t * bid = xid_query( reasm->xid, (head->slot << 32) | UINT_MAX, NULL );
+      bid->cnt--; /* must exist in map */
+      if( FD_LIKELY( !bid->cnt ) ) xid_remove( reasm->xid, bid  ); /* clearing out bid entry */
+    }
+    xid_t * xid = xid_query( reasm->xid, (head->slot << 32) | head->fec_set_idx, NULL );
+    xid->cnt--; /* must exist in map */
     if( FD_LIKELY( !xid->cnt ) ) xid_remove( reasm->xid, xid );
 
     fd_reasm_fec_t * next = pool_ele( pool, head->next ); /* pophead */
