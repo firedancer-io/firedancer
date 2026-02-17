@@ -1325,9 +1325,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>fd_borrowed_account_get_data_len( &programdata ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
         }
-        if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ) {
-          return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
-        }
 
         uchar * programdata_data = NULL;
         ulong   programdata_dlen = 0UL;
