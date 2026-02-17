@@ -166,6 +166,7 @@ agave_boot( config_t const * config ) {
   ADDU( "--maximum-snapshot-download-abort", config->frankendancer.snapshots.maximum_snapshot_download_abort );
   ADDU( "--minimal-snapshot-download-speed", config->frankendancer.snapshots.minimum_snapshot_download_speed );
 
+  uint replay_threads;
   if( config->frankendancer.layout.agave_unified_scheduler_handler_threads ) {
     if( FD_UNLIKELY( config->frankendancer.layout.agave_unified_scheduler_handler_threads>config->topo.agave_affinity_cnt ) ) {
       FD_LOG_ERR(( "Trying to spawn %u handler threads but the agave subprocess has %lu cores. "
@@ -173,16 +174,17 @@ agave_boot( config_t const * config ) {
                    "the number of threads in [layout.agave_unified_scheduler_handler_threads].",
                    config->frankendancer.layout.agave_unified_scheduler_handler_threads, config->topo.agave_affinity_cnt ));
     }
-    ADDU( "--unified-scheduler-handler-threads", config->frankendancer.layout.agave_unified_scheduler_handler_threads );
+    replay_threads = config->frankendancer.layout.agave_unified_scheduler_handler_threads;
   } else {
     //          agave_affinity_cnt >= 8  =>  agave_affinity_cnt - 4
     //     4 <= agave_affinity_cnt <  8  =>  4
     //          agave_affinity_cnt <  4  =>  agave_affinity_cnt
-    ulong num_threads = fd_ulong_if( config->topo.agave_affinity_cnt>=4UL,
-                                     fd_ulong_if( config->topo.agave_affinity_cnt>=8, config->topo.agave_affinity_cnt-4UL, 4UL ),
-                                     config->topo.agave_affinity_cnt );
-    ADDU( "--unified-scheduler-handler-threads", (uint)num_threads );
+    replay_threads = (uint)fd_ulong_if( config->topo.agave_affinity_cnt>=4UL,
+                                        fd_ulong_if( config->topo.agave_affinity_cnt>=8UL, config->topo.agave_affinity_cnt-4UL, 4UL ),
+                                        config->topo.agave_affinity_cnt );
   }
+  ADDU( "--unified-scheduler-handler-threads", replay_threads );
+  ADDU( "--replay-transactions-threads", replay_threads );
 
   argv[ idx ] = NULL;
 
