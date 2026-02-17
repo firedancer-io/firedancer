@@ -53,7 +53,6 @@ main( int     argc,
   /* Add a feature gate */
   fd_features_t features[1];
   fd_features_disable_all( features );
-  features->full_inflation_vote = 0UL;
   options->features = features;
   result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
   FD_TEST( result_sz );
