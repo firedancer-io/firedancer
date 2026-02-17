@@ -6,7 +6,8 @@
 
 FD_PROTOTYPES_BEGIN
 
-void bench_cmd_fn( args_t * args, config_t * config, int watch );
+void bench_topo( config_t * config );
+void bench_cmd_fn( args_t * args, config_t * config );
 void bench_cmd_args( int * pargc, char *** pargv, args_t * args );
 
 void

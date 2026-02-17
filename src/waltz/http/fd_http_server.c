@@ -877,6 +877,9 @@ write_conn_http( fd_http_server_t * http,
         case 500:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
           break;
+        case 503:
+          FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n" ) );
+          break;
         default:
           FD_TEST( fd_cstr_printf_check( header_buf, sizeof( header_buf ), &response_len, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n" ) );
           break;

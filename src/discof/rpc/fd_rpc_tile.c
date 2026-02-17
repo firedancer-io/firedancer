@@ -529,7 +529,7 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     _bank_idx = ctx->finalized_idx;
   }
   if( FD_UNLIKELY( _bank_idx==ULONG_MAX ) ) {
-    *res = (fd_http_server_response_t){ .status = 500 };
+    *res = (fd_http_server_response_t){ .status = 503 };
     return 0;
   }
   *bank_idx = _bank_idx;
@@ -1077,7 +1077,9 @@ static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t * ctx,
                     cJSON const *   id,
                     cJSON const *   params ) {
-  if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX || ctx->banks[ ctx->processed_idx ].slot==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 500 };
+  if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX || ctx->banks[ ctx->processed_idx ].slot==ULONG_MAX ) ) {
+    return (fd_http_server_response_t){ .status = 503 };
+  }
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
