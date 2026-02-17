@@ -19,7 +19,6 @@ struct fd_partitioned_rewards_calculation {
   ulong   validator_rewards;
   double  validator_rate;
   double  foundation_rate;
-  double  prev_epoch_duration_in_years;
   ulong   capitalization;
 };
 typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
