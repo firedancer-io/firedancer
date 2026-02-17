@@ -562,9 +562,6 @@ after_credit( fd_snapct_tile_t *  ctx,
   /* Note: All state transitions should occur within this switch
      statement to make it easier to reason about the state management. */
 
-  /* FIXME: Collapse WAITING_FOR_PEERS and COLLECTING_PEERS states for
-     both full and incremental variants? */
-
   switch ( ctx->state ) {
 
     /* ============================================================== */
