@@ -795,7 +795,8 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     sched->print_buf_sz = 0UL;
     print_all( sched, block );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invariant violation: block->fec_eos set but getting more FEC sets, slot %lu, parent slot %lu", fec->slot, fec->parent_slot ));
+    FD_LOG_WARNING(( "invariant violation: block->fec_eos set but getting more FEC sets, slot %lu, parent slot %lu, dropping the FEC set", fec->slot, fec->parent_slot ));
+    return 1; /* Drop, don't mark the block dead. */
   }
   if( FD_UNLIKELY( block->fec_eob && fec->is_last_in_batch ) ) {
     /* If the previous FEC set ingestion and parse was successful,
