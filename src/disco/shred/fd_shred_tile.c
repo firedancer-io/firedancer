@@ -1076,22 +1076,25 @@ after_frag( fd_shred_ctx_t *    ctx,
          enables replay to acquire the exclusive lock for removes
          without getting starved. */
 
-      for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
-        fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );
-        ulong        payload_sz = fd_shred_payload_sz( data_shred );
-        if( FD_UNLIKELY( fec->data_sz + payload_sz > FD_STORE_DATA_MAX ) ) {
+      if( FD_LIKELY( !fec->data_sz ) ) {
+        /* if data_sz is non-zero, we've already inserted this FEC set into the store */
+        for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
+          fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );
+          ulong        payload_sz = fd_shred_payload_sz( data_shred );
+          if( FD_UNLIKELY( fec->data_sz + payload_sz > FD_STORE_DATA_MAX ) ) {
 
-          /* This code is only reachable if shred tile has completed the
-             FEC set, which implies it was able to validate it, yet
-             somehow the total payload sz of this FEC set exceeds the
-             maximum payload sz.  This indicates either a serious bug or
-             shred tile is compromised so FD_LOG_CRIT. */
+            /* This code is only reachable if shred tile has completed the
+               FEC set, which implies it was able to validate it, yet
+               somehow the total payload sz of this FEC set exceeds the
+               maximum payload sz.  This indicates either a serious bug or
+               shred tile is compromised so FD_LOG_CRIT. */
 
-          FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds FD_STORE_DATA_MAX: %lu. Ignoring FEC set.", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, FD_STORE_DATA_MAX ));
+            FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds FD_STORE_DATA_MAX: %lu. Ignoring FEC set.", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, FD_STORE_DATA_MAX ));
+          }
+          fd_memcpy( fec->data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
+          fec->data_sz += payload_sz;
+          if( FD_LIKELY( i<32UL ) ) fec->block_offs[ i ] = (uint)payload_sz + fd_uint_if( i==0UL, 0UL, fec->block_offs[ i-1UL ] );
         }
-        fd_memcpy( fec->data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
-        fec->data_sz += payload_sz;
-        if( FD_LIKELY( i<32UL ) ) fec->block_offs[ i ] = (uint)payload_sz + fd_uint_if( i==0UL, 0UL, fec->block_offs[ i-1UL ] );
       }
     }
 
