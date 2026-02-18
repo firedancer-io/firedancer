@@ -13,6 +13,7 @@
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
+#include "../fd_system_ids.h"
 #include <assert.h>
 
 /* Macros to append data to construct a serialized transaction
@@ -32,6 +33,20 @@
       FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _buf, _sz );                     \
    } while(0);                                                                        \
 })
+
+/* Retrieves the slot number from the clock sysvar account within the
+   txn context.  Throws FD_LOG_ERR if the clock sysvar is not found
+   or is malformed. */
+static ulong
+fd_solfuzz_pb_txn_ctx_get_slot( fd_exec_test_txn_context_t const * test_ctx ) {
+  for( ulong i=0UL; i<test_ctx->account_shared_data_count; i++ ) {
+    if( !memcmp( &test_ctx->account_shared_data[i].address, &fd_sysvar_clock_id, sizeof(fd_pubkey_t) ) ) {
+      FD_TEST( test_ctx->account_shared_data[i].data->size==sizeof(fd_sol_sysvar_clock_t) );
+      return FD_LOAD( ulong, test_ctx->account_shared_data[i].data->bytes );
+    }
+  }
+  FD_LOG_ERR(( "invariant violation: clock sysvar account not found in txn context" ));
+}
 
 /* Writes a transaction account to the output Protobuf message's
    resulting_state field. out_account_data should be a pointer to
@@ -79,17 +94,17 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                               fd_exec_test_txn_context_t const * test_ctx ) {
   fd_accdb_user_t * accdb = runner->accdb;
 
-  /* Default slot */
-  ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
-
   /* Set up the funk transaction */
-  fd_funk_txn_xid_t xid = { .ul = { slot, runner->bank->data->idx } };
+  ulong             slot = fd_solfuzz_pb_txn_ctx_get_slot( test_ctx );
+  fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->data->idx } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, &xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, &xid );
 
-  /* Set up slot context */
+  /* Reset and initialize bank */
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
+  fd_bank_slot_set( runner->bank, slot );
+  fd_bank_parent_slot_set( runner->bank, slot-1UL );
 
   /* Restore feature flags */
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
@@ -97,12 +112,6 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   if( !fd_solfuzz_pb_restore_features( features_bm, feature_set ) ) {
     return NULL;
   }
-
-  /* Set bank variables (defaults obtained from GenesisConfig::default
-     in Agave) */
-
-  fd_bank_slot_set( runner->bank, slot );
-  fd_bank_parent_slot_set( runner->bank, fd_bank_slot_get( runner->bank ) - 1UL );
 
   /* Initialize builtin accounts */
   fd_builtin_programs_init( runner->bank, accdb, &xid, NULL );
@@ -152,6 +161,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( accdb, &xid, clock_ );
   FD_TEST( clock );
+  FD_TEST( clock->slot==slot );
 
   /* Epoch schedule and rent get set from the epoch bank */
   fd_sysvar_epoch_schedule_init( runner->bank, accdb, &xid, NULL );

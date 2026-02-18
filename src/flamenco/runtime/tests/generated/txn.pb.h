@@ -85,8 +85,6 @@ typedef struct fd_exec_test_txn_context {
     pb_bytes_array_t **blockhash_queue;
     bool has_epoch_ctx;
     fd_exec_test_epoch_context_t epoch_ctx;
-    bool has_slot_ctx;
-    fd_exec_test_slot_context_t slot_ctx;
 } fd_exec_test_txn_context_t;
 
 /* The resulting state of an account after a transaction */
@@ -163,7 +161,7 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT {{0}, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT, {0}, 0, NULL}
-#define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, NULL, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT}
+#define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, NULL, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
@@ -174,7 +172,7 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO {{0}, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO, {0}, 0, NULL}
-#define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, NULL, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO}
+#define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, NULL, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
@@ -204,7 +202,6 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_CONTEXT_ACCOUNT_SHARED_DATA_TAG 2
 #define FD_EXEC_TEST_TXN_CONTEXT_BLOCKHASH_QUEUE_TAG 3
 #define FD_EXEC_TEST_TXN_CONTEXT_EPOCH_CTX_TAG   4
-#define FD_EXEC_TEST_TXN_CONTEXT_SLOT_CTX_TAG    5
 #define FD_EXEC_TEST_RESULTING_STATE_ACCT_STATES_TAG 1
 #define FD_EXEC_TEST_RESULTING_STATE_RENT_DEBITS_TAG 2
 #define FD_EXEC_TEST_RESULTING_STATE_TRANSACTION_RENT_TAG 3
@@ -276,14 +273,12 @@ X(a, POINTER,  REPEATED, BYTES,    signatures,        4)
 X(a, STATIC,   OPTIONAL, MESSAGE,  tx,                1) \
 X(a, POINTER,  REPEATED, MESSAGE,  account_shared_data,   2) \
 X(a, POINTER,  REPEATED, BYTES,    blockhash_queue,   3) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         4) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  slot_ctx,          5)
+X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         4)
 #define FD_EXEC_TEST_TXN_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_CONTEXT_DEFAULT NULL
 #define fd_exec_test_txn_context_t_tx_MSGTYPE fd_exec_test_sanitized_transaction_t
 #define fd_exec_test_txn_context_t_account_shared_data_MSGTYPE fd_exec_test_acct_state_t
 #define fd_exec_test_txn_context_t_epoch_ctx_MSGTYPE fd_exec_test_epoch_context_t
-#define fd_exec_test_txn_context_t_slot_ctx_MSGTYPE fd_exec_test_slot_context_t
 
 #define FD_EXEC_TEST_RESULTING_STATE_FIELDLIST(X, a) \
 X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       1) \
