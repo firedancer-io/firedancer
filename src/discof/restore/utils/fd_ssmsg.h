@@ -140,7 +140,11 @@ struct fd_snapshot_manifest_vote_stakes {
 
 typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes_t;
 
+#define FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN 2UL
+
 struct fd_snapshot_manifest_epoch_stakes {
+   /* The epoch for which these vote accounts and stakes are valid for */
+  ulong                              epoch;
   /* The total amount of active stake at the end of the given epoch.*/
   ulong                              total_stake;
 
@@ -297,6 +301,13 @@ struct fd_snapshot_manifest {
 
   /* The slot number for this snapshot */
   ulong slot;
+
+  /* The epoch for this slot.  Epochs are a time period measured by a
+     fixed number of slots (432,000 slots).  At the epoch boundary,
+     where one epoch ends and another begins, validators
+     activate/deactivate stake, distribute rewards and calculate the
+     next leader schedule rotation. */
+  ulong epoch;
 
   /* The number of blocks that have been built since genesis.  This is
      kind of like the slot number, in that it increments by 1 for every

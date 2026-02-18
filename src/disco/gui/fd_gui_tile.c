@@ -36,7 +36,6 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../util/pod/fd_pod_format.h"
 
-#include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../flamenco/runtime/fd_bank.h"
 
 #define IN_KIND_PLUGIN        ( 0UL)
@@ -496,7 +495,12 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_ip4_hdr_t * ip4_hdr;
       fd_udp_hdr_t * udp_hdr;
       if( FD_LIKELY( fd_ip4_udp_hdr_strip( ctx->parsed.net_gossvf, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) ) ) {
-        fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &(fd_ip4_port_t){ .addr = ip4_hdr->saddr, .port = udp_hdr->net_sport }, 1 );
+        fd_gossip_socket_t socket = {
+          .is_ipv6 = 0,
+          .ip4 = ip4_hdr->saddr,
+          .port = udp_hdr->net_sport,
+        };
+        fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &socket, 1 );
       }
       break;
     }
@@ -507,7 +511,12 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_ip4_hdr_t * ip4_hdr;
       fd_udp_hdr_t * udp_hdr;
       FD_TEST( fd_ip4_udp_hdr_strip( ctx->parsed.gossip_net, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) );
-      fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &(fd_ip4_port_t){ .addr = ip4_hdr->daddr, .port = udp_hdr->net_dport }, 0 );
+      fd_gossip_socket_t socket = {
+        .is_ipv6 = 0,
+        .ip4 = ip4_hdr->daddr,
+        .port = udp_hdr->net_dport,
+      };
+      fd_gui_peers_handle_gossip_message( ctx->peers, payload, payload_sz, &socket, 0 );
       break;
     }
     case IN_KIND_GOSSIP_OUT: {

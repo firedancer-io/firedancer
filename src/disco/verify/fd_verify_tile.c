@@ -2,7 +2,7 @@
 #include "../fd_txn_m.h"
 #include "../metrics/fd_metrics.h"
 #include "generated/fd_verify_tile_seccomp.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 
 #define IN_KIND_QUIC   (0UL)
 #define IN_KIND_BUNDLE (1UL)
@@ -72,8 +72,8 @@ during_frag( fd_verify_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>FD_TPU_RAW_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, FD_TPU_RAW_MTU ));
 
-    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-    uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    uchar * src = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
+    uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     fd_memcpy( dst, src, sz );
 
     fd_txn_m_t const * txnm = (fd_txn_m_t const *)dst;
@@ -84,14 +84,14 @@ during_frag( fd_verify_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>2048UL ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
 
-    fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
-    fd_txn_m_t * dst = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+    fd_txn_m_t * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-    dst->payload_sz = (ushort)msg->vote.txn_sz;
+    dst->payload_sz = (ushort)msg->vote->value->transaction_len;
     dst->block_engine.bundle_id = 0UL;
-    dst->source_ipv4 = msg->vote.socket.addr;
+    dst->source_ipv4 = msg->vote->socket->is_ipv6 ? 0U : msg->vote->socket->ip4;
     dst->source_tpu = FD_TXN_M_TPU_SOURCE_GOSSIP;
-    fd_memcpy( fd_txn_m_payload( dst ), msg->vote.txn, msg->vote.txn_sz );
+    fd_memcpy( fd_txn_m_payload( dst ), msg->vote->value->transaction, msg->vote->value->transaction_len );
   }
 }
 

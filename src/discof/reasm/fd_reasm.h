@@ -38,6 +38,7 @@
    pipeline.  Reasm will simply deliver all the equivocating FEC sets it
    does observe (with a flag indicating its detection). */
 
+#include "../../disco/store/fd_store.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
 /* FD_REASM_USE_HANDHOLDING:  Define this to non-zero at compile time
@@ -342,7 +343,8 @@ fd_reasm_confirm( fd_reasm_t * reasm,
 
 fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t      * reasm,
-                  fd_hash_t const * merkle_root );
+                  fd_hash_t const * merkle_root,
+                  fd_store_t      * opt_store );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );

@@ -1607,14 +1607,25 @@ state_process( fd_ssmanifest_parser_t * parser,
     acc_vec_map_ele_insert( acc_vec_map, acc_vec, acc_vec_pool );
   }
 
+  if( FD_UNLIKELY( parser->state==STATE_EPOCH ) ) {
+    parser->manifest->epoch = parser->epoch;
+  }
+
   if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_KEY ) ) {
     ulong epoch_delta = parser->epoch_stakes_epoch-parser->epoch;
     parser->epoch_idx = epoch_delta<2UL ? epoch_delta : ULONG_MAX;
   }
 
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_EPOCH ) ) {
-    ulong epoch_delta = parser->epoch_stakes_epoch-parser->epoch;
-    parser->epoch_idx = epoch_delta<2UL ? epoch_delta : ULONG_MAX;
+    long epoch_delta = (long)parser->epoch_stakes_epoch-(long)parser->epoch;
+    if( FD_UNLIKELY( epoch_delta>=2L ) ) {
+      /* VerifyEpochStakesError::EpochGreaterThanMax
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L656 */
+      FD_LOG_WARNING(( "epoch stakes epoch %lu is greater than the leader schedule epoch %lu ", parser->epoch_stakes_epoch, parser->epoch+1 ));
+      return -1;
+    }
+    parser->epoch_idx = (epoch_delta==0UL || epoch_delta==1UL) ? (ulong)epoch_delta : ULONG_MAX;
+    if( FD_LIKELY( parser->epoch_idx!=ULONG_MAX ) ) parser->manifest->epoch_stakes[ parser->epoch_idx ].epoch = parser->epoch_stakes_epoch;
   }
 
   /* STATE_STAKES_VOTE_ACCOUNTS */

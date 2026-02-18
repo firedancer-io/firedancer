@@ -672,6 +672,14 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   /* Inject a response */
   fd_bundle_client_grpc_rx_start( state, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
 
+  uchar prev_builder_pubkey[ 32 ];
+  for( ulong i=0UL; i<sizeof(prev_builder_pubkey); i++ ) prev_builder_pubkey[ i ] = (uchar)( i + 1U );
+  fd_memcpy( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) );
+  uchar prev_builder_commission = 11U;
+  state->builder_commission = prev_builder_commission;
+  long prev_builder_valid_until = 123456789L;
+  state->builder_info_valid_until = prev_builder_valid_until;
+
   /* Protobuf encoder util */
   uchar pb_buf[ 128 ];
   ulong pb_sz = 0UL;
@@ -689,6 +697,9 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==0 );
   FD_TEST( state->builder_info_wait==1 ); /* retry ... */
+  FD_TEST( state->builder_commission==prev_builder_commission );
+  FD_TEST( 0==memcmp( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
+  FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
 
   /* Invalid commission */
   uchar const pubkey[32] = { 1,2,3,4,5 };
@@ -698,6 +709,9 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==0 );
   FD_TEST( state->builder_info_wait==1 ); /* retry ... */
+  FD_TEST( state->builder_commission==prev_builder_commission );
+  FD_TEST( 0==memcmp( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
+  FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
 
   /* Valid response */
   resp.commission = 2;
@@ -705,6 +719,11 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==1 );
   FD_TEST( state->builder_info_wait==1 );
+  FD_TEST( state->builder_commission==2U );
+  uchar decoded_builder_pubkey[ 32 ];
+  FD_TEST( fd_base58_decode_32( resp.pubkey, decoded_builder_pubkey ) );
+  FD_TEST( 0==memcmp( state->builder_pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
+  FD_TEST( state->builder_info_valid_until!=prev_builder_valid_until );
 
   /* End stream */
   fd_grpc_resp_hdrs_t grpc_resp_hdrs = {

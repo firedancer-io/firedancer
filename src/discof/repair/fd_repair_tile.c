@@ -23,7 +23,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/net/fd_net_tile.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../tower/fd_tower_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../util/net/fd_net_headers.h"
@@ -527,17 +527,19 @@ after_snap( ctx_t * ctx,
 
 static inline void
 after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
-  fd_contact_info_t const * contact_info = msg->contact_info.contact_info;
-  fd_ip4_port_t repair_peer = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ];
+  fd_gossip_contact_info_t const * contact_info = msg->contact_info->value;
+  fd_ip4_port_t repair_peer;
+  repair_peer.addr = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].is_ipv6 ? 0U : contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].ip4;
+  repair_peer.port = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].port;
   if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
-  fd_policy_peer_t const * peer = fd_policy_peer_insert( ctx->policy, &contact_info->pubkey, &repair_peer );
+  fd_policy_peer_t const * peer = fd_policy_peer_insert( ctx->policy, fd_type_pun_const( msg->origin ), &repair_peer );
   if( peer ) {
     /* The repair process uses a Ping-Pong protocol that incurs one
        round-trip time (RTT) for the initial repair request.  To
        optimize this, we proactively send a placeholder repair request
        as soon as we receive a peer's contact information for the first
        time, effectively prepaying the RTT cost. */
-    fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, &contact_info->pubkey, (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
+    fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, fd_type_pun_const( msg->origin ), (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
     fd_signs_queue_push( ctx->sign_queue, (sign_pending_t){ .msg = *init } );
   }
 }
@@ -750,18 +752,18 @@ after_frag( ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP ) ) {
-    fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( ctx->buffer );
+    fd_gossip_update_message_t const * msg = fd_type_pun_const( ctx->buffer );
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
       after_contact( ctx, msg );
     } else {
-      fd_policy_peer_remove( ctx->policy, (fd_pubkey_t const *)fd_type_pun_const( msg->origin_pubkey ) );
+      fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
     }
     return;
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
     if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
-      fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
+      fd_tower_slot_done_t const * msg = fd_type_pun_const( ctx->buffer );
       if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
     }
     return;

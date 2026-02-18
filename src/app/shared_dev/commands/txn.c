@@ -23,14 +23,6 @@ static ulong g_stream_notify = 0UL;
 #define MAX_TXN_COUNT 128
 
 void
-txn_cmd_perm( args_t *         args FD_PARAM_UNUSED,
-              fd_cap_chk_t *   chk,
-              config_t const * config ) {
-  if( FD_UNLIKELY( config->development.netns.enabled ) )
-    fd_cap_chk_cap( chk, "txn", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
-}
-
-void
 txn_cmd_args( int *    pargc,
               char *** pargv,
               args_t * args ) {
@@ -131,11 +123,6 @@ send_quic_transactions( fd_quic_t *         quic,
 void
 txn_cmd_fn( args_t *   args,
             config_t * config ) {
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->development.netns.interface1, NULL ) ) )
-      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->development.netns.interface1, errno, fd_io_strerror( errno ) ));
-  }
-
   /* wait until validator is ready to receive txns before sending */
   ready_cmd_fn( args, config );
 
@@ -220,6 +207,5 @@ action_t fd_action_txn = {
   .name = "txn",
   .args = txn_cmd_args,
   .fn   = txn_cmd_fn,
-  .perm = txn_cmd_perm,
   .description = "Send a transaction to an fddev instance"
 };

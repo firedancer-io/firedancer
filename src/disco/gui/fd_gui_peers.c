@@ -3,7 +3,6 @@
 #include "fd_gui_config_parse.h"
 #include "fd_gui_metrics.h"
 
-#include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../disco/metrics/fd_metrics_base.h"
 
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
@@ -345,11 +344,11 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
     fd_gui_peers_node_t * cur = fd_gui_peers_bandwidth_tracking_fwd_iter_ele( iter, peers->contact_info_table );
 
     if( FD_UNLIKELY( j<gossip_stats->network_ingress_peer_sz ) ) {
-      fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->contact_info.pubkey, NULL, peers->node_info_pool );
+      fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->pubkey, NULL, peers->node_info_pool );
       if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
       else                         gossip_stats->network_ingress_peer_names[ j ][ 0 ] = '\0';
       gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = cur->gossvf_rx_sum.rate_ema;
-      fd_memcpy( &gossip_stats->network_ingress_peer_identities[ j ], cur->contact_info.pubkey.uc, 32UL );
+      fd_memcpy( &gossip_stats->network_ingress_peer_identities[ j ], cur->pubkey.uc, 32UL );
     }
 
     gossip_stats->network_ingress_total_bytes_per_sec += cur->gossvf_rx_sum.rate_ema;
@@ -370,11 +369,11 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
     fd_gui_peers_node_t * cur = fd_gui_peers_bandwidth_tracking_fwd_iter_ele( iter, peers->contact_info_table );
 
     if( FD_UNLIKELY( j<gossip_stats->network_egress_peer_sz ) ) {
-      fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->contact_info.pubkey, NULL, peers->node_info_pool );
+      fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->pubkey, NULL, peers->node_info_pool );
       if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
       else                         gossip_stats->network_egress_peer_names[ j ][ 0 ] = '\0';
       gossip_stats->network_egress_peer_bytes_per_sec[ j ] = cur->gossip_tx_sum.rate_ema;
-      fd_memcpy( &gossip_stats->network_egress_peer_identities[ j ], cur->contact_info.pubkey.uc, 32UL );
+      fd_memcpy( &gossip_stats->network_egress_peer_identities[ j ], cur->pubkey.uc, 32UL );
     }
 
     gossip_stats->network_egress_total_bytes_per_sec += cur->gossip_tx_sum.rate_ema;
@@ -536,32 +535,39 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
 }
 
 static int
-fd_gui_peers_contact_info_eq( fd_contact_info_t const * ci1,
-                              fd_contact_info_t const * ci2 ) {
+fd_gui_peers_contact_info_eq( fd_gossip_contact_info_t const * ci1,
+                              fd_gossip_contact_info_t const * ci2 ) {
   int ci_eq =
-       ci1->shred_version                    == ci2->shred_version
-    && ci1->instance_creation_wallclock_nanos== ci2->instance_creation_wallclock_nanos
- // && ci1->wallclock_nanos                  == ci2->wallclock_nanos
-    && ci1->version.client                   == ci2->version.client
-    && ci1->version.major                    == ci2->version.major
-    && ci1->version.minor                    == ci2->version.minor
-    && ci1->version.patch                    == ci2->version.patch
-    && ci1->version.commit                   == ci2->version.commit
-    && ci1->version.feature_set              == ci2->version.feature_set;
+       ci1->shred_version       == ci2->shred_version
+    && ci1->outset              == ci2->outset
+ // && ci1->wallclock_nanos     == ci2->wallclock_nanos
+    && ci1->version.client      == ci2->version.client
+    && ci1->version.major       == ci2->version.major
+    && ci1->version.minor       == ci2->version.minor
+    && ci1->version.patch       == ci2->version.patch
+    && ci1->version.commit      == ci2->version.commit
+    && ci1->version.feature_set == ci2->version.feature_set;
 
     if( FD_LIKELY( !ci_eq ) ) return 0;
-    for( ulong j=0UL; j<(FD_CONTACT_INFO_SOCKET_CNT); j++ ) {
-      if( FD_LIKELY( !(ci1->sockets[ j ].addr==ci2->sockets[ j ].addr && ci1->sockets[ j ].port==ci2->sockets[ j ].port) ) ) return 0;
+    for( ulong j=0UL; j<(FD_GOSSIP_CONTACT_INFO_SOCKET_CNT); j++ ) {
+      if( FD_UNLIKELY( ci1->sockets[ j ].is_ipv6 != ci2->sockets[ j ].is_ipv6 ) ) return 0;
+
+      if( FD_UNLIKELY( ci1->sockets[ j ].is_ipv6 ) ) {
+        if( FD_UNLIKELY( memcmp( ci1->sockets[ j ].ip6, ci2->sockets[ j ].ip6, 16UL ) ) ) return 0;
+      } else {
+        if( FD_UNLIKELY( ci1->sockets[ j ].ip4 != ci2->sockets[ j ].ip4 ) ) return 0;
+      }
+      if( FD_UNLIKELY( ci1->sockets[ j ].port != ci2->sockets[ j ].port ) ) return 0;
     }
     return 1;
 }
 
 void
-fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *  peers,
-                                    uchar const *         payload,
-                                    ulong                 payload_sz,
-                                    fd_ip4_port_t const * peer_sock,
-                                    int                   is_rx ) {
+fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
+                                    uchar const *              payload,
+                                    ulong                      payload_sz,
+                                    fd_gossip_socket_t const * peer_sock,
+                                    int                        is_rx ) {
   fd_gui_peers_node_t * peer = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, peer_sock, NULL, peers->contact_info_table );
 
   /* We set MAP_MULTI=1 since there are not guarantees that duplicates
@@ -573,12 +579,12 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *  peers,
 
   if( FD_UNLIKELY( !peer ) ) return; /* NOP, peer not known yet */
 
-  fd_gossip_view_t view[ 1 ];
-  ulong decode_sz = fd_gossip_msg_parse( view, payload, payload_sz );
-  if( FD_UNLIKELY( !decode_sz ) ) return; /* NOP, msg unparsable */
+  fd_gossip_message_t message[ 1 ];
+  int success = fd_gossip_message_deserialize( message, payload, payload_sz );
+  if( FD_UNLIKELY( !success ) ) return; /* NOP, msg unparsable */
 
-  FD_TEST( view->tag < FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT );
-  fd_ptr_if( is_rx, &peer->gossvf_rx[ view->tag ], &peer->gossip_tx[ view->tag ] )->cur += payload_sz;
+  FD_TEST( message->tag < FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT );
+  fd_ptr_if( is_rx, &peer->gossvf_rx[ message->tag ], &peer->gossip_tx[ message->tag ] )->cur += payload_sz;
   fd_ptr_if( is_rx, (fd_gui_peers_metric_rate_t *)&peer->gossvf_rx_sum, (fd_gui_peers_metric_rate_t *)&peer->gossip_tx_sum )->cur += payload_sz;
 #if LOGGING
   if( is_rx ) FD_LOG_WARNING(("payload rx=%lu", payload_sz ));
@@ -624,38 +630,27 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    long                               now ) {
     switch( update->tag ) {
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
-#ifdef FD_GUI_USE_HANDHOLDING
-        /* origin_pubkey should be the same as the contact info pubkey */
-        if( FD_UNLIKELY( memcmp( update->contact_info.contact_info->pubkey.uc, update->origin_pubkey, 32UL ) ) ) {
-          char ci_pk[ FD_BASE58_ENCODED_32_SZ ];
-          char og_pk[ FD_BASE58_ENCODED_32_SZ ];
-          fd_base58_encode_32( update->contact_info.contact_info->pubkey.uc, NULL, ci_pk );
-          fd_base58_encode_32( update->origin_pubkey, NULL, og_pk );
-
-          FD_LOG_ERR(( "invariant violation: update->contact_info.contact_info->pubkey.uc=%s != update->origin_pubkey=%s ", ci_pk, og_pk ));
-        }
-#endif
-        if( FD_UNLIKELY( update->contact_info.idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected contact_info_idx %lu >= %lu", update->contact_info.idx, FD_CONTACT_INFO_TABLE_SIZE ));
-        fd_gui_peers_node_t * peer = &peers->contact_info_table[ update->contact_info.idx ];
+        if( FD_UNLIKELY( update->contact_info->idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected contact_info_idx %lu >= %lu", update->contact_info->idx, FD_CONTACT_INFO_TABLE_SIZE ));
+        fd_gui_peers_node_t * peer = &peers->contact_info_table[ update->contact_info->idx ];
         if( FD_LIKELY( peer->valid ) ) {
 #if LOGGING
           char _pk[ FD_BASE58_ENCODED_32_SZ ];
-          fd_base58_encode_32( update->origin_pubkey, NULL, _pk );
-          FD_LOG_WARNING(("UPDATE %lu pk=%s", update->contact_info.idx, _pk ));
+          fd_base58_encode_32( update->origin, NULL, _pk );
+          FD_LOG_WARNING(("UPDATE %lu pk=%s", update->contact_info->idx, _pk ));
 #endif
 #ifdef FD_GUI_USE_HANDHOLDING
           /* invariant checks */
-          if( FD_UNLIKELY( memcmp( peer->contact_info.pubkey.uc, update->origin_pubkey, 32UL ) ) ) {
+          if( FD_UNLIKELY( memcmp( peer->pubkey.uc, update->origin, 32UL ) ) ) {
             char ci_pk[ FD_BASE58_ENCODED_32_SZ ];
             char og_pk[ FD_BASE58_ENCODED_32_SZ ];
-            fd_base58_encode_32( peer->contact_info.pubkey.uc, NULL, ci_pk );
-            fd_base58_encode_32( update->origin_pubkey, NULL, og_pk );
+            fd_base58_encode_32( peer->pubkey.uc, NULL, ci_pk );
+            fd_base58_encode_32( update->origin, NULL, og_pk );
 
             /* A new pubkey is not allowed to overwrite an existing valid index */
-            FD_LOG_ERR(( "invariant violation: peer->contact_info.pubkey.uc=%s != update->origin_pubkey=%s ", ci_pk, og_pk ));
+            FD_LOG_ERR(( "invariant violation: peer->pubkey.uc=%s != update->origin=%s ", ci_pk, og_pk ));
           }
-          FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t * )update->origin_pubkey, NULL, peers->contact_info_table ) );
-          fd_gui_peers_node_t * peer_sock = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, &peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ], NULL, peers->contact_info_table );
+          FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t * )update->origin, NULL, peers->contact_info_table ) );
+          fd_gui_peers_node_t * peer_sock = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, &peer->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ], NULL, peers->contact_info_table );
           int found = 0;
           for( fd_gui_peers_node_t * p = peer_sock; !!p; p=(fd_gui_peers_node_t *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
             if( peer==p ) {
@@ -666,20 +661,21 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           FD_TEST( found );
 #endif
           /* update does nothing */
-          if( FD_UNLIKELY( fd_gui_peers_contact_info_eq( &peer->contact_info, update->contact_info.contact_info ) ) ) {
-            peer->contact_info.wallclock_nanos = update->contact_info.contact_info->wallclock_nanos;
+          if( FD_UNLIKELY( fd_gui_peers_contact_info_eq( &peer->contact_info, update->contact_info->value ) ) ) {
+            peer->wallclock_nanos = FD_MILLI_TO_NANOSEC( update->wallclock );
             break;
           }
 
-          fd_gui_peers_node_sock_map_idx_remove_fast( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
-          fd_gui_peers_live_table_idx_remove        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
+          fd_gui_peers_node_sock_map_idx_remove_fast( peers->node_sock_map, update->contact_info->idx, peers->contact_info_table );
+          fd_gui_peers_live_table_idx_remove        ( peers->live_table,    update->contact_info->idx, peers->contact_info_table );
 
-          fd_memcpy( &peer->contact_info, update->contact_info.contact_info, sizeof(peer->contact_info) );
-
+          peer->pubkey = *(fd_pubkey_t *)update->origin;
+          peer->contact_info = *update->contact_info->value;
           peer->update_time_nanos = now;
           /* fetch and set country code */
 #if FD_HAS_ZSTD
-          fd_gui_geoip_node_t const * dbip_ip = geoip_lookup( &peers->dbip, peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr );
+          uint ip4 = peer->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : peer->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+          fd_gui_geoip_node_t const * dbip_ip = geoip_lookup( &peers->dbip, ip4 );
 
           peer->country_code_idx = dbip_ip ? dbip_ip->country_code_idx : UCHAR_MAX;
           peer->city_name_idx = dbip_ip ? dbip_ip->city_name_idx : UINT_MAX;
@@ -688,19 +684,20 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           peer->city_name_idx = UINT_MAX;
 #endif
 
-          fd_gui_peers_live_table_idx_insert        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
-          fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
+          fd_gui_peers_live_table_idx_insert        ( peers->live_table,    update->contact_info->idx, peers->contact_info_table );
+          fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info->idx, peers->contact_info_table );
 
           /* broadcast update to WebSocket clients */
-          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info.idx }, 1UL );
+          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info->idx }, 1UL );
           fd_http_server_ws_broadcast( peers->http );
         } else {
-          FD_TEST( !fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, &update->contact_info.contact_info->pubkey, NULL, peers->contact_info_table ) );
 #if LOGGING
           char _pk[ FD_BASE58_ENCODED_32_SZ ];
-          fd_base58_encode_32( update->origin_pubkey, NULL, _pk );
-          FD_LOG_WARNING(( "ADD %lu pk=%s", update->contact_info.idx, _pk ));
+          fd_base58_encode_32( update->origin, NULL, _pk );
+          FD_LOG_WARNING(( "ADD %lu pk=%s", update->contact_info->idx, _pk ));
 #endif
+          FD_TEST( !fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, fd_type_pun_const( update->origin ), NULL, peers->contact_info_table ) );
+          peer->pubkey = *(fd_pubkey_t *)update->origin;
           memset( &peer->gossvf_rx,     0, sizeof(peer->gossvf_rx) );
           memset( &peer->gossip_tx,     0, sizeof(peer->gossip_tx) );
           memset( &peer->gossvf_rx_sum, 0, sizeof(peer->gossvf_rx_sum) );
@@ -708,16 +705,17 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           peer->has_vote_info = 0;
           peer->stake = ULONG_MAX;
 
-          fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &update->contact_info.contact_info->pubkey, NULL, peers->node_info_pool );
+          fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, fd_type_pun_const(update->origin ), NULL, peers->node_info_pool );
           if( FD_LIKELY( info ) ) fd_memcpy( peer->name, info->name, sizeof(info->name) );
           else                    peer->name[ 0 ] = '\0';
 
           peer->update_time_nanos = now;
-          fd_memcpy( &peer->contact_info, update->contact_info.contact_info, sizeof(peer->contact_info) );
+          peer->contact_info = *update->contact_info->value;
 
           /* fetch and set country code */
 #if FD_HAS_ZSTD
-          fd_gui_geoip_node_t const * dbip_ip = geoip_lookup( &peers->dbip, peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr );
+          uint ip4 = peer->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : peer->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+          fd_gui_geoip_node_t const * dbip_ip = geoip_lookup( &peers->dbip, ip4 );
 
           peer->country_code_idx = dbip_ip ? dbip_ip->country_code_idx : UCHAR_MAX;
           peer->city_name_idx = dbip_ip ? dbip_ip->city_name_idx : UINT_MAX;
@@ -729,37 +727,37 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           peer->valid = 1;
 
           /* update pubkey_map, sock_map */
-          fd_gui_peers_node_sock_map_idx_insert  ( peers->node_sock_map,   update->contact_info.idx, peers->contact_info_table );
-          fd_gui_peers_node_pubkey_map_idx_insert( peers->node_pubkey_map, update->contact_info.idx, peers->contact_info_table );
+          fd_gui_peers_node_sock_map_idx_insert  ( peers->node_sock_map,   update->contact_info->idx, peers->contact_info_table );
+          fd_gui_peers_node_pubkey_map_idx_insert( peers->node_pubkey_map, update->contact_info->idx, peers->contact_info_table );
 
           /* update live tables */
-          fd_gui_peers_live_table_idx_insert        ( peers->live_table,  update->contact_info.idx, peers->contact_info_table );
-          fd_gui_peers_bandwidth_tracking_idx_insert( peers->bw_tracking, update->contact_info.idx, peers->contact_info_table );
+          fd_gui_peers_live_table_idx_insert        ( peers->live_table,  update->contact_info->idx, peers->contact_info_table );
+          fd_gui_peers_bandwidth_tracking_idx_insert( peers->bw_tracking, update->contact_info->idx, peers->contact_info_table );
 
           fd_gui_printf_peers_view_resize( peers, fd_gui_peers_live_table_ele_cnt( peers->live_table ) );
           fd_http_server_ws_broadcast( peers->http );
 
           /* broadcast update to WebSocket clients */
-          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_ADD }, (ulong[]){ update->contact_info.idx }, 1UL );
+          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_ADD }, (ulong[]){ update->contact_info->idx }, 1UL );
           fd_http_server_ws_broadcast( peers->http );
         }
         break;
       }
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
-        if( FD_UNLIKELY( update->contact_info_remove.idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected remove_contact_info_idx %lu >= %lu", update->contact_info_remove.idx, FD_CONTACT_INFO_TABLE_SIZE ));
+        if( FD_UNLIKELY( update->contact_info_remove->idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected remove_contact_info_idx %lu >= %lu", update->contact_info_remove->idx, FD_CONTACT_INFO_TABLE_SIZE ));
 #if LOGGING
         char _pk[ FD_BASE58_ENCODED_32_SZ ];
-        fd_base58_encode_32( update->origin_pubkey, NULL, _pk );
-        FD_LOG_WARNING(( "REMOVE %lu pk=%s",update->contact_info_remove.idx, _pk ));
+        fd_base58_encode_32( update->origin, NULL, _pk );
+        FD_LOG_WARNING(( "REMOVE %lu pk=%s",update->contact_info_remove->idx, _pk ));
 #endif
 
-        fd_gui_peers_node_t * peer = &peers->contact_info_table[ update->contact_info_remove.idx ];
+        fd_gui_peers_node_t * peer = &peers->contact_info_table[ update->contact_info_remove->idx ];
 
 #ifdef FD_GUI_USE_HANDHOLDING
         /* invariant checks */
         FD_TEST( peer->valid ); /* Should have already been in the table */
-        FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t * )update->origin_pubkey, NULL, peers->contact_info_table ) );
-        fd_gui_peers_node_t * peer_sock = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, &peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ], NULL, peers->contact_info_table );
+        FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t * )update->origin, NULL, peers->contact_info_table ) );
+        fd_gui_peers_node_t * peer_sock = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, &peer->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ], NULL, peers->contact_info_table );
         int found = 0;
         for( fd_gui_peers_node_t const * p = peer_sock; !!p; p=(fd_gui_peers_node_t const *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
           if( peer==p ) {
@@ -769,17 +767,17 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
         }
         FD_TEST( found );
 #endif
-        fd_gui_peers_live_table_idx_remove          ( peers->live_table,      update->contact_info_remove.idx, peers->contact_info_table );
-        fd_gui_peers_bandwidth_tracking_idx_remove  ( peers->bw_tracking,     update->contact_info_remove.idx, peers->contact_info_table );
-        fd_gui_peers_node_sock_map_idx_remove_fast  ( peers->node_sock_map,   update->contact_info_remove.idx, peers->contact_info_table );
-        fd_gui_peers_node_pubkey_map_idx_remove_fast( peers->node_pubkey_map, update->contact_info_remove.idx, peers->contact_info_table );
+        fd_gui_peers_live_table_idx_remove          ( peers->live_table,      update->contact_info_remove->idx, peers->contact_info_table );
+        fd_gui_peers_bandwidth_tracking_idx_remove  ( peers->bw_tracking,     update->contact_info_remove->idx, peers->contact_info_table );
+        fd_gui_peers_node_sock_map_idx_remove_fast  ( peers->node_sock_map,   update->contact_info_remove->idx, peers->contact_info_table );
+        fd_gui_peers_node_pubkey_map_idx_remove_fast( peers->node_pubkey_map, update->contact_info_remove->idx, peers->contact_info_table );
         peer->valid = 0;
 
         fd_gui_printf_peers_view_resize( peers, fd_gui_peers_live_table_ele_cnt( peers->live_table ) );
         fd_http_server_ws_broadcast( peers->http );
 
         /* broadcast update to WebSocket clients */
-        fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_DELETE }, (ulong[]){ update->contact_info_remove.idx }, 1UL );
+        fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_DELETE }, (ulong[]){ update->contact_info_remove->idx }, 1UL );
         fd_http_server_ws_broadcast( peers->http );
         break;
       }
@@ -1144,11 +1142,12 @@ fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
     fd_gui_peers_node_t const * cur = fd_gui_peers_live_table_fwd_iter_ele_const( iter, peers->contact_info_table );
 
     char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
+    fd_base58_encode_32( cur->pubkey.uc, NULL, pubkey_base58 );
 
     char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
+    uint ip4 = cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
     FD_TEST(fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT,
-                                  FD_IP4_ADDR_FMT_ARGS( cur->contact_info.sockets[FD_CONTACT_INFO_SOCKET_GOSSIP].addr ) ) );
+                                  FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
 
     long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
     long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;

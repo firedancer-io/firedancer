@@ -337,7 +337,7 @@ resolve_peer( char const *            peer,
   return resolved;
 }
 
-static void
+void
 resolve_gossip_entrypoints( config_t * config ) {
   ulong entrypoint_cnt = config->gossip.entrypoints_cnt;
   for( ulong i=0UL; i<entrypoint_cnt; i++ ) {
@@ -447,7 +447,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "banks"         );
   fd_topob_wksp( topo, "banks_locks"   );
   fd_topob_wksp( topo, "store"         )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_FULL;
-  fd_topob_wksp( topo, "executed_txn"  );
 
   fd_topob_wksp( topo, "gossip_sign"   );
   fd_topob_wksp( topo, "sign_gossip"   );
@@ -460,8 +459,6 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "txsend_sign"   );
   fd_topob_wksp( topo, "sign_txsend"   );
-
-  fd_topob_wksp( topo, "execrp_sig"    );
 
   fd_topob_wksp( topo, "execrp_replay" );
 
@@ -577,7 +574,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "genesi_out",    "genesi_out",    2UL,                                      10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
   /**/                 fd_topob_link( topo, "ipecho_out",    "ipecho_out",    2UL,                                      0UL,                           1UL );
-  FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", config->net.ingress_buffer_size,          sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
+  FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossip", "gossvf_gossip", config->net.ingress_buffer_size,          sizeof(fd_gossip_message_t)+FD_NET_MTU, 1UL );
   /**/                 fd_topob_link( topo, "gossip_gossvf", "gossip_gossvf", 65536UL*4UL,                              sizeof(fd_gossip_ping_update_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
   /**/                 fd_topob_link( topo, "gossip_out",    "gossip_out",    65536UL*4UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
 
@@ -586,7 +583,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  65536UL,                                  FD_TPU_PARSED_MTU,             1UL );
   FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_pack",   "resolv_pack",   65536UL,                                  FD_TPU_RESOLVED_MTU,           1UL );
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  128UL,                                    FD_EPOCH_OUT_MTU,              1UL ); /* TODO: This should be 2 but requires fixing STEM_BURST */
-  /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    8192UL,                                   sizeof(fd_replay_message_t),   1UL );
+  /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL );
+                       fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),  1UL );
   /**/                 fd_topob_link( topo, "pack_poh",      "pack_poh",      4096UL,                                   sizeof(fd_done_packing_t),     1UL );
   /* pack_execle is shared across all execle, so if one executor stalls
      due to complex transactions, the buffer needs to be large so that
@@ -599,7 +597,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "poh_shred",     "poh_shred",     16384UL,                                  USHORT_MAX,                    1UL );
   /**/                 fd_topob_link( topo, "poh_replay",    "poh_replay",    4096UL,                                   sizeof(fd_poh_leader_slot_ended_t), 1UL );
   FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_replay", "resolv_replay", 4096UL,                                   sizeof(fd_resolv_slot_exchanged_t), 1UL );
-  /**/                 fd_topob_link( topo, "executed_txn",  "executed_txn",  16384UL,                                  64UL,                          1UL ); /* TODO: Rename this ... */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",    "shred_sign",    128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",    "sign_shred",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
@@ -618,9 +615,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   /**/                 fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
-                       fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),    1UL );
-
-  FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_sig",    "execrp_sig",    16384UL,                                  64UL,                          1UL );
   FOR(execrp_tile_cnt) fd_topob_link( topo, "execrp_replay", "execrp_replay", 16384UL,                                  sizeof(fd_execrp_task_done_msg_t), 1UL );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
@@ -891,8 +885,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_epoch",  0UL                                                );
-  /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "executed_txn",  0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_execrp", 0UL                                                );
+  FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "poh_replay",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "resolv_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -900,12 +895,11 @@ fd_topo_initialize( config_t * config ) {
                        fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
-  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "poh_replay",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "execrp",  i,            "metric_in", "replay_execrp", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(execrp_tile_cnt) fd_topob_tile_out(   topo, "execrp",  i,                         "execrp_replay", i                                                  );
 
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "dedup_resolv",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_execrp", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -927,7 +921,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(    topo, "verify",  0UL,          "metric_in", "txsend_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(verify_tile_cnt) fd_topob_tile_out(   topo, "verify",  i,                         "verify_dedup",  i                                                  );
   FOR(verify_tile_cnt) fd_topob_tile_in(    topo, "dedup",   0UL,          "metric_in", "verify_dedup",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(    topo, "dedup",   0UL,          "metric_in", "executed_txn",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(    topo, "dedup",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "dedup",   0UL,                       "dedup_resolv",  0UL                                                );
   FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "resolv",  i,            "metric_in", "dedup_resolv",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "resolv",  i,            "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -935,7 +929,6 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolv_tile_cnt) fd_topob_tile_out(   topo, "resolv",  i,                         "resolv_replay", i                                                  );
   /**/                 fd_topob_tile_in(    topo, "pack",    0UL,          "metric_in", "resolv_pack",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "pack",    0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(    topo, "pack",    0UL,          "metric_in", "executed_txn",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                        fd_topob_tile_out(   topo, "pack",    0UL,                       "pack_execle",   0UL                                                );
                        fd_topob_tile_out(   topo, "pack",    0UL,                       "pack_poh" ,     0UL                                                );
   if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
@@ -958,12 +951,6 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "ipecho_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "poh_shred",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_out(   topo, "shred",   i,                         "shred_net",     i                                                  );
-
-  FOR(execrp_tile_cnt)  fd_topob_tile_in (   topo, "dedup",   0UL,         "metric_in", "execrp_sig",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(execrp_tile_cnt)  fd_topob_tile_in (   topo, "pack",    0UL,         "metric_in", "execrp_sig",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(execrp_tile_cnt)  fd_topob_tile_out(   topo, "execrp",  i,                        "execrp_sig",    i                                                  );
-  FOR(execrp_tile_cnt)  fd_topob_tile_out(   topo, "execrp",  i,                        "execrp_replay", i                                                  );
-  FOR(execrp_tile_cnt)  fd_topob_tile_in (   topo, "replay",  0UL,         "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   if( FD_LIKELY( telemetry_enabled ) ) {
     fd_topob_wksp( topo, "event"      );

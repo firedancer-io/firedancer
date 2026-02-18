@@ -5,7 +5,6 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/shred/fd_stake_ci.h"
-#include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../flamenco/gossip/fd_ping_tracker.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../util/net/fd_net_headers.h"
@@ -154,6 +153,7 @@ struct fd_gossvf_tile_ctx {
 
   fd_gossip_ping_update_t _ping_update[1];
   fd_gossip_update_message_t _gossip_update[1];
+  fd_gossip_message_t _message[1];
 
   double ticks_per_ns;
   long   last_wallclock;
@@ -321,44 +321,44 @@ handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
 }
 
 static int
-verify_prune( fd_gossip_view_prune_t const * view,
-              uchar const *                  payload,
-              fd_sha512_t *                  sha ) {
+verify_prune( fd_gossip_prune_t const * view,
+              fd_sha512_t *             sha ) {
   uchar sign_data[ FD_NET_MTU ];
-  fd_memcpy(       sign_data,                             "\xffSOLANA_PRUNE_DATA",       18UL );
-  fd_memcpy(       sign_data+18UL,                        payload+view->pubkey_off,      32UL );
-  FD_STORE( ulong, sign_data+50UL,                        view->origins_len );
-  fd_memcpy(       sign_data+58UL,                        payload+view->origins_off,     view->origins_len*32UL );
-  fd_memcpy(       sign_data+58UL+view->origins_len*32UL, payload+view->destination_off, 32UL );
-  FD_STORE( ulong, sign_data+90UL+view->origins_len*32UL, view->wallclock );
+  fd_memcpy(       sign_data,                            "\xffSOLANA_PRUNE_DATA",       18UL );
+  fd_memcpy(       sign_data+18UL,                       view->pubkey,                  32UL );
+  FD_STORE( ulong, sign_data+50UL,                       view->prunes_len );
+  fd_memcpy(       sign_data+58UL,                       view->prunes,                  view->prunes_len*32UL );
+  fd_memcpy(       sign_data+58UL+view->prunes_len*32UL, view->destination, 32UL );
+  FD_STORE( ulong, sign_data+90UL+view->prunes_len*32UL, view->wallclock );
 
-  ulong sign_data_len = 98UL+view->origins_len*32UL;
-  int err_prefix    = fd_ed25519_verify( sign_data,      sign_data_len,      payload+view->signature_off, payload+view->pubkey_off, sha );
-  int err_no_prefix = fd_ed25519_verify( sign_data+18UL, sign_data_len-18UL, payload+view->signature_off, payload+view->pubkey_off, sha );
+  ulong sign_data_len = 98UL+view->prunes_len*32UL;
+  int err_prefix    = fd_ed25519_verify( sign_data,      sign_data_len,      view->signature, view->pubkey, sha );
+  int err_no_prefix = fd_ed25519_verify( sign_data+18UL, sign_data_len-18UL, view->signature, view->pubkey, sha );
 
   if( FD_LIKELY( err_prefix==FD_ED25519_SUCCESS || err_no_prefix==FD_ED25519_SUCCESS ) ) return 0;
   else                                                                                   return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_SIGNATURE_IDX;
 }
 
 static int
-verify_crds_value( fd_gossip_view_crds_value_t const * value,
-                   uchar const *                       payload,
-                   fd_sha512_t *                       sha ) {
-  return fd_ed25519_verify( payload+value->signature_off+64UL, /* signable data begins after signature */
-                            value->length-64UL,                /* signable data length */
-                            payload+value->signature_off,
-                            payload+value->from_off,
+verify_crds_value( fd_gossip_value_t const * value,
+                   uchar const *             value_bytes,
+                   ulong                     value_bytes_len,
+                   fd_sha512_t *             sha ) {
+  return fd_ed25519_verify( value_bytes+64UL, /* signable data begins after signature */
+                            value_bytes_len-64UL,                /* signable data length */
+                            value->signature,
+                            value->origin,
                             sha );
 }
 
 static int
 verify_signatures( fd_gossvf_tile_ctx_t * ctx,
-                   fd_gossip_view_t *     view,
+                   fd_gossip_message_t *  view,
                    uchar const *          payload,
                    fd_sha512_t *          sha ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST: {
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=verify_crds_value( view->pull_request->pr_ci, payload, sha ) ) ) {
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=verify_crds_value( view->pull_request->contact_info, payload+view->pull_request->contact_info->offset, view->pull_request->contact_info->length, sha ) ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_SIGNATURE_IDX;
       } else {
         return 0;
@@ -366,64 +366,62 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
     }
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
       ulong i = 0UL;
-      while( i<view->pull_response->crds_values_len ) {
-        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( payload+view->pull_response->crds_values[ i ].signature_off );
+      while( i<view->pull_response->values_len ) {
+        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( view->pull_response->values[ i ].signature );
         int ha_dup = 0;
         FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
         FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         if( FD_UNLIKELY( ha_dup ) ) {
           ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ] += view->pull_response->crds_values[ i ].length;
-          view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
-          view->pull_response->crds_values_len--;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ] += view->pull_response->values[ i ].length;
+          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len-1UL ];
+          view->pull_response->values_len--;
           continue;
         }
 
-        int err = verify_crds_value( &view->pull_response->crds_values[ i ], payload, sha );
+        int err = verify_crds_value( &view->pull_response->values[ i ], payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->crds_values[ i ].length;
-          view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
-          view->pull_response->crds_values_len--;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->values[ i ].length;
+          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len-1UL ];
+          view->pull_response->values_len--;
           continue;
         }
 
         i++;
       }
 
-      if( FD_UNLIKELY( !view->pull_response->crds_values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
+      if( FD_UNLIKELY( !view->pull_response->values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
       return 0;
     }
     case FD_GOSSIP_MESSAGE_PUSH: {
       ulong i = 0UL;
-      while( i<view->push->crds_values_len ) {
-        int err = verify_crds_value( &view->push->crds_values[ i ], payload, sha );
+      while( i<view->push->values_len ) {
+        int err = verify_crds_value( &view->push->values[ i ], payload+view->push->values[ i ].offset, view->push->values[ i ].length, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ] += view->push->crds_values[ i ].length;
-          view->push->crds_values[ i ] = view->push->crds_values[ view->push->crds_values_len-1UL ];
-          view->push->crds_values_len--;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ] += view->push->values[ i ].length;
+          view->push->values[ i ] = view->push->values[ view->push->values_len-1UL ];
+          view->push->values_len--;
           continue;
         }
 
         i++;
       }
 
-      if( FD_UNLIKELY( !view->push->crds_values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
+      if( FD_UNLIKELY( !view->push->values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
       return 0;
     }
-    case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( view->prune, payload, sha );
+    case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( view->prune, sha );
     case FD_GOSSIP_MESSAGE_PING: {
-      fd_gossip_view_ping_t const * ping = (fd_gossip_view_ping_t const *)(payload+view->ping_pong_off);
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( ping->ping_token, 32UL, ping->signature, ping->pubkey, sha ) ) ) {
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( view->ping->token, 32UL, view->ping->signature, view->ping->from, sha ) ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PING_SIGNATURE_IDX;
       } else {
         return 0;
       }
     }
     case FD_GOSSIP_MESSAGE_PONG: {
-      fd_gossip_view_pong_t const * pong = (fd_gossip_view_pong_t const *)(payload+view->ping_pong_off);
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( pong->ping_hash, 32UL, pong->signature, pong->pubkey, sha ) ) ) {
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=fd_ed25519_verify( view->pong->hash, 32UL, view->pong->signature, view->pong->from, sha ) ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PONG_SIGNATURE_IDX;
       } else {
         return 0;
@@ -443,18 +441,18 @@ is_entrypoint( fd_gossvf_tile_ctx_t * ctx,
 }
 
 static void
-filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
-                           int                               tag,
-                           fd_gossip_view_crds_container_t * container,
-                           uchar const *                     payload ) {
+filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
+                           uint                   tag,
+                           fd_gossip_value_t *    values,
+                           ulong *                values_len ) {
   ulong i = 0UL;
-  while( i<container->crds_values_len ) {
+  while( i<*values_len ) {
     int keep      = 0;
     int no_origin = 0;
-    if( container->crds_values[ i ].tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
-      keep = container->crds_values[ i ].ci_view->contact_info->shred_version==ctx->shred_version;
+    if( values[ i ].tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
+      keep = values[ i ].contact_info->shred_version==ctx->shred_version;
     } else {
-      peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->crds_values[ i ].from_off), NULL, ctx->peers );
+      peer_t const * origin = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(values[ i ].origin), NULL, ctx->peers );
       no_origin = !origin;
       keep = origin && origin->shred_version==ctx->shred_version;
     }
@@ -463,22 +461,22 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
       if( FD_UNLIKELY( tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
         if( FD_LIKELY( no_origin ) ) {
           ctx->metrics.crds_rx[       FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO_IDX ] += values[ i ].length;
         } else {
           ctx->metrics.crds_rx[       FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION_IDX ] += values[ i ].length;
         }
       } else {
         if( FD_LIKELY( no_origin ) ) {
           ctx->metrics.crds_rx[       FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO_IDX ] += values[ i ].length;
         } else {
           ctx->metrics.crds_rx[       FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ] += values[ i ].length;
         }
       }
-      container->crds_values[ i ] = container->crds_values[ container->crds_values_len-1UL ];
-      container->crds_values_len--;
+      values[ i ] = values[ *values_len-1UL ];
+      (*values_len)--;
       continue;
     }
 
@@ -488,32 +486,31 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
 
 static int
 filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
-                      fd_gossip_view_t *     view,
-                      uchar const *          payload ) {
+                      fd_gossip_message_t *  view ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
     case FD_GOSSIP_MESSAGE_PRUNE:
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH: {
-      filter_shred_version_crds( ctx, view->tag, view->push, payload );
-      if( FD_UNLIKELY( !view->push->crds_values_len ) ) {
+      filter_shred_version_crds( ctx, view->tag, view->push->values, &view->push->values_len );
+      if( FD_UNLIKELY( !view->push->values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
       } else {
         return 0;
       }
     }
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
-      filter_shred_version_crds( ctx, view->tag, view->pull_response, payload );
-      if( FD_UNLIKELY( !view->pull_response->crds_values_len ) ) {
+      filter_shred_version_crds( ctx, view->tag, view->pull_response->values, &view->pull_response->values_len );
+      if( FD_UNLIKELY( !view->pull_response->values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
       } else {
         return 0;
       }
     }
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
-      FD_TEST( view->pull_request->pr_ci->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
-      if( FD_UNLIKELY( view->pull_request->pr_ci->ci_view->contact_info->shred_version!=ctx->shred_version ) ) {
+      FD_TEST( view->pull_request->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
+      if( FD_UNLIKELY( view->pull_request->contact_info->contact_info->shred_version!=ctx->shred_version ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_SHRED_VERSION_IDX;
       } else {
         return 0;
@@ -524,10 +521,10 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
 }
 
 static void
-check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
-                          fd_gossip_view_t const * view,
-                          uchar const *            payload ) {
-  fd_gossip_view_crds_container_t const * container;
+check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
+                          fd_gossip_message_t const * view ) {
+  ulong values_len;
+  fd_gossip_value_t const * values;
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
@@ -535,65 +532,69 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       return;
     case FD_GOSSIP_MESSAGE_PUSH:
-      container = view->push;
+      values = view->push->values;
+      values_len = view->push->values_len;
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      container = view->pull_response;
+      values = view->pull_response->values;
+      values_len = view->pull_response->values_len;
       break;
     default:
       __builtin_unreachable();
   }
 
-  for( ulong i=0UL; i<container->crds_values_len; i++ ) {
-    fd_gossip_view_crds_value_t const * value = &container->crds_values[ i ];
+  for( ulong i=0UL; i<values_len; i++ ) {
+    fd_gossip_value_t const * value = &values[ i ];
     if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
 
-    fd_contact_info_t const * contact_info = value->ci_view->contact_info;
+    if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ) ) continue;
+    if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) continue;
 
-    if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=contact_info->instance_creation_wallclock_nanos ) ) continue;
-    if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, payload+value->from_off, 32UL ) ) ) continue;
-
-    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, contact_info->instance_creation_wallclock_nanos ));
+    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ));
   }
 }
 
 static inline int
 is_ping_active( fd_gossvf_tile_ctx_t *    ctx,
-                fd_contact_info_t const * contact_info ) {
-  fd_ip4_port_t const * gossip_addr = &contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+                fd_gossip_value_t const * value ) {
+  fd_ip4_port_t gossip_addr;
+  gossip_addr.addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+  gossip_addr.port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
 
   /* 1. If the node is an entrypoint, it is active */
-  if( FD_UNLIKELY( is_entrypoint( ctx, *gossip_addr ) ) ) return 1;
+  if( FD_UNLIKELY( is_entrypoint( ctx, gossip_addr ) ) ) return 1;
 
   /* 2. If the node has more than 1 sol staked, it is active */
-  stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, &contact_info->pubkey, NULL, ctx->stake.pool );
+  stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, fd_type_pun_const( value->origin ), NULL, ctx->stake.pool );
   if( FD_LIKELY( stake && stake->stake>=1000000000UL ) ) return 1;
 
   /* 3. If the node has actively ponged a ping, it is active */
-  ping_t * ping = ping_map_ele_query( ctx->ping_map, &contact_info->pubkey, NULL, ctx->pings );
+  ping_t * ping = ping_map_ele_query( ctx->ping_map, fd_type_pun_const( value->origin ), NULL, ctx->pings );
   return ping!=NULL;
 }
 
 static int
 ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *    ctx,
-                               fd_contact_info_t const * contact_info,
+                               fd_gossip_value_t const * value,
                                fd_stem_context_t *       stem ) {
-  fd_ip4_port_t const *     gossip_addr  = &contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+  fd_ip4_port_t gossip_addr;
+  gossip_addr.addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+  gossip_addr.port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
 
-  if( FD_UNLIKELY( gossip_addr->l==0U ) ) return 1; /* implies ipv6 address */
-  int is_ip4_nonpublic = !ctx->allow_private_address && !fd_ip4_addr_is_public( gossip_addr->addr );
+  if( FD_UNLIKELY( gossip_addr.l==0U ) ) return 1; /* implies ipv6 address */
+  int is_ip4_nonpublic = !ctx->allow_private_address && !fd_ip4_addr_is_public( gossip_addr.addr );
   if( FD_UNLIKELY( is_ip4_nonpublic ) ) return 1;
 
-  if( FD_UNLIKELY( !is_ping_active( ctx, contact_info ) ) ) {
+  if( FD_UNLIKELY( !is_ping_active( ctx, value ) ) ) {
     fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
-    fd_memcpy( pingreq->pubkey.uc, contact_info->pubkey.uc, 32UL );
-    fd_stem_publish( stem, 0UL, fd_gossvf_sig( gossip_addr->addr, gossip_addr->port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
+    fd_memcpy( pingreq->pubkey.uc, value->origin, 32UL );
+    fd_stem_publish( stem, 0UL, fd_gossvf_sig( gossip_addr.addr, gossip_addr.port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
     ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
 
 #if DEBUG_PEERS
     char base58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( contact_info->pubkey.uc, NULL, base58 );
-    FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_addr->addr ), gossip_addr->port, ctx->ping_cnt ));
+    fd_base58_encode_32( value->origin, NULL, base58 );
+    FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_addr.addr ), gossip_addr.port, ctx->ping_cnt ));
     ctx->ping_cnt++;
 #endif
     return 1;
@@ -603,9 +604,10 @@ ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *    ctx,
 
 static int
 verify_addresses( fd_gossvf_tile_ctx_t * ctx,
-                  fd_gossip_view_t *     view,
+                  fd_gossip_message_t *  view,
                   fd_stem_context_t *    stem ) {
-  fd_gossip_view_crds_container_t * container;
+  ulong * values_len;
+  fd_gossip_value_t * values;
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
@@ -613,24 +615,26 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH:
-      container = view->push;
+      values_len = &view->push->values_len;
+      values = view->push->values;
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      container = view->pull_response;
+      values_len = &view->pull_response->values_len;
+      values = view->pull_response->values;
       break;
     default:
       FD_LOG_ERR(( "unexpected view tag %u", view->tag ));
   }
 
   ulong i = 0UL;
-  while( i<container->crds_values_len ) {
-    fd_gossip_view_crds_value_t const * value = &container->crds_values[ i ];
+  while( i<*values_len ) {
+    fd_gossip_value_t const * value = &values[ i ];
     if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       i++;
       continue;
     }
 
-    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, value->ci_view->contact_info, stem ) ) ) {
+    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, value, stem ) ) ) {
       if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ] += value->length;
@@ -638,15 +642,15 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_INACTIVE_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_INACTIVE_IDX ] += value->length;
       }
-      container->crds_values[ i ] = container->crds_values[ container->crds_values_len-1UL ];
-      container->crds_values_len--;
+      values[ i ] = values[ *values_len-1UL ];
+      (*values_len)--;
       continue;
     }
 
     i++;
   }
 
-  if( FD_UNLIKELY( !container->crds_values_len ) ) {
+  if( FD_UNLIKELY( !values_len ) ) {
     if( view->tag==FD_GOSSIP_MESSAGE_PUSH ) {
       return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
     } else if( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) {
@@ -701,25 +705,27 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
 
   switch( gossip_update->tag ) {
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
-      peer_t * peer = peer_map_ele_query( ctx->peer_map, (fd_pubkey_t*)gossip_update->origin_pubkey, NULL, ctx->peers );
+      peer_t * peer = peer_map_ele_query( ctx->peer_map, fd_type_pun_const( gossip_update->origin ), NULL, ctx->peers );
       if( FD_LIKELY( peer ) ) {
 #if DEBUG_PEERS
         FD_LOG_NOTICE(( "updating peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
 #endif
 
-        peer->shred_version = gossip_update->contact_info.contact_info->shred_version;
-        peer->gossip_addr = gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+        peer->shred_version = gossip_update->contact_info->value->shred_version;
+        peer->gossip_addr.addr = gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+        peer->gossip_addr.port = gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
       } else {
 #if DEBUG_PEERS
         ctx->peer_cnt++;
-        FD_LOG_NOTICE(( "adding peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
+        FD_LOG_NOTICE(( "adding peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
 #endif
 
         FD_TEST( peer_pool_free( ctx->peers ) );
         peer = peer_pool_ele_acquire( ctx->peers );
-        peer->shred_version = gossip_update->contact_info.contact_info->shred_version;
-        peer->gossip_addr = gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
-        fd_memcpy( peer->pubkey.uc, gossip_update->contact_info.contact_info->pubkey.uc, 32UL );
+        peer->shred_version = gossip_update->contact_info->value->shred_version;
+        peer->gossip_addr.addr = gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+        peer->gossip_addr.port = gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
+        fd_memcpy( peer->pubkey.uc, gossip_update->origin, 32UL );
         peer_map_ele_insert( ctx->peer_map, peer, ctx->peers );
       }
       break;
@@ -730,12 +736,12 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
       FD_LOG_NOTICE(( "removing peer %s (%lu)", base58, ctx->peer_cnt ));
 #endif
 
-      peer_t * peer = peer_map_ele_remove( ctx->peer_map, (fd_pubkey_t*)gossip_update->origin_pubkey, NULL, ctx->peers );
+      peer_t * peer = peer_map_ele_remove( ctx->peer_map, fd_type_pun_const( gossip_update->origin ), NULL, ctx->peers );
       FD_TEST( peer );
       peer_pool_ele_release( ctx->peers, peer );
       break;
     }
-    default: FD_LOG_ERR(( "unexpected gossip_update tag %u", gossip_update->tag ));
+    default: FD_LOG_ERR(( "unexpected gossip_update tag %d", gossip_update->tag ));
   }
 }
 
@@ -754,63 +760,60 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
 
-  fd_gossip_view_t view[ 1 ];
-  ulong decode_sz = fd_gossip_msg_parse( view, payload, payload_sz );
-  if( FD_UNLIKELY( !decode_sz ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_UNPARSEABLE_IDX;
+  fd_gossip_message_t * message = ctx->_message;
+  int decoded = fd_gossip_message_deserialize( message, payload, payload_sz );
+  if( FD_UNLIKELY( !decoded ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_UNPARSEABLE_IDX;
 
-  if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) FD_TEST( view->push->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
-  if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) FD_TEST( view->pull_response->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
-
-  if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
-    if( FD_UNLIKELY( view->pull_request->pr_ci->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
-    if( FD_UNLIKELY( !memcmp( payload+view->pull_request->pr_ci->from_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
-    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, view->pull_request->pr_ci->ci_view->contact_info, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+  if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
+    if( FD_UNLIKELY( message->pull_request->contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
+    if( FD_UNLIKELY( !memcmp( message->pull_request->contact_info->origin, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
+    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, message->pull_request->contact_info, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
 
     /* TODO: Jitter? */
     long clamp_wallclock_lower_nanos = now-15L*1000L*1000L*1000L;
     long clamp_wallclock_upper_nanos = now+15L*1000L*1000L*1000L;
-    if( FD_UNLIKELY( view->pull_request->pr_ci->wallclock_nanos<clamp_wallclock_lower_nanos ||
-                     view->pull_request->pr_ci->wallclock_nanos>clamp_wallclock_upper_nanos ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_WALLCLOCK_IDX;
+    if( FD_UNLIKELY( FD_MILLI_TO_NANOSEC( message->pull_request->contact_info->wallclock )<clamp_wallclock_lower_nanos ||
+                     FD_MILLI_TO_NANOSEC( message->pull_request->contact_info->wallclock )>clamp_wallclock_upper_nanos ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_WALLCLOCK_IDX;
   }
 
-  if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PRUNE ) ) {
-    if( FD_UNLIKELY( !!memcmp( payload+view->prune->destination_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_DESTINATION_IDX;
-    if( FD_UNLIKELY( now-1000L*1000L*1000L>view->prune->wallclock_nanos ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_WALLCLOCK_IDX;
+  if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PRUNE ) ) {
+    if( FD_UNLIKELY( !!memcmp( message->prune->destination, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_DESTINATION_IDX;
+    if( FD_UNLIKELY( now-1000L*1000L*1000L>FD_MILLI_TO_NANOSEC( message->prune->wallclock ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_WALLCLOCK_IDX;
   }
 
-  if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
+  if( FD_LIKELY( message->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
     ulong i = 0UL;
-    while( i<view->push->crds_values_len ) {
-      fd_gossip_view_crds_value_t const * value = &view->push->crds_values[ i ];
-      if( FD_UNLIKELY( value->wallclock_nanos<now-15L*1000L*1000L*1000L ||
-                       value->wallclock_nanos>now+15L*1000L*1000L*1000L ) ) {
+    while( i<message->push->values_len ) {
+      fd_gossip_value_t const * value = &message->push->values[ i ];
+      if( FD_UNLIKELY( FD_MILLI_TO_NANOSEC( value->wallclock )<now-15L*1000L*1000L*1000L ||
+                       FD_MILLI_TO_NANOSEC( value->wallclock )>now+15L*1000L*1000L*1000L ) ) {
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_WALLCLOCK_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_WALLCLOCK_IDX ] += value->length;
-        view->push->crds_values[ i ] = view->push->crds_values[ view->push->crds_values_len-1UL ];
-        view->push->crds_values_len--;
+        message->push->values[ i ] = message->push->values[ message->push->values_len-1UL ];
+        message->push->values_len--;
         continue;
       }
       i++;
     }
 
-    if( FD_UNLIKELY( !view->push->crds_values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
+    if( FD_UNLIKELY( !message->push->values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
   }
 
-  int result = filter_shred_version( ctx, view, payload );
+  int result = filter_shred_version( ctx, message );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_addresses( ctx, view, stem );
+  result = verify_addresses( ctx, message, stem );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_signatures( ctx, view, payload, ctx->sha );
+  result = verify_signatures( ctx, message, payload, ctx->sha );
   if( FD_UNLIKELY( result ) ) return result;
 
-  check_duplicate_instance( ctx, view, payload );
+  check_duplicate_instance( ctx, message );
 
-  switch( view->tag ) {
+  switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
-      for( ulong i=0UL; i<view->pull_response->crds_values_len; i++ ) {
-        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( payload+view->pull_response->crds_values[ i ].signature_off );
+      for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
+        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( message->pull_response->values[ i ].signature );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         (void)ha_dup; /* unused */
@@ -818,8 +821,8 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
       break;
     }
     case FD_GOSSIP_MESSAGE_PUSH: {
-      for( ulong i=0UL; i<view->push->crds_values_len; i++ ) {
-        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( payload+view->push->crds_values[ i ].signature_off );
+      for( ulong i=0UL; i<message->push->values_len; i++ ) {
+        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( message->push->values[ i ].signature );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         (void)ha_dup; /* unused */
@@ -830,27 +833,27 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
       break;
   }
 
-  switch( view->tag ) {
+  switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:  result = FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_SUCCESS_PULL_REQUEST_IDX; break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: result = FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX; break;
     case FD_GOSSIP_MESSAGE_PUSH:          result = FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_SUCCESS_PUSH_IDX; break;
     case FD_GOSSIP_MESSAGE_PRUNE:         result = FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_SUCCESS_PRUNE_IDX; break;
     case FD_GOSSIP_MESSAGE_PING:          result = FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_SUCCESS_PING_IDX; break;
     case FD_GOSSIP_MESSAGE_PONG:          result = FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_SUCCESS_PONG_IDX; break;
-    default: FD_LOG_ERR(( "unexpected view tag %d", view->tag ));
+    default: FD_LOG_ERR(( "unexpected message tag %u", message->tag ));
   }
 
-  switch( view->tag ) {
+  switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ] += view->pull_response->crds_values_len;
-      for( ulong i=0UL; i<view->pull_response->crds_values_len; i++ ) {
-        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ] += view->pull_response->crds_values[ i ].length;
+      ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ] += message->pull_response->values_len;
+      for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
+        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ] += message->pull_response->values[ i ].length;
       }
       break;
     case FD_GOSSIP_MESSAGE_PUSH:
-      ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ] += view->push->crds_values_len;
-      for( ulong i=0UL; i<view->push->crds_values_len; i++ ) {
-        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ] += view->push->crds_values[ i ].length;
+      ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ] += message->push->values_len;
+      for( ulong i=0UL; i<message->push->values_len; i++ ) {
+        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ] += message->push->values[ i ].length;
       }
       break;
     default:
@@ -858,12 +861,12 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   }
 
   uchar * dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
-  fd_memcpy( dst, view, sizeof(fd_gossip_view_t) );
-  fd_memcpy( dst+sizeof(fd_gossip_view_t), payload, payload_sz );
+  fd_memcpy( dst, message, sizeof(fd_gossip_message_t ) );
+  fd_memcpy( dst+sizeof(fd_gossip_message_t), payload, payload_sz );
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, sizeof(fd_gossip_view_t)+payload_sz, 0UL, tsorig, tspub );
-  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_view_t)+payload_sz, ctx->out->chunk0, ctx->out->wmark );
+  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, sizeof(fd_gossip_message_t)+payload_sz, 0UL, tsorig, tspub );
+  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_message_t)+payload_sz, ctx->out->chunk0, ctx->out->wmark );
 
   return result;
 }
@@ -977,7 +980,9 @@ unprivileged_init( fd_topo_t *      topo,
 #endif
   }
 
-  ctx->instance_creation_wallclock_nanos = tile->gossvf.boot_timestamp_nanos;
+  /* Conversion to MICROs ensures we are comparing apples to apples in
+     check_duplicate_instance  */
+  ctx->instance_creation_wallclock_nanos = FD_MICRO_TO_NANOSEC( FD_NANOSEC_TO_MICRO( tile->gossvf.boot_timestamp_nanos ) );
 
 #if DEBUG_PEERS
   ctx->peer_cnt = 0UL;
@@ -1053,7 +1058,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (FD_GOSSIP_MSG_MAX_CRDS+1UL)
+#define STEM_BURST (17UL/*FD_GOSSIP_MSG_MAX_CRDS*/+1UL)
 
 #define STEM_LAZY  (1000L)
 

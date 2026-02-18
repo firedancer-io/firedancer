@@ -25,7 +25,7 @@
    From the three config paths, only default_topo_config_path is
    required, whereas the other two (override_topo_config_path and
    user_topo_config_path) are optional.  These inputs, together with
-   netns, is_firedancer and is_local_cluster are passed to
+   is_firedancer and is_local_cluster are passed to
    fd_config_load() (Refer to the functions documentation for further
    details).  fd_topo_initialize_ is a pointer to the initialization
    function inside the chosen topology (e.g. firedancer or fdctl).
@@ -39,7 +39,6 @@ fd_topo_tile_t *
 fd_tile_unit_test_init( char const *         default_topo_config_path,
                         char const *         override_topo_config_path,
                         char const *         user_topo_config_path,
-                        int                  netns,
                         int                  is_firedancer,
                         int                  is_local_cluster,
                         void (*fd_topo_initialize_)(config_t *),
@@ -240,11 +239,10 @@ fd_tile_unit_test_init( char const *         default_topo_config_path,
          char const * default_topo_config_path  = TEST_DEFAULT_TOPO_CONFIG_PATH;
          char const * override_topo_config_path = NULL;
          char const * user_topo_config_path     = NULL;
-         int          netns                     = 0;
          int          is_firedancer             = TEST_IS_FIREDANCER;
          int          is_local_cluster          = 0;
          fd_topo_tile_t * test_tile = fd_tile_unit_test_init( default_topo_config_path, override_topo_config_path, user_topo_config_path,
-                                                               netns, is_firedancer, is_local_cluster,
+                                                               is_firedancer, is_local_cluster,
                                                                fd_topo_initialize, &fd_tile_pack, config );
          FD_TEST( test_tile );
          fd_metrics_register( fd_metrics_new( metrics_scratch, 10 ) );

@@ -36,7 +36,6 @@ struct fd_execrp_tile {
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
-  link_ctx_t            execrp_sig_out[ 1 ];
 
   fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
   fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
@@ -147,11 +146,13 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   fd_execrp_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
   msg->bank_idx                  = ctx->bank->data->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
-  msg->txn_exec->err             = !ctx->txn_out.err.is_committable;
+  msg->txn_exec->is_committable  = ctx->txn_out.err.is_committable;
+  msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
+  msg->txn_exec->txn_err         = ctx->txn_out.err.txn_err;
   msg->txn_exec->slot            = ctx->slot;
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
   msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
-  if( FD_UNLIKELY( msg->txn_exec->err ) ) {
+  if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {
     uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
     FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
     FD_LOG_WARNING(( "block marked dead (slot=%lu) because of invalid transaction (signature=%s) (txn_err=%d)", ctx->slot, signature_b58, ctx->txn_out.err.txn_err ));
@@ -208,16 +209,6 @@ returnable_frag( fd_execrp_tile_t *  ctx,
           FD_LOG_CRIT(( "detected account leaks after executing txn=%s (commit=%d ro_active=%lu rw_active=%lu)",
                         txn_b58, ctx->txn_out.err.is_committable,
                         ctx->accdb->base.ro_active, ctx->accdb->base.rw_active ));
-        }
-
-        if( FD_LIKELY( ctx->execrp_sig_out->idx!=ULONG_MAX ) ) {
-          /* Copy the txn signature to the signature out link so the
-             dedup/pack tiles can drop already executed transactions. */
-          memcpy( fd_chunk_to_laddr( ctx->execrp_sig_out->mem, ctx->execrp_sig_out->chunk ),
-                  (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off,
-                  64UL );
-          fd_stem_publish( stem, ctx->execrp_sig_out->idx, 0UL, ctx->execrp_sig_out->chunk, 64UL, 0UL, 0UL, 0UL );
-          ctx->execrp_sig_out->chunk = fd_dcache_compact_next( ctx->execrp_sig_out->chunk, 64UL, ctx->execrp_sig_out->chunk0, ctx->execrp_sig_out->wmark );
         }
 
         /* Notify replay. */
@@ -323,15 +314,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->execrp_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->execrp_replay_out->mem, execrp_replay_link->dcache );
     ctx->execrp_replay_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_replay_out->mem, execrp_replay_link->dcache, execrp_replay_link->mtu );
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
-  }
-
-  ctx->execrp_sig_out->idx = fd_topo_find_tile_out_link( topo, tile, "execrp_sig", ctx->tile_idx );
-  if( FD_LIKELY( ctx->execrp_sig_out->idx!=ULONG_MAX ) ) {
-    fd_topo_link_t * execrp_sig_link = &topo->links[ tile->out_link_id[ ctx->execrp_sig_out->idx ] ];
-    ctx->execrp_sig_out->mem    = topo->workspaces[ topo->objs[ execrp_sig_link->dcache_obj_id ].wksp_id ].wksp;
-    ctx->execrp_sig_out->chunk0 = fd_dcache_compact_chunk0( ctx->execrp_sig_out->mem, execrp_sig_link->dcache );
-    ctx->execrp_sig_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_sig_out->mem, execrp_sig_link->dcache, execrp_sig_link->mtu );
-    ctx->execrp_sig_out->chunk  = ctx->execrp_sig_out->chunk0;
   }
 
   /********************************************************************/

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_choreo_eqvoc_fd_eqvoc_private_h
 
 #include "fd_eqvoc.h"
+#include "../fd_choreo_base.h"
 
 typedef struct {
   ulong key;  /* 32 bits = slot | 32 lsb = fec_set_idx  */

@@ -17,12 +17,9 @@
 #include "../../disco/fd_txn_m.h"
 #include "../../choreo/tower/fd_epoch_stakes.h"
 #include "../../discof/fd_accdb_topo.h"
-#include "../../discof/restore/utils/fd_ssmsg.h"
-#include "../../discof/replay/fd_execrp.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_accdb_pipe.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -59,11 +56,10 @@
 
 #define IN_KIND_DEDUP  (0)
 #define IN_KIND_EPOCH  (1)
-#define IN_KIND_EXECRP (2)
+#define IN_KIND_REPLAY (2)
 #define IN_KIND_GOSSIP (3)
 #define IN_KIND_IPECHO (4)
-#define IN_KIND_REPLAY (5)
-#define IN_KIND_SHRED  (6)
+#define IN_KIND_SHRED  (5)
 
 #define OUT_IDX 0
 
@@ -285,6 +281,7 @@ metrics_write( ctx_t * ctx ) {
   FD_MGAUGE_SET( TOWER, CLUSTER_VOTE_SLOT, ctx->metrics.cluster_vote_slot );
   FD_MGAUGE_SET( TOWER, LOCAL_ROOT_SLOT,   ctx->metrics.local_root_slot   );
   FD_MGAUGE_SET( TOWER, LOCAL_VOTE_SLOT,   ctx->metrics.local_vote_slot   );
+  FD_MGAUGE_SET( TOWER, REPLAY_SLOT,       ctx->metrics.replay_slot       );
   FD_MGAUGE_SET( TOWER, RESET_SLOT,        ctx->metrics.reset_slot        );
 
   FD_MGAUGE_SET( TOWER, REPLAY_SLOT_PROCESSED, ctx->metrics.replay_slot_processed_gauge );
@@ -506,7 +503,6 @@ count_vote_txn( ctx_t *             ctx,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
-
     fd_notar_blk_t * notar_blk = fd_notar_count_vote( ctx->notar, total_stake, vote_acc, their_intermediate_vote->slot, fd_forks_canonical_block_id( ctx->forks, their_intermediate_vote->slot ) );
     if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, notar_blk );
   }
@@ -633,6 +629,8 @@ replay_slot_completed( ctx_t *                      ctx,
     FD_LOG_CRIT(( "replay_slot_completed slot %lu block id is null", slot_completed->slot ));
   }
 
+  ctx->metrics.replay_slot = slot_completed->slot;
+
   /* This is a temporary patch for equivocation. */
 
   if( FD_UNLIKELY( fd_forks_query( ctx->forks, slot_completed->slot ) ) ) {
@@ -756,19 +754,21 @@ replay_slot_completed( ctx_t *                      ctx,
       ulong vote_slot = fd_voter_vote_slot( acct->data );
       if( FD_LIKELY( vote_slot!=ULONG_MAX && /* has voted */
                      vote_slot>=fd_ghost_root( ctx->ghost )->slot ) ) { /* vote not too old */
-        /* We search up the ghost ancestry to find the ghost block for this
-           vote slot.  In Agave, they look this value up using a hashmap of
-           slot->block_id ("fork progress"), but that approach only works
-           because they dump and repair (so there's only ever one canonical
-           block id).  We retain multiple block ids, both the original and
-           confirmed one. */
+
+        /* We search up the ghost ancestry to find the ghost block for
+           this vote slot.  In Agave, they look this value up using a
+           hashmap of slot->bank hash ("fork progress"), but that
+           approach only works because they dump and repair (so there's
+           only ever one canonical bank hash).  We retain multiple block
+           ids, both the original and confirmed one. */
 
         fd_ghost_blk_t * ancestor_blk = fd_ghost_slot_ancestor( ctx->ghost, ghost_blk, vote_slot ); /* FIXME potentially slow */
 
-        /* It is impossible for ancestor to be missing, because these are
-           vote accounts on a given fork, not vote txns across forks.  So we
-           know these towers must contain slots we know about (as long as
-           they are >= root, which we checked above). */
+        /* It is impossible for ancestor_blk to be missing, because these
+           are vote accounts on a given fork, not vote txns across
+           forks.  So we know these towers must contain slots we know
+           about as long as they are >= root, which we checked above.
+        */
 
         if( FD_UNLIKELY( !ancestor_blk ) ) {
           FD_BASE58_ENCODE_32_BYTES( acct->addr.key, pubkey_b58 );
@@ -949,13 +949,6 @@ done_vote_iter:
     fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ) );
     fd_tower_print( ctx->tower, ctx->metrics.local_root_slot );
   }
-
-  // if( FD_UNLIKELY( ctx->debug_fd!=-1 ) ) {
-  //   /* standard buf_sz used by below prints is ~3400 bytes, so buf_max of
-  //      4096 is sufficient to keep the debug file mostly up to date */
-  //   fd_ghost_print( ctx->ghost, fd_ghost_root( ctx->ghost ), &ctx->debug_ostream );
-  //   fd_tower_print( ctx->tower, fd_ghost_root( ctx->ghost )->slot, &ctx->debug_ostream );
-  // }
 }
 
 static inline void
@@ -1055,18 +1048,11 @@ returnable_frag( ctx_t *             ctx,
     fd_stake_ci_epoch_msg_fini( ctx->stake_ci );
     return 0;
   }
-  case IN_KIND_EXECRP: {
-    if( FD_LIKELY( (sig>>32)==FD_EXECRP_TT_TXN_EXEC ) ) {
-      fd_execrp_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-      count_vote_txn( ctx, TXN(msg->txn), msg->txn->payload );
-    }
-    return 0;
-  }
   case IN_KIND_GOSSIP: {
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED ) ) {
       fd_gossip_update_message_t const  * msg             = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
-      fd_gossip_duplicate_shred_t const * duplicate_shred = &msg->duplicate_shred;
-      fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin_pubkey );
+      fd_gossip_duplicate_shred_t const * duplicate_shred = msg->duplicate_shred;
+      fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin );
 
       FD_BASE58_ENCODE_32_BYTES( from->uc, from_b58 );
 
@@ -1087,7 +1073,15 @@ returnable_frag( ctx_t *             ctx,
     return 0;
   }
   case IN_KIND_REPLAY: {
-    if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+    if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
+      fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk ) );
+      /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank_utils.rs#L53
+
+         Agave counts votes from replay only if it was completely
+         successful in execution. */
+      if( FD_UNLIKELY( !txn_executed->is_committable || txn_executed->is_fees_only || txn_executed->txn_err ) ) return 0;
+      count_vote_txn( ctx, TXN(txn_executed->txn), txn_executed->txn->payload );
+    } else if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_replay_slot_completed_t * slot_completed = (fd_replay_slot_completed_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       replay_slot_completed( ctx, slot_completed, tsorig, stem );
     } else if( FD_LIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
@@ -1227,7 +1221,6 @@ unprivileged_init( fd_topo_t *      topo,
 
     if     ( FD_LIKELY( !strcmp( link->name, "dedup_resolv"  ) ) ) ctx->in_kind[ i ] = IN_KIND_DEDUP;
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_execrp" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;

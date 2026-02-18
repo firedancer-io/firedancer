@@ -1,6 +1,0 @@
-[development]
-    sandbox = false
-    [development.netns]
-        enabled = true
-[net]
-    interface = "veth_test_xdp_0"

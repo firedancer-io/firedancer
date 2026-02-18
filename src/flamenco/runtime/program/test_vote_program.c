@@ -318,8 +318,7 @@ setup_account_initialize_txn( test_env_t * env ) {
 
   process_slot( env, 10UL );
   /* features */
-  fd_cluster_version_t ver = { 3, 1, 0 };
-  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ), &ver );
+  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ) );
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
@@ -388,8 +387,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
 
   process_slot( env, 10UL );
   /* features */
-  fd_cluster_version_t ver = { 3, 1, 0 };
-  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ), &ver );
+  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ) );
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;

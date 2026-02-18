@@ -134,6 +134,7 @@ fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorize
     ele->prio                        = (ulong)&res->pubkey;
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L33
     fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool );
+    return ele;
   }
   return res;
 }

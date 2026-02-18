@@ -16,9 +16,8 @@
 
 #include "fd_gui_config_parse.h"
 
-#include "../../util/net/fd_net_headers.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
 #include "../../waltz/http/fd_http_server.h"
@@ -148,7 +147,9 @@ typedef struct fd_gui_peers_vote fd_gui_peers_vote_t;
 struct fd_gui_peers_node {
   int valid;
   long update_time_nanos;
-  fd_contact_info_t contact_info;
+  fd_pubkey_t pubkey;
+  long wallclock_nanos;
+  fd_gossip_contact_info_t contact_info;
   char name[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
 
   fd_gui_peers_metric_rate_t gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
@@ -276,7 +277,7 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_NAME  fd_gui_peers_node_pubkey_map
 #define MAP_ELE_T fd_gui_peers_node_t
 #define MAP_KEY_T fd_pubkey_t
-#define MAP_KEY   contact_info.pubkey
+#define MAP_KEY   pubkey
 #define MAP_IDX_T ulong
 #define MAP_NEXT  pubkey_map.next
 #define MAP_PREV  pubkey_map.prev
@@ -287,13 +288,13 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 
 #define MAP_NAME  fd_gui_peers_node_sock_map
 #define MAP_ELE_T fd_gui_peers_node_t
-#define MAP_KEY_T fd_ip4_port_t
-#define MAP_KEY   contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ]
+#define MAP_KEY_T fd_gossip_socket_t
+#define MAP_KEY   contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ]
 #define MAP_IDX_T ulong
 #define MAP_NEXT  sock_map.next
 #define MAP_PREV  sock_map.prev
 #define MAP_KEY_HASH(k,s) ( fd_hash( (s), (k), sizeof(uint) + sizeof(ushort) ) )
-#define MAP_KEY_EQ(k0,k1) ((k0)->l==(k1)->l )
+#define MAP_KEY_EQ(k0,k1) ((k0)->is_ipv6==(k1)->is_ipv6 && (k0)->port==(k1)->port && (!((k0)->is_ipv6) ? (k0)->ip4==(k1)->ip4 : !memcmp((k0)->ip6,(k1)->ip6,16UL)) )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #define MAP_MULTI 1
 #include "../../util/tmpl/fd_map_chain.c"
@@ -314,10 +315,10 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
   LIVE_TABLE_COL_ENTRY( "Stake",        stake,                                                                    live_table_col_stake_lt  ), \
-  LIVE_TABLE_COL_ENTRY( "Pubkey",       contact_info.pubkey,                                                      live_table_col_pubkey_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Pubkey",       pubkey,                                                                   live_table_col_pubkey_lt ), \
   LIVE_TABLE_COL_ENTRY( "Name",         name,                                                                     live_table_col_name_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Country",      country_code_idx,                                                         live_table_col_uchar_lt  ), \
-  LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr,               live_table_col_ipv4_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Ingress Push", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Ingress Pull", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
   LIVE_TABLE_COL_ENTRY( "Egress Push",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
@@ -429,11 +430,11 @@ fd_gui_peers_join( void * shmem );
    Note that gossip_net frags are unverified gossip messages from the
    network.  Messages that cannot be parsed are ignored. */
 void
-fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *  peers,
-                                    uchar const *         payload,
-                                    ulong                 payload_sz,
-                                    fd_ip4_port_t const * peer_sock,
-                                    int                   is_rx );
+fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *       peers,
+                                    uchar const *              payload,
+                                    ulong                      payload_sz,
+                                    fd_gossip_socket_t const * peer_sock,
+                                    int                        is_rx );
 
 /* fd_gui_peers_handle_gossip_message_tx parses frags on the gossip_out
    link and uses the contact info update to build up the peer table. */

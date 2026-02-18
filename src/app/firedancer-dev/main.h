@@ -61,14 +61,12 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
 };
 
 extern configure_stage_t fd_cfg_stage_kill;
-extern configure_stage_t fd_cfg_stage_netns;
 extern configure_stage_t fd_cfg_stage_genesis;
 extern configure_stage_t fd_cfg_stage_keys;
 extern configure_stage_t fd_cfg_stage_accdb;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
-  &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_bonding,

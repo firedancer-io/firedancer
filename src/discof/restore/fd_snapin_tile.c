@@ -191,6 +191,35 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
   return 0;
 }
 
+/* verification of epoch stakes from manifest
+   TODO: is leader schedule epoch always 1 slot ahead of bank epoch?
+   https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
+static int
+verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+  ulong min_required_epoch = manifest->epoch;
+  ulong max_required_epoch = manifest->epoch + 1;
+
+  /* ensure all required epochs are present in epoch stakes */
+  for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
+    int found = 0;
+    for( ulong j=0UL; j<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
+      if( manifest->epoch_stakes[j].epoch==i ) {
+        found = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !found ) ) {
+      /* VerifyEpochStakesError::StakesNotFound
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L667 */
+      FD_LOG_WARNING(( "stakes not found for epoch %lu in manifest", i ));
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
 static int
 verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
                                    ulong              bank_slot ) {
@@ -450,6 +479,12 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   ctx->bank_slot = manifest->slot;
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
     FD_LOG_WARNING(( "slot deltas verification failed" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
+  if( FD_UNLIKELY( verify_epoch_stakes( manifest ) ) ) {
+    FD_LOG_WARNING(( "epoch stakes verification failed" ));
     transition_malformed( ctx, ctx->stem );
     return;
   }
@@ -746,6 +781,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &target_xid );
       fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
+
+      /* Notify replay when snapshot is fully loaded and verified. */
+      fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     }
 
@@ -772,10 +810,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      /* Notify replay when snapshot is fully loaded and verified.  This
-         occurs when we receive the shutdown control message, indicating
-         snapshot load is successful. */
-      fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     }
 

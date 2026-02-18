@@ -60,7 +60,28 @@ typedef union fd_execrp_task_msg fd_execrp_task_msg_t;
 
 struct fd_execrp_txn_exec_done_msg {
   ulong txn_idx;
-  int   err;
+
+  /* These flags form a nested series of if statements.
+     if( is_committable ) {
+       if( is_fees_only ) {
+         instructions will not be executed
+         txn_err will be non-zero and will be one of the account loader errors
+       } else {
+         instructions will execute
+         if( txn_err is non-zero ) {
+           there's likely an instruction error
+         } else {
+           transaction executed successfully
+           https://github.com/anza-xyz/agave/blob/v3.1.8/svm/src/transaction_execution_result.rs#L26
+         }
+       }
+     } else {
+       either failed before account loading, or failed cost tracker
+     }
+  */
+  int is_committable;
+  int is_fees_only;
+  int txn_err;
 
   /* used by monitoring tools */
   ulong slot;

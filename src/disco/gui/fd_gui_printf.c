@@ -1225,7 +1225,7 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
   jsonp_open_object( peers->http, NULL );
 
     char identity_base58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( peer->contact_info.pubkey.uc, NULL, identity_base58 );
+    fd_base58_encode_32( peer->pubkey.uc, NULL, identity_base58 );
     jsonp_string( peers->http, "identity_pubkey", identity_base58 );
 
     jsonp_open_object( peers->http, "gossip" );
@@ -1235,30 +1235,31 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
       jsonp_string( peers->http, "version", version );
       jsonp_ulong( peers->http, "client_id", peer->contact_info.version.client );
       jsonp_ulong( peers->http, "feature_set", peer->contact_info.version.feature_set );
-      jsonp_long( peers->http, "wallclock", peer->contact_info.wallclock_nanos );
+      jsonp_long( peers->http, "wallclock", peer->wallclock_nanos );
       jsonp_ulong( peers->http, "shred_version", peer->contact_info.shred_version );
       jsonp_open_object( peers->http, "sockets" );
-        for( ulong j=0UL; j<FD_CONTACT_INFO_SOCKET_CNT; j++ ) {
+        for( ulong j=0UL; j<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT; j++ ) {
           char const * tag;
           switch( j ) {
-            case FD_CONTACT_INFO_SOCKET_GOSSIP:            tag = "gossip";            break;
-            case FD_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC: tag = "serve_repair_quic"; break;
-            case FD_CONTACT_INFO_SOCKET_RPC:               tag = "rpc";               break;
-            case FD_CONTACT_INFO_SOCKET_RPC_PUBSUB:        tag = "rpc_pubsub";        break;
-            case FD_CONTACT_INFO_SOCKET_SERVE_REPAIR:      tag = "serve_repair";      break;
-            case FD_CONTACT_INFO_SOCKET_TPU:               tag = "tpu";               break;
-            case FD_CONTACT_INFO_SOCKET_TPU_FORWARDS:      tag = "tpu_forwards";      break;
-            case FD_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC: tag = "tpu_forwards_quic"; break;
-            case FD_CONTACT_INFO_SOCKET_TPU_QUIC:          tag = "tpu_quic";          break;
-            case FD_CONTACT_INFO_SOCKET_TPU_VOTE:          tag = "tpu_vote";          break;
-            case FD_CONTACT_INFO_SOCKET_TVU:               tag = "tvu";               break;
-            case FD_CONTACT_INFO_SOCKET_TVU_QUIC:          tag = "tvu_quic";          break;
-            case FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC:     tag = "tpu_vote_quic";     break;
-            case FD_CONTACT_INFO_SOCKET_ALPENGLOW:         tag = "alpenglow";         break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP:            tag = "gossip";            break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC: tag = "serve_repair_quic"; break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC:               tag = "rpc";               break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB:        tag = "rpc_pubsub";        break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR:      tag = "serve_repair";      break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               tag = "tpu";               break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      tag = "tpu_forwards";      break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC: tag = "tpu_forwards_quic"; break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC:          tag = "tpu_quic";          break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE:          tag = "tpu_vote";          break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_TVU:               tag = "tvu";               break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC:          tag = "tvu_quic";          break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC:     tag = "tpu_vote_quic";     break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW:         tag = "alpenglow";         break;
             default:                                       tag = "unknown";           break;
           }
+          uint ip4 = peer->contact_info.sockets[ j ].is_ipv6 ? 0U : peer->contact_info.sockets[ j ].ip4;
           char line[ 64 ];
-          FD_TEST( fd_cstr_printf( line, sizeof( line ), NULL, FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->contact_info.sockets[ j ].addr ), fd_ushort_bswap( peer->contact_info.sockets[ j ].port ) ) );
+          FD_TEST( fd_cstr_printf( line, sizeof( line ), NULL, FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( ip4 ), fd_ushort_bswap( peer->contact_info.sockets[ j ].port ) ) );
           jsonp_string( peers->http, tag, line );
         }
       jsonp_close_object( peers->http );
@@ -1296,7 +1297,7 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
       jsonp_close_array( peers->http );
     }
 
-    fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->contact_info.pubkey, NULL, peers->node_info_pool );
+    fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->pubkey, NULL, peers->node_info_pool );
     if( FD_UNLIKELY( !node_info ) ) {
       jsonp_string( peers->http, "info", NULL );
     } else {
@@ -1332,7 +1333,7 @@ fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t * peers,
           if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_DELETE ) ) {
             jsonp_open_object( peers->http, NULL );
               char identity_base58[ FD_BASE58_ENCODED_32_SZ ];
-              fd_base58_encode_32( peers->contact_info_table[ idxs[ i ] ].contact_info.pubkey.uc, NULL, identity_base58 );
+              fd_base58_encode_32( peers->contact_info_table[ idxs[ i ] ].pubkey.uc, NULL, identity_base58 );
               jsonp_string( peers->http, "identity_pubkey", identity_base58 );
             jsonp_close_object( peers->http );
           }
@@ -2273,24 +2274,26 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
-          if( FD_UNLIKELY( memcmp( cur->contact_info.pubkey.uc, ref->contact_info.pubkey.uc, 32UL ) ) ) {
+          if( FD_UNLIKELY( memcmp( cur->pubkey.uc, ref->pubkey.uc, 32UL ) ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Pubkey" );
 
               char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
-              fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
+              fd_base58_encode_32( cur->pubkey.uc, NULL, pubkey_base58 );
               jsonp_string( peers->http, "new_value", pubkey_base58 );
             jsonp_close_object( peers->http );
           }
 
-          if( FD_UNLIKELY( cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr!=ref->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ) ) {
+          uint ip4_after  = cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+          uint ip4_before = ref->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : ref->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+          if( FD_UNLIKELY( ip4_after!=ip4_before ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "IP Addr" );
 
               char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
-              FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr) ) );
+              FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4_after ) ) );
               jsonp_string( peers->http, "new_value", peer_addr );
             jsonp_close_object( peers->http );
           }
@@ -2368,13 +2371,14 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
           else                                       jsonp_ulong( peers->http, "Stake", cur->stake );
 
           char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
-          fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
+          fd_base58_encode_32( cur->pubkey.uc, NULL, pubkey_base58 );
           jsonp_string( peers->http, "Pubkey", pubkey_base58 );
           jsonp_string( peers->http, "Name", cur->name );
           jsonp_string( peers->http, "Country", peers->dbip.country_code[ cur->country_code_idx ] );
 
+          uint ip4 = cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : cur->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
           char peer_addr[ 16 ]; /* 255.255.255.255 + '\0' */
-          FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(cur->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr) ) );
+          FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
           jsonp_string( peers->http, "IP Addr", peer_addr );
 
           long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;

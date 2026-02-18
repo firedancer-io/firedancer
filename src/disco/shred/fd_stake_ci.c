@@ -434,6 +434,7 @@ ci_dest_add_one_unstaked( fd_stake_ci_t *            info,
                           fd_per_epoch_info_t *      ei ) {
   if( fd_shred_dest_cnt_all( ei->sdest )>=MAX_SHRED_DESTS ) {
     FD_LOG_WARNING(( "Too many validators in shred table to add a new validator." ));
+    return;
   }
   ulong cur_cnt = fd_shred_dest_cnt_all( ei->sdest );
   for( ulong i=0UL; i<cur_cnt; i++ ) {

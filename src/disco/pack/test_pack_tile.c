@@ -1049,11 +1049,10 @@ main( int     argc,
   char const * default_topo_config_path  = TEST_DEFAULT_TOPO_CONFIG_PATH;
   char const * override_topo_config_path = NULL;
   char const * user_topo_config_path     = NULL;
-  int          netns                     = 0;
   int          is_firedancer             = TEST_IS_FIREDANCER;
   int          is_local_cluster          = 0;
   fd_topo_tile_t * pack_tile = fd_tile_unit_test_init( default_topo_config_path, override_topo_config_path, user_topo_config_path,
-                                                       netns, is_firedancer, is_local_cluster,
+                                                       is_firedancer, is_local_cluster,
                                                        fd_topo_initialize, &fd_tile_pack, config );
   FD_TEST( pack_tile );
   fd_metrics_register( fd_metrics_new( metrics_scratch, 10 ) );

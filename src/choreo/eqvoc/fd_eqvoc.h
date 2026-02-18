@@ -4,7 +4,7 @@
 #include "../fd_choreo_base.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/leaders/fd_leaders.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 
 /* fd_eqvoc presents an API for detecting and sending & receiving proofs
    of equivocation.
@@ -82,7 +82,7 @@
    See: https://github.com/anza-xyz/agave/blob/v2.0.3/gossip/src/cluster_info.rs#L113 */
 
 #define FD_EQVOC_CHUNK_SZ  (1232UL - 115UL - 63UL)
-FD_STATIC_ASSERT( FD_EQVOC_CHUNK_SZ==FD_GOSSIP_DUPLICATE_SHRED_MAX_CHUNKS, "DuplicateShred chunk max mismatch" );
+FD_STATIC_ASSERT( FD_EQVOC_CHUNK_SZ<=sizeof(((fd_gossip_duplicate_shred_t*)0)->chunk), "DuplicateShred chunk max mismatch" );
 
 typedef struct fd_eqvoc       fd_eqvoc_t;
 typedef struct fd_eqvoc_proof fd_eqvoc_proof_t;

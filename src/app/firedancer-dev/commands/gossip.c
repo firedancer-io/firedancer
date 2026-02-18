@@ -1,14 +1,10 @@
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
-#include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../discof/gossip/fd_gossip_tile.h"
-#include "../../../flamenco/gossip/fd_gossip_private.h"
-#include "../../../util/pod/fd_pod_format.h"
-#include "../../../util/net/fd_ip4.h" /* fd_cstr_to_ip4_addr */
 #include "../../../util/clock/fd_clock.h"
 
 #include "core_subtopo.h"
@@ -24,8 +20,12 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
+void
+resolve_gossip_entrypoints( config_t * config );
+
 static void
 gossip_cmd_topo( config_t * config ) {
+  resolve_gossip_entrypoints( config );
 
   /* Disable non-gossip listen ports */
   config->tiles.shred.shred_listen_port = 0U;
@@ -141,7 +141,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL*4, sizeof(fd_gossip_update_message_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_out", 0UL );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topob_link(     topo, "gossvf_gossip", "gossvf_gossip", 65536UL*4, sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
+    fd_topob_link(     topo, "gossvf_gossip", "gossvf_gossip", 65536UL*4, sizeof(fd_gossip_message_t)+FD_NET_MTU, 1UL );
     fd_topob_tile_out( topo, "gossvf", i, "gossvf_gossip", i );
     fd_topob_tile_in(  topo, "gossip", 0UL, "metric_in", "gossvf_gossip", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
@@ -1041,8 +1041,8 @@ gossip_cmd_fn( args_t *   args,
   printf( " | Accounts Hashes        | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_ACCOUNTS_HASHES ) ] ) );
   printf( " | Inc Snapshot Hashes    | %s |"        "  | Contact Info Events    | Count        |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_INCREMENTAL_SNAPSHOT_HASHES ) ] ) );
   printf( " | Epoch Slots            | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_EPOCH_SLOTS ) ] ) );
-  printf( " | Version V1             | %s |"        "  | Unrecognized Socket    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V1 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS ) ] ) );
-  printf( " | Version V2             | %s |"        "  | IPv6 Address           | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V2 ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, CONTACT_INFO_IPV6 ) ] ) );
+  printf( " | Version V1             | %s |"        "  | Unrecognized Socket    | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V1 ) ] ), fmt_count( buf2, 0UL ) );
+  printf( " | Version V2             | %s |"        "  | IPv6 Address           | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_VERSION_V2 ) ] ), fmt_count( buf2, 0UL ) );
   printf( " | Node Instance          | %s |"        "  +------------------------+--------------+\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_NODE_INSTANCE ) ] ) );
   printf( " | Duplicate Shred        | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_DUPLICATE_SHRED ) ] ) );
   printf( " | Restart Last Voted     | %s |\n", fmt_count( buf1, gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT_RESTART_LAST_VOTED_FORK_SLOTS ) ] ) );
