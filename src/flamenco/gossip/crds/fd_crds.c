@@ -649,7 +649,10 @@ expire( fd_crds_t *         crds,
   while( !failed_inserts_dlist_is_empty( crds->purged.failed_inserts_dlist, crds->purged.pool ) ) {
     fd_crds_purged_t * head = failed_inserts_dlist_ele_peek_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
 
-    if( FD_LIKELY( head->expire.wallclock_nanos>now-20L*1000L*1000L*1000L ) ) break;
+    /* Agave uses 20 seconds here for failed inserts, but it's a little
+       bit short and causes occasional bandwidth jittering.  Use 60
+       seconds instead. */
+    if( FD_LIKELY( head->expire.wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
 
     failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
     purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );

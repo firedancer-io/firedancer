@@ -923,7 +923,7 @@ next_pull_request( fd_gossip_t const * gossip,
                    long                now ) {
   (void)gossip;
   /* TODO: Dynamic, jitter, etc. */
-  return now + 32L*1000L*1000L;
+  return now+1600L*1000L;
 }
 
 static inline void
