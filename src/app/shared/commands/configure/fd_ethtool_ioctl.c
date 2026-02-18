@@ -573,3 +573,15 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
   *valid = 1;
   return 0;
 }
+
+int
+fd_ethtool_ioctl_rxfh_set_flow_hash_udp4( fd_ethtool_ioctl_t * ioc ) {
+  FD_LOG_NOTICE(( "RUN: `ethtool --config-nfc %s rx-flow-hash udp4 sdfn`", ioc->ifr.ifr_name ));
+  struct ethtool_rxnfc nfc = {
+    .cmd       = ETHTOOL_SRXFH,
+    .flow_type = UDP_V4_FLOW,
+    .data      = RXH_IP_SRC | RXH_IP_DST | RXH_L4_B_0_1 | RXH_L4_B_2_3,
+  };
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_SRXFH", &nfc );
+  return 0;
+}
