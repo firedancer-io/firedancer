@@ -82,7 +82,7 @@ fd_reasm_new( void * shmem,
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_reasm_align() ) == (ulong)shmem + footprint );
 
   reasm->slot0      = ULONG_MAX;
-  reasm->root       = pool_idx_null( pool                    );
+  reasm->root       = pool_idx_null( pool );
   reasm->pool_gaddr = fd_wksp_gaddr_fast( wksp, pool_join( pool_new( pool, fec_max ) ) );
   reasm->ancestry   = ancestry_new( ancestry, fec_max, seed );
   reasm->frontier   = frontier_new( frontier, fec_max, seed );
@@ -313,7 +313,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   FD_TEST( !fd_reasm_query( reasm, merkle_root ) );
 # endif
 
-  ulong            null = pool_idx_null( pool );
+  ulong        null     = pool_idx_null( pool );
   ancestry_t * ancestry = reasm->ancestry;
   frontier_t * frontier = reasm->frontier;
   orphaned_t * orphaned = reasm->orphaned;
@@ -496,6 +496,7 @@ fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root,
                   fd_store_t      * opt_store ) {
+
 # if FD_REASM_USE_HANDHOLDING
   if( FD_UNLIKELY( !pool_ele( reasm_pool( reasm ), reasm->root ) ) ) { FD_LOG_WARNING(( "missing root" )); return NULL; }
   if( FD_UNLIKELY( !fd_reasm_query( reasm, merkle_root ) ) ) {
@@ -514,8 +515,8 @@ fd_reasm_publish( fd_reasm_t      * reasm,
      of the BFS queue. */
 
   fd_reasm_fec_t * head = publish_remove( reasm, &oldr->key, opt_store ); /* initialize BFS queue */
-  head->next            = null;                                       /* clear map next */
-  fd_reasm_fec_t * tail = head;                                       /* tail of BFS queue */
+  head->next            = null;                                           /* clear map next */
+  fd_reasm_fec_t * tail = head;                                           /* tail of BFS queue */
 
   /* Second, BFS down the tree, pruning all of root's ancestors and also
      any descendants of those ancestors. */

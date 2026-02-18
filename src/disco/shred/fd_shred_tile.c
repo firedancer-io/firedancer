@@ -237,18 +237,6 @@ typedef struct {
     ulong repair_rcv_bytes;
     ulong turbine_rcv_cnt;
     ulong turbine_rcv_bytes;
-
-    ulong      store_insert_acquire;
-    ulong      store_insert_release;
-    fd_histf_t store_insert_wait[ 1 ];
-    fd_histf_t store_insert_work[ 1 ];
-    ulong      store_insert_cnt;
-    ulong      store_insert_full_cnt;
-    ulong      store_insert_duplicate_cnt;
-    ulong      store_insert_mr;           /* first 8 bytes of most recently inserted merkle root */
-    ulong      store_insert_full_mr;      /* first 8 bytes of most recently attempted insert of a merkle root when store was full */
-    ulong      store_insert_duplicate_mr; /* first 8 bytes of most recently inserted merkle root that was a duplicate */
-
   } metrics[ 1 ];
 
   struct {
@@ -356,17 +344,6 @@ metrics_write( fd_shred_ctx_t * ctx ) {
 
   FD_MCNT_SET  ( SHRED, INVALID_BLOCK_ID,           ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, SHRED_REJECTED_UNCHAINED,   ctx->metrics->shred_rejected_unchained_cnt );
-
-  FD_MCNT_SET  ( SHRED, STORE_INSERT_ACQUIRE,       ctx->metrics->store_insert_acquire         );
-  FD_MCNT_SET  ( SHRED, STORE_INSERT_RELEASE,       ctx->metrics->store_insert_release         );
-  FD_MHIST_COPY( SHRED, STORE_INSERT_WAIT,          ctx->metrics->store_insert_wait            );
-  FD_MHIST_COPY( SHRED, STORE_INSERT_WORK,          ctx->metrics->store_insert_work            );
-  FD_MCNT_SET  ( SHRED, STORE_INSERT_CNT,           ctx->metrics->store_insert_cnt             );
-  FD_MCNT_SET  ( SHRED, STORE_INSERT_FULL_CNT,      ctx->metrics->store_insert_full_cnt        );
-  FD_MCNT_SET  ( SHRED, STORE_INSERT_DUPLICATE_CNT, ctx->metrics->store_insert_duplicate_cnt   );
-  FD_MGAUGE_SET( SHRED, STORE_INSERT_MR,            ctx->metrics->store_insert_mr              );
-  FD_MGAUGE_SET( SHRED, STORE_INSERT_FULL_MR,       ctx->metrics->store_insert_full_mr         );
-  FD_MGAUGE_SET( SHRED, STORE_INSERT_DUPLICATE_MR,  ctx->metrics->store_insert_duplicate_mr    );
 
   FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result             );
 }
@@ -1079,23 +1056,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* Insert shreds into the store. We do this regardless of whether
          we are leader. */
 
-      fd_store_fec_t * fec = NULL;
-
-      /* Set metrics pointers. */
-
-      ctx->store->metrics.slock_acquire = &ctx->metrics->store_insert_acquire;
-      ctx->store->metrics.slock_release = &ctx->metrics->store_insert_release;
-      ctx->store->metrics.slock_wait    = ctx->metrics->store_insert_wait;
-      ctx->store->metrics.slock_work    = ctx->metrics->store_insert_work;
-
-      /* See top-level documentation in fd_store.h under CONCURRENCY to
-         understand why it is safe to use a Store read vs. write lock in
-         Shred tile. */
-
-      FD_STORE_SLOCK_BEGIN( ctx->store ) {
-        fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ) );
-      } FD_STORE_SLOCK_END
-
+      fd_store_fec_t * fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ) );
 
       /* Firedancer is configured such that the store never fills up, as
          the reasm is responsible for also evicting from store (based on
@@ -1460,6 +1421,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
     FD_TEST( ctx->store->magic==FD_STORE_MAGIC );
     FD_TEST( ctx->store->part_cnt==ctx->round_robin_cnt ); /* single-writer (shred tile) per store part */
+    FD_TEST( !fd_store_verify( ctx->store ) );
   }
 
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
@@ -1504,10 +1466,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                    FD_MHIST_SECONDS_MAX( SHRED, SHREDDING_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics->add_shred_timing,     FD_MHIST_SECONDS_MIN( SHRED, ADD_SHRED_DURATION_SECONDS ),
                                                                    FD_MHIST_SECONDS_MAX( SHRED, ADD_SHRED_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics->store_insert_wait,    FD_MHIST_SECONDS_MIN( SHRED, STORE_INSERT_WAIT ),
-                                                                   FD_MHIST_SECONDS_MAX( SHRED, STORE_INSERT_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics->store_insert_work,    FD_MHIST_SECONDS_MIN( SHRED, STORE_INSERT_WORK ),
-                                                                   FD_MHIST_SECONDS_MAX( SHRED, STORE_INSERT_WORK ) ) );
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
   ctx->metrics->invalid_block_id_cnt         = 0UL;
   ctx->metrics->shred_rejected_unchained_cnt = 0UL;
@@ -1515,15 +1473,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metrics->repair_rcv_bytes             = 0UL;
   ctx->metrics->turbine_rcv_cnt              = 0UL;
   ctx->metrics->turbine_rcv_bytes            = 0UL;
-
-  if( FD_LIKELY( ctx->store ) ) {
-    ctx->store->metrics.insert_cnt           = &ctx->metrics->store_insert_cnt;
-    ctx->store->metrics.insert_full_cnt      = &ctx->metrics->store_insert_full_cnt;
-    ctx->store->metrics.insert_duplicate_cnt = &ctx->metrics->store_insert_duplicate_cnt;
-    ctx->store->metrics.insert_mr            = &ctx->metrics->store_insert_mr;
-    ctx->store->metrics.insert_full_mr       = &ctx->metrics->store_insert_full_mr;
-    ctx->store->metrics.insert_duplicate_mr  = &ctx->metrics->store_insert_duplicate_mr;
-  }
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.txn_cnt        = 0UL;
