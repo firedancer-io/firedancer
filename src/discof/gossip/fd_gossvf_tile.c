@@ -547,10 +547,10 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
     fd_gossip_value_t const * value = &values[ i ];
     if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
 
-    if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=FD_MILLI_TO_NANOSEC( value->wallclock ) ) ) continue;
+    if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ) ) continue;
     if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, value->origin, 32UL ) ) ) continue;
 
-    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, FD_MILLI_TO_NANOSEC( value->wallclock ) ));
+    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, FD_MICRO_TO_NANOSEC( value->contact_info->outset ) ));
   }
 }
 
@@ -980,7 +980,9 @@ unprivileged_init( fd_topo_t *      topo,
 #endif
   }
 
-  ctx->instance_creation_wallclock_nanos = tile->gossvf.boot_timestamp_nanos;
+  /* Conversion to MICROs ensures we are comparing apples to apples in
+     check_duplicate_instance  */
+  ctx->instance_creation_wallclock_nanos = FD_MICRO_TO_NANOSEC( FD_NANOSEC_TO_MICRO( tile->gossvf.boot_timestamp_nanos ) );
 
 #if DEBUG_PEERS
   ctx->peer_cnt = 0UL;
