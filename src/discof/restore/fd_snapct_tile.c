@@ -333,17 +333,19 @@ send_expected_slot( fd_snapct_tile_t *  ctx,
 }
 
 static void
-rename_snapshots( fd_snapct_tile_t * ctx ) {
+rename_full_snapshot( fd_snapct_tile_t * ctx ) {
   FD_TEST( -1!=ctx->local_out.dir_fd );
-
-  /* FIXME: We should rename the full snapshot earlier as soon as the
-     download is complete.  That way, if the validator crashes during the
-     incremental load, we can still use the snapshot on the next run. */
 
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd && ctx->http_full_snapshot_name[ 0 ]!='\0' ) ) {
     if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, TEMP_FULL_SNAP_NAME, ctx->local_out.dir_fd, ctx->http_full_snapshot_name ) ) )
       FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+}
+
+static void
+rename_incr_snapshot( fd_snapct_tile_t * ctx ) {
+  FD_TEST( -1!=ctx->local_out.dir_fd );
+
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd && ctx->http_incr_snapshot_name[ 0 ]!='\0' ) ) {
     if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, TEMP_INCR_SNAP_NAME, ctx->local_out.dir_fd, ctx->http_incr_snapshot_name ) ) )
       FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -775,7 +777,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
-      rename_snapshots( ctx );
+      rename_incr_snapshot( ctx );
       fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
 
@@ -873,9 +875,10 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
+      rename_full_snapshot( ctx );
+
       if( FD_LIKELY( !ctx->config.incremental_snapshots ) ) {
         ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
-        rename_snapshots( ctx );
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
