@@ -141,7 +141,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL*4, sizeof(fd_gossip_update_message_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_out", 0UL );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topob_link(     topo, "gossvf_gossip", "gossvf_gossip", 65536UL*4, sizeof(fd_gossip_message_t)+FD_NET_MTU, 1UL );
+    fd_topob_link(     topo, "gossvf_gossip", "gossvf_gossip", 65536UL*4, sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS+FD_NET_MTU, 1UL );
     fd_topob_tile_out( topo, "gossvf", i, "gossvf_gossip", i );
     fd_topob_tile_in(  topo, "gossip", 0UL, "metric_in", "gossvf_gossip", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
@@ -904,7 +904,7 @@ gossip_cmd_fn( args_t *   args,
 
   ulong pull_response_drops = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
   ulong pull_response_success = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
-  printf(" Pull response drops: %lu/%lu\n", pull_response_drops, pull_response_drops + pull_response_success);
+  printf(" Pull response drops (no valid CRDS): %lu/%lu\n", pull_response_drops, pull_response_drops + pull_response_success);
 
   ulong crds_success = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
   ulong crds_duplicate = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) );

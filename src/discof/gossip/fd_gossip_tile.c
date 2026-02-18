@@ -506,7 +506,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
    */
 
-FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+17UL/*FD_GOSSIP_MSG_MAX_CRDS*/*2UL<=FD_PING_TRACKER_MAX+1UL,
+FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+FD_GOSSIP_MESSAGE_MAX_CRDS*2UL<=FD_PING_TRACKER_MAX+1UL,
                   "Gossip stem burst needs recalculating" );
 #define STEM_BURST ( FD_PING_TRACKER_MAX+1UL )
 
