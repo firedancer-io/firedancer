@@ -659,16 +659,6 @@
 | <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with repair shreds. Bytes include network headers |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv</span> | counter | The number of times we received a turbine shred |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv_&#8203;bytes</span> | counter | The number bytes received from network packets with turbine shreds. Bytes include network headers |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;acquire</span> | counter | Count of slock acquires for insert |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;release</span> | counter | Count of slock releases for insert |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting to acquire the slock for insert |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent working before releasing the slock for insert |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;cnt</span> | counter | Count of inserts |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;full_&#8203;cnt</span> | counter | Count of inserts when store was full |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;duplicate_&#8203;cnt</span> | counter | Count of duplicate inserts |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;mr</span> | gauge | First 8 bytes of most recently inserted merkle root |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;full_&#8203;mr</span> | gauge | First 8 bytes of most recently inserted merkle root when store was full |
-| <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;duplicate_&#8203;mr</span> | gauge | First 8 bytes of most recently inserted duplicate merkle root |
 
 </div>
 
@@ -908,14 +898,6 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;missing_&#8203;cnt</span> | counter | Count of queries where merkle root was missing |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;mr</span> | gauge | First 8 bytes of most recently queried merkle root |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;missing_&#8203;mr</span> | gauge | First 8 bytes of most recently queried missing merkle root |
-| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;acquire</span> | counter | Count of store xlock acquires for remove |
-| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;release</span> | counter | Count of store xlock releases for remove |
-| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;wait</span> | histogram | Time in seconds spent waiting to acquire the xlock for remove |
-| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;work</span> | histogram | Time in seconds spent working before releasing the xlock for remove |
-| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;cnt</span> | counter | Count of removes |
-| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;missing_&#8203;cnt</span> | counter | Count of removes where merkle root was missing |
-| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;mr</span> | gauge | First 8 bytes of most recently removed merkle root |
-| <span class="metrics-name">replay_&#8203;store_&#8203;remove_&#8203;missing_&#8203;mr</span> | gauge | First 8 bytes of most recently removed missing merkle root |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | The slot at which our node has most recently rooted |
 | <span class="metrics-name">replay_&#8203;root_&#8203;distance</span> | gauge | The distance in slots between our current root and the current reset slot |
 | <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | The slot at which we are currently leader, or 0 if none |

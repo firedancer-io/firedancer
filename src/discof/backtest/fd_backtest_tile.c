@@ -105,21 +105,6 @@ struct fd_backt_tile {
   ulong dead_shred_cnt;
   ulong root_slot;
   ulong root_shred_cnt;
-
-  /* Mirrors shred tile's store metrics. */
-
-  struct {
-    ulong      store_insert_acquire;
-    ulong      store_insert_release;
-    fd_histf_t store_insert_wait[ 1 ];
-    fd_histf_t store_insert_work[ 1 ];
-    ulong      store_insert_cnt;
-    ulong      store_insert_full_cnt;
-    ulong      store_insert_duplicate_cnt;
-    ulong      store_insert_mr;           /* first 8 bytes of most recently inserted merkle root */
-    ulong      store_insert_full_mr;      /* first 8 bytes of most recently attempted insert of a merkle root when store was full */
-    ulong      store_insert_duplicate_mr; /* first 8 bytes of most recently inserted merkle root that was a duplicate */
-  } metrics[ 1 ];
 };
 
 typedef struct fd_backt_tile fd_backt_tile_t;
@@ -589,24 +574,6 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->tower_out = out1( topo, tile, "tower_out" );
 
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
-
-  fd_memset( ctx->metrics, 0, sizeof(ctx->metrics) );
-
-  fd_histf_join( fd_histf_new( ctx->metrics->store_insert_wait,    FD_MHIST_SECONDS_MIN( SHRED, STORE_INSERT_WAIT ),
-                                                                   FD_MHIST_SECONDS_MAX( SHRED, STORE_INSERT_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics->store_insert_work,    FD_MHIST_SECONDS_MIN( SHRED, STORE_INSERT_WORK ),
-                                                                   FD_MHIST_SECONDS_MAX( SHRED, STORE_INSERT_WORK ) ) );
-
-  ctx->store->metrics.slock_acquire        = &ctx->metrics->store_insert_acquire;
-  ctx->store->metrics.slock_release        = &ctx->metrics->store_insert_release;
-  ctx->store->metrics.slock_wait           = ctx->metrics->store_insert_wait;
-  ctx->store->metrics.slock_work           = ctx->metrics->store_insert_work;
-  ctx->store->metrics.insert_cnt           = &ctx->metrics->store_insert_cnt;
-  ctx->store->metrics.insert_full_cnt      = &ctx->metrics->store_insert_full_cnt;
-  ctx->store->metrics.insert_duplicate_cnt = &ctx->metrics->store_insert_duplicate_cnt;
-  ctx->store->metrics.insert_mr            = &ctx->metrics->store_insert_mr;
-  ctx->store->metrics.insert_full_mr       = &ctx->metrics->store_insert_full_mr;
-  ctx->store->metrics.insert_duplicate_mr  = &ctx->metrics->store_insert_duplicate_mr;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
