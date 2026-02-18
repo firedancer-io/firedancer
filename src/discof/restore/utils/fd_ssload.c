@@ -263,6 +263,9 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   /* Vote stakes for the previous epoch (E-2) */
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
+
+    if( FD_UNLIKELY( !elem->stake ) ) continue;
+
     fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
     vote_state_curr->node_account = *(fd_pubkey_t *)elem->identity;
     vote_state_curr->stake_t_2 = elem->stake;
