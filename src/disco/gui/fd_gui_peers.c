@@ -635,8 +635,8 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
         if( FD_LIKELY( peer->valid ) ) {
 #if LOGGING
           char _pk[ FD_BASE58_ENCODED_32_SZ ];
-          fd_base58_encode_32( update->origin_pubkey, NULL, _pk );
-          FD_LOG_WARNING(("UPDATE %lu pk=%s", update->contact_info.idx, _pk ));
+          fd_base58_encode_32( update->origin, NULL, _pk );
+          FD_LOG_WARNING(("UPDATE %lu pk=%s", update->contact_info->idx, _pk ));
 #endif
 #ifdef FD_GUI_USE_HANDHOLDING
           /* invariant checks */
@@ -669,9 +669,8 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           fd_gui_peers_node_sock_map_idx_remove_fast( peers->node_sock_map, update->contact_info->idx, peers->contact_info_table );
           fd_gui_peers_live_table_idx_remove        ( peers->live_table,    update->contact_info->idx, peers->contact_info_table );
 
-          fd_memcpy( peer->pubkey.uc, update->origin, 32UL );
-          fd_memcpy( &peer->contact_info, update->contact_info->value, sizeof(peer->contact_info) );
-
+          peer->pubkey = *(fd_pubkey_t *)update->origin;
+          peer->contact_info = *update->contact_info->value;
           peer->update_time_nanos = now;
           /* fetch and set country code */
 #if FD_HAS_ZSTD
@@ -692,12 +691,13 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info->idx }, 1UL );
           fd_http_server_ws_broadcast( peers->http );
         } else {
-          FD_TEST( !fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, fd_type_pun_const( update->origin ), NULL, peers->contact_info_table ) );
 #if LOGGING
           char _pk[ FD_BASE58_ENCODED_32_SZ ];
-          fd_base58_encode_32( update->origin_pubkey, NULL, _pk );
-          FD_LOG_WARNING(( "ADD %lu pk=%s", update->contact_info.idx, _pk ));
+          fd_base58_encode_32( update->origin, NULL, _pk );
+          FD_LOG_WARNING(( "ADD %lu pk=%s", update->contact_info->idx, _pk ));
 #endif
+          FD_TEST( !fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, fd_type_pun_const( update->origin ), NULL, peers->contact_info_table ) );
+          peer->pubkey = *(fd_pubkey_t *)update->origin;
           memset( &peer->gossvf_rx,     0, sizeof(peer->gossvf_rx) );
           memset( &peer->gossip_tx,     0, sizeof(peer->gossip_tx) );
           memset( &peer->gossvf_rx_sum, 0, sizeof(peer->gossvf_rx_sum) );
@@ -710,7 +710,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           else                    peer->name[ 0 ] = '\0';
 
           peer->update_time_nanos = now;
-          fd_memcpy( &peer->contact_info, update->contact_info->value, sizeof(peer->contact_info) );
+          peer->contact_info = *update->contact_info->value;
 
           /* fetch and set country code */
 #if FD_HAS_ZSTD
@@ -747,7 +747,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
         if( FD_UNLIKELY( update->contact_info_remove->idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected remove_contact_info_idx %lu >= %lu", update->contact_info_remove->idx, FD_CONTACT_INFO_TABLE_SIZE ));
 #if LOGGING
         char _pk[ FD_BASE58_ENCODED_32_SZ ];
-        fd_base58_encode_32( update->origin_pubkey, NULL, _pk );
+        fd_base58_encode_32( update->origin, NULL, _pk );
         FD_LOG_WARNING(( "REMOVE %lu pk=%s",update->contact_info_remove->idx, _pk ));
 #endif
 

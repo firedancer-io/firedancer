@@ -545,7 +545,7 @@ remove_contact_info( fd_crds_t *         crds,
                      fd_crds_entry_t *   ci,
                      long                now,
                      fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( !stem ) ) return;
+  FD_TEST( stem );
   fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
   msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   msg->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
@@ -913,7 +913,7 @@ publish_update_msg( fd_crds_t *               crds,
                     fd_gossip_value_t const * entry_view,
                     long                      now,
                     fd_stem_context_t *       stem ) {
-  if( FD_UNLIKELY( !stem ) ) return;
+  FD_TEST( stem );
   if( FD_LIKELY( entry->key.tag!=FD_GOSSIP_VALUE_CONTACT_INFO    &&
                  entry->key.tag!=FD_GOSSIP_VALUE_VOTE            &&
                  entry->key.tag!=FD_GOSSIP_VALUE_DUPLICATE_SHRED &&
