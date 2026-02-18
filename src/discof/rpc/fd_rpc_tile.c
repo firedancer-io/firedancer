@@ -1,40 +1,33 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
+#include "../fd_accdb_topo.h"
+
+#include "../../ballet/json/cJSON_alloc.h"
+#include "../../ballet/base64/fd_base64.h"
+#include "../../ballet/json/cJSON.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../discof/fd_accdb_topo.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/features/fd_features.h"
-#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/runtime/fd_genesis_parse.h"
+#include "../../util/net/fd_ip4.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
-#include "../../ballet/base64/fd_base64.h"
-#include "../../ballet/json/cJSON.h"
-#include "../../ballet/json/cJSON_alloc.h"
-#include "../../util/archive/fd_tar.h"
 
 #include <stddef.h>
 #include <sys/socket.h>
-
 #include <math.h> /* floor, isfinite */
-
-/* Silence warnings due gcc not recognizing nan-infinity-disabled
-   pragma, which which is required by clang */
-#pragma GCC diagnostic ignored "-Wpragmas"
-#pragma GCC diagnostic ignored "-Wunknown-warning-option"
-
-/* Known bug: cJSON uses NaN/infinity but we use -ffast-math */
-#pragma GCC diagnostic ignored "-Wnan-infinity-disabled"
 
 #if FD_HAS_ZSTD
 #include <zstd.h>
 #endif
 
 #if FD_HAS_BZIP2
+#include "../../util/archive/fd_tar.h"
 #include <bzlib.h>
 #endif
 
@@ -44,9 +37,17 @@
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
-#define IN_KIND_REPLAY     (0)
-#define IN_KIND_GENESI     (1)
-#define IN_KIND_GOSSIP_OUT (2)
+#define IN_KIND_REPLAY      (0)
+#define IN_KIND_GENESI      (1)
+#define IN_KIND_GOSSIP_OUT  (2)
+
+/* From bzip2 docs:
+      To guarantee that the compressed data will fit in its buffer,
+      allocate an output buffer of size 1% larger than the uncompressed
+      data, plus six hundred extra bytes.
+*/
+#define FD_RPC_TAR_SZ (FD_GENESIS_MAX_MESSAGE_SIZE + 4UL*512UL)
+#define FD_RPC_TAR_BZ_SZ (FD_RPC_TAR_SZ + ((FD_RPC_TAR_SZ + 100UL - 1UL) / 100UL) + 600UL)
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -150,28 +151,6 @@ derive_http_params( fd_topo_tile_t const * tile ) {
   };
 }
 
-#if FD_HAS_BZIP2
-static void *
-bz2_malloc( void * opaque,
-            int    items,
-            int    size ) {
-  fd_alloc_t * alloc = (fd_alloc_t *)opaque;
-
-  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)(items*size) );
-  if( FD_UNLIKELY( !result ) ) return NULL;
-  return result;
-}
-
-static void
-bz2_free( void * opaque,
-          void * addr ) {
-  fd_alloc_t * alloc = (fd_alloc_t *)opaque;
-
-  if( FD_UNLIKELY( !addr ) ) return;
-  fd_alloc_free( alloc, addr );
-}
-#endif
-
 struct fd_rpc_in {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -247,25 +226,16 @@ struct fd_rpc_tile {
   ulong confirmed_idx;
   ulong finalized_idx;
 
-  int       has_genesis_hash;
-  fd_hash_t genesis_hash[1];
+  int has_genesis_hash;
+  fd_hash_t genesis_hash[ 1 ];
 
-#define FD_RPC_TAR_SZ (FD_GENESIS_MAX_MESSAGE_SIZE + 4UL*512UL)
   uchar genesis_tar[ FD_RPC_TAR_SZ ];
-  ulong genesis_tar_sz;
-
-  /* From bzip2 docs:
-       To guarantee that the compressed data will fit in its buffer,
-       allocate an output buffer of size 1% larger than the uncompressed
-       data, plus six hundred extra bytes.
-  */
-#define CEIL_DIV(x, y) (((x) + (y) - 1UL) / (y))
-  uchar genesis_tar_bz[ FD_RPC_TAR_SZ + CEIL_DIV(FD_RPC_TAR_SZ, 100UL) + 600UL ];
+  uchar genesis_tar_bz[ FD_RPC_TAR_BZ_SZ ];
   ulong genesis_tar_bz_sz;
-#undef  CEIL_DIV
-#undef  FD_RPC_TAR_SZ
 
+# if FD_HAS_BZIP2
   fd_alloc_t * bz2_alloc;
+# endif
 
   long next_poll_deadline;
 
@@ -288,6 +258,79 @@ struct fd_rpc_tile {
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;
 
+# if FD_HAS_BZIP2
+static void *
+bz2_malloc( void * opaque,
+            int    items,
+            int    size ) {
+  fd_alloc_t * alloc = (fd_alloc_t *)opaque;
+
+  void * result = fd_alloc_malloc( alloc, alignof(max_align_t), (ulong)(items*size) );
+  if( FD_UNLIKELY( !result ) ) return NULL;
+  return result;
+}
+
+static void
+bz2_free( void * opaque,
+          void * addr ) {
+  fd_alloc_t * alloc = (fd_alloc_t *)opaque;
+
+  if( FD_UNLIKELY( !addr ) ) return;
+  fd_alloc_free( alloc, addr );
+}
+
+static inline ulong
+fd_rpc_file_as_tarball( fd_rpc_tile_t * ctx,
+                        char const *    filename_cstr,
+                        uchar const *   data,
+                        ulong           data_sz,
+                        uchar *         scratch,
+                        ulong           scratch_sz,
+                        uchar *         out,
+                        ulong           out_sz ) {
+  ulong padding_sz = 2*512UL;
+  if( FD_LIKELY( data_sz % 512UL ) ) padding_sz += 512UL - (data_sz % 512UL);
+  FD_TEST( sizeof(fd_tar_meta_t)+data_sz+padding_sz <= scratch_sz );
+
+  fd_tar_meta_init_file_default( (fd_tar_meta_t *)scratch, filename_cstr, data_sz, fd_log_wallclock() );
+  fd_memcpy( scratch+sizeof(fd_tar_meta_t), data, data_sz );
+  memset( scratch+sizeof(fd_tar_meta_t)+data_sz, 0, padding_sz );
+
+  /* NOTE: Agave's genesis.tar also contains a `rocksdb` folder */
+
+  ulong tar_sz = sizeof(fd_tar_meta_t)+data_sz+padding_sz;
+  FD_TEST( tar_sz<=scratch_sz );
+
+  bz_stream bzstrm = {0};
+  bzstrm.bzalloc = bz2_malloc;
+  bzstrm.bzfree  = bz2_free;
+  bzstrm.opaque  = ctx->bz2_alloc;
+  int bzerr = BZ2_bzCompressInit( &bzstrm, 1, 0, 0 );
+  if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzCompressInit() failed (%d)", bzerr ));
+
+  ulong tar_bz_sz = out_sz;
+
+  bzstrm.next_in   = (char *)scratch;
+  bzstrm.avail_in  = (uint)tar_sz;
+  bzstrm.next_out  = (char *)out;
+  bzstrm.avail_out = (uint)tar_bz_sz;
+
+  for(;;) {
+    bzerr = BZ2_bzCompress( &bzstrm, BZ_FINISH );
+    if( FD_LIKELY( bzerr==BZ_STREAM_END ) ) break;
+    if( FD_UNLIKELY( bzerr>=0 ) ) continue;
+    FD_LOG_ERR(( "BZ2_bzCompress(_, BZ_FINISH) failed (%d)", bzerr ));
+  }
+
+  tar_bz_sz -= (ulong)bzstrm.avail_out;
+
+  bzerr = BZ2_bzCompressEnd( &bzstrm );
+  if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzCompressEnd() failed (%d)", bzerr ));
+
+  return tar_bz_sz;
+}
+# endif
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   ulong a = alignof( fd_rpc_tile_t );
@@ -307,6 +350,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                      );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),   http_fp                                      );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
+#if FD_HAS_BZIP2
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
+#endif
   l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t) );
   l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -448,57 +494,29 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     *ctx->genesis_hash = genesis_meta->genesis_hash;
 
+#   if FD_HAS_BZIP2
     uchar const * blob    = (uchar const *)( genesis_meta+1 );
     ulong const   blob_sz = genesis_meta->blob_sz;
     FD_TEST( blob_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
 
-    ulong tar_entry_sz        = sizeof(fd_tar_meta_t) + blob_sz;
-    ulong tar_entry_sz_padded = fd_ulong_align_up( tar_entry_sz, sizeof(fd_tar_meta_t) );
-    ulong pad_sz              = tar_entry_sz_padded - tar_entry_sz;
-
-    fd_tar_meta_init_file_default( (fd_tar_meta_t *)ctx->genesis_tar, "genesis.bin", blob_sz, fd_log_wallclock() );
-    fd_memcpy( ctx->genesis_tar+sizeof(fd_tar_meta_t), blob, blob_sz );
-    if( pad_sz ) fd_memset( ctx->genesis_tar+sizeof(fd_tar_meta_t)+blob_sz, 0, pad_sz );
-
-    /* NOTE: Agave's genesis.tar also contains a `rocksdb` folder */
-
-    ctx->genesis_tar_sz = tar_entry_sz_padded;
-
-#   if FD_HAS_BZIP2
-    bz_stream bzstrm = {0};
-    bzstrm.bzalloc = bz2_malloc;
-    bzstrm.bzfree  = bz2_free;
-    bzstrm.opaque  = ctx->bz2_alloc;
-    int bzerr = BZ2_bzCompressInit( &bzstrm, 1, 0, 0 );
-    if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzCompressInit() failed (%d)", bzerr ));
-
-    ctx->genesis_tar_bz_sz = sizeof(ctx->genesis_tar_bz);
-
-    bzstrm.next_in   = (char *)ctx->genesis_tar;
-    bzstrm.avail_in  = (uint)ctx->genesis_tar_sz;
-    bzstrm.next_out  = (char *)ctx->genesis_tar_bz;
-    bzstrm.avail_out = (uint)ctx->genesis_tar_bz_sz;
-
-    for(;;) {
-      bzerr = BZ2_bzCompress( &bzstrm, BZ_FINISH );
-      if( FD_LIKELY( bzerr==BZ_STREAM_END ) ) break;
-      if( FD_UNLIKELY( bzerr>=0 ) ) continue;
-      FD_LOG_ERR(( "BZ2_bzCompress(_, BZ_FINISH) failed (%d)", bzerr ));
-    }
-
-    ctx->genesis_tar_bz_sz -= (ulong)bzstrm.avail_out;
-
-    bzerr = BZ2_bzCompressEnd( &bzstrm );
-    if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzCompressEnd() failed (%d)", bzerr ));
-
-#   else
-    FD_LOG_ERR(( "This build does not include bzip2, which is required to serve genesis file.\n"
-                 "To install bzip2, re-run ./deps.sh +dev, make distclean, and make -j" ));
+    ctx->genesis_tar_bz_sz = fd_rpc_file_as_tarball(
+      ctx,
+      "genesis.bin",
+      blob, blob_sz,
+      ctx->genesis_tar, sizeof(ctx->genesis_tar),
+      ctx->genesis_tar_bz, sizeof(ctx->genesis_tar_bz) );
 #   endif
   }
 
   return 0;
 }
+
+/* Silence warnings due gcc not recognizing nan-infinity-disabled
+   pragma, which is required by clang */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
+#pragma GCC diagnostic ignored "-Wnan-infinity-disabled"
 
 static inline int
 fd_rpc_cjson_is_integer( const cJSON * item ) {
@@ -506,6 +524,8 @@ fd_rpc_cjson_is_integer( const cJSON * item ) {
       && isfinite(item->valuedouble)
       && floor(item->valuedouble) == item->valuedouble;
 }
+
+#pragma GCC diagnostic pop
 
 static inline char const *
 fd_rpc_cjson_type_to_cstr( cJSON const * elt ) {
@@ -526,21 +546,23 @@ fd_rpc_cjson_type_to_cstr( cJSON const * elt ) {
     __res.status = 500; \
     FD_LOG_WARNING(( "Failed to populate RPC response buffer" )); \
     FD_LOG_HEXDUMP_WARNING(( "start of message:\n%.*s", __ctx->http->oring+(__ctx->http->stage_off%__ctx->http->oring_sz), fd_ulong_min( 500UL, __ctx->http->oring_sz-(__ctx->http->stage_off%__ctx->http->oring_sz)-1UL ) )); \
-    FD_LOG_HEXDUMP_WARNING(( "start of buffer:\n%.*s",  __ctx->http->oring,                                  fd_ulong_min( 500UL, __ctx->http->oring_sz ) )); \
+    FD_LOG_HEXDUMP_WARNING(( "start of buffer:\n%.*s",  __ctx->http->oring,                                                fd_ulong_min( 500UL, __ctx->http->oring_sz ) )); \
   } \
   __res; }))
 
 #define PRINTF_JSON(__ctx, ...) (__extension__({ \
   fd_http_server_printf( __ctx->http, __VA_ARGS__ ); \
-  STAGE_JSON(__ctx); }))
+  fd_http_server_response_t __res = STAGE_JSON( __ctx ); \
+  __res; }))
+
 
 static inline int
-fd_rpc_validate_params( fd_rpc_tile_t *          ctx,
-                     cJSON const *               id,
-                     cJSON const *               params,
-                     ulong                       min_cnt,
-                     ulong                       max_cnt,
-                     fd_http_server_response_t * res ) {
+fd_rpc_validate_params( fd_rpc_tile_t *             ctx,
+                        cJSON const *               id,
+                        cJSON const *               params,
+                        ulong                       min_cnt,
+                        ulong                       max_cnt,
+                        fd_http_server_response_t * res ) {
   FD_TEST( min_cnt <= max_cnt );
   /* Agave also includes a "data" field in some responses with the
      faulty params payload. Instead of printing raw JSON, they print the
@@ -1216,13 +1238,11 @@ getHealth( fd_rpc_tile_t * ctx,
   int health_status = _getHealth( ctx );
 
   switch( health_status ) {
-    case FD_RPC_HEALTH_STATUS_UNKNOWN: fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, cJSON_PrintUnformatted( id ) ); break;
-    case FD_RPC_HEALTH_STATUS_BEHIND:  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot ), cJSON_PrintUnformatted( id ) ); break;
-    case FD_RPC_HEALTH_STATUS_OK:      fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%s}\n", cJSON_PrintUnformatted( id ) ); break;
+    case FD_RPC_HEALTH_STATUS_UNKNOWN: return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, cJSON_PrintUnformatted( id ) );
+    case FD_RPC_HEALTH_STATUS_BEHIND:  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot ), cJSON_PrintUnformatted( id ) );
+    case FD_RPC_HEALTH_STATUS_OK:      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
     default: FD_LOG_ERR(( "unknown health status" ));
   }
-
-  return STAGE_JSON( ctx );
 }
 
 UNIMPLEMENTED(getHighestSnapshotSlot)
@@ -1259,7 +1279,7 @@ getInflationGovernor( fd_rpc_tile_t * ctx,
                                              &response );
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
-  bank_info_t const * bank = &ctx->banks[ ctx->processed_idx ];
+  bank_info_t const * bank = &ctx->banks[ bank_idx ];
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"foundation\":%g%s,\"foundationTerm\":%g%s,\"initial\":%g%s,\"taper\":%g%s,\"terminal\":%g%s},\"id\":%s}\n",
                            bank->inflation.foundation, bank->inflation.foundation==0 ? ".0" : "",
                            bank->inflation.foundation_term, bank->inflation.foundation_term==0 ? ".0" : "",
@@ -1345,7 +1365,7 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), cJSON_PrintUnformatted( id ) );
   }
 
-  bank_info_t const * bank = &ctx->banks[ ctx->processed_idx ];
+  bank_info_t const * bank = &ctx->banks[ bank_idx ];
 
   fd_rent_t rent = {
     .lamports_per_uint8_year = bank->rent.lamports_per_uint8_year,
@@ -1593,10 +1613,7 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   else if( FD_LIKELY( !strcmp( _method->valuestring, "requestAirdrop"                    ) ) ) response = requestAirdrop( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id, params );
-  else {
-      cJSON_Delete( json );
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
-  }
+  else response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
 
   cJSON_Delete( json );
   return response;
@@ -1666,6 +1683,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                                );
                         FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( derive_http_params( tile ) ) );
   void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
+#if FD_HAS_BZIP2
+  void * _bz2_alloc   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
+#endif
   void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
   void * _nodes_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
 
@@ -1678,13 +1698,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( ulong i=0UL; i<FD_CONTACT_INFO_TABLE_SIZE; i++ ) ctx->cluster_nodes[ i ].valid = 0;
 
-  ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
+# if FD_HAS_BZIP2
+  ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _bz2_alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
+# endif
 
   ctx->next_poll_deadline = fd_tickcount();
 
   ctx->cluster_confirmed_slot = ULONG_MAX;
-  ctx->genesis_tar_sz    = ULONG_MAX;
   ctx->genesis_tar_bz_sz = ULONG_MAX;
 
   ctx->processed_idx = ULONG_MAX;
