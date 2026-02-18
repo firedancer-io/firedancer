@@ -160,8 +160,6 @@ fd_store_fec_t *
 fd_store_query( fd_store_t       * store,
                 fd_hash_t  const * merkle_root ) {
 
-  *store->metrics.query_cnt += 1;
-
   fd_store_pool_t pool = pool_ljoin( store );
   ulong           null = fd_store_pool_idx_null();
   for( uint part_idx = 0; part_idx < store->part_cnt; part_idx++ ) {
@@ -170,9 +168,6 @@ fd_store_query( fd_store_t       * store,
     fd_store_fec_t * fec = fd_store_pool_ele( &pool, idx );
     if( FD_LIKELY( fec ) ) return fec;
   }
-
-  *store->metrics.query_missing_cnt += 1;
-  *store->metrics.query_missing_mr = merkle_root->ul[0];
   return NULL;
 }
 
@@ -181,40 +176,36 @@ fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
                  fd_hash_t  * merkle_root ) {
 
-  *store->metrics.insert_cnt += 1;
-  *store->metrics.insert_mr = merkle_root->ul[0];
-
   fd_store_pool_t pool = pool_ljoin( store );
   ulong           null = fd_store_pool_idx_null();
 
-  ulong _part_idx = part_idx;
   for( ulong part_idx = 0; part_idx < store->part_cnt; part_idx++ ) {
-    fd_store_key_t   key = { *merkle_root, part_idx };
-    ulong            idx = fd_store_map_idx_query_const( map_laddr( store ), &key, null, pool_laddr( store ) );
+    fd_store_key_t key = { *merkle_root, part_idx };
+    ulong          idx = null;
+
+    FD_STORE_SLOCK_BEGIN( store ) {
+      idx = fd_store_map_idx_query_const( map_laddr( store ), &key, null, pool_laddr( store ) );
+    } FD_STORE_SLOCK_END;
+
     fd_store_fec_t * fec = fd_store_pool_ele( &pool, idx );
     if( FD_UNLIKELY( fec ) ) {
-      if( FD_UNLIKELY( _part_idx!=part_idx ) ) FD_LOG_WARNING(( "store duplicate insert with different part_idx" ));
-      *store->metrics.insert_duplicate_cnt += 1;
-      *store->metrics.insert_duplicate_mr = merkle_root->ul[0];
+      FD_BASE58_ENCODE_32_BYTES( merkle_root->uc, _merkle_root );
+      FD_LOG_WARNING(( "duplicate insert %s", _merkle_root ));
       return fec;
     };
   }
 
   int err; fd_store_fec_t * fec = fd_store_pool_acquire( &pool, NULL, BLOCKING, &err );
-
-  switch( err ) {
-  case FD_POOL_SUCCESS:     break;
-  case FD_POOL_ERR_EMPTY:   FD_LOG_WARNING(( "store full %s",    fd_store_pool_strerror( err ) )); *store->metrics.insert_full_cnt += 1; *store->metrics.insert_full_mr = merkle_root->ul[0]; return NULL;
-  case FD_POOL_ERR_CORRUPT: FD_LOG_CRIT   (( "store corrupt %s", fd_store_pool_strerror( err ) ));
-  default:                  FD_LOG_ERR    (( "unhandled err %s", fd_store_pool_strerror( err ) ));
-  }
-
+  if( FD_UNLIKELY( err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "store pool: %s", fd_store_pool_strerror( err ) ));
   fec->key.merkle_root = *merkle_root;
   fec->key.part_idx    = part_idx;
   fec->cmr             = (fd_hash_t){ 0 };
   fec->next            = null;
   fec->data_sz         = 0UL;
-  fd_store_map_ele_insert( map_laddr( store ), fec, pool_laddr( store ) );
+
+  FD_STORE_SLOCK_BEGIN( store ) {
+    fd_store_map_ele_insert( map_laddr( store ), fec, pool_laddr( store ) );
+  } FD_STORE_SLOCK_END;
 
   return fec;
 }
@@ -223,25 +214,20 @@ void
 fd_store_remove( fd_store_t      * store,
                  fd_hash_t const * merkle_root ) {
 
-  *store->metrics.remove_cnt += 1;
-  *store->metrics.remove_mr = merkle_root->ul[0];
-
+  fd_store_pool_t pool = pool_ljoin( store );
   for( uint part_idx = 0; part_idx < store->part_cnt; part_idx++ ) {
     fd_store_key_t   key = { *merkle_root, part_idx };
     fd_store_fec_t * fec = NULL;
+
     FD_STORE_XLOCK_BEGIN( store ) {
       fec = fd_store_map_ele_remove( map_laddr( store ), &key, NULL, pool_laddr( store ) );
     } FD_STORE_XLOCK_END;
 
-    if( FD_LIKELY( fec ) ) {
-      fd_store_pool_t pool = pool_ljoin( store );
-      fd_store_pool_release( &pool, fec, BLOCKING );
-      return;
-    }
-  }
+    if( FD_UNLIKELY( !fec ) ) { FD_BASE58_ENCODE_32_BYTES( merkle_root->uc, _merkle_root ); FD_LOG_WARNING(( "key not found %s", _merkle_root )); return; }
 
-  *store->metrics.remove_missing_cnt += 1;
-  *store->metrics.remove_missing_mr = merkle_root->ul[0];
+    int err = fd_store_pool_release( &pool, fec, BLOCKING );
+    if( FD_UNLIKELY( err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "store pool: %s", fd_store_pool_strerror( err ) ));
+  }
 }
 
 int
@@ -256,7 +242,7 @@ fd_store_verify( fd_store_t * store ) {
     return -1;
   }
 
-  /* iter the map, check that the partitions are correct */
+  /* Iterate the map and check slots are partitioned correctly. */
 
   for( fd_store_map_iter_t iter = fd_store_map_iter_init(       map, fec0 );
                                  !fd_store_map_iter_done( iter, map, fec0 );
@@ -267,9 +253,10 @@ fd_store_verify( fd_store_t * store ) {
       return -1;
     }
     ulong chain_idx = fd_store_map_private_chain_idx( &fec->key, map->seed, map->chain_cnt );
-    /* the chain_idx should be in the range of the partition */
-    if( FD_UNLIKELY( chain_idx < part_sz * fec->key.part_idx || chain_idx >= part_sz * (fec->key.part_idx + 1) ) ) {
-      FD_LOG_WARNING(( "chain_idx %lu not in range %lu-%lu", chain_idx, part_sz * fec->key.part_idx, part_sz * (fec->key.part_idx + 1) ) );
+    ulong k         = fec->key.part_idx;
+    ulong n         = part_sz;
+    if( FD_UNLIKELY( chain_idx < k * n || chain_idx >= (k + 1) * n ) ) { /* chain_idx in [k*n, (k+1)*n) */
+      FD_LOG_WARNING(( "chain_idx %lu not in range [%lu, %lu)", chain_idx, k * n, (k + 1) * n ) );
       return -1;
     }
   }

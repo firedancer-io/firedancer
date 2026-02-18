@@ -186,7 +186,6 @@ test_slot_mr( fd_wksp_t * wksp ) {
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
   fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
   FD_TEST( reasm );
-  FD_TEST( reasm->bid );
 
   fd_reasm_fec_t * pool = reasm_pool( reasm );
   // ulong            null = pool_idx_null( pool );
@@ -295,6 +294,62 @@ test_eqvoc( fd_wksp_t * wksp ) {
 }
 
 void
+test_eqvoc_xidbid( fd_wksp_t * wksp ) {
+  // checks the properties of the xid and bid maps are maintained correctly
+  ulong        fec_max = 32;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_hash_t mr0[1] = {{{ 1, 0 }}};
+  fd_reasm_insert( reasm, mr0, NULL, 0, 0, 0, 0, 0, 1, 0 );
+
+  fd_hash_t mr1[1] = {{{ 1, 1 }}};
+  fd_hash_t mr2[1] = {{{ 1, 2 }}};
+  fd_hash_t mr3[1] = {{{ 1, 3 }}};
+  fd_hash_t mr4[1] = {{{ 1, 4 }}};
+
+                          fd_reasm_insert( reasm, mr1, mr0,  1, 0,  1, 32, 0, 0, 0 );
+                          fd_reasm_insert( reasm, mr2, mr1,  1, 32, 1, 32, 0, 0, 0 );
+  fd_reasm_fec_t * fec3 = fd_reasm_insert( reasm, mr3, mr2,  1, 64, 1, 32, 0, 1, 0 );
+
+  ulong last_xid = (1UL << 32) | 64UL;
+  ulong bid      = (1UL << 32) | UINT_MAX;
+
+  FD_TEST( xid_query( reasm->xid, bid, NULL )->cnt == 1 );
+  FD_TEST( xid_query( reasm->xid, bid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec3 ) );
+  FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 1 );
+  FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec3 ) );
+
+  fd_reasm_fec_t * fec4 = fd_reasm_insert( reasm, mr4, mr2,  1, 64, 1, 32, 0, 1, 0 ); /* equivocate on last fec set idx */
+  FD_TEST( xid_query( reasm->xid, bid, NULL )->cnt == 2 );
+  FD_TEST( xid_query( reasm->xid, bid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec3 ) );
+  FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 2 );
+  FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec3 ) );
+
+  fd_reasm_confirm( reasm, mr4 );
+  FD_TEST( xid_query( reasm->xid, bid, NULL )->cnt == 2 );
+  FD_TEST( xid_query( reasm->xid, bid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
+  FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 2 );
+  FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
+
+  /* publishing forward to mr4 (doesn't actually happen ... ) but should update the xid and bid maps to cnt 1 */
+  fd_reasm_publish( reasm, mr4, NULL );
+  FD_TEST( xid_query( reasm->xid, bid, NULL )->cnt == 1 );
+  FD_TEST( xid_query( reasm->xid, bid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
+  FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 1 );
+  FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
+
+  fd_hash_t mr5[1] = {{{ 1, 5 }}};
+  fd_reasm_insert( reasm, mr5, mr4,  2, 0, 1, 32, 0, 1, 0 );
+  fd_reasm_publish( reasm, mr5, NULL );
+  ulong bid2      = (2UL << 32) | UINT_MAX;
+  FD_TEST( !xid_query( reasm->xid, bid, NULL ) );
+  FD_TEST( !xid_query( reasm->xid, last_xid, NULL ) );
+  FD_TEST( xid_query( reasm->xid, bid2, NULL )->cnt == 1 );
+}
+
+void
 test_eqvoc_transitive( fd_wksp_t * wksp ) {
   ulong        fec_max = 32;
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
@@ -366,6 +421,7 @@ main( int argc, char ** argv ) {
   //test_slot_mr( wksp );
   //test_eqvoc( wksp );
   test_eqvoc_transitive( wksp );
+  test_eqvoc_xidbid( wksp );
 
   fd_halt();
   return 0;

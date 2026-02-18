@@ -1,97 +1,6 @@
 #include "fd_store.h"
 #include "fd_store.c"
 
-static ulong      slock_acquire = 0;
-static ulong      slock_release = 0;
-static fd_histf_t slock_wait;
-static fd_histf_t slock_work;
-
-static ulong      xlock_acquire = 0;
-static ulong      xlock_release = 0;
-static fd_histf_t xlock_wait;
-static fd_histf_t xlock_work;
-
-static ulong      query_cnt         = 0;
-static ulong      query_missing_cnt = 0;
-static ulong      query_mr          = 0;
-static ulong      query_missing_mr  = 0;
-
-static ulong insert_cnt           = 0;
-static ulong insert_full_cnt      = 0;
-static ulong insert_duplicate_cnt = 0;
-static ulong insert_mr            = 0;
-static ulong insert_full_mr       = 0;
-static ulong insert_duplicate_mr  = 0;
-
-static ulong remove_cnt         = 0;
-static ulong remove_missing_cnt = 0;
-static ulong remove_mr          = 0;
-static ulong remove_missing_mr  = 0;
-
-void
-setup_metrics( fd_store_t * store ) {
-  store->metrics.slock_acquire = &slock_acquire;
-  store->metrics.slock_release = &slock_release;
-  memset( &slock_wait, 0, sizeof( slock_wait ) );
-  memset( &slock_work, 0, sizeof( slock_work ) );
-  store->metrics.slock_wait    = fd_histf_join( fd_histf_new( &slock_wait, 1, 1e9 ) );
-  store->metrics.slock_work    = fd_histf_join( fd_histf_new( &slock_work, 1, 1e9 ) );
-
-  store->metrics.xlock_acquire = &xlock_acquire;
-  store->metrics.xlock_release = &xlock_release;
-  memset( &xlock_wait, 0, sizeof( xlock_wait ) );
-  memset( &xlock_work, 0, sizeof( xlock_work ) );
-  store->metrics.xlock_wait    = fd_histf_join( fd_histf_new( &xlock_wait, 1, 1e9 ) );
-  store->metrics.xlock_work    = fd_histf_join( fd_histf_new( &xlock_work, 1, 1e9 ) );
-
-  store->metrics.query_cnt         = &query_cnt;
-  store->metrics.query_missing_cnt = &query_missing_cnt;
-  store->metrics.query_mr          = &query_mr;
-  store->metrics.query_missing_mr  = &query_missing_mr;
-
-  store->metrics.insert_cnt           = &insert_cnt;
-  store->metrics.insert_full_cnt      = &insert_full_cnt;
-  store->metrics.insert_duplicate_cnt = &insert_duplicate_cnt;
-  store->metrics.insert_mr            = &insert_mr;
-  store->metrics.insert_full_mr       = &insert_full_mr;
-  store->metrics.insert_duplicate_mr  = &insert_duplicate_mr;
-
-  store->metrics.remove_cnt         = &remove_cnt;
-  store->metrics.remove_missing_cnt = &remove_missing_cnt;
-  store->metrics.remove_mr          = &remove_mr;
-  store->metrics.remove_missing_mr  = &remove_missing_mr;
-}
-
-void
-teardown_metrics( fd_store_t * store ) {
-  *store->metrics.slock_acquire = 0;
-  *store->metrics.slock_release = 0;
-  store->metrics.slock_wait     = NULL;
-  store->metrics.slock_work     = NULL;
-
-  *store->metrics.xlock_acquire = 0;
-  *store->metrics.xlock_release = 0;
-  store->metrics.xlock_wait     = NULL;
-  store->metrics.xlock_work     = NULL;
-
-  *store->metrics.query_cnt         = 0;
-  *store->metrics.query_missing_cnt = 0;
-  *store->metrics.query_mr          = 0;
-  *store->metrics.query_missing_mr  = 0;
-
-  *store->metrics.insert_cnt           = 0;
-  *store->metrics.insert_full_cnt      = 0;
-  *store->metrics.insert_duplicate_cnt = 0;
-  *store->metrics.insert_mr            = 0;
-  *store->metrics.insert_full_mr       = 0;
-  *store->metrics.insert_duplicate_mr  = 0;
-
-  *store->metrics.remove_cnt         = 0;
-  *store->metrics.remove_missing_cnt = 0;
-  *store->metrics.remove_mr          = 0;
-  *store->metrics.remove_missing_mr  = 0;
-}
-
 /* test_simple defines the following store in which there is only a
    single FEC set per slot.
 
@@ -114,7 +23,6 @@ test_api( fd_wksp_t * wksp ) {
   fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 1UL ) );
   FD_TEST( store );
 
-  setup_metrics( store );
 
   fd_store_pool_t pool = pool_ljoin( store );
   FD_TEST( pool.ele );
@@ -156,16 +64,6 @@ test_api( fd_wksp_t * wksp ) {
   fd_store_remove( store, &mr1 ); FD_TEST( !fd_store_query( store, &mr1 ) );
   fd_store_remove( store, &mr1 ); /* missing remove */
 
-  FD_TEST( *store->metrics.insert_duplicate_cnt==1 );
-  FD_TEST( *store->metrics.remove_missing_cnt  ==1 );
-  FD_TEST( *store->metrics.query_missing_cnt   ==1 );
-
-  FD_TEST( *store->metrics.insert_duplicate_mr==mr1.ul[0] );
-  FD_TEST( *store->metrics.remove_missing_mr  ==mr1.ul[0] );
-  FD_TEST( *store->metrics.query_missing_mr   ==mr1.ul[0] );
-
-  teardown_metrics( store );
-
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
 
@@ -176,7 +74,6 @@ test_api2( fd_wksp_t * wksp ) {
   fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 2UL ) );
   FD_TEST( store );
 
-  setup_metrics( store );
 
   fd_store_pool_t pool = pool_ljoin( store );
   FD_TEST( pool.ele );
@@ -240,7 +137,6 @@ test_api2( fd_wksp_t * wksp ) {
   FD_TEST( fd_store_insert( store, 1, &mr6a ) );
   FD_TEST( fd_store_query( store, &mr6a ) );
 
-  teardown_metrics( store );
 
   fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
 }
@@ -251,7 +147,6 @@ test_hash( fd_wksp_t * wksp ) {
   void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max ), 1UL );
   fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 2UL ) );
 
-  setup_metrics( store );
 
   fd_store_pool_t  pool = pool_ljoin( store );
   fd_store_fec_t * fec0 = pool_laddr( store );
@@ -315,7 +210,6 @@ test_hash( fd_wksp_t * wksp ) {
   FD_TEST( fec2->next == fd_store_pool_idx( &pool, fec1 ) );
   FD_TEST( fec1->next == ULONG_MAX );
 
-  teardown_metrics( store );
 }
 
 static ulong        tile_go;
@@ -348,7 +242,6 @@ test_part( fd_wksp_t * wksp ) {
   store           = fd_store_join( fd_store_new( mem, fec_max, tile_cnt ) );
   FD_TEST( store );
 
-  setup_metrics( store );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( tile_go ) = 0;
@@ -379,7 +272,6 @@ test_part( fd_wksp_t * wksp ) {
 
   FD_TEST( fd_store_verify( store ) == 0 );
 
-  teardown_metrics( store );
 }
 
 int

@@ -918,10 +918,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->has_epoch_ctx = true;
   txn_context_msg->epoch_ctx.has_features = true;
   dump_sorted_features( fd_bank_features_query( bank ), &txn_context_msg->epoch_ctx.features, spad );
-
-  /* Transaction Context -> slot_ctx */
-  txn_context_msg->has_slot_ctx  = true;
-  txn_context_msg->slot_ctx.slot = fd_bank_slot_get( bank );
 }
 
 static void
@@ -1005,9 +1001,6 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Compute Units */
   instr_context->cu_avail = txn_out->details.compute_budget.compute_meter;
-
-  /* Slot Context */
-  instr_context->has_slot_context = true;
 
   /* Epoch Context */
   instr_context->has_epoch_context = true;

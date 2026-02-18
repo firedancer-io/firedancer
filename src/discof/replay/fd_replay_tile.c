@@ -38,7 +38,6 @@
 
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
-#include <errno.h>
 #include <stdio.h>
 
 /* Replay concepts:
@@ -413,15 +412,6 @@ struct fd_replay_tile {
     ulong      store_query_mr;
     ulong      store_query_missing_mr;
 
-    ulong      store_remove_acquire;
-    ulong      store_remove_release;
-    fd_histf_t store_remove_wait[1];
-    fd_histf_t store_remove_work[1];
-    ulong      store_remove_cnt;
-    ulong      store_remove_missing_cnt;
-    ulong      store_remove_mr;
-    ulong      store_remove_missing_mr;
-
     ulong slots_total;
     ulong transactions_total;
 
@@ -486,15 +476,6 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_MISSING_CNT,  ctx->metrics.store_query_missing_cnt  );
   FD_MGAUGE_SET( REPLAY, STORE_QUERY_MR,           ctx->metrics.store_query_mr           );
   FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MR,   ctx->metrics.store_query_missing_mr   );
-
-  FD_MCNT_SET  ( REPLAY, STORE_REMOVE_ACQUIRE,     ctx->metrics.store_remove_acquire     );
-  FD_MCNT_SET  ( REPLAY, STORE_REMOVE_RELEASE,     ctx->metrics.store_remove_release     );
-  FD_MHIST_COPY( REPLAY, STORE_REMOVE_WAIT,        ctx->metrics.store_remove_wait        );
-  FD_MHIST_COPY( REPLAY, STORE_REMOVE_WORK,        ctx->metrics.store_remove_work        );
-  FD_MCNT_SET  ( REPLAY, STORE_REMOVE_CNT,         ctx->metrics.store_remove_cnt         );
-  FD_MCNT_SET  ( REPLAY, STORE_REMOVE_MISSING_CNT, ctx->metrics.store_remove_missing_cnt );
-  FD_MGAUGE_SET( REPLAY, STORE_REMOVE_MR,          ctx->metrics.store_remove_mr          );
-  FD_MGAUGE_SET( REPLAY, STORE_REMOVE_MISSING_MR,  ctx->metrics.store_remove_missing_mr  );
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
   ulong leader_slot = ctx->leader_bank->data ? fd_bank_slot_get( ctx->leader_bank ) : 0UL;
@@ -1350,6 +1331,27 @@ publish_reset( fd_replay_tile_t *  ctx,
 }
 
 static void
+store_xinsert( fd_store_t      * store,
+               fd_hash_t const * merkle_root ) {
+  fd_store_pool_t pool = {
+      .pool    = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_mem_gaddr ),
+      .ele     = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_ele_gaddr ),
+      .ele_max = store->fec_max
+  };
+  int err; fd_store_fec_t * fec = fd_store_pool_acquire( &pool, NULL, 1 /* blocking */, &err );
+  if( FD_UNLIKELY( err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "store pool: %s", fd_store_pool_strerror( err ) ));
+  fec->key.merkle_root = *merkle_root;
+  fec->key.part_idx    = 0;
+  fec->cmr             = (fd_hash_t){ 0 };
+  fec->next            = fd_store_pool_idx_null();
+  fec->data_sz         = 0UL;
+
+  FD_STORE_XLOCK_BEGIN( store ) {
+    fd_store_map_ele_insert( fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr ), fec, pool.ele );
+  } FD_STORE_XLOCK_END;
+}
+
+static void
 boot_genesis( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               ulong               in_idx,
@@ -1415,6 +1417,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
+  store_xinsert( ctx->store, &initial_block_id );
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
   block_id_ele->block_id = initial_block_id;
@@ -1534,6 +1537,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
+    store_xinsert( ctx->store, &manifest_block_id );
 
     ctx->cluster_type = fd_bank_cluster_type_get( bank );
 
@@ -1860,13 +1864,15 @@ process_fec_set( fd_replay_tile_t *  ctx,
      that the underlying data is not found, implying that this is for a
      minority fork that we can safeljy ignore. */
 
-  ctx->store->metrics.slock_acquire = &ctx->metrics.store_query_acquire;
-  ctx->store->metrics.slock_release = &ctx->metrics.store_query_release;
-  ctx->store->metrics.slock_wait    = ctx->metrics.store_query_wait;
-  ctx->store->metrics.slock_work    = ctx->metrics.store_query_work;
-
+  ulong wait = (ulong)fd_log_wallclock();
+  ulong work = wait;
   FD_STORE_SLOCK_BEGIN( ctx->store ) {
+    ctx->metrics.store_query_acquire++;
+    work = (ulong)fd_log_wallclock();
+    fd_histf_sample( ctx->metrics.store_query_wait, work - wait );
+
     fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
+    ctx->metrics.store_query_cnt++;
     if( FD_UNLIKELY( !store_fec ) ) {
 
       /* The only case in which a FEC is not found in the store after
@@ -1874,6 +1880,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
          has already been published away.  In this case we abandon the
          entire slice because it is no longer relevant.  */
 
+      ctx->metrics.store_query_missing_cnt++;
+      ctx->metrics.store_query_missing_mr = reasm_fec->key.ul[0];
       FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
       FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
       return;
@@ -1883,6 +1891,9 @@ process_fec_set( fd_replay_tile_t *  ctx,
       fd_banks_mark_bank_dead( ctx->banks, sched_fec->bank_idx );
     }
   } FD_STORE_SLOCK_END;
+
+  ctx->metrics.store_query_release++;
+  fd_histf_sample( ctx->metrics.store_query_work, (ulong)fd_log_wallclock() - work );
 }
 
 /* accdb_advance_root moves account records from the unrooted to the
@@ -2786,30 +2797,10 @@ unprivileged_init( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->metrics.store_query_work,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WORK ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WORK ) ) );
 
-  fd_histf_join( fd_histf_new( ctx->metrics.store_remove_wait,  FD_MHIST_SECONDS_MIN( REPLAY, STORE_REMOVE_WAIT ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_REMOVE_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics.store_remove_work,  FD_MHIST_SECONDS_MIN( REPLAY, STORE_REMOVE_WORK ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_REMOVE_WORK ) ) );
-
   fd_histf_join( fd_histf_new( ctx->metrics.root_slot_dur,      FD_MHIST_SECONDS_MIN( REPLAY, ROOT_SLOT_DURATION_SECONDS ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, ROOT_SLOT_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics.root_account_dur,   FD_MHIST_SECONDS_MIN( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ) ) );
-
-  ctx->store->metrics.xlock_acquire = &ctx->metrics.store_remove_acquire;
-  ctx->store->metrics.xlock_release = &ctx->metrics.store_remove_release;
-  ctx->store->metrics.xlock_wait    = ctx->metrics.store_remove_wait;
-  ctx->store->metrics.xlock_work    = ctx->metrics.store_remove_work;
-
-  ctx->store->metrics.query_cnt         = &ctx->metrics.store_query_cnt;
-  ctx->store->metrics.query_missing_cnt = &ctx->metrics.store_query_missing_cnt;
-  ctx->store->metrics.query_mr          = &ctx->metrics.store_query_mr;
-  ctx->store->metrics.query_missing_mr  = &ctx->metrics.store_query_missing_mr;
-
-  ctx->store->metrics.remove_cnt         = &ctx->metrics.store_remove_cnt;
-  ctx->store->metrics.remove_missing_cnt = &ctx->metrics.store_remove_missing_cnt;
-  ctx->store->metrics.remove_mr          = &ctx->metrics.store_remove_mr;
-  ctx->store->metrics.remove_missing_mr  = &ctx->metrics.store_remove_missing_mr;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

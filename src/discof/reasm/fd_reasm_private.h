@@ -49,24 +49,10 @@
 #define DEQUE_T                ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
-struct bid {
-  ulong     slot;
-  ulong     idx; /* pool idx of the last FEC in the slot */
-};
-typedef struct bid bid_t;
-
-#define MAP_NAME         bid
-#define MAP_T            bid_t
-#define MAP_KEY          slot
-#define MAP_KEY_NULL     ULONG_MAX
-#define MAP_KEY_INVAL(k) ((k)==MAP_KEY_NULL)
-#define MAP_MEMOIZE      0
-#include "../../util/tmpl/fd_map_dynamic.c"
-
 struct xid {
-  ulong key; /* 32 msb slot | 32 lsb fec_set_idx */
-  ulong idx; /* pool idx of the FEC */
-  ulong cnt; /* count of FECs with this xid key */
+  ulong key; /* 32 msb slot | 32 lsb fec_set_idx.  if fec_set_idx is UINT_MAX, then this xid represents the block id for this slot. */
+  ulong idx; /* pool idx of first FEC seen. Updated only on confirmation. */
+  uint  cnt; /* count of FECs with this xid key.  If > 1, equivocation occurred on this FEC set */
 };
 typedef struct xid xid_t;
 
@@ -89,7 +75,6 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   dlist_t        * subtreel;    /* the join to the dlist */
   ulong *          bfs;         /* internal queue of pool idxs for BFS */
   ulong *          out;         /* delivery queue of pool idxs to output */
-  bid_t *          bid;         /* map of slot->fec */
   xid_t *          xid;         /* map of (slot, fec_set_idx)->mr */
 };
 

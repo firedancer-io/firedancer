@@ -36,8 +36,6 @@ typedef struct fd_exec_test_instr_context {
     /* The input data passed to program execution. */
     pb_bytes_array_t *data;
     uint64_t cu_avail;
-    bool has_slot_context;
-    fd_exec_test_slot_context_t slot_context;
     bool has_epoch_context;
     fd_exec_test_epoch_context_t epoch_context;
 } fd_exec_test_instr_context_t;
@@ -79,11 +77,11 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_INSTR_ACCT_INIT_DEFAULT     {0, 0, 0}
-#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT  {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
+#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT  {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT  {0, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_INSTR_ACCT_INIT_ZERO        {0, 0, 0}
-#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO     {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
+#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO     {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
 #define FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO     {0, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_INSTR_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 
@@ -96,7 +94,6 @@ extern "C" {
 #define FD_EXEC_TEST_INSTR_CONTEXT_INSTR_ACCOUNTS_TAG 4
 #define FD_EXEC_TEST_INSTR_CONTEXT_DATA_TAG      5
 #define FD_EXEC_TEST_INSTR_CONTEXT_CU_AVAIL_TAG  6
-#define FD_EXEC_TEST_INSTR_CONTEXT_SLOT_CONTEXT_TAG 8
 #define FD_EXEC_TEST_INSTR_CONTEXT_EPOCH_CONTEXT_TAG 9
 #define FD_EXEC_TEST_INSTR_EFFECTS_RESULT_TAG    1
 #define FD_EXEC_TEST_INSTR_EFFECTS_CUSTOM_ERR_TAG 2
@@ -121,13 +118,11 @@ X(a, POINTER,  REPEATED, MESSAGE,  accounts,          3) \
 X(a, POINTER,  REPEATED, MESSAGE,  instr_accounts,    4) \
 X(a, POINTER,  SINGULAR, BYTES,    data,              5) \
 X(a, STATIC,   SINGULAR, UINT64,   cu_avail,          6) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  slot_context,      8) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_context,     9)
 #define FD_EXEC_TEST_INSTR_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_INSTR_CONTEXT_DEFAULT NULL
 #define fd_exec_test_instr_context_t_accounts_MSGTYPE fd_exec_test_acct_state_t
 #define fd_exec_test_instr_context_t_instr_accounts_MSGTYPE fd_exec_test_instr_acct_t
-#define fd_exec_test_instr_context_t_slot_context_MSGTYPE fd_exec_test_slot_context_t
 #define fd_exec_test_instr_context_t_epoch_context_MSGTYPE fd_exec_test_epoch_context_t
 
 #define FD_EXEC_TEST_INSTR_EFFECTS_FIELDLIST(X, a) \

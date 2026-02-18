@@ -212,36 +212,6 @@ struct fd_store {
   ulong pool_ele_gaddr; /* wksp gaddr of first ele_t object in pool_para */
 
   fd_rwlock_t lock; /* shared-exclusive lock */
-  struct {
-    ulong *      slock_acquire;
-    ulong *      slock_release;
-    fd_histf_t * slock_wait;
-    fd_histf_t * slock_work;
-
-    ulong *      xlock_acquire;
-    ulong *      xlock_release;
-    fd_histf_t * xlock_wait;
-    fd_histf_t * xlock_work;
-
-    ulong * query_cnt;
-    ulong * query_missing_cnt;
-    ulong * query_mr; /* first 8 bytes of most recently queried merkle root */
-    ulong * query_missing_mr; /* first 8 bytes of most recently queried merkle root that was missing */
-
-    ulong * insert_cnt;
-    ulong * insert_full_cnt;
-    ulong * insert_duplicate_cnt;
-    ulong * insert_mr;      /* first 8 bytes of most recently inserted merkle root */
-    ulong * insert_full_mr; /* first 8 bytes of most recently attempted insert of a merkle root when store was full */
-    ulong * insert_duplicate_mr; /* first 8 bytes of most recently inserted merkle root that was a duplicate */
-
-    ulong * remove_cnt;
-    ulong * remove_missing_cnt;
-    ulong * remove_mr;         /* first 8 bytes of most recently removed merkle root */
-    ulong * remove_missing_mr; /* first 8 bytes of most recently attempted remove of a merkle root that was missing */
-
-    ulong _work; /* private for macro impl */
-  } metrics;
 };
 typedef struct fd_store fd_store_t;
 
@@ -334,17 +304,11 @@ static inline void
 fd_store_private_slock_end( fd_store_t ** _store ) {
    fd_store_t * store = *_store;
    fd_store_slock_release( store );
-   *store->metrics.slock_release += 1;
-   fd_histf_sample( store->metrics.slock_work, (ulong)fd_log_wallclock() - store->metrics._work );
 }
 
 #define FD_STORE_SLOCK_BEGIN(store) {                                                 \
   fd_store_t * _store __attribute__((cleanup(fd_store_private_slock_end))) = (store); \
-  ulong wait = (ulong)fd_log_wallclock();                                             \
   fd_store_slock_acquire( _store );                                                   \
-  *store->metrics.slock_acquire += 1;                                                 \
-  fd_histf_sample( store->metrics.slock_wait, (ulong)fd_log_wallclock() - wait );     \
-  store->metrics._work = (ulong)fd_log_wallclock();                                   \
   {
 
 #define FD_STORE_SLOCK_END }}
@@ -353,35 +317,22 @@ static inline void
 fd_store_private_xlock_end( fd_store_t ** _store ) {
    fd_store_t * store = *_store;
    fd_store_xlock_release( store );
-   *store->metrics.xlock_release += 1;
-   fd_histf_sample( store->metrics.xlock_work, (ulong)fd_log_wallclock() - store->metrics._work );
 }
 
 #define FD_STORE_XLOCK_BEGIN(store) {                                                 \
   fd_store_t * _store __attribute__((cleanup(fd_store_private_xlock_end))) = (store); \
-  ulong wait = (ulong)fd_log_wallclock();                                             \
   fd_store_xlock_acquire( _store );                                                   \
-  *store->metrics.xlock_acquire += 1;                                                 \
-  fd_histf_sample( store->metrics.xlock_wait, (ulong)fd_log_wallclock() - wait );     \
-  store->metrics._work = (ulong)fd_log_wallclock();                                   \
   {
 
 #define FD_STORE_XLOCK_END }}
 
 
-/* fd_store_{query,query_const} queries the FEC set keyed by merkle.
-   Returns a pointer to the fd_store_fec_t if found, NULL otherwise.
+/* fd_store_query queries the FEC set keyed by merkle_root.  Returns a
+   pointer to the fd_store_fec_t if found, NULL otherwise.  Assumes
+   caller has acquired the shared lock.
 
-   Both the const and non-const versions are concurrency safe; as in
-   they avoid using the non-const map_ele_query that reorders the chain.
-   fd_store_query gets around this by calling map idx_query_const, which
-   does not reorder the chain, and then indexes directly into the pool
-   and returns a non-const pointer to the element of interest.
-
-   Assumes caller has acquired the shared lock via fd_store_shacq.
-
-   IMPORTANT SAFETY TIP!  Caller should only call fd_store_shrel when
-   they no longer retain interest in the returned pointer. */
+   IMPORTANT SAFETY TIP!  Caller should only call release the shared
+   lock when they no longer retain interest in the returned pointer. */
 
 fd_store_fec_t *
 fd_store_query( fd_store_t      * store,
@@ -398,22 +349,18 @@ fd_store_query( fd_store_t      * store,
    Each fd_store_fec_t can hold at most FD_STORE_DATA_MAX bytes of data,
    and caller is responsible for copying into the region.
 
-   Assumes store is a current local join and caller has acquired either
-   the shared or exclusive lock via fd_store_shacq or fd_store_exacq.
-   See top-level documentation for how the caller can make it safe to
-   store insert with a shared lock using store parts.
-
-   IMPORTANT SAFETY TIP!  Caller must not release the lock while they
-   retain interest in the returned pointer. */
+   This is a blocking operation that acquires a shared lock as part of
+   its implementation.  Assumes caller has safely partitioned insertions
+   if running in parallel (see top-level documentation in fd_store.h for
+   details). */
 
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
                  fd_hash_t  * merkle_root );
 
-/* fd_store_remove removes the FEC set keyed by merkle_root.  Returns
-   a pointer to the removed pool ele (fd_store_fec_t *) on success.
-   Returns NULL if the element is not found in the store.
+/* fd_store_remove removes the FEC set keyed by merkle_root.  Logs a
+   warning if merkle_root is not found.
 
    This is a blocking operation that acquires an exclusive lock as part
    of its implementation.
