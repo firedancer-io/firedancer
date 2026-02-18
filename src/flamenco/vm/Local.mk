@@ -6,14 +6,12 @@ $(call add-objs,fd_vm fd_vm_interp fd_vm_disasm fd_vm_trace,fd_flamenco)
 $(call add-hdrs,test_vm_util.h)
 $(call add-objs,test_vm_util,fd_flamenco)
 
-ifdef FD_HAS_SECP256K1
 ifdef FD_HAS_BLST
 $(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(BLST_LIBS))
 endif
 endif
 
 # Unfortunately, the get_sysvar syscall handler depends on the funk database
-ifdef FD_HAS_SECP256K1
 ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(BLST_LIBS))
 $(call run-unit-test,test_vm_interp)
@@ -22,18 +20,14 @@ endif
 
 $(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util)
 
-ifdef FD_HAS_SECP256K1
 ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_funk fd_ballet fd_util,$(SECP256K1_LIBS) $(BLST_LIBS))
 $(call run-unit-test,test_vm_instr)
 endif
-endif
 
 $(call run-unit-test,test_vm_base)
-endif
 
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pointer_chase,test_pointer_chase,fd_util)
 $(call run-unit-test,test_pointer_chase)
-endif
 endif

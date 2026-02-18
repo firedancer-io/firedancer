@@ -129,7 +129,6 @@ test_recover( FD_FN_UNUSED fd_rng_t * rng ) {
     char cstr[128];
     log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_secp256k1_recover(bad)" ), iter, dt );
   }
-
 }
 
 /**********************************************************************/

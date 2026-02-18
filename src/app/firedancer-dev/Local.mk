@@ -4,7 +4,6 @@ ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 ifdef FD_HAS_ZSTD
-ifdef FD_HAS_SECP256K1
 
 .PHONY: firedancer-dev
 
@@ -28,7 +27,6 @@ $(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_fi
 $(call run-integration-test,test_firedancer_dev)
 else
 $(warning firedancer-dev build disabled due to lack of zstd)
-endif
 endif
 endif
 endif

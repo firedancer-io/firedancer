@@ -34,9 +34,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
   verification_test_t * const test = ( verification_test_t * const ) data;
   uchar _pub[ 64 ]; uchar * pub = _pub;
 
-  for ( int recid=0; recid<=3; recid++ ) {
+  for( int recid=0; recid<=3; recid++ ) {
     void * res = fd_secp256k1_recover(pub, test->msg, test->sig, recid);
-    if ( FD_UNLIKELY( res != NULL && !memcmp( pub, test->pub, 64UL ) ) ) {
+    if( FD_UNLIKELY( res != NULL && !memcmp( pub, test->pub, 64UL ) ) ) {
       // was able to verify fuzz input
       __builtin_trap();
     }

@@ -12,9 +12,7 @@ endif
 
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
-ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
-endif
 
 $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
@@ -28,10 +26,8 @@ endif
 
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
-ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_cost_tracker,test_cost_tracker,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_cost_tracker,)
-endif
 
 $(call add-hdrs,fd_compute_budget_details.h)
 $(call add-objs,fd_compute_budget_details,fd_flamenco)
@@ -52,20 +48,16 @@ $(call run-unit-test,test_bundle_exec)
 endif
 endif
 
-ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_runtime_alut,test_runtime_alut,fd_flamenco fd_funk fd_ballet fd_util)
-endif
 
 ifdef FD_HAS_ATOMIC
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bank,)
 $(call make-unit-test,test_static_instruction_limit,test_static_instruction_limit,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_static_instruction_limit,)
-endif
 endif
 endif
 
@@ -78,14 +70,12 @@ ifdef FD_HAS_INT128
 $(call add-hdrs,fd_runtime.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h fd_runtime_helpers.h)
 $(call add-objs,fd_runtime,fd_flamenco)
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_deprecate_rent_exemption_threshold,)
 $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_instr_acct_bounds,)
 $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_accounts_resize_delta,)
-endif
 endif
 endif
 endif
