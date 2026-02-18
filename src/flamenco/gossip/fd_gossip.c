@@ -145,7 +145,10 @@ ping_tracker_change( void *        _ctx,
   if( FD_UNLIKELY( !memcmp( peer_pubkey, ctx->identity_pubkey, 32UL ) ) ) return;
 
   switch( change_type ) {
-    case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:   fd_crds_peer_active( ctx->crds, peer_pubkey, now ); break;
+    case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:
+      fd_crds_peer_active( ctx->crds, peer_pubkey, now );
+      fd_crds_drain_no_contact_info( ctx->crds, peer_pubkey );
+      break;
     case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE: fd_crds_peer_inactive( ctx->crds, peer_pubkey, now ); break;
     case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED: break;
     default: FD_LOG_ERR(( "Unknown change type %d", change_type )); return;
@@ -506,10 +509,22 @@ static void
 rx_pull_response( fd_gossip_t *                     gossip,
                   fd_gossip_pull_response_t const * pull_response,
                   uchar const *                     payload,
+                  uchar const *                     failed,
                   fd_stem_context_t *               stem,
                   long                              now ) {
   for( ulong i=0UL; i<pull_response->values_len; i++ ) {
     fd_gossip_value_t const * value = &pull_response->values[ i ];
+
+    /* Values marked as failed have no known origin contact info.
+       Record their hash in the purged set (so they appear in bloom
+       filters and peers stop re-sending them), indexed by origin
+       pubkey so we can drain them when we learn the contact info. */
+    if( FD_UNLIKELY( failed[ i ] ) ) {
+      uchar candidate_hash[ 32UL ];
+      fd_crds_generate_hash( gossip->sha256, payload+value->offset, value->length, candidate_hash );
+      fd_crds_insert_no_contact_info( gossip->crds, value->origin, candidate_hash, now );
+      continue;
+    }
 
     int checks_res = fd_crds_checks_fast( gossip->crds, value, payload+value->offset, value->length, 0 /* from_push_msg m*/ );
     if( FD_UNLIKELY( !!checks_res ) ) {
@@ -558,6 +573,11 @@ rx_pull_response( fd_gossip_t *                     gossip,
       origin_addr.addr = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
       origin_addr.port = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
       if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, value->origin, origin_stake, origin_addr, now );
+
+      /* We just learned this peer's contact info.  Drain any
+         no_contact_info hashes associated with this origin from
+         the purged set so peers re-send those CRDS values. */
+      fd_crds_drain_no_contact_info( gossip->crds, value->origin );
     }
     active_push_set_insert( gossip, payload+value->offset, value->length, value->origin, origin_stake, stem, now, 0 /* flush_immediately */ );
   }
@@ -568,8 +588,21 @@ static int
 process_push_crds( fd_gossip_t *             gossip,
                    fd_gossip_value_t const * value,
                    uchar const *             payload,
+                   uchar                     failed,
                    long                      now,
                    fd_stem_context_t *       stem ) {
+
+  /* Values marked as failed have no known origin contact info.
+     Record their hash in the purged set (so they appear in bloom
+     filters and peers stop re-sending them), indexed by origin
+     pubkey so we can drain them when we learn the contact info. */
+  if( FD_UNLIKELY( failed ) ) {
+    uchar candidate_hash[ 32UL ];
+    fd_crds_generate_hash( gossip->sha256, payload+value->offset, value->length, candidate_hash );
+    fd_crds_insert_no_contact_info( gossip->crds, value->origin, candidate_hash, now );
+    return -1;
+  }
+
   /* overrides_fast here, either count duplicates or purge if older (how!?) */
 
   /* return values in both fd_crds_checks_fast and fd_crds_inserted need
@@ -608,6 +641,11 @@ process_push_crds( fd_gossip_t *             gossip,
     origin_addr.addr = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
     origin_addr.port = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
     if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, value->origin, origin_stake, origin_addr, now );
+
+    /* We just learned this peer's contact info.  Drain any
+       no_contact_info hashes associated with this origin from
+       the purged set so peers re-send those CRDS values. */
+    fd_crds_drain_no_contact_info( gossip->crds, value->origin );
   }
   active_push_set_insert( gossip, payload+value->offset, value->length, value->origin, origin_stake, stem, now, 0 /* flush_immediately */ );
   return 0;
@@ -617,10 +655,11 @@ static void
 rx_push( fd_gossip_t *            gossip,
          fd_gossip_push_t const * push,
          uchar const *            payload,
+         uchar const *            failed,
          long                     now,
          fd_stem_context_t *      stem ) {
   for( ulong i=0UL; i<push->values_len; i++ ) {
-    int err = process_push_crds( gossip, &push->values[ i ], payload, now, stem );
+    int err = process_push_crds( gossip, &push->values[ i ], payload, failed[ i ], now, stem );
     if( FD_UNLIKELY( err>0 ) ) {
       /* TODO: implement prune finder
       ulong num_duplicates         = (ulong)err;
@@ -698,19 +737,20 @@ fd_gossip_rx( fd_gossip_t *       gossip,
               long                now,
               fd_stem_context_t * stem ) {
   /* TODO: Implement traffic shaper / bandwidth limiter */
-  FD_TEST( data_sz>=sizeof(fd_gossip_message_t) );
-  fd_gossip_message_t const * view = (fd_gossip_message_t const *)data;
-  uchar const *            payload = data+sizeof(fd_gossip_message_t);
+  FD_TEST( data_sz>=sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS );
+  fd_gossip_message_t const * view    = (fd_gossip_message_t const *)data;
+  uchar const *               failed  = data+sizeof(fd_gossip_message_t);
+  uchar const *               payload = data+sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS;
 
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       rx_pull_request( gossip, view->pull_request, peer, stem, now );
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      rx_pull_response( gossip, view->pull_response, payload, stem, now );
+      rx_pull_response( gossip, view->pull_response, payload, failed, stem, now );
       break;
     case FD_GOSSIP_MESSAGE_PUSH:
-      rx_push( gossip, view->push, payload, now, stem );
+      rx_push( gossip, view->push, payload, failed, now, stem );
       break;
     case FD_GOSSIP_MESSAGE_PRUNE:
       rx_prune( gossip, view->prune );

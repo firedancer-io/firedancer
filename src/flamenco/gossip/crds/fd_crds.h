@@ -128,6 +128,36 @@ fd_crds_insert_failed_insert( fd_crds_t *   crds,
                               uchar const * hash,
                               long          now );
 
+/* fd_crds_insert_no_contact_info records a CRDS value hash that was
+   dropped because the origin pubkey has no known contact info.  The
+   hash is inserted into the shared purged treap (so it appears in
+   bloom filters) and into a per-pubkey chain so all entries for a
+   given origin can be drained when we learn their contact info.
+
+   origin points to the 32-byte origin pubkey of the CRDS value.
+   hash points to the 32-byte SHA-256 hash of the serialized value.
+   now is the current wallclock time in nanoseconds. */
+
+void
+fd_crds_insert_no_contact_info( fd_crds_t *   crds,
+                                uchar const * origin,
+                                uchar const * hash,
+                                long          now );
+
+/* fd_crds_drain_no_contact_info removes all no_contact_info entries
+   associated with the given origin pubkey from the purged treap,
+   no_contact_info dlist, and per-pubkey chain.  This causes those
+   hashes to disappear from bloom filters, so peers will re-send the
+   corresponding CRDS values in future pull responses.
+
+   This should be called when we successfully learn a peer's contact
+   info (i.e., a ContactInfo CRDS value is inserted for the first
+   time for that pubkey). */
+
+void
+fd_crds_drain_no_contact_info( fd_crds_t *   crds,
+                               uchar const * origin );
+
 /* fd_crds_checks_fast checks if inserting a CRDS value would fail on
    specific conditions. Updates the CRDS purged table depending on the checks
    that failed.

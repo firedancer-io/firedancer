@@ -448,7 +448,8 @@ static void
 filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
                            uint                   tag,
                            fd_gossip_value_t *    values,
-                           ulong *                values_len ) {
+                           ulong *                values_len,
+                           uchar *                failed ) {
   ulong i = 0UL;
   while( i<*values_len ) {
     int keep      = 0;
@@ -479,9 +480,7 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
           ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ] += values[ i ].length;
         }
       }
-      values[ i ] = values[ *values_len-1UL ];
-      (*values_len)--;
-      continue;
+      failed[ i ] = 1;
     }
 
     i++;
@@ -490,14 +489,15 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
 
 static int
 filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
-                      fd_gossip_message_t *  view ) {
+                      fd_gossip_message_t *  view,
+                      uchar *                failed ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
     case FD_GOSSIP_MESSAGE_PRUNE:
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH: {
-      filter_shred_version_crds( ctx, view->tag, view->push->values, &view->push->values_len );
+      filter_shred_version_crds( ctx, view->tag, view->push->values, &view->push->values_len, failed );
       if( FD_UNLIKELY( !view->push->values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
       } else {
@@ -505,7 +505,7 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
       }
     }
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
-      filter_shred_version_crds( ctx, view->tag, view->pull_response->values, &view->pull_response->values_len );
+      filter_shred_version_crds( ctx, view->tag, view->pull_response->values, &view->pull_response->values_len, failed );
       if( FD_UNLIKELY( !view->pull_response->values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
       } else {
@@ -607,6 +607,7 @@ check_addr( fd_ip4_port_t addr,
 static int
 verify_addresses( fd_gossvf_tile_ctx_t * ctx,
                   fd_gossip_message_t *  view,
+                  uchar *                failed,
                   fd_stem_context_t *    stem ) {
   ulong * values_len;
   fd_gossip_value_t * values;
@@ -617,7 +618,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       return 0;
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       if( FD_UNLIKELY( !check_addr( ctx->peer, ctx->allow_private_address ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
-      if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+      // if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH:
       values_len = &view->push->values_len;
@@ -655,25 +656,15 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_INACTIVE_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_INACTIVE_IDX ] += value->length;
       }
-      values[ i ] = values[ *values_len-1UL ];
-      (*values_len)--;
-      continue;
+      /* Mark as failed instead of removing so gossip tile can
+         track the hash in the purged set. */
+      failed[ i ] = 1;
     }
 
     i++;
   }
 
-  if( FD_UNLIKELY( !*values_len ) ) {
-    if( view->tag==FD_GOSSIP_MESSAGE_PUSH ) {
-      return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
-    } else if( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) {
-      return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
-    } else {
-      __builtin_unreachable();
-    }
-  } else {
-    return 0;
-  }
+  return 0;
 }
 
 static void
@@ -813,10 +804,12 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !message->push->values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
   }
 
-  int result = filter_shred_version( ctx, message );
+  uchar failed[ FD_GOSSIP_MESSAGE_MAX_CRDS ] = {0};
+
+  int result = filter_shred_version( ctx, message, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_addresses( ctx, message, stem );
+  result = verify_addresses( ctx, message, failed, stem );
   if( FD_UNLIKELY( result ) ) return result;
 
   result = verify_signatures( ctx, message, payload, ctx->sha );
@@ -827,6 +820,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
       for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
+        if( FD_UNLIKELY( failed[ i ] ) ) continue; /* Don't add to tcache so we can re-receive after learning contact info */
         ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( message->pull_response->values[ i ].signature );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
@@ -836,6 +830,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     }
     case FD_GOSSIP_MESSAGE_PUSH: {
       for( ulong i=0UL; i<message->push->values_len; i++ ) {
+        if( FD_UNLIKELY( failed[ i ] ) ) continue; /* Don't add to tcache so we can re-receive after learning contact info */
         ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( message->push->values[ i ].signature );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
@@ -876,11 +871,13 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   uchar * dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
   fd_memcpy( dst, message, sizeof(fd_gossip_message_t ) );
-  fd_memcpy( dst+sizeof(fd_gossip_message_t), payload, payload_sz );
+  fd_memcpy( dst+sizeof(fd_gossip_message_t), failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
+  fd_memcpy( dst+sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS, payload, payload_sz );
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, sizeof(fd_gossip_message_t)+payload_sz, 0UL, tsorig, tspub );
-  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_message_t)+payload_sz, ctx->out->chunk0, ctx->out->wmark );
+  ulong out_sz = sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS+payload_sz;
+  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, out_sz, 0UL, tsorig, tspub );
+  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, out_sz, ctx->out->chunk0, ctx->out->wmark );
 
   return result;
 }

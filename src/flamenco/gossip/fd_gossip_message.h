@@ -33,6 +33,23 @@
 
 #define FD_GOSSIP_VALUE_MAX_SZ (1188UL)
 
+/* Tightest bound for values[] in a Push / PullResponse given network
+   constraints.
+
+     IPv6 minimum MTU             = 1280
+     IPv6 header                  =   40
+     UDP header                   =    8
+     PACKET_DATA_SIZE             = 1232   (= 1280 - 40 - 8)
+
+     Minimum bytes consumed before values loop:
+       Protocol tag(4) + from(32) + values_len(8)             =  44
+
+     Remaining: 1232 - 44 = 1188
+     Each CrdsValue: signature(64) + CrdsData tag(4) = 68 bytes minimum
+     Max values = floor(1188/68) = 17  */
+
+#define FD_GOSSIP_MESSAGE_MAX_CRDS (17UL)
+
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)        + sizeof((fd_gossip_update_message_t *)0)->contact_info)
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof((fd_gossip_update_message_t *)0)->contact_info_remove)
 #define FD_GOSSIP_UPDATE_SZ_VOTE                (offsetof(fd_gossip_update_message_t, vote)                + sizeof((fd_gossip_update_message_t *)0)->vote)
@@ -299,24 +316,10 @@ struct fd_gossip_pull_request {
 
 typedef struct fd_gossip_pull_request fd_gossip_pull_request_t;
 
-/* Tightest bound for values[] given network constraints.
-
-     IPv6 minimum MTU             = 1280
-     IPv6 header                  =   40
-     UDP header                   =    8
-     PACKET_DATA_SIZE             = 1232   (= 1280 - 40 - 8)
-
-     Minimum bytes consumed before values loop:
-       Protocol tag(4) + from(32) + values_len(8)             =  44
-
-     Remaining: 1232 - 44 = 1188
-     Each CrdsValue: signature(64) + CrdsData tag(4) = 68 bytes minimum
-     Max values = floor(1188/68) = 17  */
-
 struct fd_gossip_pull_response {
   uchar from[ 32UL ];
   ulong values_len;
-  fd_gossip_value_t values[ 17UL ];
+  fd_gossip_value_t values[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
 };
 
 typedef struct fd_gossip_pull_response fd_gossip_pull_response_t;
@@ -324,7 +327,7 @@ typedef struct fd_gossip_pull_response fd_gossip_pull_response_t;
 struct fd_gossip_push {
   uchar from[ 32UL ];
   ulong values_len;
-  fd_gossip_value_t values[ 17UL ];
+  fd_gossip_value_t values[ FD_GOSSIP_MESSAGE_MAX_CRDS ];
 };
 
 typedef struct fd_gossip_push fd_gossip_push_t;
