@@ -197,7 +197,10 @@ fd_accdb_v2_advance_root( fd_accdb_admin_t *        accdb_,
   }
 
   ulong delay = xid->ul[0] - oldest_xid.ul[0];
-  if( delay >= accdb->slot_delay ) {
+  /* genesis_override is necessary when bootstrapping from genesis,
+     without requiring fd_accdb_admin_v2_delay_set to accept 0. */
+  int genesis_override = !xid->ul[0];
+  if( delay >= accdb->slot_delay || genesis_override ) {
     FD_LOG_INFO(( "accdb xid %lu:%lu: pruning",
                   oldest_xid.ul[0], oldest_xid.ul[1] ));
     fd_funk_txn_t * oldest = &funk->txn_pool->ele[ funk->shmem->child_head_cidx ];
