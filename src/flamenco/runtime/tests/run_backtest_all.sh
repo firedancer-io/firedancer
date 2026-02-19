@@ -109,3 +109,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-static-instruction
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local -y 1 -m 3000 -e 1000 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-386300256 -y 1 -m 2000000 -e 386300289 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258 -y 1 -m 2000000 -e 387596373
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax-intrabatch-account-locks -y 1 -m 1000 -e 240
