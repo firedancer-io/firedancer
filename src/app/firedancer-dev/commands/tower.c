@@ -5,7 +5,7 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h"
 #include "../../../discof/tower/fd_tower_tile.c"
-#include "../../../choreo/tower/fd_tower_forks.h"
+#include "../../../choreo/tower/fd_tower_blocks.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -48,7 +48,7 @@ tower_ctx_wksp( args_t *          args,
 }
 
 static void
-print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_forks_t * forks ) {
+print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_tower_blocks_t * forks ) {
   printf( "\n[Tower Forks]\n" );
   printf( "=============\n" );
   printf( "%-15s | %-15s | %-10s | %-10s\n", "Slot", "Parent Slot", "Voted", "Confirmed" );
@@ -56,13 +56,13 @@ print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_forks_t * forks ) {
 
   /* Iterate through all map slots */
   ulong tower_forks_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, forks->tower_forks );
-  fd_tower_forks_t * map = (fd_tower_forks_t *)fd_wksp_laddr_fast( wksp, tower_forks_gaddr );
+  fd_tower_block_t * map = (fd_tower_block_t *)fd_wksp_laddr_fast( wksp, tower_forks_gaddr );
   ulong slot_count = 0;
 
-  for( ulong slot_idx = 0UL; slot_idx < fd_tower_forks_slot_cnt( map ); slot_idx++ ) {
-    fd_tower_forks_t * fork = &map[ slot_idx ];
+  for( ulong slot_idx = 0UL; slot_idx < fd_tower_block_slot_cnt( map ); slot_idx++ ) {
+    fd_tower_block_t * fork = &map[ slot_idx ];
     /* Check if key is valid (not MAP_KEY_NULL which is ULONG_MAX) */
-    if( !fd_tower_forks_key_inval( fork->slot ) ) {
+    if( !fd_tower_block_key_inval( fork->slot ) ) {
       printf( "%-15lu | ", fork->slot );
       if( fork->parent_slot == ULONG_MAX ) {
         printf( "%-15s | ", "NULL" );
@@ -89,7 +89,7 @@ print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_forks_t * forks ) {
                                     iter = fd_tower_leaves_dlist_iter_fwd_next( iter, leaves_dlist, leaves_pool ) ) {
     fd_tower_leaf_t * leaf = fd_tower_leaves_dlist_iter_ele( iter, leaves_dlist, leaves_pool );
     if( FD_LIKELY( leaf ) ) {
-      fd_tower_forks_t * fork = fd_tower_forks_query( map, leaf->slot, NULL );
+      fd_tower_block_t * fork = fd_tower_block_query( map, leaf->slot, NULL );
       printf( "Leaf slot: %lu", leaf->slot );
       if( fork->voted )     printf( " [voted]"     );
       if( fork->confirmed ) printf( " [confirmed]" );
@@ -153,7 +153,7 @@ tower_cmd_fn_forks( args_t *   args,
   tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
 
   ulong forks_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->forks );
-  fd_forks_t * forks = (fd_forks_t *)fd_wksp_laddr( tower_wksp->wksp, forks_gaddr );
+  fd_tower_blocks_t * forks = (fd_tower_blocks_t *)fd_wksp_laddr( tower_wksp->wksp, forks_gaddr );
 
   for( ;; ) {
     print_all_forks( tower_wksp->wksp, tower_ctx, forks );

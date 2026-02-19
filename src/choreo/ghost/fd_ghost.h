@@ -84,7 +84,7 @@
    fd_ghost API for how that works. */
 
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower_accts.h"
+#include "../tower/fd_tower_voters.h"
 
 /* FD_GHOST_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks. */

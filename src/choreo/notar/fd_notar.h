@@ -70,7 +70,7 @@
    predates block_ids) and maps slots to bank hashes during replay.
 
    As a result, there can be multiple block ids for a given slot.  notar
-   tracks the block_id for each slot using fd_tower_forks, and also
+   tracks the block_id for each slot using fd_tower_block, and also
    "duplicate confirmation".  If notar observes a duplicate confirmation
    for a different block_id than the one it has for a given slot, it
    updates the block_id for that slot to the duplicate confirmed one. */
@@ -79,7 +79,7 @@
    on additional runtime integrity checks. */
 
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower_accts.h"
+#include "../tower/fd_tower_voters.h"
 
 #ifndef FD_NOTAR_PARANOID
 #define FD_NOTAR_PARANOID 1
@@ -253,7 +253,7 @@ fd_notar_count_vote( fd_notar_t *        notar,
 
 void
 fd_notar_advance_epoch( fd_notar_t *       notar,
-                        fd_tower_accts_t * accts,
+                        fd_tower_voters_t * accts,
                         ulong              epoch );
 
 /* fd_notar_publish publishes root as the new notar root slot, removing

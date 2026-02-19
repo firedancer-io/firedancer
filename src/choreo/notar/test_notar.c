@@ -8,25 +8,25 @@ test_advance_epoch( fd_wksp_t * wksp ) {
   fd_notar_t * notar = fd_notar_join( fd_notar_new( notar_mem, slot_max ) );
   FD_TEST( notar );
 
-  void * tower_accts_mem = fd_wksp_alloc_laddr( wksp, fd_tower_accts_align(), fd_tower_accts_footprint( FD_VOTER_MAX ), 1UL );
-  fd_tower_accts_t * tower_accts = fd_tower_accts_join( fd_tower_accts_new( tower_accts_mem, FD_VOTER_MAX ) );
-  FD_TEST( tower_accts );
+  void * tower_voters_mem = fd_wksp_alloc_laddr( wksp, fd_tower_voters_align(), fd_tower_voters_footprint( FD_VOTER_MAX ), 1UL );
+  fd_tower_voters_t * tower_voters = fd_tower_voters_join( fd_tower_voters_new( tower_voters_mem, FD_VOTER_MAX ) );
+  FD_TEST( tower_voters );
 
-  fd_tower_accts_t acct = { .addr = (fd_pubkey_t){ .key = { 1 } }, .stake = 10 };
-  fd_tower_accts_push_tail( tower_accts, acct );
+  fd_tower_voters_t acct = { .addr = (fd_pubkey_t){ .key = { 1 } }, .stake = 10 };
+  fd_tower_voters_push_tail( tower_voters, acct );
 
   /* Voter should be accts. */
 
   fd_notar_advance_wmark( notar, 431998 );
 
-  fd_notar_advance_epoch( notar, tower_accts, 1 );
+  fd_notar_advance_epoch( notar, tower_voters, 1 );
   FD_TEST( fd_notar_vtr_query( notar->vtr_map, acct.addr, NULL ) ); /* populate vtr map */
   FD_TEST( fd_notar_count_vote( notar, 100, &acct.addr, 431999, &((fd_hash_t){ .ul = { 431999 } }) ) );
 
   /* Evict the voter from accts. */
 
-  fd_tower_accts_pop_head( tower_accts );
-  fd_notar_advance_epoch( notar, tower_accts, 2 );
+  fd_tower_voters_pop_head( tower_voters );
+  fd_notar_advance_epoch( notar, tower_voters, 2 );
   FD_TEST( !fd_notar_count_vote( notar, 100, &acct.addr, 432000, &((fd_hash_t){ .ul = { 432000 } }) ) );
 
   // fd_hash_t block_id  = { .ul = { slot } };

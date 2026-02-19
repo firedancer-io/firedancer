@@ -1,8 +1,6 @@
 #ifndef HEADER_fd_src_choreo_tower_fd_tower_h
 #define HEADER_fd_src_choreo_tower_fd_tower_h
 
-#include "../../choreo/voter/fd_voter.h"
-
 /* fd_tower presents an API for Solana's TowerBFT algorithm.
 
    What is TowerBFT? TowerBFT is an algorithm for converging a
@@ -422,11 +420,12 @@
 */
 
 #include "../fd_choreo_base.h"
-#include "fd_tower_accts.h"
-#include "fd_tower_forks.h"
+#include "fd_tower_blocks.h"
+#include "fd_tower_serdes.h"
+#include "fd_tower_stakes.h"
+#include "fd_tower_voters.h"
 #include "../ghost/fd_ghost.h"
 #include "../notar/fd_notar.h"
-#include "fd_epoch_stakes.h"
 #include "../../disco/pack/fd_microblock.h"
 
 /* FD_TOWER_PARANOID:  Define this to non-zero at compile time
@@ -497,9 +496,9 @@ typedef struct fd_tower_out fd_tower_out_t;
 
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
-                         fd_tower_accts_t  * accts,
-                         fd_epoch_stakes_t * epoch_stakes,
-                         fd_forks_t        * forks,
+                         fd_tower_voters_t  * accts,
+                         fd_tower_stakes_t * tower_stakes,
+                         fd_tower_blocks_t        * forks,
                          fd_ghost_t        * ghost,
                          fd_notar_t        * notar );
 
@@ -526,7 +525,7 @@ fd_tower_from_vote_acc( fd_tower_t  * tower,
 
    Returns the number of copied elements. */
 ulong
-fd_tower_with_lat_from_vote_acc( fd_voter_vote_t tower[ static FD_TOWER_VOTE_MAX ],
+fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_MAX ],
                                  uchar const *      vote_acc );
 
 /* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
