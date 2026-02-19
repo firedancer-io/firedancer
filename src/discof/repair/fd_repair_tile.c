@@ -36,6 +36,7 @@
 #include "fd_inflight.h"
 #include "fd_repair.h"
 #include "fd_policy.h"
+#include "../reasm/fd_reasm.h"
 
 #define LOGGING       1
 #define DEBUG_LOGGING 0
@@ -46,8 +47,9 @@
 #define IN_KIND_SHRED   (3)
 #define IN_KIND_SIGN    (4)
 #define IN_KIND_SNAP    (5)
-#define IN_KIND_GOSSIP  (6)
-#define IN_KIND_GENESIS (7)
+#define IN_KIND_GOSSIP  (7)
+#define IN_KIND_GENESIS (8)
+#define IN_KIND_REPLAY  (9)
 
 #define MAX_IN_LINKS    (32)
 
@@ -501,6 +503,12 @@ during_frag( ctx_t * ctx,
     return;
   }
 
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    fd_memcpy( ctx->buffer, dcache_entry, sz );
+    return;
+  }
+
   FD_LOG_ERR(( "Frag from unknown link (kind=%u in_idx=%lu)", in_kind, in_idx ));
 }
 
@@ -901,6 +909,13 @@ after_frag( ctx_t *             ctx,
     after_net( ctx, sz );
     return;
   }
+
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
+    fd_reasm_evicted_t const * msg = fd_type_pun_const( ctx->buffer );
+    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, 31 );
+  }
+
+   /* Should never reach here since before_frag should have filtered out any unexpected frags. */
 }
 
 static inline void
@@ -1035,11 +1050,12 @@ unprivileged_init( fd_topo_t *      topo,
       sign_repair_in_idx[ sign_repair_idx++ ] = in_idx;
       sign_link_depth                         = link->depth;
     }
-    else if( 0==strcmp( link->name, "gossip_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
-    else if( 0==strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
-    else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
-    else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
-    else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
+    else if( 0==strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
+    else if( 0==strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
+    else if( 0==strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    else if( 0==strcmp( link->name, "snapin_manif"  ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
+    else if( 0==strcmp( link->name, "genesi_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
+    else if( 0==strcmp( link->name, "replay_repair" ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;

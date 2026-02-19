@@ -190,6 +190,13 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 
+struct fd_reasm_evicted {
+  fd_hash_t mr;
+  ulong     slot;
+  uint      fec_set_idx;
+};
+typedef struct fd_reasm_evicted fd_reasm_evicted_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* Constructors */
@@ -301,11 +308,8 @@ fd_reasm_pop( fd_reasm_t * reasm );
    If the reasm is full (fd_reasm_full() returns 1), reasm_insert will
    evict a FEC set by the policy outlined in reasm_evict.  The evicted
    FEC set will be removed from reasm, and the evicted FEC metadata will
-   be added to the evicted queue.  The most FEC evictions one insert can
-   cause is up to 1024 FEC sets, or the max number of FECs in one slot.
-   Thus the evicted queue has capacity for up to 1024 FEC sets, and
-   should in general be cleared/popped between every call of
-   fd_reasm_insert.
+   be populated in evicted.  If no FEC set was evicted, then evicted
+   data will remain unchanged.
 
    See top-level documentation for further details on insertion. */
 
@@ -320,7 +324,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               data_complete,
                  int               slot_complete,
                  int               leader,
-                 fd_store_t      * opt_store );
+                 fd_store_t         * opt_store,
+                 fd_reasm_evicted_t * evicted );
 
 /* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
    beginning from this FEC then becomes the canonical chain of FEC sets

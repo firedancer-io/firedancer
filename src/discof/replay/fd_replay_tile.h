@@ -110,11 +110,6 @@ union fd_replay_message {
 
 typedef union fd_replay_message fd_replay_message_t;
 
-struct fd_replay_evicted {
-  ulong     slot;
-  uint      fec_set_idx;
-  fd_hash_t mr;
-};
-typedef struct fd_replay_evicted fd_replay_evicted_t;
+
 
 #endif /* HEADER_fd_src_discof_replay_fd_replay_tile_h */
