@@ -254,8 +254,7 @@ snapshot_path_gui_publish( fd_snapct_tile_t *  ctx,
                            fd_stem_context_t * stem,
                            char const *        path,
                            int                 is_full ) {
-  /* FIXME: Consider whether we can get everything we need from metrics
-     rather than creating an entire link for this rare message */
+  /* The messages below cannot be obtained directly from metrics. */
   fd_snapct_update_t * out = fd_chunk_to_laddr( ctx->out_gui.mem, ctx->out_gui.chunk );
   FD_TEST( fd_cstr_printf_check( out->read_path, PATH_MAX, NULL, "%s", path ) );
   out->is_download = 0;
