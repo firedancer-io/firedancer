@@ -926,6 +926,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       nonce = FD_LOAD(uint, shred_buffer + fd_shred_sz( shred ) );
       long est_now_ns = fd_log_wallclock(); /* TODO: switch to fd_clock for performance */
       int nonce_okay = fd_rnonce_ss_verify( ctx->repair_nonce_ss, nonce, shred->slot, shred->idx, est_now_ns );
+      if( FD_UNLIKELY( !nonce_okay ) ) { FD_LOG_INFO(( "rejected nonce %x at %li. seq=%lu", nonce, est_now_ns, seq )); }
       ctx->metrics->bad_nonce += (ulong)(!nonce_okay);
       from_repair = nonce_okay;
     }
@@ -939,6 +940,7 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     if( FD_UNLIKELY( ctx->shred_out_idx!=ULONG_MAX &&  /* Only send to repair in full Firedancer */
                      spilled_fec.slot!=0 && spilled_fec.fec_set_idx!=0U ) ) {
+      FD_LOG_WARNING(( "spilling %lu %u seq=%lu", spilled_fec.slot, spilled_fec.fec_set_idx, seq ));
       /* We've spilled an in-progress FEC set in the fec_resolver. We
          need to let repair know to clear out it's cached info for that
          fec set and re-repair those shreds. */
@@ -987,6 +989,8 @@ after_frag( fd_shred_ctx_t *    ctx,
       }
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
+
+    FD_LOG_INFO(( "completing %lu %u seq=%lu", shred->slot, shred->fec_set_idx, seq ));
 
     FD_TEST( ctx->fec_sets <= *out_fec_set );
     ctx->send_fec_set_idx[ 0UL ] = (ulong)(*out_fec_set - ctx->fec_sets);

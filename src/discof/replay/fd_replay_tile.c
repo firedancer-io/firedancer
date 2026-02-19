@@ -2263,7 +2263,8 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 
 static void
 process_fec_complete( fd_replay_tile_t * ctx,
-                      uchar const *      shred_buf ) {
+                      uchar const *      shred_buf,
+                      ulong              seq ) {
   fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
 
   fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
@@ -2272,6 +2273,8 @@ process_fec_complete( fd_replay_tile_t * ctx,
 
   int data_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
   int slot_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
+
+  FD_LOG_INFO(( "seq %lu MR: %lx %lx %lx %lx", seq, merkle_root->ul[0], merkle_root->ul[1], merkle_root->ul[2], merkle_root->ul[3] ));
 
   if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) && shred->fec_set_idx == 0) ) {
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
@@ -2470,7 +2473,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       /* TODO: This message/sz should be defined. */
       if( sz==FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int) ) {
         /* If receive a FEC complete message. */
-        process_fec_complete( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        process_fec_complete( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
       }
       break;
     }

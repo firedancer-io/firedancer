@@ -980,6 +980,7 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( fd_rng_secure( shared_rnonce, sizeof(fd_rnonce_ss_t) ) );
   memcpy( ctx->repair_nonce_ss, shared_rnonce, sizeof(fd_rnonce_ss_t) );
   FD_COMPILER_MFENCE();
+  FD_LOG_HEXDUMP_WARNING(( "rnonce_ss", shared_rnonce, sizeof(fd_rnonce_ss_t) ));
   FD_VOLATILE( *nonce_initialized ) = 1UL;
 }
 

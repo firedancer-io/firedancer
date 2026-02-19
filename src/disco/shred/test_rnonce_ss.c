@@ -8,6 +8,21 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1U, 0UL ) );
 
   fd_rnonce_ss_t ss[1];
+  char test_ss[65] = "\x5a\x57\x84\x35\x1a\xa1\x49\xa2\xd0\x4d\xc3\xe0\x01\xcc\xf8\xb6"
+                     "\xa3\xc0\x62\xee\x72\xbe\x6e\x81\xaf\xad\xc4\xc8\xd2\x32\x44\xab"
+                     "\x5a\x64\x0e\xae\x70\x73\x9e\x27\x2e\x9a\x26\x44\x4b\x88\xe1\xd9"
+                     "\x56\x76\x3b\xdb\x97\x63\x6c\xb4\x0b\x36\xa8\x9a\x44\xe3\xaa\x68";
+  memcpy( ss->bytes, test_ss, 64UL );
+  uint prev_nonce = 0U;
+  for( long delta=-1000000L; delta<1000000L; delta++ ) {
+    uint nonce = fd_rnonce_ss_compute( ss, 0, 389574241UL, 0U, 1771518354155696709L + delta*1000L );
+    if( FD_UNLIKELY( nonce!=prev_nonce ) ) {
+      FD_LOG_NOTICE(( "%li -> %x", delta, nonce ));
+      prev_nonce = nonce;
+    }
+  }
+  int correct = fd_rnonce_ss_verify( ss, 0x583dc8d8U, 389574241UL, 317U, 1771518354159414298L );
+  FD_TEST( correct );
   for( ulong i=0UL; i<64UL; i++ ) ss->bytes[i] = fd_rng_uchar( rng );
 
   /* Test success, normal repair */
