@@ -124,7 +124,7 @@ fd_sspeer_selector_new( void * shmem,
   void * _shadow_score_treap      = FD_SCRATCH_ALLOC_APPEND( l, score_treap_align(),           score_treap_footprint( max_peers ) );
   void * _peer_idx_list           = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                max_peers * sizeof(ulong) );
 
-  selector->pool               = peer_pool_join( peer_pool_new( _pool, max_peers ) );
+  selector->pool               = peer_pool_join( peer_pool_new( _pool, 2UL*max_peers ) );
   selector->map                = peer_map_join( peer_map_new( _map, peer_map_chain_cnt_est( 2UL*max_peers ), seed ) );
   selector->score_treap        = score_treap_join( score_treap_new( _score_treap, max_peers ) );
   selector->shadow_score_treap = score_treap_join( score_treap_new( _shadow_score_treap, max_peers ) );
