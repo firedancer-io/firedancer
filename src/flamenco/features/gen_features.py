@@ -10,6 +10,7 @@ import struct
 import base58
 import hashlib
 
+MAX_HASH_C = 65536
 
 def calculate_feature_set_id(feature_map):
     feature_names = sorted([feature["name"] for feature in feature_map])
@@ -21,6 +22,38 @@ def calculate_feature_set_id(feature_map):
     feature_set_id = struct.unpack("<I", hash_result[:4])[0]
 
     return feature_set_id
+
+def find_perfect_hash(prefixes):
+    """Brute-force search for a (lg_tbl_sz, hash_c) pair that produces
+    a collision-free perfect hash over the lower 32 bits of each prefix.
+
+    The hash function is: h(k) = (hash_c * (uint)k) >> (32 - lg_tbl_sz)
+
+    Starts at lg_tbl_sz = ceil(log2(n)) and increments until a
+    collision-free constant is found.
+    """
+    import math
+    n = len(prefixes)
+    keys_32 = [p & 0xFFFFFFFF for p in prefixes]
+    mask = 0xFFFFFFFF
+
+    min_lg = max(1, math.ceil(math.log2(n))) if n > 1 else 1
+
+    for lg_tbl_sz in range(min_lg, min_lg + 8):
+        shift = 32 - lg_tbl_sz
+
+        for hash_c in range(1, 100000):
+            hashes = set()
+            ok = True
+            for k in keys_32:
+                h = ((hash_c * k) & mask) >> shift
+                if h in hashes:
+                    ok = False
+                    break
+                hashes.add(h)
+            if ok:
+                return lg_tbl_sz, hash_c
+    raise RuntimeError("Failed to find perfect hash parameters")
 
 def generate(feature_map_path, header_path, body_path):
     with open(feature_map_path, "r") as json_file:
@@ -96,18 +129,53 @@ fd_feature_id_t const ids[] = {{""",
         print(" },\n", file=body)
     print(
         f"""  {{ .index = ULONG_MAX }}
-}};
-/* TODO replace this with fd_map_perfect */
-FD_FN_CONST fd_feature_id_t const *
-fd_feature_id_query( ulong prefix ) {{
-  switch( prefix ) {{""",
-        file=body)
-    for i, x in enumerate(fm):
-        print(f'''  case {"0x%016x" % struct.unpack("<Q", base58.b58decode(x["pubkey"])[:8])}: return &ids[{"% 4d" % (i)} ];''',  file=body)
+}};""",
+        file=body,
+    )
+
+    # Compute prefixes and find perfect hash parameters
+    prefixes = []
+    for x in fm:
+        prefix = struct.unpack("<Q", base58.b58decode(x["pubkey"])[:8])[0]
+        prefixes.append(prefix)
+
+    lg_tbl_sz, hash_c = find_perfect_hash(prefixes)
+
+    # Emit struct type for the map entries
     print(
-        f"""  default: break;
-  }}
-  return NULL;
+        f"""
+struct fd_feature_id_lookup_entry {{
+  ulong                   key;
+  fd_feature_id_t const * val;
+}};
+typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
+""",
+        file=body,
+    )
+
+    # Emit MAP_PERFECT macros
+    print(
+        f"""#define MAP_PERFECT_NAME      fd_feature_id_lookup
+#define MAP_PERFECT_LG_TBL_SZ {lg_tbl_sz}
+#define MAP_PERFECT_T         fd_feature_id_lookup_entry_t
+#define MAP_PERFECT_HASH_C    {hash_c}U
+#define MAP_PERFECT_KEY_T     ulong
+#define MAP_PERFECT_ZERO_KEY  0UL
+""",
+        file=body,
+    )
+    for i, prefix in enumerate(prefixes):
+        print(f"#define MAP_PERFECT_{i:<3d} 0x{prefix:016x}UL, .val = &ids[{i}]", file=body)
+
+    print(
+        f"""
+#include "../../util/tmpl/fd_map_perfect.c"
+
+fd_feature_id_t const *
+fd_feature_id_query( ulong prefix ) {{
+  fd_feature_id_lookup_entry_t const * entry = fd_feature_id_lookup_query( prefix, NULL );
+  if( FD_UNLIKELY( !entry ) ) return NULL;
+  return entry->val;
 }}
 /* Verify that offset calculations are correct */
 {

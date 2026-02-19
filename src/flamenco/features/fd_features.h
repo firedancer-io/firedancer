@@ -156,7 +156,7 @@ fd_features_get( fd_features_t const *   features,
    the feature address (little-endian order).  Returns pointer to ID in
    `ids` array on success, or NULL on failure. */
 
-FD_FN_CONST fd_feature_id_t const *
+FD_FN_PURE fd_feature_id_t const *
 fd_feature_id_query( ulong prefix );
 
 /* fd_features_restore loads all known feature accounts from the
