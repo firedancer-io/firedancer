@@ -403,7 +403,7 @@ setup_instr_ctx( fixture_input_t const *      in,
   fd_banks_locks_init( banks_locks );
   fd_banks_t * banks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_t), sizeof(fd_banks_t), wksp_tag++ );
   FD_TEST( banks );
-  FD_TEST( fd_banks_join( banks, fd_banks_new( banks_data, 1UL, 1UL, 0, 42UL ), banks_locks ) );
+  FD_TEST( fd_banks_join( banks, fd_banks_new( banks_data, 1UL, 1UL, 42UL ), banks_locks ) );
 
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag++ );
   FD_TEST( bank );

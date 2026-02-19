@@ -101,7 +101,7 @@ test_ctx_setup( void ) {
   FD_TEST( banks_locks_mem );
 
   /* Initialize banks */
-  FD_TEST( fd_banks_join( test_ctx->banks, fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ), banks_locks_mem ) );
+  FD_TEST( fd_banks_join( test_ctx->banks, fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 8888UL ), banks_locks_mem ) );
 
   /* Initialize stake delegations at the root level */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );
