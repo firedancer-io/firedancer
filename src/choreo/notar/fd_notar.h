@@ -2,45 +2,18 @@
 #define HEADER_fd_src_choreo_notar_fd_notar_h
 
 /* fd_notar ("notarized") processes vote transactions from both TPU and
-   gossip and tracks when blocks become confirmed.  There are three key
-   confirmation thresholds in Solana:
+   gossip and tracks when blocks become confirmed.
 
-   - propagation confirmed: a block is propagated if it has received
-     votes from at least 1/3 of stake in the cluster.  This threshold is
-     important in two contexts:
+   Unlike duplicate and optimistic confirmation, propagation is counted
+   at the slot-level rather than block id-level.  So two votes for
+   different block ids would count towards the same slot.  This is
+   intentionally done to mirror Agave behavior.
 
-     1. When becoming leader, we need to check that our "previous"
-        leader block _as of_ the parent slot we're building on, has
-        propagated.  If it's not propagated, we need to instead
-        retransmit our last block that failed to propagate.  "Previous"
-        is quoted, because there is a grace period of one leader
-        rotation for leader blocks to propagate.
-
-     2. When voting, we need to check our previous leader block _as of_
-        the slot we're voting for has propagated (unless we're voting
-        for one of our own leader blocks).  We cannot vote for slots in
-        which our last leader block failed to propagate.
-
-   - duplicate confirmed: a block is duplicate confirmed if it has
-     received votes from at least 52% of stake in the cluster.  The
-     "duplicate" adjective is a bit of a misnomer, and a more accurate
-     technical term is equivocation: two (or more) different blocks for
-     the same slot.  This threshold is important for consensus safety,
-     because it ensures Solana eventually converges to the same block
-     per slot.  Specifically fork choice allows choosing a fork if it is
-     duplicate confirmed, even if there is equivocation.
-
-   - optimistically confirmed: a block is optimistically confirmed if it
-     has received votes from at least 2/3 of stake in the cluster.  This
-     threshold is important for end-users, who rely on the "confirmed"
-     commitment status of blocks (queryable via RPC) to determine that
-     their transaction has landed on a block that will not rollback.
-     This is unimplemented in Firedancer and only relevant for RPC.
-     (TODO verify this?)
-
-   Unlike duplicate and optimistic confirmation, propagation is at the
-   slot-level rather than block-level.  So two votes for different block
-   ids would count towards the same slot.  This mirrors Agave behavior.
+   Solana reaches consensus via replay, but can "forward confirm" slots
+   ahead of the replay tip by listening to vote txns from gossip or TPU.
+   The larger max_live_slots (specified in configuration toml), the
+   further ahead slots can be cluster confirmed before they are
+   replayed.
 
    On the similarities and differences between fd_ghost vs fd_notar:
 
@@ -114,11 +87,8 @@ struct fd_notar_blk {
   uint      hash;      /* reserved for fd_map_dynamic */
   ulong     slot;      /* slot associated with this block */
   ulong     stake;     /* sum of stake that has voted for this block_id */
-  int       dup_conf;  /* whether this block has reached 52% of stake */
-  int       opt_conf;  /* whether this block has reached 2/3 of stake */
-  int       sup_conf;  /* whether this block has reached 4/5 of stake */
-  int       dup_notif; /* set by caller, whether we've notified consumers this is duplicate confirmed */
-  int       opt_notif; /* set by caller, whether we've notified consumers this is optimistically confirmed */
+  int       level;     /* confirmation level, set by caller */
+  int       fwd_level; /* forward confirmation level, set by caller */
 };
 typedef struct fd_notar_blk fd_notar_blk_t;
 
@@ -165,14 +135,12 @@ typedef struct fd_notar_vtr fd_notar_vtr_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_notar {
-  ulong epoch;    /* highest replayed epoch */
-  ulong lo_wmark; /* notar ignores votes < lo_wmark */
-  ulong hi_wmark; /* notar ignores votes > hi_wmark */
-  ulong slot_max; /* maximum number of slots notar can track */
-
-  fd_notar_slot_t * slot_map; /* tracks who has voted for a given slot */
-  fd_notar_blk_t *  blk_map;  /* tracks amount of stake for a given block (keyed by block id) */
-  fd_notar_vtr_t *  vtr_map;  /* tracks each voter's stake and prev vote */
+  ulong             root;        /* current root */
+  ulong             epoch;       /* current epoch */
+  ulong             slot_max;    /* maximum number of slots notar can track */
+  fd_notar_slot_t * slot_map;    /* tracks who has voted for a given slot */
+  fd_notar_blk_t *  blk_map;     /* tracks amount of stake for a given block (keyed by block id) */
+  fd_notar_vtr_t *  vtr_map;     /* tracks each voter's stake and prev vote */
 };
 typedef struct fd_notar fd_notar_t;
 
@@ -246,15 +214,14 @@ fd_notar_delete( void * notar );
 
 fd_notar_blk_t *
 fd_notar_count_vote( fd_notar_t *        notar,
-                     ulong               total_stake,
                      fd_pubkey_t const * addr,
                      ulong               slot,
                      fd_hash_t const *   block_id );
 
 void
-fd_notar_advance_epoch( fd_notar_t *       notar,
-                        fd_tower_voters_t * accts,
-                        ulong              epoch );
+fd_notar_update_voters( fd_notar_t *        notar,
+                        fd_tower_voters_t * voters,
+                        ulong               epoch );
 
 /* fd_notar_publish publishes root as the new notar root slot, removing
    all blocks with slot numbers < the old notar root slot.  Some slots
@@ -262,7 +229,7 @@ fd_notar_advance_epoch( fd_notar_t *       notar,
    but they will eventually be pruned as well as the root advances. */
 
 void
-fd_notar_advance_wmark( fd_notar_t * notar,
-                        ulong        root );
+fd_notar_publish( fd_notar_t * notar,
+                  ulong        root );
 
 #endif /* HEADER_fd_src_choreo_notar_fd_notar_h */

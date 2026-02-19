@@ -86,13 +86,6 @@
 #include "../fd_choreo_base.h"
 #include "../tower/fd_tower_voters.h"
 
-/* FD_GHOST_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks. */
-
-#ifndef FD_GHOST_USE_HANDHOLDING
-#define FD_GHOST_USE_HANDHOLDING 1
-#endif
-
 typedef struct fd_ghost fd_ghost_t; /* forward decl*/
 
 /* fd_ghost_blk_t implements a left-child, right-sibling n-ary tree.
@@ -182,14 +175,18 @@ fd_ghost_delete( void * ghost );
 
 /* Accessors */
 
-/* fd_ghost_{root,parent,child,sibling} returns a pointer in the
-   caller's address space to the {root,parent,left-child,right-sibling}.
-   Assumes ghost is a current local join and blk is a valid pointer to a
-   pool element inside ghost.  const versions for each are also
-   provided. */
+/* fd_ghost_root returns a pointer in the caller's address space to the
+   root.  Assumes ghost is a current local join. */
 
 fd_ghost_blk_t *
 fd_ghost_root( fd_ghost_t * ghost );
+
+/* fd_ghost_parent returns a pointer in the caller's address space to
+   blk's parent.  Assumes ghost is a current local join and blk is a
+   valid pointer to a pool element inside ghost. */
+
+fd_ghost_blk_t *
+fd_ghost_parent( fd_ghost_t * ghost, fd_ghost_blk_t * blk );
 
 /* fd_ghost_query returns the block keyed by block_id.  Returns NULL if
    not found. */
@@ -296,29 +293,28 @@ fd_ghost_publish( fd_ghost_t     * ghost,
 int
 fd_ghost_verify( fd_ghost_t * ghost );
 
-/* fd_ghost_print pretty-prints a formatted ghost tree.  Printing begins
-   from `ele` (it will appear as the root in the print output).
+/* fd_ghost_to_cstr pretty-prints a formatted ghost tree beginning from
+   root (arbitrary node, not necessarily the current ghost root) to the
+   buffer cstr of at least cstr_max capacity.  Returns a pointer to cstr
+   and on return cstr_len contains actual bytes written including NUL.
 
-   The most straightforward and commonly used printing pattern is:
-   `fd_ghost_print( ghost, fd_ghost_root( ghost ) )`
+   Typical usage:
 
-   This would print ghost beginning from the root.
+     fd_ghost_to_cstr( ghost, fd_ghost_root( ghost ) );  // stringify ghost beginning from the current ghost root
 
-   Alternatively, caller can print a more localized view, for example
-   starting from the grandparent of the most recently executed slot:
+   Alternative usage:
 
-   ```
-   fd_ghost_ele_t const * ele = fd_ghost_query( slot );
-   fd_ghost_print( ghost, fd_ghost_parent( fd_ghost_parent( ele ) ) )
-   ```
+     fd_ghost_ele_t const * ele = fd_ghost_query( slot );
+     fd_ghost_to_cstr( ghost, fd_ghost_parent( fd_ghost_parent( ele ) ) ); // print from ele's grandparent
 
-   If ostream_opt is non-NULL, the print output will be written to the stream instead of stdout.
+   */
 
-   Callers should add null-checks as appropriate in actual usage. */
-
-void
-fd_ghost_print( fd_ghost_t const *         ghost,
-                fd_ghost_blk_t const *     root );
+char *
+fd_ghost_to_cstr( fd_ghost_t const *     ghost,
+                  fd_ghost_blk_t const * root,
+                  char *                 cstr,
+                  ulong                  cstr_max,
+                  ulong *                cstr_len );
 
 FD_PROTOTYPES_END
 

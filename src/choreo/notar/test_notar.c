@@ -1,7 +1,7 @@
 #include "fd_notar.h"
 
 void
-test_advance_epoch( fd_wksp_t * wksp ) {
+test_update_voters( fd_wksp_t * wksp ) {
   ulong  slot_max = 8;
 
   void * notar_mem = fd_wksp_alloc_laddr( wksp, fd_notar_align(), fd_notar_footprint( slot_max ), 1UL );
@@ -17,17 +17,17 @@ test_advance_epoch( fd_wksp_t * wksp ) {
 
   /* Voter should be accts. */
 
-  fd_notar_advance_wmark( notar, 431998 );
+  fd_notar_publish( notar, 431998 );
 
-  fd_notar_advance_epoch( notar, tower_voters, 1 );
+  fd_notar_update_voters( notar, tower_voters, 1 );
   FD_TEST( fd_notar_vtr_query( notar->vtr_map, acct.addr, NULL ) ); /* populate vtr map */
-  FD_TEST( fd_notar_count_vote( notar, 100, &acct.addr, 431999, &((fd_hash_t){ .ul = { 431999 } }) ) );
+  FD_TEST( fd_notar_count_vote( notar, &acct.addr, 431999, &((fd_hash_t){ .ul = { 431999 } }) ) );
 
   /* Evict the voter from accts. */
 
   fd_tower_voters_pop_head( tower_voters );
-  fd_notar_advance_epoch( notar, tower_voters, 2 );
-  FD_TEST( !fd_notar_count_vote( notar, 100, &acct.addr, 432000, &((fd_hash_t){ .ul = { 432000 } }) ) );
+  fd_notar_update_voters( notar, tower_voters, 2 );
+  FD_TEST( !fd_notar_count_vote( notar, &acct.addr, 432000, &((fd_hash_t){ .ul = { 432000 } }) ) );
 
   // fd_hash_t block_id  = { .ul = { slot } };
   // ulong     slot      = 368778153;
@@ -74,7 +74,7 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_advance_epoch( wksp );
+  test_update_voters( wksp );
 
   // fd_tower_restore( NULL, pubkey,  );
   // test_tower_vote();

@@ -803,15 +803,13 @@ after_frag( ctx_t *             ctx,
       if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
     } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
       fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( ctx->buffer );
-      if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->kind == FD_TOWER_SLOT_CONFIRMED_CLUSTER || msg->kind == FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
-        /* the other two messages (rooted / optimistic) mean we have already
-           received and replayed the correct version */
-
+      if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
         fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
         if( FD_UNLIKELY( !blk ) ) {
-          /* If we receive a confirmation for a slot we don't have, create a sentinel forest block
-             that we can repair from */
-          FD_LOG_NOTICE(("inserting sentinel block at slot %lu", msg->slot));
+
+          /* If we receive a confirmation for a slot we don't have,
+             create a sentinel forest block that we can repair from. */
+
           blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot );
           blk->confirmed_bid = msg->block_id;
         }

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_choreo_tower_fd_tower_block_h
-#define HEADER_fd_src_choreo_tower_fd_tower_block_h
+#ifndef HEADER_fd_src_choreo_tower_fd_tower_blocks_h
+#define HEADER_fd_src_choreo_tower_fd_tower_blocks_h
 
 #include "../fd_choreo_base.h"
 #include "fd_tower_voters.h"
@@ -29,9 +29,10 @@
    to distinguish duplicates because the vote account format (in which
    towers are stored) only stores slot numbers and not block_ids. */
 
-struct fd_tower_block {
+struct fd_tower_blk {
   ulong     slot;               /* map key */
   ulong     parent_slot;        /* parent slot */
+  int       replayed;           /* whether we've replayed this slot yet */
   fd_hash_t replayed_block_id;  /* the block_id we _first_ replayed for this slot */
   int       voted;              /* whether we voted for this slot yet */
   fd_hash_t voted_block_id;     /* the block_id we voted on for this slot */
@@ -39,10 +40,10 @@ struct fd_tower_block {
   fd_hash_t confirmed_block_id; /* the block_id that was duplicate confirmed */
   ulong     bank_idx;           /* pool idx of the bank as of this replayed block */
 };
-typedef struct fd_tower_block fd_tower_block_t;
+typedef struct fd_tower_blk fd_tower_blk_t;
 
-#define MAP_NAME           fd_tower_block
-#define MAP_T              fd_tower_block_t
+#define MAP_NAME           fd_tower_blk
+#define MAP_T              fd_tower_blk_t
 #define MAP_KEY            slot
 #define MAP_KEY_NULL       ULONG_MAX
 #define MAP_KEY_INVAL(key) ((key)==ULONG_MAX)
@@ -148,7 +149,7 @@ fd_lockout_interval_key( ulong fork_slot, ulong end_interval ) {
   return (fork_slot << 32) | end_interval;
 }
 struct __attribute__((aligned(128UL))) fd_tower_blocks {
-  fd_tower_block_t        * tower_forks;
+  fd_tower_blk_t        * blk_map;
   fd_tower_leaves_map_t   * tower_leaves_map;
   fd_tower_leaves_dlist_t * tower_leaves_dlist;
   fd_tower_leaf_t         * tower_leaves_pool;
@@ -187,7 +188,7 @@ fd_tower_blocks_footprint( ulong slot_max, ulong voter_max ) {
     FD_LAYOUT_INIT,
       alignof(fd_tower_blocks_t),               sizeof(fd_tower_blocks_t)                              ),
       /* Fork structures */
-      fd_tower_block_align(),            fd_tower_block_footprint        ( lg_slot_max ) ),
+      fd_tower_blk_align(),            fd_tower_blk_footprint        ( lg_slot_max ) ),
       fd_tower_leaves_map_align(),       fd_tower_leaves_map_footprint      ( slot_max ) ),
       fd_tower_leaves_dlist_align(),     fd_tower_leaves_dlist_footprint    (          ) ),
       fd_tower_leaves_pool_align(),      fd_tower_leaves_pool_footprint     ( slot_max ) ),
@@ -242,26 +243,22 @@ fd_hash_t const *
 fd_tower_blocks_canonical_block_id( fd_tower_blocks_t * forks,
                              ulong        slot );
 
-fd_tower_block_t *
+fd_tower_blk_t *
 fd_tower_blocks_insert( fd_tower_blocks_t * forks,
                  ulong        slot,
                  ulong        parent_slot );
 
-fd_tower_block_t *
-fd_tower_blocks_confirmed( fd_tower_block_t * fork,
-                    fd_hash_t const  * block_id );
-
-fd_tower_block_t *
+fd_tower_blk_t *
 fd_tower_blocks_replayed( fd_tower_blocks_t *       forks,
-                   fd_tower_block_t * fork,
+                   fd_tower_blk_t * fork,
                    ulong              bank_idx,
                    fd_hash_t const  * block_id );
 
-fd_tower_block_t *
-fd_tower_blocks_voted( fd_tower_block_t * fork,
+fd_tower_blk_t *
+fd_tower_blocks_voted( fd_tower_blk_t * fork,
                 fd_hash_t const  * block_id );
 
-fd_tower_block_t *
+fd_tower_blk_t *
 fd_tower_blocks_query( fd_tower_blocks_t * forks, ulong slot );
 
 int
@@ -278,4 +275,4 @@ fd_tower_blocks_lockouts_clear( fd_tower_blocks_t * forks, ulong fork_slot );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_choreo_tower_fd_tower_block_h */
+#endif /* HEADER_fd_src_choreo_tower_fd_tower_blocks_h */

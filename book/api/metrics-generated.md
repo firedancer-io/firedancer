@@ -1006,6 +1006,13 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored due to asynchronous state |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;gauge</span> | gauge | Slot number of most recently ignored replay_slot_completed_frag |
+| <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Vote slot |
+| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |
+| <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | Root slot |
+| <span class="metrics-name">tower_&#8203;init_&#8203;slot</span> | gauge | Init slot |
 | <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
 | <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
 | <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
@@ -1031,16 +1038,6 @@
 | <span class="metrics-name">tower_&#8203;proof_&#8203;verified_&#8203;overlap</span> | counter | Overlapping FEC set conflict |
 | <span class="metrics-name">tower_&#8203;proof_&#8203;verified_&#8203;chained</span> | counter | Chained merkle root conflict |
 | <span class="metrics-name">tower_&#8203;proof_&#8203;constructed</span> | counter | Number of duplicate proofs we constructed |
-| <span class="metrics-name">tower_&#8203;cluster_&#8203;root_&#8203;slot</span> | gauge | Cluster root slot (from on-chain vote account as of ReplaySlotProcessed) |
-| <span class="metrics-name">tower_&#8203;cluster_&#8203;vote_&#8203;slot</span> | gauge | Cluster vote slot (from on-chain vote account as of ReplaySlotProcessed) |
-| <span class="metrics-name">tower_&#8203;local_&#8203;root_&#8203;slot</span> | gauge | Local root slot (root of local tower) |
-| <span class="metrics-name">tower_&#8203;local_&#8203;vote_&#8203;slot</span> | gauge | Local vote slot (top of local tower) |
-| <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
-| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |
-| <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;processed</span> | gauge | Most recent processed ReplaySlotCompleted slot |
-| <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;ignored</span> | gauge | Most recent ignored ReplaySlotCompleted slot |
-| <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;processed</span> | counter | Number of processed ReplaySlotCompleted frags |
-| <span class="metrics-name">tower_&#8203;replay_&#8203;slot_&#8203;ignored</span> | counter | Number of ignored ReplaySlotCompleted frags |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;seen</span> | counter | Number of hard forks we've seen (block ids with multiple candidate bank hashes) |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;pruned</span> | counter | Number of hard forks (candidate bank hashes) we've pruned |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |
