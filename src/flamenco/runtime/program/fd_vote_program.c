@@ -866,9 +866,8 @@ authorize( fd_exec_instr_ctx_t *         ctx,
     /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/mod.rs#L770 */
     case fd_vote_authorize_enum_voter_with_bls: {
       /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/mod.rs#L771-L773 */
-      //FIXME
       if( FD_UNLIKELY( !is_bls_pubkey_feature_enabled ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+        FD_LOG_CRIT(( "invariant violation: BLS pubkey feature is not enabled" ));
       }
 
       /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/mod.rs#L774-L775 */
@@ -1769,16 +1768,21 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * - Up to two signers: the vote authority and the authorized withdrawer.
    */
   case fd_vote_instruction_enum_authorize: {
+    fd_pubkey_t const * voter_pubkey   = &instruction->inner.authorize.pubkey;
+    fd_vote_authorize_t vote_authorize = instruction->inner.authorize.vote_authorize;
+
+    /* TODO: Remove this check in Agave v4.0 (deserialization fails in
+       earlier versions) */
+    if( FD_UNLIKELY( !is_bls_pubkey_feature_enabled && fd_vote_authorize_is_voter_with_bls( &vote_authorize ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L87
     rc = fd_sysvar_instr_acct_check( ctx, 1, &fd_sysvar_clock_id );
     if( FD_UNLIKELY( rc ) ) return rc;
     fd_sol_sysvar_clock_t clock_;
     fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
     if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L89
-    fd_pubkey_t const * voter_pubkey   = &instruction->inner.authorize.pubkey;
-    fd_vote_authorize_t vote_authorize = instruction->inner.authorize.vote_authorize;
 
     rc = authorize( ctx, &me, target_version, voter_pubkey, vote_authorize, signers, signers_cnt, clock, is_bls_pubkey_feature_enabled );
 
@@ -1794,14 +1798,19 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L98
    */
   case fd_vote_instruction_enum_authorize_with_seed: {
+    fd_vote_authorize_with_seed_args_t * args = &instruction->inner.authorize_with_seed;
+
+    /* TODO: Remove this check in Agave v4.0 (deserialization fails in
+       earlier versions) */
+    if( FD_UNLIKELY( !is_bls_pubkey_feature_enabled && fd_vote_authorize_is_voter_with_bls( &args->authorization_type ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L99
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 3 ) ) {
       rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
     }
-
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L100
-    fd_vote_authorize_with_seed_args_t * args = &instruction->inner.authorize_with_seed;
 
     rc = process_authorize_with_seed_instruction(
         ctx,
@@ -1827,8 +1836,13 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L111
    */
   case fd_vote_instruction_enum_authorize_checked_with_seed: {
-    fd_vote_authorize_checked_with_seed_args_t const * args =
-        &instruction->inner.authorize_checked_with_seed;
+    fd_vote_authorize_checked_with_seed_args_t const * args = &instruction->inner.authorize_checked_with_seed;
+
+    /* TODO: Remove this check in Agave v4.0 (deserialization fails in
+       earlier versions) */
+    if( FD_UNLIKELY( !is_bls_pubkey_feature_enabled && fd_vote_authorize_is_voter_with_bls( &args->authorization_type ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L112
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 4 ) ) {
@@ -2213,6 +2227,12 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * - Feature gated, but live on mainnet.
    */
   case fd_vote_instruction_enum_authorize_checked: {
+    /* TODO: Remove this check in Agave v4.0 (deserialization fails in
+       earlier versions) */
+    if( FD_UNLIKELY( !is_bls_pubkey_feature_enabled && fd_vote_authorize_is_voter_with_bls( &instruction->inner.authorize_checked ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+
     if( FD_UNLIKELY( ctx->instr->acct_cnt < 4 ) ) {
       rc = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       break;
