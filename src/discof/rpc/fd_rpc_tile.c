@@ -8,6 +8,7 @@
 #include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/base64/fd_base64.h"
@@ -38,8 +39,9 @@
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
-#define IN_KIND_REPLAY (0)
-#define IN_KIND_GENESI (1)
+#define IN_KIND_REPLAY     (0)
+#define IN_KIND_GENESI     (1)
+#define IN_KIND_GOSSIP_OUT (2)
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -187,8 +189,27 @@ struct bank_info {
 
 typedef struct bank_info bank_info_t;
 
+struct fd_rpc_cluster_node {
+  int valid;
+  fd_pubkey_t identity;
+  fd_gossip_contact_info_t ci[ 1 ];
+
+  struct { ulong prev, next; } dlist;
+};
+
+typedef struct fd_rpc_cluster_node fd_rpc_cluster_node_t;
+
+#define DLIST_NAME  fd_rpc_cluster_node_dlist
+#define DLIST_ELE_T fd_rpc_cluster_node_t
+#define DLIST_PREV dlist.prev
+#define DLIST_NEXT dlist.next
+#include "../../util/tmpl/fd_dlist.c"
+
 struct fd_rpc_tile {
   fd_http_server_t * http;
+
+  fd_rpc_cluster_node_dlist_t * cluster_nodes_dlist;
+  fd_rpc_cluster_node_t cluster_nodes[ FD_CONTACT_INFO_TABLE_SIZE ];
 
   bank_info_t * banks;
   ulong         max_live_slots;
@@ -225,7 +246,12 @@ typedef struct fd_rpc_tile fd_rpc_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return alignof( fd_rpc_tile_t );
+  ulong a = alignof( fd_rpc_tile_t );
+  a = fd_ulong_max( a, fd_http_server_align() );
+  a = fd_ulong_max( a, fd_alloc_align() );
+  a = fd_ulong_max( a, alignof(bank_info_t) );
+  a = fd_ulong_max( a, fd_rpc_cluster_node_dlist_align() );
+  return a;
 }
 
 FD_FN_PURE static inline ulong
@@ -238,6 +264,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),   http_fp                                      );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
   l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t) );
+  l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -267,23 +294,30 @@ before_credit( fd_rpc_tile_t *     ctx,
   }
 }
 
+static int
+before_frag( fd_rpc_tile_t *   ctx,
+             ulong             in_idx,
+             ulong             seq FD_PARAM_UNUSED,
+             ulong             sig ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT ) ) {
+    return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
+           sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+  }
+
+  return 0;
+}
+
 static inline int
 returnable_frag( fd_rpc_tile_t *     ctx,
                  ulong               in_idx,
-                 ulong               seq,
+                 ulong               seq FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
-                 ulong               sz,
-                 ulong               ctl,
-                 ulong               tsorig,
-                 ulong               tspub,
+                 ulong               sz FD_PARAM_UNUSED,
+                 ulong               ctl FD_PARAM_UNUSED,
+                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tspub FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
-  (void)seq;
-  (void)sz;
-  (void)ctl;
-  (void)tsorig;
-  (void)tspub;
-  (void)stem;
 
   if( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) {
     switch( sig ) {
@@ -340,6 +374,31 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         break;
       }
     }
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT ) {
+    fd_gossip_update_message_t const * update = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    switch( update->tag ) {
+      case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
+        if( FD_UNLIKELY( update->contact_info->idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected contact_info_idx %lu >= %lu", update->contact_info->idx, FD_CONTACT_INFO_TABLE_SIZE ));
+        fd_rpc_cluster_node_t * node = &ctx->cluster_nodes[ update->contact_info->idx ];
+        if( FD_LIKELY( node->valid ) ) fd_rpc_cluster_node_dlist_idx_remove( ctx->cluster_nodes_dlist, update->contact_info->idx, ctx->cluster_nodes );
+
+        node->valid = 1;
+        node->identity = *(fd_pubkey_t *)update->origin;
+        fd_memcpy( node->ci, update->contact_info->value, sizeof(fd_gossip_contact_info_t) );
+
+        fd_rpc_cluster_node_dlist_idx_push_tail( ctx->cluster_nodes_dlist, update->contact_info->idx, ctx->cluster_nodes );
+        break;
+      }
+      case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
+        if( FD_UNLIKELY( update->contact_info_remove->idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected remove_contact_info_idx %lu >= %lu", update->contact_info_remove->idx, FD_CONTACT_INFO_TABLE_SIZE ));
+        fd_rpc_cluster_node_t * node = &ctx->cluster_nodes[ update->contact_info->idx ];
+        FD_TEST( node->valid );
+        node->valid = 0;
+        fd_rpc_cluster_node_dlist_idx_remove( ctx->cluster_nodes_dlist, update->contact_info->idx, ctx->cluster_nodes );
+        break;
+      }
+      default: break;
+    }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
     uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -373,8 +432,7 @@ fd_rpc_cjson_type_to_cstr( cJSON const * elt ) {
   FD_LOG_ERR(( "unreachable %s", cJSON_PrintUnformatted( elt ) ));
 }
 
-#define PRINTF_JSON(__ctx, ...) (__extension__({ \
-  fd_http_server_printf( __ctx->http, __VA_ARGS__ ); \
+#define STAGE_JSON(__ctx) (__extension__({ \
   fd_http_server_response_t __res = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 }; \
   if( FD_UNLIKELY( fd_http_server_stage_body( __ctx->http, &__res ) ) ) { \
     __res.status = 500; \
@@ -383,6 +441,10 @@ fd_rpc_cjson_type_to_cstr( cJSON const * elt ) {
     FD_LOG_HEXDUMP_WARNING(( "start of buffer:\n%.*s",  __ctx->http->oring,                                  fd_ulong_min( 500UL, __ctx->http->oring_sz ) )); \
   } \
   __res; }))
+
+#define PRINTF_JSON(__ctx, ...) (__extension__({ \
+  fd_http_server_printf( __ctx->http, __VA_ARGS__ ); \
+  STAGE_JSON(__ctx); }))
 
 static inline int
 fd_rpc_validate_params( fd_rpc_tile_t *          ctx,
@@ -529,7 +591,7 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     _bank_idx = ctx->finalized_idx;
   }
   if( FD_UNLIKELY( _bank_idx==ULONG_MAX ) ) {
-    *res = (fd_http_server_response_t){ .status = 500 };
+    *res = (fd_http_server_response_t){ .status = 500 }; /* TODO copy Agave's behavior */
     return 0;
   }
   *bank_idx = _bank_idx;
@@ -805,7 +867,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
     ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), compressed, snip_sz, 0 );
     if( ZSTD_isError( zstd_res ) ) {
       fd_accdb_close_ro( ctx->accdb, ro );
-      return (fd_http_server_response_t){ .status = 500 };
+      return (fd_http_server_response_t){ .status = 500 }; /* TODO log warning */
     }
     compressed    = ctx->compress_buf;
     compressed_sz = (ulong)zstd_res;
@@ -844,7 +906,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );;
   if( FD_UNLIKELY( !encoded ) ) {
     fd_accdb_close_ro( ctx->accdb, ro );
-    return (fd_http_server_response_t){ .status = 500 };
+    return (fd_http_server_response_t){ .status = 500 }; /* TODO log warning */
   }
 
   if( FD_UNLIKELY( is_base58 || is_binary ) ) {
@@ -860,9 +922,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}}}\n" );
   else                           fd_http_server_printf( ctx->http, "\",\"%s\"]}}}\n", encoding_cstr );
 
-  response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200 };
-  if( fd_http_server_stage_body( ctx->http, &response ) ) response.status = 500;
-  return response;
+  return STAGE_JSON( ctx );
 }
 
 static fd_http_server_response_t
@@ -929,7 +989,61 @@ UNIMPLEMENTED(getBlockProduction) // TODO: Used by solana-exporter
 UNIMPLEMENTED(getBlocks)
 UNIMPLEMENTED(getBlocksWithLimit)
 UNIMPLEMENTED(getBlockTime)
-UNIMPLEMENTED(getClusterNodes)
+
+static fd_http_server_response_t
+getClusterNodes( fd_rpc_tile_t * ctx,
+                 cJSON const *   id,
+                 cJSON const *   params ) {
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
+
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":[" );
+
+  for( fd_rpc_cluster_node_dlist_iter_t iter = fd_rpc_cluster_node_dlist_iter_rev_init( ctx->cluster_nodes_dlist, ctx->cluster_nodes );
+       !fd_rpc_cluster_node_dlist_iter_done( iter, ctx->cluster_nodes_dlist, ctx->cluster_nodes );
+       iter = fd_rpc_cluster_node_dlist_iter_rev_next( iter, ctx->cluster_nodes_dlist, ctx->cluster_nodes ) ) {
+    fd_rpc_cluster_node_t * ele = fd_rpc_cluster_node_dlist_iter_ele( iter, ctx->cluster_nodes_dlist, ctx->cluster_nodes );
+    FD_BASE58_ENCODE_32_BYTES( ele->identity.uc, identity_cstr );
+    int is_last = fd_rpc_cluster_node_dlist_iter_done( fd_rpc_cluster_node_dlist_iter_rev_next( iter, ctx->cluster_nodes_dlist, ctx->cluster_nodes ), ctx->cluster_nodes_dlist, ctx->cluster_nodes );
+
+    fd_http_server_printf( ctx->http, "{\"featureSet\":%u,", ele->ci->version.feature_set );
+
+    for( ulong i=0UL; i<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT; i++ ) {
+      char const * name;
+      switch( i ) {
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP:            name = "gossip"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC: name = NULL; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC:               name = "rpc"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB:        name = "pubsub"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR:      name = "serveRepair"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = "tpu"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = "tpuForwards"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC: name = "tpuForwardsQuic"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC:          name = "tpuQuic"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE:          name = "tpuVote"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TVU:               name = "tvu"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC:          name = NULL; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC:     name = NULL; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW:         name = NULL; break;
+        default: FD_LOG_ERR(( "unreachable "));
+      }
+      if( FD_UNLIKELY( !name ) ) continue;
+
+      uint ip4 = ele->ci->sockets[ i ].is_ipv6 ? 0U : ele->ci->sockets[ i ].ip4;
+      if( FD_LIKELY( !!ip4 || !!ele->ci->sockets[ i ].port ) ) fd_http_server_printf( ctx->http, "\"%s\":\"" FD_IP4_ADDR_FMT ":%hu\",", name, FD_IP4_ADDR_FMT_ARGS( ip4 ), fd_ushort_bswap( ele->ci->sockets[ i ].port ) );
+      else                                                     fd_http_server_printf( ctx->http, "\"%s\":null,", name );
+    }
+    fd_http_server_printf( ctx->http, "\"pubkey\":\"%s\",", identity_cstr );
+    fd_http_server_printf( ctx->http, "\"shredVersion\":%u,", ele->ci->shred_version );
+    fd_http_server_printf( ctx->http, "\"version\":\"%u.%u.%u\"", ele->ci->version.major, ele->ci->version.minor, ele->ci->version.patch );
+    if( FD_UNLIKELY( is_last ) ) fd_http_server_printf( ctx->http, "}" );
+    else                         fd_http_server_printf( ctx->http, "}," );
+  }
+
+  fd_http_server_printf( ctx->http, "],\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  return STAGE_JSON( ctx );
+}
+
 UNIMPLEMENTED(getEpochInfo) // TODO: Used by solana-exporter
 UNIMPLEMENTED(getEpochSchedule)
 UNIMPLEMENTED(getFeeForMessage)
@@ -1020,9 +1134,7 @@ getHealth( fd_rpc_tile_t * ctx,
     default: FD_LOG_ERR(( "unknown health status" ));
   }
 
-  response = (fd_http_server_response_t){ .content_type = "application/json", .status = 200, .upgrade_websocket = 0 };
-  FD_TEST( !fd_http_server_stage_body( ctx->http, &response ) );
-  return response;
+  return STAGE_JSON( ctx );
 }
 
 UNIMPLEMENTED(getHighestSnapshotSlot)
@@ -1458,6 +1570,7 @@ unprivileged_init( fd_topo_t *      topo,
                         FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( derive_http_params( tile ) ) );
   void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
   void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
+  void * _nodes_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
 
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
@@ -1465,6 +1578,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
+
+  for( ulong i=0UL; i<FD_CONTACT_INFO_TABLE_SIZE; i++ ) ctx->cluster_nodes[ i ].valid = 0;
 
   ctx->next_poll_deadline = fd_tickcount();
 
@@ -1474,6 +1589,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->confirmed_idx = ULONG_MAX;
   ctx->finalized_idx = ULONG_MAX;
 
+  ctx->cluster_nodes_dlist = fd_rpc_cluster_node_dlist_join( fd_rpc_cluster_node_dlist_new( _nodes_dlist ) );
   ctx->banks = _banks;
   ctx->max_live_slots = tile->rpc.max_live_slots;
   for( ulong i=0UL; i<ctx->max_live_slots; i++ ) ctx->banks[ i ].slot = ULONG_MAX;
@@ -1492,6 +1608,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 
@@ -1552,6 +1669,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"

@@ -899,6 +899,9 @@ gossip_cmd_fn( args_t *   args,
   printf(" Single Tile RX bw %s\n\n", fmt_bytes( buf1, net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ] - prev_net0_rx_bytes ) );
   prev_net0_rx_bytes = net0_link[ MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ];
 
+  printf( " Message unparseable: %lu/??\n",
+          gossip_metrics[ MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_UNPARSEABLE ) ] );
+
   ulong pull_response_drops = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_DROPPED_PULL_RESPONSE_NO_VALID_CRDS ) );
   ulong pull_response_success = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, MESSAGE_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
   printf(" Pull response drops: %lu/%lu\n", pull_response_drops, pull_response_drops + pull_response_success);
