@@ -21,15 +21,18 @@ fd_gui_peers_align( void ) {
   a = fd_ulong_max( a, fd_gui_peers_node_sock_map_align()       );
   a = fd_ulong_max( a, alignof(fd_gui_peers_ws_conn_t)          );
   a = fd_ulong_max( a, alignof(fd_gui_geoip_node_t)             );
+  a = fd_ulong_max( a, fd_gui_peers_node_vote_pool_align()      );
+  a = fd_ulong_max( a, fd_gui_peers_node_vote_map_align()       );
   FD_TEST( fd_ulong_pow2_up( a )==a );
   return a;
 }
 
 FD_FN_CONST ulong
 fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
-  ulong info_chain_cnt   = fd_gui_peers_node_info_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
-  ulong pubkey_chain_cnt = fd_gui_peers_node_pubkey_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE );
-  ulong sock_chain_cnt   = fd_gui_peers_node_sock_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
+  ulong info_chain_cnt   = fd_gui_peers_node_info_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE   );
+  ulong pubkey_chain_cnt = fd_gui_peers_node_pubkey_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE   );
+  ulong sock_chain_cnt   = fd_gui_peers_node_sock_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE   );
+  ulong vote_chain_cnt   = fd_gui_peers_node_vote_map_chain_cnt_est  ( FD_RUNTIME_MAX_VOTE_ACCOUNTS );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_peers_ctx_t),             sizeof(fd_gui_peers_ctx_t)                                              );
@@ -41,6 +44,8 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_geoip_node_t),            sizeof(fd_gui_geoip_node_t)*FD_GUI_GEOIP_DBIP_MAX_NODES                 );
+  l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_vote_pool_align(),     fd_gui_peers_node_vote_pool_footprint    ( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_vote_map_align(),      fd_gui_peers_node_vote_map_footprint     ( vote_chain_cnt )             );
 
 #if FD_HAS_ZSTD
   l = FD_LAYOUT_APPEND( l, 16UL,                                    ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG )           );
@@ -211,21 +216,24 @@ fd_gui_peers_new( void *             shmem,
     return NULL;
   }
 
-  ulong info_chain_cnt   = fd_gui_peers_node_info_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
-  ulong pubkey_chain_cnt = fd_gui_peers_node_pubkey_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE );
-  ulong sock_chain_cnt   = fd_gui_peers_node_sock_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
+  ulong info_chain_cnt   = fd_gui_peers_node_info_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE   );
+  ulong pubkey_chain_cnt = fd_gui_peers_node_pubkey_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE   );
+  ulong sock_chain_cnt   = fd_gui_peers_node_sock_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE   );
+  ulong vote_chain_cnt   = fd_gui_peers_node_vote_map_chain_cnt_est  ( FD_RUNTIME_MAX_VOTE_ACCOUNTS );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_gui_peers_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ctx_t),             sizeof(fd_gui_peers_ctx_t)                                              );
-  void * _live_table       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_live_table_align(),         fd_gui_peers_live_table_footprint        ( FD_CONTACT_INFO_TABLE_SIZE ) );
-  void * _bw_tracking      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_bandwidth_tracking_align(), fd_gui_peers_bandwidth_tracking_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
-  void * _info_pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_info_pool_align(),     fd_gui_peers_node_info_pool_footprint    ( FD_CONTACT_INFO_TABLE_SIZE ) );
-  void * _info_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_info_map_align(),      fd_gui_peers_node_info_map_footprint     ( info_chain_cnt )             );
-  void * _pubkey_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_pubkey_map_align(),    fd_gui_peers_node_pubkey_map_footprint   ( pubkey_chain_cnt )           );
-  void * _sock_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
-  ctx->client_viewports    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
+  fd_gui_peers_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ctx_t),             sizeof(fd_gui_peers_ctx_t)                                                );
+  void * _live_table       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_live_table_align(),         fd_gui_peers_live_table_footprint        ( FD_CONTACT_INFO_TABLE_SIZE )   );
+  void * _bw_tracking      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_bandwidth_tracking_align(), fd_gui_peers_bandwidth_tracking_footprint( FD_CONTACT_INFO_TABLE_SIZE )   );
+  void * _info_pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_info_pool_align(),     fd_gui_peers_node_info_pool_footprint    ( FD_CONTACT_INFO_TABLE_SIZE )   );
+  void * _info_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_info_map_align(),      fd_gui_peers_node_info_map_footprint     ( info_chain_cnt )               );
+  void * _pubkey_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_pubkey_map_align(),    fd_gui_peers_node_pubkey_map_footprint   ( pubkey_chain_cnt )             );
+  void * _sock_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )               );
+  void * _vote_pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_vote_pool_align(),     fd_gui_peers_node_vote_pool_footprint    ( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  void * _vote_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_vote_map_align(),      fd_gui_peers_node_vote_map_footprint     ( vote_chain_cnt )               );
+  ctx->client_viewports    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                            );
 #if FD_HAS_ZSTD
-  void * _dbip_nodes       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_geoip_node_t),            sizeof(fd_gui_geoip_node_t)*FD_GUI_GEOIP_DBIP_MAX_NODES                 );
+  void * _dbip_nodes       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_geoip_node_t),            sizeof(fd_gui_geoip_node_t)*FD_GUI_GEOIP_DBIP_MAX_NODES                   );
 
   uchar * _zstd_ctx          = FD_SCRATCH_ALLOC_APPEND( l,  16UL,                                   ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG )           );
   ctx->zstd_dctx = ZSTD_initStaticDStream( _zstd_ctx, ZSTD_estimateDStreamSize( 1 << FD_GUI_GEOIP_ZSTD_WINDOW_LOG ) );
@@ -256,10 +264,12 @@ fd_gui_peers_new( void *             shmem,
     ctx->bw_tracking     = fd_gui_peers_bandwidth_tracking_join( fd_gui_peers_bandwidth_tracking_new( _bw_tracking, FD_CONTACT_INFO_TABLE_SIZE ) );
     fd_gui_peers_bandwidth_tracking_seed( ctx->contact_info_table, FD_CONTACT_INFO_TABLE_SIZE, 42UL );
 
-    ctx->node_info_pool  = fd_gui_peers_node_info_pool_join ( fd_gui_peers_node_info_pool_new ( _info_pool,  FD_CONTACT_INFO_TABLE_SIZE ) );
-    ctx->node_info_map   = fd_gui_peers_node_info_map_join  ( fd_gui_peers_node_info_map_new  ( _info_map,   info_chain_cnt,   42UL ) );
-    ctx->node_pubkey_map = fd_gui_peers_node_pubkey_map_join( fd_gui_peers_node_pubkey_map_new( _pubkey_map, pubkey_chain_cnt, 42UL ) );
-    ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   sock_chain_cnt,   42UL ) );
+    ctx->node_info_pool  = fd_gui_peers_node_info_pool_join ( fd_gui_peers_node_info_pool_new ( _info_pool,  FD_CONTACT_INFO_TABLE_SIZE )   );
+    ctx->node_info_map   = fd_gui_peers_node_info_map_join  ( fd_gui_peers_node_info_map_new  ( _info_map,   info_chain_cnt,   42UL )       );
+    ctx->node_pubkey_map = fd_gui_peers_node_pubkey_map_join( fd_gui_peers_node_pubkey_map_new( _pubkey_map, pubkey_chain_cnt, 42UL )       );
+    ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   sock_chain_cnt,   42UL )       );
+    ctx->node_vote_pool  = fd_gui_peers_node_vote_pool_join ( fd_gui_peers_node_vote_pool_new ( _vote_pool,  FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+    ctx->node_vote_map   = fd_gui_peers_node_vote_map_join  ( fd_gui_peers_node_vote_map_new  ( _vote_map,   vote_chain_cnt,   42UL )       );
 
 #if FD_HAS_ZSTD
     build_geoip_trie( ctx, _dbip_nodes,   (uchar *)dbip_f,   dbip_f_sz,   &ctx->dbip,   FD_GUI_GEOIP_DBIP_MAX_NODES   );
@@ -702,8 +712,9 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           memset( &peer->gossip_tx,     0, sizeof(peer->gossip_tx) );
           memset( &peer->gossvf_rx_sum, 0, sizeof(peer->gossvf_rx_sum) );
           memset( &peer->gossip_tx_sum, 0, sizeof(peer->gossip_tx_sum) );
-          peer->has_vote_info = 0;
-          peer->stake = ULONG_MAX;
+
+          fd_gui_peers_vote_t * vote = fd_gui_peers_node_vote_map_ele_query( peers->node_vote_map, &update->contact_info.contact_info->pubkey, NULL, peers->node_vote_pool );
+          peer->stake = FD_LIKELY( vote ) ? vote->stake : ULONG_MAX;
 
           fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, fd_type_pun_const(update->origin ), NULL, peers->node_info_pool );
           if( FD_LIKELY( info ) ) fd_memcpy( peer->name, info->name, sizeof(info->name) );
@@ -804,9 +815,17 @@ void
 fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
                                  fd_gui_peers_vote_t * votes,
                                  ulong                 vote_cnt,
-                                 long                  now,
                                  fd_pubkey_t *         identity ) {
-  (void)now;
+  if( FD_UNLIKELY( !fd_gui_peers_node_vote_pool_free( peers->node_vote_pool ) ) ) {
+    FD_LOG_WARNING(( "pool mem exhausted" ));
+    return;
+  }
+
+  if( FD_UNLIKELY( vote_cnt>FD_RUNTIME_MAX_VOTE_ACCOUNTS ) ) {
+    FD_LOG_WARNING(( "max vote accounts exceeded" ));
+    return;
+  }
+
   fd_gui_peers_vote_t * votes_sorted  = votes;
   fd_gui_peers_vote_t * votes_scratch = peers->votes_scratch;
 
@@ -866,37 +885,47 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
       fd_http_server_ws_broadcast( peers->http );
     }
 
-    ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &votes_sorted[ i ].node_account, ULONG_MAX, peers->contact_info_table );
-    if( FD_UNLIKELY( peer_idx==ULONG_MAX ) ) continue; /* peer not on gossip */
-
-    fd_gui_peers_node_t * peer = peers->contact_info_table + peer_idx;
-
     /* TODO: we only publish updates when stake changes, otherwise we'd
        have to republish for every peer every slot, which ends up being
        too much bandwidth because we republish all the peer info.
        Ideally, we decouple the vote updates from the reset of the peer
        info which would let us make updates quickly. */
-    int is_delinquent = ((long)last_vote_slot_p67 - (long)votes_sorted[ i ].last_vote_slot) > 150L;
-    int vote_eq = peer->has_vote_info
-               && !memcmp( peer->vote_account.uc, votes_sorted[ i ].vote_account.uc, sizeof(fd_pubkey_t) )
-               && peer->stake                   ==votes_sorted[ i ].stake
-            // && peer->last_vote_slot          ==votes_sorted[ i ].last_vote_slot
-            // && peer->last_vote_timestamp     ==votes_sorted[ i ].last_vote_timestamp
-            // && peer->epoch_credits           ==votes_sorted[ i ].epoch_credits
-               && peer->commission              ==votes_sorted[ i ].commission
-               && peer->epoch                   ==votes_sorted[ i ].epoch
-               && peer->delinquent              ==is_delinquent;
+    votes_sorted[ i ].delinquent = ((long)last_vote_slot_p67 - (long)votes_sorted[ i ].last_vote_slot) > 150L;
+
+    fd_gui_peers_vote_t * vote = fd_gui_peers_node_vote_map_ele_query( peers->node_vote_map, &votes_sorted[ i ].node_account, NULL, peers->node_vote_pool );
+
+    int vote_eq = !!vote
+               && !memcmp( vote->vote_account.uc, votes_sorted[ i ].vote_account.uc, sizeof(fd_pubkey_t) )
+               && vote->stake                   ==votes_sorted[ i ].stake
+            // && vote->last_vote_slot          ==votes_sorted[ i ].last_vote_slot
+            // && vote->last_vote_timestamp     ==votes_sorted[ i ].last_vote_timestamp
+            // && vote->epoch_credits           ==votes_sorted[ i ].epoch_credits
+            // && vote->commission              ==votes_sorted[ i ].commission
+               && vote->epoch                   ==votes_sorted[ i ].epoch
+               && vote->delinquent              ==votes_sorted[ i ].delinquent;
 
     if( FD_LIKELY( vote_eq ) ) continue; /* nop */
 
-    peer->has_vote_info = 1;
-    peer->vote_account        = votes_sorted[ i ].vote_account;
-    peer->last_vote_slot      = votes_sorted[ i ].last_vote_slot;
-    peer->last_vote_timestamp = votes_sorted[ i ].last_vote_timestamp;
-    peer->epoch_credits       = votes_sorted[ i ].epoch_credits;
-    peer->commission          = votes_sorted[ i ].commission;
-    peer->epoch               = votes_sorted[ i ].epoch;
-    peer->delinquent          = is_delinquent;
+    if ( FD_UNLIKELY( !vote ) ) {
+      vote = fd_gui_peers_node_vote_pool_ele_acquire( peers->node_vote_pool );
+      fd_memcpy( &vote->node_account, &votes_sorted[ i ].node_account, sizeof(fd_pubkey_t) );
+      fd_gui_peers_node_vote_map_ele_insert( peers->node_vote_map, vote, peers->node_vote_pool );
+    }
+
+    /* update map entry */
+    fd_memcpy( vote->vote_account.uc, votes_sorted[ i ].vote_account.uc, sizeof(fd_pubkey_t) );
+    vote->stake               = votes_sorted[ i ].stake;
+    vote->last_vote_slot      = votes_sorted[ i ].last_vote_slot;
+    vote->last_vote_timestamp = votes_sorted[ i ].last_vote_timestamp;
+    vote->epoch_credits       = votes_sorted[ i ].epoch_credits;
+    vote->commission          = votes_sorted[ i ].commission;
+    vote->epoch               = votes_sorted[ i ].epoch;
+    vote->delinquent          = votes_sorted[ i ].delinquent;
+
+    ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &votes_sorted[ i ].node_account, ULONG_MAX, peers->contact_info_table );
+    if( FD_UNLIKELY( peer_idx==ULONG_MAX ) ) continue; /* peer not on gossip */
+
+    fd_gui_peers_node_t * peer = peers->contact_info_table + peer_idx;
 
     if( FD_UNLIKELY( peer->stake!=votes_sorted[ i ].stake ) ) {
       fd_gui_peers_live_table_idx_remove( peers->live_table, peer_idx, peers->contact_info_table );

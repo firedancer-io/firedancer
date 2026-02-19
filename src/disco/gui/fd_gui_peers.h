@@ -140,6 +140,10 @@ struct fd_gui_peers_vote {
   uchar       commission;
   ulong       epoch;
   ulong       epoch_credits;
+  int         delinquent;
+
+  struct { ulong next; } map;
+  struct { ulong next; } pool;
 };
 
 typedef struct fd_gui_peers_vote fd_gui_peers_vote_t;
@@ -262,16 +266,29 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define POOL_NEXT pool.next
 #include "../../util/tmpl/fd_pool.c"
 
+#define POOL_NAME fd_gui_peers_node_vote_pool
+#define POOL_T    fd_gui_peers_vote_t
+#define POOL_NEXT pool.next
+#include "../../util/tmpl/fd_pool.c"
+
 #define MAP_NAME  fd_gui_peers_node_info_map
 #define MAP_ELE_T fd_gui_config_parse_info_t
 #define MAP_KEY_T fd_pubkey_t
 #define MAP_KEY   pubkey
 #define MAP_IDX_T ulong
 #define MAP_NEXT  map.next
-#define MAP_PREV  map.prev
 #define MAP_KEY_HASH(k,s) (fd_hash( (s), (k)->uc, sizeof(fd_pubkey_t) ))
 #define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->uc, (k1)->uc, 32UL))
-#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define MAP_NAME  fd_gui_peers_node_vote_map
+#define MAP_ELE_T fd_gui_peers_vote_t
+#define MAP_KEY_T fd_pubkey_t
+#define MAP_KEY   node_account
+#define MAP_IDX_T ulong
+#define MAP_NEXT  map.next
+#define MAP_KEY_HASH(k,s) (fd_hash( (s), (k)->uc, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->uc, (k1)->uc, 32UL))
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define MAP_NAME  fd_gui_peers_node_pubkey_map
@@ -368,7 +385,9 @@ struct fd_gui_peers_ctx {
   long next_gossip_stats_update_nanos; /* ns timestamp when we'll next broadcast out gossip stats message */
 
   fd_gui_config_parse_info_t * node_info_pool;
+  fd_gui_peers_vote_t * node_vote_pool;
   fd_gui_peers_node_info_map_t * node_info_map;
+  fd_gui_peers_node_vote_map_t * node_vote_map;
   fd_gui_peers_node_pubkey_map_t * node_pubkey_map;
   fd_gui_peers_node_sock_map_t  * node_sock_map;
   fd_gui_peers_live_table_t * live_table;
@@ -448,7 +467,6 @@ void
 fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
                                  fd_gui_peers_vote_t * votes,
                                  ulong                 vote_cnt,
-                                 long                  now,
                                  fd_pubkey_t *         identity );
 
 void
