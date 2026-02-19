@@ -1768,272 +1768,287 @@ fd_feature_id_t const ids[] = {
 
   { .index = ULONG_MAX }
 };
-/* TODO replace this with fd_map_perfect */
-FD_FN_CONST fd_feature_id_t const *
+
+struct fd_feature_id_lookup_entry {
+  ulong                   key;
+  fd_feature_id_t const * val;
+};
+typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
+
+#define MAP_PERFECT_NAME      fd_feature_id_lookup
+#define MAP_PERFECT_LG_TBL_SZ 12
+#define MAP_PERFECT_T         fd_feature_id_lookup_entry_t
+#define MAP_PERFECT_HASH_C    15700U
+#define MAP_PERFECT_KEY_T     ulong
+#define MAP_PERFECT_ZERO_KEY  0UL
+
+#define MAP_PERFECT_0   0x2577305f7cc65fe7UL, .val = &ids[0]
+#define MAP_PERFECT_1   0x7095d36bc836da32UL, .val = &ids[1]
+#define MAP_PERFECT_2   0x8b990f20829df9b8UL, .val = &ids[2]
+#define MAP_PERFECT_3   0x47e18859d27e3aa3UL, .val = &ids[3]
+#define MAP_PERFECT_4   0xe7571f86aa06f160UL, .val = &ids[4]
+#define MAP_PERFECT_5   0xd924059c5749c4c1UL, .val = &ids[5]
+#define MAP_PERFECT_6   0x159967bd804742c2UL, .val = &ids[6]
+#define MAP_PERFECT_7   0x1d41fee249e6cc37UL, .val = &ids[7]
+#define MAP_PERFECT_8   0xa6d8eedf48633be2UL, .val = &ids[8]
+#define MAP_PERFECT_9   0x65b79c7f3e7441b3UL, .val = &ids[9]
+#define MAP_PERFECT_10  0x51949af2871c7c99UL, .val = &ids[10]
+#define MAP_PERFECT_11  0xfaa4899494a281ecUL, .val = &ids[11]
+#define MAP_PERFECT_12  0x30ab53221abfd626UL, .val = &ids[12]
+#define MAP_PERFECT_13  0x4ab8b2b10003ad50UL, .val = &ids[13]
+#define MAP_PERFECT_14  0xe8f97382b03240a1UL, .val = &ids[14]
+#define MAP_PERFECT_15  0xe994a4b8eeea84f4UL, .val = &ids[15]
+#define MAP_PERFECT_16  0x10a1e092dd7f1573UL, .val = &ids[16]
+#define MAP_PERFECT_17  0xc6eb259e772475c8UL, .val = &ids[17]
+#define MAP_PERFECT_18  0xfba69c4970d7ad9dUL, .val = &ids[18]
+#define MAP_PERFECT_19  0xb5b508c4a6313e99UL, .val = &ids[19]
+#define MAP_PERFECT_20  0xabff1d2abfa0c4bcUL, .val = &ids[20]
+#define MAP_PERFECT_21  0xa952e12150121a45UL, .val = &ids[21]
+#define MAP_PERFECT_22  0x62885c46a116e1d6UL, .val = &ids[22]
+#define MAP_PERFECT_23  0xd5830390d36ee60eUL, .val = &ids[23]
+#define MAP_PERFECT_24  0xff00aac3cfaafcfeUL, .val = &ids[24]
+#define MAP_PERFECT_25  0x6d22c4ce75df6f0bUL, .val = &ids[25]
+#define MAP_PERFECT_26  0xd544636252beca0eUL, .val = &ids[26]
+#define MAP_PERFECT_27  0x4b1e586fc635dc65UL, .val = &ids[27]
+#define MAP_PERFECT_28  0x7ca46573f5a27822UL, .val = &ids[28]
+#define MAP_PERFECT_29  0x1a6958db2ff09870UL, .val = &ids[29]
+#define MAP_PERFECT_30  0x15766ba9a908483cUL, .val = &ids[30]
+#define MAP_PERFECT_31  0x4b5c55d9eaf96eeeUL, .val = &ids[31]
+#define MAP_PERFECT_32  0xf162e5606a687206UL, .val = &ids[32]
+#define MAP_PERFECT_33  0x35dd1ed4b9d19b9bUL, .val = &ids[33]
+#define MAP_PERFECT_34  0x30bf137796030f21UL, .val = &ids[34]
+#define MAP_PERFECT_35  0xa5ece90c9d468a56UL, .val = &ids[35]
+#define MAP_PERFECT_36  0xf1084016618f3ec0UL, .val = &ids[36]
+#define MAP_PERFECT_37  0x92be3cd65cb3e2c3UL, .val = &ids[37]
+#define MAP_PERFECT_38  0xbd02d2f51146c257UL, .val = &ids[38]
+#define MAP_PERFECT_39  0xfcd1ef949cf886f1UL, .val = &ids[39]
+#define MAP_PERFECT_40  0xee2a44e1f54f5e5aUL, .val = &ids[40]
+#define MAP_PERFECT_41  0xc548c6b11d33172fUL, .val = &ids[41]
+#define MAP_PERFECT_42  0xf1d277eeafe62810UL, .val = &ids[42]
+#define MAP_PERFECT_43  0xbdb86acdf94382f4UL, .val = &ids[43]
+#define MAP_PERFECT_44  0xa7654aedafa0a2a4UL, .val = &ids[44]
+#define MAP_PERFECT_45  0x3ab28ef5d5cf7ca6UL, .val = &ids[45]
+#define MAP_PERFECT_46  0x9021d56a2c13c119UL, .val = &ids[46]
+#define MAP_PERFECT_47  0x2b8134b3adacd035UL, .val = &ids[47]
+#define MAP_PERFECT_48  0x1cec25430fa6229fUL, .val = &ids[48]
+#define MAP_PERFECT_49  0x4c8dc4f1e61649ddUL, .val = &ids[49]
+#define MAP_PERFECT_50  0xe79e065446760ac3UL, .val = &ids[50]
+#define MAP_PERFECT_51  0x7a63cd44b42c0b82UL, .val = &ids[51]
+#define MAP_PERFECT_52  0x168bc52564a1181fUL, .val = &ids[52]
+#define MAP_PERFECT_53  0xe4f010aefd867566UL, .val = &ids[53]
+#define MAP_PERFECT_54  0xa85d651d8da169c6UL, .val = &ids[54]
+#define MAP_PERFECT_55  0x7bc99a080444c8d9UL, .val = &ids[55]
+#define MAP_PERFECT_56  0x0203237cf1901d09UL, .val = &ids[56]
+#define MAP_PERFECT_57  0x7e8f67ed363c31a6UL, .val = &ids[57]
+#define MAP_PERFECT_58  0xf28b599c33eda89fUL, .val = &ids[58]
+#define MAP_PERFECT_59  0xffed385aa352ef27UL, .val = &ids[59]
+#define MAP_PERFECT_60  0x06adecee02a12019UL, .val = &ids[60]
+#define MAP_PERFECT_61  0xd79987a3abf61d2dUL, .val = &ids[61]
+#define MAP_PERFECT_62  0xd56fc1708dc98c13UL, .val = &ids[62]
+#define MAP_PERFECT_63  0x317a863da11d0a8dUL, .val = &ids[63]
+#define MAP_PERFECT_64  0x96ac475392d395d8UL, .val = &ids[64]
+#define MAP_PERFECT_65  0x9479e273205da38aUL, .val = &ids[65]
+#define MAP_PERFECT_66  0xd89ef3a8c30d1ba7UL, .val = &ids[66]
+#define MAP_PERFECT_67  0xe2276359bb5e6007UL, .val = &ids[67]
+#define MAP_PERFECT_68  0xf02385c19b529325UL, .val = &ids[68]
+#define MAP_PERFECT_69  0xf1762ae45609273bUL, .val = &ids[69]
+#define MAP_PERFECT_70  0xbff452bfed793f26UL, .val = &ids[70]
+#define MAP_PERFECT_71  0xe505bd1df7964bfcUL, .val = &ids[71]
+#define MAP_PERFECT_72  0x80288c645d23a80bUL, .val = &ids[72]
+#define MAP_PERFECT_73  0x499ab78fe1142d63UL, .val = &ids[73]
+#define MAP_PERFECT_74  0x9f43d6cae453a7e5UL, .val = &ids[74]
+#define MAP_PERFECT_75  0x562f76c6d74c31eaUL, .val = &ids[75]
+#define MAP_PERFECT_76  0xf70ae71daf8a1bd6UL, .val = &ids[76]
+#define MAP_PERFECT_77  0x7f6371bf4a56a106UL, .val = &ids[77]
+#define MAP_PERFECT_78  0x3ca58e628f040b68UL, .val = &ids[78]
+#define MAP_PERFECT_79  0x7e787d5c6d662d23UL, .val = &ids[79]
+#define MAP_PERFECT_80  0xffc496b47872d42fUL, .val = &ids[80]
+#define MAP_PERFECT_81  0x2bf29bf13f0e1d5dUL, .val = &ids[81]
+#define MAP_PERFECT_82  0x073a0a7d3f570b55UL, .val = &ids[82]
+#define MAP_PERFECT_83  0x4d6ae02c256bdf10UL, .val = &ids[83]
+#define MAP_PERFECT_84  0xe8f10f26141749ddUL, .val = &ids[84]
+#define MAP_PERFECT_85  0xe02ac5f848d395d8UL, .val = &ids[85]
+#define MAP_PERFECT_86  0x7b285d0430faf2fcUL, .val = &ids[86]
+#define MAP_PERFECT_87  0xf3ee1d3b0fcfec0cUL, .val = &ids[87]
+#define MAP_PERFECT_88  0xfc0fb9c317b6c16bUL, .val = &ids[88]
+#define MAP_PERFECT_89  0x562011e7dbadd982UL, .val = &ids[89]
+#define MAP_PERFECT_90  0x5458f71cc7cd31e0UL, .val = &ids[90]
+#define MAP_PERFECT_91  0x606490c1431ae278UL, .val = &ids[91]
+#define MAP_PERFECT_92  0xd151c2100e71455bUL, .val = &ids[92]
+#define MAP_PERFECT_93  0x2fdc300bd0720815UL, .val = &ids[93]
+#define MAP_PERFECT_94  0x5a5c2eab595223bfUL, .val = &ids[94]
+#define MAP_PERFECT_95  0xdda7e56980356920UL, .val = &ids[95]
+#define MAP_PERFECT_96  0xc358973434287fe8UL, .val = &ids[96]
+#define MAP_PERFECT_97  0xe210655c824cfb2fUL, .val = &ids[97]
+#define MAP_PERFECT_98  0xc3cc3bdc6eea2eb1UL, .val = &ids[98]
+#define MAP_PERFECT_99  0x2758d3af483c6abeUL, .val = &ids[99]
+#define MAP_PERFECT_100 0xb0e571b1579c09fcUL, .val = &ids[100]
+#define MAP_PERFECT_101 0xcb5d0779751b0c2bUL, .val = &ids[101]
+#define MAP_PERFECT_102 0x5795654d01457757UL, .val = &ids[102]
+#define MAP_PERFECT_103 0x6799d3fbcc438c0cUL, .val = &ids[103]
+#define MAP_PERFECT_104 0x4439548ebff1d6f1UL, .val = &ids[104]
+#define MAP_PERFECT_105 0xe5394b6d65186d70UL, .val = &ids[105]
+#define MAP_PERFECT_106 0x8f688d4e3ab17a60UL, .val = &ids[106]
+#define MAP_PERFECT_107 0xe364c75ced9b53a7UL, .val = &ids[107]
+#define MAP_PERFECT_108 0x41b914ee34cb0368UL, .val = &ids[108]
+#define MAP_PERFECT_109 0x14a73a8e87cee681UL, .val = &ids[109]
+#define MAP_PERFECT_110 0xe21e6fa7a57304e2UL, .val = &ids[110]
+#define MAP_PERFECT_111 0x6d1e7092a4aae574UL, .val = &ids[111]
+#define MAP_PERFECT_112 0x2ca5833736ba5c69UL, .val = &ids[112]
+#define MAP_PERFECT_113 0x855543b1e6e31e10UL, .val = &ids[113]
+#define MAP_PERFECT_114 0x204b4907aacbc996UL, .val = &ids[114]
+#define MAP_PERFECT_115 0x80f1bedb2c2facafUL, .val = &ids[115]
+#define MAP_PERFECT_116 0x6796bad7d20e8806UL, .val = &ids[116]
+#define MAP_PERFECT_117 0xe0724b3421984e49UL, .val = &ids[117]
+#define MAP_PERFECT_118 0xada15a4b53efaad4UL, .val = &ids[118]
+#define MAP_PERFECT_119 0x41fd0d35fd8339c9UL, .val = &ids[119]
+#define MAP_PERFECT_120 0x91b03055f3636ce0UL, .val = &ids[120]
+#define MAP_PERFECT_121 0x5b2c24f10d5a1a81UL, .val = &ids[121]
+#define MAP_PERFECT_122 0x1728caf9bc767c3fUL, .val = &ids[122]
+#define MAP_PERFECT_123 0x819bd0526bd811cbUL, .val = &ids[123]
+#define MAP_PERFECT_124 0x0d8a57d3828615b9UL, .val = &ids[124]
+#define MAP_PERFECT_125 0xb527e5f5e76ce07bUL, .val = &ids[125]
+#define MAP_PERFECT_126 0x2ac194a6a536cee4UL, .val = &ids[126]
+#define MAP_PERFECT_127 0xa6862bcb2044252bUL, .val = &ids[127]
+#define MAP_PERFECT_128 0x9f4323f726178849UL, .val = &ids[128]
+#define MAP_PERFECT_129 0xaaef1edeb6c5bf85UL, .val = &ids[129]
+#define MAP_PERFECT_130 0x795c88a20bcb6dfdUL, .val = &ids[130]
+#define MAP_PERFECT_131 0x8a8eb9085ca2bb0bUL, .val = &ids[131]
+#define MAP_PERFECT_132 0x33e6e44dc3a9cfb2UL, .val = &ids[132]
+#define MAP_PERFECT_133 0x74bb9abc81624c0dUL, .val = &ids[133]
+#define MAP_PERFECT_134 0x784adb4f1d180869UL, .val = &ids[134]
+#define MAP_PERFECT_135 0x71eba1d288ba2bfcUL, .val = &ids[135]
+#define MAP_PERFECT_136 0x823d14dd6235f859UL, .val = &ids[136]
+#define MAP_PERFECT_137 0xb3f6cd09abba192bUL, .val = &ids[137]
+#define MAP_PERFECT_138 0x3a315b1ab012eec3UL, .val = &ids[138]
+#define MAP_PERFECT_139 0x500aab8a23ff8b33UL, .val = &ids[139]
+#define MAP_PERFECT_140 0xffe35ea7abb29bbbUL, .val = &ids[140]
+#define MAP_PERFECT_141 0x8a22c4e80489c387UL, .val = &ids[141]
+#define MAP_PERFECT_142 0xce82bcc13c5649faUL, .val = &ids[142]
+#define MAP_PERFECT_143 0x8ff9cf8537529ed8UL, .val = &ids[143]
+#define MAP_PERFECT_144 0xd6120d1b80de5feaUL, .val = &ids[144]
+#define MAP_PERFECT_145 0xca9ab2701c9aa81bUL, .val = &ids[145]
+#define MAP_PERFECT_146 0xeee4f782117a3096UL, .val = &ids[146]
+#define MAP_PERFECT_147 0x28b4db1b1a8a9d90UL, .val = &ids[147]
+#define MAP_PERFECT_148 0x55d3a0c392cf63e0UL, .val = &ids[148]
+#define MAP_PERFECT_149 0x0e7aa95037c5daacUL, .val = &ids[149]
+#define MAP_PERFECT_150 0xe2d13039d5f9c6a6UL, .val = &ids[150]
+#define MAP_PERFECT_151 0xcae3ec6191402713UL, .val = &ids[151]
+#define MAP_PERFECT_152 0xa6b1a5bbb608b7c9UL, .val = &ids[152]
+#define MAP_PERFECT_153 0x50a615bae8ca3874UL, .val = &ids[153]
+#define MAP_PERFECT_154 0xda4dd6055b75ae43UL, .val = &ids[154]
+#define MAP_PERFECT_155 0x2f51d89fe8ee0500UL, .val = &ids[155]
+#define MAP_PERFECT_156 0x61aaf185493a599fUL, .val = &ids[156]
+#define MAP_PERFECT_157 0x74326f811fd7d861UL, .val = &ids[157]
+#define MAP_PERFECT_158 0x2bd7391d0e103c41UL, .val = &ids[158]
+#define MAP_PERFECT_159 0x401b668e4b13b8f9UL, .val = &ids[159]
+#define MAP_PERFECT_160 0x74b022574093eeecUL, .val = &ids[160]
+#define MAP_PERFECT_161 0x81b8fd99bea25f9bUL, .val = &ids[161]
+#define MAP_PERFECT_162 0x3cbf822ccb2eebd4UL, .val = &ids[162]
+#define MAP_PERFECT_163 0xe9d32123513c4d0dUL, .val = &ids[163]
+#define MAP_PERFECT_164 0x64205286d7935342UL, .val = &ids[164]
+#define MAP_PERFECT_165 0x12802019b1336a17UL, .val = &ids[165]
+#define MAP_PERFECT_166 0x4b241cb4c6f3b3b2UL, .val = &ids[166]
+#define MAP_PERFECT_167 0x21746beaa849f9d9UL, .val = &ids[167]
+#define MAP_PERFECT_168 0x9bb55b5df1c396c5UL, .val = &ids[168]
+#define MAP_PERFECT_169 0x6b9b55aefe23036cUL, .val = &ids[169]
+#define MAP_PERFECT_170 0xe779d032af3fc8c8UL, .val = &ids[170]
+#define MAP_PERFECT_171 0x583989aa9681db6aUL, .val = &ids[171]
+#define MAP_PERFECT_172 0xa511cde5058d996fUL, .val = &ids[172]
+#define MAP_PERFECT_173 0xa414b36a8ea378a1UL, .val = &ids[173]
+#define MAP_PERFECT_174 0x6c49f08f6ae2dad4UL, .val = &ids[174]
+#define MAP_PERFECT_175 0x8c2c2963ae9f420cUL, .val = &ids[175]
+#define MAP_PERFECT_176 0xcd42326b6c24cb0eUL, .val = &ids[176]
+#define MAP_PERFECT_177 0xd17b392feb1e0fe6UL, .val = &ids[177]
+#define MAP_PERFECT_178 0x0207866b7b2c7452UL, .val = &ids[178]
+#define MAP_PERFECT_179 0x592e701c2ba17409UL, .val = &ids[179]
+#define MAP_PERFECT_180 0xbe955088bcb5a209UL, .val = &ids[180]
+#define MAP_PERFECT_181 0xfbce25936c716309UL, .val = &ids[181]
+#define MAP_PERFECT_182 0x116e31cc55ce7d0bUL, .val = &ids[182]
+#define MAP_PERFECT_183 0x8c43e9b9ea49be60UL, .val = &ids[183]
+#define MAP_PERFECT_184 0x9b6307ae6da60a0bUL, .val = &ids[184]
+#define MAP_PERFECT_185 0xf423d4e1d688cb0eUL, .val = &ids[185]
+#define MAP_PERFECT_186 0xa1518043438beb0dUL, .val = &ids[186]
+#define MAP_PERFECT_187 0xdb27ab6a4a6379d5UL, .val = &ids[187]
+#define MAP_PERFECT_188 0x814079c434b79c66UL, .val = &ids[188]
+#define MAP_PERFECT_189 0xfde0b578d38fc5a1UL, .val = &ids[189]
+#define MAP_PERFECT_190 0xf711255aedfe2d0dUL, .val = &ids[190]
+#define MAP_PERFECT_191 0x81f658d2653a6051UL, .val = &ids[191]
+#define MAP_PERFECT_192 0xf1f206f6027db529UL, .val = &ids[192]
+#define MAP_PERFECT_193 0x1d15c9469c7c0ca8UL, .val = &ids[193]
+#define MAP_PERFECT_194 0xb6edac8134dff06eUL, .val = &ids[194]
+#define MAP_PERFECT_195 0x7e4172e5ba362509UL, .val = &ids[195]
+#define MAP_PERFECT_196 0x8ba9e9038d9fdcffUL, .val = &ids[196]
+#define MAP_PERFECT_197 0xafe148ad652172ddUL, .val = &ids[197]
+#define MAP_PERFECT_198 0x91a7af96555ea309UL, .val = &ids[198]
+#define MAP_PERFECT_199 0x8e1411a93085cb0eUL, .val = &ids[199]
+#define MAP_PERFECT_200 0x0b9047b5bb9ef961UL, .val = &ids[200]
+#define MAP_PERFECT_201 0xa5a66405d0ab6309UL, .val = &ids[201]
+#define MAP_PERFECT_202 0x81fcbfa0d0f6b105UL, .val = &ids[202]
+#define MAP_PERFECT_203 0xa3a6f94db269070dUL, .val = &ids[203]
+#define MAP_PERFECT_204 0x829062f252ef5ba8UL, .val = &ids[204]
+#define MAP_PERFECT_205 0x1db51f609c8fcd07UL, .val = &ids[205]
+#define MAP_PERFECT_206 0xe5937c9dd5edd306UL, .val = &ids[206]
+#define MAP_PERFECT_207 0xefc2cb9c2b40f3ffUL, .val = &ids[207]
+#define MAP_PERFECT_208 0x408e6a8a269a6ad1UL, .val = &ids[208]
+#define MAP_PERFECT_209 0x66ee381e7be8bc9bUL, .val = &ids[209]
+#define MAP_PERFECT_210 0xf46b1f18665c4236UL, .val = &ids[210]
+#define MAP_PERFECT_211 0xa9a90df1904da912UL, .val = &ids[211]
+#define MAP_PERFECT_212 0x2434a84be5b684a5UL, .val = &ids[212]
+#define MAP_PERFECT_213 0xd30c04a5f2586e4fUL, .val = &ids[213]
+#define MAP_PERFECT_214 0xef8ea76db306cad4UL, .val = &ids[214]
+#define MAP_PERFECT_215 0x7f29632535392bc7UL, .val = &ids[215]
+#define MAP_PERFECT_216 0x7864cf278798ebd7UL, .val = &ids[216]
+#define MAP_PERFECT_217 0x54c5c5132eaae808UL, .val = &ids[217]
+#define MAP_PERFECT_218 0x9e65a24bcb41d3f6UL, .val = &ids[218]
+#define MAP_PERFECT_219 0xdaaca2a2c8c1fb04UL, .val = &ids[219]
+#define MAP_PERFECT_220 0x01c747ea6424fc04UL, .val = &ids[220]
+#define MAP_PERFECT_221 0x56b57bbf5f6afc04UL, .val = &ids[221]
+#define MAP_PERFECT_222 0xc66648576f67b1a5UL, .val = &ids[222]
+#define MAP_PERFECT_223 0x08dc7e6d724d4e47UL, .val = &ids[223]
+#define MAP_PERFECT_224 0x49781d065bfd2956UL, .val = &ids[224]
+#define MAP_PERFECT_225 0xb59b06bf02faa205UL, .val = &ids[225]
+#define MAP_PERFECT_226 0x8ef4f4fdbc3d6c85UL, .val = &ids[226]
+#define MAP_PERFECT_227 0xd571e3dc9532c905UL, .val = &ids[227]
+#define MAP_PERFECT_228 0x4d86ca23d81d6d11UL, .val = &ids[228]
+#define MAP_PERFECT_229 0x68b66c984ac5e709UL, .val = &ids[229]
+#define MAP_PERFECT_230 0x28f6b335e2fb2040UL, .val = &ids[230]
+#define MAP_PERFECT_231 0xa841eda250bdcc9cUL, .val = &ids[231]
+#define MAP_PERFECT_232 0x0272a3278356fa9cUL, .val = &ids[232]
+#define MAP_PERFECT_233 0x494f963ae12b5106UL, .val = &ids[233]
+#define MAP_PERFECT_234 0x210aba8db8103506UL, .val = &ids[234]
+#define MAP_PERFECT_235 0xec3a4c069e71cb0eUL, .val = &ids[235]
+#define MAP_PERFECT_236 0x8321f88bec76cb0eUL, .val = &ids[236]
+#define MAP_PERFECT_237 0xe72f76507222e3bbUL, .val = &ids[237]
+#define MAP_PERFECT_238 0x7170cf84367fbb1aUL, .val = &ids[238]
+#define MAP_PERFECT_239 0xa9e3bfbaf8d67260UL, .val = &ids[239]
+#define MAP_PERFECT_240 0x3711b30f40730240UL, .val = &ids[240]
+#define MAP_PERFECT_241 0xc1309d1b0ae3e80cUL, .val = &ids[241]
+#define MAP_PERFECT_242 0x5c64cc1a9be3790aUL, .val = &ids[242]
+#define MAP_PERFECT_243 0x5004d84d60aadc0cUL, .val = &ids[243]
+#define MAP_PERFECT_244 0x520c5e674243fab5UL, .val = &ids[244]
+#define MAP_PERFECT_245 0xf08a42c3c040e908UL, .val = &ids[245]
+#define MAP_PERFECT_246 0x8c7bee4552d93e0cUL, .val = &ids[246]
+#define MAP_PERFECT_247 0x99e38f77f30f2b34UL, .val = &ids[247]
+#define MAP_PERFECT_248 0x7c4802b8ba3fa849UL, .val = &ids[248]
+#define MAP_PERFECT_249 0xab2a2311ca83eb09UL, .val = &ids[249]
+#define MAP_PERFECT_250 0x55792888a8cf31efUL, .val = &ids[250]
+#define MAP_PERFECT_251 0xf4792febab30b80cUL, .val = &ids[251]
+#define MAP_PERFECT_252 0xdab5b6a991a03e4bUL, .val = &ids[252]
+#define MAP_PERFECT_253 0x8921a3abf23afaecUL, .val = &ids[253]
+#define MAP_PERFECT_254 0x640dddd90caae808UL, .val = &ids[254]
+#define MAP_PERFECT_255 0x6a9db4aa29bdb608UL, .val = &ids[255]
+#define MAP_PERFECT_256 0x010f656d89a4e808UL, .val = &ids[256]
+#define MAP_PERFECT_257 0xfc12b1cef363afa7UL, .val = &ids[257]
+#define MAP_PERFECT_258 0x3727b6b01b8a6c1cUL, .val = &ids[258]
+
+#include "../../util/tmpl/fd_map_perfect.c"
+
+fd_feature_id_t const *
 fd_feature_id_query( ulong prefix ) {
-  switch( prefix ) {
-  case 0x2577305f7cc65fe7: return &ids[   0 ];
-  case 0x7095d36bc836da32: return &ids[   1 ];
-  case 0x8b990f20829df9b8: return &ids[   2 ];
-  case 0x47e18859d27e3aa3: return &ids[   3 ];
-  case 0xe7571f86aa06f160: return &ids[   4 ];
-  case 0xd924059c5749c4c1: return &ids[   5 ];
-  case 0x159967bd804742c2: return &ids[   6 ];
-  case 0x1d41fee249e6cc37: return &ids[   7 ];
-  case 0xa6d8eedf48633be2: return &ids[   8 ];
-  case 0x65b79c7f3e7441b3: return &ids[   9 ];
-  case 0x51949af2871c7c99: return &ids[  10 ];
-  case 0xfaa4899494a281ec: return &ids[  11 ];
-  case 0x30ab53221abfd626: return &ids[  12 ];
-  case 0x4ab8b2b10003ad50: return &ids[  13 ];
-  case 0xe8f97382b03240a1: return &ids[  14 ];
-  case 0xe994a4b8eeea84f4: return &ids[  15 ];
-  case 0x10a1e092dd7f1573: return &ids[  16 ];
-  case 0xc6eb259e772475c8: return &ids[  17 ];
-  case 0xfba69c4970d7ad9d: return &ids[  18 ];
-  case 0xb5b508c4a6313e99: return &ids[  19 ];
-  case 0xabff1d2abfa0c4bc: return &ids[  20 ];
-  case 0xa952e12150121a45: return &ids[  21 ];
-  case 0x62885c46a116e1d6: return &ids[  22 ];
-  case 0xd5830390d36ee60e: return &ids[  23 ];
-  case 0xff00aac3cfaafcfe: return &ids[  24 ];
-  case 0x6d22c4ce75df6f0b: return &ids[  25 ];
-  case 0xd544636252beca0e: return &ids[  26 ];
-  case 0x4b1e586fc635dc65: return &ids[  27 ];
-  case 0x7ca46573f5a27822: return &ids[  28 ];
-  case 0x1a6958db2ff09870: return &ids[  29 ];
-  case 0x15766ba9a908483c: return &ids[  30 ];
-  case 0x4b5c55d9eaf96eee: return &ids[  31 ];
-  case 0xf162e5606a687206: return &ids[  32 ];
-  case 0x35dd1ed4b9d19b9b: return &ids[  33 ];
-  case 0x30bf137796030f21: return &ids[  34 ];
-  case 0xa5ece90c9d468a56: return &ids[  35 ];
-  case 0xf1084016618f3ec0: return &ids[  36 ];
-  case 0x92be3cd65cb3e2c3: return &ids[  37 ];
-  case 0xbd02d2f51146c257: return &ids[  38 ];
-  case 0xfcd1ef949cf886f1: return &ids[  39 ];
-  case 0xee2a44e1f54f5e5a: return &ids[  40 ];
-  case 0xc548c6b11d33172f: return &ids[  41 ];
-  case 0xf1d277eeafe62810: return &ids[  42 ];
-  case 0xbdb86acdf94382f4: return &ids[  43 ];
-  case 0xa7654aedafa0a2a4: return &ids[  44 ];
-  case 0x3ab28ef5d5cf7ca6: return &ids[  45 ];
-  case 0x9021d56a2c13c119: return &ids[  46 ];
-  case 0x2b8134b3adacd035: return &ids[  47 ];
-  case 0x1cec25430fa6229f: return &ids[  48 ];
-  case 0x4c8dc4f1e61649dd: return &ids[  49 ];
-  case 0xe79e065446760ac3: return &ids[  50 ];
-  case 0x7a63cd44b42c0b82: return &ids[  51 ];
-  case 0x168bc52564a1181f: return &ids[  52 ];
-  case 0xe4f010aefd867566: return &ids[  53 ];
-  case 0xa85d651d8da169c6: return &ids[  54 ];
-  case 0x7bc99a080444c8d9: return &ids[  55 ];
-  case 0x0203237cf1901d09: return &ids[  56 ];
-  case 0x7e8f67ed363c31a6: return &ids[  57 ];
-  case 0xf28b599c33eda89f: return &ids[  58 ];
-  case 0xffed385aa352ef27: return &ids[  59 ];
-  case 0x06adecee02a12019: return &ids[  60 ];
-  case 0xd79987a3abf61d2d: return &ids[  61 ];
-  case 0xd56fc1708dc98c13: return &ids[  62 ];
-  case 0x317a863da11d0a8d: return &ids[  63 ];
-  case 0x96ac475392d395d8: return &ids[  64 ];
-  case 0x9479e273205da38a: return &ids[  65 ];
-  case 0xd89ef3a8c30d1ba7: return &ids[  66 ];
-  case 0xe2276359bb5e6007: return &ids[  67 ];
-  case 0xf02385c19b529325: return &ids[  68 ];
-  case 0xf1762ae45609273b: return &ids[  69 ];
-  case 0xbff452bfed793f26: return &ids[  70 ];
-  case 0xe505bd1df7964bfc: return &ids[  71 ];
-  case 0x80288c645d23a80b: return &ids[  72 ];
-  case 0x499ab78fe1142d63: return &ids[  73 ];
-  case 0x9f43d6cae453a7e5: return &ids[  74 ];
-  case 0x562f76c6d74c31ea: return &ids[  75 ];
-  case 0xf70ae71daf8a1bd6: return &ids[  76 ];
-  case 0x7f6371bf4a56a106: return &ids[  77 ];
-  case 0x3ca58e628f040b68: return &ids[  78 ];
-  case 0x7e787d5c6d662d23: return &ids[  79 ];
-  case 0xffc496b47872d42f: return &ids[  80 ];
-  case 0x2bf29bf13f0e1d5d: return &ids[  81 ];
-  case 0x073a0a7d3f570b55: return &ids[  82 ];
-  case 0x4d6ae02c256bdf10: return &ids[  83 ];
-  case 0xe8f10f26141749dd: return &ids[  84 ];
-  case 0xe02ac5f848d395d8: return &ids[  85 ];
-  case 0x7b285d0430faf2fc: return &ids[  86 ];
-  case 0xf3ee1d3b0fcfec0c: return &ids[  87 ];
-  case 0xfc0fb9c317b6c16b: return &ids[  88 ];
-  case 0x562011e7dbadd982: return &ids[  89 ];
-  case 0x5458f71cc7cd31e0: return &ids[  90 ];
-  case 0x606490c1431ae278: return &ids[  91 ];
-  case 0xd151c2100e71455b: return &ids[  92 ];
-  case 0x2fdc300bd0720815: return &ids[  93 ];
-  case 0x5a5c2eab595223bf: return &ids[  94 ];
-  case 0xdda7e56980356920: return &ids[  95 ];
-  case 0xc358973434287fe8: return &ids[  96 ];
-  case 0xe210655c824cfb2f: return &ids[  97 ];
-  case 0xc3cc3bdc6eea2eb1: return &ids[  98 ];
-  case 0x2758d3af483c6abe: return &ids[  99 ];
-  case 0xb0e571b1579c09fc: return &ids[ 100 ];
-  case 0xcb5d0779751b0c2b: return &ids[ 101 ];
-  case 0x5795654d01457757: return &ids[ 102 ];
-  case 0x6799d3fbcc438c0c: return &ids[ 103 ];
-  case 0x4439548ebff1d6f1: return &ids[ 104 ];
-  case 0xe5394b6d65186d70: return &ids[ 105 ];
-  case 0x8f688d4e3ab17a60: return &ids[ 106 ];
-  case 0xe364c75ced9b53a7: return &ids[ 107 ];
-  case 0x41b914ee34cb0368: return &ids[ 108 ];
-  case 0x14a73a8e87cee681: return &ids[ 109 ];
-  case 0xe21e6fa7a57304e2: return &ids[ 110 ];
-  case 0x6d1e7092a4aae574: return &ids[ 111 ];
-  case 0x2ca5833736ba5c69: return &ids[ 112 ];
-  case 0x855543b1e6e31e10: return &ids[ 113 ];
-  case 0x204b4907aacbc996: return &ids[ 114 ];
-  case 0x80f1bedb2c2facaf: return &ids[ 115 ];
-  case 0x6796bad7d20e8806: return &ids[ 116 ];
-  case 0xe0724b3421984e49: return &ids[ 117 ];
-  case 0xada15a4b53efaad4: return &ids[ 118 ];
-  case 0x41fd0d35fd8339c9: return &ids[ 119 ];
-  case 0x91b03055f3636ce0: return &ids[ 120 ];
-  case 0x5b2c24f10d5a1a81: return &ids[ 121 ];
-  case 0x1728caf9bc767c3f: return &ids[ 122 ];
-  case 0x819bd0526bd811cb: return &ids[ 123 ];
-  case 0x0d8a57d3828615b9: return &ids[ 124 ];
-  case 0xb527e5f5e76ce07b: return &ids[ 125 ];
-  case 0x2ac194a6a536cee4: return &ids[ 126 ];
-  case 0xa6862bcb2044252b: return &ids[ 127 ];
-  case 0x9f4323f726178849: return &ids[ 128 ];
-  case 0xaaef1edeb6c5bf85: return &ids[ 129 ];
-  case 0x795c88a20bcb6dfd: return &ids[ 130 ];
-  case 0x8a8eb9085ca2bb0b: return &ids[ 131 ];
-  case 0x33e6e44dc3a9cfb2: return &ids[ 132 ];
-  case 0x74bb9abc81624c0d: return &ids[ 133 ];
-  case 0x784adb4f1d180869: return &ids[ 134 ];
-  case 0x71eba1d288ba2bfc: return &ids[ 135 ];
-  case 0x823d14dd6235f859: return &ids[ 136 ];
-  case 0xb3f6cd09abba192b: return &ids[ 137 ];
-  case 0x3a315b1ab012eec3: return &ids[ 138 ];
-  case 0x500aab8a23ff8b33: return &ids[ 139 ];
-  case 0xffe35ea7abb29bbb: return &ids[ 140 ];
-  case 0x8a22c4e80489c387: return &ids[ 141 ];
-  case 0xce82bcc13c5649fa: return &ids[ 142 ];
-  case 0x8ff9cf8537529ed8: return &ids[ 143 ];
-  case 0xd6120d1b80de5fea: return &ids[ 144 ];
-  case 0xca9ab2701c9aa81b: return &ids[ 145 ];
-  case 0xeee4f782117a3096: return &ids[ 146 ];
-  case 0x28b4db1b1a8a9d90: return &ids[ 147 ];
-  case 0x55d3a0c392cf63e0: return &ids[ 148 ];
-  case 0x0e7aa95037c5daac: return &ids[ 149 ];
-  case 0xe2d13039d5f9c6a6: return &ids[ 150 ];
-  case 0xcae3ec6191402713: return &ids[ 151 ];
-  case 0xa6b1a5bbb608b7c9: return &ids[ 152 ];
-  case 0x50a615bae8ca3874: return &ids[ 153 ];
-  case 0xda4dd6055b75ae43: return &ids[ 154 ];
-  case 0x2f51d89fe8ee0500: return &ids[ 155 ];
-  case 0x61aaf185493a599f: return &ids[ 156 ];
-  case 0x74326f811fd7d861: return &ids[ 157 ];
-  case 0x2bd7391d0e103c41: return &ids[ 158 ];
-  case 0x401b668e4b13b8f9: return &ids[ 159 ];
-  case 0x74b022574093eeec: return &ids[ 160 ];
-  case 0x81b8fd99bea25f9b: return &ids[ 161 ];
-  case 0x3cbf822ccb2eebd4: return &ids[ 162 ];
-  case 0xe9d32123513c4d0d: return &ids[ 163 ];
-  case 0x64205286d7935342: return &ids[ 164 ];
-  case 0x12802019b1336a17: return &ids[ 165 ];
-  case 0x4b241cb4c6f3b3b2: return &ids[ 166 ];
-  case 0x21746beaa849f9d9: return &ids[ 167 ];
-  case 0x9bb55b5df1c396c5: return &ids[ 168 ];
-  case 0x6b9b55aefe23036c: return &ids[ 169 ];
-  case 0xe779d032af3fc8c8: return &ids[ 170 ];
-  case 0x583989aa9681db6a: return &ids[ 171 ];
-  case 0xa511cde5058d996f: return &ids[ 172 ];
-  case 0xa414b36a8ea378a1: return &ids[ 173 ];
-  case 0x6c49f08f6ae2dad4: return &ids[ 174 ];
-  case 0x8c2c2963ae9f420c: return &ids[ 175 ];
-  case 0xcd42326b6c24cb0e: return &ids[ 176 ];
-  case 0xd17b392feb1e0fe6: return &ids[ 177 ];
-  case 0x0207866b7b2c7452: return &ids[ 178 ];
-  case 0x592e701c2ba17409: return &ids[ 179 ];
-  case 0xbe955088bcb5a209: return &ids[ 180 ];
-  case 0xfbce25936c716309: return &ids[ 181 ];
-  case 0x116e31cc55ce7d0b: return &ids[ 182 ];
-  case 0x8c43e9b9ea49be60: return &ids[ 183 ];
-  case 0x9b6307ae6da60a0b: return &ids[ 184 ];
-  case 0xf423d4e1d688cb0e: return &ids[ 185 ];
-  case 0xa1518043438beb0d: return &ids[ 186 ];
-  case 0xdb27ab6a4a6379d5: return &ids[ 187 ];
-  case 0x814079c434b79c66: return &ids[ 188 ];
-  case 0xfde0b578d38fc5a1: return &ids[ 189 ];
-  case 0xf711255aedfe2d0d: return &ids[ 190 ];
-  case 0x81f658d2653a6051: return &ids[ 191 ];
-  case 0xf1f206f6027db529: return &ids[ 192 ];
-  case 0x1d15c9469c7c0ca8: return &ids[ 193 ];
-  case 0xb6edac8134dff06e: return &ids[ 194 ];
-  case 0x7e4172e5ba362509: return &ids[ 195 ];
-  case 0x8ba9e9038d9fdcff: return &ids[ 196 ];
-  case 0xafe148ad652172dd: return &ids[ 197 ];
-  case 0x91a7af96555ea309: return &ids[ 198 ];
-  case 0x8e1411a93085cb0e: return &ids[ 199 ];
-  case 0x0b9047b5bb9ef961: return &ids[ 200 ];
-  case 0xa5a66405d0ab6309: return &ids[ 201 ];
-  case 0x81fcbfa0d0f6b105: return &ids[ 202 ];
-  case 0xa3a6f94db269070d: return &ids[ 203 ];
-  case 0x829062f252ef5ba8: return &ids[ 204 ];
-  case 0x1db51f609c8fcd07: return &ids[ 205 ];
-  case 0xe5937c9dd5edd306: return &ids[ 206 ];
-  case 0xefc2cb9c2b40f3ff: return &ids[ 207 ];
-  case 0x408e6a8a269a6ad1: return &ids[ 208 ];
-  case 0x66ee381e7be8bc9b: return &ids[ 209 ];
-  case 0xf46b1f18665c4236: return &ids[ 210 ];
-  case 0xa9a90df1904da912: return &ids[ 211 ];
-  case 0x2434a84be5b684a5: return &ids[ 212 ];
-  case 0xd30c04a5f2586e4f: return &ids[ 213 ];
-  case 0xef8ea76db306cad4: return &ids[ 214 ];
-  case 0x7f29632535392bc7: return &ids[ 215 ];
-  case 0x7864cf278798ebd7: return &ids[ 216 ];
-  case 0x54c5c5132eaae808: return &ids[ 217 ];
-  case 0x9e65a24bcb41d3f6: return &ids[ 218 ];
-  case 0xdaaca2a2c8c1fb04: return &ids[ 219 ];
-  case 0x01c747ea6424fc04: return &ids[ 220 ];
-  case 0x56b57bbf5f6afc04: return &ids[ 221 ];
-  case 0xc66648576f67b1a5: return &ids[ 222 ];
-  case 0x08dc7e6d724d4e47: return &ids[ 223 ];
-  case 0x49781d065bfd2956: return &ids[ 224 ];
-  case 0xb59b06bf02faa205: return &ids[ 225 ];
-  case 0x8ef4f4fdbc3d6c85: return &ids[ 226 ];
-  case 0xd571e3dc9532c905: return &ids[ 227 ];
-  case 0x4d86ca23d81d6d11: return &ids[ 228 ];
-  case 0x68b66c984ac5e709: return &ids[ 229 ];
-  case 0x28f6b335e2fb2040: return &ids[ 230 ];
-  case 0xa841eda250bdcc9c: return &ids[ 231 ];
-  case 0x0272a3278356fa9c: return &ids[ 232 ];
-  case 0x494f963ae12b5106: return &ids[ 233 ];
-  case 0x210aba8db8103506: return &ids[ 234 ];
-  case 0xec3a4c069e71cb0e: return &ids[ 235 ];
-  case 0x8321f88bec76cb0e: return &ids[ 236 ];
-  case 0xe72f76507222e3bb: return &ids[ 237 ];
-  case 0x7170cf84367fbb1a: return &ids[ 238 ];
-  case 0xa9e3bfbaf8d67260: return &ids[ 239 ];
-  case 0x3711b30f40730240: return &ids[ 240 ];
-  case 0xc1309d1b0ae3e80c: return &ids[ 241 ];
-  case 0x5c64cc1a9be3790a: return &ids[ 242 ];
-  case 0x5004d84d60aadc0c: return &ids[ 243 ];
-  case 0x520c5e674243fab5: return &ids[ 244 ];
-  case 0xf08a42c3c040e908: return &ids[ 245 ];
-  case 0x8c7bee4552d93e0c: return &ids[ 246 ];
-  case 0x99e38f77f30f2b34: return &ids[ 247 ];
-  case 0x7c4802b8ba3fa849: return &ids[ 248 ];
-  case 0xab2a2311ca83eb09: return &ids[ 249 ];
-  case 0x55792888a8cf31ef: return &ids[ 250 ];
-  case 0xf4792febab30b80c: return &ids[ 251 ];
-  case 0xdab5b6a991a03e4b: return &ids[ 252 ];
-  case 0x8921a3abf23afaec: return &ids[ 253 ];
-  case 0x640dddd90caae808: return &ids[ 254 ];
-  case 0x6a9db4aa29bdb608: return &ids[ 255 ];
-  case 0x010f656d89a4e808: return &ids[ 256 ];
-  case 0xfc12b1cef363afa7: return &ids[ 257 ];
-  case 0x3727b6b01b8a6c1c: return &ids[ 258 ];
-  default: break;
-  }
-  return NULL;
+  fd_feature_id_lookup_entry_t const * entry = fd_feature_id_lookup_query( prefix, NULL );
+  if( FD_UNLIKELY( !entry ) ) return NULL;
+  return entry->val;
 }
 /* Verify that offset calculations are correct */
 FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_rewards_sysvar                                )>>3==  0UL, layout );
