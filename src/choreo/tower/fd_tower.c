@@ -4,10 +4,8 @@
 #include <sys/stat.h>
 
 #include "fd_tower.h"
-#include "../voter/fd_voter.h"
-#include "../voter/fd_voter_private.h"
-#include "fd_tower_forks.h"
-#include "fd_tower_serde.h"
+#include "fd_tower_blocks.h"
+#include "fd_tower_serdes.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 
@@ -16,6 +14,11 @@
 #define THRESHOLD_DEPTH (8)
 #define THRESHOLD_RATIO (2.0 / 3.0)
 #define SWITCH_RATIO    (0.38)
+
+static fd_vote_acc_vote_t const *
+v4_off( fd_vote_acc_t const * voter ) {
+  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
+}
 
 /* expiration calculates the expiration slot of vote given a slot and
    confirmation count. */
@@ -29,7 +32,7 @@ expiration_slot( fd_tower_t const * vote ) {
 /* simulate_vote simulates voting for slot, popping all votes from the
    top that would be consecutively expired by voting for slot. */
 
-ulong
+static ulong
 simulate_vote( fd_tower_t const * tower,
                ulong              slot ) {
   ulong cnt = fd_tower_cnt( tower );
@@ -51,7 +54,7 @@ simulate_vote( fd_tower_t const * tower,
    most FD_TOWER_VOTE_MAX votes, because (in addition to vote expiry)
    there will always be a pop before reaching FD_TOWER_VOTE_MAX + 1. */
 
-ulong
+static ulong
 push_vote( fd_tower_t * tower,
            ulong        slot ) {
 
@@ -164,9 +167,9 @@ push_vote( fd_tower_t * tower,
    In the final tower, note the gap in confirmation counts between slot
    18 and slot 2, even though slot 18 is directly above slot 2. */
 
-int
+static int
 lockout_check( fd_tower_t const * tower,
-               fd_forks_t       * forks,
+               fd_tower_blocks_t       * forks,
                ulong              slot ) {
 
   if( FD_UNLIKELY( fd_tower_empty( tower )                         ) ) return 1; /* always not locked out if we haven't voted. */
@@ -180,7 +183,7 @@ lockout_check( fd_tower_t const * tower,
   if( FD_UNLIKELY( !cnt ) ) return 1;       /* tower is empty after popping expired votes */
 
   fd_tower_t const * vote    = fd_tower_peek_index_const( tower, cnt - 1 );            /* newly top-of-tower */
-  int                lockout = fd_forks_is_slot_descendant( forks, vote->slot, slot ); /* check if on same fork */
+  int                lockout = fd_tower_blocks_is_slot_descendant( forks, vote->slot, slot ); /* check if on same fork */
   FD_LOG_INFO(( "[%s] lockout? %d. last_vote_slot: %lu. slot: %lu", __func__, lockout, vote->slot, slot ));
   return lockout;
 }
@@ -221,10 +224,10 @@ lockout_check( fd_tower_t const * tower,
    The switch check is used to safeguard optimistic confirmation.
    Specifically: FD_TOWER_OPT_CONF_PCT + FD_TOWER_SWITCH_PCT >= 1. */
 
-int
+static int
 switch_check( fd_tower_t const  * tower,
-              fd_forks_t        * forks,
-              fd_epoch_stakes_t * epoch_stakes,
+              fd_tower_blocks_t        * forks,
+              fd_tower_stakes_t * tower_stakes,
               ulong               total_stake,
               ulong               switch_slot ) {
   ulong switch_stake   = 0;
@@ -237,9 +240,9 @@ switch_check( fd_tower_t const  * tower,
     /* Iterate over all the leaves of all forks */
     fd_tower_leaf_t  * leaf = fd_tower_leaves_dlist_iter_ele( iter, forks->tower_leaves_dlist, forks->tower_leaves_pool );
     ulong candidate_slot = leaf->slot;
-    ulong lca = fd_forks_lowest_common_ancestor( forks, candidate_slot, last_vote_slot );
+    ulong lca = fd_tower_blocks_lowest_common_ancestor( forks, candidate_slot, last_vote_slot );
 
-    if( lca != ULONG_MAX && fd_forks_is_slot_descendant( forks, lca, switch_slot ) ) {
+    if( lca != ULONG_MAX && fd_tower_blocks_is_slot_descendant( forks, lca, switch_slot ) ) {
 
       /* This candidate slot may be considered for the switch proof, if
          it passes the following conditions:
@@ -270,25 +273,25 @@ switch_check( fd_tower_t const  * tower,
                                             interval;
                                             interval = fd_lockout_intervals_map_ele_next_const( interval, NULL, forks->lockout_intervals_pool ) ) {
           ulong vote_slot            =  interval->interval_start;
-          fd_hash_t const * vote_acc = &interval->vote_account_pubkey;
+          fd_hash_t const * vote_acc = &interval->addr;
 
-          if( FD_UNLIKELY( !fd_forks_is_slot_descendant( forks, vote_slot, last_vote_slot ) &&
+          if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( forks, vote_slot, last_vote_slot ) &&
                             vote_slot > root_slot ) ) {
-            fd_voter_stake_key_t key = { .vote_account = *vote_acc, .slot = switch_slot };
-            fd_voter_stake_t const * voter_stake = fd_voter_stake_map_ele_query_const( epoch_stakes->voter_stake_map, &key, NULL, epoch_stakes->voter_stake_pool );
+            fd_vote_acc_stake_key_t key = { .addr = *vote_acc, .slot = switch_slot };
+            fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( tower_stakes->voter_stake_map, &key, NULL, tower_stakes->voter_stake_pool );
             if( FD_UNLIKELY( !voter_stake ) ) {
               FD_BASE58_ENCODE_32_BYTES( vote_acc->key, vote_acc_b58 );
               FD_LOG_CRIT(( "missing voter stake for vote account %s on slot %lu. Is this an error?", vote_acc_b58, switch_slot ));
             }
-            ulong voter_idx = fd_voter_stake_pool_idx( epoch_stakes->voter_stake_pool, voter_stake );
+            ulong voter_idx = fd_tower_stakes_vtr_pool_idx( tower_stakes->voter_stake_pool, voter_stake );
 
             /* Don't count this vote account towards the switch cqheck if it has already been used. */
-            if( FD_UNLIKELY( fd_used_acc_scratch_test( epoch_stakes->used_acc_scratch, voter_idx ) ) ) continue;
+            if( FD_UNLIKELY( fd_used_acc_scratch_test( tower_stakes->used_acc_scratch, voter_idx ) ) ) continue;
 
-            fd_used_acc_scratch_insert( epoch_stakes->used_acc_scratch, voter_idx );
+            fd_used_acc_scratch_insert( tower_stakes->used_acc_scratch, voter_idx );
             switch_stake += voter_stake->stake;
             if( FD_LIKELY( (double)switch_stake >= (double)total_stake * SWITCH_RATIO ) ) {
-              fd_used_acc_scratch_null( epoch_stakes->used_acc_scratch );
+              fd_used_acc_scratch_null( tower_stakes->used_acc_scratch );
               FD_LOG_INFO(( "[%s] switch? 1. last_vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
               return 1;
             }
@@ -297,7 +300,7 @@ switch_check( fd_tower_t const  * tower,
       }
     }
   }
-  fd_used_acc_scratch_null( epoch_stakes->used_acc_scratch );
+  fd_used_acc_scratch_null( tower_stakes->used_acc_scratch );
   FD_LOG_INFO(( "[%s] switch? 0. last_vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
   return 0;
 }
@@ -327,9 +330,9 @@ switch_check( fd_tower_t const  * tower,
    stale votes.  This is to prevent validators that haven't voted in a
    long time from counting towards the threshold stake. */
 
-int
+static int
 threshold_check( fd_tower_t       const * tower,
-                 fd_tower_accts_t const * accts,
+                 fd_tower_voters_t const * accts,
                  ulong                    total_stake,
                  ulong                    slot ) {
 
@@ -351,10 +354,10 @@ threshold_check( fd_tower_t       const * tower,
 
   ulong threshold_slot  = fd_tower_peek_index_const( tower, cnt - THRESHOLD_DEPTH )->slot;
   ulong threshold_stake = 0;
-  for( fd_tower_accts_iter_t iter = fd_tower_accts_iter_init( accts       );
-                                   !fd_tower_accts_iter_done( accts, iter );
-                             iter = fd_tower_accts_iter_next( accts, iter ) ) {
-    fd_tower_accts_t const * acct = fd_tower_accts_iter_ele_const( accts, iter );
+  for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( accts       );
+                                   !fd_tower_voters_iter_done( accts, iter );
+                             iter = fd_tower_voters_iter_next( accts, iter ) ) {
+    fd_tower_voters_t const * acct = fd_tower_voters_iter_ele_const( accts, iter );
     fd_tower_remove_all( scratch_tower );
     fd_tower_from_vote_acc( scratch_tower, acct->data );
 
@@ -385,7 +388,7 @@ threshold_check( fd_tower_t       const * tower,
   return threshold;
 }
 
-int
+static int
 propagated_check( fd_notar_t * notar,
                   ulong        slot ) {
 
@@ -403,9 +406,9 @@ propagated_check( fd_notar_t * notar,
 
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
-                         fd_tower_accts_t  * accts,
-                         fd_epoch_stakes_t * epoch_stakes,
-                         fd_forks_t        * forks,
+                         fd_tower_voters_t  * accts,
+                         fd_tower_stakes_t * tower_stakes,
+                         fd_tower_blocks_t        * forks,
                          fd_ghost_t        * ghost,
                          fd_notar_t        * notar ) {
 
@@ -420,7 +423,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L933-L935 */
 
   if( FD_UNLIKELY( fd_tower_empty( tower ) ) ) {
-    fd_tower_forks_t * fork = fd_forks_query( forks, best_blk->slot );
+    fd_tower_block_t * fork = fd_tower_blocks_query( forks, best_blk->slot );
     fork->voted             = 1;
     fork->voted_block_id    = best_blk->id;
     return (fd_tower_out_t){
@@ -434,7 +437,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
   }
 
   ulong              prev_vote_slot     = fd_tower_peek_tail_const( tower )->slot;
-  fd_tower_forks_t * prev_vote_fork     = fd_forks_query( forks, prev_vote_slot );
+  fd_tower_block_t * prev_vote_fork     = fd_tower_blocks_query( forks, prev_vote_slot );
 
 
   if( FD_UNLIKELY( !prev_vote_fork->voted ) ) {
@@ -531,7 +534,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1057 */
 
-  else if( FD_LIKELY( best_blk->slot == prev_vote_slot || fd_forks_is_slot_ancestor( forks, best_blk->slot, prev_vote_slot ) ) ) {
+  else if( FD_LIKELY( best_blk->slot == prev_vote_slot || fd_tower_blocks_is_slot_ancestor( forks, best_blk->slot, prev_vote_slot ) ) ) {
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SAME_FORK );
     reset_blk = best_blk;
     vote_blk  = best_blk;
@@ -549,7 +552,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L443-L445 */
 
-  else if( FD_LIKELY( switch_check( tower, forks, epoch_stakes, best_blk->total_stake, best_blk->slot ) ) ) {
+  else if( FD_LIKELY( switch_check( tower, forks, tower_stakes, best_blk->total_stake, best_blk->slot ) ) ) {
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
     reset_blk = best_blk;
     vote_blk  = best_blk;
@@ -646,7 +649,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
        can never be NULL because we record tower forks as we replay, and
        we should never be voting on something we haven't replayed. */
 
-    fd_tower_forks_t * fork = fd_forks_query( forks, vote_blk->slot );
+    fd_tower_block_t * fork = fd_tower_blocks_query( forks, vote_blk->slot );
     fork->voted             = 1;
     fork->voted_block_id    = vote_blk->id;
 
@@ -666,7 +669,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
        mismatch and error out. */
 
     if( FD_LIKELY( out.root_slot!=ULONG_MAX ) ) {
-      fd_tower_forks_t * root_fork = fd_forks_query( forks, out.root_slot );
+      fd_tower_block_t * root_fork = fd_tower_blocks_query( forks, out.root_slot );
       out.root_block_id            = *fd_ptr_if( root_fork->confirmed, &root_fork->confirmed_block_id, &root_fork->voted_block_id );
     }
   }
@@ -682,8 +685,8 @@ void
 fd_tower_reconcile( fd_tower_t  * tower,
                     ulong         root,
                     uchar const * vote_account_data ) {
-  ulong on_chain_vote = fd_voter_vote_slot( vote_account_data );
-  ulong on_chain_root = fd_voter_root_slot( vote_account_data );
+  ulong on_chain_vote = fd_vote_acc_vote_slot( vote_account_data );
+  ulong on_chain_root = fd_vote_acc_root_slot( vote_account_data );
 
   fd_tower_vote_t const * last_vote      = fd_tower_peek_tail_const( tower );
   ulong                   last_vote_slot = last_vote ? last_vote->slot : ULONG_MAX;
@@ -704,13 +707,13 @@ fd_tower_reconcile( fd_tower_t  * tower,
 
   if( FD_LIKELY( on_chain_root == ULONG_MAX || root > on_chain_root ) ) {
     fd_tower_remove_all( tower );
-    fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_account_data );
+    fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
     uint               kind  = fd_uint_load_4_fast( vote_account_data ); /* skip node_pubkey */
-    for( ulong i=0; i<fd_voter_votes_cnt( vote_account_data ); i++ ) {
+    for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_account_data ); i++ ) {
       switch( kind ) {
-      case FD_VOTER_V4: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
-      case FD_VOTER_V3: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
-      case FD_VOTER_V2: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
+      case FD_VOTE_ACC_V4: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
+      case FD_VOTE_ACC_V3: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
+      case FD_VOTE_ACC_V2: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
       default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
       }
     }
@@ -729,33 +732,33 @@ fd_tower_reconcile( fd_tower_t  * tower,
 void
 fd_tower_from_vote_acc( fd_tower_t   * tower,
                         uchar  const * vote_acc ) {
-  fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_acc );
+  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
   uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_voter_votes_cnt( vote_acc ); i++ ) {
+  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
     switch( kind ) {
-    case FD_VOTER_V4: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
-    case FD_VOTER_V3: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
-    case FD_VOTER_V2: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
+    case FD_VOTE_ACC_V4: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
+    case FD_VOTE_ACC_V3: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
+    case FD_VOTE_ACC_V2: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
     default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
     }
   }
 }
 
 ulong
-fd_tower_with_lat_from_vote_acc( fd_voter_vote_t tower[ static FD_TOWER_VOTE_MAX ],
+fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_MAX ],
                                  uchar const *      vote_acc ) {
-  fd_voter_t const * voter = (fd_voter_t const *)fd_type_pun_const( vote_acc );
+  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
   uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_voter_votes_cnt( vote_acc ); i++ ) {
+  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
     switch( kind ) {
-    case FD_VOTER_V4: tower[ i ] = (fd_voter_vote_t){ .latency = v4_off( voter )[i].latency, .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf }; break;
-    case FD_VOTER_V3: tower[ i ] = (fd_voter_vote_t){ .latency = voter->v3.votes[i].latency, .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf }; break;
-    case FD_VOTER_V2: tower[ i ] = (fd_voter_vote_t){ .latency = UCHAR_MAX,                  .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf }; break;
+    case FD_VOTE_ACC_V4: tower[ i ] = (fd_vote_acc_vote_t){ .latency = v4_off( voter )[i].latency, .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf }; break;
+    case FD_VOTE_ACC_V3: tower[ i ] = (fd_vote_acc_vote_t){ .latency = voter->v3.votes[i].latency, .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf }; break;
+    case FD_VOTE_ACC_V2: tower[ i ] = (fd_vote_acc_vote_t){ .latency = UCHAR_MAX,                  .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf }; break;
     default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
     }
   }
 
-  return fd_voter_votes_cnt( vote_acc );
+  return fd_vote_acc_vote_cnt( vote_acc );
 }
 
 void
@@ -837,7 +840,7 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
   uchar  vote_ix_buf[FD_TXN_MTU];
   ulong  vote_ix_sz = 0;
   FD_STORE( uint, vote_ix_buf, FD_VOTE_IX_KIND_TOWER_SYNC );
-  FD_TEST( 0==fd_compact_tower_sync_serialize( &tower_sync_serde, vote_ix_buf + sizeof(uint), FD_TXN_MTU - sizeof(uint), &vote_ix_sz ) ); // cannot fail if fd_tower_cnt( tower ) <= FD_TOWER_VOTE_MAX
+  FD_TEST( 0==fd_compact_tower_sync_ser( &tower_sync_serde, vote_ix_buf + sizeof(uint), FD_TXN_MTU - sizeof(uint), &vote_ix_sz ) ); // cannot fail if fd_tower_cnt( tower ) <= FD_TOWER_VOTE_MAX
   vote_ix_sz += sizeof(uint);
   uchar program_id;
   uchar ix_accs[2];

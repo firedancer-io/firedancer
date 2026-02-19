@@ -157,7 +157,7 @@ fd_notar_count_vote( fd_notar_t *        notar,
 
 void
 fd_notar_advance_epoch( fd_notar_t       * notar,
-                        fd_tower_accts_t * accts,
+                        fd_tower_voters_t * accts,
                         ulong              epoch ) {
   notar->epoch = epoch;
   for( ulong i = 0; i < fd_notar_vtr_key_max( notar->vtr_map ); i++ ) {
@@ -170,10 +170,10 @@ fd_notar_advance_epoch( fd_notar_t       * notar,
   }
 
   ulong vtr_bit = 0;
-  for( fd_tower_accts_iter_t iter = fd_tower_accts_iter_init( accts       );
-                                   !fd_tower_accts_iter_done( accts, iter );
-                             iter = fd_tower_accts_iter_next( accts, iter ) ) {
-    fd_tower_accts_t const * acct = fd_tower_accts_iter_ele( accts, iter );
+  for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( accts       );
+                                   !fd_tower_voters_iter_done( accts, iter );
+                             iter = fd_tower_voters_iter_next( accts, iter ) ) {
+    fd_tower_voters_t const * acct = fd_tower_voters_iter_ele( accts, iter );
     fd_notar_vtr_t * vtr = fd_notar_vtr_query( notar->vtr_map, acct->addr, NULL );
     if( FD_UNLIKELY( !vtr ) ) vtr = fd_notar_vtr_insert( notar->vtr_map, acct->addr );
     vtr->stake = acct->stake;

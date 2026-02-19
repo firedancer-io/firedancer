@@ -1,10 +1,11 @@
-#include "fd_tower_forks.h"
-#include "../voter/fd_voter.h"
+#include "fd_tower_blocks.h"
+#include "fd_tower_voters.h"
+#include "fd_tower_serdes.h"
 
 void
-make_vote_account( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_accts_t * out ) {
-  fd_voter_t voter = {
-    .kind = FD_VOTER_V3,
+make_vote_account( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_voters_t * out ) {
+  fd_vote_acc_t voter = {
+    .kind = FD_VOTE_ACC_V3,
     .v3 = {
       .node_pubkey = *pubkey,
       .votes_cnt = 1,
@@ -14,7 +15,7 @@ make_vote_account( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf,
     }
   };
 
-  memcpy( out->data, &voter, sizeof(fd_voter_t) );
+  memcpy( out->data, &voter, sizeof(fd_vote_acc_t) );
   out->stake = stake;
   out->addr = *pubkey;
 }
@@ -24,20 +25,20 @@ test_forks_lockouts( fd_wksp_t * wksp ) {
   ulong slot_max    = 64;
   ulong voter_max   = 16;
 
-  void * forks_mem = fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( slot_max, voter_max ), 1UL );
-  fd_forks_t * forks = fd_forks_join( fd_forks_new( forks_mem, slot_max, voter_max ) );
+  void * forks_mem = fd_wksp_alloc_laddr( wksp, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max, voter_max ), 1UL );
+  fd_tower_blocks_t * forks = fd_tower_blocks_join( fd_tower_blocks_new( forks_mem, slot_max, voter_max ) );
 
-  fd_forks_replayed( forks, fd_forks_insert( forks, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}} );
-  fd_forks_replayed( forks, fd_forks_insert( forks, 1, 0 ), 1, &(fd_hash_t){.ul = {1}} );
-  fd_forks_replayed( forks, fd_forks_insert( forks, 2, 1 ), 2, &(fd_hash_t){.ul = {2}} );
+  fd_tower_blocks_replayed( forks, fd_tower_blocks_insert( forks, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}} );
+  fd_tower_blocks_replayed( forks, fd_tower_blocks_insert( forks, 1, 0 ), 1, &(fd_hash_t){.ul = {1}} );
+  fd_tower_blocks_replayed( forks, fd_tower_blocks_insert( forks, 2, 1 ), 2, &(fd_hash_t){.ul = {2}} );
 
-  fd_tower_accts_t acct;
+  fd_tower_voters_t acct;
   ulong fork_slot = 1;
   ulong end_intervals[31];
   for( ulong i = 1; i < 32; i++ ) {
     ulong vote_slot = 50 - (i - 1);
     make_vote_account( &(fd_hash_t){.ul = {1}}, 100, vote_slot, (uint)i, &acct );
-    fd_forks_lockouts_add( forks, fork_slot, &acct.addr, &acct );
+    fd_tower_blocks_lockouts_add( forks, fork_slot, &acct.addr, &acct );
     end_intervals[i - 1] = vote_slot + (1UL << (uint)i);
   }
 
@@ -62,7 +63,7 @@ test_forks_lockouts( fd_wksp_t * wksp ) {
     for( fd_lockout_intervals_t const * interval = fd_lockout_intervals_map_ele_query_const( forks->lockout_intervals_map, &key, NULL, forks->lockout_intervals_pool );
                                         interval;
                                         interval = fd_lockout_intervals_map_ele_next_const( interval, NULL, forks->lockout_intervals_pool ) ) {
-      FD_TEST( memcmp( &interval->vote_account_pubkey, &acct.addr, sizeof(fd_hash_t) ) == 0 );
+      FD_TEST( memcmp( &interval->addr, &acct.addr, sizeof(fd_hash_t) ) == 0 );
       num_pubkeys++;
     }
     FD_TEST( num_pubkeys == 1 );
@@ -70,7 +71,7 @@ test_forks_lockouts( fd_wksp_t * wksp ) {
   FD_TEST( num_keys == 31 );
 
 
-  fd_forks_lockouts_clear( forks, fork_slot );
+  fd_tower_blocks_lockouts_clear( forks, fork_slot );
   for( ulong i = 0; i < 31; i++ ) {
     ulong key = fd_lockout_interval_key( fork_slot, end_intervals[i] );
     FD_TEST( !fd_lockout_intervals_map_ele_query( forks->lockout_intervals_map, &key, NULL, forks->lockout_intervals_pool ) );
