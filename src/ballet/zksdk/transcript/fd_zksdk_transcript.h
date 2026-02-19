@@ -11,7 +11,6 @@
 #define fd_zksdk_transcript_t fd_merlin_transcript_t
 #define FD_TRANSCRIPT_LITERAL FD_MERLIN_LITERAL
 
-#define fd_zksdk_transcript_init                      fd_merlin_transcript_init
 #define fd_zksdk_transcript_append_message            fd_merlin_transcript_append_message
 #define fd_zksdk_transcript_append_point              fd_rangeproofs_transcript_append_point
 #define fd_zksdk_transcript_validate_and_append_point fd_rangeproofs_transcript_validate_and_append_point
@@ -26,6 +25,16 @@ FD_PROTOTYPES_BEGIN
    - commitment
    - handle
  */
+
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/transcript.rs#L57 */
+static inline void
+fd_zksdk_transcript_init( fd_zksdk_transcript_t * transcript,
+                          char const * const      label,
+                          uint const              label_len ) {
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/lib.rs#L36 */
+  fd_merlin_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("solana-zk-elgamal-proof-program-v1") );
+  fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)label, label_len );
+}
 
 static inline void
 fd_zksdk_transcript_append_pubkey( fd_zksdk_transcript_t * transcript,
