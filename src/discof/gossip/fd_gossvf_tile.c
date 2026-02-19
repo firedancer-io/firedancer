@@ -555,51 +555,49 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
 }
 
 static inline int
-is_ping_active( fd_gossvf_tile_ctx_t *    ctx,
-                fd_gossip_value_t const * value ) {
-  fd_ip4_port_t gossip_addr;
-  gossip_addr.addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-  gossip_addr.port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
-
+is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
+                fd_ip4_port_t           addr,
+                fd_pubkey_t const *     pubkey ) {
   /* 1. If the node is an entrypoint, it is active */
-  if( FD_UNLIKELY( is_entrypoint( ctx, gossip_addr ) ) ) return 1;
+  if( FD_UNLIKELY( is_entrypoint( ctx, addr ) ) ) return 1;
 
   /* 2. If the node has more than 1 sol staked, it is active */
-  stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, fd_type_pun_const( value->origin ), NULL, ctx->stake.pool );
+  stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, pubkey, NULL, ctx->stake.pool );
   if( FD_LIKELY( stake && stake->stake>=1000000000UL ) ) return 1;
 
   /* 3. If the node has actively ponged a ping, it is active */
-  ping_t * ping = ping_map_ele_query( ctx->ping_map, fd_type_pun_const( value->origin ), NULL, ctx->pings );
+  ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );
   return ping!=NULL;
 }
 
 static int
-ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *    ctx,
-                               fd_gossip_value_t const * value,
-                               fd_stem_context_t *       stem ) {
-  fd_ip4_port_t gossip_addr;
-  gossip_addr.addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
-  gossip_addr.port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
-
-  if( FD_UNLIKELY( gossip_addr.l==0U ) ) return 1; /* implies ipv6 address */
-  int is_ip4_nonpublic = !ctx->allow_private_address && !fd_ip4_addr_is_public( gossip_addr.addr );
-  if( FD_UNLIKELY( is_ip4_nonpublic ) ) return 1;
-
-  if( FD_UNLIKELY( !is_ping_active( ctx, value ) ) ) {
+ping_if_unponged( fd_gossvf_tile_ctx_t * ctx,
+                  fd_ip4_port_t          addr,
+                  uchar const *          origin,
+                  fd_stem_context_t *    stem ) {
+  if( FD_UNLIKELY( !is_ping_active( ctx, addr, fd_type_pun_const( origin ) ) ) ) {
     fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
-    fd_memcpy( pingreq->pubkey.uc, value->origin, 32UL );
-    fd_stem_publish( stem, 0UL, fd_gossvf_sig( gossip_addr.addr, gossip_addr.port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
+    fd_memcpy( pingreq->pubkey.uc, origin, 32UL );
+    fd_stem_publish( stem, 0UL, fd_gossvf_sig( addr.addr, addr.port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
     ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
 
 #if DEBUG_PEERS
     char base58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( value->origin, NULL, base58 );
-    FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_addr.addr ), gossip_addr.port, ctx->ping_cnt ));
+    fd_base58_encode_32( origin, NULL, base58 );
+    FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( addr.addr ), addr.port, ctx->ping_cnt ));
     ctx->ping_cnt++;
 #endif
     return 1;
   }
   return 0;
+}
+
+static int
+check_addr( fd_ip4_port_t addr,
+            int           allow_private_address ) {
+  if( FD_UNLIKELY( !addr.port || !addr.addr || fd_ip4_addr_is_mcast( addr.addr ) ) ) return 0;
+  if( FD_UNLIKELY( !allow_private_address && !fd_ip4_addr_is_public( addr.addr ) ) ) return 0;
+  return 1;
 }
 
 static int
@@ -612,7 +610,10 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
     case FD_GOSSIP_MESSAGE_PRUNE:
+      return 0;
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
+      if( FD_UNLIKELY( !check_addr( ctx->peer, ctx->allow_private_address ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+      if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH:
       values_len = &view->push->values_len;
@@ -634,7 +635,15 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       continue;
     }
 
-    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, value, stem ) ) ) {
+    /* We currently don't handle IPv6, so setting the address to 0 will
+       cause it to be always dropped. */
+    fd_ip4_port_t addr = {
+      .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
+      .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
+    };
+    int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
+
+    if( FD_UNLIKELY( drop ) ) {
       if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ] += value->length;
@@ -650,7 +659,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     i++;
   }
 
-  if( FD_UNLIKELY( !values_len ) ) {
+  if( FD_UNLIKELY( !*values_len ) ) {
     if( view->tag==FD_GOSSIP_MESSAGE_PUSH ) {
       return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
     } else if( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) {
@@ -767,9 +776,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
     if( FD_UNLIKELY( message->pull_request->contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
     if( FD_UNLIKELY( !memcmp( message->pull_request->contact_info->origin, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
-    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, message->pull_request->contact_info, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
 
-    /* TODO: Jitter? */
     long clamp_wallclock_lower_nanos = now-15L*1000L*1000L*1000L;
     long clamp_wallclock_upper_nanos = now+15L*1000L*1000L*1000L;
     if( FD_UNLIKELY( FD_MILLI_TO_NANOSEC( message->pull_request->contact_info->wallclock )<clamp_wallclock_lower_nanos ||
@@ -778,6 +785,9 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PRUNE ) ) {
     if( FD_UNLIKELY( !!memcmp( message->prune->destination, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_DESTINATION_IDX;
+    /* Agave uses a window of 500ms here, rather than 1s, but it's too
+       narrow in production and causes us to throw away a lot of prunes
+       that are actually valid and useful. */
     if( FD_UNLIKELY( now-1000L*1000L*1000L>FD_MILLI_TO_NANOSEC( message->prune->wallclock ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_WALLCLOCK_IDX;
   }
 
