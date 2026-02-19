@@ -1,16 +1,6 @@
 #include "fd_rangeproofs.h"
 
-static inline int
-batched_range_proof_validate_bits( ulong bit_length ) {
-  if ( FD_LIKELY(
-    bit_length==1  || bit_length==2  || bit_length==4  || bit_length==8 ||
-    bit_length==16 || bit_length==32 || bit_length==64 || bit_length==128
-  ) ) {
-    return FD_RANGEPROOFS_SUCCESS;
-  }
-  return FD_RANGEPROOFS_ERROR;
-}
-
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L509 */
 void
 fd_rangeproofs_delta(
   uchar       delta[ 32 ],
@@ -54,8 +44,7 @@ fd_rangeproofs_verify(
   uchar const                          batch_len,
   fd_merlin_transcript_t *             transcript ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/range_proof/mod.rs#L288
-
+  /*
     We need to verify a range proof, by computing a large MSM.
 
     We store points in the following array.
@@ -134,13 +123,14 @@ fd_rangeproofs_verify(
   const ulong logn = ipp_proof->logn;
   const ulong n = 1UL << logn;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/range_proof/mod.rs#L294-L306
-     total bit length (nm) should be a power of 2, and <= 256 == size of our generators table. */
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L330-L338
+     These checks are already done in batched_range_proof_context_try_into() */
+
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L340-L344
+     total bit length (nm) should be a power of 2, and equal to the sz of the range proof.
+     since n by definition is a power of 2, we can just check nm == n. */
   ulong nm = 0;
   for( uchar i=0; i<batch_len; i++ ) {
-    if( FD_UNLIKELY( batched_range_proof_validate_bits( bit_lengths[i] ) != FD_RANGEPROOFS_SUCCESS ) ) {
-      return FD_RANGEPROOFS_ERROR;
-    }
     nm += bit_lengths[i];
   }
   if( FD_UNLIKELY( nm != n ) ) {
@@ -203,17 +193,22 @@ fd_rangeproofs_verify(
   fd_memcpy( &points[ idx+n ], fd_rangeproofs_generators_G, n*sizeof(fd_ristretto255_point_t) );
 
   /* Finalize transcript and extract challenges */
-  int val = FD_TRANSCRIPT_SUCCESS;
+
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L349 */
   fd_rangeproofs_transcript_domsep_range_proof( transcript, nm );
 
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L351-L387 */
+  int val = FD_TRANSCRIPT_SUCCESS;
   val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("A"), range_proof->a);
   val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("S"), range_proof->s);
 
+  /* We need to invert a bunch of values, we collect them all in a single buffer to use batch inversion. */
   uchar batchinv_in [ 32*(1+LOGN) ];
   uchar batchinv_out[ 32*(1+LOGN) ];
   uchar allinv[ 32 ];
-  uchar *y = batchinv_in;
+
   uchar *y_inv = batchinv_out;
+  uchar *y = batchinv_in;
   uchar z[ 32 ];
   fd_rangeproofs_transcript_challenge_scalar( y, transcript, FD_TRANSCRIPT_LITERAL("y") );
   fd_rangeproofs_transcript_challenge_scalar( z, transcript, FD_TRANSCRIPT_LITERAL("z") );
@@ -232,51 +227,59 @@ fd_rangeproofs_verify(
   fd_rangeproofs_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("e_blinding"), range_proof->e_blinding);
 
   uchar w[ 32 ];
-  uchar c[ 32 ];
+  uchar _c[ 32 ];
+  uchar d[ 32 ];
   fd_rangeproofs_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
-  /* c will be overwritten later: https://github.com/anza-xyz/agave/commit/fd63ecda7ae7d32fe4ee0f3c933af8f2d5759ea2 */
-  fd_rangeproofs_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
+  /* The challenge `c` is a legacy component from an older implementation.
+     It is now unused, but is kept here for backward compatibility. */
+  fd_rangeproofs_transcript_challenge_scalar( _c, transcript, FD_TRANSCRIPT_LITERAL("c") );
 
   /* Inner Product (sub)Proof */
-  fd_rangeproofs_transcript_domsep_inner_product( transcript, nm );
-
   uchar *u =     &batchinv_in [ 32 ]; // skip y
   uchar *u_inv = &batchinv_out[ 32 ]; // skip y_inv
-  for( ulong i=0; i<logn; i++ ) {
-    val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("L"), ipp_proof->vecs[ i ].l);
-    val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("R"), ipp_proof->vecs[ i ].r);
-    if( FD_UNLIKELY( val != FD_TRANSCRIPT_SUCCESS ) ) {
-      return FD_RANGEPROOFS_ERROR;
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L377 */
+  {
+    /* https://github.com/solana-program/zk-elgamal-proof/blob/main/zk-sdk/src/range_proof/inner_product.rs#L246 */
+    fd_rangeproofs_transcript_domsep_inner_product( transcript, nm );
+
+    for( ulong i=0; i<logn; i++ ) {
+      val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("L"), ipp_proof->vecs[ i ].l);
+      val |= fd_rangeproofs_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("R"), ipp_proof->vecs[ i ].r);
+      if( FD_UNLIKELY( val != FD_TRANSCRIPT_SUCCESS ) ) {
+        return FD_RANGEPROOFS_ERROR;
+      }
+      fd_rangeproofs_transcript_challenge_scalar( &u[ i*32 ], transcript, FD_TRANSCRIPT_LITERAL("u") );
     }
-    fd_rangeproofs_transcript_challenge_scalar( &u[ i*32 ], transcript, FD_TRANSCRIPT_LITERAL("u") );
+    fd_curve25519_scalar_batch_inv( batchinv_out, allinv, batchinv_in, logn+1 );
   }
-  fd_curve25519_scalar_batch_inv( batchinv_out, allinv, batchinv_in, logn+1 );
 
   fd_rangeproofs_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("ipp_a"), ipp_proof->a );
   fd_rangeproofs_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("ipp_b"), ipp_proof->b );
 
-  /* c is overwritten: https://github.com/anza-xyz/agave/commit/fd63ecda7ae7d32fe4ee0f3c933af8f2d5759ea2 */
-  fd_rangeproofs_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("d") );
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L387 */
+  fd_rangeproofs_transcript_challenge_scalar( d, transcript, FD_TRANSCRIPT_LITERAL("d") );
 
   /* Compute scalars */
+
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L391-L411 */
 
   // H: - ( eb + c t_xb )
   uchar const *eb = range_proof->e_blinding;
   uchar const *txb = range_proof->tx_blinding;
-  fd_curve25519_scalar_muladd( &scalars[ 1*32 ], c, txb, eb );
+  fd_curve25519_scalar_muladd( &scalars[ 1*32 ], d, txb, eb );
   fd_curve25519_scalar_neg(    &scalars[ 1*32 ], &scalars[ 1*32 ] );
 
   // S:   x
   // T_1: c x
   // T_2: c x^2
   fd_curve25519_scalar_set(    &scalars[ 2*32 ], x );
-  fd_curve25519_scalar_mul(    &scalars[ 3*32 ], c, x );
+  fd_curve25519_scalar_mul(    &scalars[ 3*32 ], d, x );
   fd_curve25519_scalar_mul(    &scalars[ 4*32 ], &scalars[ 3*32 ], x );
 
   // commitments: c z^2, c z^3 ...
   uchar zz[ 32 ];
   fd_curve25519_scalar_mul(    zz, z, z );
-  fd_curve25519_scalar_mul(    &scalars[ 5*32 ], zz, c );
+  fd_curve25519_scalar_mul(    &scalars[ 5*32 ], zz, d );
   idx = 6;
   for( ulong i=1; i<batch_len; i++, idx++ ) {
     fd_curve25519_scalar_mul(  &scalars[ idx*32 ], &scalars[ (idx-1)*32 ], z );
@@ -345,10 +348,12 @@ fd_rangeproofs_verify(
   fd_rangeproofs_delta( delta, nm, y, z, zz, bit_lengths, batch_len );
   fd_curve25519_scalar_muladd(  &scalars[ 0 ], minus_a, b, range_proof->tx );
   fd_curve25519_scalar_sub(     delta, delta, range_proof->tx );
-  fd_curve25519_scalar_mul(     delta, delta, c );
+  fd_curve25519_scalar_mul(     delta, delta, d );
   fd_curve25519_scalar_muladd(  &scalars[ 0 ], &scalars[ 0 ], w, delta );
 
   /* Compute the final MSM */
+
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L415-L439 */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, idx );
 
   /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L441-L445 */
