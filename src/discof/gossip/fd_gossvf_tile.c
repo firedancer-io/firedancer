@@ -324,16 +324,20 @@ static int
 verify_prune( fd_gossip_prune_t const * view,
               fd_sha512_t *             sha ) {
   uchar sign_data[ FD_NET_MTU ];
-  fd_memcpy(       sign_data,                            "\xffSOLANA_PRUNE_DATA",       18UL );
-  fd_memcpy(       sign_data+18UL,                       view->pubkey,                  32UL );
-  FD_STORE( ulong, sign_data+50UL,                       view->prunes_len );
-  fd_memcpy(       sign_data+58UL,                       view->prunes,                  view->prunes_len*32UL );
-  fd_memcpy(       sign_data+58UL+view->prunes_len*32UL, view->destination, 32UL );
-  FD_STORE( ulong, sign_data+90UL+view->prunes_len*32UL, view->wallclock );
+  /* Agave serializes the prefix as a bincode length-prefixed &[u8]:
+     8-byte LE u64 length (=18) followed by the 18 raw prefix bytes,
+     totaling 26 bytes for the prefix portion. */
+  FD_STORE( ulong, sign_data,                             18UL );
+  fd_memcpy(       sign_data+8UL,                         "\xffSOLANA_PRUNE_DATA",       18UL );
+  fd_memcpy(       sign_data+26UL,                        view->pubkey,                  32UL );
+  FD_STORE( ulong, sign_data+58UL,                        view->prunes_len );
+  fd_memcpy(       sign_data+66UL,                        view->prunes,                  view->prunes_len*32UL );
+  fd_memcpy(       sign_data+66UL+view->prunes_len*32UL,  view->destination, 32UL );
+  FD_STORE( ulong, sign_data+98UL+view->prunes_len*32UL,  view->wallclock );
 
-  ulong sign_data_len = 98UL+view->prunes_len*32UL;
-  int err_prefix    = fd_ed25519_verify( sign_data,      sign_data_len,      view->signature, view->pubkey, sha );
-  int err_no_prefix = fd_ed25519_verify( sign_data+18UL, sign_data_len-18UL, view->signature, view->pubkey, sha );
+  ulong sign_data_len = 106UL+view->prunes_len*32UL;
+  int err_prefix    = fd_ed25519_verify( sign_data,       sign_data_len,       view->signature, view->pubkey, sha );
+  int err_no_prefix = fd_ed25519_verify( sign_data+26UL,  sign_data_len-26UL,  view->signature, view->pubkey, sha );
 
   if( FD_LIKELY( err_prefix==FD_ED25519_SUCCESS || err_no_prefix==FD_ED25519_SUCCESS ) ) return 0;
   else                                                                                   return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_SIGNATURE_IDX;
