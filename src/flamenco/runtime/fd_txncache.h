@@ -111,8 +111,6 @@
 
 #define FD_TXNCACHE_ALIGN (128UL)
 
-#define FD_TXNCACHE_MAGIC (0xF17EDA2CE5CAC4E0) /* FIREDANCE SCACHE V0 */
-
 struct fd_txncache_private;
 typedef struct fd_txncache_private fd_txncache_t;
 
