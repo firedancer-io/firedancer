@@ -222,12 +222,15 @@ fd_store_remove( fd_store_t      * store,
     FD_STORE_XLOCK_BEGIN( store ) {
       fec = fd_store_map_ele_remove( map_laddr( store ), &key, NULL, pool_laddr( store ) );
     } FD_STORE_XLOCK_END;
-
-    if( FD_UNLIKELY( !fec ) ) { FD_BASE58_ENCODE_32_BYTES( merkle_root->uc, _merkle_root ); FD_LOG_WARNING(( "key not found %s", _merkle_root )); return; }
+    if( FD_UNLIKELY( !fec ) ) continue;
 
     int err = fd_store_pool_release( &pool, fec, BLOCKING );
     if( FD_UNLIKELY( err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "store pool: %s", fd_store_pool_strerror( err ) ));
+    return;
   }
+
+  FD_BASE58_ENCODE_32_BYTES( merkle_root->uc, _merkle_root );
+  FD_LOG_WARNING(( "key not found %s", _merkle_root ));
 }
 
 int
