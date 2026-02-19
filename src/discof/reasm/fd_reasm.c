@@ -337,21 +337,21 @@ clear_slot_metadata( fd_reasm_t     * reasm,
   return fec;
 }
 
-
-static void
-clear_chain( fd_reasm_t     * reasm,
-             fd_reasm_fec_t * head,
-             fd_store_t     * opt_store ) {
+void
+fd_reasm_clear_chain( fd_reasm_t     * reasm,
+                      fd_reasm_fec_t * head,
+                      fd_store_t     * opt_store ) {
   /* see fd_forest.c clear_leaf */
 
-  fd_reasm_fec_t * pool = reasm_pool( reasm );
-  orphaned_t * orphaned = reasm->orphaned;
-  frontier_t * frontier = reasm->frontier;
-  ancestry_t * ancestry = reasm->ancestry;
-  subtrees_t * subtrees = reasm->subtrees;
-  dlist_t    * subtreel = reasm->subtreel;
-  evicted_t  * evicted  = reasm->evicted;
+  fd_reasm_fec_t *    pool     = reasm_pool( reasm );
+  orphaned_t *        orphaned = reasm->orphaned;
+  frontier_t *        frontier = reasm->frontier;
+  ancestry_t *        ancestry = reasm->ancestry;
+  subtrees_t *        subtrees = reasm->subtrees;
+  dlist_t    *        subtreel = reasm->subtreel;
+  fd_reasm_evicted_t * evicted = reasm->evicted;
 
+  FD_TEST( head && head->child == ULONG_MAX ); /* must be a leaf node */
   int clear_slot = head->bank_idx != ULONG_MAX;
   /* we search up the tree until the bank idx changes. THis is usually
      when we jump to a parent slot, but if an equivocation occured, this
@@ -416,8 +416,8 @@ clear_chain( fd_reasm_t     * reasm,
     /* remove the chain itself from the maps */
 
     fd_reasm_fec_t * removed = orphaned_ele_remove( orphaned, &head->key, NULL, pool ); /* if orphan, clear_slot = 0 */
-    if( FD_LIKELY  (  removed ) ) {
-      evicted_push_tail( evicted, (evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx } );
+    if( FD_LIKELY  ( removed ) ) {
+      evicted_push_tail( evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx } );
       pool_ele_release( pool, clear_slot_metadata( reasm, head, opt_store ) );
     }
 
@@ -427,7 +427,7 @@ clear_chain( fd_reasm_t     * reasm,
                        removed = ancestry_ele_remove( ancestry, &head->key, NULL, pool );
         if( !removed ) removed = frontier_ele_remove( frontier, &head->key, NULL, pool );
 
-        evicted_push_tail( evicted, (evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx } );
+        evicted_push_tail( evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx } );
         head = pool_ele( pool, head->child );
         pool_ele_release( pool, clear_slot_metadata( reasm, removed, opt_store ) );
       }
@@ -445,7 +445,7 @@ clear_chain( fd_reasm_t     * reasm,
     /* remove from subtrees and subtree list. clear_slot = 0 */
     subtrees_ele_remove( subtrees, &head->key, NULL, pool );
     dlist_ele_remove   ( subtreel,  head,            pool );
-    evicted_push_tail( evicted, (evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx } );
+    evicted_push_tail( evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx } );
     pool_ele_release( pool, clear_slot_metadata( reasm, head, opt_store ) );
   }
 
@@ -554,17 +554,17 @@ fd_reasm_evict( fd_reasm_t      * reasm,
     }
 
     if( FD_UNLIKELY( unconfrmd_orphan )) {
-      clear_chain( reasm, unconfrmd_orphan, opt_store );
+      fd_reasm_clear_chain( reasm, unconfrmd_orphan, opt_store );
       return FEC_INSERT;
     }
     if( FD_UNLIKELY( unconfrmd_leaf )) {
-      clear_chain( reasm, unconfrmd_leaf, opt_store );
+      fd_reasm_clear_chain( reasm, unconfrmd_leaf, opt_store );
       return FEC_INSERT;
     }
     if( FD_UNLIKELY( confirmed_orphan )) {
       fd_reasm_fec_t * parent = fd_reasm_query( reasm, parent_root );
       if( !parent ) {
-        clear_chain( reasm, confirmed_orphan, opt_store );
+        fd_reasm_clear_chain( reasm, confirmed_orphan, opt_store );
         return FEC_INSERT;
       }
     /* for any subtree:
@@ -584,7 +584,7 @@ fd_reasm_evict( fd_reasm_t      * reasm,
 
       fd_reasm_fec_t * latest_confirmed_leaf = latest_confirmed_fec( reasm, subtree_root );
       if( !latest_confirmed_leaf || latest_confirmed_leaf == gca( reasm, latest_confirmed_leaf, parent )) {
-        clear_chain( reasm, confirmed_orphan, opt_store );
+        fd_reasm_clear_chain( reasm, confirmed_orphan, opt_store );
         return FEC_INSERT; /* is not a useless new fork. */
       }
       /* is a useless new fork. */
@@ -933,9 +933,19 @@ ancestry_print( fd_reasm_t const * reasm, fd_reasm_fec_t const * fec, int space,
   }
 }
 
+int
+fd_reasm_evicted_empty( fd_reasm_t * reasm ) {
+  return evicted_empty( reasm->evicted );
+}
+
+fd_reasm_evicted_t
+fd_reasm_evicted_pop_head( fd_reasm_t * reasm ) {
+  return evicted_pop_head( reasm->evicted );
+}
+
 void
 fd_reasm_print( fd_reasm_t const * reasm ) {
-  FD_LOG_NOTICE( ( "\n\n[Reasm]" ) );
+  FD_LOG_NOTICE( ( "\n\n[Reasm - showing only leaves, slot completes, and branches]" ) );
   fd_reasm_fec_t const * pool = reasm_pool_const( reasm );
 
   if( FD_LIKELY( reasm->root != pool_idx_null( pool ) ) ) {

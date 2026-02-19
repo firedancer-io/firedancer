@@ -382,6 +382,8 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t epoch_out[1];
 
+  fd_replay_out_link_t repair_out[1];
+
   /* The gui tile needs to reliably own a reference to the most recent
      completed active bank.  Replay needs to know if the gui as a
      consumer is enabled so it can increment the bank's refcnt before
@@ -2019,6 +2021,20 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* If a reasm insert caused fecs to be evicted, we should drain the
+     evict queue and publish to repair */
+  if( FD_UNLIKELY( !fd_reasm_evicted_empty( ctx->reasm ) ) ) {
+    fd_reasm_evicted_t evicted = fd_reasm_evicted_pop_head( ctx->reasm );
+
+    fd_memcpy( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ), &evicted, sizeof(evicted) );
+    fd_stem_publish( stem, ctx->repair_out->idx, 0, ctx->repair_out->chunk,  sizeof(evicted), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(evicted), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
   if( FD_LIKELY( can_process_fec( ctx ) ) ) {
@@ -2729,6 +2745,7 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
+  *ctx->repair_out = out1( topo, tile, "replay_repair"  ); FD_TEST( ctx->repair_out->idx!=ULONG_MAX );
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;

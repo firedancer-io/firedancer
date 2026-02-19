@@ -189,6 +189,13 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 
+struct fd_reasm_evicted {
+  fd_hash_t mr;
+  ulong     slot;
+  uint      fec_set_idx;
+};
+typedef struct fd_reasm_evicted fd_reasm_evicted_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* Constructors */
@@ -346,6 +353,23 @@ void
 fd_reasm_confirm( fd_reasm_t * reasm,
                   fd_hash_t *  block_id );
 
+/* fd_reasm_clear_chain clears the chain of FEC sets starting from a
+   leaf node (head).  If that FEC has not been executed (i.e. has no
+   bank_idx assigned to it), then it will just evict the singular leaf
+   node.  Otherwise if the FEC has been executed, then it will evict up
+   until the bank idx on the FEC set changes, or the FEC set has more
+   than one child.
+
+   This function can be called during insertion to evict a chain of FECs
+   to make room for a new FEC set, or it can be called externally by
+   replay when banks evicts a slot.  Banks should then provide the
+   last FEC set executed on that bank, and call fd_reasm_clear_chain to
+   evict the chain of FECs corresponding to the evicted bank.
+ */
+void
+fd_reasm_clear_chain( fd_reasm_t     * reasm,
+                      fd_reasm_fec_t * head,
+                      fd_store_t     * opt_store );
 /* fd_reasm_publish publishes merkle root as the new reasm root, pruning
    (ie. map remove and pool release) any FEC sets that do not descend
    from this new root. */
@@ -354,6 +378,12 @@ fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root,
                   fd_store_t      * opt_store );
+
+int
+fd_reasm_evicted_empty( fd_reasm_t * reasm );
+
+fd_reasm_evicted_t
+fd_reasm_evicted_pop_head( fd_reasm_t * reasm );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );

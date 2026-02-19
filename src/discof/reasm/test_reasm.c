@@ -480,7 +480,7 @@ test_evict( fd_wksp_t * wksp ) {
   FD_TEST( fd_reasm_insert( reasm, mr6,  mr5,  6,    0,       1,     32,     0, 0,        0, NULL ) );
   FD_TEST( !fd_reasm_query( reasm, mr9 )); /* evicts unconfirmed orphan */
   FD_TEST( evicted_cnt( reasm->evicted ) == 1 );
-  evicted_t evicted = evicted_pop_head( reasm->evicted );
+  fd_reasm_evicted_t evicted = fd_reasm_evicted_pop_head( reasm );
   FD_TEST( evicted.slot == 8 && evicted.fec_set_idx == 0 );
 
   /* evict an unconfirmed leaf */
