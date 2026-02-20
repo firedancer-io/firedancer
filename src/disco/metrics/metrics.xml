@@ -1330,7 +1330,7 @@ metric introduced.
     <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
     <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
     <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
-    <gauge name="AccountMapSlots" summary="Account map capacity" />
+    <gauge name="MetaMapSlotsLeft" summary="Meta map remaining capacity (below safety limit)" />
 </tile>
 
 </metrics>
