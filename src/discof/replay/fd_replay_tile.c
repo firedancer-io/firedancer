@@ -1806,6 +1806,70 @@ process_fec_set( fd_replay_tile_t *  ctx,
        a bank index for. */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
     reasm_fec->bank_seq = reasm_fec->parent_bank_seq;
+
+    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+    if( FD_UNLIKELY( block_id_ele->block_id_seen /* slot complete already seen */ ) ) {
+      /* Do not replay this FEC.  This is an equivocation where the block
+         has TWO slot complete flags.  This is not honest behavior, and
+         the block will be marked duplicate.
+
+         Two ways this can happen:
+          scenario 1: A - B - C (slot cmpl) - D - E - F (slot cmpl)
+
+          scenario 2: A - B - C (slot cmpl)
+                      \
+                       D - E - F (slot cmpl)   [ true equivocation case ]
+
+         If Agave receives only the first half of the block (ABC), it'll
+         replay and vote on it normally.
+
+         If Agave receives shreds greater than C, and then receives the
+         SLOT_COMPLETE in C (and the block is not fully received yet to
+         F, i.e. ABDEF).  Agave will mark the slot as dead and wait for
+         replay to dump and repair the correct version. But if Agave
+         already received & replayed all of ABDEF, it will not mark it
+         dead. But it will mark these duplicate!
+
+         If Agave receives the SLOT_COMPLETE C first, and then receives
+         shreds AFTER that, Agave will reject those shreds, mark
+         duplicate, but replay the slot.
+
+         We can't really do the same because if we mark a block dead
+         that others are going to dump and repair and vote on, our hfork
+         will mark it has a bank hash mismatch, and the validator will
+         crash.  Rather if we see this case, we need to make sure it
+         registers as an equivocation, and dump and repair this block
+         through regular equivocation pipeline.
+
+         So let's say our policy is to replay just the small version
+         (ABC), toss out the fec sets after C. (Or in the case of
+         scenario 2, get prevented from replaying DEF due to eqvoc
+         anyway), and then we vote & potentially see that we need to
+         dump and repair for another version.
+
+         Let's say we replay A - B - C (slot cmpl) and then stop there,
+         but the correct chain is A - B - D - E - F (slot cmpl).  We
+         would get a different duplicate confirmation for block id F.
+         We would dump and repair for block id F if we dont have it yet.
+         Then we would see that block id has been confirmed, and we
+         replay it.
+
+         Let's say we replay A - B - C (slot cmpl) and then stop there,
+         but the majority of nodes marked it DEAD.  We wouldn't get any
+         votes for that block. Not REALLY an issue unless we vote on it
+         and reset on it..... so likeeeee ???? the rest of our leader
+         rotation gets f-ed but consensus-wise is safe.
+
+         Another danger is let's say we replay A - B - C (slot cmpl) and
+         then stop there, but the correct chain is
+         A - B - C (slot cmpl) - D - E - F (slot cmpl).
+         LUCKILY..... the above is impossible with Agave.  If C comes
+         before anything else, DEF would be rejected. If D/E/F comes
+         before C, C would arrive and then make the slot be dead.  That
+         puts us in the same state as the case above. */
+      FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because slot complete already seen", reasm_fec->slot, reasm_fec->fec_set_idx ));
+      return;
+    }
   }
 
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
