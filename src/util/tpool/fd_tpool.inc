@@ -12,8 +12,8 @@ struct fd_tpool_private_worker_cfg {
 typedef struct fd_tpool_private_worker_cfg fd_tpool_private_worker_cfg_t;
 
 static int
-fd_tpool_private_worker( int     argc,
-                         char ** argv ) {
+fd_tpool_private_worker_( int     argc,
+                          char ** argv ) {
   ulong                           worker_idx = (ulong)(uint)argc;
   fd_tpool_private_worker_cfg_t * cfg        = (fd_tpool_private_worker_cfg_t *)argv;
 
@@ -76,7 +76,9 @@ fd_tpool_private_worker( int     argc,
 
     /* We are EXEC ... do the task and then transition to IDLE */
 
+#   ifdef __cplusplus
     try {
+#   endif
 
       if( _arg_cnt==UINT_MAX ) {
 
@@ -100,9 +102,11 @@ fd_tpool_private_worker( int     argc,
 
       }
 
+#   ifdef __cplusplus
     } catch( ... ) {
       FD_LOG_WARNING(( "uncaught exception; attempting to continue" ));
     }
+#   endif
 
     FD_COMPILER_MFENCE();
 
@@ -261,7 +265,7 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
   worker[ worker_cnt ] = NULL;
   FD_COMPILER_MFENCE();
 
-  if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, fd_tpool_private_worker, argc, argv ) ) ) {
+  if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, fd_tpool_private_worker_, argc, argv ) ) ) {
     FD_LOG_WARNING(( "fd_tile_exec_new failed (tile probably already in use)" ));
     return NULL;
   }

@@ -35,6 +35,9 @@ LD?=$(CXX)
 LLVM_COV?=llvm-cov
 LLVM_PROFDATA?=llvm-profdata
 
+# C++ support (libstdc++ and default exception handler)
+#FD_HAS_CXX:=1
+
 # Rust
 RUST_PROFILE=debug
 
