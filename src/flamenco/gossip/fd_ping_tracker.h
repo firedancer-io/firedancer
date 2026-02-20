@@ -117,6 +117,13 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           uchar const *       pong_token,
                           long                now );
 
+/* fd_ping_tracker_active returns 1 if the peer is currently active and
+   valid to send messages to, or 0 if the peer is not active. */
+
+int
+fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
+                        uchar const *       peer_pubkey );
+
 /* fd_ping_tracker_pop_request informs the caller if a ping request
    needs to be sent to a peer.  If a ping request needs to be sent, the
    peer pubkey is returned in out_peer_pubkey.  The caller should send a

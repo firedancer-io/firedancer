@@ -273,108 +273,6 @@ lookup_eq( fd_crds_key_t const * key0,
 
 #include "fd_crds_peer_samplers.c"
 
-struct fd_crds_purged {
-  uchar hash[ 32UL ];
-  struct {
-    ulong next;
-  } pool;
-
-  /* Similar to fd_crds_entry, we want the ability to query and iterate
-     through value by hash[:8] to generate pull requests. */
-  struct {
-    ulong hash_prefix;
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong next;
-    ulong prev;
-    ulong prio;
-  } treap;
-
-  /* Similar to fd_crds_entry, we keep a linked list of purged values sorted
-     by insertion time. The time used here is our node's wallclock.
-
-     There are actually three (mutually exclusive) lists that reuse the same
-     pointers here: one for "purged" entries that expire in 60s, one for
-     "failed_inserts" that expire after 20s, and one for
-     "no_contact_info" entries that expire after 2 days. */
-  struct {
-    long  wallclock_nanos;
-    ulong next;
-    ulong prev;
-  } expire;
-
-  /* For no_contact_info entries, we also track the origin pubkey and
-     chain entries by origin so they can all be drained when we learn
-     the contact info for that pubkey.  Entries with the same origin
-     are chained together in the nci_origin_map (MAP_MULTI). */
-  fd_pubkey_t origin;
-  struct {
-    ulong next;
-    ulong prev;
-  } nci_map;
-};
-typedef struct fd_crds_purged fd_crds_purged_t;
-
-#define POOL_NAME purged_pool
-#define POOL_T    fd_crds_purged_t
-#define POOL_NEXT pool.next
-
-#include "../../../util/tmpl/fd_pool.c"
-
-#define TREAP_NAME      purged_treap
-#define TREAP_T         fd_crds_purged_t
-#define TREAP_QUERY_T   ulong
-#define TREAP_CMP(q,e)  ((q>e->treap.hash_prefix)-(q<e->treap.hash_prefix))
-#define TREAP_IDX_T     ulong
-#define TREAP_OPTIMIZE_ITERATION 1
-#define TREAP_NEXT      treap.next
-#define TREAP_PREV      treap.prev
-#define TREAP_LT(e0,e1) ((e0)->treap.hash_prefix<(e1)->treap.hash_prefix)
-#define TREAP_PARENT    treap.parent
-#define TREAP_LEFT      treap.left
-#define TREAP_RIGHT     treap.right
-#define TREAP_PRIO      treap.prio
-#include "../../../util/tmpl/fd_treap.c"
-
-#define DLIST_NAME  failed_inserts_dlist
-#define DLIST_ELE_T fd_crds_purged_t
-#define DLIST_PREV  expire.prev
-#define DLIST_NEXT  expire.next
-
-#include "../../../util/tmpl/fd_dlist.c"
-
-#define DLIST_NAME  purged_dlist
-#define DLIST_ELE_T fd_crds_purged_t
-#define DLIST_PREV  expire.prev
-#define DLIST_NEXT  expire.next
-
-#include "../../../util/tmpl/fd_dlist.c"
-
-#define DLIST_NAME  no_contact_info_dlist
-#define DLIST_ELE_T fd_crds_purged_t
-#define DLIST_PREV  expire.prev
-#define DLIST_NEXT  expire.next
-
-#include "../../../util/tmpl/fd_dlist.c"
-
-/* MAP_MULTI map_chain keyed on the origin pubkey of purged entries.
-   Multiple entries can share the same origin, so we use MAP_MULTI to
-   chain them together.  This lets us drain all entries for a given
-   origin when we learn their contact info. */
-
-#define MAP_NAME               nci_origin_map
-#define MAP_KEY                origin
-#define MAP_ELE_T              fd_crds_purged_t
-#define MAP_KEY_T              fd_pubkey_t
-#define MAP_PREV               nci_map.prev
-#define MAP_NEXT               nci_map.next
-#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
-#define MAP_MULTI              1
-#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
-#include "../../../util/tmpl/fd_map_chain.c"
-
 struct fd_crds_private {
   fd_gossip_out_ctx_t * gossip_update;
 
@@ -390,19 +288,7 @@ struct fd_crds_private {
   hash_treap_t *            hash_treap;
   lookup_map_t *            lookup_map;
 
-  struct {
-    fd_crds_purged_t *            pool;
-    purged_treap_t *              treap;
-    purged_dlist_t *              purged_dlist;
-    failed_inserts_dlist_t *      failed_inserts_dlist;
-    no_contact_info_dlist_t *     no_contact_info_dlist;
-
-    /* Per-origin-pubkey map (MAP_MULTI) for no_contact_info entries.
-       When we learn a contact info for a pubkey, we drain all
-       associated hashes from the purged treap so peers re-send them.
-       Elements live in the purged pool above. */
-    nci_origin_map_t *            nci_origin_map;
-  } purged;
+  fd_gossip_purged_t *        purged;
 
   struct {
     fd_crds_contact_info_entry_t *    pool;
@@ -423,9 +309,7 @@ fd_crds_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_crds_footprint( ulong ele_max,
-                   ulong purged_max ) {
-  ulong nci_origin_max = fd_ulong_pow2_up( purged_max/4UL );
+fd_crds_footprint( ulong ele_max ) {
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_CRDS_ALIGN,                         sizeof(fd_crds_t) );
@@ -435,12 +319,6 @@ fd_crds_footprint( ulong ele_max,
   l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()   );
   l = FD_LAYOUT_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )     );
   l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )     );
-  l = FD_LAYOUT_APPEND( l, purged_pool_align(),                   purged_pool_footprint( purged_max ) );
-  l = FD_LAYOUT_APPEND( l, purged_treap_align(),                  purged_treap_footprint( purged_max ) );
-  l = FD_LAYOUT_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
-  l = FD_LAYOUT_APPEND( l, failed_inserts_dlist_align(),          failed_inserts_dlist_footprint() );
-  l = FD_LAYOUT_APPEND( l, no_contact_info_dlist_align(),         no_contact_info_dlist_footprint() );
-  l = FD_LAYOUT_APPEND( l, nci_origin_map_align(),                nci_origin_map_footprint( nci_origin_max ) );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
@@ -451,7 +329,7 @@ void *
 fd_crds_new( void *                    shmem,
              fd_rng_t *                rng,
              ulong                     ele_max,
-             ulong                     purged_max,
+             fd_gossip_purged_t *      purged,
              fd_gossip_out_ctx_t *     gossip_update_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -468,13 +346,13 @@ fd_crds_new( void *                    shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( purged_max ) ) ) {
-    FD_LOG_WARNING(( "purged_max must be a power of 2" ));
+  if( FD_UNLIKELY( !rng ) ) {
+    FD_LOG_WARNING(( "NULL rng" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !rng ) ) {
-    FD_LOG_WARNING(( "NULL rng" ));
+  if( FD_UNLIKELY( !purged ) ) {
+    FD_LOG_WARNING(( "NULL purged" ));
     return NULL;
   }
 
@@ -491,17 +369,10 @@ fd_crds_new( void *                    shmem,
   void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint() );
   void * _hash_treap            = FD_SCRATCH_ALLOC_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max ) );
   void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max ) );
-  void * _purged_pool           = FD_SCRATCH_ALLOC_APPEND( l, purged_pool_align(),                   purged_pool_footprint( purged_max ) );
-  void * _purged_treap          = FD_SCRATCH_ALLOC_APPEND( l, purged_treap_align(),                  purged_treap_footprint( purged_max ) );
-  void * _purged_dlist          = FD_SCRATCH_ALLOC_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
-  void * _failed_inserts_dlist  = FD_SCRATCH_ALLOC_APPEND( l, failed_inserts_dlist_align(),          failed_inserts_dlist_footprint() );
-  ulong nci_origin_max          = fd_ulong_pow2_up( purged_max/4UL );
-  void * _nci_dlist             = FD_SCRATCH_ALLOC_APPEND( l, no_contact_info_dlist_align(),         no_contact_info_dlist_footprint() );
-  void * _nci_origin_map        = FD_SCRATCH_ALLOC_APPEND( l, nci_origin_map_align(),                nci_origin_map_footprint( nci_origin_max ) );
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
-  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max, purged_max ) );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max ) );
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );
@@ -523,24 +394,7 @@ fd_crds_new( void *                    shmem,
   crds->lookup_map = lookup_map_join( lookup_map_new( _lookup_map, ele_max, fd_rng_ulong( rng ) ) );
   FD_TEST( crds->lookup_map );
 
-  crds->purged.pool = purged_pool_join( purged_pool_new( _purged_pool, purged_max ) );
-  FD_TEST( crds->purged.pool );
-
-  crds->purged.treap = purged_treap_join( purged_treap_new( _purged_treap, purged_max ) );
-  FD_TEST( crds->purged.treap );
-  purged_treap_seed( crds->purged.pool, purged_max, fd_rng_ulong( rng ) );
-
-  crds->purged.purged_dlist = purged_dlist_join( purged_dlist_new( _purged_dlist ) );
-  FD_TEST( crds->purged.purged_dlist );
-
-  crds->purged.failed_inserts_dlist = failed_inserts_dlist_join( failed_inserts_dlist_new( _failed_inserts_dlist ) );
-  FD_TEST( crds->purged.failed_inserts_dlist );
-
-  crds->purged.no_contact_info_dlist = no_contact_info_dlist_join( no_contact_info_dlist_new( _nci_dlist ) );
-  FD_TEST( crds->purged.no_contact_info_dlist );
-
-  crds->purged.nci_origin_map = nci_origin_map_join( nci_origin_map_new( _nci_origin_map, nci_origin_max, fd_rng_ulong( rng ) ) );
-  FD_TEST( crds->purged.nci_origin_map );
+  crds->purged = purged;
 
   crds->contact_info.pool = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
   FD_TEST( crds->contact_info.pool );
@@ -631,11 +485,6 @@ fd_crds_len( fd_crds_t const * crds ) {
   return crds_pool_used( crds->pool );
 }
 
-ulong
-fd_crds_purged_len( fd_crds_t const * crds ) {
-  return purged_pool_used( crds->purged.pool );
-}
-
 void
 fd_crds_release( fd_crds_t *       crds,
                  fd_crds_entry_t * value ) {
@@ -685,54 +534,6 @@ expire( fd_crds_t *         crds,
     fd_crds_release( crds, head );
 
     crds->metrics->expired_cnt++;
-  }
-
-  while( !purged_dlist_is_empty( crds->purged.purged_dlist, crds->purged.pool ) ) {
-    fd_crds_purged_t * head = purged_dlist_ele_peek_head( crds->purged.purged_dlist, crds->purged.pool );
-
-    if( FD_LIKELY( head->expire.wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
-
-    purged_dlist_ele_pop_head( crds->purged.purged_dlist, crds->purged.pool );
-    purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
-    purged_pool_ele_release( crds->purged.pool, head );
-
-    crds->metrics->purged_cnt--;
-    crds->metrics->purged_expired_cnt++;
-  }
-
-  while( !failed_inserts_dlist_is_empty( crds->purged.failed_inserts_dlist, crds->purged.pool ) ) {
-    fd_crds_purged_t * head = failed_inserts_dlist_ele_peek_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
-
-    /* Agave uses 20 seconds here for failed inserts, but it's a little
-       bit short and causes occasional bandwidth jittering.  Use 60
-       seconds instead. */
-    if( FD_LIKELY( head->expire.wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
-
-    failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
-    purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
-    purged_pool_ele_release( crds->purged.pool, head );
-
-    crds->metrics->purged_cnt--;
-    crds->metrics->purged_expired_cnt++;
-  }
-
-  while( !no_contact_info_dlist_is_empty( crds->purged.no_contact_info_dlist, crds->purged.pool ) ) {
-    fd_crds_purged_t * head = no_contact_info_dlist_ele_peek_head( crds->purged.no_contact_info_dlist, crds->purged.pool );
-
-    /* Super long expiry time ... these don't get expired from peer
-       tables since they can last up to ~2 days, so we would otherwise
-       keep re-requesting these.  Reasonable to just fill the LRU with
-       them and let them cycle off then, or of course once we learn the
-       contact info of whoever the origin was. */
-    if( FD_LIKELY( head->expire.wallclock_nanos>now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
-
-    no_contact_info_dlist_ele_pop_head( crds->purged.no_contact_info_dlist, crds->purged.pool );
-    purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
-    nci_origin_map_ele_remove_fast( crds->purged.nci_origin_map, head, crds->purged.pool );
-    purged_pool_ele_release( crds->purged.pool, head );
-
-    crds->metrics->purged_cnt--;
-    crds->metrics->purged_expired_cnt++;
   }
 }
 
@@ -844,42 +645,6 @@ crds_entry_init( fd_gossip_value_t const * value,
   }
 }
 
-static inline void
-purged_init( fd_crds_purged_t * purged,
-             uchar const * hash,
-             ulong         hash_prefix,
-             long          now ) {
-  fd_memcpy( purged->hash, hash, 32UL );
-  purged->treap.hash_prefix = hash_prefix;
-  purged->expire.wallclock_nanos = now;
-}
-
-void
-insert_purged( fd_crds_t *   crds,
-               uchar const * hash,
-               long          now ) {
-  ulong hash_prefix = fd_ulong_load_8( hash );
-  if( purged_treap_ele_query( crds->purged.treap, hash_prefix, crds->purged.pool ) ) {
-    return;
-  }
-  fd_crds_purged_t * purged;
-  if( FD_UNLIKELY( !purged_pool_free( crds->purged.pool ) ) ) {
-    purged = purged_dlist_ele_pop_head( crds->purged.purged_dlist, crds->purged.pool );
-    purged_treap_ele_remove( crds->purged.treap, purged, crds->purged.pool );
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->purged_evicted_cnt++;
-    }
-  } else {
-    purged = purged_pool_ele_acquire( crds->purged.pool );
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->purged_cnt++;
-    }
-  }
-  purged_init( purged, hash, hash_prefix, now );
-  purged_treap_ele_insert( crds->purged.treap, purged, crds->purged.pool );
-  purged_dlist_ele_push_tail( crds->purged.purged_dlist, purged, crds->purged.pool );
-}
-
 /* overrides_fast
     - returns 1 if candidate overrides existing (incumbent) CRDS value
     - returns 0 if candidate does not override existing CRDS value
@@ -916,89 +681,6 @@ overrides_fast( fd_crds_entry_t const *   incumbent,
 }
 
 
-void
-fd_crds_insert_failed_insert( fd_crds_t *   crds,
-                              uchar const * hash,
-                              long          now ) {
-  ulong hash_prefix = fd_ulong_load_8( hash );
-  if( purged_treap_ele_query( crds->purged.treap, hash_prefix, crds->purged.pool ) ) {
-    return;
-  }
-  fd_crds_purged_t * failed;
-  if( FD_UNLIKELY( !purged_pool_free( crds->purged.pool ) ) ) {
-    failed = failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
-    purged_treap_ele_remove( crds->purged.treap, failed, crds->purged.pool );
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->purged_evicted_cnt++;
-    }
-  } else {
-    failed = purged_pool_ele_acquire( crds->purged.pool );
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->purged_cnt++;
-    }
-  }
-  purged_init( failed, hash, hash_prefix, now );
-  purged_treap_ele_insert( crds->purged.treap, failed, crds->purged.pool );
-  failed_inserts_dlist_ele_push_tail( crds->purged.failed_inserts_dlist, failed, crds->purged.pool );
-}
-
-void
-fd_crds_insert_no_contact_info( fd_crds_t *   crds,
-                                uchar const * origin,
-                                uchar const * hash,
-                                long          now ) {
-  ulong hash_prefix = fd_ulong_load_8( hash );
-  if( FD_UNLIKELY( purged_treap_ele_query( crds->purged.treap, hash_prefix, crds->purged.pool ) ) ) return;
-
-  fd_crds_purged_t * nci;
-  if( FD_UNLIKELY( !purged_pool_free( crds->purged.pool ) ) ) {
-    /* Evict oldest no_contact_info entry.  If the no_contact_info dlist
-       is empty, fall back to evicting from failed_inserts. */
-    if( FD_LIKELY( !no_contact_info_dlist_is_empty( crds->purged.no_contact_info_dlist, crds->purged.pool ) ) ) {
-      nci = no_contact_info_dlist_ele_pop_head( crds->purged.no_contact_info_dlist, crds->purged.pool );
-      purged_treap_ele_remove( crds->purged.treap, nci, crds->purged.pool );
-      nci_origin_map_ele_remove_fast( crds->purged.nci_origin_map, nci, crds->purged.pool );
-    } else {
-      nci = failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
-      purged_treap_ele_remove( crds->purged.treap, nci, crds->purged.pool );
-    }
-    crds->metrics->purged_evicted_cnt++;
-  } else {
-    nci = purged_pool_ele_acquire( crds->purged.pool );
-    crds->metrics->purged_cnt++;
-  }
-
-  purged_init( nci, hash, hash_prefix, now );
-  fd_memcpy( nci->origin.uc, origin, 32UL );
-  purged_treap_ele_insert( crds->purged.treap, nci, crds->purged.pool );
-  no_contact_info_dlist_ele_push_tail( crds->purged.no_contact_info_dlist, nci, crds->purged.pool );
-
-  nci_origin_map_ele_insert( crds->purged.nci_origin_map, nci, crds->purged.pool );
-}
-
-void
-fd_crds_drain_no_contact_info( fd_crds_t *   crds,
-                               uchar const * origin ) {
-  /* Iterate all entries in the MAP_MULTI chain for this origin,
-     removing each one.  We use idx-based iteration so we can
-     capture the next index before removing the current element
-     (which clobbers its chain pointers). */
-  fd_pubkey_t const * key = (fd_pubkey_t const *)origin;
-  ulong idx = nci_origin_map_idx_query_const( crds->purged.nci_origin_map, key, ULONG_MAX, crds->purged.pool );
-  while( idx!=ULONG_MAX ) {
-    ulong next_idx = nci_origin_map_idx_next_const( idx, ULONG_MAX, crds->purged.pool );
-    fd_crds_purged_t * entry = &crds->purged.pool[ idx ];
-
-    nci_origin_map_ele_remove_fast( crds->purged.nci_origin_map, entry, crds->purged.pool );
-    no_contact_info_dlist_ele_remove( crds->purged.no_contact_info_dlist, entry, crds->purged.pool );
-    purged_treap_ele_remove( crds->purged.treap, entry, crds->purged.pool );
-    purged_pool_ele_release( crds->purged.pool, entry );
-
-    crds->metrics->purged_cnt--;
-    idx = next_idx;
-  }
-}
-
 int
 fd_crds_checks_fast( fd_crds_t *               crds,
                      fd_gossip_value_t const * value,
@@ -1034,8 +716,8 @@ fd_crds_checks_fast( fd_crds_t *               crds,
     }
   }
 
-  from_push_msg ? insert_purged( crds, cand_hash, FD_MILLI_TO_NANOSEC( value->wallclock ) ) :
-                  fd_crds_insert_failed_insert( crds, cand_hash, FD_MILLI_TO_NANOSEC( value->wallclock ) );
+  from_push_msg ? fd_gossip_purged_insert_replaced( crds->purged, cand_hash, FD_MILLI_TO_NANOSEC( value->wallclock ) ) :
+                  fd_gossip_purged_insert_failed_insert( crds->purged, cand_hash, FD_MILLI_TO_NANOSEC( value->wallclock ) );
 
   return FD_CRDS_UPSERT_CHECK_FAILS;
 }
@@ -1155,7 +837,7 @@ fd_crds_insert( fd_crds_t *               crds,
   fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
   uchar is_replacing = incumbent!=NULL;
   if( FD_LIKELY( is_replacing ) ) {
-    insert_purged( crds, incumbent->value_hash, now );
+    fd_gossip_purged_insert_replaced( crds->purged, incumbent->value_hash, now );
 
     if( FD_UNLIKELY( incumbent->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       if( FD_LIKELY( !!incumbent->contact_info.fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, incumbent, crds->pool );
@@ -1388,19 +1070,6 @@ fd_crds_bucket_add( fd_crds_t *   crds,
                      crds->samplers->ele_cnt );
 }
 
-static void
-generate_masks( ulong   mask,
-                uint    mask_bits,
-                ulong * start_mask,
-                ulong * end_mask ) {
-  /* agave defines the mask as a ulong with the top mask_bits bits
-     set to the desired prefix and all other bits set to 1. */
-  FD_TEST( mask_bits<64U );
-  ulong range = fd_ulong_mask( 0U, (int)(63U-mask_bits) );
-  *start_mask = mask & ~range;
-  *end_mask   = mask | range;
-}
-
 struct fd_crds_mask_iter_private {
   ulong idx;
   ulong end_hash;
@@ -1412,7 +1081,7 @@ fd_crds_mask_iter_init( fd_crds_t const * crds,
                         uint              mask_bits,
                         uchar             iter_mem[ static 16UL ] ) {
   ulong start_hash, end_hash;
-  generate_masks( mask, mask_bits, &start_hash, &end_hash );
+  fd_gossip_purged_generate_masks( mask, mask_bits, &start_hash, &end_hash );
 
   fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
   it->end_hash             = end_hash;
@@ -1439,41 +1108,3 @@ fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it, fd_crds_t const * crds ){
   return hash_treap_ele_fast_const( it->idx, crds->pool );
 }
 
-fd_crds_mask_iter_t *
-fd_crds_purged_mask_iter_init( fd_crds_t const * crds,
-                               ulong             mask,
-                               uint              mask_bits,
-                               uchar             iter_mem[ static 16UL ] ){
-  ulong start_hash, end_hash;
-  generate_masks( mask, mask_bits, &start_hash, &end_hash );
-
-  fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
-  it->end_hash             = end_hash;
-  it->idx                  = purged_treap_idx_ge( crds->purged.treap, start_hash, crds->purged.pool );
-  return it;
-}
-
-fd_crds_mask_iter_t *
-fd_crds_purged_mask_iter_next( fd_crds_mask_iter_t * it,
-                               fd_crds_t const *     crds ){
-  fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, crds->purged.pool );
-  it->idx                      = val->treap.next;
-  return it;
-}
-
-int
-fd_crds_purged_mask_iter_done( fd_crds_mask_iter_t * it,
-                               fd_crds_t const *     crds ){
-  fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, crds->purged.pool );
-  return purged_treap_idx_is_null( it->idx ) ||
-         (it->end_hash < val->treap.hash_prefix);
-}
-
-/* fd_crds_purged_mask_iter_hash returns the hash of the current
-   entry in the purged mask iterator. */
-uchar const *
-fd_crds_purged_mask_iter_hash( fd_crds_mask_iter_t * it,
-                               fd_crds_t const *     crds ){
-  fd_crds_purged_t const * val = purged_treap_ele_fast_const( it->idx, crds->purged.pool );
-  return val->hash;
-}

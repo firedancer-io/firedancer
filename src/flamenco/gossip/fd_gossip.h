@@ -3,6 +3,7 @@
 
 #include "fd_gossip_message.h"
 #include "fd_gossip_out.h"
+#include "fd_gossip_purged.h"
 #include "fd_ping_tracker.h"
 #include "crds/fd_crds.h"
 
@@ -122,6 +123,9 @@ fd_gossip_crds_metrics( fd_gossip_t const * gossip );
 
 fd_ping_tracker_metrics_t const *
 fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip );
+
+fd_gossip_purged_metrics_t const *
+fd_gossip_purged_metrics2( fd_gossip_t const * gossip );
 
 /* fd_gossip stores the node's contact info for various purposes:
 

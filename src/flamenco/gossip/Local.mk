@@ -1,6 +1,6 @@
-$(call add-hdrs,fd_gossip.h fd_gossip_message.h fd_gossip_out.h fd_gossip_txbuild.h)
+$(call add-hdrs,fd_gossip.h fd_gossip_message.h fd_gossip_out.h fd_gossip_txbuild.h fd_gossip_purged.h)
 ifdef FD_HAS_ALLOCA
-$(call add-objs,fd_gossip fd_gossip_message fd_gossip_out fd_gossip_txbuild,fd_flamenco)
+$(call add-objs,fd_gossip fd_gossip_message fd_gossip_out fd_gossip_txbuild fd_gossip_purged,fd_flamenco)
 endif
 
 $(call add-hdrs,fd_bloom.h)
