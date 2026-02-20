@@ -276,8 +276,10 @@ run_tile_thread( fd_topo_t *         topo,
   void * stack = fd_topo_tile_stack_join( topo->app_name, tile->name, tile->kind_id );
 
   pthread_attr_t attr[ 1 ];
-  if( FD_UNLIKELY( pthread_attr_init( attr ) ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ ) ) ) FD_LOG_ERR(( "pthread_attr_setstacksize() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int err = pthread_attr_init( attr );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", err, fd_io_strerror( err ) ));
+  err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_setstack() failed (%i-%s)", err, fd_io_strerror( err ) ));
 
   FD_CPUSET_DECL( cpu_set );
   if( FD_LIKELY( tile->cpu_idx<65535UL ) ) {
@@ -313,7 +315,8 @@ run_tile_thread( fd_topo_t *         topo,
   };
 
   pthread_t pthread;
-  if( FD_UNLIKELY( pthread_create( &pthread, attr, run_tile_thread_main, args ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  err = pthread_create( &pthread, attr, run_tile_thread_main, args );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", err, fd_io_strerror( err ) ));
 }
 
 void
