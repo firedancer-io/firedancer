@@ -1299,7 +1299,7 @@ unprivileged_init( fd_topo_t *      topo,
     memset( ctx->crank->last_sig,           '\0', 64UL );
     ctx->crank->ib_inserted    = 0;
     ctx->crank->epoch          = 0UL;
-    ctx->crank->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+    ctx->crank->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
     FD_TEST( ctx->crank->keyswitch );
   } else {
     memset( ctx->crank, '\0', sizeof(ctx->crank) );

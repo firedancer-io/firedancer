@@ -2273,7 +2273,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->shred_seq = ULONG_MAX;
   ctx->halted_switching_key = 0;
-  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
   ctx->slot                  = 0UL;

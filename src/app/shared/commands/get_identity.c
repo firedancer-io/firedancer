@@ -36,7 +36,7 @@ get_identity_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
     FD_LOG_ERR(( "Failed to access shred tile object" ));
   }
   /* Join the keyswitch to check for concurrent identity updates */
-  fd_keyswitch_t * keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( &config->topo, shred_tile->keyswitch_obj_id ) );
+  fd_keyswitch_t * keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( &config->topo, shred_tile->id_keyswitch_obj_id ) );
   if( FD_UNLIKELY( !keyswitch ) ) {
     fd_topo_leave_workspaces( &config->topo );
     FD_LOG_ERR(( "Failed to join keyswitch" ));
