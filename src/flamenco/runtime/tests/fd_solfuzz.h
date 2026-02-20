@@ -165,34 +165,13 @@ fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
                              uchar const *         in,
                              ulong                 in_sz );
 
-/* SVM Program Loading
-
-   Loads an ELF binary (in input->elf.data).
-   output_buf points to a memory region of output_bufsz bytes where the
-   result is allocated into. During execution, the contents of
-   fd_sbpf_program_t are wrapped in *output (backed by output_buf).
-
-   Returns number of bytes allocated at output_buf OR 0UL on any
-   harness-specific failures. Execution failures still return number of allocated bytes,
-   but output is incomplete/undefined. */
-
-ulong
-fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
-                              void const *          input_,
-                              void **               output_,
-                              void *                output_buf,
-                              ulong                 output_bufsz );
+/* SVM Program Loading */
 
 #if FD_HAS_FLATCC
 int
 fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
                               void const *          input_ );
 #endif
-
-int
-fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
-                                  uchar const *         in,
-                                  ulong                 in_sz );
 
 /* SVM sBPF Syscall Handling */
 

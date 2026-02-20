@@ -419,10 +419,7 @@ unprivileged_init( fd_topo_t *      topo,
     }
 
     /* Transaction dumping config */
-    ctx->dump_proto_ctx->dump_txn_to_pb               = !!tile->execrp.dump_txn_to_pb;
-
-    /* ELF dumping config */
-    ctx->dump_proto_ctx->dump_elf_to_pb               = !!tile->execrp.dump_elf_to_pb;
+    ctx->dump_proto_ctx->dump_txn_to_pb = !!tile->execrp.dump_txn_to_pb;
   }
 
   /********************************************************************/

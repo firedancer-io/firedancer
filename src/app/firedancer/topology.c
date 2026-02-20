@@ -1576,7 +1576,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.dump_instr_to_pb = config->capture.dump_instr_to_pb;
     tile->execrp.dump_txn_to_pb = config->capture.dump_txn_to_pb;
     tile->execrp.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
-    tile->execrp.dump_elf_to_pb = config->capture.dump_elf_to_pb;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;

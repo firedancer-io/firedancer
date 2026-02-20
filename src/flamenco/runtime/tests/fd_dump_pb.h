@@ -54,12 +54,6 @@
                 * If present, only syscalls with the specified name will
                   be dumped, e.g. sol_memcpy_, sol_invoke_signed_rust
 
-        ELF:
-            - dump_elf_to_pb <0/1>
-                * If enabled, ELF files will be dumped to the specified
-                  output directory
-                * File name format is "elf-<base58_enc_sig>-<base58_enc_program_id>-<slot_number>.elfctx"
-
     Other notes:
         solana-conformance (https://github.com/firedancer-io/solana-conformance)
             * Allows decoding / executing / debugging of above Protobuf
@@ -72,7 +66,6 @@
 #include "../info/fd_instr_info.h"
 #include "../../vm/fd_vm.h"
 #include "generated/block.pb.h"
-#include "generated/elf.pb.h"
 #include "../../../disco/fd_txn_p.h"
 
 /* The amount of memory allocated towards dumping blocks from ledgers */
@@ -104,8 +97,6 @@ struct fd_dump_proto_ctx {
   uint                     dump_syscall_to_pb : 1;
   char const *             dump_syscall_name_filter;
 
-  /* ELF Capture */
-  uint                     dump_elf_to_pb : 1;
 };
 
 /* Persistent context for block dumping.  Maintains state about
@@ -250,13 +241,6 @@ fd_dump_block_to_protobuf( fd_block_dump_ctx_t *       dump_block_ctx,
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
                                 char const *    fn_name );
-
-void
-fd_dump_elf_to_protobuf( fd_runtime_t *            runtime,
-                         fd_bank_t *               bank,
-                         fd_txn_in_t const *       txn_in,
-                         fd_pubkey_t const *       acc_pubkey,
-                         fd_account_meta_t const * acc_meta );
 
 FD_PROTOTYPES_END
 

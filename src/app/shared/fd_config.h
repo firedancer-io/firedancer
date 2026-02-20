@@ -517,7 +517,6 @@ struct fd_config {
     char  solcap_capture[ PATH_MAX ];
     int   recent_only;
     ulong recent_slots_per_file;
-    int   dump_elf_to_pb;
     int   dump_syscall_to_pb;
     int   dump_instr_to_pb;
     int   dump_txn_to_pb;
