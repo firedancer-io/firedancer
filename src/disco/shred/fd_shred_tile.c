@@ -959,7 +959,8 @@ after_frag( fd_shred_ctx_t *    ctx,
          need to let repair know to clear out it's cached info for that
          fec set and re-repair those shreds. */
       ulong sig_ = fd_disco_shred_out_shred_sig( 0, spilled_fec.slot, spilled_fec.fec_set_idx, 0, spilled_fec.max_dshred_idx );
-      fd_stem_publish( stem, ctx->shred_out_idx, sig_, ctx->shred_out_chunk, 0, 0, ctx->tsorig, ctx->tsorig );
+      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, ctx->shred_out_idx, sig_, ctx->shred_out_chunk, 0, 0, ctx->tsorig, tspub );
     }
 
     if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
