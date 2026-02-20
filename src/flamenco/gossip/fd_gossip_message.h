@@ -50,6 +50,9 @@
 
 #define FD_GOSSIP_MESSAGE_MAX_CRDS (17UL)
 
+#define FD_GOSSIP_FAILED_NO_CONTACT_INFO (1)
+#define FD_GOSSIP_FAILED_WALLCLOCK       (2)
+
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)        + sizeof((fd_gossip_update_message_t *)0)->contact_info)
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof((fd_gossip_update_message_t *)0)->contact_info_remove)
 #define FD_GOSSIP_UPDATE_SZ_VOTE                (offsetof(fd_gossip_update_message_t, vote)                + sizeof((fd_gossip_update_message_t *)0)->vote)

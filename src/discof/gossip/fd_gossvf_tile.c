@@ -480,7 +480,7 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
           ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ] += values[ i ].length;
         }
       }
-      failed[ i ] = 1;
+      failed[ i ] = FD_GOSSIP_FAILED_NO_CONTACT_INFO;
     }
 
     i++;
@@ -618,7 +618,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       return 0;
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       if( FD_UNLIKELY( !check_addr( ctx->peer, ctx->allow_private_address ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
-      // if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+      if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH:
       values_len = &view->push->values_len;
@@ -658,7 +658,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       }
       /* Mark as failed instead of removing so gossip tile can
          track the hash in the purged set. */
-      failed[ i ] = 1;
+      failed[ i ] = FD_GOSSIP_FAILED_NO_CONTACT_INFO;
     }
 
     i++;
@@ -806,6 +806,33 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   uchar failed[ FD_GOSSIP_MESSAGE_MAX_CRDS ] = {0};
 
+  if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
+    int has_staked_node = ctx->stake.count>0UL;
+    for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
+      fd_gossip_value_t const * value = &message->pull_response->values[ i ];
+
+      uchar is_me = !memcmp( value->origin, ctx->identity_pubkey, 32UL );
+      long accept_after_nanos;
+      if( FD_UNLIKELY( is_me ) ) {
+        accept_after_nanos = 0L;
+      } else {
+        stake_t const * entry = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t const *)value->origin, NULL, ctx->stake.pool );
+        ulong origin_stake = entry ? entry->stake : 0UL;
+        if( !origin_stake && has_staked_node ) accept_after_nanos = now-15L*1000L*1000L*1000L;
+        else                                   accept_after_nanos = now-432000L*400L*1000L*1000L;
+      }
+
+      if( FD_UNLIKELY( accept_after_nanos>FD_MILLI_TO_NANOSEC( value->wallclock ) ) ) {
+        peer_t const * origin_peer = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t const *)value->origin, NULL, ctx->peers );
+        if( FD_UNLIKELY( !origin_peer ) ) {
+          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_WALLCLOCK_IDX ]++;
+          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_WALLCLOCK_IDX ] += value->length;
+          failed[ i ] = FD_GOSSIP_FAILED_WALLCLOCK;
+        }
+      }
+    }
+  }
+
   int result = filter_shred_version( ctx, message, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
@@ -820,7 +847,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
       for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
-        if( FD_UNLIKELY( failed[ i ] ) ) continue; /* Don't add to tcache so we can re-receive after learning contact info */
+        if( FD_UNLIKELY( failed[ i ]==FD_GOSSIP_FAILED_NO_CONTACT_INFO ) ) continue; /* Don't add to tcache so we can re-receive after learning contact info */
         ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( message->pull_response->values[ i ].signature );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );

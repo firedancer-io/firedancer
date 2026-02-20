@@ -917,11 +917,10 @@ metric introduced.
     <int value="1" name="UpsertedPush" label="Push (upserted)" />
 
     <int value="2" name="DroppedPullResponseStale" label="Pull Response (newer entry already present in table)" />
-    <int value="3" name="DroppedPullResponseWallclock" label="Pull Response (outside expiry window and no contact info entry)" />
-    <int value="4" name="DroppedPullResponseDuplicate" label="Pull Response (duplicate)" />
+    <int value="3" name="DroppedPullResponseDuplicate" label="Pull Response (duplicate)" />
 
-    <int value="5" name="DroppedPushStale" label="Push (newer entry already present in table)" />
-    <int value="6" name="DroppedPushDuplicate" label="Push (duplicate)" />
+    <int value="4" name="DroppedPushStale" label="Push (newer entry already present in table)" />
+    <int value="5" name="DroppedPushDuplicate" label="Push (duplicate)" />
 </enum>
 
 <tile name="gossip">
@@ -999,12 +998,13 @@ metric introduced.
     <int value="4" name="DroppedPullResponseOriginNoContactInfo" label="Pull Response (origin no contact info)" />
     <int value="5" name="DroppedPullResponseOriginShredVersion" label="Pull Response (origin shred version)" />
     <int value="6" name="DroppedPullResponseInactive" label="Pull Response (inactive)" />
+    <int value="7" name="DroppedPullResponseWallclock" label="Pull Response (wallclock)" />
 
-    <int value="7" name="DroppedPushSignature" label="Push (signature)" />
-    <int value="8" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
-    <int value="9" name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
-    <int value="10" name="DroppedPushInactive" label="Push (inactive)" />
-    <int value="11" name="DroppedPushWallclock" label="Push (wallclock)" />
+    <int value="8" name="DroppedPushSignature" label="Push (signature)" />
+    <int value="9" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
+    <int value="10" name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
+    <int value="11" name="DroppedPushInactive" label="Push (inactive)" />
+    <int value="12" name="DroppedPushWallclock" label="Push (wallclock)" />
 </enum>
 
 <tile name="gossvf">
