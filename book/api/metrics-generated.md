@@ -994,7 +994,7 @@
 | <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
 | <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
 | <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
-| <span class="metrics-name">accdb_&#8203;account_&#8203;map_&#8203;slots</span> | gauge | Account map capacity |
+| <span class="metrics-name">accdb_&#8203;account_&#8203;index_&#8203;remaining_&#8203;free</span> | gauge | Remaining free slots in the account database index (validator crashes when this number reaches zero) |
 
 </div>
 

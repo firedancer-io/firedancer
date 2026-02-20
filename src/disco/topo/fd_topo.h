@@ -641,6 +641,7 @@ struct fd_topo_tile {
       ulong line_max;
       ulong data_obj_id;
       char  bstream_path[ PATH_MAX ];
+      ulong pair_cnt_limit;
 
       int  io_type; /* FD_VINYL_IO_TYPE_* */
       uint uring_depth;

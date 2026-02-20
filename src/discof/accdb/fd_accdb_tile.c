@@ -133,6 +133,9 @@ struct fd_vinyl_tile {
 
   long sync_next_ns;
 
+  /* Vinyl limit on the number of pairs the meta map will accept.
+     Exceeding this limit will trigger a LOG_ERR. */
+  ulong pair_cnt_limit;
 };
 
 typedef struct fd_vinyl_tile fd_vinyl_tile_t;
@@ -394,6 +397,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( snapwm_tile->metrics );
   ctx->snapwm_pair_cnt = &fd_metrics_tile( snapwm_tile->metrics )[ MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
 
+  /* Vinyl limit on the number of pairs the meta map will accept */
+  ctx->pair_cnt_limit = tile->accdb.pair_cnt_limit;
+  FD_TEST( ctx->pair_cnt_limit!=ULONG_MAX );
+
   /* Discover mapped clients */
 
   ulong burst_free = FD_VINYL_REQ_MAX;
@@ -599,6 +606,10 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
     }
   }
 
+  /* Keep an eye on vinyl meta map utilization (pair_cnt) */
+  if( FD_UNLIKELY( vinyl->pair_cnt > ctx->pair_cnt_limit ) ) {;
+    FD_LOG_ERR(( "accdb accounts count %lu exceeded limit %lu", vinyl->pair_cnt, ctx->pair_cnt_limit ));
+  }
 }
 
 /* If should_shutdown returns non-zero, the vinyl tile is shut down */
@@ -653,8 +664,9 @@ metrics_write( fd_vinyl_tile_t * ctx ) {
   fd_vinyl_t *    vinyl = ctx->vinyl;
   fd_vinyl_io_t * io    = vinyl->io;
 
-  FD_MGAUGE_SET( ACCDB, ACCOUNTS,          vinyl->pair_cnt      );
-  FD_MGAUGE_SET( ACCDB, ACCOUNT_MAP_SLOTS, vinyl->meta->ele_max );
+  ulong vinyl__pair_cnt_left = fd_ulong_sat_sub( ctx->pair_cnt_limit, vinyl->pair_cnt );
+  FD_MGAUGE_SET( ACCDB, ACCOUNTS,                     vinyl->pair_cnt      );
+  FD_MGAUGE_SET( ACCDB, ACCOUNT_INDEX_REMAINING_FREE, vinyl__pair_cnt_left );
 
   FD_MCNT_SET( ACCDB, READ_OPS_IO_CACHE,    io->cache_read_cnt     );
   FD_MCNT_SET( ACCDB, READ_BYTES_IO_CACHE,  io->cache_read_tot_sz  );
