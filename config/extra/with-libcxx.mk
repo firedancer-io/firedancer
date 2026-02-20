@@ -13,6 +13,7 @@ ifndef LIBCXX
 $(error LIBCXX is not set)
 endif
 
+FD_HAS_CXX:=1
 CXXFLAGS+=-nostdinc++ -nostdlib++
 CXXFLAGS+=-isystem $(LIBCXX)/include/c++/v1
 LDFLAGS+=$(LIBCXX)/lib/libc++.a $(LIBCXX)/lib/libc++abi.a

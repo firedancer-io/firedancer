@@ -29,7 +29,6 @@ fn main() {
             lib
         );
     }
-    println!("cargo:rustc-link-lib=static=stdc++"); // fd_tile_threads.cxx
 
     let mut include_path = build_path.clone();
     include_path.push("include");

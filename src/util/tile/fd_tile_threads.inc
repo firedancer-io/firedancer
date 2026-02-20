@@ -339,12 +339,16 @@ fd_tile_private_manager( void * _args ) {
     int            argc = FD_VOLATILE_CONST( tile->argc );
     char **        argv = FD_VOLATILE_CONST( tile->argv );
     fd_tile_task_t task = FD_VOLATILE_CONST( tile->task );
+#   ifdef __cplusplus
     try {
+#   endif
       FD_VOLATILE( tile->ret  ) = task( argc, argv );
       FD_VOLATILE( tile->fail ) = NULL;
+#   ifdef __cplusplus
     } catch( ... ) {
       FD_VOLATILE( tile->fail ) = "uncaught exception";
     }
+#   endif
 
     FD_COMPILER_MFENCE();
     FD_VOLATILE( tile->state ) = FD_TILE_PRIVATE_STATE_IDLE;
