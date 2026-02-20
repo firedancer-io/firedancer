@@ -147,6 +147,7 @@ returnable_frag( fd_poh_tile_t *     ctx,
      are going to have the wait for the full block to timeout once it
      starts. */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE && fd_poh_has_skipped_ticks( ctx->poh ) ) ) return 1;
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
     if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));

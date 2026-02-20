@@ -261,6 +261,11 @@ fd_poh_must_tick( fd_poh_t const * poh ) {
   return poh->state==STATE_LEADER && (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL);
 }
 
+int
+fd_poh_has_skipped_ticks( fd_poh_t const * poh ) {
+  return poh->state==STATE_LEADER && poh->last_slot<poh->slot;
+}
+
 void
 fd_poh_done_packing( fd_poh_t * poh,
                      ulong      microblocks_in_slot ) {
