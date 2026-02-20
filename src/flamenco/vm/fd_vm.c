@@ -145,7 +145,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
      validation criteria. */
 
 # define FD_VALID               ((uchar)0) /* Valid opcode */
-# define FD_CHECK_JMP_V3        ((uchar)1) /* Validation should check that the instruction is a valid jump (v3+) */
+# define FD_CHECK_JMP           ((uchar)1) /* Validation should check that the instruction is a valid jump */
 # define FD_CHECK_END           ((uchar)2) /* Validation should check that the instruction is a valid endianness conversion */
 # define FD_CHECK_ST            ((uchar)3) /* Validation should check that the instruction is a valid store */
 # define FD_CHECK_LDQ           ((uchar)4) /* Validation should check that the instruction is a valid load-quad */
@@ -157,9 +157,6 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_CHECK_CALL_REG_DEPR ((uchar)10) /* Older / deprecated FD_CHECK_CALLX */
 # define FD_CHECK_CALL_IMM      ((uchar)11) /* Check call against functions registry */
 # define FD_CHECK_SYSCALL       ((uchar)12) /* Check call against syscalls registry */
-# define FD_CHECK_JMP_V0        ((uchar)13) /* Validation should check that the instruction is a valid jump (v0..v2) */
-
-  uchar FD_CHECK_JMP = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_JMP_V3 : FD_CHECK_JMP_V0;
 
   uchar validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -195,13 +192,13 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* 0x78 */ FD_INVALID,    /* 0x79 */ FD_INVALID,    /* 0x7a */ FD_INVALID,    /* 0x7b */ FD_INVALID,
     /* 0x7c */ FD_VALID,      /* 0x7d */ FD_CHECK_JMP,  /* 0x7e */ FD_VALID,      /* 0x7f */ FD_VALID,
     /* 0x80 */ FD_INVALID,    /* 0x81 */ FD_INVALID,    /* 0x82 */ FD_INVALID,    /* 0x83 */ FD_INVALID,
-    /* 0x84 */ FD_INVALID,    /* 0x85 */ FD_CHECK_CALL_IMM,/*0x86*/FD_VALID,      /* 0x87 */ FD_CHECK_ST,
+    /* 0x84 */ FD_INVALID,    /* 0x85 */ FD_VALID,      /* 0x86 */ FD_VALID,      /* 0x87 */ FD_CHECK_ST,
     /* 0x88 */ FD_INVALID,    /* 0x89 */ FD_INVALID,    /* 0x8a */ FD_INVALID,    /* 0x8b */ FD_INVALID,
     /* 0x8c */ FD_VALID,      /* 0x8d */ FD_CHECK_CALL_REG,/*0x8e*/FD_VALID,      /* 0x8f */ FD_CHECK_ST,
     /* 0x90 */ FD_INVALID,    /* 0x91 */ FD_INVALID,    /* 0x92 */ FD_INVALID,    /* 0x93 */ FD_INVALID,
-    /* 0x94 */ FD_INVALID,    /* 0x95 */ FD_CHECK_SYSCALL,/*0x96*/ FD_VALID,      /* 0x97 */ FD_CHECK_ST,
+    /* 0x94 */ FD_INVALID,    /* 0x95 */ FD_VALID,      /* 0x96 */ FD_VALID,      /* 0x97 */ FD_CHECK_ST,
     /* 0x98 */ FD_INVALID,    /* 0x99 */ FD_INVALID,    /* 0x9a */ FD_INVALID,    /* 0x9b */ FD_INVALID,
-    /* 0x9c */ FD_VALID,      /* 0x9d */ FD_VALID,      /* 0x9e */ FD_VALID,      /* 0x9f */ FD_CHECK_ST,
+    /* 0x9c */ FD_VALID,      /* 0x9d */ FD_INVALID,    /* 0x9e */ FD_VALID,      /* 0x9f */ FD_CHECK_ST,
     /* 0xa0 */ FD_INVALID,    /* 0xa1 */ FD_INVALID,    /* 0xa2 */ FD_INVALID,    /* 0xa3 */ FD_INVALID,
     /* 0xa4 */ FD_VALID,      /* 0xa5 */ FD_CHECK_JMP,  /* 0xa6 */ FD_INVALID,    /* 0xa7 */ FD_VALID,
     /* 0xa8 */ FD_INVALID,    /* 0xa9 */ FD_INVALID,    /* 0xaa */ FD_INVALID,    /* 0xab */ FD_INVALID,
@@ -306,11 +303,6 @@ fd_vm_validate( fd_vm_t const * vm ) {
   validation_map[ 0xf6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SREM64 */
   validation_map[ 0xfe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
 
-  /* SIMD-0178: static syscalls */
-  validation_map[ 0x85 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_CALL_IMM : FD_VALID;
-  validation_map[ 0x95 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_SYSCALL : FD_VALID;
-  validation_map[ 0x9d ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_VALID : FD_INVALID;
-
   /* FIXME: These checks are not necessary assuming fd_vm_t is populated by metadata
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
      this non-guarantee is (rightfully) exploited by the fuzz harnesses.
@@ -330,35 +322,8 @@ fd_vm_validate( fd_vm_t const * vm ) {
   ulong const * text     = vm->text;
   ulong         text_cnt = vm->text_cnt;
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L233-L235 */
-  ulong function_start = 0UL;
-  ulong function_next  = 0UL;
-  if( fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) {
-    if( FD_UNLIKELY( !fd_sbpf_is_function_start( fd_sbpf_instr( text[0] ) ) ) ) {
-      return FD_VM_INVALID_FUNCTION;
-    }
-  }
-
   for( ulong i=0UL; i<text_cnt; i++ ) {
     fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
-
-    /* Validate functions
-       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L240-L255
-       At the start of a function, we check that the function ends with JA(0x05) or RETURN(0x9D).
-       As a side effect, the range of the function is [function_start, function_next-1],
-       used to validate jumps.
-       Note that the first function always starts at 0, and similarly the last function
-       always ends at text_cnt-1. */
-    if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) && fd_sbpf_is_function_start( instr ) ) ) {
-      function_start = i;
-      function_next  = i+1;
-      while( function_next<text_cnt && !fd_sbpf_is_function_start( fd_sbpf_instr( text[function_next] ) ) ) {
-        function_next++;
-      }
-      if( FD_UNLIKELY( !fd_sbpf_is_function_end( fd_sbpf_instr( text[function_next-1] ) ) ) ) {
-        return FD_VM_INVALID_FUNCTION;
-      }
-    }
 
     uchar validation_code = validation_map[ instr.opcode.raw ];
     switch( validation_code ) {
@@ -371,17 +336,11 @@ fd_vm_validate( fd_vm_t const * vm ) {
        But there's nothing to do at this time. */
     case FD_CHECK_ST: break;
 
-    case FD_CHECK_JMP_V0: {
+    case FD_CHECK_JMP: {
       long jmp_dst = (long)i + (long)instr.offset + 1L;
       if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt)                          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
       //FIXME: this shouldn't be here?
       if( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
-      break;
-    }
-
-    case FD_CHECK_JMP_V3: {
-      long jmp_dst = (long)i + (long)instr.offset + 1L;
-      if( FD_UNLIKELY( (jmp_dst<(long)function_start) | (jmp_dst>=(long)function_next) ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
       break;
     }
 
