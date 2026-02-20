@@ -15,7 +15,6 @@ union fdctl_args {
     long dt_max;
     long duration;
     uint seed;
-    double ns_per_tic;
     int drain_output_fd;
     int with_bench;
     int with_sankey;

@@ -6,6 +6,7 @@
 #include "../../../platform/fd_cap_chk.h"
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../util/log/fd_log.h"
 
 #include "helper.h"
 
@@ -30,7 +31,6 @@ monitor_cmd_args( int *    pargc,
   args->monitor.dt_max          = fd_env_strip_cmdline_long( pargc, pargv, "--dt-max",   NULL,  133333333.          );
   args->monitor.duration        = fd_env_strip_cmdline_long( pargc, pargv, "--duration", NULL,          0.          );
   args->monitor.seed            = fd_env_strip_cmdline_uint( pargc, pargv, "--seed",     NULL, (uint)fd_tickcount() );
-  args->monitor.ns_per_tic      = 1./fd_tempo_tick_per_ns( NULL ); /* calibrate during init */
 
   args->monitor.with_bench     = fd_env_strip_cmdline_contains( pargc, pargv, "--bench" );
   args->monitor.with_sankey    = fd_env_strip_cmdline_contains( pargc, pargv, "--sankey" );
@@ -232,8 +232,7 @@ run_monitor( config_t const * config,
              long             dt_min,
              long             dt_max,
              long             duration,
-             uint             seed,
-             double           ns_per_tic ) {
+             uint             seed ) {
   fd_topo_t const * topo = &config->topo;
 
   /* Setup local objects used by this app */
@@ -253,7 +252,7 @@ run_monitor( config_t const * config,
   /* Get the initial reference diagnostic snapshot */
   tile_snap( tile_snap_prv, topo );
   link_snap( link_snap_prv, topo );
-  long then; long tic; fd_tempo_observe_pair( &then, &tic );
+  long then = fd_log_wallclock();
 
   /* Monitor for duration ns.  Note that for duration==0, this
      will still do exactly one pretty print. */
@@ -290,7 +289,7 @@ run_monitor( config_t const * config,
 
     tile_snap( tile_snap_cur, topo );
     link_snap( link_snap_cur, topo );
-    long now; long toc; fd_tempo_observe_pair( &now, &toc );
+    long now = fd_log_wallclock();
 
     /* Pretty print a comparison between this diagnostic snapshot and
        the previous one. */
@@ -327,7 +326,7 @@ run_monitor( config_t const * config,
         if( cur->status==2UL ) continue; /* stopped tile */
         PRINT( " %7s", topo->tiles[ tile_idx ].name );
         PRINT( " | %7lu", cur->pid );
-        PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - (long)cur->heartbeat)), 1e8 /* 100 millis */ );
+        PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(now - (long)cur->heartbeat), 1e8 /* 100 millis */ );
         PRINT( " | " ); printf_heart   ( &buf, &buf_sz, (long)cur->heartbeat, (long)prv->heartbeat  );
         PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nivcsw,          prv->nivcsw );
         PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nvcsw,           prv->nvcsw  );
@@ -487,7 +486,7 @@ run_monitor( config_t const * config,
       break;
     }
 
-    then = now; tic = toc;
+    then = now;
     tile_snap_t * tmp = tile_snap_prv; tile_snap_prv = tile_snap_cur; tile_snap_cur = tmp;
     link_snap_t * tmp2 = link_snap_prv; link_snap_prv = link_snap_cur; link_snap_cur = tmp2;
   }
@@ -575,8 +574,7 @@ monitor_cmd_fn( args_t *   args,
                args->monitor.dt_min,
                args->monitor.dt_max,
                args->monitor.duration,
-               args->monitor.seed,
-               args->monitor.ns_per_tic );
+               args->monitor.seed );
 
   exit( 0 ); /* gracefully exit */
 }
