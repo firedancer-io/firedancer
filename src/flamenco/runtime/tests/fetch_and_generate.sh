@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT=../../../..
 
 # Allow overriding proto version; default pinned
-PROTO_VERSION="${PROTO_VERSION:-v3.3.0}"
+PROTO_VERSION="${PROTO_VERSION:-v3.4.0}"
 FLATCC="${FLATCC:-${PROJECT_ROOT}/opt/bin/flatcc}"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -39,6 +39,7 @@ else
     cd ..
 fi
 
+rm -rf generated/*
 ./nanopb/generator/nanopb_generator.py -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D generated
 
 # Generate flatbuffer headers
