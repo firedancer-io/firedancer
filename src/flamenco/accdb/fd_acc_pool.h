@@ -53,20 +53,6 @@ fd_acc_pool_new( void * shmem,
 fd_acc_pool_t *
 fd_acc_pool_join( void * shmem );
 
-/* fd_acc_pool_try_acquire attempts to acquire the memory for
-   request_cnt accounts from the fd_acc_pool_t object.  If the requested
-   number of accounts are not available, returns 1.  If successful,
-   returns 0 and stores the pointers to the accounts in accounts_out.
-   The caller is responsible for freeing the accounts after use via a
-   call to fd_acc_pool_release.  This function is thread-safe.  For i in
-   [0, request_cnt), accounts_out[i] points to the first byte of the
-   returned account's buffer. */
-
-int
-fd_acc_pool_try_acquire( fd_acc_pool_t * acc_pool,
-                         ulong           request_cnt,
-                         uchar * *       accounts_out );
-
 /* fd_acc_pool_acquire is the blocking and non-speculative version of
    fd_acc_pool_try_acquire.  It will keep trying to acquire the
    requested number of accounts until successful.  This function

@@ -1,6 +1,6 @@
 /* Test accounts_resize_delta tracking with signed arithmetic. */
 
-#include "../fd_acc_pool.h"
+#include "../../accdb/fd_acc_pool.h"
 #include "../fd_runtime.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_bank.h"
@@ -181,14 +181,10 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   fd_builtin_programs_init( env->bank, env->accdb, &env->xid, NULL );
 
   env->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), env->tag );
-  uchar * acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(), fd_acc_pool_footprint( TEST_ACC_POOL_ACCOUNT_CNT ), env->tag );
-  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, TEST_ACC_POOL_ACCOUNT_CNT ) );
-  FD_TEST( acc_pool );
 
   env->runtime->accdb                    = &env->accdb[0];
   env->runtime->progcache                = env->progcache;
   env->runtime->status_cache             = NULL;
-  env->runtime->acc_pool                 = acc_pool;
   fd_log_collector_init( env->log_collector, 0 );
   env->runtime->log.log_collector        = env->log_collector;
   env->runtime->log.enable_log_collector = 0;
@@ -213,9 +209,6 @@ test_env_cleanup( test_env_t * env ) {
   fd_progcache_txn_cancel( env->progcache_admin, &env->xid );
 
   if( env->runtime ) {
-    if( env->runtime->acc_pool ) {
-      fd_wksp_free_laddr( env->runtime->acc_pool );
-    }
     fd_wksp_free_laddr( env->runtime );
   }
 

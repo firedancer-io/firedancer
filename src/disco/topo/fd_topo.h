@@ -427,7 +427,6 @@ struct fd_topo_tile {
     struct {
       ulong txncache_obj_id;
       ulong progcache_obj_id;
-      ulong acc_pool_obj_id;
 
       ulong max_live_slots;
 
@@ -617,7 +616,6 @@ struct fd_topo_tile {
       ulong max_live_slots;
       ulong txncache_obj_id;
       ulong progcache_obj_id;
-      ulong acc_pool_obj_id;
     } execle;
 
     struct {

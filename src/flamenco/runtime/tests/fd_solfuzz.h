@@ -35,7 +35,6 @@ struct fd_solfuzz_runner {
   fd_banks_t      banks[1];
   fd_bank_t       bank[1];
   fd_runtime_t *  runtime;
-  fd_acc_pool_t * acc_pool;
 
   fd_progcache_t       progcache[1];
   fd_progcache_admin_t progcache_admin[1];

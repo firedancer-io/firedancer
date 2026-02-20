@@ -8,7 +8,7 @@
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/runtime/fd_executor_accounts.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
@@ -63,8 +63,6 @@ struct fd_execrp_tile {
   ulong                 dispatch_time_comp;
 
   fd_log_collector_t    log_collector;
-
-  fd_acc_pool_t *       acc_pool;
 
   fd_txn_in_t           txn_in;
   fd_txn_out_t          txn_out;
@@ -163,6 +161,30 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
 }
 
+static void
+execute_txn( fd_runtime_t *      runtime,
+             fd_bank_t *         bank,
+             fd_txn_in_t const * txn_in,
+             fd_txn_out_t *      txn_out ) {
+  fd_runtime_reset_runtime( runtime );
+
+  fd_runtime_new_txn_out( txn_in, txn_out );
+
+  /* This also loads accounts */
+  txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
+
+  txn_out->details.exec_start_timestamp = fd_tickcount();
+
+  if( FD_LIKELY( txn_out->err.is_committable ) ) {
+    fd_exec_accounts_lthash( txn_out, runtime->accounts.lthash_delta );
+
+    if( FD_LIKELY( !txn_out->err.is_fees_only ) ) {
+      txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
+    }
+    fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );
+  }
+}
+
 static inline int
 returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               in_idx,
@@ -194,7 +216,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
           ctx->capture_ctx->current_txn_idx = msg->capture_txn_idx;
         }
 
-        fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+        execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
           fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_out );
@@ -350,15 +372,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_in.bundle.is_bundle = 0;
 
   /********************************************************************/
-  /* Accounts pool                                                     */
-  /********************************************************************/
-
-  ctx->acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->execrp.acc_pool_obj_id ) );
-  if( FD_UNLIKELY( !ctx->acc_pool ) ) {
-    FD_LOG_CRIT(( "Failed to join acc pool" ));
-  }
-
-  /********************************************************************/
   /* Capture context                                                 */
   /********************************************************************/
 
@@ -432,7 +445,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
-  ctx->runtime->acc_pool                 = ctx->acc_pool;
   ctx->runtime->log.log_collector        = &ctx->log_collector;
   ctx->runtime->log.enable_log_collector = 0;
   ctx->runtime->log.dumping_mem          = ctx->dumping_mem;

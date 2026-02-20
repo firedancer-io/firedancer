@@ -833,6 +833,10 @@ metric introduced.
   </histogram>
 
   <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
+
+  <histogram name="SlotBoundaryDurationSeconds" min="0.001" max="0.1" converter="seconds">
+    <summary>Time in seconds spent in the slot boundary</summary>
+  </histogram>
 </tile>
 
 <enum name="RepairSentRequestTypes">

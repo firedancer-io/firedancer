@@ -3,7 +3,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/accdb/fd_acc_pool.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../funk/fd_funk.h"
 
