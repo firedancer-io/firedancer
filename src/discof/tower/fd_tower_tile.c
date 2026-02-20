@@ -224,19 +224,19 @@ FD_FN_PURE static inline ulong
 scratch_footprint( FD_PARAM_UNUSED fd_topo_tile_t const * tile ) {
   ulong slot_max = tile->tower.max_live_slots;
   ulong l        = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
-  l = FD_LAYOUT_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint()                          );
+  l = FD_LAYOUT_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                                 );
+  l = FD_LAYOUT_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint()                                   );
   l = FD_LAYOUT_APPEND( l, fd_eqvoc_align(),        fd_eqvoc_footprint( slot_max * 1024, slot_max, FD_VOTER_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
-  l = FD_LAYOUT_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
-  l = FD_LAYOUT_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );
-  l = FD_LAYOUT_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                 );
-  l = FD_LAYOUT_APPEND( l, fd_tower_voters_align(),  fd_tower_voters_footprint( FD_VOTER_MAX )             );
-  l = FD_LAYOUT_APPEND( l, fd_tower_blocks_align(),        fd_tower_blocks_footprint( slot_max, FD_VOTER_MAX )         );
-  l = FD_LAYOUT_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                 ); /* ctx->tower_spare */
-  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max )                );
-  l = FD_LAYOUT_APPEND( l, notif_align(),           notif_footprint( slot_max )                          );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()                              );
+  l = FD_LAYOUT_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )                );
+  l = FD_LAYOUT_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )                  );
+  l = FD_LAYOUT_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead )          );
+  l = FD_LAYOUT_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                          );
+  l = FD_LAYOUT_APPEND( l, fd_tower_voters_align(), fd_tower_voters_footprint( FD_VOTER_MAX )                     );
+  l = FD_LAYOUT_APPEND( l, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max, FD_VOTER_MAX )           );
+  l = FD_LAYOUT_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                          ); /* ctx->tower_spare */
+  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max )                         );
+  l = FD_LAYOUT_APPEND( l, notif_align(),           notif_footprint( slot_max )                                   );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()                                       );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1156,19 +1156,19 @@ unprivileged_init( fd_topo_t *      topo,
   ulong  slot_max     = tile->tower.max_live_slots;
   void * scratch      = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                        );
-  void  * av_set = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint()                          ); (void)av_set;
+  ctx_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),          sizeof(ctx_t)                                                 );
+  void  * av_set = FD_SCRATCH_ALLOC_APPEND( l, fd_auth_key_set_align(), fd_auth_key_set_footprint()                                   ); (void)av_set;
   void  * eqvoc  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_align(),        fd_eqvoc_footprint( slot_max * 1024, slot_max, FD_VOTER_MAX ) );
-  void  * ghost  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )       );
-  void  * hfork  = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )         );
-  void  * notar  = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead ) );
-  void  * tower  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                 );
-  void  * accts  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_voters_align(),  fd_tower_voters_footprint( FD_VOTER_MAX )             );
-  void  * forks  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_blocks_align(),        fd_tower_blocks_footprint( slot_max, FD_VOTER_MAX )         );
-  void  * spare  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                 );
-  void  * stake  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max )                );
-  void  * notif  = FD_SCRATCH_ALLOC_APPEND( l, notif_align(),           notif_footprint( slot_max )                          );
-  void  * stkci  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()                              );
+  void  * ghost  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),        fd_ghost_footprint( 2*slot_max, FD_VOTER_MAX )                );
+  void  * hfork  = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),        fd_hfork_footprint( slot_max, FD_VOTER_MAX )                  );
+  void  * notar  = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),        fd_notar_footprint( tile->tower.max_vote_lookahead )          );
+  void  * tower  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                          );
+  void  * accts  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_voters_align(), fd_tower_voters_footprint( FD_VOTER_MAX )                     );
+  void  * forks  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max, FD_VOTER_MAX )           );
+  void  * spare  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                          );
+  void  * stake  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max )                         );
+  void  * notif  = FD_SCRATCH_ALLOC_APPEND( l, notif_align(),           notif_footprint( slot_max )                                   );
+  void  * stkci  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()                                       );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ctx->wksp         = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
@@ -1177,10 +1177,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->hfork        = fd_hfork_join       ( fd_hfork_new       ( hfork, slot_max, FD_VOTER_MAX, ctx->seed, tile->tower.hard_fork_fatal ) );
   ctx->notar        = fd_notar_join       ( fd_notar_new       ( notar, tile->tower.max_vote_lookahead ) );
   ctx->tower        = fd_tower_join       ( fd_tower_new       ( tower                                 ) );
-  ctx->tower_voters  = fd_tower_voters_join ( fd_tower_voters_new ( accts, FD_VOTER_MAX                   ) );
-  ctx->forks        = fd_tower_blocks_join       ( fd_tower_blocks_new       ( forks, slot_max, FD_VOTER_MAX         ) );
+  ctx->tower_voters = fd_tower_voters_join( fd_tower_voters_new( accts, FD_VOTER_MAX                   ) );
+  ctx->forks        = fd_tower_blocks_join( fd_tower_blocks_new( forks, slot_max, FD_VOTER_MAX         ) );
   ctx->tower_spare  = fd_tower_join       ( fd_tower_new       ( spare                                 ) );
-  ctx->tower_stakes  = fd_tower_stakes_join( fd_tower_stakes_new( stake, slot_max                       ) );
+  ctx->tower_stakes = fd_tower_stakes_join( fd_tower_stakes_new( stake, slot_max                       ) );
   ctx->notif        = notif_join          ( notif_new          ( notif, slot_max                       ) );
   ctx->stake_ci     = fd_stake_ci_join    ( fd_stake_ci_new    ( stkci, ctx->identity_key              ) );
   FD_TEST( ctx->ghost );
