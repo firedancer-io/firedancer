@@ -20,7 +20,6 @@ ifdef FD_HAS_THREADS
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
-ifdef FD_HAS_SECP256K1
 ifdef FD_HAS_ZSTD
 
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/default.toml
@@ -52,7 +51,6 @@ endif
 
 else
 $(warning firedancer build disabled due to lack of zstd)
-endif
 endif
 endif
 endif

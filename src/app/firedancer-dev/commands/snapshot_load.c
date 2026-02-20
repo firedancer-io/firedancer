@@ -23,6 +23,7 @@
 #include <sys/resource.h>
 #include <linux/capability.h>
 #include <unistd.h> /* close, sleep */
+#include <stdlib.h>
 #include <stdio.h>
 
 #define NAME "snapshot-load"

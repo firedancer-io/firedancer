@@ -1,4 +1,3 @@
-ifdef FD_HAS_SECP256K1
 $(call add-hdrs,fd_tower.h fd_tower_blocks.h fd_tower_serdes.h fd_tower_stakes.h fd_tower_voters.h)
 $(call add-objs,fd_tower,fd_choreo)
 $(call add-objs,fd_tower_blocks,fd_choreo)
@@ -11,5 +10,4 @@ $(call make-unit-test,test_tower_serdes,test_tower_serdes,fd_choreo fd_flamenco 
 $(call run-unit-test,test_tower)
 $(call run-unit-test,test_tower_blocks)
 $(call run-unit-test,test_tower_serdes)
-endif
 endif

@@ -443,8 +443,14 @@ install_s2n () {
   cd "$PREFIX/git/s2n"
 
   echo "[+] Installing s2n-bignum to $PREFIX"
-  make -C x86
-  cp x86/libs2nbignum.a "$PREFIX/lib"
+  if [[ "$(uname -m)" == x86_64 ]]; then
+    make -C x86
+    cp x86/libs2nbignum.a "$PREFIX/lib"
+  elif [[ "$(uname -m)" == aarch64 ]]; then
+    make -C arm
+    cp arm/libs2nbignum.a "$PREFIX/lib"
+  fi
+
   cp include/* "$PREFIX/include"
   echo "[+] Successfully installed s2n-bignum"
 }
@@ -715,9 +721,7 @@ install () {
   fi
   ( install_zstd      )
   ( install_lz4       )
-  if [[ "$(uname -m)" == x86_64 ]]; then
-    ( install_s2n )
-  fi
+  ( install_s2n       )
   ( install_openssl   )
   ( install_secp256k1 )
   ( install_blst )

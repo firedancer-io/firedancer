@@ -224,8 +224,6 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
   Secp256K1
 */
 
-#if FD_HAS_SECP256K1
-
 int
 fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
 
@@ -332,13 +330,10 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-#endif
-
 /*
   Secp256r1
 */
 
-#ifdef FD_HAS_S2NBIGNUM
 int
 fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->bank, enable_secp256r1_precompile ) ) ) {
@@ -425,9 +420,3 @@ fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-#else
-int
-fd_precompile_secp256r1_verify( FD_PARAM_UNUSED fd_exec_instr_ctx_t * ctx ) {
-  return FD_EXECUTOR_INSTR_ERR_FATAL;
-}
-#endif

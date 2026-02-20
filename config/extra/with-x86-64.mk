@@ -14,7 +14,6 @@ endif
 
 ifndef FD_NODEPS
 include config/extra/with-ucontext.mk
-include config/extra/with-secp256k1.mk
 include config/extra/with-s2nbignum.mk
 include config/extra/with-blst.mk
 include config/extra/with-zstd.mk

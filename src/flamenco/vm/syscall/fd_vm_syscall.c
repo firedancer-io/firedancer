@@ -16,8 +16,6 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
   return FD_VM_SUCCESS;
 }
 
-#if FD_HAS_SECP256K1
-
 int
 fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
                              ulong                     slot,
@@ -165,5 +163,3 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
   return FD_VM_SUCCESS;
 }
-
-#endif /* FD_HAS_SECP256K1 */

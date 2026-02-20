@@ -1,44 +1,100 @@
-#include "fd_secp256k1.h"
+#include "fd_secp256k1_private.h"
 
-#include <secp256k1.h>
-#include <secp256k1_recovery.h>
 
-void *
-fd_secp256k1_recover( void *       public_key,
-                      void const * msg_hash,
-                      void const * sig,
+/* Given the coordinate X and the odd-ness of the Y coordinate, recovers Y and
+   returns the affine group element. Returns NULL if there is no valid pair. */
+static inline fd_secp256k1_point_t *
+fd_secp256k1_recovery_y( fd_secp256k1_point_t *r, fd_secp256k1_fp_t const *x, int odd ) {
+  fd_secp256k1_fp_t x2[1], x3[1];
+
+  /* x^3 + b */
+  fd_secp256k1_fp_sqr( x2, x );
+  fd_secp256k1_fp_mul( x3, x, x2 );
+  fd_secp256k1_fp_add( x3, x3, fd_secp256k1_const_b_mont );
+
+  /* y^2 = x^3 + b <=> y = sqrt(x^3 + b) */
+  if( FD_UNLIKELY( !fd_secp256k1_fp_sqrt( r->y, x3 ) ) ) {
+    return NULL;
+  }
+
+  if( fd_secp256k1_fp_is_odd( r->y ) != odd ) {
+    fd_secp256k1_fp_negate( r->y, r->y );
+  }
+
+  fd_secp256k1_fp_set( r->x, x );
+  fd_secp256k1_fp_set( r->z, fd_secp256k1_const_one_mont );
+  return r;
+}
+
+uchar *
+fd_secp256k1_recover( uchar        public_key[64],
+                      uchar const  msg_hash[32],
+                      uchar const  sig[64],
                       int          recovery_id ) {
-  secp256k1_ecdsa_recoverable_signature recoverable_sig;
-  secp256k1_pubkey internal_public_key;
-  uchar serialized_public_key[ 65 ];
-  size_t public_key_len = 65;
-
-  /* Avoid panic in secp256k1_ecdsa_recoverable_signature_parse_compact
-     https://github.com/bitcoin-core/secp256k1/blob/v0.5.0/src/modules/recovery/main_impl.h#L46
-     ARG_CHECK(recid >= 0 && recid <= 3); */
-  if ( FD_UNLIKELY( !(recovery_id >= 0 && recovery_id <= 3) ) ) {
+  if( FD_UNLIKELY( !( recovery_id>=0 && recovery_id<=3 ) ) ) {
     /* COV: the callers do the same check */
     return NULL;
   }
 
-  if( FD_UNLIKELY( !secp256k1_ecdsa_recoverable_signature_parse_compact( secp256k1_context_static,
-                                                                         &recoverable_sig, (uchar const *) sig,
-                                                                         recovery_id ) ) ) {
+  fd_secp256k1_scalar_t s[1];
+  fd_secp256k1_scalar_t rs[1];
+  if( FD_UNLIKELY( !fd_secp256k1_scalar_frombytes( rs, &sig[  0 ] ) ) ) {
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_secp256k1_scalar_frombytes(  s, &sig[ 32 ] ) ) ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !secp256k1_ecdsa_recover( secp256k1_context_static, &internal_public_key,
-                                             &recoverable_sig, msg_hash ) ) ) {
+  fd_secp256k1_fp_t r[1];
+  bignum_tomont_p256k1( r->limbs, rs->limbs );
+
+  if( recovery_id & 2 ) {
+    /* If rs >= p - n, return NULL. Otherwise, add the n to r.
+       https://github.com/bitcoin-core/secp256k1/blob/c7a7f732bd17c71499341af77966c7ee2e75956c/src/modules/recovery/main_impl.h#L104-L109 */
+    if( FD_UNLIKELY( fd_uint256_cmp( rs, fd_secp256k1_const_p_minus_n ) >= 0 ) ) {
+      return NULL;
+    }
+    fd_secp256k1_fp_add( r, r, fd_secp256k1_const_n_mont );
+  }
+
+  /* Recover the full public key group element. */
+  fd_secp256k1_point_t a[1];
+  if( FD_UNLIKELY( !fd_secp256k1_recovery_y( a, r, recovery_id & 1 ) ) ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !secp256k1_ec_pubkey_serialize( secp256k1_context_static, serialized_public_key, &public_key_len,
-                                                    &internal_public_key, SECP256K1_EC_UNCOMPRESSED ) ) ) {
-    /* COV: the output of secp256k1_ecdsa_recover should always serialize */
+  fd_uint256_t msg[1];
+  memcpy( msg, msg_hash, 32 );
+  fd_uint256_bswap( msg, msg );
+  fd_secp256k1_scalar_tomont( msg, msg );
+
+  fd_secp256k1_scalar_t rn[1], u1[1], u2[1];
+  fd_secp256k1_point_t pubkey[1];
+
+  /* We delay converting rs into montgomery domain since we need to perform the compare outside of it. */
+  fd_secp256k1_scalar_tomont( s, s );
+
+  /* Unfortunately s2n-bignum has no API for performing in-montgomery inversion, so we invert and then convert. */
+  fd_secp256k1_scalar_invert( rn, rs );
+  fd_secp256k1_scalar_tomont( rn, rn );
+
+  fd_secp256k1_scalar_mul   ( u1, rn, msg );
+  fd_secp256k1_scalar_negate( u1, u1      );
+  fd_secp256k1_scalar_mul   ( u2, rn, s   );
+
+  fd_secp256k1_scalar_demont( u2, u2 );
+  fd_secp256k1_scalar_demont( u1, u1 );
+  fd_secp256k1_double_base_mul( pubkey, u1, a, u2 );
+
+  /* If the computed pubkey is the identity point, we return NULL
+     https://github.com/bitcoin-core/secp256k1/blob/c7a7f732bd17c71499341af77966c7ee2e75956c/src/modules/recovery/main_impl.h#L120 */
+  if( FD_UNLIKELY( fd_secp256k1_point_is_identity( pubkey ) ) ) {
     return NULL;
   }
 
-  /* Skip 1st byte: libsecp256k1 prepends 0x04 to the public key
-     https://github.com/bitcoin-core/secp256k1/blob/v0.5.0/src/eckey_impl.h#L49 */
-  return fd_memcpy(public_key, &serialized_public_key[1], 64);
+  /* Serialize the public key into an uncompressed form. The output does not have the recovery_id. */
+  fd_secp256k1_point_to_affine( pubkey, pubkey );
+  fd_secp256k1_fp_tobytes( &public_key[  0 ], pubkey->x );
+  fd_secp256k1_fp_tobytes( &public_key[ 32 ], pubkey->y );
+  return public_key;
 }
