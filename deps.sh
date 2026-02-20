@@ -138,7 +138,6 @@ fetch () {
   checkout_repo lz4       https://github.com/lz4/lz4                  "v1.10.0"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "4d2e22a"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.0"
-  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1   "v0.7.0"
   checkout_repo blst      https://github.com/supranational/blst       "v0.3.13"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo bzip2   https://gitlab.com/bzip2/bzip2              "bzip2-1.0.8"
@@ -455,45 +454,6 @@ install_s2n () {
   echo "[+] Successfully installed s2n-bignum"
 }
 
-install_secp256k1 () {
-  cd "$PREFIX/git/secp256k1"
-
-  echo "[+] Configuring secp256k1"
-  rm -rf build
-  mkdir build
-  cd build
-  # https://github.com/bitcoin-core/secp256k1/blob/master/CMakeLists.txt#L59
-  cmake .. \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DSECP256K1_BUILD_TESTS=OFF \
-    -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF \
-    -DSECP256K1_BUILD_BENCHMARK=OFF \
-    -DSECP256K1_DISABLE_SHARED=OFF \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
-    -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
-    -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
-    -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
-    -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
-    -DSECP256K1_ENABLE_MODULE_MUSIG=OFF \
-    -DSECP256K1_ENABLE_MODULE_ELLSWIFT=OFF \
-    -DCMAKE_C_FLAGS_RELEASE="-O3" \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_C_FLAGS="$EXTRA_CFLAGS" \
-    -DCMAKE_EXE_LINKER_FLAGS_RELEASE="$EXTRA_LDFLAGS"
-
-  echo "[+] Building secp256k1"
-  "${MAKE[@]}"
-  echo "[+] Successfully built secp256k1"
-
-  echo "[+] Installing secp256k1 to $PREFIX"
-  make install
-  echo "[+] Successfully installed secp256k1"
-}
-
 install_blst () {
   cd "$PREFIX/git/blst"
 
@@ -723,7 +683,6 @@ install () {
   ( install_lz4       )
   ( install_s2n       )
   ( install_openssl   )
-  ( install_secp256k1 )
   ( install_blst )
   if [[ $DEVMODE == 1 ]]; then
     ( install_bzip2     )
