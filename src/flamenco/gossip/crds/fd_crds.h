@@ -3,6 +3,7 @@
 
 #include "../fd_gossip_message.h"
 #include "../fd_gossip_out.h"
+#include "../fd_gossip_purged.h"
 
 #include "../../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../../ballet/sha256/fd_sha256.h"
@@ -34,10 +35,6 @@ struct fd_crds_metrics {
   ulong peer_unstaked_cnt;
   ulong peer_visible_stake;
   ulong peer_evicted_cnt;
-
-  ulong purged_cnt;
-  ulong purged_expired_cnt;
-  ulong purged_evicted_cnt;
 };
 
 typedef struct fd_crds_metrics fd_crds_metrics_t;
@@ -48,14 +45,13 @@ FD_FN_CONST ulong
 fd_crds_align( void );
 
 FD_FN_CONST ulong
-fd_crds_footprint( ulong ele_max,
-                   ulong purged_max );
+fd_crds_footprint( ulong ele_max );
 
 void *
 fd_crds_new( void *                shmem,
              fd_rng_t *            rng,
              ulong                 ele_max,
-             ulong                 purged_max,
+             fd_gossip_purged_t *  purged,
              fd_gossip_out_ctx_t * gossip_update_out  );
 
 fd_crds_t *
@@ -90,73 +86,11 @@ fd_crds_advance( fd_crds_t *         crds,
 ulong
 fd_crds_len( fd_crds_t const * crds );
 
-/* fd_crds maintains a table of purged CRDS entries.  A CRDS entry is
-   purged when it is overriden by a newer form of the entry, or it is
-   expired.  Such entries are no longer propagated by the node, but are
-   still tracked in order to avoid re-receiving them via pull responses
-   by including them in the pull request filters we generate.  This
-   means we only need to hold the hash of the entry and the wallclock
-   time when it was purged.
-
-   Agave's gossip client maintains two such tables: one labeled "purged"
-   and another "failed_inserts".  They function the same, the only
-   difference lies in the conditions that trigger the insertion and the
-   expiry windows.
-
-    - purged, kept for 60s
-
-      A CRDS value is roughly considered "purged" when it is removed
-      from the gossip table due to an incoming CRDS value replacing it.
-
-    - failed, kept for 20s
-
-      A CRDS value is failed when it is incoming and does not upsert the
-      table, or it is too old to be inserted.
-   */
-
-ulong
-fd_crds_purged_len( fd_crds_t const * crds );
-
 void
 fd_crds_generate_hash( fd_sha256_t * sha,
                        uchar const * crds_value,
                        ulong         crds_value_sz,
                        uchar         out_hash[ static 32UL ] );
-
-void
-fd_crds_insert_failed_insert( fd_crds_t *   crds,
-                              uchar const * hash,
-                              long          now );
-
-/* fd_crds_insert_no_contact_info records a CRDS value hash that was
-   dropped because the origin pubkey has no known contact info.  The
-   hash is inserted into the shared purged treap (so it appears in
-   bloom filters) and into a per-pubkey chain so all entries for a
-   given origin can be drained when we learn their contact info.
-
-   origin points to the 32-byte origin pubkey of the CRDS value.
-   hash points to the 32-byte SHA-256 hash of the serialized value.
-   now is the current wallclock time in nanoseconds. */
-
-void
-fd_crds_insert_no_contact_info( fd_crds_t *   crds,
-                                uchar const * origin,
-                                uchar const * hash,
-                                long          now );
-
-/* fd_crds_drain_no_contact_info removes all no_contact_info entries
-   associated with the given origin pubkey from the purged treap,
-   no_contact_info dlist, and per-pubkey chain.  This causes those
-   hashes to disappear from bloom filters, so peers will re-send the
-   corresponding CRDS values in future pull responses.
-
-   This should be called when we successfully learn a peer's contact
-   info (i.e., a ContactInfo CRDS value is inserted for the first
-   time for that pubkey). */
-
-void
-fd_crds_drain_no_contact_info( fd_crds_t *   crds,
-                               uchar const * origin );
 
 /* fd_crds_checks_fast checks if inserting a CRDS value would fail on
    specific conditions. Updates the CRDS purged table depending on the checks
@@ -356,32 +290,6 @@ fd_crds_mask_iter_done( fd_crds_mask_iter_t * it,
 fd_crds_entry_t const *
 fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it,
                          fd_crds_t const * crds );
-
-/* fd_crds_purged_mask_iter_{init,next,done} mirrors the fd_crds_mask_*
-   APIs for the purged table.  This includes purged and failed_inserts
-   entries for the specified mask range.
-
-   Mixing APIs (e.g., using crds init and purged next/done/hash) is UB.*/
-
-fd_crds_mask_iter_t *
-fd_crds_purged_mask_iter_init( fd_crds_t const * crds,
-                               ulong             mask,
-                               uint              mask_bits,
-                               uchar             iter_mem[ static 16UL ] );
-
-fd_crds_mask_iter_t *
-fd_crds_purged_mask_iter_next( fd_crds_mask_iter_t * it,
-                               fd_crds_t const * crds );
-
-int
-fd_crds_purged_mask_iter_done( fd_crds_mask_iter_t * it,
-                               fd_crds_t const * crds );
-
-/* fd_crds_purged_mask_iter_hash returns the hash of the current
-   entry in the purged mask iterator. */
-uchar const *
-fd_crds_purged_mask_iter_hash( fd_crds_mask_iter_t * it,
-                               fd_crds_t const * crds );
 
 FD_PROTOTYPES_END
 
