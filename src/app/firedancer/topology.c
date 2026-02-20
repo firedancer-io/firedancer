@@ -185,9 +185,23 @@ setup_topo_accdb_meta( fd_topo_t *    topo,
   fd_topob_wksp( topo, "accdb_meta" );
 
   fd_topo_obj_t * map_obj = fd_topob_obj( topo, "vinyl_meta", "accdb_meta" );
-  ulong const meta_max  = fd_ulong_pow2_up( config->vinyl.max_account_records );
+  /* meta_max, the meta map's max capacity, needs to be a power of 2
+     and larger than the requested max account records, to guarantee
+     optimal performance as the map fills up.  meta_limit, arbitrarily
+     set at 0.75 of meta_max, determines when the map stops accepting
+     new entries.  meta_limit must be larger than the requested max
+     account records.  The calculation is verbose intentionally, to
+     make it easy to upgrade in the future if necessary. */
+  ulong const meta_rec   = config->vinyl.max_account_records;
+  ulong       meta_max   = fd_ulong_pow2_up( meta_rec );
+  ulong       meta_limit = ( meta_max*3UL )/4UL;
+  if( FD_UNLIKELY( meta_limit<meta_rec ) ) {
+    meta_max   <<= 1UL;
+    meta_limit <<= 1UL;
+  }
   ulong const lock_cnt  = fd_vinyl_meta_lock_cnt_est ( meta_max );
   ulong const probe_max = fd_vinyl_meta_probe_max_est( meta_max );
+  fd_pod_insert_ulong( topo->props, "accdb.meta_limit", meta_limit );
   fd_pod_insertf_ulong( topo->props, meta_max,  "obj.%lu.ele_max",   map_obj->id );
   fd_pod_insertf_ulong( topo->props, lock_cnt,  "obj.%lu.lock_cnt",  map_obj->id );
   fd_pod_insertf_ulong( topo->props, probe_max, "obj.%lu.probe_max", map_obj->id );
@@ -1776,6 +1790,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->accdb.line_max         = config->firedancer.vinyl.max_cache_entries;
     tile->accdb.data_obj_id      = fd_pod_query_ulong( config->topo.props, "accdb.data",      ULONG_MAX );
     fd_cstr_ncpy( tile->accdb.bstream_path, config->paths.accounts, sizeof(tile->accdb.bstream_path) );
+    tile->accdb.pair_cnt_limit   = fd_pod_query_ulong( config->topo.props, "accdb.meta_limit",  ULONG_MAX );
     tile->accdb.io_type = config->firedancer.vinyl.io_uring.enabled ?
         FD_VINYL_IO_TYPE_UR : FD_VINYL_IO_TYPE_BD;
     tile->accdb.uring_depth = config->firedancer.vinyl.io_uring.queue_depth;
