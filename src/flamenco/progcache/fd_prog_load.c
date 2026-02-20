@@ -148,13 +148,10 @@ fd_prog_versions( fd_features_t const * features,
   int enable_v0   = !disable_v0 || reenable_v0;
   int enable_v1   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v1_deployment_and_execution );
   int enable_v2   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v2_deployment_and_execution );
-  int enable_v3   = FD_FEATURE_ACTIVE( slot, features, enable_sbpf_v3_deployment_and_execution );
 
   fd_prog_versions_t v = {0};
-  v.min_sbpf_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V3;
-  if( enable_v3 ) {
-    v.max_sbpf_version = FD_SBPF_V3;
-  } else if( enable_v2 ) {
+  v.min_sbpf_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V2;
+  if( enable_v2 ) {
     v.max_sbpf_version = FD_SBPF_V2;
   } else if( enable_v1 ) {
     v.max_sbpf_version = FD_SBPF_V1;
