@@ -1766,6 +1766,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "bls_pubkey_management_in_vote_account",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, stop_use_static_simple_vote_tx_cost)>>3,
+    .id                        = {"\x05\x7e\x07\x0f\xca\x0a\xef\x56\x0a\xc7\xa6\x26\xdb\xca\x15\xf4\x5e\xff\x9d\x94\x0b\xe6\x0e\xee\xc1\xc8\xc7\xf7\xe5\x06\xda\xe8"},
+                                 /* NSVt1s8oP1A9NjEc6UNcj2voeCcfzHaq4jZTiUL2Mf5 */
+    .name                      = "stop_use_static_simple_vote_tx_cost",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2041,6 +2047,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_256 0x010f656d89a4e808UL, .val = &ids[256]
 #define MAP_PERFECT_257 0xfc12b1cef363afa7UL, .val = &ids[257]
 #define MAP_PERFECT_258 0x3727b6b01b8a6c1cUL, .val = &ids[258]
+#define MAP_PERFECT_259 0x56ef0aca0f077e05UL, .val = &ids[259]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2310,4 +2317,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall             
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==256UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==257UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==258UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, stop_use_static_simple_vote_tx_cost                     )>>3==259UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

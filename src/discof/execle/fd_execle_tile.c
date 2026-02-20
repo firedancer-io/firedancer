@@ -269,11 +269,13 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
     int is_simple_vote = 0;
     if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
-      /* Simple votes are charged fixed amounts of compute regardless of
-         the real cost they incur.  Unclear what cost is returned by
-         fd_execute txn, however, so we override it here. */
-      actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-      actual_acct_data_cus = 0U;
+      if( !FD_FEATURE_ACTIVE_BANK( bank, stop_use_static_simple_vote_tx_cost ) ) {
+        /* Simple votes are charged fixed amounts of compute regardless of
+           the real cost they incur.  Unclear what cost is returned by
+           fd_execute txn, however, so we override it here. */
+        actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+        actual_acct_data_cus = 0U;
+      }
     }
 
     /* FeesOnly transactions are transactions that failed to load
@@ -441,9 +443,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
       uint actual_acct_data_cus = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
-      if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) ) ) {
-        actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-        actual_acct_data_cus = 0U;
+      if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) &&
+                       !FD_FEATURE_ACTIVE_BANK( bank, stop_use_static_simple_vote_tx_cost ) ) ) {
+          actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+          actual_acct_data_cus = 0U;
       }
 
       uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;

@@ -250,6 +250,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     uint actual_execution_cus = consumed_exec_cus[ sanitized_idx-1UL ];
     uint actual_acct_data_cus = consumed_acct_data_cus[ sanitized_idx-1UL ];
 
+    /* FIXME: we likely have to feature-gate this on
+         stop_use_static_simple_vote_tx_cost otherwise we could fail to
+         detect overpacked blocks.  */
     int is_simple_vote = 0;
     if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
       /* Simple votes are charged fixed amounts of compute regardless of
@@ -442,6 +445,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
       /* Although bundles dont typically contain simple votes, we want
         to charge them correctly anyways. */
+      /* FIXME: we likely have to feature-gate this on
+         stop_use_static_simple_vote_tx_cost otherwise we could fail to
+         detect overpacked blocks.  */
       consumed_cus[ i ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
     } else {
       /* Note that some transactions will have 0 consumed cus because
