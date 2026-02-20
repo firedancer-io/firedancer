@@ -1625,7 +1625,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0e\xcb\x71\x9e\x06\x4c\x3a\xec\xc3\xa9\x71\xb0\x61\x33\x9b\x7e\xdc\x71\xc0\x35\x81\x8f\xf0\x0a\xb0\x53\x46\xaa\x28\xd7\x0b\xe1"},
                                  /* zkdoVwnSFnSLtGJG7irJPEYUpmb4i7sGMGcnN6T9rnC */
     .name                      = "disable_zk_elgamal_proof_program",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, reenable_zk_elgamal_proof_program)>>3,
     .id                        = {"\x0e\xcb\x76\xec\x8b\xf8\x21\x83\x19\x07\xc3\xb3\x5e\xc2\xd0\x13\xcb\xb4\x95\x7e\x6c\x5d\xcb\xcf\xb4\x84\xe3\xc6\xf5\x50\x7f\xbd"},
