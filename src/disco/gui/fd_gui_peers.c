@@ -315,8 +315,8 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) );
   gossip_stats->network_health_pull_response_crds_rx_failure =
       fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_STALE ) )
-    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) )
+    + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_SIGNATURE ) )
     + fd_gui_metrics_sum_tiles_counter( peers->topo, "gossvf", gossvf_tile_cnt, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) )

@@ -912,8 +912,9 @@ gossip_cmd_fn( args_t *   args,
   ulong crds_origin_no_contact = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) );
   ulong crds_origin_shred = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) );
   ulong crds_inactive = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_INACTIVE ) );
+  ulong crds_wallclock = aggregate_gossvf_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) );
 
-  ulong pull_response_crds_total = crds_success + crds_duplicate + crds_signature + crds_origin_no_contact + crds_origin_shred + crds_inactive;
+  ulong pull_response_crds_total = crds_success + crds_duplicate + crds_signature + crds_origin_no_contact + crds_origin_shred + crds_inactive + crds_wallclock;
 
   ulong prev_crds_success = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_SUCCESS_PULL_RESPONSE ) );
   ulong prev_crds_duplicate = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) );
@@ -921,10 +922,11 @@ gossip_cmd_fn( args_t *   args,
   ulong prev_crds_origin_no_contact = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO ) );
   ulong prev_crds_origin_shred = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION ) );
   ulong prev_crds_inactive = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_INACTIVE ) );
+  ulong prev_crds_wallclock = aggregate_gossvf_prev_counter( &gossvf_tiles, MIDX( COUNTER, GOSSVF, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) );
 
-  ulong prev_pull_response_crds_total = prev_crds_success + prev_crds_duplicate + prev_crds_signature + prev_crds_origin_no_contact + prev_crds_origin_shred + prev_crds_inactive;
+  ulong prev_pull_response_crds_total = prev_crds_success + prev_crds_duplicate + prev_crds_signature + prev_crds_origin_no_contact + prev_crds_origin_shred + prev_crds_inactive + prev_crds_wallclock;
 
-  printf(" Pull response CRDS drops: (%lu/%lu) %.1f %% (%.1f %% duplicate, %.1f %% signature, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive)\n",
+  printf(" Pull response CRDS drops: (%lu/%lu) %.1f %% (%.1f %% duplicate, %.1f %% signature, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive, %.1f %% wallclock)\n",
           pull_response_crds_total - crds_success,
           pull_response_crds_total,
           ((double)pull_response_crds_total - (double)crds_success ) / (double)pull_response_crds_total * 100.0,
@@ -932,10 +934,11 @@ gossip_cmd_fn( args_t *   args,
           (double)crds_signature / (double)pull_response_crds_total * 100.0,
           (double)crds_origin_no_contact / (double)pull_response_crds_total * 100.0,
           (double)crds_origin_shred / (double)pull_response_crds_total * 100.0,
-          (double)crds_inactive / (double)pull_response_crds_total * 100.0 );
+          (double)crds_inactive / (double)pull_response_crds_total * 100.0,
+          (double)crds_wallclock / (double)pull_response_crds_total * 100.0 );
 
 
-  printf( " Pull response CRDS inc drops: (%lu/%lu) %1.f %% (%.1f %% duplicate, %.1f %% signature, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive)\n\n",
+  printf( " Pull response CRDS inc drops: (%lu/%lu) %1.f %% (%.1f %% duplicate, %.1f %% signature, %.1f %% origin no contact info, %.1f %% origin shred version, %.1f %% inactive, %.1f %% wallclock)\n\n",
           (pull_response_crds_total - prev_pull_response_crds_total) - (crds_success - prev_crds_success),
           pull_response_crds_total - prev_pull_response_crds_total,
           ((double)(pull_response_crds_total - prev_pull_response_crds_total) - (double)(crds_success - prev_crds_success) ) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
@@ -943,30 +946,27 @@ gossip_cmd_fn( args_t *   args,
           (double)(crds_signature - prev_crds_signature) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(crds_origin_no_contact - prev_crds_origin_no_contact) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
           (double)(crds_origin_shred - prev_crds_origin_shred) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
-          (double)(crds_inactive - prev_crds_inactive) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0 );
+          (double)(crds_inactive - prev_crds_inactive) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0,
+          (double)(crds_wallclock - prev_crds_wallclock) / (double)(pull_response_crds_total - prev_pull_response_crds_total) * 100.0 );
 
  ulong pull_response_insertion_total = gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) ] +
                                        gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_STALE ) ] +
-                                       gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) ] +
                                        gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) ];
  ulong prev_pull_response_insertion_total = gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) ] +
                                             gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_STALE ) ] +
-                                            gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) ] +
                                             gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) ];
 
- printf(" Pull response CRDS insertion drops: (%lu/%lu) %.1f %% (%.1f %% no override, %.1f %% old, %.1f %% hash duplicate)\n",
+ printf(" Pull response CRDS insertion drops: (%lu/%lu) %.1f %% (%.1f %% no override, %.1f %% hash duplicate)\n",
          pull_response_insertion_total - gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) ],
          pull_response_insertion_total,
          ((double)pull_response_insertion_total - (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) ] ) / (double)pull_response_insertion_total * 100.0,
          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_STALE ) ] / (double)pull_response_insertion_total * 100.0,
-         (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) ] / (double)pull_response_insertion_total * 100.0,
          (double)gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) ] / (double)pull_response_insertion_total * 100.0 );
- printf( " Pull response CRDS insertion inc drops: (%lu/%lu) %.1f %% (%.1f %% no override, %.1f %% old, %.1f %% hash duplicate)\n\n",
+ printf( " Pull response CRDS insertion inc drops: (%lu/%lu) %.1f %% (%.1f %% no override, %.1f %% hash duplicate)\n\n",
          (pull_response_insertion_total - prev_pull_response_insertion_total) - (gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) ]),
          pull_response_insertion_total - prev_pull_response_insertion_total,
          ((double)(pull_response_insertion_total - prev_pull_response_insertion_total) - (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_UPSERTED_PULL_RESPONSE ) ]) ) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0,
          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_STALE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_STALE ) ]) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0,
-         (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_WALLCLOCK ) ]) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0,
          (double)(gossip_metrics[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) ] - gossip_prev[ MIDX( COUNTER, GOSSIP, CRDS_RX_COUNT_DROPPED_PULL_RESPONSE_DUPLICATE ) ]) / (double)(pull_response_insertion_total - prev_pull_response_insertion_total) * 100.0 );
 
  /* Push message statistics - similar to pull response pattern */

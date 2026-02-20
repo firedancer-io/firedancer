@@ -515,14 +515,11 @@ rx_pull_response( fd_gossip_t *                     gossip,
   for( ulong i=0UL; i<pull_response->values_len; i++ ) {
     fd_gossip_value_t const * value = &pull_response->values[ i ];
 
-    /* Values marked as failed have no known origin contact info.
-       Record their hash in the purged set (so they appear in bloom
-       filters and peers stop re-sending them), indexed by origin
-       pubkey so we can drain them when we learn the contact info. */
     if( FD_UNLIKELY( failed[ i ] ) ) {
       uchar candidate_hash[ 32UL ];
       fd_crds_generate_hash( gossip->sha256, payload+value->offset, value->length, candidate_hash );
-      fd_crds_insert_no_contact_info( gossip->crds, value->origin, candidate_hash, now );
+      if( FD_LIKELY( failed[ i ]==FD_GOSSIP_FAILED_NO_CONTACT_INFO ) ) fd_crds_insert_no_contact_info( gossip->crds, value->origin, candidate_hash, now );
+      else                                                             fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
       continue;
     }
 
@@ -534,27 +531,7 @@ rx_pull_response( fd_gossip_t *                     gossip,
     }
 
     ulong origin_stake = get_stake( gossip, value->origin );
-
-    /* TODO: Is this jittered in Agave? */
-    long accept_after_nanos;
     uchar is_me = !memcmp( value->origin, gossip->identity_pubkey, 32UL );
-    if( FD_UNLIKELY( is_me ) ) {
-      accept_after_nanos = 0L;
-    } else if( !origin_stake && fd_crds_has_staked_node( gossip->crds ) ) {
-      accept_after_nanos = now-15L*1000L*1000L*1000L;
-    } else {
-      accept_after_nanos = now-432000L*400L*1000L*1000L;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/crds_gossip_pull.rs#L340-L351 */
-    if( FD_UNLIKELY( accept_after_nanos>FD_MILLI_TO_NANOSEC( value->wallclock ) &&
-                     !fd_crds_contact_info_lookup( gossip->crds, value->origin ) ) ) {
-      gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_WALLCLOCK_IDX ]++;
-      uchar candidate_hash[ 32UL ];
-      fd_crds_generate_hash( gossip->sha256, payload+value->offset, value->length, candidate_hash );
-      fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
-      continue;
-    }
 
     fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
                                                         value,
@@ -592,14 +569,11 @@ process_push_crds( fd_gossip_t *             gossip,
                    long                      now,
                    fd_stem_context_t *       stem ) {
 
-  /* Values marked as failed have no known origin contact info.
-     Record their hash in the purged set (so they appear in bloom
-     filters and peers stop re-sending them), indexed by origin
-     pubkey so we can drain them when we learn the contact info. */
   if( FD_UNLIKELY( failed ) ) {
     uchar candidate_hash[ 32UL ];
     fd_crds_generate_hash( gossip->sha256, payload+value->offset, value->length, candidate_hash );
-    fd_crds_insert_no_contact_info( gossip->crds, value->origin, candidate_hash, now );
+    if( FD_LIKELY( failed==FD_GOSSIP_FAILED_NO_CONTACT_INFO ) ) fd_crds_insert_no_contact_info( gossip->crds, value->origin, candidate_hash, now );
+    else                                                        fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
     return -1;
   }
 
