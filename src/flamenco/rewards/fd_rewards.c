@@ -697,7 +697,7 @@ get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
 /* Calculate rewards from previous epoch to prepare for partitioned distribution.
 
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L277 */
-static void
+void
 calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                     fd_accdb_user_t *                      accdb,
                                     fd_funk_txn_xid_t const *              xid,
@@ -738,27 +738,13 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
 /* Calculate rewards from previous epoch and distribute vote rewards
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L148 */
 static void
-calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    bank,
-                                               fd_accdb_user_t *              accdb,
-                                               fd_funk_txn_xid_t const *      xid,
-                                               fd_runtime_stack_t *           runtime_stack,
-                                               fd_stake_delegations_t const * stake_delegations,
-                                               fd_capture_ctx_t *             capture_ctx,
-                                               ulong                          prev_epoch ) {
+distribute_reward_commissions( fd_bank_t *                    bank,
+                               fd_accdb_user_t *              accdb,
+                               fd_funk_txn_xid_t const *      xid,
+                               fd_runtime_stack_t *           runtime_stack,
+                               fd_capture_ctx_t *             capture_ctx,
+                               fd_partitioned_rewards_calculation_t * rewards_calculation) {
 
-  /* First we must compute the stake and vote rewards for the just
-     completed epoch.  We store the stake account rewards and vote
-     states rewards in the bank */
-
-  fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
-  calculate_rewards_for_partitioning( bank,
-                                      accdb,
-                                      xid,
-                                      runtime_stack,
-                                      stake_delegations,
-                                      capture_ctx,
-                                      prev_epoch,
-                                      rewards_calc_result );
 
   fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
 
@@ -803,15 +789,15 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_modify( bank );
 
   ulong total_rewards = fd_ulong_sat_add( distributed_rewards, epoch_rewards->total_stake_rewards );
-  if( FD_UNLIKELY( rewards_calc_result->validator_rewards<total_rewards ) ) {
+  if( FD_UNLIKELY( rewards_calculation->validator_rewards<total_rewards ) ) {
     FD_LOG_CRIT(( "Unexpected rewards calculation result" ));
   }
 
   fd_bank_capitalization_set( bank, fd_bank_capitalization_get( bank ) + distributed_rewards );
 
   epoch_rewards->distributed_rewards = distributed_rewards;
-  epoch_rewards->total_rewards       = rewards_calc_result->validator_rewards;
-  epoch_rewards->total_points.ud     = rewards_calc_result->validator_points;
+  epoch_rewards->total_rewards       = rewards_calculation->validator_rewards;
+  epoch_rewards->total_points.ud     = rewards_calculation->validator_points;
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -978,18 +964,18 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_funk_txn_xid_t const *      xid,
                               fd_runtime_stack_t *           runtime_stack,
                               fd_capture_ctx_t *             capture_ctx,
-                              fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
-                              ulong                          parent_epoch ) {
+                              fd_partitioned_rewards_calculation_t * rewards_calculation
+                            ) {
 
-  calculate_rewards_and_distribute_vote_rewards(
+  distribute_reward_commissions(
       bank,
       accdb,
       xid,
       runtime_stack,
-      stake_delegations,
       capture_ctx,
-      parent_epoch );
+      rewards_calculation
+     );
 
   /* Once the rewards for vote accounts have been distributed and stake
      account rewards have been calculated, we can now set our epoch

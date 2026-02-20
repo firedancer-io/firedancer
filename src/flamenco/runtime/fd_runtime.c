@@ -588,23 +588,32 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
     new_rate_activation_epoch = NULL;
   }
 
+  
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
   fd_stakes_activate_epoch( bank, accdb, xid, capture_ctx, stake_delegations, new_rate_activation_epoch );
 
-  /* Distribute rewards.  This involves calculating the rewards for
-     every vote and stake account. */
-
   fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
+  fd_partitioned_rewards_calculation_t rewards_calculation[1] = {0};
+  //calculating the rewards for every vote and stake account
+  calculate_rewards_for_partitioning( bank,
+                                      accdb,
+                                      xid,
+                                      runtime_stack,
+                                      stake_delegations,
+                                      capture_ctx,
+                                      parent_epoch,
+                                      rewards_calculation );
+  //Distribute rewards
   fd_begin_partitioned_rewards( bank,
                                 accdb,
                                 xid,
                                 runtime_stack,
                                 capture_ctx,
-                                stake_delegations,
                                 parent_blockhash,
-                                parent_epoch );
+                                rewards_calculation
+                              );
 
   /* The Agave client handles updating their stakes cache with a call to
      update_epoch_stakes() which keys stakes by the leader schedule

@@ -51,9 +51,9 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_funk_txn_xid_t const *      xid,
                               fd_runtime_stack_t *           runtime_stack,
                               fd_capture_ctx_t *             capture_ctx,
-                              fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
-                              ulong                          parent_epoch );
+                              fd_partitioned_rewards_calculation_t * rewards_calculation
+                            );
 
 /* fd_rewards_recalculate_partitioned_rewards restores epoch bank stake
    and account reward calculations.  Does not update accounts.  Called
@@ -86,6 +86,16 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
                                          fd_accdb_user_t *         accdb,
                                          fd_funk_txn_xid_t const * xid,
                                          fd_capture_ctx_t *        capture_ctx );
+
+void
+calculate_rewards_for_partitioning( fd_bank_t *                            bank,
+                                    fd_accdb_user_t *                      accdb,
+                                    fd_funk_txn_xid_t const *              xid,
+                                    fd_runtime_stack_t *                   runtime_stack,
+                                    fd_stake_delegations_t const *         stake_delegations,
+                                    fd_capture_ctx_t *                     capture_ctx,
+                                    ulong                                  prev_epoch,
+                                    fd_partitioned_rewards_calculation_t * result );
 
 FD_PROTOTYPES_END
 
