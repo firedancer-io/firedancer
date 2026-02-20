@@ -335,7 +335,7 @@ rq_prep_retry( fd_vinyl_io_ur_t *    ur,
 /* rq_completion consumes an io_uring CQE.  Returns io_rd if a read job
    completed, otherwise returns NULL. */
 
-static fd_vinyl_io_rd_t *
+static fd_vinyl_io_ur_rd_t *
 rq_completion( fd_vinyl_io_ur_t * ur ) {
   fd_io_uring_t * ring = ur->ring;
 
@@ -396,7 +396,13 @@ rq_completion( fd_vinyl_io_ur_t * ur ) {
     return NULL;
   }
 
-  return (fd_vinyl_io_rd_t *)rd;
+  return rd;
+}
+
+void
+fd_vinyl_io_ur_rd_completion( fd_vinyl_io_ur_t * ur ) {
+  fd_vinyl_io_ur_rd_t * rd = rq_completion( ur );
+  rc_push( ur, rd );
 }
 
 /* fd_vinyl_io_ur_poll pops the next read completion.  May block. */
@@ -457,13 +463,13 @@ fd_vinyl_io_ur_poll( fd_vinyl_io_t *     io,
     struct io_uring_cqe * cqe = fd_io_uring_cq_head( ring->cq );
     if( FD_UNLIKELY( !cqe ) ) FD_LOG_CRIT(( "fd_io_uring_cq_head() returned NULL despite io_uring_cq_ready()>=1" ));
     if( ur_udata_req_type( cqe->user_data )==UR_REQ_WRITE ) {
-      fd_vinyl_io_wq_completion( ur );
+      fd_vinyl_io_ur_completion( ur );
       continue;
     }
 
-    fd_vinyl_io_rd_t * rd = rq_completion( ur );
+    fd_vinyl_io_ur_rd_t * rd = rq_completion( ur );
     if( FD_UNLIKELY( !rd ) ) continue;
-    *_rd = rd;
+    *_rd = (fd_vinyl_io_rd_t *)rd;
     return FD_VINYL_SUCCESS;
   }
 }
