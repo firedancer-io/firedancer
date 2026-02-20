@@ -347,28 +347,6 @@ fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
   return ok;
 }
 
-int
-fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
-                                 uchar const *         in,
-                                 ulong                 in_sz ) {
-  // Decode fixture
-  fd_exec_test_syscall_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
-    FD_LOG_WARNING(( "Invalid syscall fixture." ));
-    return 0;
-  }
-
-  fd_spad_push( runner->spad );
-  void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_vm_interp_run );
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg, runner->spad );
-  fd_spad_pop( runner->spad );
-
-  // Cleanup
-  pb_release( &fd_exec_test_syscall_fixture_t_msg, fixture );
-  return ok;
-}
-
 #if FD_HAS_FLATCC
 
 /* Flatbuffers */

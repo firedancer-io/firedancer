@@ -58,7 +58,6 @@ export FD_LOG_PATH="$LOG_PATH/solfuzz.log"
 "${SOL_COMPAT[@]}" \
   "$WORK_DIR/block/fixtures" \
   "$WORK_DIR/syscall/fixtures" \
-  "$WORK_DIR/vm_interp/fixtures" \
   "$WORK_DIR/txn/fixtures" \
   "$WORK_DIR/elf_loader/fixtures" \
   "$WORK_DIR/instr/fixtures"
