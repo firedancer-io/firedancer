@@ -31,13 +31,13 @@ typedef struct fd_compact_tower_sync_serde fd_compact_tower_sync_serde_t;
 
 /* fd_compact_tower_sync_ser serializes fd_compact_tower_sync_serde_t
    into a buffer.  Returns 0 on success, -1 if the lockouts_cnt is
-   greater than FD_TOWER_VOTE_MAX or buf_max is too small to fit the
+   greater than FD_TOWER_VOTE_MAX or buf_sz is too small to fit the
    serialized data. */
 int
 fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
                            uchar *                               buf,
-                           ulong                                 buf_max,
-                           ulong *                               buf_sz );
+                           ulong                                 buf_sz,
+                           ulong *                               out_sz );
 
 /* fd_compact_tower_sync_de deserializes at most buf_sz of buf into
    fd_compact_tower_sync_serde_t.  Assumes buf is at least of size
