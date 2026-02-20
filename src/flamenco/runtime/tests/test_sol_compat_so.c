@@ -18,7 +18,7 @@ __attribute__((noreturn)) static void
 usage( void ) {
   fputs(
     "Usage: test_sol_compat_so --target <path> --type <input type> [Protobuf input files ...]\n"
-    "Supported types: instr, txn, block, vm_syscall, vm_interp, shred_parse\n",
+    "Supported types: instr, txn, block, vm_syscall, shred_parse\n",
     stderr );
   exit( 1 );
 }
@@ -75,7 +75,6 @@ main( int     argc,
   else if( 0==strcmp( type, "txn"         ) ) fn_name = "sol_compat_txn_execute_v1";
   else if( 0==strcmp( type, "block"       ) ) fn_name = "sol_compat_block_execute_v1";
   else if( 0==strcmp( type, "vm_syscall"  ) ) fn_name = "sol_compat_vm_syscall_execute_v1";
-  else if( 0==strcmp( type, "vm_interp"   ) ) fn_name = "sol_compat_vm_interp_v1";
   else if( 0==strcmp( type, "shred_parse" ) ) fn_name = "sol_compat_shred_parse_v1";
   else usage();
 

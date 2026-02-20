@@ -187,20 +187,6 @@ fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
                                uchar const *         in,
                                ulong                 in_sz );
 
-/* SVM sBPF Bytecode Execution */
-
-ulong
-fd_solfuzz_pb_vm_interp_run( fd_solfuzz_runner_t * runner,
-                             void const *          input,
-                             void **               output,
-                             void *                output_buf,
-                             ulong                 output_bufsz );
-
-int
-fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
-                                 uchar const *         in,
-                                 ulong                 in_sz );
-
 /* Flatbuffers */
 int
 fd_solfuzz_fb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
