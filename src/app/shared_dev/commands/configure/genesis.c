@@ -260,7 +260,7 @@ init( config_t const * config ) {
   char  genesis_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
 
   ushort shred_version;
-  int result = compute_shred_version( genesis_path, &shred_version, genesis_hash );
+  int result = read_genesis_bin( genesis_path, &shred_version, genesis_hash );
   if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   FD_LOG_INFO(( "Created %s:  genesis_hash=%s sz=%lu",
