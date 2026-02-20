@@ -731,6 +731,7 @@ fd_gossip_message_deserialize( fd_gossip_message_t * message,
   ulong * payload_sz = &_payload_sz;
   ulong original_sz = _payload_sz;
 
+  CHECK( _payload_sz<=1232UL );
   READ_ENUM( message->tag, FD_GOSSIP_MESSAGE_CNT, payload, payload_sz );
 
   switch( message->tag ){
