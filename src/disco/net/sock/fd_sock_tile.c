@@ -258,6 +258,11 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", tile->sock.so_sndbuf, errno, fd_io_strerror( errno ) ));
   }
 
+  uchar mcast_ttl = 64;
+  if( FD_UNLIKELY( 0!=setsockopt( tx_sock, IPPROTO_IP, IP_MULTICAST_TTL, &mcast_ttl, sizeof(mcast_ttl) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(IPPROTO_IP,IP_MULTICAST_TTL,%u) failed (%i-%s)", (uint)mcast_ttl, errno, fd_io_strerror( errno ) ));
+  }
+
   ctx->tx_sock      = tx_sock;
   ctx->bind_address = tile->sock.net.bind_address;
 
