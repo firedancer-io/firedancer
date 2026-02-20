@@ -22,6 +22,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/topo/fd_topob_vinyl.h"
 #include "../../../util/pod/fd_pod_format.h"
+#include "../../../discof/reasm/fd_reasm.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/fd_snapin_tile_private.h"
 #include "../../../discof/restore/fd_snaplv_tile_private.h"
@@ -368,20 +369,24 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_out( topo, "backt", 0UL, "tower_out", 0UL );
 
   /**********************************************************************/
-  /* Setup replay->stake/send/poh links in topo w/o consumers         */
+  /* Setup replay->stake/send/poh/repair links in topo w/o consumers         */
   /**********************************************************************/
-  fd_topob_wksp( topo, "replay_epoch"    );
-  fd_topob_wksp( topo, "replay_poh"   );
+  fd_topob_wksp( topo, "replay_epoch"  );
+  fd_topob_wksp( topo, "replay_poh"    );
+  fd_topob_wksp( topo, "replay_repair" );
 
   fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL, FD_EPOCH_OUT_MTU, 1UL );
   ulong execle_tile_cnt = config->firedancer.layout.execle_tile_count;
   FOR(execle_tile_cnt) fd_topob_link( topo, "replay_poh", "replay_poh", 128UL, (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL );
+  fd_topob_link( topo, "replay_repair", "replay_repair", 1024UL, sizeof(fd_reasm_evicted_t), 1UL );
 
-  fd_topob_tile_out( topo, "replay", 0UL, "replay_epoch",   0UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_epoch", 0UL );
   FOR(execle_tile_cnt) fd_topob_tile_out( topo, "replay", 0UL, "replay_poh", i );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_repair", 0UL );
 
   topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_epoch",   0 ) ] ].permit_no_consumers = 1;
   FOR(execle_tile_cnt) topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_poh", i ) ] ].permit_no_consumers = 1;
+  topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_repair", 0 ) ] ].permit_no_consumers = 1;
 
   /**********************************************************************/
   /* Setup replay->backtest link (replay_notif) in topo                 */

@@ -382,6 +382,8 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t epoch_out[1];
 
+  fd_replay_out_link_t repair_out[1];
+
   /* The gui tile needs to reliably own a reference to the most recent
      completed active bank.  Replay needs to know if the gui as a
      consumer is enabled so it can increment the bank's refcnt before
@@ -1414,7 +1416,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1534,7 +1536,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store ); /* FIXME manifest block_id */
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -2019,6 +2021,20 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* If a reasm insert caused fecs to be evicted, we should drain the
+     evict queue and publish to repair */
+  if( FD_UNLIKELY( !fd_reasm_evicted_empty( ctx->reasm ) ) ) {
+    fd_reasm_evicted_t evicted = fd_reasm_evicted_pop_head( ctx->reasm );
+
+    fd_memcpy( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ), &evicted, sizeof(evicted) );
+    fd_stem_publish( stem, ctx->repair_out->idx, 0, ctx->repair_out->chunk,  sizeof(evicted), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(evicted), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
   if( FD_LIKELY( can_process_fec( ctx ) ) ) {
@@ -2031,25 +2047,6 @@ after_credit( fd_replay_tile_t *  ctx,
 
   *charge_busy = replay( ctx, stem );
   *opt_poll_in = !*charge_busy;
-}
-
-static int
-before_frag( fd_replay_tile_t * ctx,
-             ulong              in_idx,
-             ulong              seq FD_PARAM_UNUSED,
-             ulong              sig FD_PARAM_UNUSED ) {
-
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
-    /* If reasm is full, we can not insert any more FEC sets.  We must
-       not consume any frags from shred_out until reasm can process more
-       FEC sets. */
-
-    if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
-      return -1;
-    }
-  }
-
-  return 0;
 }
 
 static void
@@ -2277,11 +2274,8 @@ process_fec_complete( fd_replay_tile_t * ctx,
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
 
-  if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
-    FD_LOG_CRIT(( "unimplemented" )); /* TODO reasm eviction */
-  }
   if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
-  FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec ) );
+  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store );
 }
 
 static void
@@ -2751,6 +2745,7 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
+  *ctx->repair_out = out1( topo, tile, "replay_repair"  ); FD_TEST( ctx->repair_out->idx!=ULONG_MAX );
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
@@ -2848,7 +2843,6 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
 
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_BEFORE_FRAG     before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"

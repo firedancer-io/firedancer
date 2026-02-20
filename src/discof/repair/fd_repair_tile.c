@@ -47,6 +47,7 @@
 #define IN_KIND_EPOCH   (6)
 #define IN_KIND_GOSSIP  (7)
 #define IN_KIND_GENESIS (8)
+#define IN_KIND_REPLAY  (9)
 
 #define MAX_IN_LINKS    (32)
 
@@ -447,6 +448,7 @@ before_frag( ctx_t * ctx,
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) return 1; /* skip for now */
   return 0;
 }
 
@@ -1016,12 +1018,13 @@ unprivileged_init( fd_topo_t *      topo,
       sign_repair_in_idx[ sign_repair_idx++ ] = in_idx;
       sign_link_depth                         = link->depth;
     }
-    else if( 0==strcmp( link->name, "gossip_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
-    else if( 0==strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
-    else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
-    else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
-    else if( 0==strcmp( link->name, "replay_epoch" ) ) ctx->in_kind[ in_idx ] = IN_KIND_EPOCH;
-    else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
+    else if( 0==strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
+    else if( 0==strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
+    else if( 0==strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    else if( 0==strcmp( link->name, "snapin_manif"  ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
+    else if( 0==strcmp( link->name, "replay_epoch"  ) ) ctx->in_kind[ in_idx ] = IN_KIND_EPOCH;
+    else if( 0==strcmp( link->name, "replay_repair" ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
+    else if( 0==strcmp( link->name, "genesi_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
     else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;

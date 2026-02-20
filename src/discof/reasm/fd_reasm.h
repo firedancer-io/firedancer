@@ -189,6 +189,13 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 
+struct fd_reasm_evicted {
+  fd_hash_t mr;
+  ulong     slot;
+  uint      fec_set_idx;
+};
+typedef struct fd_reasm_evicted fd_reasm_evicted_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* Constructors */
@@ -295,8 +302,16 @@ fd_reasm_pop( fd_reasm_t * reasm );
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
    make one or more FEC sets available for in-order delivery.  Caller
-   can consume these FEC sets via fd_reasm_pop.  This function assumes
-   that the reasm is not full (fd_reasm_full() returns 0).
+   can consume these FEC sets via fd_reasm_pop.
+
+   If the reasm is full (fd_reasm_full() returns 1), reasm_insert will
+   evict a FEC set by the policy outlined in reasm_evict.  The evicted
+   FEC set will be removed from reasm, and the evicted FEC metadata will
+   be added to the evicted queue.  The most FEC evictions one insert can
+   cause is up to 1024 FEC sets, or the max number of FECs in one slot.
+   Thus the evicted queue has capacity for up to 1024 FEC sets, and
+   should in general be cleared/popped between every call of
+   fd_reasm_insert.
 
    See top-level documentation for further details on insertion. */
 
@@ -310,7 +325,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  ushort            data_cnt,
                  int               data_complete,
                  int               slot_complete,
-                 int               leader );
+                 int               leader,
+                 fd_store_t      * opt_store );
 
 /* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
    beginning from this FEC then becomes the canonical chain of FEC sets
@@ -337,6 +353,23 @@ void
 fd_reasm_confirm( fd_reasm_t * reasm,
                   fd_hash_t *  block_id );
 
+/* fd_reasm_clear_chain clears the chain of FEC sets starting from a
+   leaf node (head).  If that FEC has not been executed (i.e. has no
+   bank_idx assigned to it), then it will just evict the singular leaf
+   node.  Otherwise if the FEC has been executed, then it will evict up
+   until the bank idx on the FEC set changes, or the FEC set has more
+   than one child.
+
+   This function can be called during insertion to evict a chain of FECs
+   to make room for a new FEC set, or it can be called externally by
+   replay when banks evicts a slot.  Banks should then provide the
+   last FEC set executed on that bank, and call fd_reasm_clear_chain to
+   evict the chain of FECs corresponding to the evicted bank.
+ */
+void
+fd_reasm_clear_chain( fd_reasm_t     * reasm,
+                      fd_reasm_fec_t * head,
+                      fd_store_t     * opt_store );
 /* fd_reasm_publish publishes merkle root as the new reasm root, pruning
    (ie. map remove and pool release) any FEC sets that do not descend
    from this new root. */
@@ -345,6 +378,12 @@ fd_reasm_fec_t *
 fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root,
                   fd_store_t      * opt_store );
+
+int
+fd_reasm_evicted_empty( fd_reasm_t * reasm );
+
+fd_reasm_evicted_t
+fd_reasm_evicted_pop_head( fd_reasm_t * reasm );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );
