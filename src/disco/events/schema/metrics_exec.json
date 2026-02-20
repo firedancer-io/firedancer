@@ -1,0 +1,48 @@
+{
+    "name": "metrics_exec",
+    "id": 1032,
+    "description": "Metrics snapshot for the exec tile",
+    "fields": {
+        "meta":                    { "type": "ref:MetricMeta" },
+        "tile":                    { "type": "ref:MetricTile" },
+        "progcache_misses":        { "type": "UInt64", "description": "Number of program cache misses" },
+        "progcache_hits":          { "type": "UInt64", "description": "Number of program cache hits" },
+        "progcache_fills":         { "type": "UInt64", "description": "Number of program cache insertions" },
+        "progcache_fill_tot_sz":   { "type": "UInt64", "description": "Total number of bytes inserted into program cache" },
+        "progcache_fill_fails":    { "type": "UInt64", "description": "Number of program cache load fails (tombstones inserted)" },
+        "progcache_dup_inserts":   { "type": "UInt64", "description": "Number of time two tiles raced to insert the same cache entry" },
+        "progcache_invalidations": { "type": "UInt64", "description": "Number of program cache invalidations" },
+        "accdb_created":           { "type": "UInt64", "description": "Number of account database records created" },
+        "txn_regime":              {
+            "type": "Flatten",
+            "description": "Mutually exclusive and exhaustive duration of time spent in transaction execution regimes",
+            "fields": {
+                "txn_regime_setup":  { "type": "UInt64", "description": "Transaction setup" },
+                "txn_regime_exec":   { "type": "UInt64", "description": "Transaction execution (includes VM setup/execution)" },
+                "txn_regime_commit": { "type": "UInt64", "description": "Transaction result commit" }
+            }
+        },
+        "vm_regime":               {
+            "type": "Flatten",
+            "description": "Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes",
+            "fields": {
+                "vm_regime_setup":       { "type": "UInt64", "description": "VM setup" },
+                "vm_regime_commit":      { "type": "UInt64", "description": "VM commit" },
+                "vm_regime_setup_cpi":   { "type": "UInt64", "description": "VM setup (CPI)" },
+                "vm_regime_commit_cpi":  { "type": "UInt64", "description": "VM commit (CPI)" },
+                "vm_regime_interpreter": { "type": "UInt64", "description": "VM interpreter execution" }
+            }
+        },
+        "txn_account_changes":     {
+            "type": "Flatten",
+            "description": "Transaction account change event counters",
+            "fields": {
+                "txn_account_changes_unchanged_nonexist": { "type": "UInt64", "description": "Account did not exist before and still does not" },
+                "txn_account_changes_created":            { "type": "UInt64", "description": "Account created" },
+                "txn_account_changes_delete":             { "type": "UInt64", "description": "Account deleted" },
+                "txn_account_changes_modify":             { "type": "UInt64", "description": "Account modified" },
+                "txn_account_changes_unchanged":          { "type": "UInt64", "description": "Account unchanged" }
+            }
+        }
+    }
+}
