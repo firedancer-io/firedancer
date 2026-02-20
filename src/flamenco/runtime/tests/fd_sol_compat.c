@@ -8,7 +8,6 @@
 #include "../../../ballet/shred/fd_shred.h"
 
 #include "generated/block.pb.h"
-#include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/shred.pb.h"
 #include "generated/vm.pb.h"
@@ -208,29 +207,6 @@ sol_compat_block_execute_v1( uchar *       out,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_block_context_t_msg, input );
-  fd_solfuzz_runner_leak_check( runner );
-  return ok;
-}
-
-int
-sol_compat_elf_loader_v1( uchar *       out,
-                          ulong *       out_sz,
-                          uchar const * in,
-                          ulong         in_sz ) {
-  fd_exec_test_elf_loader_ctx_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_elf_loader_ctx_t_msg );
-  if( FD_UNLIKELY( !res ) ) return 0;
-
-  fd_spad_push( runner->spad );
-  int ok = 0;
-  void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_elf_loader_run );
-  if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_elf_loader_effects_t_msg );
-  }
-  fd_spad_pop( runner->spad );
-
-  pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }

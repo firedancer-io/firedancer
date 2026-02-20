@@ -1574,20 +1574,6 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   txn_out->accounts.is_setup         = 1;
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
   runtime->accounts.executable_cnt   = executable_idx;
-
-# if FD_HAS_FLATCC
-  /* Dumping ELF files to protobuf, if applicable */
-  int dump_elf_to_pb = runtime->log.dump_proto_ctx &&
-                       fd_bank_slot_get( bank )>=runtime->log.dump_proto_ctx->dump_proto_start_slot &&
-                       runtime->log.dump_proto_ctx->dump_elf_to_pb;
-  if( FD_UNLIKELY( dump_elf_to_pb ) ) {
-    for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-      fd_account_meta_t * acc_meta = txn_out->accounts.account[i].meta;
-      fd_pubkey_t *       acc_pubkey = &txn_out->accounts.keys[i];
-      fd_dump_elf_to_protobuf( runtime, bank, txn_in, acc_pubkey, acc_meta );
-    }
-  }
-# endif
 }
 
 int

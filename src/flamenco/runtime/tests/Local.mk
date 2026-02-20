@@ -13,8 +13,8 @@ $(call add-objs,fd_block_harness,fd_flamenco_test)
 endif
 $(call add-objs,fd_sol_compat,fd_flamenco_test)
 
-$(call add-hdrs,generated/context.pb.h generated/elf.pb.h generated/invoke.pb.h generated/txn.pb.h generated/block.pb.h generated/vm.pb.h generated/shred.pb.h generated/metadata.pb.h)
-$(call add-objs,generated/context.pb generated/elf.pb generated/invoke.pb generated/txn.pb generated/block.pb generated/vm.pb generated/shred.pb generated/metadata.pb,fd_flamenco)
+$(call add-hdrs,generated/context.pb.h generated/invoke.pb.h generated/txn.pb.h generated/block.pb.h generated/vm.pb.h generated/shred.pb.h generated/metadata.pb.h)
+$(call add-objs,generated/context.pb generated/invoke.pb generated/txn.pb generated/block.pb generated/vm.pb generated/shred.pb generated/metadata.pb,fd_flamenco)
 
 $(call add-hdrs,flatbuffers/generated/elf_builder.h,flatbuffers/generated/elf_reader.h)
 

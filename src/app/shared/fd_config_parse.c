@@ -265,7 +265,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   capture.dump_proto_dir                           );
   CFG_POP      ( cstr,   capture.dump_syscall_name_filter                 );
   CFG_POP      ( cstr,   capture.dump_instr_program_id_filter             );
-  CFG_POP      ( bool,   capture.dump_elf_to_pb                           );
   CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
   CFG_POP      ( bool,   capture.dump_instr_to_pb                         );
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
