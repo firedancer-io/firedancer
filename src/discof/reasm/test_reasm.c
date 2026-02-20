@@ -406,6 +406,54 @@ test_eqvoc_transitive( fd_wksp_t * wksp ) {
   fd_reasm_print( reasm );
 }
 
+void
+test_fec_after_eos(fd_wksp_t *wksp) {
+  ulong fec_max = 32;
+  void *mem = fd_wksp_alloc_laddr(wksp, fd_reasm_align(),
+                                  fd_reasm_footprint(fec_max), 1UL);
+  fd_reasm_t *reasm = fd_reasm_join(fd_reasm_new(mem, fec_max, 0UL));
+  FD_TEST(reasm);
+
+  fd_hash_t mr0[1] = {{{0}}};  fd_hash_t mr7[1] = {{{7}}};
+  fd_hash_t mr1[1] = {{{1}}};  fd_hash_t mr8[1] = {{{8}}};
+  fd_hash_t mr2[1] = {{{2}}};  fd_hash_t mr9[1] = {{{9}}};
+  fd_hash_t mr3[1] = {{{3}}};
+  fd_hash_t mr4[1] = {{{4}}};
+  fd_hash_t mr5[1] = {{{5}}};
+  fd_hash_t mr6[1] = {{{6}}};
+  /*                               slot fecidx p_off data_cnt data_cmpl slot_cmpl is_leader */
+  fd_reasm_insert(reasm, mr0, NULL, 0,   0,    0,    0,       0,        1,        0);
+  fd_reasm_insert(reasm, mr1, mr0,  1,   0,    1,    32,      0,        0,        0);
+  fd_reasm_insert(reasm, mr2, mr1,  1,   32,   1,    32,      0,        0,        0);
+  fd_reasm_insert(reasm, mr3, mr2,  1,   64,   1,    32,      0,        1,        0);
+  FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr1) );
+  /* show evidence of equivocation */
+  fd_reasm_insert(reasm, mr4, mr3,  1,   96,   1,    32,      0,        0,        0);
+  FD_TEST( fd_reasm_pop(reasm) == NULL );
+  fd_reasm_insert(reasm, mr5, mr4,  1,   128,  1,    32,      0,        1,        0);
+  FD_TEST( fd_reasm_pop(reasm) == NULL );
+
+  fd_reasm_confirm(reasm, mr3);
+  FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr2) );
+  FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr3) );
+  FD_TEST( fd_reasm_pop(reasm) == NULL );
+
+  fd_reasm_insert( reasm, mr6, mr3,  2,   0,    1,    32,      0,        0,        0);
+  FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr6) );
+
+  /* now get these out of order. */
+  fd_reasm_insert( reasm, mr9, mr8,  2,   96,    1,   32,      0,        0,        0); /* currently an orphan */
+  fd_reasm_insert( reasm, mr8, mr7,  2,   64,    1,   32,      0,        1,        0); /* middle slot complete */
+
+  FD_TEST( fd_reasm_query(reasm, mr8)->eqvoc );
+  FD_TEST( fd_reasm_query(reasm, mr9)->eqvoc );
+
+  /* now connect slot 2 from frontier to orphan*/
+  fd_reasm_insert( reasm, mr7, mr6,  2,   32,    1,   32,      0,        0,        0);
+  FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr7) );
+  FD_TEST( fd_reasm_pop(reasm) == NULL );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -416,12 +464,13 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  //test_insert( wksp );
-  //test_publish( wksp );
-  //test_slot_mr( wksp );
-  //test_eqvoc( wksp );
+  test_insert( wksp );
+  test_publish( wksp );
+  test_slot_mr( wksp );
+  test_eqvoc( wksp );
   test_eqvoc_transitive( wksp );
   test_eqvoc_xidbid( wksp );
+  test_fec_after_eos( wksp );
 
   fd_halt();
   return 0;

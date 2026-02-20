@@ -425,6 +425,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      coalesce connected orphans into the same tree.  This way we only
      need to search the orphan tree roots (vs. all orphaned nodes). */
 
+  ulong min_descendant = ULONG_MAX; /* needed for eqvoc checks below */
   FD_TEST( bfs_empty( bfs ) );
   for( dlist_iter_t iter = dlist_iter_fwd_init(       dlist, pool );
                           !dlist_iter_done    ( iter, dlist, pool );
@@ -439,6 +440,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
       subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
       dlist_ele_remove   ( dlist,     orphan_root,            pool );
       orphaned_ele_insert( orphaned,  orphan_root,            pool );
+      min_descendant = fd_ulong_min( min_descendant, orphan_root->slot );
     }
   }
 
@@ -476,7 +478,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     }
   }
 
-  /* Fourth, check and handle equivocation.  There are two cases.
+  /* Fourth, check and handle equivocation.  There are three cases.
 
      1. we've already seen this FEC's xid (slot, fec_set_idx)
      2. this FEC's parent equivocates. */
@@ -489,8 +491,65 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   xid_update( reasm, slot, fec_set_idx, pool_idx( pool, fec ) );
   if( FD_UNLIKELY( parent && parent->eqvoc && !parent->confirmed ) ) eqvoc( reasm, fec );
 
-  /* Finally, return the newly inserted FEC. */
+  /* 3. this FEC's parent is a slot_complete, but this FEC is part of
+        the same slot.  Or this fec is a slot_complete, but it's child
+        is part of the same slot. i.e.
 
+             A - B - C (slot cmpl) - D - E - F (slot cmpl)
+
+        We do not want to deliver this entire slot if possible. The
+        block has TWO slot complete flags. This is not honest behavior.
+
+         Two ways this can happen:
+          scenario 1: A - B - C (slot cmpl) - D - E - F (slot cmpl)
+
+          scenario 2: A - B - C (slot cmpl)
+                           \
+                            D - E - F (slot cmpl)   [true equivocation case]
+
+        Scenario 2 is handled first-class in reasm, and we will only
+        replay this slot if one version gets confirmed (or we did not
+        see evidence of the other version until after we replayed the
+        first).
+
+        In scenario 1, it is impossible for the cluster to converge on
+        ABC(slot cmpl)DEF(slot cmpl), but depending on the order in
+        which each node receives the FEC sets, the cluster could either
+        confirm ABC(slot cmpl), or mark the slot dead.  In general, if
+        the majority of nodes received and replayed the shorter version
+        before seeing the second half, the slot could still end up
+        getting confirmed. Whereas if the majority of nodes saw shreds
+        from DEF before finishing replay and voting on ABC, the slot
+        would likely be marked dead.
+
+        Firedancer handles this case by marking the slot eqvoc upon
+        detecting a slot complete in the middle of a slot.  reasm will
+        mark the earliest FEC possible in the slot as eqvoc, but may not
+        be able to detect fec 0 because the FEC may be orphaned, or fec
+        0 may not exist yet.  Thus, it is possible for Firedancer to
+        replay ABC(slot cmpl), but it is impossible for reasm to deliver
+        fecs D, E, or F. The node would then vote for ABC(slot cmpl).
+
+        If the node sees D before replaying A, B, or C, then it would be
+        able to mark ABCD as eqvoc, and prevent the corresponding FECs
+        from being delivered. In this case, the Firedancer node would
+        have an incompletely executed bank that eventually gets pruned
+        away.
+
+        Agave's handling differs because they key by slot, but our
+        handling is compatible with the protocol. */
+
+  if( FD_UNLIKELY( (parent && parent->slot_complete && parent->slot == slot) ||
+                   (fec->slot_complete && min_descendant == slot) ) ) {
+    /* walk up to the earliest fec in slot */
+    fd_reasm_fec_t * curr = fec;
+    while( FD_LIKELY( curr->parent != pool_idx_null( pool ) && pool_ele( pool, curr->parent )->slot == slot ) ) {
+      curr = pool_ele( pool, curr->parent );
+    }
+    eqvoc( reasm, curr );
+  }
+
+  /* Finally, return the newly inserted FEC. */
   return fec;
 }
 
