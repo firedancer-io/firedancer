@@ -10,6 +10,7 @@ include config/extra/with-x86-64.mk
 include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 
+CPPFLAGS+=--target=x86_64-unknown-elf
 CPPFLAGS+=-march=x86-64-v2 -mtune=generic
 CPPFLAGS+=\
   -DFD_HAS_INT128=1 \
@@ -23,7 +24,6 @@ CPPFLAGS+=\
   -DFD_IO_STYLE=1
 
 CFLAGS+=\
-  --target=x86_64-unknown-elf \
   --no-default-config \
   -ffreestanding \
   -fno-plt \
@@ -34,7 +34,6 @@ CFLAGS+=\
   -nostdlib \
   -nostartfiles \
   -nodefaultlibs \
-  -mcmodel=medium \
   -mno-red-zone
 
 FD_HAS_INT128:=1

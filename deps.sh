@@ -35,7 +35,6 @@ PREFIX="$(pwd)/opt"
 
 DEVMODE=0
 MSAN=0
-EMBEDDED=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
 EXTRA_CFLAGS="-g3 -fno-omit-frame-pointer"
@@ -144,9 +143,6 @@ fetch () {
     checkout_repo rocksdb https://github.com/facebook/rocksdb         "v10.5.1"
     checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
     checkout_repo flatcc  https://github.com/dvidelabs/flatcc         "" "3ae5eda"
-  fi
-  if [[ $EMBEDDED == 1 ]]; then
-    checkout_repo picolibc https://github.com/picolibc/picolibc       "1.8.11"
   fi
 }
 
@@ -614,54 +610,6 @@ install_flatcc () {
   echo "[+] Successfully installed flatcc"
 }
 
-install_picolibc () {
-  echo "[+] Installing picolibc"
-  cd "$PREFIX/git/picolibc"
-  cat <<EOF > x86_64-unknown-elf.txt
-[binaries]
-c = 'clang'
-
-[host_machine]
-system = 'unknown'
-cpu_family = 'x86_64'
-cpu = 'x86_64'
-endian = 'little'
-
-[properties]
-c_args = [
-  '--target=x86_64-unknown-elf',
-  '--no-default-config',
-  '-ffreestanding',
-  '-fno-plt',
-  '-fno-pie',
-  '-fno-pic',
-  '-static',
-  '-fno-common',
-  '-nostdlib',
-  '-nostartfiles',
-  '-nodefaultlibs',
-  '-mcmodel=medium',
-  '-mno-red-zone'
-  ]
-needs_exe_wrapper = true
-skip_sanity_check = true
-EOF
-  meson setup \
-    --wipe \
-    --cross-file x86_64-unknown-elf.txt \
-    build-x86 \
-    -Dmultilib=false \
-    -Dpicocrt=false \
-    -Dinitfini-array=false \
-    -Dthread-local-storage=false \
-    -Dsingle-thread=true \
-    -Dsemihost=false \
-    -Dio-float-exact=false \
-    -Dprefix="$PREFIX/cross/x86"
-  meson compile -C build-x86
-  meson install -C build-x86
-}
-
 install () {
   CC="$(command -v $_CC)"
   cc="$CC"
@@ -689,9 +637,6 @@ install () {
     ( install_snappy    )
     ( install_rocksdb   )
     ( install_flatcc    )
-  fi
-  if [[ $EMBEDDED == 1 ]]; then
-    ( install_picolibc  )
   fi
 
   # Merge lib64 with lib
@@ -726,10 +671,6 @@ while [[ $# -gt 0 ]]; do
     "+dev")
       shift
       DEVMODE=1
-      ;;
-    "+embedded")
-      shift
-      EMBEDDED=1
       ;;
     nuke)
       shift
