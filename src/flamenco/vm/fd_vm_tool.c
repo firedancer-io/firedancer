@@ -51,7 +51,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = 0;
   config.sbpf_min_version = FD_SBPF_V0;
-  config.sbpf_max_version = FD_SBPF_V3;
+  config.sbpf_max_version = FD_SBPF_V2;
   FD_TEST( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, &config )>=0 );
 
   /* Allocate rodata segment */
