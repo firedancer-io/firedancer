@@ -93,7 +93,7 @@ fd_secp256k1_recover( uchar        public_key[64],
   fd_secp256k1_double_base_mul( pubkey, u1, a, u2 );
 
   /* If the computed pubkey is the identity point, we return NULL
-     /blob/v0.7.1/src/modules/recovery/main_impl.h#L120 */
+     https://github.com/bitcoin-core/secp256k1/blob/v0.7.1/src/modules/recovery/main_impl.h#L120 */
   if( FD_UNLIKELY( fd_secp256k1_point_is_identity( pubkey ) ) ) {
     return NULL;
   }

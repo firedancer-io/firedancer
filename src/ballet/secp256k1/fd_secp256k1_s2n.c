@@ -208,8 +208,8 @@ fd_secp256k1_fp_tobytes( uchar                    r[ 32 ],
   and the result will fail the final verification.
 */
 static inline fd_secp256k1_fp_t *
-fd_secp256k1_fp_sqrt( fd_secp256k1_fp_t *       r,
-                      fd_secp256k1_fp_t const * a ) {
+fd_secp256k1_fp_sqrt( fd_secp256k1_fp_t *       restrict r,
+                      fd_secp256k1_fp_t const * restrict a ) {
   fd_secp256k1_fp_t x2;
   fd_secp256k1_fp_t x3;
 
@@ -498,7 +498,7 @@ fd_secp256k1_precompute( fd_secp256k1_point_t         r[ 9 ],
 static inline fd_secp256k1_point_t *
 fd_secp256k1_double_base_mul( fd_secp256k1_point_t *        r,
                               fd_secp256k1_scalar_t const * s1,
-                              fd_secp256k1_point_t const *  p2,
+                              fd_secp256k1_point_t  const * p2,
                               fd_secp256k1_scalar_t const * s2 ) {
   fd_secp256k1_point_t base[ 1 ];
   fd_secp256k1_point_set_base( base );
