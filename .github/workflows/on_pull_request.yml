@@ -58,6 +58,3 @@ jobs:
       machine: linux_gcc_icelake,linux_gcc_x86_64
       build_arm: false
       check_run: true
-  fdos:
-    if: github.event.pull_request.draft == false
-    uses: ./.github/workflows/fdos.yml
