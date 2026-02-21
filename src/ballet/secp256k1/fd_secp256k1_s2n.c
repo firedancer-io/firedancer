@@ -39,17 +39,12 @@ fd_secp256k1_scalar_invert( fd_secp256k1_scalar_t *       r,
   return r;
 }
 
+/* None of the arguments may alias. */
 static inline fd_secp256k1_scalar_t *
-fd_secp256k1_scalar_mul( fd_secp256k1_scalar_t *       r,
-                         fd_secp256k1_scalar_t const * a,
-                         fd_secp256k1_scalar_t const * b ) {
-  /* bignum_montmul has an undocumented restriction
-     that the input and outputs may not alias. */
-  ulong t1[ 4 ];
-  ulong t2[ 4 ];
-  memcpy( t1, a->limbs, 32 );
-  memcpy( t2, b->limbs, 32 );
-  bignum_montmul( 4, r->limbs, t1, t2, (ulong *)fd_secp256k1_const_n[0].limbs );
+fd_secp256k1_scalar_mul( fd_secp256k1_scalar_t *       restrict r,
+                         fd_secp256k1_scalar_t const * restrict a,
+                         fd_secp256k1_scalar_t const * restrict b ) {
+  bignum_montmul( 4, r->limbs, (ulong *)a->limbs, (ulong *)b->limbs, (ulong *)fd_secp256k1_const_n[0].limbs );
   return r;
 }
 
