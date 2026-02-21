@@ -84,8 +84,11 @@ struct fd_vinyl_tile {
 
   uint booted : 1;
   uint shutdown : 1;
-  ulong volatile const * snapct_state;
-  ulong volatile const * snapwm_pair_cnt;
+  struct {
+    ulong                  state_expected;
+    ulong volatile const * state;
+    ulong volatile const * pair_cnt;
+  } boot;
 
   /* I/O */
 
@@ -380,19 +383,37 @@ unprivileged_init( fd_topo_t *      topo,
 
 # undef TEST
 
-  /* Find snapct tile status */
   ulong snapct_tile_idx = fd_topo_find_tile( topo, "snapct", 0UL );
-  FD_TEST( snapct_tile_idx!=ULONG_MAX );
-  fd_topo_tile_t const * snapct_tile = &topo->tiles[ snapct_tile_idx ];
-  FD_TEST( snapct_tile->metrics );
-  ctx->snapct_state = &fd_metrics_tile( snapct_tile->metrics )[ MIDX( GAUGE, SNAPCT, STATE ) ];
-
-  /* Find snapwm pair_cnt */
   ulong snapwm_tile_idx = fd_topo_find_tile( topo, "snapwm", 0UL );
-  FD_TEST( snapwm_tile_idx!=ULONG_MAX );
-  fd_topo_tile_t const * snapwm_tile = &topo->tiles[ snapwm_tile_idx ];
-  FD_TEST( snapwm_tile->metrics );
-  ctx->snapwm_pair_cnt = &fd_metrics_tile( snapwm_tile->metrics )[ MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
+  ulong genesi_tile_idx = fd_topo_find_tile( topo, "genesi", 0UL );
+  int boot_from_genesis = snapct_tile_idx==ULONG_MAX;
+
+  if( FD_UNLIKELY( boot_from_genesis ) ) {
+    if( FD_UNLIKELY( genesi_tile_idx==ULONG_MAX ) ) {
+      FD_LOG_CRIT(( "booting from genesis with genesi tile idx %lu is not supported", genesi_tile_idx ));
+    }
+    if( FD_UNLIKELY( snapct_tile_idx!=ULONG_MAX || snapwm_tile_idx!=ULONG_MAX ) ) {
+      FD_LOG_CRIT(( "booting from genesis with snapshot load tiles idx %lu %lu is not supported", snapct_tile_idx, snapwm_tile_idx ));
+    }
+    /* when booting from genesis, accdb tile boots immediately, which
+       allows the genesi tile to become a vinyl client. */
+    ctx->boot.state_expected = ULONG_MAX;
+    ctx->boot.state          = NULL;
+    ctx->boot.pair_cnt       = NULL;
+  } else {
+    if( FD_UNLIKELY( snapct_tile_idx==ULONG_MAX || snapwm_tile_idx==ULONG_MAX ) ) {
+      FD_LOG_CRIT(( "booting with incorrect snapshot load tiles idx snapct %lu snapwm %lu", snapct_tile_idx, snapwm_tile_idx ));
+    }
+    /* boot state and expected state */
+    fd_topo_tile_t const * snapct_tile = &topo->tiles[ snapct_tile_idx ];
+    FD_TEST( snapct_tile->metrics );
+    ctx->boot.state_expected = FD_SNAPCT_STATE_SHUTDOWN;
+    ctx->boot.state          = &fd_metrics_tile( snapct_tile->metrics )[ MIDX( GAUGE, SNAPCT, STATE ) ];
+    /* boot pair_cnt */
+    fd_topo_tile_t const * snapwm_tile = &topo->tiles[ snapwm_tile_idx ];
+    FD_TEST( snapwm_tile->metrics );
+    ctx->boot.pair_cnt = &fd_metrics_tile( snapwm_tile->metrics )[ MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
+  }
 
   /* Discover mapped clients */
 
@@ -490,10 +511,12 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
   fd_vinyl_t * vinyl = ctx->vinyl;
 
   if( FD_UNLIKELY( !ctx->booted ) ) {
-    ulong const snapct_state = FD_VOLATILE_CONST( *ctx->snapct_state );
-    if( snapct_state!=FD_SNAPCT_STATE_SHUTDOWN ) {
-      fd_log_sleep( 1e6 ); /* 1 ms */
-      return;
+    if( FD_UNLIKELY( !!ctx->boot.state ) ) {
+      ulong const boot_state = FD_VOLATILE_CONST( *ctx->boot.state );
+      if( boot_state!=ctx->boot.state_expected ) {
+        fd_log_sleep( 1e6 ); /* 1 ms */
+        return;
+      }
     }
 
     if( ctx->ring->ioring_fd!=-1 ) {
@@ -503,7 +526,10 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
       vinyl->io = fd_vinyl_io_bd_init( ctx->io_mem, IO_SPAD_MAX, ctx->bstream_fd, 0, NULL, 0UL, 0UL );
       if( FD_UNLIKELY( !vinyl->io ) ) FD_LOG_ERR(( "Failed to initialize blocking I/O backend for account database" ));
     }
-    vinyl->pair_cnt = FD_VOLATILE_CONST( *ctx->snapwm_pair_cnt );
+    vinyl->pair_cnt = 0UL;
+    if( !!ctx->boot.pair_cnt ) {
+      vinyl->pair_cnt = FD_VOLATILE_CONST( *ctx->boot.pair_cnt );
+    }
 
     /* Once snapct tile exits, boot up vinyl */
     FD_LOG_INFO(( "vinyl server starting with %lu active records", vinyl->pair_cnt ));
