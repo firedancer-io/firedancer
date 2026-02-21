@@ -1,15 +1,87 @@
+# Repo config
 /CODEOWNERS @firedancer-admin
+/.github @kbhargava-jump @ripatel-fd
 
-/agave @0x0ece @anwayde @jherrera-jump @ptaffet-jump @mmcgee-jump @alpeng-jump
-
+# Misc
 /config @ripatel-fd
-/src/ballet/txn/fd_txn_parse.c @ptaffet-jump
+/contrib @kbhargava-jump
+/contrib/quic @ripatel-fd
+/contrib/codeql @two-heart
+
+# Docs
+/book @mmcgee-jump
+/doc @ripatel-fd
+
+# Frankendancer
+/agave @anwayde @ptaffet-jump @mmcgee-jump @alpeng-jump
+/src/app/fdctl @mmcgee-jump
+/src/app/fddev @mmcgee-jump
+/src/discoh @mmcgee-jump
+
+# Firedancer
+/src/app/firedancer @mmcgee-jump
+/src/app/firedancer-dev @mmcgee-jump
+/src/ballet/blake3 @ripatel-fd
+/src/ballet/bls @0x0ece
+/src/ballet/bn254 @0x0ece
+/src/ballet/ed25519 @0x0ece
+/src/ballet/poh @ptaffet-jump
+/src/ballet/reedsol @ptaffet-jump
+/src/ballet/sbpf @mjain-jump @ripatel-fd
+/src/ballet/secp256k1 @0x0ece
+/src/ballet/secp256r1 @0x0ece
+/src/ballet/sha256 @ptaffet-jump
+/src/ballet/shred @ptaffet-jump
+/src/ballet/toml @ripatel-fd
+/src/ballet/txn @ptaffet-jump
+/src/ballet/wsample @ptaffet-jump
 /src/choreo @lidatong @emwang-jump
+/src/disco/bundle @ripatel-fd
+/src/disco/events @mmcgee-jump
+/src/disco/gui @jherrera-jump
+/src/disco/net @ripatel-fd
+/src/disco/netlink @ripatel-fd
 /src/disco/pack @ptaffet-jump @mmcgee-jump
+/src/disco/plugin @mmcgee-jump
+/src/disco/quic @ripatel-fd
 /src/disco/shred @ptaffet-jump @mmcgee-jump
-/src/disco/reasm @lidatong @emwang-jump
+/src/disco/sign @ripatel-fd @mmcgee-jump
+/src/disco/stem @mmcgee-jump
 /src/disco/store @lidatong @emwang-jump
+/src/disco/topo @mmcgee-jump
+/src/disco/verify @0x0ece
+/src/discof/accdb @ripatel-fd
+/src/discof/backtest @kbhargava-jump @ibhatt-jumptrading
+/src/discof/bank @ibhatt-jumptrading @mmcgee-jump
+/src/discof/exec @ibhatt-jumptrading @yufeng-jump
+/src/discof/forest @lidatong @emwang-jump
+/src/discof/gossip @mmcgee-jump
+/src/discof/poh @mmcgee-jump @ptaffet-jump @yufeng-jump
+/src/discof/reasm @lidatong @emwang-jump
 /src/discof/repair @lidatong @emwang-jump
-/src/waltz/quic @nbridge-jump @ripatel-fd @akhinvasara-jumptrading
-/src/waltz/tls @ripatel-fd @mmcgee-jump
-/src/waltz/xdp @ripatel-fd @mmcgee-jump
+/src/discof/replay @ibhatt-jumptrading @yufeng-jump
+/src/discof/restore @ripatel-fd @cali-jumptrading @jvarela-jump
+/src/discof/rpc @jherrera-jump @mmcgee-jump
+/src/discof/send @ripatel-fd
+/src/discof/tower @lidatong @emwang-jump
+/src/flamenco/accdb @ripatel-fd
+/src/flamenco/gossip @mmcgee-jump
+/src/flamenco/progcache @ripatel-fd
+/src/flamenco/runtime/fd_bank* @ibhatt-jumptrading
+/src/flamenco/runtime/fd_txncache* @mmcgee-jump @yufeng-jump
+/src/flamenco/runtime/program @topointon-jump @ibhatt-jumptrading
+/src/flamenco/runtime/sysvar @ripatel-fd @ibhatt-jumptrading
+/src/flamenco/runtime/tests @mjain-jump @kbhargava-jump
+/src/flamenco/stakes @ibhatt-jumptrading
+/src/flamenco/vm @topointon-jump @ibhatt-jumptrading
+/src/funk @ripatel-fd
+/src/vinyl @kbowers-jump
+/src/waltz @ripatel-fd
+/src/wiredancer @kaasaraai-jump @jvarela-jump
+
+# System
+/src/app/platform @mmcgee-jump
+/src/app/shared @mmcgee-jump
+/src/app/shared-dev @mmcgee-jump
+/src/tango @kbowers-jump
+/src/util @kbowers-jump
