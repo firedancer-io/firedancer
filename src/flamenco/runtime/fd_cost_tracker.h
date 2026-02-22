@@ -21,6 +21,7 @@
 #define FD_MAX_BLOCK_UNITS_SIMD_0256          ( 60000000UL) /* https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56 */
 #define FD_MAX_BLOCK_UNITS_SIMD_0286          (100000000UL) /* https://github.com/anza-xyz/agave/blob/v3.0.0/cost-model/src/block_cost_limits.rs#L30 */
 #define FD_MAX_VOTE_UNITS                     ( 36000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
+#define FD_SIMPLE_VOTE_USAGE_COST             (     3428UL) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
 #define FD_COST_TRACKER_SUCCESS                                     (0)

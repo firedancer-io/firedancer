@@ -27,9 +27,16 @@
        transaction loading stage, after accounts data is loaded.
    These are all summed to determine the total transaction cost. */
 
-/* The exception to these costs are simple vote transactions, incur a
-   fixed cost regardless of their actual execution cost or account data
-   loaded. */
+/* Simple votes: before the stop_use_static_simple_vote_tx_cost
+   feature, simple votes had a fixed cost instead of going through the
+   full cost model.
+
+   To avoid feature-gating pack code, pack uses a tight upper bound,
+   FD_PACK_SIMPLE_VOTE_COST, to estimate the cost of simple votes.
+
+   Since this is higher than the static cost used before
+   stop_use_static_simple_vote_tx_cost is activated, this can be
+   used both before and after the feature is activated. */
 
 /* To compute the built-in cost, we need to check a table. The table
    is known ahead of time though, so we can build a perfect hash
@@ -65,16 +72,15 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 
 
 /* The cost model estimates 200,000 CUs for builtin programs that were migrated to BPF */
-#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_1  ( SYS_PROG_ID             ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_2  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_3  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_9  ( SECP256R1_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_0  ( SYS_PROG_ID             ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_1  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_2  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_3  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_4  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_5  ( LOADER_V4_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_6  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_7  ( ED25519_SV_PROG_ID      ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_8  ( SECP256R1_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -190,19 +196,63 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L55 */
 
-#define FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS 2100UL
+#define FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS (2100UL)
+
+/* SIMD-0387: BLS proof-of-possession verification cost charged by the
+   vote program for authorize instructions.
+
+   FIXME: update permalink to an Aave tag when Agave 4.0 is cut, at the
+   moment this constant is only defined in the master branch.
+
+   https://github.com/firedancer-io/agave/blob/agave-v4.0.0-prerelease-patches/programs/vote/src/vote_processor.rs#L74-L75 */
+#define FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS (34500UL)
+
+/* Upper bound on execution CUs used by vote instructions.
+
+   The only vote instructions which use more than the default cost are
+   the authorize instruction, which also charge the BLS
+   proof-of-possession verification cost.
+
+   IMPORTANT: if the vote program starts charging more CUs for any
+   instructions, this constant will need to be updated.
+ */
+#define FD_PACK_VOTE_MAX_COMPUTE_UNITS (FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS + FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS)
+
+/* Upper bound on the loaded accounts data cost for a vote transaction.
+
+   Under SIMD-186, we charge 64 bytes of data for each account, plus
+   the data length of the account.
+
+   The maximum vote account data length is 3,762 bytes. No vote
+   accounts on mainnet exceed this length, and it is impossible to
+   create new vote accounts which exceed this.
+
+   IMPORTANT: if the maximum size of a vote account increases, this
+   constant will need to be updated.
+
+   (64 + dlen each):
+     Fee payer (voter authority): 64 + 10,485,760  (MAX_PERMITTED_DATA_LENGTH)
+     Vote account:                64 +      3,762  (FD_VOTE_STATE_V4_SZ)
+     Slot Hashes sysvar:          64 +     20,488  (FD_SYSVAR_SLOT_HASHES_BINCODE_SZ)
+     Clock sysvar:                64 +         40  (FD_SYSVAR_CLOCK_BINCODE_SZ)
+     Vote program (native):       64 +         12
+     Total:                                10,510,382 bytes
+   Cost = ceil(10,510,382 / 32,768) * 8 = 321 * 8 = 2,568 CU. */
+#define FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST (2568UL)
 
 /* A simple vote transaction has the authorized voter (writable
    signer), the vote account (writable non-signer), clock sysvar, slot
    hashes sysvar (both readonly), and the vote program (readonly).  Then
-   it has one instruction a built-in to the vote program, which has a
-   fixed cost of DEFAULT_COMPUTE_UNITS, and an instruction data cost of
-   8.
+   it has one instruction to the vote program, which has a maximum
+   execution cost of FD_PACK_VOTE_MAX_COMPUTE_UNITS, a loaded accounts
+   data cost of FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST, and an
+   instruction data cost of 8.
 
    See https://github.com/firedancer-io/agave/blob/v2.1.11-fd/sdk/src/simple_vote_transaction_checker.rs */
-static const ulong FD_PACK_SIMPLE_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE         +
-                                                2UL*FD_PACK_COST_PER_WRITABLE_ACCT +
-                                                FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS      +
+static const ulong FD_PACK_SIMPLE_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE                +
+                                                2UL*FD_PACK_COST_PER_WRITABLE_ACCT        +
+                                                FD_PACK_VOTE_MAX_COMPUTE_UNITS            +
+                                                FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST +
                                                 8 );
 
 
@@ -253,10 +303,10 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     FD_LOG_NOTICE(( "TXN SIMPLE_VOTE signature[%s] total_cost[%lu]", signature_cstr, FD_PACK_SIMPLE_VOTE_COST));
 #endif
     *flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-    fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS );
-    fd_ulong_store_if( !!opt_fee,                       opt_fee,                       0                                  );
-    fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        0                                  );
-    fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, 0                                  );
+    fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            FD_PACK_VOTE_MAX_COMPUTE_UNITS );
+    fd_ulong_store_if( !!opt_fee,                       opt_fee,                       0                              );
+    fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        0                              );
+    fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST );
     return FD_PACK_SIMPLE_VOTE_COST;
   }
 
