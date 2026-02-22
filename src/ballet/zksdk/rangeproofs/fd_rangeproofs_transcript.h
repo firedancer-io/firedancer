@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_rangeproofs_fd_transcript_h
 #define HEADER_fd_src_flamenco_runtime_program_rangeproofs_fd_transcript_h
 
-/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/transcript.rs */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/transcript.rs */
 
 #include "../../merlin/fd_merlin.h"
 #include "../../ed25519/fd_ristretto255.h"

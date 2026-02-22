@@ -1,14 +1,15 @@
 #include "../fd_zksdk_private.h"
 
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L167 */
 static inline void
-zero_ciphertext_transcript_init( fd_zksdk_transcript_t *                    transcript,
-                                 fd_zksdk_zero_ciphertext_context_t const * context ) {
-  fd_zksdk_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("zero-ciphertext-instruction") );
-  fd_zksdk_transcript_append_pubkey    ( transcript, FD_TRANSCRIPT_LITERAL("pubkey"),     context->pubkey );
-  fd_zksdk_transcript_append_ciphertext( transcript, FD_TRANSCRIPT_LITERAL("ciphertext"), context->ciphertext );
+zero_ciphertext_hash_context( fd_zksdk_transcript_t * transcript,
+                              uchar const             pubkey    [ 32 ],
+                              uchar const             ciphertext[ 64 ] ) {
+  fd_zksdk_transcript_append_pubkey    ( transcript, FD_TRANSCRIPT_LITERAL("pubkey"),     pubkey );
+  fd_zksdk_transcript_append_ciphertext( transcript, FD_TRANSCRIPT_LITERAL("ciphertext"), ciphertext );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L102 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L98 */
 static inline int
 fd_zksdk_verify_proof_zero_ciphertext(
   fd_zksdk_zero_ciphertext_proof_t const * proof,
@@ -35,12 +36,22 @@ fd_zksdk_verify_proof_zero_ciphertext(
         Y_P
   */
 
-  /* Validate all inputs */
+  /* Validate all inputs. */
   uchar scalars[ 5 * 32 ];
   fd_ristretto255_point_t points[5];
   fd_ristretto255_point_t y[1];
   fd_ristretto255_point_t res[1];
 
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L104-L109
+     Reject identity pubkey and ciphertext.commitment. */
+  if( FD_UNLIKELY( fd_memeq( pubkey,          fd_ristretto255_compressed_zero, 32 )
+                || fd_memeq( &ciphertext[0],  fd_ristretto255_compressed_zero, 32 )
+                || fd_memeq( &ciphertext[32], fd_ristretto255_compressed_zero, 32 ) ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
+  }
+
+  /* Validate scalar and decompress all points.
+     Note: Agave does this in various places, but any failure simply results in an invalid proof. */
   if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->z )==NULL ) ) {
     return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
@@ -63,7 +74,12 @@ fd_zksdk_verify_proof_zero_ciphertext(
   }
 
   /* Finalize transcript and extract challenges */
+
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L111-L112 */
+  zero_ciphertext_hash_context( transcript, pubkey, ciphertext );
   fd_zksdk_transcript_domsep_zero_ciphertext_proof( transcript );
+
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L119-L126 */
   int val = FD_TRANSCRIPT_SUCCESS;
   val |= fd_zksdk_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_P"), proof->yp);
   if( FD_UNLIKELY( val != FD_TRANSCRIPT_SUCCESS ) ) {
@@ -79,6 +95,9 @@ fd_zksdk_verify_proof_zero_ciphertext(
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L141
+     Note: we use a slightly different MSM but they're equivalent. */
+
   /* Compute scalars */
   fd_curve25519_scalar_neg( &scalars[ 0*32 ], c );                   // -c
   fd_curve25519_scalar_set( &scalars[ 1*32 ], proof->z );            //  z
@@ -89,20 +108,21 @@ fd_zksdk_verify_proof_zero_ciphertext(
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 5 );
 
+  /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/sigma_proofs/zero_ciphertext.rs#L160-L164 */
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y ) ) ) {
     return FD_ZKSDK_VERIFY_PROOF_SUCCESS;
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/zero_ciphertext.rs#L81 */
+/* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/zero_ciphertext.rs#L88 */
 int
 fd_zksdk_instr_verify_proof_zero_ciphertext( void const * _context, void const * _proof ) {
   fd_zksdk_transcript_t transcript[1];
+  fd_zksdk_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("zero-ciphertext-instruction") );
+
   fd_zksdk_zero_ciphertext_context_t const * context = _context;
   fd_zksdk_zero_ciphertext_proof_t const *   proof   = _proof;
-
-  zero_ciphertext_transcript_init( transcript, context );
   return fd_zksdk_verify_proof_zero_ciphertext(
     proof,
     context->pubkey,
