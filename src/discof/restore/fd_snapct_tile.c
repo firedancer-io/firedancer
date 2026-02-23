@@ -25,7 +25,6 @@
 /* FIXME: Implement full_effective_age_cancel_threshold */
 /* FIXME: Add more timeout config options and have consistent behavior */
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
-/* FIXME: Improve behavior when using incremental_snapshots = false */
 /* FIXME: Handle cases where no explicitly allowed peers advertise RPC */
 /* FIXME: Make the code more strict about duplicate IP:port's */
 
@@ -623,6 +622,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_TEST( cluster.full!=ULONG_MAX );
         /* fall back to full snapshot only if the highest cluster slot
            is a full snapshot only */
+        FD_LOG_WARNING(( "incremental snapshots were enabled via [snapshots.incremental_snapshots], but no incremental snapshot is available in the cluster. "
+                         "falling back to full snapshots only." ));
         ctx->config.incremental_snapshots = 0;
       }
 
@@ -1515,6 +1516,10 @@ unprivileged_init( fd_topo_t *      topo,
                             tile->snapct.sources.servers[ i ].hostname,
                             tile->snapct.sources.servers[ i ].is_https );
     }
+  }
+
+  if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
+    FD_LOG_WARNING(( "incremental snapshots disabled via [snapshots.incremental_snapshots]." ));
   }
 
   ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->config.incremental_snapshots, 1UL ) );
