@@ -24,7 +24,7 @@ close: (not (or (eq (arg 0) logfile_fd)
 
 # server: read from an open connection that has been accepted
 #
-# arg 0 is the file descriptor to close.  We will restrict the file
+# arg 0 is the file descriptor to read.  We will restrict the file
 # descriptor used for STDERR and logging.
 read: (not (or (eq (arg 0) logfile_fd)
                (eq (arg 0) 2)))
