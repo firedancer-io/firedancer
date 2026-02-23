@@ -373,6 +373,8 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
        !fd_vote_states_iter_done( iter );
        fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    vote_state->node_account_t_2 = vote_state->node_account_t_1;
+    vote_state->node_account_t_1 = vote_state->node_account;
     vote_state->stake_t_2 = vote_state->stake_t_1;
     vote_state->stake_t_1 = vote_state->stake;
   }

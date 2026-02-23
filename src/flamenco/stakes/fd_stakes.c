@@ -17,7 +17,7 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
     if( FD_UNLIKELY( !vote_state->stake_t_2 ) ) continue;
 
     fd_memcpy( weights[ weights_cnt ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
-    fd_memcpy( weights[ weights_cnt ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].id_key.uc, &vote_state->node_account_t_2, sizeof(fd_pubkey_t) );
     weights[ weights_cnt ].stake = vote_state->stake_t_2;
     weights_cnt++;
   }
