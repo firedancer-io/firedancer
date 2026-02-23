@@ -238,7 +238,7 @@ fd_hpack_rd_next( fd_hpack_rd_t * hpack_rd,
     nghttp2_buf buf = { .last = scratch_ };
     if( FD_UNLIKELY( nghttp2_hd_huff_decode( ctx, &buf, (uchar const *)hdr->value, hdr->value_len, 1 )<0 ) ) return FD_H2_ERR_COMPRESSION;
     hdr->value     = (char const *)scratch_;
-    hdr->value_len = (ushort)( buf.last-scratch_ );
+    hdr->value_len = (uint)( buf.last-scratch_ );
     scratch_       = buf.last;
   }
 
