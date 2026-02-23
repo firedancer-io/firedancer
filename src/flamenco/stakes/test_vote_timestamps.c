@@ -58,6 +58,8 @@ int main( int argc, char ** argv ) {
   FD_TEST( root->child_idx==USHORT_MAX );
   FD_TEST( root->sibling_idx==USHORT_MAX );
 
+  /* root -> child */
+
   ushort child_idx = fd_vote_timestamps_attach_child( vote_timestamps, root_idx, 1UL, 0 );
   fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_A, 11, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx, pubkey_B, 11, 0UL );
@@ -88,6 +90,8 @@ int main( int argc, char ** argv ) {
   FD_TEST( t_10_cnt==1 );
   FD_TEST( t_11_cnt==4 );
 
+
+  /* root -> child -> child2 */
 
   ushort child_idx2 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx, 2UL, 0 );
   fd_vote_timestamps_insert( vote_timestamps, child_idx2, pubkey_F, 11, 0UL );
@@ -120,6 +124,9 @@ int main( int argc, char ** argv ) {
   FD_TEST( t_11_cnt==3 );
   FD_TEST( t_15_cnt==2 );
 
+  /* root -> child -> child2
+                   -> child3 */
+
   ushort child_idx3 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx, 3UL, 0 );
   fd_vote_timestamps_insert( vote_timestamps, child_idx3, pubkey_F, 11, 0UL );
   fd_vote_timestamps_insert( vote_timestamps, child_idx3, pubkey_A, 15, 0UL );
@@ -151,6 +158,11 @@ int main( int argc, char ** argv ) {
   FD_TEST( t_10_cnt==1 );
   FD_TEST( t_11_cnt==3 );
   FD_TEST( t_15_cnt==2 );
+
+  FD_LOG_WARNING(("***********************************************************************"));
+
+  /* root -> child -> child2 -> child4
+                   -> child3           */
 
   /* Make sure the eviction policy is working.  At this point we expect
      LRU eviction to kick in excluding the root and the best option.
@@ -188,6 +200,10 @@ int main( int argc, char ** argv ) {
   FD_TEST( t_15_cnt==2 );
   FD_TEST( t_16_cnt==1 );
 
+  /* root -> child -> child2 -> child4
+                   -> child3
+                   -> child5           */
+
   /* Now try to make a child off of child_idx and see if the skipped
      delta gets applied correctly.  We also should expect to see
      child_idx2's snapshot to be evicted.  Make sure that the root's
@@ -222,10 +238,20 @@ int main( int argc, char ** argv ) {
   FD_TEST( t_11_cnt==1 );
   FD_TEST( t_10_cnt==1 );
 
+  /* root -> child -> child2 -> child4
+                             -> child6
+                   -> child3
+                   -> child5           */
+
   ushort child_idx6 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx2, 6UL, 0 );
   fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx6 );
   FD_TEST( child_fork3->snapshot_idx==UCHAR_MAX );
   FD_TEST( root->snapshot_idx!=UCHAR_MAX );
+
+  /* child -> child2 -> child4
+                     -> child6
+           -> child3
+           -> child5            */
 
   /* Advance the root to a node that does not have a snapshot: in this
      case move to child_idx.  This node also has no siblings so only
@@ -251,6 +277,10 @@ int main( int argc, char ** argv ) {
   }
   FD_TEST( ts_10_cnt==1 );
   FD_TEST( ts_11_cnt==4 );
+
+  /* child5 */
+
+  FD_LOG_WARNING(("***********************************************************************"));
 
   /* Now try advancing the root to the child_idx5 which has a snapshot.
      Also now every other element in the tree will be pruned. */

@@ -5,6 +5,7 @@ struct index_ele {
   fd_pubkey_t pubkey;
   ulong       epoch_stakes[ 2UL ];
   ushort      refcnt;
+  ushort      next_evict;
   uint        next;
 };
 typedef struct index_ele index_ele_t;
@@ -23,6 +24,20 @@ typedef struct index_ele index_ele_t;
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
 #define MAP_NEXT               next
 #define MAP_IDX_T              uint
+#include "../../util/tmpl/fd_map_chain.c"
+
+/* We know we can fit 42k entries in this at any given point.
+   TODO:FIXME: need to document this invariant very clearly. basically
+   can only have ushort_max evictable entries between roots. Which is
+   probably fine because if we root on avg every slot,  */
+#define MAP_NAME               evict_map
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_ELE_T              index_ele_t
+#define MAP_KEY                pubkey
+#define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_NEXT               next_evict
+#define MAP_IDX_T              ushort
 #include "../../util/tmpl/fd_map_chain.c"
 
 /**********************************************************************/
@@ -92,6 +107,7 @@ struct fd_vote_timestamps {
 
   ulong  index_pool_offset;
   ulong  index_map_offset;
+  ulong  evict_map_offset;
 
   ushort root_idx;
 
@@ -149,6 +165,11 @@ fd_vote_timestamps_get_snapshot_keys_dlist( fd_vote_timestamps_t * vote_ts ) {
 static inline snapshot_key_ele_t *
 fd_vote_timestamps_get_snapshot_keys_pool( fd_vote_timestamps_t * vote_ts ) {
   return fd_type_pun( (uchar *)vote_ts + vote_ts->snapshot_keys_pool_offset );
+}
+
+static inline evict_map_t *
+fd_vote_timestamps_get_evict_map( fd_vote_timestamps_t * vote_ts ) {
+  return fd_type_pun( (uchar *)vote_ts + vote_ts->evict_map_offset );
 }
 
 static inline snapshot_ele_t *
