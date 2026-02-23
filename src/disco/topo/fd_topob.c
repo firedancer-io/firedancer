@@ -169,6 +169,8 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
   tile->uses_obj_cnt        = 0UL;
+  tile->allow_shutdown      = 0;
+  tile->allow_crash         = 0;
 
   fd_topo_obj_t * tile_obj = fd_topob_obj( topo, "tile", tile_wksp );
   tile->tile_obj_id = tile_obj->id;
