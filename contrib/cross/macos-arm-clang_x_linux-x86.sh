@@ -102,40 +102,8 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 EOF
 }
 
-deps_secp256k1 () {
-  (
-    cd dl
-    rm -rf secp256k1
-    git clone https://github.com/bitcoin-core/secp256k1
-    cd secp256k1
-    git checkout v0.7.0
-
-    cmake -B build \
-      -DCMAKE_TOOLCHAIN_FILE=../../toolchain.cmake \
-      -DCMAKE_INSTALL_PREFIX:PATH="$(realpath ../../usr/local)" \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-      -DSECP256K1_BUILD_TESTS=OFF \
-      -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF \
-      -DSECP256K1_BUILD_BENCHMARK=OFF \
-      -DSECP256K1_DISABLE_SHARED=ON \
-      -DBUILD_SHARED_LIBS=OFF \
-      -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
-      -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
-      -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
-      -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
-      -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
-      -DSECP256K1_ENABLE_MODULE_MUSIG=OFF \
-      -DSECP256K1_ENABLE_MODULE_ELLSWIFT=OFF \
-      .
-    make -C build
-    make -C build install
-  )
-}
-
 deps () {
   deps_cmake
-  deps_secp256k1
 }
 
 macos_pkgs
