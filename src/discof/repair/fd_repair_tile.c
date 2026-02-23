@@ -452,12 +452,12 @@ before_frag( ctx_t * ctx,
 
 static void
 during_frag( ctx_t * ctx,
-             ulong                  in_idx,
-             ulong                  seq FD_PARAM_UNUSED,
-             ulong                  sig FD_PARAM_UNUSED,
-             ulong                  chunk,
-             ulong                  sz,
-             ulong                  ctl ) {
+             ulong   in_idx,
+             ulong   seq FD_PARAM_UNUSED,
+             ulong   sig,
+             ulong   chunk,
+             ulong   sz,
+             ulong   ctl ) {
   ctx->skip_frag = 0;
 
   uint             in_kind =  ctx->in_kind[ in_idx ];
@@ -481,6 +481,7 @@ during_frag( ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
+    sz = sig;
     return;
   }
   if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP ) ) {
@@ -733,21 +734,22 @@ after_evict( ctx_t * ctx,
 }
 
 static void
-after_frag( ctx_t * ctx,
-            ulong                  in_idx,
-            ulong                  seq    FD_PARAM_UNUSED,
-            ulong                  sig,
-            ulong                  sz,
-            ulong                  tsorig FD_PARAM_UNUSED,
-            ulong                  tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t *    stem ) {
+after_frag( ctx_t *             ctx,
+            ulong               in_idx,
+            ulong               seq    FD_PARAM_UNUSED,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
   ctx->stem = stem;
 
   uint in_kind = ctx->in_kind[ in_idx ];
-  if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS && sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-    fd_forest_init( ctx->forest, 0 );
+  if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
+    fd_genesis_meta_t const * meta = fd_type_pun_const( ctx->buffer );
+    if( meta->bootstrap ) fd_forest_init( ctx->forest, 0 );
     return;
   }
 

@@ -161,9 +161,9 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "txsend_out",   "txsend_out",   128UL,                                    FD_TXN_MTU,                    1UL );
 
-  /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL );
+  /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t),1UL );
 
-  /**/                 fd_topob_link( topo, "genesi_out",  "genesi_out",    2UL,                                        128,     1UL );
+  /**/                 fd_topob_link( topo, "genesi_out",  "genesi_out",    1UL,                                      FD_GENESIS_TILE_MTU,           1UL );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );

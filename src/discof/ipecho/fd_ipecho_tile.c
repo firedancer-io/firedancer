@@ -111,20 +111,12 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
                  ulong                  tsorig,
                  ulong                  tspub,
                  fd_stem_context_t *    stem ) {
-  (void)in_idx; (void)seq; (void)sig; (void)chunk; (void)sz; (void)ctl; (void)tsorig; (void)tspub;
+  (void)in_idx; (void)seq; (void)sig; (void)sz; (void)ctl; (void)tspub;
+  fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr( ctx->genesi_in_mem, chunk );
 
-  if( FD_UNLIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-    uchar const * src = fd_chunk_to_laddr_const( ctx->genesi_in_mem, chunk );
-
-    union {
-      uchar  c[ 32 ];
-      ushort s[ 16 ];
-    } hash;
-
-    fd_memcpy( hash.c, src+sizeof(fd_lthash_value_t), sizeof(fd_hash_t) );
-
+  if( genesis_meta->bootstrap ) {
     ushort xor = 0;
-    for( ulong i=0UL; i<16UL; i++ ) xor ^= hash.s[ i ];
+    for( ulong i=0UL; i<16UL; i++ ) xor ^= genesis_meta->genesis_hash.us[ i ];
 
     xor = fd_ushort_bswap( xor );
     xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );

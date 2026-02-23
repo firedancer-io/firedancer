@@ -38,8 +38,8 @@ struct fd_event_client {
   char client_version[ 10UL ];
   uchar identity_pubkey[ 32UL ];
 
-  int has_genesis_hash;
-  uchar genesis_hash[ 32UL ];
+  int       has_genesis_hash;
+  fd_hash_t genesis_hash[1];
 
   ushort has_shred_version;
   ushort shred_version;
@@ -266,9 +266,9 @@ fd_event_client_id_reserve( fd_event_client_t * client ) {
 }
 
 void
-fd_event_client_init_genesis_hash( fd_event_client_t * client,
-                                   uchar const *       genesis_hash ) {
-  fd_memcpy( client->genesis_hash, genesis_hash, 32UL );
+fd_event_client_init_genesis( fd_event_client_t *       client,
+                              fd_genesis_meta_t const * meta ) {
+  *client->genesis_hash = meta->genesis_hash;
   client->has_genesis_hash = 1;
 }
 

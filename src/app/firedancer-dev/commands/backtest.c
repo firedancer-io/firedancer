@@ -22,6 +22,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/topo/fd_topob_vinyl.h"
 #include "../../../util/pod/fd_pod_format.h"
+#include "../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/fd_snapin_tile_private.h"
 #include "../../../discof/restore/fd_snaplv_tile_private.h"
@@ -330,7 +331,7 @@ backtest_topo( config_t * config ) {
     }
   } else {
     fd_topob_wksp( topo, "genesi_out" );
-    fd_topob_link( topo, "genesi_out", "genesi_out", 2UL, 10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
+    fd_topob_link( topo, "genesi_out", "genesi_out", 1UL, FD_GENESIS_TILE_MTU, 0UL );
     fd_topob_tile_out( topo, "genesi", 0UL, "genesi_out", 0UL );
     fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }

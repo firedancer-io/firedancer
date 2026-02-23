@@ -282,12 +282,8 @@ after_frag( fd_event_tile_t *   ctx,
 
       break;
     case IN_KIND_GENESI: {
-      uchar const * src = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
-      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-        fd_event_client_init_genesis_hash( ctx->client, src+sizeof(fd_lthash_value_t) );
-      } else {
-        fd_event_client_init_genesis_hash( ctx->client, src );
-      }
+      fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
+      fd_event_client_init_genesis( ctx->client, genesis_meta );
       break;
     }
     case IN_KIND_IPECHO:

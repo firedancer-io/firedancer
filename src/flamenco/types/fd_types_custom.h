@@ -18,9 +18,10 @@ union __attribute__((packed)) fd_hash {
   uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangeable
 
   // Generic type specific accessors
-  ulong ul  [ FD_HASH_FOOTPRINT / sizeof(ulong) ];
-  uint  ui  [ FD_HASH_FOOTPRINT / sizeof(uint)  ];
-  uchar uc  [ FD_HASH_FOOTPRINT ];
+  ulong  ul  [ FD_HASH_FOOTPRINT / sizeof(ulong)  ];
+  uint   ui  [ FD_HASH_FOOTPRINT / sizeof(uint)   ];
+  ushort us  [ FD_HASH_FOOTPRINT / sizeof(ushort) ];
+  uchar  uc  [ FD_HASH_FOOTPRINT                  ];
 };
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;

@@ -822,10 +822,10 @@ fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         data_len );
 
 void
-fd_gui_plugin_message( fd_gui_t *    gui,
-                       ulong         plugin_msg,
-                       uchar const * msg,
-                       long          now );
+fd_gui_plugin_message( fd_gui_t *   gui,
+                       ulong        plugin_msg,
+                       void const * msg,
+                       long         now );
 
 void
 fd_gui_became_leader( fd_gui_t * gui,
@@ -933,8 +933,8 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              long                      now );
 
 void
-fd_gui_handle_genesis_hash( fd_gui_t *    gui,
-                            uchar const * msg );
+fd_gui_handle_genesis_hash( fd_gui_t *        gui,
+                            fd_hash_t const * msg );
 
 static inline ulong
 fd_gui_current_epoch_idx( fd_gui_t * gui ) {

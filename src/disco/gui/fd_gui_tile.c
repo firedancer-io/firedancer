@@ -243,7 +243,7 @@ before_frag( fd_gui_ctx_t * ctx,
 static inline void
 during_frag( fd_gui_ctx_t * ctx,
              ulong          in_idx,
-             ulong          seq    FD_PARAM_UNUSED,
+             ulong          seq FD_PARAM_UNUSED,
              ulong          sig,
              ulong          chunk,
              ulong          sz,
@@ -274,7 +274,7 @@ during_frag( fd_gui_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
-    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) sz = sizeof(fd_lthash_value_t)+sizeof(fd_hash_t);
+    sz = sig;
   }
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
@@ -444,12 +444,8 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_GENESI_OUT: {
       FD_TEST( ctx->is_full_client );
-
-      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-        fd_gui_handle_genesis_hash( ctx->gui, src+sizeof(fd_lthash_value_t) );
-      } else {
-        fd_gui_handle_genesis_hash( ctx->gui, src );
-      }
+      fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)src;
+      fd_gui_handle_genesis_hash( ctx->gui, &meta->genesis_hash );
       break;
     }
     case IN_KIND_TOWER_OUT: {
