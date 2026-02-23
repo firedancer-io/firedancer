@@ -3,6 +3,7 @@
 #include "fd_ssmsg.h"
 
 #include "../../../util/log/fd_log.h"
+#include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 #define SSMANIFEST_DEBUG 0
 
@@ -397,6 +398,7 @@ struct fd_ssmanifest_parser_private {
   ulong   epoch;
   ulong   epoch_stakes_epoch;
   ulong   epoch_idx;
+  ulong   leader_schedule_epoch;
 
   ulong   account_data_start;
 
@@ -1607,25 +1609,63 @@ state_process( fd_ssmanifest_parser_t * parser,
     acc_vec_map_ele_insert( acc_vec_map, acc_vec, acc_vec_pool );
   }
 
+  if( FD_UNLIKELY( parser->state==STATE_EPOCH_SCHEDULE_FIRST_NORMAL_SLOT ) ) {
+    fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+      .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+      .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+      .warmup                      = manifest->epoch_schedule_params.warmup,
+      .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+      .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+    };
+    parser->leader_schedule_epoch    = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
+    ulong const epoch_stakes_ele_cnt = sizeof(parser->manifest->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t);
+
+    if( FD_UNLIKELY( parser->leader_schedule_epoch-parser->manifest->epoch>=epoch_stakes_ele_cnt ) ) {
+      /* We only support storing the epoch stakes for the current epoch
+         and the leader schedule epoch, which is usually 1 epoch ahead
+         of the current epoch.  If this ever changes, we will hit this
+         error and need to support more epoch stakes entries. */
+      FD_LOG_WARNING(( "fd_ssmanifest_parser only supports up to %lu epoch_stakes entries, but leader schedule epoch is %lu epochs after manifest epoch",
+                       epoch_stakes_ele_cnt, parser->leader_schedule_epoch-parser->manifest->epoch ));
+      return -1;
+    }
+  }
+
   if( FD_UNLIKELY( parser->state==STATE_EPOCH ) ) {
     parser->manifest->epoch = parser->epoch;
   }
 
   if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_KEY ) ) {
-    ulong epoch_delta = parser->epoch_stakes_epoch-parser->epoch;
-    parser->epoch_idx = epoch_delta<2UL ? epoch_delta : ULONG_MAX;
+    /* The epoch_stakes in the bank is a deprecated, unused field.
+       TODO: remove this field and associated logic when agave fully
+       removes it.
+       https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L151 */
+    if( parser->epoch_stakes_epoch>=parser->epoch && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
+      parser->epoch_idx = parser->epoch_stakes_epoch-parser->epoch;
+    }
+    else {
+      parser->epoch_idx = ULONG_MAX;
+    }
   }
 
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_EPOCH ) ) {
-    long epoch_delta = (long)parser->epoch_stakes_epoch-(long)parser->epoch;
-    if( FD_UNLIKELY( epoch_delta>=2L ) ) {
+    /* The versioned epoch stakes field replaces the deprecated epoch
+       stakes field in the bank.
+       https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L189 */
+    if( FD_UNLIKELY( parser->epoch_stakes_epoch>parser->leader_schedule_epoch ) ) {
       /* VerifyEpochStakesError::EpochGreaterThanMax
          https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L656 */
-      FD_LOG_WARNING(( "epoch stakes epoch %lu is greater than the leader schedule epoch %lu ", parser->epoch_stakes_epoch, parser->epoch+1 ));
+      FD_LOG_WARNING(( "epoch stakes epoch %lu is greater than the leader schedule epoch %lu ", parser->epoch_stakes_epoch, parser->leader_schedule_epoch ));
       return -1;
     }
-    parser->epoch_idx = (epoch_delta==0UL || epoch_delta==1UL) ? (ulong)epoch_delta : ULONG_MAX;
-    if( FD_LIKELY( parser->epoch_idx!=ULONG_MAX ) ) parser->manifest->epoch_stakes[ parser->epoch_idx ].epoch = parser->epoch_stakes_epoch;
+
+    if( parser->epoch_stakes_epoch>=parser->epoch && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
+      parser->epoch_idx = parser->epoch_stakes_epoch-parser->epoch;
+      parser->manifest->epoch_stakes[ parser->epoch_idx ].epoch = parser->epoch_stakes_epoch;
+    }
+    else {
+      parser->epoch_idx = ULONG_MAX;
+    }
   }
 
   /* STATE_STAKES_VOTE_ACCOUNTS */
@@ -1957,4 +1997,9 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
   }
 
   return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
+}
+
+ulong
+fd_ssmanifest_parser_leader_schedule_epoch( fd_ssmanifest_parser_t * parser ) {
+  return parser->leader_schedule_epoch;
 }

@@ -35,6 +35,9 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               acc_vec_map_t *          acc_vec_map,
                               acc_vec_t *              acc_vec_pool );
 
+ulong
+fd_ssmanifest_parser_leader_schedule_epoch( fd_ssmanifest_parser_t * parser );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmanifest_parser_h */
