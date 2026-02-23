@@ -99,7 +99,6 @@ privileged_init( fd_topo_t *      topo,
   ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
   FD_TEST( ctx->sshttp );
 
-  /* FIXME: Allow incremental_snapshots=0 config */
   ulong full_slot = ULONG_MAX;
   ulong incr_slot = ULONG_MAX;
   int full_is_zstd = 0;
@@ -108,7 +107,11 @@ privileged_init( fd_topo_t *      topo,
   char incr_path[ PATH_MAX ] = { 0 };
   ctx->local_full_fd = -1;
   ctx->local_incr_fd = -1;
-  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path, 1,
+  /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
+     of whether snapct may do the same, because this information is
+     needed here during privileged_init. */
+  if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
+                                               tile->snapld.incremental_snapshots,
                                                &full_slot,    &incr_slot,
                                                 full_path,     incr_path,
                                                &full_is_zstd, &incr_is_zstd ) ) ) {
