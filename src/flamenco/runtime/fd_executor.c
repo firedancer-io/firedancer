@@ -1338,7 +1338,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( err ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
     FD_TXN_ERR_FOR_LOG_INSTR( txn_out, err, txn_out->err.exec_err_idx );
-    return err;
+    return fd_execute_instr_end( ctx, instr, err );
   }
 
   if( FD_LIKELY( native_prog_fn!=NULL ) ) {
