@@ -19,7 +19,7 @@
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
-
+#include "../../discof/tower/fd_tower_tile.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../topo/fd_topo.h"
 
@@ -131,18 +131,18 @@ fd_gui_peers_adaptive_ema( long last_update_time,
     return (long)(alpha * (double)current_value + (1.0 - alpha) * (double)value_at_last_update);
 }
 
-struct fd_gui_peers_vote {
+struct fd_gui_peers_voter {
   fd_pubkey_t node_account;
   fd_pubkey_t vote_account;
   ulong       stake;
   ulong       last_vote_slot;
   long        last_vote_timestamp;
-  uchar       commission;
-  ulong       epoch;
-  ulong       epoch_credits;
+
+  struct { ulong next, prev; } map;
+  struct { ulong next; } pool;
 };
 
-typedef struct fd_gui_peers_vote fd_gui_peers_vote_t;
+typedef struct fd_gui_peers_voter fd_gui_peers_voter_t;
 
 struct fd_gui_peers_node {
   int valid;
@@ -157,17 +157,15 @@ struct fd_gui_peers_node {
   fd_gui_peers_metric_rate_t gossvf_rx_sum; /* sum of gossvf_rx */
   fd_gui_peers_metric_rate_t gossip_tx_sum; /* sum of gossip_tx */
 
-  int         has_vote_info;
-  fd_pubkey_t vote_account;
-  ulong       stake; /* if has_vote_info==0 then stake==ULONG_MAX */
-  ulong       last_vote_slot;
-  long        last_vote_timestamp;
-  uchar       commission;
-  ulong       epoch;
-  ulong       epoch_credits;
   uchar       country_code_idx;
   uint        city_name_idx;
-  int         delinquent;
+
+  fd_pubkey_t vote_account;
+  int         has_vote_info;
+  ulong       stake;
+  ulong       last_vote_slot;
+  long        last_vote_timestamp;
+  int         is_delinquent;
 
   struct {
     ulong next;
@@ -256,6 +254,23 @@ struct fd_gui_peers_gossip_stats {
   ulong messages_count_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
 };
 typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
+
+#define POOL_NAME fd_gui_peers_voters_pool
+#define POOL_T    fd_gui_peers_voter_t
+#define POOL_NEXT pool.next
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME  fd_gui_peers_voters_map
+#define MAP_ELE_T fd_gui_peers_voter_t
+#define MAP_KEY_T fd_pubkey_t
+#define MAP_KEY   vote_account
+#define MAP_IDX_T ulong
+#define MAP_NEXT  map.next
+#define MAP_PREV  map.prev
+#define MAP_KEY_HASH(k,s) (fd_hash( (s), (k)->uc, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_EQ(k0,k1) (!memcmp((k0)->uc, (k1)->uc, 32UL))
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
 
 #define POOL_NAME fd_gui_peers_node_info_pool
 #define POOL_T    fd_gui_config_parse_info_t
@@ -367,6 +382,8 @@ struct fd_gui_peers_ctx {
   long next_metric_rate_update_nanos; /* ns timestamp when we'll next update rate-of-change metrics */
   long next_gossip_stats_update_nanos; /* ns timestamp when we'll next broadcast out gossip stats message */
 
+  fd_gui_peers_voter_t * voters_pool;
+  fd_gui_peers_voters_map_t * voters_map;
   fd_gui_config_parse_info_t * node_info_pool;
   fd_gui_peers_node_info_map_t * node_info_map;
   fd_gui_peers_node_pubkey_map_t * node_pubkey_map;
@@ -386,9 +403,16 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_node_t contact_info_table[ FD_CONTACT_INFO_TABLE_SIZE ];
 
   ulong slot_voted; /* last vote slot for this validator */
-
-  fd_gui_peers_vote_t votes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-  fd_gui_peers_vote_t votes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ]; /* for fast stable sort */
+  union {
+    struct {
+      fd_gui_peers_voter_t voters1[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+      fd_gui_peers_voter_t voters2[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    };
+    struct {
+      int                  actions[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+      ulong                idxs   [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    };
+  } voters_scratch;
 
 #if FD_HAS_ZSTD
   ZSTD_DCtx * zstd_dctx;
@@ -445,11 +469,13 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    long                               now );
 
 void
-fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
-                                 fd_gui_peers_vote_t * votes,
-                                 ulong                 vote_cnt,
-                                 long                  now,
-                                 fd_pubkey_t *         identity );
+fd_gui_peers_stage_vote_update( fd_gui_peers_ctx_t *  peers,
+                                fd_tower_vote_state_t const * vote_state );
+
+void
+fd_gui_peers_commit_vote_updates( fd_gui_peers_ctx_t *  peers,
+                                  long                  now,
+                                  fd_pubkey_t *         identity );
 
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,

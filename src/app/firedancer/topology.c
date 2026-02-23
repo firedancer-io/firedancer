@@ -1297,19 +1297,12 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"        );
-    fd_topob_wksp( topo, "gui_replay" );
 
-    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 )->allow_crash = 1;
 
     /* Read banks */
     /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], banks_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
     /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-    /* release ownership of banks */
-    /**/                 fd_topob_link( topo, "gui_replay", "gui_replay", 128, 0UL,2UL ); /* burst==2 since a bank and its parent may be sent in one burst */
-
-    /**/                 fd_topob_tile_out( topo, "gui",    0UL,                        "gui_replay", 0UL                                                );
-    /**/                 fd_topob_tile_in ( topo, "replay", 0UL,           "metric_in", "gui_replay", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
     /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
     FOR(net_tile_cnt)      fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "net_gossvf",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */

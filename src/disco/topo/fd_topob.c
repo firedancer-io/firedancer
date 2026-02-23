@@ -167,6 +167,8 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
   tile->uses_obj_cnt        = 0UL;
+  tile->allow_shutdown      = 0;
+  tile->allow_crash         = 0;
 
   fd_topo_obj_t * tile_obj = fd_topob_obj( topo, "tile", tile_wksp );
   tile->tile_obj_id = tile_obj->id;
@@ -206,6 +208,11 @@ fd_topob_tile_in( fd_topo_t *  topo,
   ulong link_id = fd_topo_find_link( topo, link_name, link_kind_id );
   if( FD_UNLIKELY( link_id==ULONG_MAX ) ) FD_LOG_ERR(( "link not found: %s:%lu", link_name, link_kind_id ));
   fd_topo_link_t * link = &topo->links[ link_id ];
+
+  ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
+  if( FD_UNLIKELY( producer_tile_id!=ULONG_MAX ) ) { /* producer might be added after consumers have already been added */
+    if( FD_UNLIKELY( topo->tiles[ producer_tile_id ].allow_crash && reliable ) ) FD_LOG_ERR(( "cannot reliably consume from a tile with allow_crash=1: %s:%lu ", tile_name, tile_kind_id ) );
+  }
 
   if( FD_UNLIKELY( tile->in_cnt>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "too many in links: %s:%lu", tile_name, tile_kind_id ) );
   tile->in_link_id[ tile->in_cnt ] = link->id;
@@ -654,6 +661,9 @@ fd_topob_finish( fd_topo_t *                topo,
                  fd_topo_obj_callbacks_t ** callbacks ) {
   for( ulong z=0UL; z<topo->tile_cnt; z++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ z ];
+
+    if( FD_UNLIKELY( tile->allow_crash && fd_topo_tile_reliable_consumer_cnt( topo, tile )>0UL ) )
+      FD_LOG_ERR(( "tiles with allow_crash=1 may not have reliable consumers: %s:%lu", tile->name, tile->kind_id ));
 
     ulong in_cnt = 0UL;
     for( ulong i=0UL; i<tile->in_cnt; i++ ) {

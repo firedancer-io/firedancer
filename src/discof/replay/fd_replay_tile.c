@@ -91,9 +91,8 @@
 #define IN_KIND_EXECRP     ( 6)
 #define IN_KIND_SHRED      ( 7)
 #define IN_KIND_TXSEND     ( 8)
-#define IN_KIND_GUI        ( 9)
-#define IN_KIND_RPC        (10)
-#define IN_KIND_GOSSIP_OUT (11)
+#define IN_KIND_RPC        ( 9)
+#define IN_KIND_GOSSIP_OUT (10)
 
 #define DEBUG_LOGGING 0
 
@@ -795,19 +794,29 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
      they are done using the bank. */
   bank->data->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->data->refcnt++; /* rpc tile */
-  if( FD_LIKELY( ctx->gui_enabled ) ) bank->data->refcnt++; /* gui tile */
   slot_info->bank_idx = bank->data->idx;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc, gui", bank->data->idx, slot, bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc", bank->data->idx, slot, bank->data->refcnt ));
 
   slot_info->parent_bank_idx = ULONG_MAX;
   fd_bank_t parent_bank[1];
-  if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) && ctx->gui_enabled ) ) {
-    parent_bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", parent_bank->data->idx, fd_bank_slot_get( parent_bank ), parent_bank->data->refcnt ));
-    slot_info->parent_bank_idx = parent_bank->data->idx;
+  if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) ) ) {
+    slot_info->total_txn_cnt          = (uint)(fd_bank_txn_count_get( bank )                 - fd_bank_txn_count_get( parent_bank ));
+    slot_info->vote_txn_cnt           = slot_info->total_txn_cnt - (uint)(fd_bank_nonvote_txn_count_get( bank ) - fd_bank_nonvote_txn_count_get( parent_bank ));
+    slot_info->failed_txn_cnt         = (uint)(fd_bank_failed_txn_count_get( bank )          - fd_bank_failed_txn_count_get( parent_bank ));
+    slot_info->nonvote_failed_txn_cnt = (uint)(fd_bank_nonvote_failed_txn_count_get( bank )  - fd_bank_nonvote_failed_txn_count_get( parent_bank ));
+  } else {
+    slot_info->total_txn_cnt          = ULONG_MAX;
+    slot_info->vote_txn_cnt           = ULONG_MAX;
+    slot_info->failed_txn_cnt         = ULONG_MAX;
+    slot_info->nonvote_failed_txn_cnt = ULONG_MAX;
   }
 
   slot_info->is_leader = is_leader;
+  slot_info->transaction_fee = fd_bank_execution_fees_get( bank );
+  slot_info->transaction_fee -= (slot_info->transaction_fee>>1); /* burn */
+  slot_info->priority_fee = fd_bank_priority_fees_get( bank );
+  slot_info->tips = fd_bank_tips_get( bank );
+  slot_info->shred_cnt = fd_bank_shred_cnt_get( bank );
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->data->idx ].latest_mr.uc, block_id_cstr );
   FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_query( bank )->uc, bank_hash_cstr );
@@ -1023,7 +1032,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
 
   if( ctx->rpc_enabled ) {
     bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
   }
 
   /* Increment the reference count on the consensus root bank to account
@@ -2591,8 +2600,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
       break;
     }
-    case IN_KIND_RPC:
-    case IN_KIND_GUI: {
+    case IN_KIND_RPC: {
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, sig ) );
       bank->data->refcnt--;
@@ -2875,7 +2883,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
-    else if( !strcmp( link->name, "gui_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));

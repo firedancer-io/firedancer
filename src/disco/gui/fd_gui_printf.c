@@ -1289,10 +1289,10 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
           jsonp_string( peers->http, "vote_account", vote_account_base58 );
           jsonp_ulong_as_str( peers->http, "activated_stake", peer->stake );
           jsonp_ulong( peers->http, "last_vote", peer->last_vote_slot );
-          jsonp_ulong( peers->http, "epoch_credits", peer->epoch_credits );
-          jsonp_ulong( peers->http, "commission", peer->commission );
-          jsonp_ulong( peers->http, "root_slot", 0UL );
-          jsonp_bool( peers->http,  "delinquent", peer->delinquent );
+          jsonp_ulong( peers->http, "epoch_credits", 0UL ); /* todo: deprecate */
+          jsonp_ulong( peers->http, "commission", 0UL ); /* todo: deprecate */
+          jsonp_ulong( peers->http, "root_slot", 0UL ); /* todo: deprecate */
+          jsonp_bool( peers->http,  "delinquent", peer->is_delinquent );
         jsonp_close_object( peers->http );
       jsonp_close_array( peers->http );
     }

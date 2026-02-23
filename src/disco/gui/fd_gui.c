@@ -2830,28 +2830,24 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 }
 
 void
-fd_gui_handle_replay_update( fd_gui_t *                gui,
-                             fd_gui_slot_completed_t * slot_completed,
-                             fd_hash_t const *         block_hash,
-                             ulong                     vote_slot,
-                             ulong                     storage_slot,
-                             ulong                     rooted_slot,
-                             ulong                     identity_balance,
-                             long                      now ) {
+fd_gui_handle_replay_update( fd_gui_t *                         gui,
+                             fd_replay_slot_completed_t const * slot_completed,
+                             ulong                              vote_slot,
+                             long                               now ) {
   (void)now;
 
-  if( FD_LIKELY( rooted_slot!=ULONG_MAX && gui->summary.slot_rooted!=rooted_slot ) ) {
-    fd_gui_handle_rooted_slot( gui, rooted_slot );
+  if( FD_LIKELY( slot_completed->root_slot!=ULONG_MAX && gui->summary.slot_rooted!=slot_completed->root_slot ) ) {
+    fd_gui_handle_rooted_slot( gui, slot_completed->root_slot );
   }
 
-  if( FD_LIKELY( gui->summary.slot_storage!=storage_slot ) ) {
-    gui->summary.slot_storage = storage_slot;
+  if( FD_LIKELY( gui->summary.slot_storage!=slot_completed->storage_slot ) ) {
+    gui->summary.slot_storage = slot_completed->storage_slot;
     fd_gui_printf_storage_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
 
-  if( FD_UNLIKELY( identity_balance!=ULONG_MAX && gui->summary.identity_account_balance!=identity_balance ) ) {
-    gui->summary.identity_account_balance = identity_balance;
+  if( FD_UNLIKELY( slot_completed->identity_balance!=ULONG_MAX && gui->summary.identity_account_balance!=slot_completed->identity_balance ) ) {
+    gui->summary.identity_account_balance = slot_completed->identity_balance;
 
     fd_gui_printf_identity_balance( gui );
     fd_http_server_ws_broadcast( gui->http );
@@ -2873,12 +2869,12 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
 
   if( FD_UNLIKELY( slot->mine ) ) {
     fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, slot->slot );
-    if( FD_LIKELY( lslot ) ) fd_memcpy( lslot->block_hash.uc, block_hash->uc, sizeof(fd_hash_t) );
+    if( FD_LIKELY( lslot ) ) fd_memcpy( lslot->block_hash.uc, slot_completed->block_hash.uc, sizeof(fd_hash_t) );
   }
 
-  slot->completed_time    = slot_completed->completed_time;
+  slot->completed_time    = slot_completed->completion_time_nanos;
   slot->parent_slot       = slot_completed->parent_slot;
-  slot->max_compute_units = fd_uint_if( slot_completed->max_compute_units==UINT_MAX, slot->max_compute_units, slot_completed->max_compute_units );
+  slot->max_compute_units = fd_uint_if( slot_completed->cost_tracker.block_cost_limit==ULONG_MAX, slot->max_compute_units, (uint)slot_completed->cost_tracker.block_cost_limit );
   if( FD_LIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
     /* Typically a slot goes from INCOMPLETE to COMPLETED but it can
        happen that it starts higher.  One such case is when we
@@ -2893,15 +2889,15 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
       slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
     }
   }
-  slot->total_txn_cnt          = slot_completed->total_txn_cnt;
-  slot->vote_txn_cnt           = slot_completed->vote_txn_cnt;
-  slot->failed_txn_cnt         = slot_completed->failed_txn_cnt;
-  slot->nonvote_failed_txn_cnt = slot_completed->nonvote_failed_txn_cnt;
+  slot->total_txn_cnt          = fd_uint_if( slot_completed->total_txn_cnt==ULONG_MAX, slot->total_txn_cnt, (uint)slot_completed->total_txn_cnt );
+  slot->vote_txn_cnt           = fd_uint_if( slot_completed->vote_txn_cnt==ULONG_MAX, slot->vote_txn_cnt, (uint)slot_completed->vote_txn_cnt );
+  slot->failed_txn_cnt         = fd_uint_if( slot_completed->failed_txn_cnt==ULONG_MAX, slot->failed_txn_cnt, (uint)slot_completed->failed_txn_cnt );
+  slot->nonvote_failed_txn_cnt = fd_uint_if( slot_completed->nonvote_failed_txn_cnt==ULONG_MAX, slot->nonvote_failed_txn_cnt, (uint)slot_completed->nonvote_failed_txn_cnt );
   slot->transaction_fee        = slot_completed->transaction_fee;
   slot->priority_fee           = slot_completed->priority_fee;
   slot->tips                   = slot_completed->tips;
-  slot->compute_units          = slot_completed->compute_units;
-  slot->shred_cnt              = slot_completed->shred_cnt;
+  slot->compute_units          = fd_uint_if( slot_completed->cost_tracker.block_cost==ULONG_MAX, slot->compute_units, (uint)slot_completed->cost_tracker.block_cost );
+  slot->shred_cnt              = fd_uint_if( slot_completed->shred_cnt==ULONG_MAX, slot->shred_cnt, (uint)slot_completed->shred_cnt );
   slot->vote_slot              = vote_slot;
 
   try_publish_vote_status( gui, slot_completed->slot );
@@ -2935,7 +2931,7 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
   fd_gui_slot_staged_shred_event_t * slot_complete_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
   gui->shreds.staged_tail++;
   slot_complete_event->event     = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
-  slot_complete_event->timestamp = slot_completed->completed_time;
+  slot_complete_event->timestamp = slot_completed->completion_time_nanos;
   slot_complete_event->shred_idx = USHORT_MAX;
   slot_complete_event->slot      = slot->slot;
 

@@ -10,9 +10,9 @@ void *
 create_clone_stack( void );
 
 int
-clone_firedancer( config_t const * config,
-                  int              close_fd,
-                  int *            out_pipe );
+clone_firedancer( config_t * config,
+                  int        close_fd,
+                  int *      out_pipe );
 
 void
 fdctl_check_configure( config_t const * config );
