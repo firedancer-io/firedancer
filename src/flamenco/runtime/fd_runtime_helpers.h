@@ -81,7 +81,8 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
                          fd_capture_ctx_t *        capture_ctx,
                          fd_hash_t const *         genesis_hash,
                          fd_lthash_value_t const * genesis_lthash,
-                         fd_genesis_t const *      genesis_block,
+                         fd_genesis_t const *      genesis,
+                         uchar const *             genesis_blob,
                          fd_runtime_stack_t *      runtime_stack );
 
 /* Error logging handholding assertions */

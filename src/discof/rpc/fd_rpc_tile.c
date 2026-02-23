@@ -15,7 +15,6 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/cJSON.h"
 #include "../../ballet/json/cJSON_alloc.h"
-#include "../../ballet/lthash/fd_lthash.h"
 #include "../../util/archive/fd_tar.h"
 
 #include <stddef.h>
@@ -45,10 +44,9 @@
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
-#define IN_KIND_REPLAY      (0)
-#define IN_KIND_GENESI      (1)
-#define IN_KIND_GOSSIP_OUT  (2)
-#define IN_KIND_GENESI_FILE (3)
+#define IN_KIND_REPLAY     (0)
+#define IN_KIND_GENESI     (1)
+#define IN_KIND_GOSSIP_OUT (2)
 
 #define FD_RPC_COMMITMENT_PROCESSED (0)
 #define FD_RPC_COMMITMENT_CONFIRMED (1)
@@ -249,8 +247,8 @@ struct fd_rpc_tile {
   ulong confirmed_idx;
   ulong finalized_idx;
 
-  int has_genesis_hash;
-  uchar genesis_hash[ 32 ];
+  int       has_genesis_hash;
+  fd_hash_t genesis_hash[1];
 
 #define FD_RPC_TAR_SZ (FD_GENESIS_MAX_MESSAGE_SIZE + 4UL*512UL)
   uchar genesis_tar[ FD_RPC_TAR_SZ ];
@@ -447,26 +445,24 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     }
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI ) {
     ctx->has_genesis_hash = 1;
-    uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-      fd_memcpy( ctx->genesis_hash, src+sizeof(fd_lthash_value_t), 32UL );
-    } else {
-      fd_memcpy( ctx->genesis_hash, src, 32UL );
-    }
-  } else if( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_FILE ) {
-    uchar * src = (uchar *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    *ctx->genesis_hash = genesis_meta->genesis_hash;
 
-    ulong padding_sz = 2*512UL;
-    if( FD_LIKELY( sz % 512UL ) ) padding_sz += 512UL - (sz % 512UL);
-    FD_TEST( sizeof(fd_tar_meta_t)+sz+padding_sz <= sizeof(ctx->genesis_tar) );
+    uchar const * blob    = (uchar const *)( genesis_meta+1 );
+    ulong const   blob_sz = genesis_meta->blob_sz;
+    FD_TEST( blob_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
 
-    fd_tar_meta_init_file_default( (fd_tar_meta_t *)ctx->genesis_tar, "genesis.bin", sz, fd_log_wallclock() );
-    fd_memcpy( ctx->genesis_tar+sizeof(fd_tar_meta_t), src, sz );
-    memset( ctx->genesis_tar+sizeof(fd_tar_meta_t)+sz, 0, padding_sz );
+    ulong tar_entry_sz        = sizeof(fd_tar_meta_t) + blob_sz;
+    ulong tar_entry_sz_padded = fd_ulong_align_up( tar_entry_sz, sizeof(fd_tar_meta_t) );
+    ulong pad_sz              = tar_entry_sz_padded - tar_entry_sz;
+
+    fd_tar_meta_init_file_default( (fd_tar_meta_t *)ctx->genesis_tar, "genesis.bin", blob_sz, fd_log_wallclock() );
+    fd_memcpy( ctx->genesis_tar+sizeof(fd_tar_meta_t), blob, blob_sz );
+    if( pad_sz ) fd_memset( ctx->genesis_tar+sizeof(fd_tar_meta_t)+blob_sz, 0, pad_sz );
 
     /* NOTE: Agave's genesis.tar also contains a `rocksdb` folder */
 
-    ctx->genesis_tar_sz = sizeof(fd_tar_meta_t)+sz+padding_sz;
+    ctx->genesis_tar_sz = tar_entry_sz_padded;
 
 #   if FD_HAS_BZIP2
     bz_stream bzstrm = {0};
@@ -499,7 +495,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     FD_LOG_ERR(( "This build does not include bzip2, which is required to serve genesis file.\n"
                  "To install bzip2, re-run ./deps.sh +dev, make distclean, and make -j" ));
 #   endif
-
   }
 
   return 0;
@@ -1159,7 +1154,7 @@ getGenesisHash( fd_rpc_tile_t * ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Firedancer Error: No genesis hash\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, cJSON_PrintUnformatted( id ) );
   }
 
-  FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash, genesis_hash_b58 );
+  FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%s}\n", genesis_hash_b58, cJSON_PrintUnformatted( id ) );
 }
 
@@ -1716,7 +1711,6 @@ unprivileged_init( fd_topo_t *      topo,
     if     ( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "genesi_rpc" ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_FILE;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

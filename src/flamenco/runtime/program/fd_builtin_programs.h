@@ -71,7 +71,7 @@ fd_write_builtin_account( fd_bank_t  *              bank,
                           fd_funk_txn_xid_t const * xid,
                           fd_capture_ctx_t *        capture_ctx,
                           fd_pubkey_t const         pubkey,
-                          char const *              data,
+                          void const *              data,
                           ulong                     sz );
 
 fd_builtin_program_t const *

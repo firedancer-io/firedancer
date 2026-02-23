@@ -167,10 +167,11 @@ struct fd_replay_tile {
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
 
-  int   has_genesis_hash;
-  char  genesis_path[ PATH_MAX ];
-  uchar genesis_hash[ 32UL ];
-  ulong cluster_type;
+  int          has_genesis_hash;
+  char         genesis_path[ PATH_MAX ];
+  fd_hash_t    genesis_hash[1];
+  fd_genesis_t genesis[1];
+  ulong        cluster_type;
 
 #define FD_REPLAY_HARD_FORKS_MAX (64UL)
   ulong hard_forks_cnt;
@@ -1352,18 +1353,16 @@ store_xinsert( fd_store_t      * store,
 }
 
 static void
-boot_genesis( fd_replay_tile_t *  ctx,
-              fd_stem_context_t * stem,
-              ulong               in_idx,
-              ulong               chunk ) {
+boot_genesis( fd_replay_tile_t *        ctx,
+              fd_stem_context_t *       stem,
+              fd_genesis_meta_t const * meta ) {
   /* If we are bootstrapping, we can't wait to wait for our identity
      vote to be rooted as this creates a circular dependency. */
   ctx->has_identity_vote_rooted = 1;
 
-  uchar const * lthash       = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-  uchar const * genesis_hash = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t);
-
-  fd_genesis_t const * genesis = fd_type_pun( (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t) );
+  uchar const * genesis_blob = (uchar const *)( meta+1 );
+  FD_TEST( meta->bootstrap && meta->has_lthash );
+  FD_TEST( fd_genesis_parse( ctx->genesis, genesis_blob, meta->blob_sz ) );
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, FD_REPLAY_BOOT_BANK_IDX ) );
@@ -1373,7 +1372,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t root_xid = { .ul = { LONG_MAX, LONG_MAX } };
   fd_funk_txn_xid_t target_xid = { .ul = { 0UL, 0UL } };
   fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &target_xid );
-  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, &ctx->runtime_stack );
+  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &xid, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, &ctx->runtime_stack );
   fd_accdb_advance_root( ctx->accdb_admin, &target_xid );
 
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
@@ -1439,7 +1438,7 @@ maybe_verify_cluster_type( fd_replay_tile_t * ctx ) {
     return;
   }
 
-  FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash, hash_cstr );
+  FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, hash_cstr );
   ulong cluster = fd_genesis_cluster_identify( hash_cstr );
   /* Map pyth-related clusters to unkwown. */
   switch( cluster ) {
@@ -2360,7 +2359,7 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
     xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
 
     if( FD_UNLIKELY( expected_shred_version!=xor ) ) {
-      FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash, genesis_hash_b58 );
+      FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
       FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, xor, genesis_hash_b58 ));
     }
   }
@@ -2408,13 +2407,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
   switch( ctx->in_kind[in_idx] ) {
     case IN_KIND_GENESIS: {
-      uchar const * src = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      fd_genesis_meta_t const * meta = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->has_genesis_hash = 1;
-      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-        boot_genesis( ctx, stem, in_idx, chunk );
-        fd_memcpy( ctx->genesis_hash, src+sizeof(fd_lthash_value_t), sizeof(fd_hash_t) );
-      } else {
-        fd_memcpy( ctx->genesis_hash, src, sizeof(fd_hash_t) );
+      *ctx->genesis_hash = meta->genesis_hash;
+      if( FD_LIKELY( meta->bootstrap ) ) {
+        boot_genesis( ctx, stem, meta );
       }
 
       maybe_verify_cluster_type( ctx );

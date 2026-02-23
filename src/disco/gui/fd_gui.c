@@ -2427,9 +2427,9 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
 }
 
 void
-fd_gui_handle_genesis_hash( fd_gui_t *    gui,
-                            uchar const * msg ) {
-  FD_BASE58_ENCODE_32_BYTES(msg, hash_cstr);
+fd_gui_handle_genesis_hash( fd_gui_t *        gui,
+                            fd_hash_t const * msg ) {
+  FD_BASE58_ENCODE_32_BYTES( msg->uc, hash_cstr );
   ulong cluster = fd_genesis_cluster_identify(hash_cstr);
   char const * cluster_name = fd_genesis_cluster_name(cluster);
 
@@ -2964,10 +2964,10 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
 }
 
 void
-fd_gui_plugin_message( fd_gui_t *    gui,
-                       ulong         plugin_msg,
-                       uchar const * msg,
-                       long          now ) {
+fd_gui_plugin_message( fd_gui_t *   gui,
+                       ulong        plugin_msg,
+                       void const * msg,
+                       long         now ) {
 
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:

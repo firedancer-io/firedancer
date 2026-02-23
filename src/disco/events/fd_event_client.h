@@ -3,6 +3,7 @@
 
 #include "fd_circq.h"
 #include "../keyguard/fd_keyguard_client.h"
+#include "../../discof/genesis/fd_genesi_tile.h"
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h>
@@ -63,8 +64,8 @@ ulong
 fd_event_client_id_reserve( fd_event_client_t * client );
 
 void
-fd_event_client_init_genesis_hash( fd_event_client_t * client,
-                                   uchar const *       genesis_hash );
+fd_event_client_init_genesis( fd_event_client_t *       client,
+                              fd_genesis_meta_t const * genesis_meta );
 
 void
 fd_event_client_init_shred_version( fd_event_client_t * client,
