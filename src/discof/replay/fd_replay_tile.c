@@ -90,9 +90,8 @@
 #define IN_KIND_EXECRP     ( 6)
 #define IN_KIND_REPAIR     ( 7)
 #define IN_KIND_TXSEND     ( 8)
-#define IN_KIND_GUI        ( 9)
-#define IN_KIND_RPC        (10)
-#define IN_KIND_GOSSIP_OUT (11)
+#define IN_KIND_RPC        ( 9)
+#define IN_KIND_GOSSIP_OUT (10)
 
 #define DEBUG_LOGGING 0
 
@@ -421,12 +420,9 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t epoch_out[1];
 
-
-  /* The gui tile needs to reliably own a reference to the most recent
-     completed active bank.  Replay needs to know if the gui as a
-     consumer is enabled so it can increment the bank's refcnt before
-     publishing the bank_idx to the gui. */
-  int gui_enabled;
+  /* The rpc tile needs to occasionally own a reference to a live bank.
+     Replay needs to know if the rpc as a consumer is enabled so it can
+     increment the bank's refcnt before publishing bank_idx. */
   int rpc_enabled;
 
 # if FD_HAS_FLATCC
@@ -721,15 +717,19 @@ static void
 cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
   if( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank->data ) ) ) {
     fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
-    slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
-    slot_info->cost_tracker.vote_cost                    = cost_tracker->vote_cost;
-    slot_info->cost_tracker.allocated_accounts_data_size = cost_tracker->allocated_accounts_data_size;
-    slot_info->cost_tracker.block_cost_limit             = cost_tracker->block_cost_limit;
-    slot_info->cost_tracker.vote_cost_limit              = cost_tracker->vote_cost_limit;
-    slot_info->cost_tracker.account_cost_limit           = cost_tracker->account_cost_limit;
+    if( FD_UNLIKELY( cost_tracker->block_cost_limit==0UL ) ) {
+      memset( &slot_info->cost_tracker, -1 /* ULONG_MAX */, sizeof(slot_info->cost_tracker) );
+    } else {
+      slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
+      slot_info->cost_tracker.vote_cost                    = cost_tracker->vote_cost;
+      slot_info->cost_tracker.allocated_accounts_data_size = cost_tracker->allocated_accounts_data_size;
+      slot_info->cost_tracker.block_cost_limit             = cost_tracker->block_cost_limit;
+      slot_info->cost_tracker.vote_cost_limit              = cost_tracker->vote_cost_limit;
+      slot_info->cost_tracker.account_cost_limit           = cost_tracker->account_cost_limit;
+    }
     fd_bank_cost_tracker_end_locking_query( bank );
   } else {
-    memset( &slot_info->cost_tracker, 0, sizeof(slot_info->cost_tracker) );
+    memset( &slot_info->cost_tracker, -1 /* ULONG_MAX */, sizeof(slot_info->cost_tracker) );
   }
 }
 
@@ -814,19 +814,33 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
      they are done using the bank. */
   bank->data->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->data->refcnt++; /* rpc tile */
-  if( FD_LIKELY( ctx->gui_enabled ) ) bank->data->refcnt++; /* gui tile */
   slot_info->bank_idx = bank->data->idx;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc, gui", bank->data->idx, slot, bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc", bank->data->idx, slot, bank->data->refcnt ));
 
-  slot_info->parent_bank_idx = ULONG_MAX;
   fd_bank_t parent_bank[1];
-  if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) && ctx->gui_enabled ) ) {
-    parent_bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", parent_bank->data->idx, fd_bank_slot_get( parent_bank ), parent_bank->data->refcnt ));
-    slot_info->parent_bank_idx = parent_bank->data->idx;
+  if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) ) ) {
+    ulong total_txn_cnt          = fd_bank_txn_count_get( bank )                 - fd_bank_txn_count_get( parent_bank );
+    ulong nonvote_txn_cnt        = fd_bank_nonvote_txn_count_get( bank ) - fd_bank_nonvote_txn_count_get( parent_bank );
+    ulong failed_txn_cnt         = fd_bank_failed_txn_count_get( bank )          - fd_bank_failed_txn_count_get( parent_bank );
+    ulong nonvote_failed_txn_cnt = fd_bank_nonvote_failed_txn_count_get( bank )  - fd_bank_nonvote_failed_txn_count_get( parent_bank );
+
+    slot_info->nonvote_success = nonvote_txn_cnt - nonvote_failed_txn_cnt;
+    slot_info->nonvote_failed  = nonvote_failed_txn_cnt;
+    slot_info->vote_failed     = failed_txn_cnt - nonvote_failed_txn_cnt;
+    slot_info->vote_success    = total_txn_cnt - nonvote_txn_cnt - slot_info->vote_failed;
+  } else {
+    slot_info->vote_failed     = ULONG_MAX;
+    slot_info->vote_success    = ULONG_MAX;
+    slot_info->nonvote_success = ULONG_MAX;
+    slot_info->nonvote_failed  = ULONG_MAX;
   }
 
   slot_info->is_leader = is_leader;
+  slot_info->transaction_fee = fd_bank_execution_fees_get( bank );
+  slot_info->transaction_fee -= (slot_info->transaction_fee>>1); /* burn */
+  slot_info->priority_fee = fd_bank_priority_fees_get( bank );
+  slot_info->tips = fd_bank_tips_get( bank );
+  slot_info->shred_cnt = fd_bank_shred_cnt_get( bank );
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->data->idx ].latest_mr.uc, block_id_cstr );
   FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_query( bank )->uc, bank_hash_cstr );
@@ -1073,7 +1087,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
 
   if( ctx->rpc_enabled ) {
     bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for gui", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
   }
 
   /* Increment the reference count on the consensus root bank to account
@@ -1493,6 +1507,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  cost_tracker_snap( bank, slot_info );
   slot_info->identity_balance = get_identity_balance( ctx, xid );
 
   publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
@@ -1611,6 +1626,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     init_after_snapshot( ctx );
 
     fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+    cost_tracker_snap( bank, slot_info );
     slot_info->identity_balance = get_identity_balance( ctx, xid );
 
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
@@ -2709,8 +2725,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
       break;
     }
-    case IN_KIND_RPC:
-    case IN_KIND_GUI: {
+    case IN_KIND_RPC: {
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, sig ) );
       bank->data->refcnt--;
@@ -3007,7 +3022,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "repair_out"    ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
-    else if( !strcmp( link->name, "gui_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
@@ -3017,7 +3031,6 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
 
-  ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
 
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {

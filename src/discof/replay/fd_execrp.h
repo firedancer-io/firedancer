@@ -84,9 +84,16 @@ struct fd_execrp_txn_exec_done_msg {
   int txn_err;
 
   /* used by monitoring tools */
-  ulong slot;
+  ulong  slot;
   ushort start_shred_idx;
   ushort end_shred_idx;
+
+  /* vote.slot==ULONG_MAX if this was not a vote transaction */
+  struct {
+    ulong slot;
+    fd_pubkey_t identity[ 1 ];
+    fd_pubkey_t vote_acct[ 1 ];
+  } vote;
 };
 typedef struct fd_execrp_txn_exec_done_msg fd_execrp_txn_exec_done_msg_t;
 
