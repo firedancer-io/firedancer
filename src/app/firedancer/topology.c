@@ -1689,6 +1689,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     strncpy( tile->execrp.dump_instr_program_id_filter, config->capture.dump_instr_program_id_filter, sizeof(tile->execrp.dump_instr_program_id_filter) );
     tile->execrp.dump_instr_to_pb = config->capture.dump_instr_to_pb;
     tile->execrp.dump_txn_to_pb = config->capture.dump_txn_to_pb;
+    tile->execrp.dump_txn_as_fixture = config->capture.dump_txn_as_fixture;
     tile->execrp.dump_syscall_to_pb = config->capture.dump_syscall_to_pb;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {

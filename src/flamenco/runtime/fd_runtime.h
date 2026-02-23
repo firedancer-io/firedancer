@@ -114,6 +114,7 @@ struct fd_runtime {
     fd_log_collector_t *  log_collector; /* Log collector instance */
     fd_capture_ctx_t *    capture_ctx;
     fd_dump_proto_ctx_t * dump_proto_ctx;
+    fd_txn_dump_ctx_t *   txn_dump_ctx;
 
     /* Pointer to buffer used for dumping instructions and transactions
        into protobuf files. */

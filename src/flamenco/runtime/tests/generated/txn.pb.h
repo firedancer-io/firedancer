@@ -70,6 +70,24 @@ typedef struct fd_exec_test_sanitized_transaction {
     pb_bytes_array_t **signatures;
 } fd_exec_test_sanitized_transaction_t;
 
+/* Bank fields relevant to transaction execution */
+typedef struct fd_exec_test_txn_bank {
+    /* Up to 300 (actually 301) most recent blockhashes (ordered from oldest to newest) */
+    pb_size_t blockhash_queue_count;
+    struct fd_exec_test_blockhash_queue_entry *blockhash_queue;
+    uint32_t rbh_lamports_per_signature;
+    bool has_fee_rate_governor;
+    fd_exec_test_fee_rate_governor_t fee_rate_governor;
+    uint64_t total_epoch_stake;
+    bool has_epoch_schedule;
+    fd_exec_test_epoch_schedule_t epoch_schedule;
+    bool has_rent;
+    fd_exec_test_rent_t rent;
+    bool has_features;
+    fd_exec_test_feature_set_t features;
+    uint64_t epoch;
+} fd_exec_test_txn_bank_t;
+
 /* This Transaction context be used to fuzz either `load_execute_and_commit_transactions`,
  `load_and_execute_transactions` in `bank.rs` or `load_and_execute_sanitized_transactions`
  in `svm/transaction_processor.rs` */
@@ -80,27 +98,10 @@ typedef struct fd_exec_test_txn_context {
     /* Data associated with transaction accounts, sysvars, etc. */
     pb_size_t account_shared_data_count;
     struct fd_exec_test_acct_state *account_shared_data;
-    /* Up to 300 (actually 301) most recent blockhashes (ordered from oldest to newest) */
-    pb_size_t blockhash_queue_count;
-    pb_bytes_array_t **blockhash_queue;
-    bool has_epoch_ctx;
-    fd_exec_test_epoch_context_t epoch_ctx;
+    /* Bank fields for the transaction fuzzer */
+    bool has_bank;
+    fd_exec_test_txn_bank_t bank;
 } fd_exec_test_txn_context_t;
-
-/* The resulting state of an account after a transaction */
-typedef struct fd_exec_test_resulting_state {
-    pb_size_t acct_states_count;
-    struct fd_exec_test_acct_state *acct_states;
-    pb_size_t rent_debits_count;
-    struct fd_exec_test_rent_debits *rent_debits;
-    uint64_t transaction_rent;
-} fd_exec_test_resulting_state_t;
-
-/* The rent state for an account after a transaction */
-typedef struct fd_exec_test_rent_debits {
-    pb_byte_t pubkey[32];
-    int64_t rent_collected;
-} fd_exec_test_rent_debits_t;
 
 typedef struct fd_exec_test_fee_details {
     uint64_t transaction_fee;
@@ -113,10 +114,6 @@ typedef struct fd_exec_test_txn_result {
     bool executed;
     /* Whether there was a sanitization error */
     bool sanitization_error;
-    /* The state of each account after the transaction */
-    bool has_resulting_state;
-    fd_exec_test_resulting_state_t resulting_state;
-    uint64_t rent;
     /* If an executed transaction has no error */
     bool is_ok;
     /* The transaction status (error code) */
@@ -136,6 +133,10 @@ typedef struct fd_exec_test_txn_result {
     fd_exec_test_fee_details_t fee_details;
     /* Loaded accounts data size */
     uint64_t loaded_accounts_data_size;
+    pb_size_t modified_accounts_count;
+    struct fd_exec_test_acct_state *modified_accounts;
+    pb_size_t rollback_accounts_count;
+    struct fd_exec_test_acct_state *rollback_accounts;
 } fd_exec_test_txn_result_t;
 
 /* Txn fixtures */
@@ -161,22 +162,20 @@ extern "C" {
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT {{0}, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_DEFAULT, 0, NULL, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT, {0}, 0, NULL}
-#define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, NULL, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
-#define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
-#define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
+#define FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT       {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT, false, FD_EXEC_TEST_RENT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT, 0, NULL, false, FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO {{0}, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO {0, false, FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO, 0, NULL, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO {false, FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO, {0}, 0, NULL}
-#define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, NULL, 0, NULL, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
-#define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
-#define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
+#define FD_EXEC_TEST_TXN_BANK_INIT_ZERO          {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO, false, FD_EXEC_TEST_RENT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0}
+#define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {false, FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO, 0, NULL, false, FD_EXEC_TEST_TXN_BANK_INIT_ZERO}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO, 0}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO, 0, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -198,21 +197,21 @@ extern "C" {
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_MESSAGE_TAG 1
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_MESSAGE_HASH_TAG 2
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_SIGNATURES_TAG 4
+#define FD_EXEC_TEST_TXN_BANK_BLOCKHASH_QUEUE_TAG 1
+#define FD_EXEC_TEST_TXN_BANK_RBH_LAMPORTS_PER_SIGNATURE_TAG 2
+#define FD_EXEC_TEST_TXN_BANK_FEE_RATE_GOVERNOR_TAG 3
+#define FD_EXEC_TEST_TXN_BANK_TOTAL_EPOCH_STAKE_TAG 4
+#define FD_EXEC_TEST_TXN_BANK_EPOCH_SCHEDULE_TAG 5
+#define FD_EXEC_TEST_TXN_BANK_RENT_TAG           6
+#define FD_EXEC_TEST_TXN_BANK_FEATURES_TAG       7
+#define FD_EXEC_TEST_TXN_BANK_EPOCH_TAG          8
 #define FD_EXEC_TEST_TXN_CONTEXT_TX_TAG          1
 #define FD_EXEC_TEST_TXN_CONTEXT_ACCOUNT_SHARED_DATA_TAG 2
-#define FD_EXEC_TEST_TXN_CONTEXT_BLOCKHASH_QUEUE_TAG 3
-#define FD_EXEC_TEST_TXN_CONTEXT_EPOCH_CTX_TAG   4
-#define FD_EXEC_TEST_RESULTING_STATE_ACCT_STATES_TAG 1
-#define FD_EXEC_TEST_RESULTING_STATE_RENT_DEBITS_TAG 2
-#define FD_EXEC_TEST_RESULTING_STATE_TRANSACTION_RENT_TAG 3
-#define FD_EXEC_TEST_RENT_DEBITS_PUBKEY_TAG      1
-#define FD_EXEC_TEST_RENT_DEBITS_RENT_COLLECTED_TAG 2
+#define FD_EXEC_TEST_TXN_CONTEXT_BANK_TAG        6
 #define FD_EXEC_TEST_FEE_DETAILS_TRANSACTION_FEE_TAG 1
 #define FD_EXEC_TEST_FEE_DETAILS_PRIORITIZATION_FEE_TAG 2
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_TAG     1
 #define FD_EXEC_TEST_TXN_RESULT_SANITIZATION_ERROR_TAG 2
-#define FD_EXEC_TEST_TXN_RESULT_RESULTING_STATE_TAG 3
-#define FD_EXEC_TEST_TXN_RESULT_RENT_TAG         4
 #define FD_EXEC_TEST_TXN_RESULT_IS_OK_TAG        5
 #define FD_EXEC_TEST_TXN_RESULT_STATUS_TAG       6
 #define FD_EXEC_TEST_TXN_RESULT_INSTRUCTION_ERROR_TAG 7
@@ -222,6 +221,8 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 11
 #define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  12
 #define FD_EXEC_TEST_TXN_RESULT_LOADED_ACCOUNTS_DATA_SIZE_TAG 13
+#define FD_EXEC_TEST_TXN_RESULT_MODIFIED_ACCOUNTS_TAG 14
+#define FD_EXEC_TEST_TXN_RESULT_ROLLBACK_ACCOUNTS_TAG 15
 #define FD_EXEC_TEST_TXN_FIXTURE_METADATA_TAG    1
 #define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       2
 #define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      3
@@ -269,31 +270,32 @@ X(a, POINTER,  REPEATED, BYTES,    signatures,        4)
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_DEFAULT NULL
 #define fd_exec_test_sanitized_transaction_t_message_MSGTYPE fd_exec_test_transaction_message_t
 
+#define FD_EXEC_TEST_TXN_BANK_FIELDLIST(X, a) \
+X(a, POINTER,  REPEATED, MESSAGE,  blockhash_queue,   1) \
+X(a, STATIC,   SINGULAR, UINT32,   rbh_lamports_per_signature,   2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  fee_rate_governor,   3) \
+X(a, STATIC,   SINGULAR, UINT64,   total_epoch_stake,   4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_schedule,    5) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  rent,              6) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  features,          7) \
+X(a, STATIC,   SINGULAR, UINT64,   epoch,             8)
+#define FD_EXEC_TEST_TXN_BANK_CALLBACK NULL
+#define FD_EXEC_TEST_TXN_BANK_DEFAULT NULL
+#define fd_exec_test_txn_bank_t_blockhash_queue_MSGTYPE fd_exec_test_blockhash_queue_entry_t
+#define fd_exec_test_txn_bank_t_fee_rate_governor_MSGTYPE fd_exec_test_fee_rate_governor_t
+#define fd_exec_test_txn_bank_t_epoch_schedule_MSGTYPE fd_exec_test_epoch_schedule_t
+#define fd_exec_test_txn_bank_t_rent_MSGTYPE fd_exec_test_rent_t
+#define fd_exec_test_txn_bank_t_features_MSGTYPE fd_exec_test_feature_set_t
+
 #define FD_EXEC_TEST_TXN_CONTEXT_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  tx,                1) \
 X(a, POINTER,  REPEATED, MESSAGE,  account_shared_data,   2) \
-X(a, POINTER,  REPEATED, BYTES,    blockhash_queue,   3) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         4)
+X(a, STATIC,   OPTIONAL, MESSAGE,  bank,              6)
 #define FD_EXEC_TEST_TXN_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_CONTEXT_DEFAULT NULL
 #define fd_exec_test_txn_context_t_tx_MSGTYPE fd_exec_test_sanitized_transaction_t
 #define fd_exec_test_txn_context_t_account_shared_data_MSGTYPE fd_exec_test_acct_state_t
-#define fd_exec_test_txn_context_t_epoch_ctx_MSGTYPE fd_exec_test_epoch_context_t
-
-#define FD_EXEC_TEST_RESULTING_STATE_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       1) \
-X(a, POINTER,  REPEATED, MESSAGE,  rent_debits,       2) \
-X(a, STATIC,   SINGULAR, UINT64,   transaction_rent,   3)
-#define FD_EXEC_TEST_RESULTING_STATE_CALLBACK NULL
-#define FD_EXEC_TEST_RESULTING_STATE_DEFAULT NULL
-#define fd_exec_test_resulting_state_t_acct_states_MSGTYPE fd_exec_test_acct_state_t
-#define fd_exec_test_resulting_state_t_rent_debits_MSGTYPE fd_exec_test_rent_debits_t
-
-#define FD_EXEC_TEST_RENT_DEBITS_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, pubkey,            1) \
-X(a, STATIC,   SINGULAR, INT64,    rent_collected,    2)
-#define FD_EXEC_TEST_RENT_DEBITS_CALLBACK NULL
-#define FD_EXEC_TEST_RENT_DEBITS_DEFAULT NULL
+#define fd_exec_test_txn_context_t_bank_MSGTYPE fd_exec_test_txn_bank_t
 
 #define FD_EXEC_TEST_FEE_DETAILS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT64,   transaction_fee,   1) \
@@ -304,8 +306,6 @@ X(a, STATIC,   SINGULAR, UINT64,   prioritization_fee,   2)
 #define FD_EXEC_TEST_TXN_RESULT_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     executed,          1) \
 X(a, STATIC,   SINGULAR, BOOL,     sanitization_error,   2) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  resulting_state,   3) \
-X(a, STATIC,   SINGULAR, UINT64,   rent,              4) \
 X(a, STATIC,   SINGULAR, BOOL,     is_ok,             5) \
 X(a, STATIC,   SINGULAR, UINT32,   status,            6) \
 X(a, STATIC,   SINGULAR, UINT32,   instruction_error,   7) \
@@ -314,11 +314,14 @@ X(a, STATIC,   SINGULAR, UINT32,   custom_error,      9) \
 X(a, POINTER,  SINGULAR, BYTES,    return_data,      10) \
 X(a, STATIC,   SINGULAR, UINT64,   executed_units,   11) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,      12) \
-X(a, STATIC,   SINGULAR, UINT64,   loaded_accounts_data_size,  13)
+X(a, STATIC,   SINGULAR, UINT64,   loaded_accounts_data_size,  13) \
+X(a, POINTER,  REPEATED, MESSAGE,  modified_accounts,  14) \
+X(a, POINTER,  REPEATED, MESSAGE,  rollback_accounts,  15)
 #define FD_EXEC_TEST_TXN_RESULT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_RESULT_DEFAULT NULL
-#define fd_exec_test_txn_result_t_resulting_state_MSGTYPE fd_exec_test_resulting_state_t
 #define fd_exec_test_txn_result_t_fee_details_MSGTYPE fd_exec_test_fee_details_t
+#define fd_exec_test_txn_result_t_modified_accounts_MSGTYPE fd_exec_test_acct_state_t
+#define fd_exec_test_txn_result_t_rollback_accounts_MSGTYPE fd_exec_test_acct_state_t
 
 #define FD_EXEC_TEST_TXN_FIXTURE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
@@ -335,9 +338,8 @@ extern const pb_msgdesc_t fd_exec_test_compiled_instruction_t_msg;
 extern const pb_msgdesc_t fd_exec_test_message_address_table_lookup_t_msg;
 extern const pb_msgdesc_t fd_exec_test_transaction_message_t_msg;
 extern const pb_msgdesc_t fd_exec_test_sanitized_transaction_t_msg;
+extern const pb_msgdesc_t fd_exec_test_txn_bank_t_msg;
 extern const pb_msgdesc_t fd_exec_test_txn_context_t_msg;
-extern const pb_msgdesc_t fd_exec_test_resulting_state_t_msg;
-extern const pb_msgdesc_t fd_exec_test_rent_debits_t_msg;
 extern const pb_msgdesc_t fd_exec_test_fee_details_t_msg;
 extern const pb_msgdesc_t fd_exec_test_txn_result_t_msg;
 extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
@@ -348,9 +350,8 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 #define FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_FIELDS &fd_exec_test_message_address_table_lookup_t_msg
 #define FD_EXEC_TEST_TRANSACTION_MESSAGE_FIELDS &fd_exec_test_transaction_message_t_msg
 #define FD_EXEC_TEST_SANITIZED_TRANSACTION_FIELDS &fd_exec_test_sanitized_transaction_t_msg
+#define FD_EXEC_TEST_TXN_BANK_FIELDS &fd_exec_test_txn_bank_t_msg
 #define FD_EXEC_TEST_TXN_CONTEXT_FIELDS &fd_exec_test_txn_context_t_msg
-#define FD_EXEC_TEST_RESULTING_STATE_FIELDS &fd_exec_test_resulting_state_t_msg
-#define FD_EXEC_TEST_RENT_DEBITS_FIELDS &fd_exec_test_rent_debits_t_msg
 #define FD_EXEC_TEST_FEE_DETAILS_FIELDS &fd_exec_test_fee_details_t_msg
 #define FD_EXEC_TEST_TXN_RESULT_FIELDS &fd_exec_test_txn_result_t_msg
 #define FD_EXEC_TEST_TXN_FIXTURE_FIELDS &fd_exec_test_txn_fixture_t_msg
@@ -360,14 +361,13 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 /* fd_exec_test_MessageAddressTableLookup_size depends on runtime parameters */
 /* fd_exec_test_TransactionMessage_size depends on runtime parameters */
 /* fd_exec_test_SanitizedTransaction_size depends on runtime parameters */
+/* fd_exec_test_TxnBank_size depends on runtime parameters */
 /* fd_exec_test_TxnContext_size depends on runtime parameters */
-/* fd_exec_test_ResultingState_size depends on runtime parameters */
 /* fd_exec_test_TxnResult_size depends on runtime parameters */
 /* fd_exec_test_TxnFixture_size depends on runtime parameters */
 #define FD_EXEC_TEST_FEE_DETAILS_SIZE            22
 #define FD_EXEC_TEST_MESSAGE_HEADER_SIZE         18
-#define FD_EXEC_TEST_RENT_DEBITS_SIZE            45
-#define ORG_SOLANA_SEALEVEL_V1_TXN_PB_H_MAX_SIZE FD_EXEC_TEST_RENT_DEBITS_SIZE
+#define ORG_SOLANA_SEALEVEL_V1_TXN_PB_H_MAX_SIZE FD_EXEC_TEST_FEE_DETAILS_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_MessageHeader fd_exec_test_MessageHeader
@@ -375,9 +375,8 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 #define org_solana_sealevel_v1_MessageAddressTableLookup fd_exec_test_MessageAddressTableLookup
 #define org_solana_sealevel_v1_TransactionMessage fd_exec_test_TransactionMessage
 #define org_solana_sealevel_v1_SanitizedTransaction fd_exec_test_SanitizedTransaction
+#define org_solana_sealevel_v1_TxnBank fd_exec_test_TxnBank
 #define org_solana_sealevel_v1_TxnContext fd_exec_test_TxnContext
-#define org_solana_sealevel_v1_ResultingState fd_exec_test_ResultingState
-#define org_solana_sealevel_v1_RentDebits fd_exec_test_RentDebits
 #define org_solana_sealevel_v1_FeeDetails fd_exec_test_FeeDetails
 #define org_solana_sealevel_v1_TxnResult fd_exec_test_TxnResult
 #define org_solana_sealevel_v1_TxnFixture fd_exec_test_TxnFixture
@@ -386,9 +385,8 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_TRANSACTION_MESSAGE_INIT_DEFAULT FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_SANITIZED_TRANSACTION_INIT_DEFAULT FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_TXN_BANK_INIT_DEFAULT FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_TXN_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_RESULTING_STATE_INIT_DEFAULT FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_RENT_DEBITS_INIT_DEFAULT FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FEE_DETAILS_INIT_DEFAULT FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_TXN_RESULT_INIT_DEFAULT FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_TXN_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT
@@ -397,9 +395,8 @@ extern const pb_msgdesc_t fd_exec_test_txn_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO FD_EXEC_TEST_MESSAGE_ADDRESS_TABLE_LOOKUP_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_TRANSACTION_MESSAGE_INIT_ZERO FD_EXEC_TEST_TRANSACTION_MESSAGE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_SANITIZED_TRANSACTION_INIT_ZERO FD_EXEC_TEST_SANITIZED_TRANSACTION_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_TXN_BANK_INIT_ZERO FD_EXEC_TEST_TXN_BANK_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_TXN_CONTEXT_INIT_ZERO FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_RESULTING_STATE_INIT_ZERO FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_RENT_DEBITS_INIT_ZERO FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_FEE_DETAILS_INIT_ZERO FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_TXN_RESULT_INIT_ZERO FD_EXEC_TEST_TXN_RESULT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_TXN_FIXTURE_INIT_ZERO FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO

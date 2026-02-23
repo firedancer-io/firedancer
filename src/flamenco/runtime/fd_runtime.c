@@ -835,14 +835,6 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
                               fd_txn_in_t const * txn_in,
                               fd_txn_out_t *      txn_out ) {
 
-  /* Set up the core account keys. These are the account keys directly
-     passed in via the serialized transaction, represented as an array.
-     Note that this does not include additional keys referenced in
-     address lookup tables. */
-  fd_executor_setup_txn_account_keys( txn_in, txn_out );
-
-  int err;
-
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
      TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
      be moved in the future. The Agave call heirarchy looks something like this:
@@ -868,18 +860,9 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   */
 
-# if FD_HAS_FLATCC
-  uchar dump_txn = !!( runtime->log.dump_proto_ctx &&
-                       fd_bank_slot_get( bank ) >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
-                       runtime->log.dump_proto_ctx->dump_txn_to_pb );
-  if( FD_UNLIKELY( dump_txn ) ) {
-    fd_dump_txn_to_protobuf( runtime, bank, txn_in, txn_out );
-  }
-# endif
-
   /* Verify the transaction. For now, this step only involves processing
      the compute budget instructions. */
-  err = fd_executor_verify_transaction( bank, txn_in, txn_out );
+  int err = fd_executor_verify_transaction( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
     return err;
@@ -1330,6 +1313,26 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
 
   fd_runtime_new_txn_out( txn_in, txn_out );
 
+  /* Set up the core account keys before any pre-execution checks.
+     This is needed both for execution and for protobuf context
+     dumping. */
+  fd_executor_setup_txn_account_keys( txn_in, txn_out );
+
+# if FD_HAS_FLATCC
+  uchar dump_txn = !!( runtime->log.dump_proto_ctx &&
+                       fd_bank_slot_get( bank ) >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                       runtime->log.dump_proto_ctx->dump_txn_to_pb );
+
+  /* Phase 1: Capture TxnContext before execution. */
+  if( FD_UNLIKELY( dump_txn ) ) {
+    if( runtime->log.txn_dump_ctx ) {
+      fd_dump_txn_context_to_protobuf( runtime->log.txn_dump_ctx, runtime, bank, txn_in, txn_out );
+    } else {
+      fd_dump_txn_to_protobuf( runtime, bank, txn_in, txn_out );
+    }
+  }
+# endif
+
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
@@ -1343,6 +1346,14 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
     }
     fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );
   }
+
+# if FD_HAS_FLATCC
+  /* Phase 2: Capture TxnResult after execution and write to disk. */
+  if( FD_UNLIKELY( dump_txn && runtime->log.txn_dump_ctx ) ) {
+    fd_dump_txn_result_to_protobuf( runtime->log.txn_dump_ctx, txn_in, txn_out, bank, txn_out->err.txn_err );
+    fd_dump_txn_fixture_to_file( runtime->log.txn_dump_ctx, runtime->log.dump_proto_ctx, txn_in );
+  }
+# endif
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble

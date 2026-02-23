@@ -189,6 +189,7 @@ init_rent_sysvar( test_env_t * env,
     env->runtime->log.enable_vm_tracing    = 0;
     env->runtime->log.tracing_mem          = NULL;
     env->runtime->log.capture_ctx          = NULL;
+    env->runtime->log.txn_dump_ctx         = NULL;
 
     return env;
   }

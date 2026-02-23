@@ -441,6 +441,7 @@ struct fd_topo_tile {
       char  dump_instr_program_id_filter[ FD_BASE58_ENCODED_32_SZ ];
       int   dump_instr_to_pb;
       int   dump_txn_to_pb;
+      int   dump_txn_as_fixture;
       int   dump_syscall_to_pb;
     } execrp;
 

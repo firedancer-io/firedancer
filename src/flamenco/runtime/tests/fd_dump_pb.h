@@ -33,9 +33,19 @@
             - dump_txn_to_pb <0/1>
                 * If enabled, transactions will be dumped to the
                   specified output directory
-                * File name format is "txn-<base58_enc_sig>.bin"
-                * Each file represents a single transaction as a
+                * By default, file name format is
+                  "txn-<base58_enc_sig>.txnctx" containing a
                   serialized TxnContext Protobuf message
+                * If dump_txn_as_fixture is also set, the file format
+                  is "txn-<base58_enc_sig>.fix" containing a
+                  serialized TxnFixture (TxnContext + TxnResult)
+            - dump_txn_as_fixture <0/1>
+                * If enabled (requires dump_txn_to_pb), transactions
+                  are dumped as TxnFixture messages containing both
+                  the input context (captured before execution) and
+                  the output result (captured after execution)
+                * Useful for verifying transaction harness accuracy
+                  against backtest results
 
         Blocks
             - dump_block_to_pb <0/1>
@@ -89,6 +99,7 @@ struct fd_dump_proto_ctx {
 
   /* Transaction Capture */
   uint                     dump_txn_to_pb : 1;
+  uint                     dump_txn_as_fixture : 1;
 
   /* Block Capture */
   uint                     dump_block_to_pb : 1;
@@ -183,6 +194,85 @@ fd_block_dump_context_reset( fd_block_dump_ctx_t * ctx ) {
   ctx->txns_to_dump_cnt = 0UL;
 }
 
+/* Persistent context for transaction dumping.  Holds the in-progress
+   fixture message across the two dump phases (context before execution,
+   effects after execution).  The spad is used for dynamic memory
+   allocations referenced by the protobuf message. */
+
+#define FD_TXN_DUMP_CTX_SPAD_MEM_MAX (1UL<<28) /* 256 MB */
+
+struct fd_txn_dump_ctx {
+  fd_exec_test_txn_fixture_t fixture;
+  fd_spad_t *                spad;
+};
+typedef struct fd_txn_dump_ctx fd_txn_dump_ctx_t;
+
+static inline ulong
+fd_txn_dump_context_align( void ) {
+  return alignof(fd_txn_dump_ctx_t);
+}
+
+static inline ulong
+fd_txn_dump_context_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txn_dump_ctx_t), sizeof(fd_txn_dump_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_TXN_DUMP_CTX_SPAD_MEM_MAX ) );
+  l = FD_LAYOUT_FINI( l, fd_spad_align() );
+  return l;
+}
+
+static inline void *
+fd_txn_dump_context_new( void * mem ) {
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_txn_dump_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_dump_ctx_t), sizeof(fd_txn_dump_ctx_t) );
+  fd_spad_t *         spad = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),             fd_spad_footprint( FD_TXN_DUMP_CTX_SPAD_MEM_MAX ) );
+
+  ctx->spad = fd_spad_new( spad, FD_TXN_DUMP_CTX_SPAD_MEM_MAX );
+  fd_memset( &ctx->fixture, 0, sizeof(ctx->fixture) );
+  return ctx;
+}
+
+static inline fd_txn_dump_ctx_t *
+fd_txn_dump_context_join( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_txn_dump_context_align() ) ) ) {
+    FD_LOG_ERR(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_txn_dump_ctx_t * ctx = (fd_txn_dump_ctx_t *)mem;
+  ctx->spad               = fd_spad_join( ctx->spad );
+  return ctx;
+}
+
+static inline void *
+fd_txn_dump_context_delete( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+  return mem;
+}
+
+static inline void *
+fd_txn_dump_context_leave( fd_txn_dump_ctx_t * ctx ) {
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_LOG_WARNING(( "NULL ctx" ));
+    return NULL;
+  }
+  return (void *)ctx;
+}
+
+static inline void
+fd_txn_dump_context_reset( fd_txn_dump_ctx_t * ctx ) {
+  fd_memset( &ctx->fixture, 0, sizeof(ctx->fixture) );
+  fd_spad_reset( ctx->spad );
+}
+
 /****** Actual dumping functions ******/
 
 void
@@ -198,6 +288,59 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
                          fd_bank_t *         bank,
                          fd_txn_in_t const * txn_in,
                          fd_txn_out_t *      txn_out );
+
+/* Builds a TxnResult protobuf message from the transaction execution
+   results into a caller-provided buffer.  The result struct and all
+   sub-allocations (account data, return data) are bump-allocated
+   within [out_buf, out_buf+out_bufsz).  Returns the number of bytes
+   consumed from out_buf.  *txn_result_out is set to point to the
+   result struct within out_buf.
+
+   Shared between the transaction dumper and the fuzz harness. */
+ulong
+create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out,
+                                     void *                       out_buf,
+                                     ulong                        out_bufsz,
+                                     fd_txn_in_t const *          txn_in,
+                                     fd_txn_out_t *               txn_out,
+                                     fd_bank_t *                  bank,
+                                     int                          exec_res );
+
+/* Transaction dumping (two-phase approach):
+
+   Phase 1: fd_dump_txn_context_to_protobuf() captures the TxnContext
+   before transaction execution into the txn dump context's fixture.
+
+   Phase 2: fd_dump_txn_result_to_protobuf() captures the TxnResult
+   after transaction execution into the txn dump context's fixture.
+
+   fd_dump_txn_fixture_to_file() serializes and writes the fixture
+   (or just the context) to disk.
+
+   How it works in fd_runtime_prepare_and_execute_txn:
+
+     fd_dump_txn_context_to_protobuf()   // before execution
+     ... execute transaction ...
+     fd_dump_txn_result_to_protobuf()    // after execution
+     fd_dump_txn_fixture_to_file()       // write to disk */
+void
+fd_dump_txn_context_to_protobuf( fd_txn_dump_ctx_t * txn_dump_ctx,
+                                 fd_runtime_t *      runtime,
+                                 fd_bank_t *         bank,
+                                 fd_txn_in_t const * txn_in,
+                                 fd_txn_out_t *      txn_out );
+
+void
+fd_dump_txn_result_to_protobuf( fd_txn_dump_ctx_t * txn_dump_ctx,
+                                fd_txn_in_t const * txn_in,
+                                fd_txn_out_t *      txn_out,
+                                fd_bank_t *         bank,
+                                int                 exec_res );
+
+void
+fd_dump_txn_fixture_to_file( fd_txn_dump_ctx_t *       txn_dump_ctx,
+                             fd_dump_proto_ctx_t const * dump_proto_ctx,
+                             fd_txn_in_t const *         txn_in );
 
 /* Block dumping is a little bit different than the other harnesses due
    to the architecture of our system.  Unlike the other dumping

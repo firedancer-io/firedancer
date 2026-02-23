@@ -269,6 +269,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   capture.dump_syscall_to_pb                       );
   CFG_POP      ( bool,   capture.dump_instr_to_pb                         );
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
+  CFG_POP      ( bool,   capture.dump_txn_as_fixture                      );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );

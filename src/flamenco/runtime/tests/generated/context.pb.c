@@ -21,10 +21,19 @@ PB_BIND(FD_EXEC_TEST_INFLATION, fd_exec_test_inflation_t, AUTO)
 PB_BIND(FD_EXEC_TEST_FEE_RATE_GOVERNOR, fd_exec_test_fee_rate_governor_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_EPOCH_SCHEDULE, fd_exec_test_epoch_schedule_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_RENT, fd_exec_test_rent_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_EPOCH_CONTEXT, fd_exec_test_epoch_context_t, AUTO)
 
 
 PB_BIND(FD_EXEC_TEST_SLOT_CONTEXT, fd_exec_test_slot_context_t, 2)
+
+
+PB_BIND(FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY, fd_exec_test_blockhash_queue_entry_t, AUTO)
 
 
 
