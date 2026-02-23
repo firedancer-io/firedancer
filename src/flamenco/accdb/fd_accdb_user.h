@@ -65,7 +65,7 @@ struct fd_accdb_user_vt {
                rw[i]->ref->accdb_type=INVAL.
 
        TRUNCATE: reset the account's data length to zero (useful as a
-                 hit to the database engine to avoid copies)
+                 hint to the database engine to avoid copies)
 
        DONTZERO: do not zero unused account data buffer space (useful
                  as a performance hint when the caller plans to

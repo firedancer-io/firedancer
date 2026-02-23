@@ -707,8 +707,8 @@ again:
     len_bytes = 3UL;
   } else if( FD_LIKELY( payload_len==127 ) ) {
     if( FD_UNLIKELY( conn->recv_bytes_read<10UL ) ) return; /* Need at least 10 bytes to determine frame length */
-    payload_len = ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+2 ]<<56UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+3UL ]<<48UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+4UL ]<<40UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+5UL ]<<32UL) |
-                  ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+6 ]<<24UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+7UL ]<<16UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+8UL ]<<8UL ) |  (ulong)conn->recv_bytes[ conn->recv_bytes_parsed+9UL ];
+    payload_len = ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+2UL ]<<56UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+3UL ]<<48UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+4UL ]<<40UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+5UL ]<<32UL) |
+                  ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+6UL ]<<24UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+7UL ]<<16UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+8UL ]<<8UL ) |  (ulong)conn->recv_bytes[ conn->recv_bytes_parsed+9UL ];
     len_bytes = 9UL;
   } else {
     FD_LOG_ERR(( "unexpected payload_len %lu", payload_len )); /* Silence clang sanitizer, not possible */
