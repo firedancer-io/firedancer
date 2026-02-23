@@ -248,7 +248,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
        state credits from the end of the previous epoch in case we need
        to recalculate the stake reward partitions. */
     fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
-    vote_state_curr->node_account = *(fd_pubkey_t *)elem->identity;
+    vote_state_curr->node_account_t_1 = *(fd_pubkey_t *)elem->identity;
     vote_state_curr->stake_t_1 = elem->stake;
 
     vote_state_credits[ vote_state_curr->idx ].credits_cnt = elem->epoch_credits_history_len;
@@ -267,7 +267,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     if( FD_UNLIKELY( !elem->stake ) ) continue;
 
     fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
-    vote_state_curr->node_account = *(fd_pubkey_t *)elem->identity;
+    vote_state_curr->node_account_t_2 = *(fd_pubkey_t *)elem->identity;
     vote_state_curr->stake_t_2 = elem->stake;
   }
 

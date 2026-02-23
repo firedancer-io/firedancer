@@ -120,6 +120,8 @@ struct fd_vote_state_ele {
      data and is used for clock timestamp calculations. */
   fd_pubkey_t vote_account;
   fd_pubkey_t node_account;
+  fd_pubkey_t node_account_t_1;
+  fd_pubkey_t node_account_t_2;
   ulong       last_vote_slot;
   long        last_vote_timestamp;
   uchar       commission;
