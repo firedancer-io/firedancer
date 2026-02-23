@@ -242,9 +242,6 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
         forward_msg = 0;
         break;
       }
-
-      /* FIXME re-enable fd_snapwm_vinyl_txn_commit here once recovery
-         is fully implemented. */
       break;
     }
 
