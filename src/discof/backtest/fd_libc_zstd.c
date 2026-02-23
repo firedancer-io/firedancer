@@ -70,7 +70,8 @@ rstream_seek( void *    cookie,
     zs->input.pos  = 0;
     zs->in_rd      = 0UL;
     zs->eof        = 0;
-    ZSTD_DCtx_reset( zs->dstream, ZSTD_reset_session_only );
+    size_t const reset_ret = ZSTD_DCtx_reset( zs->dstream, ZSTD_reset_session_only );
+    if( FD_UNLIKELY( ZSTD_isError( reset_ret ) ) ) return -1;
     *pos = 0L;
   } else if( w==SEEK_CUR ) {
     *pos = (long)zs->in_rd;
@@ -93,6 +94,8 @@ FILE *
 fd_zstd_rstream_open( FILE *         file,
                       ZSTD_DStream * dstream,
                       ulong          buf_sz ) {
+  if( FD_UNLIKELY( !buf_sz ) ) return NULL;
+
   fd_zstd_rstream_t * zs = malloc( sizeof(fd_zstd_rstream_t) );
   if( FD_UNLIKELY( !zs ) ) return NULL;
 
@@ -127,7 +130,12 @@ fd_zstd_rstream_open( FILE *         file,
     .seek  = rstream_seek,
     .close = rstream_close
   };
-  return fopencookie( zs, "rb", io_funcs );
+  FILE * ret = fopencookie( zs, "rb", io_funcs );
+  if( FD_UNLIKELY( !ret ) ) {
+    free( buf );
+    free( zs );
+  }
+  return ret;
 }
 
 struct fd_zstd_wstream {
@@ -167,20 +175,23 @@ wstream_close( void * cookie ) {
   fd_zstd_wstream_t * zs = cookie;
   int ret_val = 0;
 
-  ZSTD_outBuffer output = { zs->out_buf, zs->out_buf_max, 0 };
-  size_t const ret = ZSTD_endStream( zs->cstream, &output );
-  if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
-    FD_LOG_WARNING(( "ZSTD_endStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
-    ret_val = -1;
-    goto cleanup;
-  }
-  if( output.pos > 0 ) {
-    size_t written = fwrite( zs->out_buf, 1, output.pos, zs->file );
-    if( FD_UNLIKELY( written != output.pos ) ) {
+  size_t remaining;
+  do {
+    ZSTD_outBuffer output = { zs->out_buf, zs->out_buf_max, 0 };
+    remaining = ZSTD_endStream( zs->cstream, &output );
+    if( FD_UNLIKELY( ZSTD_isError( remaining ) ) ) {
+      FD_LOG_WARNING(( "ZSTD_endStream failed (%u-%s)", ZSTD_getErrorCode( remaining ), ZSTD_getErrorName( remaining ) ));
       ret_val = -1;
       goto cleanup;
     }
-  }
+    if( output.pos > 0 ) {
+      size_t written = fwrite( zs->out_buf, 1, output.pos, zs->file );
+      if( FD_UNLIKELY( written != output.pos ) ) {
+        ret_val = -1;
+        goto cleanup;
+      }
+    }
+  } while( remaining > 0 );
 
 cleanup:
   ZSTD_freeCStream( zs->cstream );
@@ -208,6 +219,8 @@ FILE *
 fd_zstd_wstream_open( FILE * file,
                       int    level,
                       ulong  buf_sz ) {
+  if( FD_UNLIKELY( !buf_sz ) ) return NULL;
+
   fd_zstd_wstream_t * zs = malloc( sizeof(fd_zstd_wstream_t) );
   if( FD_UNLIKELY( !zs ) ) return NULL;
 
@@ -242,5 +255,11 @@ fd_zstd_wstream_open( FILE * file,
     .seek  = wstream_seek,
     .close = wstream_close
   };
-  return fopencookie( zs, "wb", io_funcs );
+  FILE * ret = fopencookie( zs, "wb", io_funcs );
+  if( FD_UNLIKELY( !ret ) ) {
+    ZSTD_freeCStream( zs->cstream );
+    free( buf );
+    free( zs );
+  }
+  return ret;
 }
