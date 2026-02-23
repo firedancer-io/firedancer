@@ -1422,7 +1422,7 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH: {
-      if( FD_UNLIKELY( manifest->stake_delegations_len>( 1UL<<22UL ) ) ) { /* 2^21 needed, arbitrarily put 2^22 to have some margin */
+      if( FD_UNLIKELY( manifest->stake_delegations_len>sizeof(manifest->stake_delegations)/sizeof(manifest->stake_delegations[0]) ) ) {
         FD_LOG_WARNING(( "invalid stakes_stake_delegations length %lu", manifest->stake_delegations_len ));
         return -1;
       }
