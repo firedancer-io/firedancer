@@ -131,18 +131,11 @@ fd_gui_peers_adaptive_ema( long last_update_time,
     return (long)(alpha * (double)current_value + (1.0 - alpha) * (double)value_at_last_update);
 }
 
-struct fd_gui_peers_vote {
-  fd_pubkey_t node_account;
-  fd_pubkey_t vote_account;
-  ulong       stake;
-  ulong       last_vote_slot;
-  long        last_vote_timestamp;
-  uchar       commission;
-  ulong       epoch;
-  ulong       epoch_credits;
+struct fd_gui_peers_voter {
+  fd_vote_stake_weight_t weight;
+  ulong vote_slot;
 };
-
-typedef struct fd_gui_peers_vote fd_gui_peers_vote_t;
+typedef struct fd_gui_peers_voter fd_gui_peers_voter_t;
 
 struct fd_gui_peers_node {
   int valid;
@@ -159,15 +152,11 @@ struct fd_gui_peers_node {
 
   int         has_vote_info;
   fd_pubkey_t vote_account;
-  ulong       stake; /* if has_vote_info==0 then stake==ULONG_MAX */
-  ulong       last_vote_slot;
-  long        last_vote_timestamp;
-  uchar       commission;
-  ulong       epoch;
-  ulong       epoch_credits;
+  int         delinquent;
+  ulong       stake;
+
   uchar       country_code_idx;
   uint        city_name_idx;
-  int         delinquent;
 
   struct {
     ulong next;
@@ -387,8 +376,23 @@ struct fd_gui_peers_ctx {
 
   ulong slot_voted; /* last vote slot for this validator */
 
-  fd_gui_peers_vote_t votes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-  fd_gui_peers_vote_t votes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ]; /* for fast stable sort */
+  /* We want the gui to reflect stakes_t_2 since this is what matters
+     consequentially for delinquency / leader schedule info.
+
+     All arrays are sorted descending by vote pubkey. */
+  struct {
+    ulong epoch;
+
+    ulong                stakes_cnt;
+    fd_gui_peers_voter_t stakes[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  } epochs[ 2 ];
+
+  union {
+    struct {
+      int   actions[ FD_CONTACT_INFO_TABLE_SIZE ];
+      ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
+    };
+  } scratch;
 
 #if FD_HAS_ZSTD
   ZSTD_DCtx * zstd_dctx;
@@ -445,11 +449,24 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    long                               now );
 
 void
-fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
-                                 fd_gui_peers_vote_t * votes,
-                                 ulong                 vote_cnt,
-                                 long                  now,
-                                 fd_pubkey_t *         identity );
+fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
+                          fd_pubkey_t const *  vote_account,
+                          ulong                vote_slot,
+                          int                  is_us );
+
+/* fd_gui_peers_update_delinquency is called infrequently (currently,
+   once per slot) and scans the cluster for any nodes that are
+   delinquent, publishing delinquency updates to the frontend. */
+void
+fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
+                                 long                 now );
+
+/* fd_gui_peers_handle_epoch_info is called at the epoch boundary and
+   publishes updates for peer stake information. */
+void
+fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
+                                fd_epoch_info_msg_t const * epoch_info,
+                                long                        now );
 
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,

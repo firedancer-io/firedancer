@@ -1287,11 +1287,11 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
           char vote_account_base58[ FD_BASE58_ENCODED_32_SZ ];
           fd_base58_encode_32( peer->vote_account.uc, NULL, vote_account_base58 );
           jsonp_string( peers->http, "vote_account", vote_account_base58 );
-          jsonp_ulong_as_str( peers->http, "activated_stake", peer->stake );
-          jsonp_ulong( peers->http, "last_vote", peer->last_vote_slot );
-          jsonp_ulong( peers->http, "epoch_credits", peer->epoch_credits );
-          jsonp_ulong( peers->http, "commission", peer->commission );
-          jsonp_ulong( peers->http, "root_slot", 0UL );
+          jsonp_ulong_as_str( peers->http, "activated_stake", fd_ulong_if( peer->stake==ULONG_MAX, 0UL, peer->stake ) );
+          jsonp_ulong( peers->http, "last_vote", 0UL ); /* todo: deprecate */
+          jsonp_ulong( peers->http, "epoch_credits", 0UL ); /* todo: deprecate */
+          jsonp_ulong( peers->http, "commission", 0UL ); /* todo: deprecate */
+          jsonp_ulong( peers->http, "root_slot", 0UL ); /* todo: deprecate */
           jsonp_bool( peers->http,  "delinquent", peer->delinquent );
         jsonp_close_object( peers->http );
       jsonp_close_array( peers->http );

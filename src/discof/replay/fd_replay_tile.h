@@ -33,7 +33,7 @@ struct fd_replay_slot_completed {
   fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
   fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
-  ulong transaction_count;
+  ulong     transaction_count;   /* since genesis */
 
   struct {
     double initial;
@@ -53,7 +53,6 @@ struct fd_replay_slot_completed {
      eliminate non-timestamp fields and have consumers just use
      bank_idx. */
   ulong bank_idx;
-  ulong parent_bank_idx; /* ULONG_MAX if unavailable */
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */
   long preparation_begin_nanos;           /* timestamp when replay began preparing the state to begin execution of the slot */
@@ -63,6 +62,17 @@ struct fd_replay_slot_completed {
 
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
+
+  /* since slot start, default ULONG_MAX */
+  ulong total_txn_cnt;
+  ulong vote_txn_cnt;
+  ulong failed_txn_cnt;
+  ulong nonvote_failed_txn_cnt;
+
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
+  ulong shred_cnt;
 
   struct {
     ulong block_cost;
