@@ -570,6 +570,7 @@ struct fd_topo_tile {
 
     struct {
       char snapshots_path[ PATH_MAX ];
+      int  incremental_snapshots;
       uint min_download_speed_mibs;
     } snapld;
 

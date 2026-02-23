@@ -1467,6 +1467,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapld" ) ) ) {
 
     fd_memcpy( tile->snapld.snapshots_path, config->paths.snapshots, PATH_MAX );
+    tile->snapld.incremental_snapshots   = config->firedancer.snapshots.incremental_snapshots;
     tile->snapld.min_download_speed_mibs = config->firedancer.snapshots.min_download_speed_mibs;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
