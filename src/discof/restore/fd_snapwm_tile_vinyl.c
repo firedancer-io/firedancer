@@ -1038,7 +1038,9 @@ fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx ) {
           }
         }
       }
-      /* FIXME memset may not be necessary? */
+      /* Verbose bstream cleanup.  Even though the sync block will be
+         updated as well before returning, it is preferred to zero out
+         all incremental pairs that are being deprecated. */
       fd_memset( incr_block, 0, block_sz );
     } else if( block_type==FD_VINYL_BSTREAM_CTL_TYPE_ZPAD ) {
       block_sz = FD_VINYL_BSTREAM_BLOCK_SZ;
