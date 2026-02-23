@@ -1629,8 +1629,8 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, reenable_zk_elgamal_proof_program)>>3,
-    .id                        = {"\x0e\xcb\x76\xec\x8b\xf8\x21\x83\x19\x07\xc3\xb3\x5e\xc2\xd0\x13\xcb\xb4\x95\x7e\x6c\x5d\xcb\xcf\xb4\x84\xe3\xc6\xf5\x50\x7f\xbd"},
-                                 /* zkesAyFB19sTkX8i9ReoKaMNDA4YNTPYJpZKPDt7FMW */
+    .id                        = {"\x0e\xcb\x77\x6b\x04\xa2\x9f\x2e\x94\xf0\x15\xf1\xf4\x36\x93\xe8\xe5\x37\xb1\x87\xba\x4a\x89\xcd\x46\xcb\x0a\x41\xf7\x8f\x43\xd9"},
+                                 /* zkexuyPRdyTVbZqEAREueqL2xvvoBhRgth9xGSc1tMN */
     .name                      = "reenable_zk_elgamal_proof_program",
     .cleaned_up                = 0 },
 
@@ -2019,7 +2019,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_233 0x494f963ae12b5106UL, .val = &ids[233]
 #define MAP_PERFECT_234 0x210aba8db8103506UL, .val = &ids[234]
 #define MAP_PERFECT_235 0xec3a4c069e71cb0eUL, .val = &ids[235]
-#define MAP_PERFECT_236 0x8321f88bec76cb0eUL, .val = &ids[236]
+#define MAP_PERFECT_236 0x2e9fa2046b77cb0eUL, .val = &ids[236]
 #define MAP_PERFECT_237 0xe72f76507222e3bbUL, .val = &ids[237]
 #define MAP_PERFECT_238 0x7170cf84367fbb1aUL, .val = &ids[238]
 #define MAP_PERFECT_239 0xa9e3bfbaf8d67260UL, .val = &ids[239]

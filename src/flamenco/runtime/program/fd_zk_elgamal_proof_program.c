@@ -93,11 +93,11 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L51 */
     accessed_accounts = 1U;
 
-    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L52-L63
+    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L53-L64
        Note: it doesn't look like Agave code can throw any error. */
     uint proof_data_offset = fd_uint_load_4( &instr_data[1] );
 
-    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L64-L67
+    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L65-L68
        Note: explcit cast to ulong just to call out that there can't be overflow */
     if( (ulong)proof_data_offset+proof_data_sz > fd_borrowed_account_get_data_len( &proof_data_acc ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -111,7 +111,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   } else {
     /* Case 2. Proof data from ix data. */
 
-    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L80-L84
+    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L81-L85
        Note: instr_id is guaranteed to be valid, to access values in the arrays. */
     if( ctx->instr->data_sz != 1 + proof_data_sz ) {
       fd_log_collector_msg_literal( ctx, "invalid proof data" );
@@ -121,13 +121,19 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* Verify individual ZKP
-     https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L73-L76
-     https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L85-L88 */
+     https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L74-L77
+     https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L86-L89 */
+
+  /* TODO: we probably need an extra check to validate the length of sigma proofs,
+     see: https://github.com/solana-program/zk-elgamal-proof/pull/244
+     However this check seems to be redundant for the case of ix data, and
+     seems to be missing only for accounts. It's also unclear what the result should be,
+     need to have explicit tests. */
   void const * proof = context + fd_zksdk_context_sz[instr_id];
   err = (*fd_zksdk_instr_verify_proof)( context, proof );
   if( FD_UNLIKELY( err ) ) {
     //TODO: full log, including err
-    fd_log_collector_msg_literal( ctx, "proof_verification failed" );
+    fd_log_collector_msg_literal( ctx, "proof verification failed" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -135,7 +141,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
      https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L95-L98 */
   if( instr_acc_cnt >= accessed_accounts + 2U ) {
     /* Obtain the context_state_authority by borrowing the account temporarily in a local scope.
-       https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L95-L100 */
+       https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L100-L102 */
     fd_pubkey_t context_state_authority[1];
     do {
       fd_guarded_borrowed_account_t _acc = {0};
@@ -144,18 +150,18 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     } while(0);
 
     /* Borrow the proof context account
-       https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L102-L103 */
+       https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L104-L105 */
     fd_guarded_borrowed_account_t proof_context_acc = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, accessed_accounts, &proof_context_acc );
 
-    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L105-L107 */
+    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L107-L109 */
     if( FD_UNLIKELY( !fd_memeq( fd_borrowed_account_get_owner( &proof_context_acc ), &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
     }
 
     /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L111-L112 */
     if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &proof_context_acc ) < CTX_META_SZ ) ) {
-      /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.0/zk-sdk/src/zk_elgamal_proof_program/state.rs#L83 */
+      /* https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/zk_elgamal_proof_program/state.rs#L83 */
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
@@ -164,18 +170,18 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
     }
 
-    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L116-L117 */
+    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L118-L119 */
     fd_memcpy( context_state_data, context_state_authority, sizeof(fd_pubkey_t) ); /* context_state_data[0..31] */
     context_state_data[ 32 ] = instr_id;                                           /* context_state_data[32] */
     fd_memcpy( context_state_data+CTX_META_SZ, context, context_sz );              /* context_state_data[33..] */
 
-    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L119-L121 */
+    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L121-L123 */
     ulong context_state_data_sx = CTX_META_SZ + context_sz;
     if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &proof_context_acc ) != context_state_data_sx ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L123 */
+    /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L125 */
     err = fd_borrowed_account_set_data_from_slice( &proof_context_acc, context_state_data, context_state_data_sx );
     if( FD_UNLIKELY( err ) ) {
       return err;
