@@ -13,13 +13,13 @@
 
 #define FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT (FD_TXN_MTU + sizeof(fd_system_program_instruction_t))
 
-#define FD_FMT_ADDRESS(account_b58, base, out_fmt)                                               \
-  char out_fmt[ 128UL ];                                                                         \
-  FD_BASE58_ENCODE_32_BYTES( base->key, base_b58 );                                              \
-  if( base ) {                                                                                   \
-    snprintf( out_fmt, 128UL, "Address { address: %s, base: Some(%s) }", account_b58, base_b58 ); \
-  } else {                                                                                       \
-    snprintf( out_fmt, 128UL, "Address { address: %s, base: None }", account_b58 );               \
+#define FD_FMT_ADDRESS(account_b58, base, out_fmt)                                                 \
+  char out_fmt[ 128UL ];                                                                           \
+  if( base ) {                                                                                     \
+    FD_BASE58_ENCODE_32_BYTES( base->key, base_b58 );                                              \
+    snprintf( out_fmt, 128UL, "Address { address: %s, base: Some(%s) }", account_b58, base_b58 );  \
+  } else {                                                                                         \
+    snprintf( out_fmt, 128UL, "Address { address: %s, base: None }", account_b58 );                \
   }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
