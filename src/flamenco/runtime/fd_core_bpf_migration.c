@@ -307,10 +307,16 @@ new_target_program_account( fd_tmp_account_t *        acc,
     }
   };
 
-  tmp_account_new( acc, fd_bpf_upgradeable_loader_state_size( &state ) );
+  ulong state_sz = fd_bpf_upgradeable_loader_state_size( &state );
+  tmp_account_new( acc, state_sz );
   acc->meta.lamports   = fd_rent_exempt_minimum_balance( rent, SIZE_OF_PROGRAM );
   acc->meta.executable = 1;
   memcpy( acc->meta.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) );
+
+  fd_bincode_encode_ctx_t ctx = { .data=acc->data, .dataend=(uchar *)acc->data+state_sz };
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &state, &ctx )!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_encode failed" ));
+  }
 
   return acc;
 }
@@ -445,6 +451,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       target,
       rent ) ) )
     return;
+  new_target_program->addr = *builtin_program_id;
 
   fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration.new_target_program_data;
   if( FD_UNLIKELY( !new_target_program_data_account(
