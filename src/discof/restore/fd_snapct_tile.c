@@ -24,7 +24,6 @@
 
 /* FIXME: Implement full_effective_age_cancel_threshold */
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
-/* FIXME: Handle cases where no explicitly allowed peers advertise RPC */
 /* FIXME: Make the code more strict about duplicate IP:port's */
 
 #define GOSSIP_PEERS_MAX (FD_CONTACT_INFO_TABLE_SIZE)
@@ -53,8 +52,8 @@ typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 #define FD_SNAPCT_GOSSIP_SATURATION_CHECK_INTERVAL (      10L*1000L*1000L)
 #define FD_SNAPCT_GOSSIP_SATURATION_THRESHOLD      (0.05)                     /* 5% fresh peers */
 
-#define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT         (2L*60L*1000L*1000L*1000L) /* 2 minutes */
-#define FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT        (30L*1000L*1000L*1000L)    /* 30 seconds */
+#define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT         (90L*1000L*1000L*1000L) /* 1.5 minutes */
+#define FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT        (30L*1000L*1000L*1000L) /* 30 seconds */
 
 struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
@@ -593,7 +592,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL: {
-      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for peers." ));
+      if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out waiting for incremental snapshot peers." ));
 
       FD_TEST( ctx->predicted_incremental.full_slot!=ULONG_MAX );
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
