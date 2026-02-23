@@ -3,6 +3,7 @@
 #include "generated/fd_execrp_tile_seccomp.h"
 
 #include "../../ballet/sha256/fd_sha256.h" /* fd_sha256_hash_32_repeated */
+#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../discof/fd_accdb_topo.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
@@ -158,6 +159,13 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   msg->txn_exec->slot            = ctx->slot;
   msg->txn_exec->start_shred_idx = ctx->txn_in.txn->start_shred_idx;
   msg->txn_exec->end_shred_idx   = ctx->txn_in.txn->end_shred_idx;
+
+  if( FD_UNLIKELY( !ctx->txn_out.details.is_simple_vote || !fd_txn_parse_simple_vote( TXN( ctx->txn_in.txn ), ctx->txn_in.txn->payload, msg->txn_exec->vote.identity, msg->txn_exec->vote.vote_acct, &msg->txn_exec->vote.slot ) ) ) {
+    msg->txn_exec->vote.slot       = ULONG_MAX;
+    *msg->txn_exec->vote.identity  = (fd_pubkey_t){ 0 };
+    *msg->txn_exec->vote.vote_acct = (fd_pubkey_t){ 0 };
+  }
+
   if( FD_UNLIKELY( !msg->txn_exec->is_committable ) ) {
     uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
     FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );

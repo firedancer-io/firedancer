@@ -167,3 +167,38 @@ fd_vote_acc_root_slot( uchar const * vote_account_data ) {
   default:          FD_LOG_CRIT(( "unhandled kind %u", voter->kind ));
   }
 }
+
+int
+fd_txn_parse_simple_vote( fd_txn_t const * txn,
+                          uchar    const * payload,
+                          fd_pubkey_t *    opt_identity,
+                          fd_pubkey_t *    opt_vote_acct,
+                          ulong *          opt_vote_slot ) {
+  fd_txn_instr_t const * instr      = &txn->instr[ 0 ];
+  ulong required_accts = txn->signature_cnt==1 ? 2UL : 3UL;
+  if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, payload ) || instr->data_sz < sizeof(uint) || txn->acct_addr_cnt < required_accts ) ) return 0;
+
+  uchar const *          instr_data = payload + instr->data_off;
+  uint                   kind       = fd_uint_load_4_fast( instr_data );
+  /* Older vote instruction kinds are deprecated / ignored */
+  if( FD_UNLIKELY( kind == FD_VOTE_IX_KIND_TOWER_SYNC || kind == FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) {
+    fd_compact_tower_sync_serde_t compact_tower_sync_serde[ 1 ];
+    int err = fd_compact_tower_sync_de( compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
+    if( FD_LIKELY( !err ) ) {
+      if( !!opt_vote_slot ) {
+        *opt_vote_slot = compact_tower_sync_serde->root;
+        for( ulong i = 0; i < compact_tower_sync_serde->lockouts_cnt; i++ ) *opt_vote_slot += compact_tower_sync_serde->lockouts[ i ].offset;
+      }
+      fd_pubkey_t const * accs = (fd_pubkey_t const *)fd_type_pun_const( payload + txn->acct_addr_off );
+      if( !!opt_vote_acct ) {
+        if( FD_UNLIKELY( txn->signature_cnt==1 ) ) *opt_vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 1 ] ); /* identity and authority same, account idx 1 is the vote account address */
+        else                                       *opt_vote_acct = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 2 ] ); /* identity and authority diff, account idx 2 is the vote account address */
+      }
+      if( !!opt_identity ) {
+        *opt_identity = *(fd_pubkey_t const *)fd_type_pun_const( &accs[ 0 ] );
+      }
+      return 1;
+    }
+  }
+  return 0;
+}
