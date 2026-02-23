@@ -515,13 +515,13 @@ read_conn_http( fd_http_server_t * http,
         return;
       }
 
-      ulong next = content_len*10UL + (ulong)(content_length[ i ]-'0');
-      if( FD_UNLIKELY( next<content_len ) ) { /* Overflow */
+      ulong digit = (ulong)(content_length[ i ]-'0');
+      if( FD_UNLIKELY( content_len>(ULONG_MAX-digit)/10UL ) ) { /* Overflow */
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
         return;
       }
 
-      content_len = next;
+      content_len = content_len*10UL + digit;
     }
 
     ulong total_len = (ulong)result+content_len;
