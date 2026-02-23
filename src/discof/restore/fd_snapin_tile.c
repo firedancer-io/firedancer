@@ -192,12 +192,11 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
 }
 
 /* verification of epoch stakes from manifest
-   TODO: is leader schedule epoch always 1 slot ahead of bank epoch?
    https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
 static int
-verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+verify_epoch_stakes( fd_snapin_tile_t * ctx, fd_snapshot_manifest_t const * manifest ) {
   ulong min_required_epoch = manifest->epoch;
-  ulong max_required_epoch = manifest->epoch + 1;
+  ulong max_required_epoch = fd_ssmanifest_parser_leader_schedule_epoch( ctx->manifest_parser );
 
   /* ensure all required epochs are present in epoch stakes */
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
@@ -483,7 +482,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     return;
   }
 
-  if( FD_UNLIKELY( verify_epoch_stakes( manifest ) ) ) {
+  if( FD_UNLIKELY( verify_epoch_stakes( ctx, manifest ) ) ) {
     FD_LOG_WARNING(( "epoch stakes verification failed" ));
     transition_malformed( ctx, ctx->stem );
     return;
