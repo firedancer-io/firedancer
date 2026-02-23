@@ -265,14 +265,12 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
   if( FD_UNLIKELY( !fd_runtime_validate_fee_collector( bank, rw->ro, fees ) ) ) {  /* validation failed */
     burn = fd_ulong_sat_add( burn, fees );
     FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", fd_bank_slot_get( bank ), fees ));
-    fd_accdb_close_rw( accdb, rw );
-    return;
+  } else {
+    /* Guaranteed to not overflow, checked above */
+    fd_accdb_ref_lamports_set( rw, fd_accdb_ref_lamports( rw->ro ) + fees );
+    fd_hashes_update_lthash( fd_accdb_ref_address( rw->ro ), rw->meta, prev_hash, bank, capture_ctx );
   }
 
-  /* Guaranteed to not overflow, checked above */
-  fd_accdb_ref_lamports_set( rw, fd_accdb_ref_lamports( rw->ro ) + fees );
-
-  fd_hashes_update_lthash( fd_accdb_ref_address( rw->ro ), rw->meta, prev_hash, bank, capture_ctx );
   fd_accdb_close_rw( accdb, rw );
 
   ulong old = fd_bank_capitalization_get( bank );
