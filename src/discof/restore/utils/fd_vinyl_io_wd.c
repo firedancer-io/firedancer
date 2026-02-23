@@ -1,5 +1,6 @@
 #include "fd_vinyl_io_wd.h"
 #include "fd_ssctrl.h"
+#include "../../../util/cstr/fd_cstr.h"
 
 /* fd_vinyl_io_wd manages a pool of DMA-friendly buffers.
 
@@ -65,8 +66,7 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
 
   FD_CRIT( buf->bstream_seq+block_sz==wd->base->seq_future, "corrupt bstream io state" );
   if( FD_UNLIKELY( wd->base->seq_future > wd->dev_sz ) ) {
-    /* FIXME log vinyl instance name */
-    FD_LOG_ERR(( "vinyl database is out of space (dev_sz=%lu)", wd->dev_sz ));
+    FD_LOG_ERR(( "vinyl database %s is out of space (dev_sz=%lu)", wd->bstream_path, wd->dev_sz ));
   }
   ulong dev_off = wd->dev_base + buf->bstream_seq;
 
@@ -378,7 +378,8 @@ fd_vinyl_io_wd_init( void *           lmem,
                      uchar *          block_dcache,
                      ulong const **   block_fseq,
                      ulong            block_fseq_cnt,
-                     ulong            block_mtu ) {
+                     ulong            block_mtu,
+                     char const *     bstream_path ) {
   /* Mostly copied from fd_vinyl_io_bd.c */
 
   fd_vinyl_io_wd_t * wd = (fd_vinyl_io_wd_t *)lmem;
@@ -501,6 +502,8 @@ fd_vinyl_io_wd_init( void *           lmem,
   wd->base->seq_past    = 0UL;
   wd->base->seq_present = 0UL;
   wd->base->seq_future  = 0UL;
+
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( wd->bstream_path ), bstream_path, PATH_MAX-1UL ) );
 
   FD_LOG_INFO(( "IO config"
                 "\n\ttype        wd"

@@ -194,7 +194,8 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
                          wr_link->dcache,
                          wh_fseq,
                          wh_fseq_cnt,
-                         wr_link->mtu );
+                         wr_link->mtu,
+                         tile->snapwm.vinyl_path );
   if( FD_UNLIKELY( !ctx->vinyl.io_wd ) ) {
     FD_LOG_ERR(( "fd_vinyl_io_wd_init failed" ));
   }
