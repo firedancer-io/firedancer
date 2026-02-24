@@ -20,6 +20,11 @@
 
 #define FD_SSHTTP_DEADLINE_NANOS (1L*1000L*1000L*1000L) /* 1 second  */
 
+/* Coarse-grained byte-activity timeout when downloading: it is
+   initialized when the state transitions into FD_SSHTTP_STATE_DL and
+   advanced every time bytes are received. */
+#define FD_SSHTTP_DOWNLOAD_TIMEOUT_NANOS (30L*1000L*1000L*1000L) /* 30 seconds  */
+
 struct fd_sshttp_private {
   int   state;
   int   next_state; /* used for state transitions in https connection */

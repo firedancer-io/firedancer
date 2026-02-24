@@ -560,6 +560,7 @@ read_response( fd_sshttp_t * http,
   }
 
   http->state = FD_SSHTTP_STATE_DL;
+  http->deadline = now + FD_SSHTTP_DOWNLOAD_TIMEOUT_NANOS;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
     if( FD_UNLIKELY( *data_len<http->response_len-(ulong)parsed ) ) FD_LOG_ERR(( "data buffer too small %lu %lu %lu", *data_len, http->response_len, (ulong)parsed ));
     FD_TEST( *data_len>=http->response_len-(ulong)parsed );
@@ -578,8 +579,6 @@ read_body( fd_sshttp_t * http,
            ulong *       data_len,
            uchar *       data,
            long          now ) {
-  /* FIXME: Add a forward-progress timeout */
-
   if( FD_UNLIKELY( http->content_read>=http->content_len ) ) {
     if( FD_UNLIKELY( http->is_https ) ) {
       http->next_state = FD_SSHTTP_STATE_DONE;
@@ -589,18 +588,26 @@ read_body( fd_sshttp_t * http,
     } else {
       fd_sshttp_cancel( http );
       http->state = FD_SSHTTP_STATE_INIT;
+      http->deadline = now + FD_SSHTTP_DEADLINE_NANOS;
       return FD_SSHTTP_ADVANCE_DONE;
     }
   }
 
   FD_TEST( http->content_read<http->content_len );
   long read = http_recv( http, data, fd_ulong_min( *data_len, http->content_len-http->content_read ) );
-  if( FD_UNLIKELY( read<=0 ) ) return (int)read;
+  if( FD_UNLIKELY( read<0 ) ) return (int)read;
 
-  if( FD_UNLIKELY( !read ) ) return FD_SSHTTP_ADVANCE_AGAIN;
+  if( FD_UNLIKELY( !read ) ) {
+    if( FD_UNLIKELY( now>http->deadline ) ) {
+      FD_LOG_WARNING(( "http download saw 0 bytes in the last %g seconds", (double)FD_SSHTTP_DOWNLOAD_TIMEOUT_NANOS/1e9 ));
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
+    return FD_SSHTTP_ADVANCE_AGAIN;
+  }
 
   *data_len = (ulong)read;
   http->content_read += (ulong)read;
+  http->deadline = now + FD_SSHTTP_DOWNLOAD_TIMEOUT_NANOS;
 
   return FD_SSHTTP_ADVANCE_DATA;
 }
