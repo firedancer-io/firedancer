@@ -327,9 +327,6 @@ fd_http_server_listen( fd_http_server_t * http,
 static ulong
 parse_ulong( char const * p,
              ulong        sz ) {
-  /* Maximum decimal representation of ULONG_MAX is 20 chars on 64-bit systems,
-     plus 1 for null terminator = 21. We allow up to 21 to accommodate the longest
-     valid string plus null terminator. */
   if( FD_UNLIKELY( p==NULL || sz==0UL || sz>21UL ) ) return ULONG_MAX;
   if( FD_UNLIKELY( p[0]<'0' || p[0]>'9' ) ) return ULONG_MAX;
 
@@ -338,16 +335,14 @@ parse_ulong( char const * p,
   buf[ sz ] = '\0';
 
   char * endptr;
+  int saved_errno = errno;
   errno = 0;
   uintmax_t val = strtoumax( (char const *)buf, &endptr, 10 );
+  int parse_errno = errno;
+  errno = saved_errno;
 
-  /* Check for parsing errors or invalid characters */
   if( FD_UNLIKELY( endptr==(char const *)buf || *endptr!='\0' ) ) return ULONG_MAX;
-
-  /* Check for overflow. ERANGE will be set by strtoumax if the value exceeds
-     the range of uintmax_t. On systems where uintmax_t is larger than ulong,
-     we also need to check if val exceeds ULONG_MAX. */
-  if( FD_UNLIKELY( errno==ERANGE || val>ULONG_MAX ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( parse_errno==ERANGE || val>ULONG_MAX ) ) return ULONG_MAX;
 
   return (ulong)val;
 }
@@ -542,16 +537,6 @@ read_conn_http( fd_http_server_t * http,
     }
 
     content_len = parse_ulong( content_length, content_length_len );
-    /* Capture errno immediately after parse_ulong returns, before any other
-       function calls that might modify errno. ERANGE from strtoumax indicates
-       the number was too large to fit in uintmax_t. errno is thread-local in
-       C11, but we capture it immediately to avoid confusion from other calls. */
-    int parse_errno = errno;
-    if( FD_UNLIKELY( parse_errno==ERANGE ) ) {
-      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
-      return;
-    }
-
     if( FD_UNLIKELY( content_len==ULONG_MAX ) ) {
       close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
       return;
