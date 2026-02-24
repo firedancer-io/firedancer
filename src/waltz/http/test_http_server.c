@@ -67,8 +67,9 @@ test_oring( void ) {
     .ws_message = NULL,
   };
 
-  uchar scratch[ 1633024 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1633024 );
+  ulong actual_footprint = fd_http_server_footprint( params );
+  uchar scratch[ 329344 ] __attribute__((aligned(128UL)));
+  FD_TEST( actual_footprint==329344 );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;
@@ -149,8 +150,8 @@ test_content_length_overflow_close( void ) {
   };
 
   FD_LOG_NOTICE(( "footprint %lu", fd_http_server_footprint( params ) ));
-  uchar scratch[ 1306624 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1306624 );
+  uchar scratch[ 3072 ] __attribute__((aligned(128UL)));
+  FD_TEST( fd_http_server_footprint( params )==3072 );
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );
