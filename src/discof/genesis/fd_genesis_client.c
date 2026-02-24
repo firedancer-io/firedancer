@@ -161,15 +161,33 @@ write_conn( fd_genesis_client_t * client,
 }
 
 static ulong
+rpc_parse_decimal_ulong( char const * s,
+                         ulong        s_len,
+                         ulong *      out ) {
+  if( FD_UNLIKELY( !s_len ) ) return 0UL;
+
+  ulong val = 0UL;
+  for( ulong i=0UL; i<s_len; i++ ) {
+    char c = s[ i ];
+    if( FD_UNLIKELY( (c<'0') | (c>'9') ) ) return 0UL;
+    ulong digit = (ulong)(c-'0');
+    if( FD_UNLIKELY( val>(ULONG_MAX-digit)/10UL ) ) return 0UL;
+    val = val*10UL + digit;
+  }
+
+  *out = val;
+  return 1UL;
+}
+
+static ulong
 rpc_phr_content_length( struct phr_header * headers,
                         ulong               num_headers ) {
   for( ulong i=0UL; i<num_headers; i++ ) {
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
     if( FD_LIKELY( strncasecmp( headers[i].name, "Content-Length", 14UL ) ) ) continue;
-    char * end;
-    ulong content_length = strtoul( headers[i].value, &end, 10 );
+    ulong content_length = 0UL;
+    if( FD_UNLIKELY( !rpc_parse_decimal_ulong( headers[i].value, (ulong)headers[i].value_len, &content_length ) ) ) return ULONG_MAX;
     if( FD_UNLIKELY( content_length>UINT_MAX ) ) return ULONG_MAX; /* prevent overflow */
-    if( FD_UNLIKELY( end==headers[i].value ) ) return ULONG_MAX;
     return content_length;
   }
   return ULONG_MAX;
