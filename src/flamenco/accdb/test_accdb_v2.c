@@ -600,7 +600,7 @@ main( int     argc,
   FD_TEST( !fd_vinyl_client_join( cnc, rq, cq, wksp, link_id, burst_max, quota_max ) );
 
   fd_accdb_user_t accdb[1];
-  FD_TEST( fd_accdb_user_v2_init( accdb, shfunk, _rq, wksp, req_pool, link_id ) );
+  FD_TEST( fd_accdb_user_v2_init( accdb, shfunk, _rq, wksp, req_pool, link_id, txn_max ) );
   FD_TEST( accdb->base.accdb_type == FD_ACCDB_TYPE_V2 );
 
   FD_LOG_NOTICE(( "Running tests" ));

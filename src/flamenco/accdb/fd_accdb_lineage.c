@@ -13,7 +13,7 @@ fd_accdb_lineage_set_fork_slow( fd_accdb_lineage_t *      lineage,
 
   ulong txn_max = fd_funk_txn_pool_ele_max( funk->txn_pool );
   ulong i;
-  for( i=0UL; i<FD_ACCDB_DEPTH_MAX; i++ ) {
+  for( i=0UL; i<lineage->max_depth; i++ ) {
     fd_funk_txn_map_query_t query[1];
     fd_funk_txn_t *         candidate;
     fd_funk_txn_xid_t       found_xid;
@@ -87,12 +87,12 @@ retry:
 
 done:
   lineage->fork_depth = i;
-  if( FD_UNLIKELY( lineage->fork_depth==FD_ACCDB_DEPTH_MAX ) ) {
-    FD_LOG_CRIT(( "Account database fork depth exceeded max of %lu", FD_ACCDB_DEPTH_MAX ));
+  if( FD_UNLIKELY( lineage->fork_depth==lineage->max_depth ) ) {
+    FD_LOG_CRIT(( "Account database fork depth exceeded max of %lu", lineage->max_depth ));
   }
 
   /* FIXME crash if fork depth greater than cache depth */
-  if( lineage->fork_depth < FD_ACCDB_DEPTH_MAX ) {
+  if( lineage->fork_depth < lineage->max_depth ) {
     fd_funk_txn_xid_set_root( &lineage->fork[ lineage->fork_depth++ ] );
   }
 

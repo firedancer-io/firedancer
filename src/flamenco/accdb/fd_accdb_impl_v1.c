@@ -347,7 +347,8 @@ fd_accdb_user_vt_t const fd_accdb_user_v1_vt = {
 
 fd_accdb_user_t *
 fd_accdb_user_v1_init( fd_accdb_user_t * accdb,
-                       void *            shfunk ) {
+                       void *            shfunk,
+                       ulong             max_depth ) {
   fd_accdb_user_v1_t * ljoin = (fd_accdb_user_v1_t *)accdb;
 
   if( FD_UNLIKELY( !ljoin ) ) {
@@ -364,8 +365,9 @@ fd_accdb_user_v1_init( fd_accdb_user_t * accdb,
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
 
-  accdb->base.accdb_type = FD_ACCDB_TYPE_V1;
-  accdb->base.vt         = &fd_accdb_user_v1_vt;
+  ljoin->lineage->max_depth = max_depth;
+  accdb->base.accdb_type    = FD_ACCDB_TYPE_V1;
+  accdb->base.vt            = &fd_accdb_user_v1_vt;
   return accdb;
 }
 

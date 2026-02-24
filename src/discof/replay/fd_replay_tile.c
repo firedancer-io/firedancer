@@ -2636,6 +2636,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong funk_obj_id;
   FD_TEST( (funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX ) )!=ULONG_MAX );
+  ulong max_depth = tile->replay.max_live_slots + tile->replay.write_delay_slots;
   if( !vinyl_data ) {
     FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo,funk_obj_id ) ) );
   } else {
@@ -2646,10 +2647,11 @@ unprivileged_init( fd_topo_t *      topo,
         fd_topo_obj_laddr( topo, vinyl_rq->id ),
         topo->workspaces[ vinyl_data->wksp_id ].wksp,
         fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
-        vinyl_rq->id ) );
+        vinyl_rq->id,
+        max_depth ) );
     fd_accdb_admin_v2_delay_set( ctx->accdb_admin, tile->replay.write_delay_slots );
   }
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile, max_depth );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

@@ -57,7 +57,7 @@ test_setup( fd_wksp_t * wksp ) {
   FD_TEST( ctx->funk );
 
   /* Set up accdb interface */
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, ctx->funk_shmem ) );
+  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, ctx->funk_shmem, txn_max ) );
 
   /* Set up root transaction and target transaction ID */
   fd_funk_txn_xid_t root_xid;

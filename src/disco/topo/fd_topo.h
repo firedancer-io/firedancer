@@ -372,6 +372,7 @@ struct fd_topo_tile {
       ulong max_http_request_length;
 
       ulong max_live_slots;
+      ulong accdb_max_depth;
 
       char identity_key_path[ PATH_MAX ];
     } rpc;
@@ -430,6 +431,7 @@ struct fd_topo_tile {
       ulong acc_pool_obj_id;
 
       ulong max_live_slots;
+      ulong accdb_max_depth;
 
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
@@ -510,6 +512,7 @@ struct fd_topo_tile {
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
       ulong max_live_slots;
+      ulong accdb_max_depth;
       ulong max_vote_lookahead;
       int   debug_logging;
       char  identity_key[ PATH_MAX ];
@@ -576,6 +579,7 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
+      ulong accdb_max_depth;
       ulong funk_obj_id;
       ulong txncache_obj_id;
 
@@ -615,6 +619,7 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
+      ulong accdb_max_depth;
       ulong txncache_obj_id;
       ulong progcache_obj_id;
       ulong acc_pool_obj_id;
@@ -634,6 +639,8 @@ struct fd_topo_tile {
 
       uint target_gid;
       uint target_uid;
+
+      ulong accdb_max_depth;
     } genesi;
 
     struct {
@@ -654,6 +661,10 @@ struct fd_topo_tile {
       int   recent_only;
       ulong recent_slots_per_file;
     } solcap;
+
+    struct {
+      ulong accdb_max_depth;
+    } resolv;
   };
 };
 

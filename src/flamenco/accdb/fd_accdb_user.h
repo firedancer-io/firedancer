@@ -3,11 +3,18 @@
 
 #include "fd_accdb_base.h"
 #include "fd_accdb_ref.h"
+#include "fd_accdb_lineage.h"
 #include "../../funk/fd_funk_base.h"
 
 #define FD_ACCDB_FLAG_CREATE   (1)
 #define FD_ACCDB_FLAG_TRUNCATE (2)
 #define FD_ACCDB_FLAG_DONTZERO (3)
+
+/* FD_ACCDB_IMPL_FOOTPRINT sizes the inline impl[] buffer in
+   fd_accdb_user_t and fd_accdb_admin_t.  The main contributor to this
+   footprint is fd_accdb_lineage_t.  We add 2048 onto that to
+   accommodate various vinyl pointers and etc. */
+#define FD_ACCDB_IMPL_FOOTPRINT (FD_ACCDB_LINEAGE_FOOTPRINT+2048UL)
 
 /* fd_accdb_user_vt_t specifies the interface (vtable) for the account
    DB client. */
@@ -123,7 +130,7 @@ typedef struct fd_accdb_user_base fd_accdb_user_base_t;
 struct fd_accdb_user {
   fd_accdb_user_base_t base;
 
-  uchar impl[ 4096 ] __attribute__((aligned(64)));
+  uchar impl[ FD_ACCDB_IMPL_FOOTPRINT ] __attribute__((aligned(64)));
 };
 
 FD_PROTOTYPES_BEGIN
