@@ -171,8 +171,9 @@ def start_cluster(ctx, bootstrap_validator_name):
 
     firedancer_repo_path = get_env_var('FIREDANCER_REPO_PATH')
     stake_program_path = os.path.join(str(firedancer_repo_path), "contrib/ledger-gen/bpf_migrated_programs/stake_elf.so")
+    primordial_accounts_file = os.path.join(str(firedancer_repo_path), "contrib/agave-cluster/primordial-accounts.yml")
 
-    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "256", "--enable-warmup-epochs", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", stake_program_path, "11111111111111111111111111111111" ], cwd=cluster_path, capture_output=True, text=True)
+    genesis_output = subprocess.run([solana_genesis, "--target-tick-duration", "6250", "--primordial-accounts-file", primordial_accounts_file, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "256", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", stake_program_path, "11111111111111111111111111111111" ], cwd=cluster_path, capture_output=True, text=True)
     genesis_hash, shred_version = parse_genesis_output(genesis_output.stdout)
 
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
