@@ -2634,9 +2634,13 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
 
 static void
 fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
-  ulong epoch_idx = fd_gui_current_epoch_idx( gui );
-  ulong epoch_start = gui->epoch.epochs[ epoch_idx ].start_slot;
-  ulong epoch_end = gui->epoch.epochs[ epoch_idx ].end_slot;
+  ulong epoch_idx   = fd_gui_current_epoch_idx( gui );
+  ulong epoch_start = ULONG_MAX;
+  ulong epoch_end   = ULONG_MAX;
+  if( FD_LIKELY( epoch_idx!=ULONG_MAX ) ) {
+    epoch_start = gui->epoch.epochs[ epoch_idx ].start_slot;
+    epoch_end   = gui->epoch.epochs[ epoch_idx ].end_slot;
+  }
 
   /* Epoch boundary */
   if( FD_UNLIKELY( gui->summary.late_votes_sz && epoch_idx!=ULONG_MAX && ( epoch_start>gui->summary.late_votes[ 0 ] || epoch_end<gui->summary.late_votes[ 0 ] ) ) ) {
