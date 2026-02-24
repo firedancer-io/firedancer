@@ -246,7 +246,7 @@ fd_xsk_setup_poll( fd_xsk_t *              xsk,
 
     int sk_flags = fcntl( xsk->xsk_fd, F_GETFL, 0 );
     if( FD_UNLIKELY( sk_flags == -1 ) ) {
-        FD_LOG_WARNING(( "fcntl(xsk->xsf_fd, F_GETFL, 0) failed (%i-%s)",
+        FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_GETFL, 0) failed (%i-%s)",
                          errno, fd_io_strerror( errno ) ));
         return;
     }
