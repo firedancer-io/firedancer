@@ -816,7 +816,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_PARENT_SLOT:                                                                                   return (uchar*)&manifest->parent_slot;
     case STATE_HARD_FORKS_LENGTH:                                                                             return (uchar*)&manifest->hard_forks_len;
     case STATE_HARD_FORKS_SLOT:                                                                               return (uchar*)&manifest->hard_forks[ idx1 ];
-    case STATE_HARD_FORKS_VAL:                                                                                return NULL;
+    case STATE_HARD_FORKS_VAL:                                                                                return (uchar*)&manifest->hard_forks_cnts[ idx1 ];
     case STATE_TRANSACTION_COUNT:                                                                             return (uchar*)&manifest->transaction_count;
     case STATE_TICK_HEIGHT:                                                                                   return (uchar*)&manifest->tick_height;
     case STATE_SIGNATURE_COUNT:                                                                               return (uchar*)&manifest->signature_count;

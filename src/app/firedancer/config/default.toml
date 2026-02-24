@@ -530,12 +530,18 @@ telemetry = true
     # same slot number but different blockhash) in cases where the
     # primary node may still be alive.
     #
-    # If `wait_for_supermajority` is set to True, then the node is
-    # starting during a cluster restart and this option will be ignored
-    # and forcibly interpreted as `false` by the client. Otherwise, the
-    # chain would be unable to proceed since every node would be
-    # deadlocked waiting on their votes to land.
+    # If `wait_for_supermajority_with_bank_hash` is set, then this
+    # option must be set to `false` otherwise the client will not boot.
+    # This prevents the chain from deadlocking if all nodes enable this
+    # option.
     wait_for_vote_to_start_leader = true
+
+    # If set to a valid bank hash, the client will wait until 80% of
+    # stake-weighted nodes are visible on gossip before attempting to
+    # make progress.
+    # This parameter ensures that the correct slot and consensus fork
+    # are selected during a hard fork event.
+    wait_for_supermajority_with_bank_hash = ""
 
 # This section configures the account database.
 [accounts]
@@ -1723,6 +1729,14 @@ telemetry = true
         allow_private_address = false
 
     [development.genesis]
+        # During normal operation, the genesi tile performs a validation
+        # check on the genesis hash which ensures it belongs to one of
+        # the three primary clusters (testnet, mainnet, devnet).  During
+        # development, this option can be disabled, which allows joining
+        # a local cluster in, for example, mainnet mode with a different
+        # genesis hash.
+        validate_genesis_hash = true
+
         # When creating a new chain from genesis during development,
         # this option can be used to specify the number of hashes in
         # each tick of the proof history component.

@@ -67,6 +67,7 @@ struct fd_genesi_tile {
   int has_expected_genesis_hash;
   uchar expected_genesis_hash[ 32UL ];
   ushort expected_shred_version;
+  int validate_genesis_hash;
 
   char genesis_path[ PATH_MAX ];
 
@@ -223,7 +224,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     dst->blob_sz = ctx->genesis_blob_sz;
     fd_memcpy( dst_blob, ctx->genesis_blob, ctx->genesis_blob_sz );
 
-    fd_stem_publish( stem, 0UL, msg_sz, ctx->out.chunk0, 0UL, 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, 0UL, msg_sz, ctx->out.chunk0, msg_sz, 0UL, 0UL, 0UL );
     *charge_busy = 1;
     FD_LOG_NOTICE(( "loaded local genesis.bin from file `%s`", ctx->genesis_path ));
 
@@ -295,7 +296,9 @@ after_credit( fd_genesi_tile_t *  ctx,
       FD_LOG_ERR(( "unable to decode downloaded solana genesis file due to violated hardcoded limits" ));
     }
 
-    verify_cluster_type( genesis, hash, ctx->genesis_path );
+    if( FD_LIKELY( ctx->validate_genesis_hash ) ) {
+      verify_cluster_type( genesis, hash, ctx->genesis_path );
+    }
 
     ulong msg_sz; FD_TEST( !__builtin_uaddl_overflow( sizeof(fd_genesis_meta_t), blob_sz, &msg_sz ) );
     if( FD_UNLIKELY( msg_sz>FD_GENESIS_TILE_MTU ) ) {
@@ -363,7 +366,9 @@ process_local_genesis( fd_genesi_tile_t * ctx,
   }
 
   fd_sha256_hash( ctx->genesis_blob, ctx->genesis_blob_sz, ctx->genesis_hash );
-  verify_cluster_type( genesis, ctx->genesis_hash, genesis_path );
+  if( FD_LIKELY( ctx->validate_genesis_hash ) ) {
+    verify_cluster_type( genesis, ctx->genesis_hash, genesis_path );
+  }
 
   if( FD_UNLIKELY( ctx->bootstrap && ctx->expected_shred_version ) ) {
     ushort xor = 0;
@@ -473,6 +478,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bootstrap = !tile->genesi.entrypoints_cnt;
   ctx->expected_shred_version = tile->genesi.expected_shred_version;
   ctx->has_expected_genesis_hash = tile->genesi.has_expected_genesis_hash;
+  ctx->validate_genesis_hash = tile->genesi.validate_genesis_hash;
   fd_memcpy( ctx->expected_genesis_hash, tile->genesi.expected_genesis_hash, 32UL );
   if( FD_LIKELY( -1!=ctx->in_fd ) ) {
     process_local_genesis( ctx, tile->genesi.genesis_path );

@@ -30,6 +30,15 @@ struct fd_crds_contact_info_entry {
     uchar in_list; /* 1 if in the fresh list, 0 otherwise */
   } fresh_dlist;
 
+  /* Similar to fresh_dlist, but with a 15s timeout instead.
+     Additionally, fresh_dlist explicilty excludes our own contact info
+     while fresh_15s_dlist includes it. */
+  struct {
+    ulong prev;
+    ulong next;
+    uchar in_list; /* 1 if in the fresh list, 0 otherwise */
+  } fresh_15s_dlist;
+
   /* The contact info side table has a separate size limit, so
      we maintain a separate evict list to make space for new
      entries */
@@ -134,7 +143,8 @@ struct fd_crds_entry_private {
      There are actually two lists that reuse the same pointers here,
      and a value will be in exactly one of the lists.  One is for staked
      nodes, which values expire after 48 hours, and one is for unstaked
-     nodes, which expire after 15 seconds. */
+     nodes, which expire after 15 seconds (or also 48hours if the node
+     is configured as unstaked). */
   struct {
     long  wallclock_nanos;
     ulong prev;
@@ -183,6 +193,9 @@ struct fd_crds_entry_private {
 
 #include "../../../util/tmpl/fd_treap.c"
 
+/* staked_expire_dlist tracks contact info crds entries inserted in the
+   last 432000L*SLOT_DURATION_NANOS nanoseconds with nonzero active
+   stake according to their epoch stake at the time they are inserted. */
 #define DLIST_NAME      staked_expire_dlist
 #define DLIST_ELE_T     fd_crds_entry_t
 #define DLIST_PREV      expire.prev
@@ -190,6 +203,10 @@ struct fd_crds_entry_private {
 
 #include "../../../util/tmpl/fd_dlist.c"
 
+/* unstaked_expire_dlist tracks contact info crds entries from the last
+   432000L*SLOT_DURATION_NANOS nanoseconds (or from the last 15 seconds,
+   if this node is itself running as unstaked) with zero active stake
+   according to their epoch stake at the time they are inserted. */
 #define DLIST_NAME      unstaked_expire_dlist
 #define DLIST_ELE_T     fd_crds_entry_t
 #define DLIST_PREV      expire.prev
@@ -197,7 +214,16 @@ struct fd_crds_entry_private {
 
 #include "../../../util/tmpl/fd_dlist.c"
 
+/* fresh_15s_dlist tracks all contact info crds entries from the last
+   15 seconds. */
+#define DLIST_NAME      ci_fresh_15s_dlist
+#define DLIST_ELE_T     fd_crds_contact_info_entry_t
+#define DLIST_PREV      fresh_15s_dlist.prev
+#define DLIST_NEXT      fresh_15s_dlist.next
+#include "../../../util/tmpl/fd_dlist.c"
 
+/* crds_contact_info_fresh_list tracks all contact info crds entries
+   from the last 60 seconds. */
 #define DLIST_NAME  crds_contact_info_fresh_list
 #define DLIST_ELE_T fd_crds_contact_info_entry_t
 #define DLIST_PREV  fresh_dlist.prev
@@ -281,6 +307,9 @@ lookup_eq( fd_crds_key_t const * key0,
 struct fd_crds_private {
   fd_gossip_out_ctx_t * gossip_update;
 
+  fd_gossip_activity_update_fn activity_update_fn;
+  void *                       activity_update_fn_ctx;
+
   fd_sha256_t sha256[1];
 
   int has_staked_node;
@@ -291,6 +320,7 @@ struct fd_crds_private {
   evict_treap_t *           evict_treap;
   staked_expire_dlist_t *   staked_expire_dlist;
   unstaked_expire_dlist_t * unstaked_expire_dlist;
+  ci_fresh_15s_dlist_t *    ci_fresh_15s_dlist;
   hash_treap_t *            hash_treap;
   lookup_map_t *            lookup_map;
 
@@ -320,6 +350,7 @@ fd_crds_footprint( ulong ele_max ) {
   l = FD_LAYOUT_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )    );
   l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()     );
   l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()   );
+  l = FD_LAYOUT_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()      );
   l = FD_LAYOUT_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )     );
   l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )     );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
@@ -329,11 +360,13 @@ fd_crds_footprint( ulong ele_max ) {
 }
 
 void *
-fd_crds_new( void *                    shmem,
-             fd_rng_t *                rng,
-             ulong                     ele_max,
-             fd_gossip_purged_t *      purged,
-             fd_gossip_out_ctx_t *     gossip_update_out ) {
+fd_crds_new( void *                       shmem,
+             fd_rng_t *                   rng,
+             ulong                        ele_max,
+             fd_gossip_purged_t *         purged,
+             fd_gossip_activity_update_fn activity_update_fn,
+             void *                       activity_update_fn_ctx,
+             fd_gossip_out_ctx_t *        gossip_update_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -370,12 +403,18 @@ fd_crds_new( void *                    shmem,
   void * _evict_treap           = FD_SCRATCH_ALLOC_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max ) );
   void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint() );
   void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint() );
+  void * _ci_fresh_15s_dlist    = FD_SCRATCH_ALLOC_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint() );
   void * _hash_treap            = FD_SCRATCH_ALLOC_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max ) );
   void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max ) );
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max ) );
+
+  crds->activity_update_fn = activity_update_fn;
+  FD_TEST( crds->activity_update_fn );
+
+  crds->activity_update_fn_ctx = activity_update_fn_ctx;
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );
@@ -389,6 +428,9 @@ fd_crds_new( void *                    shmem,
 
   crds->unstaked_expire_dlist = unstaked_expire_dlist_join( unstaked_expire_dlist_new( _unstaked_expire_dlist ) );
   FD_TEST( crds->unstaked_expire_dlist );
+
+  crds->ci_fresh_15s_dlist = ci_fresh_15s_dlist_join( ci_fresh_15s_dlist_new( _ci_fresh_15s_dlist ) );
+  FD_TEST( crds->ci_fresh_15s_dlist );
 
   crds->hash_treap = hash_treap_join( hash_treap_new( _hash_treap, ele_max ) );
   FD_TEST( crds->hash_treap );
@@ -472,6 +514,10 @@ crds_unindex( fd_crds_t *       crds,
     crds->metrics->peer_visible_stake -= entry->stake;
 
     if( FD_LIKELY( entry->ci->fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
+    if( FD_LIKELY( entry->ci->fresh_15s_dlist.in_list ) ) {
+      ci_fresh_15s_dlist_ele_remove( crds->ci_fresh_15s_dlist, entry->ci, crds->ci_pool );
+      crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)entry->key.pubkey, entry->ci->contact_info, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE );
+    }
     crds_contact_info_evict_dlist_ele_remove( crds->ci_evict_dlist, entry->ci, crds->ci_pool );
   }
 
@@ -501,6 +547,9 @@ crds_index( fd_crds_t *       crds,
     } else {
       entry->ci->fresh_dlist.in_list = 0;
     }
+    ci_fresh_15s_dlist_ele_push_tail( crds->ci_fresh_15s_dlist, entry->ci, crds->ci_pool );
+    entry->ci->fresh_15s_dlist.in_list = 1;
+    crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)entry->key.pubkey, entry->ci->contact_info, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_ACTIVE );
   }
 
   crds->metrics->count[ entry->key.tag ]++;
@@ -607,8 +656,21 @@ unfresh( fd_crds_t * crds,
 
     if( FD_LIKELY( head->received_wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
     head = crds_contact_info_fresh_list_ele_pop_head( crds->ci_fresh_dlist, crds->ci_pool );
+    FD_TEST( head->fresh_dlist.in_list );
     head->fresh_dlist.in_list = 0;
     crds_samplers_upd_peer_at_idx( crds->samplers, head->crds_entry, head->sampler_idx, now );
+  }
+
+  while( !ci_fresh_15s_dlist_is_empty( crds->ci_fresh_15s_dlist, crds->ci_pool ) ) {
+    fd_crds_contact_info_entry_t * head = ci_fresh_15s_dlist_ele_peek_head( crds->ci_fresh_15s_dlist, crds->ci_pool );
+
+    if( FD_LIKELY( head->received_wallclock_nanos>now-15L*1000L*1000L*1000L ) ) break;
+
+    head = ci_fresh_15s_dlist_ele_pop_head( crds->ci_fresh_15s_dlist, crds->ci_pool );
+
+    FD_TEST( head->fresh_15s_dlist.in_list );
+    head->fresh_15s_dlist.in_list = 0U;
+    crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)head->crds_entry->key.pubkey, head->contact_info, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE );
   }
 }
 
@@ -860,7 +922,7 @@ fd_crds_entry_contact_info( fd_crds_entry_t const * entry ) {
 
 fd_gossip_contact_info_t const *
 fd_crds_contact_info_lookup( fd_crds_t const * crds,
-                              uchar const *     pubkey ) {
+                             uchar const *     pubkey ) {
 
   fd_crds_key_t key[1];
   make_contact_info_key( pubkey, key );

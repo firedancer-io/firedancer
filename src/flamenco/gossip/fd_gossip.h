@@ -109,6 +109,8 @@ fd_gossip_new( void *                           shmem,
                void *                           sign_ctx,
                fd_ping_tracker_change_fn        ping_tracker_change_fn,
                void *                           ping_tracker_change_fn_ctx,
+               fd_gossip_activity_update_fn     activity_update_fn,
+               void *                           activity_update_fn_ctx,
                fd_gossip_out_ctx_t *            gossip_update_out,
                fd_gossip_out_ctx_t *            gossip_net_out );
 
