@@ -224,8 +224,8 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 int
 fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 
-/* Returns the number of worst case worst-case FEC sets sched can ingest
-   at the given moment.  This is a cheap and conservative check. */
+/* Returns the number of worst-case FEC sets sched can ingest. This is a
+   cheap and conservative check. */
 ulong
 fd_sched_can_ingest_cnt( fd_sched_t * sched );
 
