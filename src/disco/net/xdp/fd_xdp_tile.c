@@ -95,10 +95,13 @@ struct fd_net_flusher {
      wakeup.  This can result in the tail of a burst getting delayed or
      overrun.  If more than tail_flush_backoff ticks pass since the last
      sendto() wakeup and there are still unacknowledged packets in the
-     TX ring, issues another wakeup. */
+     TX ring, issues another wakeup. Only used by "softirq" poll mode. */
   long next_tail_flush_ticks;
   long tail_flush_backoff;
 
+  long last_prefbusy_poll_ticks;
+  long lwr_prefbusy_poll_ticks;
+  long upr_prefbusy_poll_ticks;
 };
 
 typedef struct fd_net_flusher fd_net_flusher_t;
@@ -212,6 +215,10 @@ typedef struct {
   ushort repair_intake_listen_port;
   ushort repair_serve_listen_port;
   ushort txsend_src_port;
+
+  char  poll_mode[ 16 ];
+  uint  busy_poll_usecs;
+  ulong gro_flush_timeout_nanos;
 
   ulong in_cnt;
   fd_net_in_ctx_t in[ MAX_NET_INS ];
@@ -1122,6 +1129,105 @@ net_rx_event( fd_net_ctx_t * ctx,
   fill_ring->cached_prod = fill_prod+1U;
 }
 
+/* before_credit_softirq is called every loop iteration if net tile
+   is in softirq polling mode (fallback if prefbusy polling mode
+   is not possible). */
+
+static void
+before_credit_softirq( fd_net_ctx_t *      ctx,
+                       int *               charge_busy,
+                       uint                rr_idx,
+                       fd_xsk_t *          rr_xsk ) {
+
+  net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
+
+  /* Fire RX event if we have RX desc avail */
+  if( !fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) {
+    *charge_busy = 1;
+    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
+  } else {
+    net_rx_wakeup( ctx, rr_xsk, charge_busy );
+
+    /* Iterate onto the next NAPI queue. */
+    ctx->rr_idx++;
+    ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
+  }
+
+
+}
+
+static int
+net_prefbusy_poll_ready( fd_xsk_t *         rr_xsk,
+                         fd_net_flusher_t * flusher ) {
+
+  if( FD_UNLIKELY( fd_tickcount() < ( flusher->last_prefbusy_poll_ticks + flusher->lwr_prefbusy_poll_ticks ) ) ) return 0;
+  if( FD_UNLIKELY( fd_tickcount() > ( flusher->last_prefbusy_poll_ticks + flusher->upr_prefbusy_poll_ticks ) ) ) return 1;
+
+  if( FD_UNLIKELY( fd_xdp_ring_empty( &rr_xsk->ring_tx, FD_XDP_RING_ROLE_PROD ) ) ) {
+    flusher->pending_cnt = 0UL;
+  }
+
+  int rx_empty = fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS );
+
+  return rx_empty;
+}
+
+static void
+net_prefbusy_poll_flush( fd_net_flusher_t * flusher,
+                         long               now ) {
+  flusher->pending_cnt = 0UL;
+  flusher->last_prefbusy_poll_ticks = now;
+}
+
+/* before_credit_prefbusy is called every loop iteration if net
+   tile is in preferred busy (often referred to as "prefbusy" in
+   Firedancer) polling mode. */
+
+static void
+before_credit_prefbusy( fd_net_ctx_t *      ctx,
+                        int *               charge_busy,
+                        uint                rr_idx,
+                        fd_xsk_t *          rr_xsk ) {
+
+  fd_net_flusher_t * flusher = ctx->tx_flusher+rr_idx;
+  if( FD_UNLIKELY( net_prefbusy_poll_ready( rr_xsk, flusher ) ) ) {
+    /* NAPI needs to be polled to process new TX from
+       Firedancer's net tile and process new RX from the NIC. */
+
+    FD_VOLATILE( *rr_xsk->ring_tx.prod ) = rr_xsk->ring_tx.cached_prod; /* write-back local copies to fseqs */
+    FD_VOLATILE( *rr_xsk->ring_cr.cons ) = rr_xsk->ring_cr.cached_cons;
+    FD_VOLATILE( *rr_xsk->ring_rx.cons ) = rr_xsk->ring_rx.cached_cons;
+    FD_VOLATILE( *rr_xsk->ring_fr.prod ) = rr_xsk->ring_fr.cached_prod;
+
+    if( FD_UNLIKELY( -1==sendto( rr_xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
+      if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
+        FD_LOG_ERR(( "xsk sendto failed xsk_fd=%d (%i-%s)", rr_xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+      }
+      if( FD_UNLIKELY( errno!=EAGAIN ) ) {
+        long ts = fd_log_wallclock();
+        if( ts > rr_xsk->log_suppress_until_ns ) {
+          FD_LOG_WARNING(( "xsk sendto failed xsk_fd=%d (%i-%s)", rr_xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+          rr_xsk->log_suppress_until_ns = ts + (long)1e9;
+        }
+      }
+    }
+    net_prefbusy_poll_flush( flusher, fd_tickcount() );
+
+    /* Since xsk sendmsg in prefbusy mode drives both rx and tx, both are incremented */
+    ctx->metrics.xsk_tx_wakeup_cnt++;
+    ctx->metrics.xsk_rx_wakeup_cnt++;
+  }
+
+  /* Process new RX from kernel driver if there is any. */
+  if( !fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) {
+    *charge_busy = 1;
+    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
+  }
+  /* Iterate onto the next NAPI queue. */
+  ctx->rr_idx++;
+  ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
+}
+
 /* before_credit is called every loop iteration. */
 
 static void
@@ -1148,16 +1254,11 @@ before_credit( fd_net_ctx_t *      ctx,
   uint       rr_idx = ctx->rr_idx;
   fd_xsk_t * rr_xsk = &ctx->xsk[ rr_idx ];
 
-  net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
-
-  /* Fire RX event if we have RX desc avail */
-  if( !fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) {
-    *charge_busy = 1;
-    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
+  if( FD_LIKELY( rr_xsk->prefbusy_poll_enabled ) ) {
+      before_credit_prefbusy( ctx, charge_busy, rr_idx, rr_xsk );
   } else {
-    net_rx_wakeup( ctx, rr_xsk, charge_busy );
-    ctx->rr_idx++;
-    ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
+      /* Fallback poll mode which relies on linux irqs and wakeups */
+      before_credit_softirq( ctx, charge_busy, rr_idx, rr_xsk );
   }
 
   /* Fire comp event if we have comp desc avail */
@@ -1287,6 +1388,10 @@ privileged_init( fd_topo_t *      topo,
        starting up without either XDP_ZEROCOPY or XDP_COPY
        (e.g. 5.14.0-503.23.1.el9_5 with i40e) */
     .bind_flags  = tile->xdp.zero_copy ? XDP_ZEROCOPY : XDP_COPY,
+
+    .poll_mode               = tile->xdp.poll_mode,
+    .busy_poll_usecs         = tile->xdp.busy_poll_usecs,
+    .gro_flush_timeout_nanos = tile->xdp.gro_flush_timeout_nanos,
 
     .fr_depth  = tile->xdp.xdp_rx_queue_size*2,
     .rx_depth  = tile->xdp.xdp_rx_queue_size,
@@ -1422,6 +1527,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_serve_listen_port       = tile->net.repair_serve_listen_port;
   ctx->txsend_src_port                = tile->net.txsend_src_port;
 
+  strcpy( ctx->poll_mode, tile->xdp.poll_mode );
+  ctx->busy_poll_usecs         = tile->xdp.busy_poll_usecs;
+  ctx->gro_flush_timeout_nanos = tile->xdp.gro_flush_timeout_nanos;
+
   /* Put a bound on chunks we read from the input, to make sure they
      are within in the data region of the workspace. */
 
@@ -1502,6 +1611,10 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->xdp.xdp_tx_queue_size * 0.7 );
     ctx->tx_flusher[ j ].tail_flush_backoff    = (long)( (double)tile->xdp.tx_flush_timeout_ns * fd_tempo_tick_per_ns( NULL ) );
     ctx->tx_flusher[ j ].next_tail_flush_ticks = LONG_MAX;
+
+    ctx->tx_flusher[ j ].last_prefbusy_poll_ticks = 0UL;
+    ctx->tx_flusher[ j ].lwr_prefbusy_poll_ticks = (long)( (double)tile->xdp.lwr_prefbusy_poll_timeout_ns * fd_tempo_tick_per_ns( NULL ) );
+    ctx->tx_flusher[ j ].upr_prefbusy_poll_ticks = (long)( (double)tile->xdp.upr_prefbusy_poll_timeout_ns * fd_tempo_tick_per_ns( NULL ) );
   }
 
   /* Join netbase objects */
