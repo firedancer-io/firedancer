@@ -429,7 +429,7 @@ struct __attribute__((packed)) fd_gui_txn {
 
      timestamp_delta_start_exec_nanos = (
        (timestamp_delta_end_nanos-timestamp_delta_start_nanos) *
-       ((double)txn_{}_pct/USHORT_MAX)
+       ((double)txn_{}_pct/UCHAR_MAX)
      ) */
   uchar txn_start_pct;
   uchar txn_load_end_pct;
