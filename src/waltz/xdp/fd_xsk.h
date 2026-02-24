@@ -187,8 +187,8 @@ fd_xdp_ring_full( fd_xdp_ring_t * ring ) {
   return ring->cached_prod - ring->cached_cons >= ring->depth;
 }
 
-/* fd_xsk_params_t: Memory layout parameters of XSK.
-   Can be retrieved using fd_xsk_get_params() */
+/* fd_xsk_params_t: XSK poll configuration and memory layout
+   parameters. Can be retrieved using fd_xsk_get_params() */
 
 struct fd_xsk_params {
   /* {fr,rx,tx,cr}_depth: Number of frames allocated for the Fill, RX,
@@ -217,6 +217,15 @@ struct fd_xsk_params {
   /* sockaddr_xdp.sxdp_flags additional params, e.g. XDP_ZEROCOPY */
   uint bind_flags;
 
+  char * poll_mode;
+
+  /* max time waiting for work during prefbusy napi poll. */
+  uint busy_poll_usecs;
+
+  /* max time linux waits for userspace to poll napi before
+     calling a softirq. */
+  ulong gro_flush_timeout_nanos;
+
   /* whether the xsk memory should be included in core dumps */
   int core_dump;
 };
@@ -235,6 +244,13 @@ struct fd_xsk {
 
   /* AF_XDP socket file descriptor */
   int xsk_fd;
+
+  /* Whether preferred busy polling was successfully enabled
+     during XSK socket setup. */
+  int prefbusy_poll_enabled;
+
+  /* napi_id: ID of this specific NAPI instance */
+  uint napi_id;
 
   /* ring_{rx,tx,fr,cr}: XSK ring descriptors */
 

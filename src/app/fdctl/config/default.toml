@@ -983,6 +983,46 @@ dynamic_port_range = "8900-9000"
         # "operation not supported".
         xdp_zero_copy = false
 
+        # This option moves the management of napi including
+        # when to poll as well as the poll budget, into userspace
+        # if in "prefbusy" mode. The fallback is "softirq" mode,
+        # which relies much more on linux to manage napi, through
+        # wakeups, softirqs and under higher network load, a seperate
+        # ksoftirqd thread which linux creates and manages.
+        #
+        # "prefbusy" mode is the recommended choice of mode,
+        # as this will also automatically fallback to "softirq"
+        # mode if preferred busy polling is not available or
+        # the right choice for whatever reason (e.g. on an older
+        # kernel). A warning will be emitted if this fallback is made
+        # alongside suggestions of why this might have happened.
+        poll_mode = "prefbusy"
+
+        # AF_XDP socket configuration options which will eventually
+        # be moved to being fixed constants prior to the merge of
+        # prefbusy-poll-mode into main.
+        busy_poll_usecs         = 100
+        gro_flush_timeout_nanos = 5000000
+
+        # This is the minimum time between napi polls if in prefbusy
+        # mode. This is important for protecting against a livelock
+        # scenario inwhich Firedancer is not given enough time in
+        # userspace to do work.
+        #
+        # This is a protective mechanism against bugs as well
+        # as to ensure even in a low RX but high TX traffic scenario,
+        # TX is still given enough time to do work or else
+        # napi is polled whenever the xsk RX queue is empty
+        # which could starve userspace TX work in the edge
+        # case there is significantly more TX than RX traffic.
+        lwr_prefbusy_poll_timeout_micros = 5
+
+        # This is the maximum time between napi polls if in prefbusy
+        # mode. This is to call a napi poll in the case the normal
+        # prefbusy napi poll scheduling has stalled, napi polls
+        # can often resolve queue stalls so this increases robustness.
+        upr_prefbusy_poll_timeout_micros = 150
+
         # XDP uses metadata queues shared across the kernel and
         # userspace to relay events about incoming and outgoing packets.
         # This setting defines the number of entries in these metadata
