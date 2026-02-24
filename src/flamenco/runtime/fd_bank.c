@@ -1256,7 +1256,7 @@ fd_banks_get_frontier_private( fd_bank_data_t * bank_pool,
   fd_bank_data_t * bank = fd_banks_pool_ele( bank_pool, bank_idx );
 
   if( bank->child_idx==fd_banks_pool_idx_null( bank_pool ) ) {
-    if( !(bank->flags&(FD_BANK_FLAGS_FROZEN|FD_BANK_FLAGS_DEAD)) ) {
+    if( !(bank->flags&FD_BANK_FLAGS_FROZEN) && !(bank->flags&FD_BANK_FLAGS_DEAD) ) {
       frontier_indices_out[*frontier_cnt_out] = bank->idx;
       (*frontier_cnt_out)++;
     }
@@ -1272,6 +1272,7 @@ fd_banks_get_frontier( fd_banks_t * banks,
                        ulong *      frontier_cnt_out ) {
   fd_rwlock_read( &banks->locks->banks_lock );
 
+  *frontier_cnt_out = 0UL;
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
   fd_banks_get_frontier_private( bank_pool, banks->data->root_idx, frontier_indices_out, frontier_cnt_out );
 
