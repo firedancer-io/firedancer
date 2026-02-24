@@ -105,6 +105,11 @@ struct fd_stake_weight {
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
 
+#define SORT_NAME fd_stake_weight_key_sort
+#define SORT_KEY_T fd_stake_weight_t
+#define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )<0)
+#include "../../util/tmpl/fd_sort.c"
+
 static inline void fd_hash_new( fd_hash_t * self ) { (void)self; }
 static inline int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_hash_t), ctx );

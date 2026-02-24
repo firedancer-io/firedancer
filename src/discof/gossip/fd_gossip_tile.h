@@ -3,8 +3,10 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/gossip/fd_gossip.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../flamenco/runtime/fd_bank.h"
 
 typedef struct {
   int         kind;
@@ -13,6 +15,11 @@ typedef struct {
   ulong       wmark;
   ulong       mtu;
 } fd_gossip_in_ctx_t;
+
+#define FD_GOSSIP_WFS_STATE_INIT    (1)
+#define FD_GOSSIP_WFS_STATE_START   (2)
+#define FD_GOSSIP_WFS_STATE_PUBLISH (3)
+#define FD_GOSSIP_WFS_STATE_DONE    (4)
 
 struct fd_gossip_tile_ctx {
   fd_gossip_t * gossip;
@@ -37,6 +44,7 @@ struct fd_gossip_tile_ctx {
   fd_gossip_out_ctx_t gossip_out[ 1 ];
   fd_gossip_out_ctx_t gossvf_out[ 1 ];
   fd_gossip_out_ctx_t sign_out[ 1 ];
+  fd_gossip_out_ctx_t gossip_wfs[ 1 ];
 
   fd_keyguard_client_t keyguard_client[ 1 ];
   fd_keyswitch_t * keyswitch;
@@ -44,6 +52,26 @@ struct fd_gossip_tile_ctx {
   ushort            net_id;
   fd_ip4_udp_hdrs_t net_out_hdr[ 1 ];
   fd_rng_t          rng[ 1 ];
+
+
+  /* The condition for complete = 1 is 80% of the cluster has joined
+     gossip. "joining gossip" is based on contact info CRDS values
+     with a wallclock timestamp in the last 15 seconds.
+
+     We keep a copy of the snapshot bank's votes states in an array here
+     for quick look up. */
+  fd_vote_stake_weight_t wfs_stakes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  fd_stake_weight_t      wfs_stakes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  ulong                  wfs_stakes_cnt;
+
+  /* wfs_active is used to keep track of nodes we've already labeled as
+     being active on gossip, so we don't double count their stake. */
+  uchar             wfs_active[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  int               wfs_state;
+  struct {
+    ulong online;
+    ulong total;
+  } wfs_stake;
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;

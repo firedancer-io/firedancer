@@ -39,6 +39,14 @@ struct fd_crds_metrics {
 
 typedef struct fd_crds_metrics fd_crds_metrics_t;
 
+#define FD_GOSSIP_ACTIVITY_CHANGE_TYPE_ACTIVE   (1)
+#define FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE (2)
+
+typedef void (*fd_gossip_activity_update_fn)( void *                           ctx,
+                                              fd_pubkey_t const *              identity,
+                                              fd_gossip_contact_info_t const * ci,
+                                              int                              change_type );
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -48,11 +56,13 @@ FD_FN_CONST ulong
 fd_crds_footprint( ulong ele_max );
 
 void *
-fd_crds_new( void *                shmem,
-             fd_rng_t *            rng,
-             ulong                 ele_max,
-             fd_gossip_purged_t *  purged,
-             fd_gossip_out_ctx_t * gossip_update_out  );
+fd_crds_new( void *                       shmem,
+             fd_rng_t *                   rng,
+             ulong                        ele_max,
+             fd_gossip_purged_t *         purged,
+             fd_gossip_activity_update_fn activity_update_fn,
+             void *                       activity_update_fn_ctx,
+             fd_gossip_out_ctx_t *        gossip_update_out  );
 
 fd_crds_t *
 fd_crds_join( void * shcrds );
@@ -144,7 +154,7 @@ fd_crds_entry_contact_info( fd_crds_entry_t const * entry );
    fully decoded contact info of a */
 
 /* fd_crds_contact_info_lookup returns a pointer to the contact info
-   structure corresponding to pubkey. returns NULL if there is no such
+   structure corresponding to pubkey.  Returns NULL if there is no such
    entry. */
 
 fd_gossip_contact_info_t const *
@@ -162,7 +172,7 @@ fd_crds_peer_count( fd_crds_t const * crds );
    fd_crds_peer_{active,inactive} provide a way to manage this state
    for a given peer.
 
-   A peer's active state is typicallly determined by its ping/pong status. */
+   A peer's active state is typically determined by its ping/pong status. */
 void
 fd_crds_peer_active( fd_crds_t *   crds,
                      uchar const * peer_pubkey,

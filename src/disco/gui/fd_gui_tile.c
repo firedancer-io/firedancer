@@ -237,6 +237,8 @@ before_frag( fd_gui_ctx_t * ctx,
 
   /* Ignore "done draining banks" signal from pack->poh */
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==ULONG_MAX ) ) return 1;
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT && sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE ) ) return 1;
   return 0;
 }
 
@@ -518,13 +520,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_GOSSIP_OUT: {
       FD_TEST( ctx->is_full_client );
-      fd_gossip_update_message_t * update = (fd_gossip_update_message_t *)src;
-      switch( update->tag ) {
-        case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE ); break;
-        case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO ); break;
-        default: break;
-      }
-      fd_gui_peers_handle_gossip_update( ctx->peers, update, fd_clock_now( ctx-> clock ) );
+      fd_gui_peers_handle_gossip_update( ctx->peers, (fd_gossip_update_message_t *)src, fd_clock_now( ctx-> clock ) );
       break;
     }
     case IN_KIND_POH_PACK: {

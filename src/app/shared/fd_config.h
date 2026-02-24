@@ -141,6 +141,10 @@ struct fd_configf {
   } gossip;
 
   struct {
+    char wait_for_supermajority_with_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+  } consensus;
+
+  struct {
     struct {
       uint max_local_full_effective_age;
       uint max_local_incremental_age;
@@ -171,6 +175,9 @@ struct fd_configf {
     struct {
       ulong scheduler_depth;
     } replay;
+    struct {
+      int validate_genesis_hash;
+    } genesis;
   } development;
 
   struct {

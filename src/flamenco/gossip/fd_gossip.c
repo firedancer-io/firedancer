@@ -174,6 +174,8 @@ fd_gossip_new( void *                           shmem,
                void *                           sign_ctx,
                fd_ping_tracker_change_fn        ping_tracker_change_fn,
                void *                           ping_tracker_change_fn_ctx,
+               fd_gossip_activity_update_fn     activity_update_fn,
+               void *                           activity_update_fn_ctx,
                fd_gossip_out_ctx_t *            gossip_update_out,
                fd_gossip_out_ctx_t *            gossip_net_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -216,7 +218,7 @@ fd_gossip_new( void *                           shmem,
   gossip->purged = fd_gossip_purged_join( fd_gossip_purged_new( purged, rng, max_values ) );
   FD_TEST( gossip->purged );
 
-  gossip->crds = fd_crds_join( fd_crds_new( crds, rng, max_values, gossip->purged, gossip_update_out ) );
+  gossip->crds = fd_crds_join( fd_crds_new( crds, rng, max_values, gossip->purged, activity_update_fn, activity_update_fn_ctx, gossip_update_out ) );
   FD_TEST( gossip->crds );
 
   gossip->active_set = fd_active_set_join( fd_active_set_new( active_set, rng ) );

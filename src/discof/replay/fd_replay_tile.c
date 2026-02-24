@@ -19,6 +19,7 @@
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
+#include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v1.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v2.h"
@@ -37,7 +38,9 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 
+# if FD_HAS_FLATCC
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
+#endif
 
 #include <stdio.h>
 
@@ -79,17 +82,18 @@
     be replayed.  The new Dispatcher will change this by taking a FEC
     set as input instead. */
 
-#define IN_KIND_SNAP    ( 0)
-#define IN_KIND_GENESIS ( 1)
-#define IN_KIND_IPECHO  ( 2)
-#define IN_KIND_TOWER   ( 3)
-#define IN_KIND_RESOLV  ( 4)
-#define IN_KIND_POH     ( 5)
-#define IN_KIND_EXECRP  ( 6)
-#define IN_KIND_SHRED   ( 7)
-#define IN_KIND_TXSEND  ( 8)
-#define IN_KIND_GUI     ( 9)
-#define IN_KIND_RPC     (10)
+#define IN_KIND_SNAP       ( 0)
+#define IN_KIND_GENESIS    ( 1)
+#define IN_KIND_IPECHO     ( 2)
+#define IN_KIND_TOWER      ( 3)
+#define IN_KIND_RESOLV     ( 4)
+#define IN_KIND_POH        ( 5)
+#define IN_KIND_EXECRP     ( 6)
+#define IN_KIND_SHRED      ( 7)
+#define IN_KIND_TXSEND     ( 8)
+#define IN_KIND_GUI        ( 9)
+#define IN_KIND_RPC        (10)
+#define IN_KIND_GOSSIP_OUT (11)
 
 #define DEBUG_LOGGING 0
 
@@ -165,6 +169,17 @@ struct fd_replay_tile {
   int has_identity_vote_rooted;
   int wait_for_vote_to_start_leader;
 
+  /* wfs_enabled is 1 if the validator is booted in
+     wait_for_supermajority mode. In this mode replay (and, by extension,
+     downstream consumers) is not allowed to make progress until 80% of
+     the cluster has published their ContactInfo in Gossip with a
+     shred version matching expected_shred_version. When this happens,
+     wfs_complete will be set to 1. */
+  int   wfs_enabled;
+  int   wfs_complete;
+
+  fd_hash_t expected_bank_hash;
+
   ulong        reasm_seed;
   fd_reasm_t * reasm;
 
@@ -182,6 +197,7 @@ struct fd_replay_tile {
 #define FD_REPLAY_HARD_FORKS_MAX (64UL)
   ulong hard_forks_cnt;
   ulong hard_forks[ FD_REPLAY_HARD_FORKS_MAX ];
+  ulong hard_forks_cnts[ FD_REPLAY_HARD_FORKS_MAX ];
 
   ushort expected_shred_version;
   ushort ipecho_shred_version;
@@ -1136,7 +1152,7 @@ static inline int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->has_identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) return 0;
   if( !ctx->supports_leader ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
@@ -1479,6 +1495,18 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     }
 
     ulong snapshot_slot = fd_bank_slot_get( bank );
+
+    if( FD_UNLIKELY( ctx->wfs_enabled && memcmp( ctx->expected_bank_hash.uc, fd_bank_bank_hash_get( bank ).uc, sizeof(fd_hash_t) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
+      FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_get( bank ).uc, actual_bank_hash_cstr );
+      FD_LOG_ERR(( "[consensus.wait_for_supermajority_with_bank_hash] expected_bank_hash=%s does not match snapshot slot"
+                   "=%lu bank_hash=%s. If you are loading a snapshot from the network, check that the slot matches the "
+                   "cluster restart slot. ", expected_bank_hash_cstr, snapshot_slot, actual_bank_hash_cstr ));
+    }
+    if( FD_UNLIKELY( ctx->wfs_enabled ) ) {
+      FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
+    }
+
     /* FIXME: This is a hack because the block id of the snapshot slot
        is not provided in the snapshot.  A possible solution is to get
        the block id of the snapshot slot from repair. */
@@ -1565,7 +1593,10 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->hard_forks_cnt = manifest->hard_forks_len;
-      for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
+      for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
+        ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
+        ctx->hard_forks_cnts[ i ] = manifest->hard_forks_cnts[ i ];
+      }
       break;
     }
     default: {
@@ -2066,7 +2097,7 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( !ctx->is_booted ) ) return;
+  if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
 
   if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
     *charge_busy = 1;
@@ -2141,7 +2172,7 @@ static int
 before_frag( fd_replay_tile_t * ctx,
              ulong              in_idx,
              ulong              seq FD_PARAM_UNUSED,
-             ulong              sig FD_PARAM_UNUSED ) {
+             ulong              sig ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
     /* If reasm is full, we can not insert any more FEC sets.  We must
@@ -2153,6 +2184,7 @@ before_frag( fd_replay_tile_t * ctx,
     }
   }
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT && sig!=FD_GOSSIP_UPDATE_TAG_WFS_DONE ) ) return 1;
   return 0;
 }
 
@@ -2408,48 +2440,11 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
   if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_forks_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
     ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
 
-    union {
-      uchar  c[ 32 ];
-      ushort s[ 16 ];
-    } running_hash;
-    fd_memcpy( running_hash.c, ctx->genesis_hash, sizeof(fd_hash_t) );
+    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_forks_cnts, ctx->hard_forks_cnt );
 
-    ulong processed = 0UL;
-    ulong min_value = 0UL;
-    while( processed<ctx->hard_forks_cnt ) {
-      ulong min_index = ULONG_MAX;
-      for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
-        if( ctx->hard_forks[ i ]>=min_value && (min_index==ULONG_MAX || ctx->hard_forks[ i ]<ctx->hard_forks[ min_index ] ) ) {
-          min_index = i;
-        }
-      }
-
-      FD_TEST( min_index!=ULONG_MAX );
-      min_value = ctx->hard_forks[ min_index ];
-      ulong min_count = 0UL;
-      for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
-        if( ctx->hard_forks[ i ]==min_value ) min_count++;
-      }
-
-      uchar data[ 48UL ];
-      fd_memcpy( data, running_hash.c, sizeof(fd_hash_t) );
-      fd_memcpy( data+32UL, &min_value, sizeof(ulong) );
-      fd_memcpy( data+40UL, &min_count, sizeof(ulong) );
-
-      FD_TEST( fd_sha256_hash( data, 48UL, running_hash.c ) );
-      processed += min_count;
-      min_value += 1UL;
-    }
-
-    ushort xor = 0;
-    for( ulong i=0UL; i<16UL; i++ ) xor ^= running_hash.s[ i ];
-
-    xor = fd_ushort_bswap( xor );
-    xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
-
-    if( FD_UNLIKELY( expected_shred_version!=xor ) ) {
+    if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
-      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, xor, genesis_hash_b58 ));
+      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, actual_shred_version, genesis_hash_b58 ));
     }
   }
 }
@@ -2564,12 +2559,18 @@ returnable_frag( fd_replay_tile_t *  ctx,
       process_vote_txn_sent( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
+    case IN_KIND_GOSSIP_OUT: {
+      FD_TEST( sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE );
+      ctx->wfs_complete = 1;
+      FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
+      break;
+    }
     case IN_KIND_RPC:
     case IN_KIND_GUI: {
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, sig ) );
       bank->data->refcnt--;
-      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt, ctx->in_kind[in_idx]==IN_KIND_RPC ? "rpc" : "gui" ));
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt, ctx->in_kind[ in_idx ]==IN_KIND_RPC ? "rpc" : "gui" ));
       break;
     }
     default:
@@ -2795,6 +2796,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->has_identity_vote_rooted = 0;
   ctx->wait_for_vote_to_start_leader = tile->replay.wait_for_vote_to_start_leader;
 
+  ctx->wfs_enabled = memcmp( tile->replay.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) );
+  ctx->expected_bank_hash = tile->replay.wait_for_supermajority_with_bank_hash;
+  ctx->wfs_complete = !ctx->wfs_enabled;
+
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
 
@@ -2841,6 +2846,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "gui_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
+    else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 

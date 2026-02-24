@@ -42,7 +42,7 @@ init( config_t const * config ) {
   FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
   uchar genesis_hash[ 32 ] = { 0 };
   ushort shred_version = 0;
-  int result = compute_shred_version( genesis_path, &shred_version, genesis_hash );
+  int result = read_genesis_bin( genesis_path, &shred_version, genesis_hash );
   if( FD_UNLIKELY( -1==result && errno!=ENOENT ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
 
