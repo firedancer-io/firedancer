@@ -17,7 +17,7 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
 
-#define FD_BANKS_MAX_BANKS (2048UL)
+#define FD_BANKS_MAX_BANKS (4096UL)
 
 /* TODO: Some optimizations, cleanups, future work:
    1. Simple data types (ulong, int, etc) should be stored as their
@@ -1001,6 +1001,18 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
                    ulong        parent_bank_idx,
                    long         now );
 
+
+/* fd_banks_get_frontier returns the frontier set of bank indices in the
+   banks tree.  The frontier is defined as any bank which has no
+   no children and is initialized or replayable but not dead or frozen.
+   The caller is expected to have enough memory to store the bank
+   indices for the frontier.  The number of banks in the frontier is
+   written to the frontier_cnt_out pointer. */
+
+void
+fd_banks_get_frontier( fd_banks_t * banks,
+                       ulong *      frontier_indices_out,
+                       ulong *      frontier_cnt_out );
 
 /* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */
 

@@ -1702,7 +1702,8 @@ replay( fd_replay_tile_t *  ctx,
 }
 
 static int
-can_process_fec( fd_replay_tile_t * ctx ) {
+can_process_fec( fd_replay_tile_t * ctx,
+                 int *              banks_evict_out ) {
   fd_reasm_fec_t * fec;
   if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched, 1UL ) ) ) {
     ctx->metrics.sched_full++;
@@ -1740,6 +1741,7 @@ can_process_fec( fd_replay_tile_t * ctx ) {
      not be full in this case. */
   if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) {
     ctx->metrics.banks_full++;
+    *banks_evict_out = 1;
     return 0;
   }
 
@@ -2021,12 +2023,37 @@ after_credit( fd_replay_tile_t *  ctx,
 
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
-  if( FD_LIKELY( can_process_fec( ctx ) ) ) {
+  int banks_evict = 0;
+  if( FD_LIKELY( can_process_fec( ctx, &banks_evict ) ) ) {
     fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
     process_fec_set( ctx, stem, fec );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
+  }
+
+  if( FD_UNLIKELY( banks_evict ) ) {
+    FD_LOG_WARNING(( "banks are full and frontier banks are being evicted." ));
+    ulong frontier_cnt = 0UL;
+    ulong frontier_indices[ FD_BANKS_MAX_BANKS ];
+    fd_banks_get_frontier( ctx->banks, frontier_indices, &frontier_cnt );
+    /* If the frontier is empty that means that the full client has hit
+       its liveness threshold.  The client has not been able to advance
+       its root bank and now has no capacity to process any more blocks.
+       We want to just crash the client in this case.
+       TODO: We can probably do something slightly smarter here and wait
+       before crashing.  It's probably fine to just crash for now since
+       this is a very degenerate case. */
+    if( FD_UNLIKELY( frontier_cnt==0UL ) ) {
+      FD_LOG_ERR(( "The client is unable to make any forward replay progress. The root bank is not advancing and there are no frontier banks.  The client has hit its liveness threshold and is unable to process any more blocks.  Crashing." ));
+    }
+
+    for( ulong i=0UL; i<frontier_cnt; i++ ) {
+      fd_bank_t bank[1];
+      /* We don't ever want to evict the leader bank. */
+      if( FD_UNLIKELY( ctx->is_leader && frontier_indices[i]==ctx->leader_bank->data->idx ) ) continue;
+      fd_banks_mark_bank_dead( ctx->banks, bank->data->idx );
+    }
   }
 
   *charge_busy = replay( ctx, stem );
