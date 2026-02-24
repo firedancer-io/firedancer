@@ -403,7 +403,6 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     "execrp", /* FIREDANCER only */
     "txsend", /* FIREDANCER only */
     "tower",  /* FIREDANCER only */
-    "rpc",    /* FIREDANCER only */
     "pktgen",
     "snapct", /* FIREDANCER only */
     "snapld", /* FIREDANCER only */
