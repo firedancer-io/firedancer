@@ -70,6 +70,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_snapshots,
   &fd_cfg_stage_accdb,
+  &fd_cfg_stage_sysfs_poll,
   NULL,
 };
 
