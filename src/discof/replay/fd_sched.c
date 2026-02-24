@@ -711,6 +711,11 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
   return sched->txn_pool_free_cnt/FD_SCHED_MAX_TXN_PER_FEC;
 }
 
+int
+fd_sched_is_drained( fd_sched_t * sched ) {
+  return sched->txn_pool_free_cnt==sched->depth-1;
+}
+
 FD_WARN_UNUSED int
 fd_sched_fec_ingest( fd_sched_t *     sched,
                      fd_sched_fec_t * fec ) {

@@ -229,6 +229,10 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 ulong
 fd_sched_can_ingest_cnt( fd_sched_t * sched );
 
+/* Returns 1 if sched is drained, 0 otherwise. */
+int
+fd_sched_is_drained( fd_sched_t * sched );
+
 /* Obtain a transaction eligible for execution.  This implies that all
    prior transactions with w-r or w-w conflicts have completed.
    Information regarding the scheduled transaction is written to the out

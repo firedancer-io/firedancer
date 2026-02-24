@@ -1762,7 +1762,9 @@ can_process_fec( fd_replay_tile_t * ctx,
      not be full in this case. */
   if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) {
     ctx->metrics.banks_full++;
-    *evict_banks_out = 1;
+    /* We only want to evict banks if sched is drained and banks is no
+       longer making progress. */
+    if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
     return 0;
   }
 
@@ -1955,6 +1957,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
     if( FD_LIKELY( !curr->slot_complete ) ) continue;
 
     path[ path_cnt++ ] = curr;
+    FD_TEST( path_cnt<=FD_BANKS_MAX_BANKS );
 
     fd_bank_t curr_bank[1];
     if( FD_LIKELY( fd_banks_bank_query( curr_bank, ctx->banks, curr->bank_idx ) && curr_bank->data->bank_seq==curr->bank_seq ) ) break;
