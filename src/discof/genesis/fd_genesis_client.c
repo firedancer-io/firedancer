@@ -133,17 +133,19 @@ write_conn( fd_genesis_client_t * client,
   if( FD_LIKELY( !peer->writing ) ) return;
 
   char request[ 1024UL ];
-  FD_TEST( fd_cstr_printf_check( request, sizeof(request), NULL, "GET /genesis.tar.bz2 HTTP/1.1\r\n"
-                                                                 "Cache-Control: no-cache\r\n"
-                                                                 "Connection: keep-alive\r\n"
-                                                                 "Pragma: no-cache\r\n"
-                                                                 "User-Agent: Firedancer\r\n"
-                                                                 "Host: " FD_IP4_ADDR_FMT ":%hu\r\n\r\n",
-                                                                 FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ) );
+  ulong request_sz = 0UL;
+  FD_TEST( fd_cstr_printf_check( request, sizeof(request), &request_sz, "GET /genesis.tar.bz2 HTTP/1.1\r\n"
+                                                                      "Cache-Control: no-cache\r\n"
+                                                                      "Connection: keep-alive\r\n"
+                                                                      "Pragma: no-cache\r\n"
+                                                                      "User-Agent: Firedancer\r\n"
+                                                                      "Host: " FD_IP4_ADDR_FMT ":%hu\r\n\r\n",
+                                                                      FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ) );
+  FD_TEST( request_sz > peer->request_bytes_sent );
 
   long written = sendto( client->pollfds[ conn_idx ].fd,
                          request+peer->request_bytes_sent,
-                         sizeof(request)-peer->request_bytes_sent,
+                         request_sz-peer->request_bytes_sent,
                          MSG_NOSIGNAL,
                          NULL,
                          0 );
@@ -154,7 +156,7 @@ write_conn( fd_genesis_client_t * client,
   }
 
   peer->request_bytes_sent += (ulong)written;
-  if( FD_UNLIKELY( peer->request_bytes_sent==sizeof(request) ) ) {
+  if( FD_UNLIKELY( peer->request_bytes_sent==request_sz ) ) {
     peer->writing = 0;
     peer->response_bytes_read = 0UL;
   }
