@@ -1525,8 +1525,10 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_runtime_update_leaders( bank, &ctx->runtime_stack );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
-    block_id_ele->latest_mr = manifest_block_id;
-    block_id_ele->slot      = snapshot_slot;
+    block_id_ele->latest_mr      = manifest_block_id;
+    block_id_ele->slot           = snapshot_slot;
+    block_id_ele->latest_fec_idx = 0U;
+    block_id_ele->block_id_seen  = 1;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
     /* We call this after fd_runtime_read_genesis, which sets up the
