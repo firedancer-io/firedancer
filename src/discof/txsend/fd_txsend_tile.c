@@ -403,7 +403,9 @@ handle_contact_info_removal( fd_txsend_tile_ctx_t *                ctx FD_PARAM_
   if( FD_LIKELY( entry ) ) {
     for( ulong i=0UL; i<FD_TXSEND_PORT_QUIC_CNT; i++ ) {
       if( FD_UNLIKELY( entry->conn[i] ) ) fd_quic_conn_close( entry->conn[i], 0 );
-      entry->ip4s[i]  = 0;
+    }
+    for( ulong i=0UL; i<FD_TXSEND_PORT_CNT; i++ ) {
+      entry->ip4s [i] = 0;
       entry->ports[i] = 0;
     }
     ctx->metrics.ci_removed++;
