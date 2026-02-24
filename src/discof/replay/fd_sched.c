@@ -118,7 +118,7 @@ struct fd_sched_block {
   fd_sched_mblk_in_progress_t mblk_in_progress_pool[ FD_SCHED_MAX_MBLK_IN_PROGRESS_PER_SLOT ];
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_commit_t * bmtree;
-  ulong prev_tick_hashcnt;
+  ulong max_tick_hashcnt;
   ulong curr_tick_hashcnt; /* Starts at 0, accumulates hashcnt, resets to 0 on the next tick. */
   ulong tick_height;       /* Block is built off of a parent block with this many ticks. */
   ulong max_tick_height;   /* Block should end with precisely this many ticks. */
@@ -248,7 +248,10 @@ typedef struct fd_sched fd_sched_t;
 /* Internal helpers. */
 
 static int
-verify_ticks( fd_sched_block_t * block );
+verify_ticks_eager( fd_sched_block_t * block );
+
+static int
+verify_ticks_final( fd_sched_block_t * block );
 
 static void
 add_block( fd_sched_t * sched,
@@ -474,8 +477,8 @@ print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, prev_tick_hashcnt %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->prev_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, max_tick_hashcnt %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->max_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -1138,7 +1141,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 
   if( FD_UNLIKELY( block_should_signal_end( block ) ) ) {
     FD_TEST( block->block_start_signaled );
-    if( FD_UNLIKELY( verify_ticks( block ) ) ) {
+    if( FD_UNLIKELY( verify_ticks_final( block ) ) ) {
       /* Tick verification can't be done at parse time, because we may
          not know the expected number of hashes yet.  It can't be driven
          by transaction dispatch/completion, because the block may be
@@ -1335,16 +1338,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       } else {
         mblk_in_progress_slist_idx_push_tail( block->mblks_hashing_in_progress, msg->mblk_idx, block->mblk_in_progress_pool );
       }
-      FD_TEST( block->hashes_per_tick!=ULONG_MAX );
-      if( FD_UNLIKELY( block->curr_tick_hashcnt>block->hashes_per_tick && block->hashes_per_tick>1UL ) ) { /* >1 to ignore low power hashing or no hashing cases */
-        /* We couldn't really check this at parse time because we may
-           not have the expected hashes per tick value yet.  We couldn't
-           delay this till after all PoH hashing is done, because this
-           would be a DoS vector.  This is a good place to do the check.
-           Note that checking the hashcnt between ticks transitively
-           places an upper bound on the hashcnt of individual
-           microblocks, thus mitigating the DoS vector. */
-        FD_LOG_INFO(( "bad block: observed cumulative tick_hashcnt %lu, expected %lu, slot %lu, parent slot %lu", block->curr_tick_hashcnt, block->hashes_per_tick, block->slot, block->parent_slot ));
+      if( FD_UNLIKELY( verify_ticks_eager( block ) ) ) {
         handle_bad_block( sched, block );
         return -1;
       }
@@ -1640,7 +1634,7 @@ add_block( fd_sched_t * sched,
   mblk_in_progress_slist_remove_all( block->mblks_hashing_in_progress, block->mblk_in_progress_pool );
   mblk_in_progress_slist_remove_all( block->mblks_mixin_in_progress, block->mblk_in_progress_pool );
 
-  block->prev_tick_hashcnt = ULONG_MAX;
+  block->max_tick_hashcnt  = 0UL;
   block->curr_tick_hashcnt = 0UL;
   block->tick_height       = ULONG_MAX;
   block->max_tick_height   = ULONG_MAX;
@@ -1700,16 +1694,57 @@ add_block( fd_sched_t * sched,
   }
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1057
+/* Agave invokes verify_ticks() anywhere between once per slot and once
+   per entry batch, before tranactions are parsed or dispatched for
+   execution.  We can't do quite the same thing due to out-of-order
+   scheduling and the fact that we allow parsing to run well ahead of
+   block boundaries.  Out-of-order scheduling is good, so is overlapping
+   parsing with execution.  The easiest thing for us would be to just
+   delay verify_ticks() wholesale till the end of a slot, except that
+   this opens us up to bogus tick and hash counts, potentially causing
+   runaway consumption of compute cycles.  Of all the checks that are
+   performed in verify_ticks(), two types are relevant to mitigating
+   this risk.  One is constraining the number of ticks, and the other is
+   constraining the number of hashes per tick.  So we implement these
+   checks here, and perform them on the fly as eagerly as possible.
 
    Returns 0 on success. */
 static int
-verify_ticks( fd_sched_block_t * block ) {
-  FD_TEST( block->fec_eos );
+verify_ticks_eager( fd_sched_block_t * block ) {
+  FD_TEST( block->hashes_per_tick!=ULONG_MAX ); /* PoH params initialized. */
+
   if( FD_UNLIKELY( block->mblk_tick_cnt+block->tick_height>block->max_tick_height ) ) {
     FD_LOG_INFO(( "bad block: TOO_MANY_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
     return -1;
   }
+  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->mblk_tick_cnt && (block->hashes_per_tick!=block->max_tick_hashcnt||block->inconsistent_hashes_per_tick) ) ) {
+    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, expected %lu, got %lu", block->slot, block->parent_slot, block->hashes_per_tick, block->max_tick_hashcnt ));
+    return -1;
+  }
+  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->curr_tick_hashcnt>block->hashes_per_tick ) ) { /* >1 to ignore low power hashing or no hashing cases */
+    /* We couldn't really check this at parse time because we may not
+       have the expected hashes per tick value yet.  We couldn't delay
+       this till after all PoH hashing is done, because this would be a
+       DoS vector.  This can't be merged with the above check, because a
+       malformed block might not end with a tick.  As in, a block might
+       end with a non-tick microblock with a high hashcnt.  Note that
+       checking the hashcnt between ticks transitively places an upper
+       bound on the hashcnt of individual microblocks, thus mitigating
+       the DoS vector. */
+    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, observed cumulative tick_hashcnt %lu, expected %lu, slot %lu, parent slot %lu", block->curr_tick_hashcnt, block->hashes_per_tick, block->slot, block->parent_slot ));
+    return -1;
+  }
+
+  return 0;
+}
+
+/* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1057
+
+   Returns 0 on success. */
+static int
+verify_ticks_final( fd_sched_block_t * block ) {
+  FD_TEST( block->fec_eos );
+
   if( FD_UNLIKELY( block->mblk_tick_cnt+block->tick_height<block->max_tick_height ) ) {
     FD_LOG_INFO(( "bad block: TOO_FEW_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
     return -1;
@@ -1724,14 +1759,8 @@ verify_ticks( fd_sched_block_t * block ) {
     FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
     return -1;
   }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && (block->hashes_per_tick!=block->prev_tick_hashcnt||block->inconsistent_hashes_per_tick) ) ) {
-    /* >1 since we don't care about checking low power hashing or
-       hashing disabled. */
-    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, expected %lu, got %lu", block->slot, block->parent_slot, block->hashes_per_tick, block->prev_tick_hashcnt ));
-    return -1;
-  }
 
-  return 0;
+  return verify_ticks_eager( block );
 }
 
 #define CHECK( cond )  do {             \
@@ -1799,22 +1828,22 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
 
          We implement the above for consensus. */
       mblk->hashcnt = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement the above. */
-      block->curr_tick_hashcnt += hdr->hash_cnt; /* For tick_verify, take the number of hashes verbatim. */
+      block->curr_tick_hashcnt = fd_ulong_sat_add( hdr->hash_cnt, block->curr_tick_hashcnt ); /* For tick_verify, take the number of hashes verbatim. */
       block->hashcnt += mblk->hashcnt+fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL );
       memcpy( mblk->end_hash, hdr->hash, sizeof(fd_hash_t) );
       block->mblk_cnt++;
       block->mblk_unhashed_cnt++;
       if( FD_UNLIKELY( !hdr->txn_cnt ) ) {
         /* This is a tick microblock. */
-        if( FD_UNLIKELY( block->prev_tick_hashcnt!=ULONG_MAX && block->prev_tick_hashcnt!=block->curr_tick_hashcnt ) ) {
+        if( FD_UNLIKELY( block->mblk_tick_cnt && block->max_tick_hashcnt!=block->curr_tick_hashcnt ) ) {
           block->inconsistent_hashes_per_tick = 1;
           if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
             /* >1 to ignore low power hashing or hashing disabled */
-            FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, tick idx %u, prev hashcnt %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->prev_tick_hashcnt, block->curr_tick_hashcnt, block->hashes_per_tick ));
+            FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, tick idx %u, max hashcnt %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->max_tick_hashcnt, block->curr_tick_hashcnt, block->hashes_per_tick ));
             return FD_SCHED_BAD_BLOCK;
           }
         }
-        block->prev_tick_hashcnt = block->curr_tick_hashcnt;
+        block->max_tick_hashcnt  = fd_ulong_max( block->curr_tick_hashcnt, block->max_tick_hashcnt );
         block->curr_tick_hashcnt = 0UL;
         block->mblk_tick_cnt++;
       }
