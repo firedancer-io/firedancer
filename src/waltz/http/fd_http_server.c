@@ -321,6 +321,37 @@ fd_http_server_listen( fd_http_server_t * http,
   return http;
 }
 
+/* parse_ulong parses a decimal unsigned long from a string. Returns
+   ULONG_MAX on error (empty string, invalid format, or overflow). */
+
+static ulong
+parse_ulong( char const * p,
+             ulong        sz ) {
+  /* Maximum decimal representation of ULONG_MAX is 20 chars on 64-bit systems,
+     plus 1 for null terminator = 21. We allow up to 21 to accommodate the longest
+     valid string plus null terminator. */
+  if( FD_UNLIKELY( p==NULL || sz==0UL || sz>21UL ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( p[0]<'0' || p[0]>'9' ) ) return ULONG_MAX;
+
+  uchar buf[ 32 ];
+  fd_memcpy( buf, p, sz );
+  buf[ sz ] = '\0';
+
+  char * endptr;
+  errno = 0;
+  uintmax_t val = strtoumax( (char const *)buf, &endptr, 10 );
+
+  /* Check for parsing errors or invalid characters */
+  if( FD_UNLIKELY( endptr==(char const *)buf || *endptr!='\0' ) ) return ULONG_MAX;
+
+  /* Check for overflow. ERANGE will be set by strtoumax if the value exceeds
+     the range of uintmax_t. On systems where uintmax_t is larger than ulong,
+     we also need to check if val exceeds ULONG_MAX. */
+  if( FD_UNLIKELY( errno==ERANGE || val>ULONG_MAX ) ) return ULONG_MAX;
+
+  return (ulong)val;
+}
+
 static void
 close_conn( fd_http_server_t * http,
             ulong              conn_idx,
@@ -510,36 +541,21 @@ read_conn_http( fd_http_server_t * http,
       return;
     }
 
-    /* Copy the Content-Length value to a null-terminated buffer for strtoumax */
-    uchar content_length_buf[ 32 ];
-    if( FD_UNLIKELY( content_length_len==0UL || content_length_len>=sizeof(content_length_buf) ) ) {
-      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
-      return;
-    }
-    fd_memcpy( content_length_buf, content_length, content_length_len );
-    content_length_buf[ content_length_len ] = '\0';
-
-    /* Parse using strtoumax for proper overflow handling */
-    char * endptr;
-    errno = 0;
-    uintmax_t content_len_max = strtoumax( (char const *)content_length_buf, &endptr, 10 );
-
-    /* Check for parsing errors - reject if no conversion happened, if there
-       are trailing characters, or if there are leading non-digits (including
-       whitespace and minus signs). */
-    if( FD_UNLIKELY( endptr==(char const *)content_length_buf || *endptr!='\0' ||
-                     content_length[0]<'0' || content_length[0]>'9' ) ) {
-      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
-      return;
-    }
-    
-    if( FD_UNLIKELY( errno==ERANGE || content_len_max>ULONG_MAX ) ) {
-      /* Overflow occurred */
+    content_len = parse_ulong( content_length, content_length_len );
+    /* Capture errno immediately after parse_ulong returns, before any other
+       function calls that might modify errno. ERANGE from strtoumax indicates
+       the number was too large to fit in uintmax_t. errno is thread-local in
+       C11, but we capture it immediately to avoid confusion from other calls. */
+    int parse_errno = errno;
+    if( FD_UNLIKELY( parse_errno==ERANGE ) ) {
       close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
       return;
     }
 
-    content_len = (ulong)content_len_max;
+    if( FD_UNLIKELY( content_len==ULONG_MAX ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+      return;
+    }
 
     ulong total_len = (ulong)result+content_len;
 
