@@ -560,7 +560,7 @@ telemetry = true
     #
     # If enabled, allocates [accounts.file_size_gib] memory and ignores
     # [accounts.{cache_size_gib,max_unrooted_account_size_gib}].
-    in_memory_only = true
+    in_memory_only = false
 
     # The provider determines which Linux I/O API is used.
     # Possible values for the option are:

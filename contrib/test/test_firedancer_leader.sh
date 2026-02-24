@@ -61,6 +61,7 @@ echo "
     identity_key = \"fd-identity-keypair.json\"
     vote_account = \"fd-vote-keypair.json\"
 [accounts]
+    in_memory_only = true
     max_accounts = 10000000
     file_size_gib = 32
 [log]

@@ -92,6 +92,7 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
     [tiles.rpc]
         enabled = false
 [accounts]
+    in_memory_only = true
     file_size_gib = 1
     max_accounts = 2000000
 [runtime]
