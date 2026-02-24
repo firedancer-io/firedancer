@@ -1779,9 +1779,10 @@ insert_fec_set( fd_replay_tile_t *  ctx,
 
   long now = fd_log_wallclock();
 
+  reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
+
   fd_bank_t parent_bank[1];
   FD_TEST( fd_banks_bank_query( parent_bank, ctx->banks, reasm_fec->parent_bank_idx ) );
-  reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
   reasm_fec->parent_bank_seq = parent_bank->data->bank_seq;
 
   if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
@@ -1935,6 +1936,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( fd_banks_bank_query( parent_fec_bank, ctx->banks, parent->bank_idx ) &&
                  parent_fec_bank->data->bank_seq==parent->bank_seq ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
+    return;
   }
 
   /* In the case the FEC doesn't directly connect, iterate up the reasm
