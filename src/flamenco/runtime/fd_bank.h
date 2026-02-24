@@ -17,7 +17,7 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
 
-#define FD_BANKS_MAX_BANKS (4096UL)
+#define FD_BANKS_MAX_BANKS (2048UL)
 
 /* TODO: Some optimizations, cleanups, future work:
    1. Simple data types (ulong, int, etc) should be stored as their
