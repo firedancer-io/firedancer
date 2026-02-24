@@ -1856,7 +1856,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
   fd_bank_t bank[1];
-  fd_banks_bank_query( bank, ctx->banks, sched_fec->bank_idx );
+  FD_TEST( fd_banks_bank_query( bank, ctx->banks, sched_fec->bank_idx ) );
   if( sched_fec->is_first_in_block ) {
     bank->data->refcnt++;
     FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->data->idx, sched_fec->slot, bank->data->refcnt ));
@@ -1927,11 +1927,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
   fd_bank_t parent_bank[1];
   if( FD_UNLIKELY( !fd_banks_bank_query( parent_bank, ctx->banks, parent->bank_idx ) ||
                    parent_bank->data->bank_seq!=parent->bank_seq ) ) {
-    if( FD_UNLIKELY( parent_bank->data->flags&FD_BANK_FLAGS_DEAD ) ) {
-      parent->bank_dead    = 1;
-      reasm_fec->bank_dead = 1;
-      return;
-    }
 
     /* Keep track of the path as we iterate up the reasm tree.  Store
        all of the slot completes up to and including the one we insert
@@ -1969,8 +1964,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
         slot_fecs[ curr->fec_set_idx ] = curr;
       }
 
-      for( ulong j=0UL; j<curr->fec_set_idx; j++ ) {
-        insert_fec_set( ctx, stem, reasm_fec );
+      for( ulong j=0UL; j<=path[ i-1 ]->fec_set_idx; j++ ) {
+        insert_fec_set( ctx, stem, slot_fecs[ j ] );
       }
     }
   } else {
@@ -2119,6 +2114,7 @@ after_credit( fd_replay_tile_t *  ctx,
     fd_banks_get_frontier( ctx->banks, frontier_indices, &frontier_cnt );
     for( ulong i=0UL; i<frontier_cnt; i++ ) {
       fd_bank_t bank[1];
+      FD_TEST( fd_banks_bank_query( bank, ctx->banks, frontier_indices[i] ) );
       /* We don't ever want to evict the leader bank. */
       if( FD_UNLIKELY( ctx->is_leader && frontier_indices[i]==ctx->leader_bank->data->idx ) ) continue;
       mark_bank_dead( ctx, stem, bank->data->idx );
