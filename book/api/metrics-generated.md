@@ -277,6 +277,7 @@
 | <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;ignored_&#8203;cnt</span> | counter | Number of received but ignored GRE packets |
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;cnt</span> | counter | Number of GRE packet transmit jobs submitted |
 | <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of GRE packets transmit jobs dropped due to route failure |
+| <span class="metrics-name">net_&#8203;rx_&#8203;src_&#8203;addr_&#8203;invalid_&#8203;cnt</span> | counter | Number of incoming packets dropped due to invalid source IP address |
 
 </div>
 

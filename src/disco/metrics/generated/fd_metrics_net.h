@@ -174,7 +174,13 @@
 #define FD_METRICS_COUNTER_NET_TX_GRE_ROUTE_FAIL_CNT_DESC "Number of GRE packets transmit jobs dropped due to route failure"
 #define FD_METRICS_COUNTER_NET_TX_GRE_ROUTE_FAIL_CNT_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_NET_TOTAL (28UL)
+#define FD_METRICS_COUNTER_NET_RX_SRC_ADDR_INVALID_CNT_OFF  (51UL)
+#define FD_METRICS_COUNTER_NET_RX_SRC_ADDR_INVALID_CNT_NAME "net_rx_src_addr_invalid_cnt"
+#define FD_METRICS_COUNTER_NET_RX_SRC_ADDR_INVALID_CNT_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_NET_RX_SRC_ADDR_INVALID_CNT_DESC "Number of incoming packets dropped due to invalid source IP address"
+#define FD_METRICS_COUNTER_NET_RX_SRC_ADDR_INVALID_CNT_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_NET_TOTAL (29UL)
 extern const fd_metrics_meta_t FD_METRICS_NET[FD_METRICS_NET_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_net_h */
