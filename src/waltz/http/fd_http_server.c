@@ -512,8 +512,8 @@ read_conn_http( fd_http_server_t * http,
 
     /* Copy the Content-Length value to a null-terminated buffer for strtoumax */
     uchar content_length_buf[ 32 ];
-    if( FD_UNLIKELY( content_length_len>=sizeof(content_length_buf) ) ) {
-      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+    if( FD_UNLIKELY( content_length_len==0UL || content_length_len>=sizeof(content_length_buf) ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
       return;
     }
     fd_memcpy( content_length_buf, content_length, content_length_len );
@@ -523,11 +523,11 @@ read_conn_http( fd_http_server_t * http,
     char * endptr;
     errno = 0;
     uintmax_t content_len_max = strtoumax( (char const *)content_length_buf, &endptr, 10 );
-    
+
     /* Check for parsing errors - reject if no conversion happened, if there
        are trailing characters, or if there are leading non-digits (including
        whitespace and minus signs). */
-    if( FD_UNLIKELY( endptr==(char const *)content_length_buf || *endptr!='\0' || 
+    if( FD_UNLIKELY( endptr==(char const *)content_length_buf || *endptr!='\0' ||
                      content_length[0]<'0' || content_length[0]>'9' ) ) {
       close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
       return;
@@ -538,7 +538,7 @@ read_conn_http( fd_http_server_t * http,
       close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
       return;
     }
-    
+
     content_len = (ulong)content_len_max;
 
     ulong total_len = (ulong)result+content_len;
