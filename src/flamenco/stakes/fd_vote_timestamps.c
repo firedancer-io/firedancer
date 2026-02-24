@@ -211,7 +211,7 @@ apply_root_delta( fd_vote_timestamps_t *    vote_ts,
   index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
 
   snapshot_map_t * snapshot_map = fd_vote_timestamps_get_snapshot_map( vote_ts, old_root->snapshot_idx );
-  snapshot_ele_t *     snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, old_root->snapshot_idx );
+  snapshot_ele_t * snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, old_root->snapshot_idx );
 
   /* NOTE: It's okay for the snapshot to have the incorrect slot age
      here because we don't use the slot age after the snapshot is
@@ -284,6 +284,13 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
     head->snapshot_idx     = UCHAR_MAX;
   }
 
+  /* At this point the root snapshot is up to date. */
+  snapshot_ele_t * root_snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, new_root->snapshot_idx );
+  snapshot_map_t * root_snapshot_map = fd_vote_timestamps_get_snapshot_map( vote_ts, new_root->snapshot_idx );
+
+  evict_map_t * evict_map  = fd_vote_timestamps_get_evict_map( vote_ts );
+
+
   head->next = USHORT_MAX;
   fork_ele_t * tail = head;
   while( head ) {
@@ -318,6 +325,12 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
       delta_ele_t * delta = &head->deltas[i];
       index_ele_t * ele = index_pool_ele( index_pool, delta->pubkey_idx );
       ele->refcnt--;
+      /* If elements are not found in the root snapshot, and not in the
+         evict map already, queue as a possible evictable entry. */
+      snapshot_ele_t * snapshot_ele = snapshot_map_ele_query( root_snapshot_map, &delta->pubkey_idx, NULL, root_snapshot );
+      if( !snapshot_ele && !evict_map_ele_query( evict_map, &ele->pubkey, NULL, index_pool ) ) {
+        evict_map_ele_insert( evict_map, ele, index_pool );
+      }
     }
     head->deltas_cnt = 0;
 
@@ -328,25 +341,40 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
   new_root->parent_idx = USHORT_MAX;
   vote_ts->root_idx    = new_root_idx;
 
-  /* Now clear all evictable entries from the index.  Only remove the
-     entry if it has no references. */
+
+  /* An entry is eligible for eviction if it has no outstanding
+     references and the last vote is at least 432000 slots ago. */
   uint evict_cnt = 0U;
   uint evict_idxs[ USHORT_MAX ];
-  index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
-  index_map_t * index_map  = fd_vote_timestamps_get_index_map( vote_ts );
-  evict_map_t * evict_map  = fd_vote_timestamps_get_evict_map( vote_ts );
+  index_ele_t *    index_pool   = fd_vote_timestamps_get_index_pool( vote_ts );
+  index_map_t *    index_map    = fd_vote_timestamps_get_index_map( vote_ts );
+  for( snapshot_map_iter_t iter = snapshot_map_iter_init( root_snapshot_map, root_snapshot );
+       !snapshot_map_iter_done( iter, root_snapshot_map, root_snapshot );
+       iter = snapshot_map_iter_next( iter, root_snapshot_map, root_snapshot ) ) {
+
+    uint             ele_idx      = (uint)snapshot_map_iter_idx( iter, root_snapshot_map, root_snapshot );
+    snapshot_ele_t * snapshot_ele = snapshot_map_iter_ele( iter, root_snapshot_map, root_snapshot );
+    index_ele_t *    ele          = index_pool_ele( index_pool, ele_idx );
+    if( ele->refcnt==0U && snapshot_ele->slot_age>432000UL ) {
+      evict_idxs[ evict_cnt ] = ele_idx;
+      evict_cnt++;
+    }
+  }
+
+
+  /* Now clear all evictable entries from the index.  Only remove the
+     entry if it has no outstanding references. */
   for( evict_map_iter_t iter = evict_map_iter_init( evict_map, index_pool );
        !evict_map_iter_done( iter, evict_map, index_pool );
        iter = evict_map_iter_next( iter, evict_map, index_pool ) ) {
     index_ele_t * ele = evict_map_iter_ele( iter, evict_map, index_pool );
+    if( ele->refcnt!=0U ) continue;
     evict_idxs[ evict_cnt ] = (uint)index_pool_idx( index_pool, ele );
     evict_cnt++;
   }
 
   for( uint i=0; i<evict_cnt; i++ ) {
     index_ele_t * ele = index_pool_ele( index_pool, evict_idxs[i] );
-    if( FD_UNLIKELY( ele->refcnt>0 ) ) continue;
-
     evict_map_ele_remove( evict_map, &index_pool_ele( index_pool, evict_idxs[i] )->pubkey, NULL, index_pool );
     index_map_ele_remove( index_map, &index_pool_ele( index_pool, evict_idxs[i] )->pubkey, NULL, index_pool );
     index_pool_ele_release( index_pool, ele );
