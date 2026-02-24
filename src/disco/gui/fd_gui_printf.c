@@ -335,7 +335,7 @@ fd_gui_printf_catch_up_history( fd_gui_t * gui ) {
               && s->shreds.end_offset!=ULONG_MAX \
               && s->shreds.end_offset>s->shreds.start_offset \
               && gui->shreds.history[ (s->shreds.end_offset-1UL) % FD_GUI_SHREDS_HISTORY_SZ ].timestamp + age_ns > gui->summary.boot_progress.catching_up_time_nanos ) { \
-            for( ulong i=s->shreds.end_offset; i>s->shreds.start_offset; i++ ) { \
+            for( ulong i=s->shreds.end_offset; i>s->shreds.start_offset; i-- ) { \
               fd_gui_slot_history_shred_event_t * event = &gui->shreds.history[ (i-1UL) % FD_GUI_SHREDS_HISTORY_SZ ]; (void)event; \
               do { code_archive } while (0); \
             } \
