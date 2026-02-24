@@ -255,6 +255,7 @@ after_credit( fd_backt_tile_t *   ctx,
 
   int process = ctx->shreds_cnt>=2UL || (ctx->reading_slot>ctx->end_slot && ctx->shreds_cnt );
   if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
+  if( FD_UNLIKELY( !FD_VOLATILE_CONST( ctx->store->reasm_ready ) ) ) return; /* wait for replay to initialize reasm root */
 
   *charge_busy = 1;
   ctx->idle_cnt = 0UL;

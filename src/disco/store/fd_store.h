@@ -211,6 +211,9 @@ struct fd_store {
   ulong pool_mem_gaddr; /* wksp gaddr of shmem_t object in pool_para */
   ulong pool_ele_gaddr; /* wksp gaddr of first ele_t object in pool_para */
 
+  int reasm_ready;  /* set to 1 by replay after reasm root is initialized; read by
+                       backt to avoid publishing FEC completes before reasm is ready */
+
   fd_rwlock_t lock; /* shared-exclusive lock */
 };
 typedef struct fd_store fd_store_t;

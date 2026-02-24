@@ -1418,6 +1418,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
+  FD_VOLATILE( ctx->store->reasm_ready ) = 1;
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
   block_id_ele->block_id = initial_block_id;
@@ -1538,6 +1539,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
+    FD_VOLATILE( ctx->store->reasm_ready ) = 1;
 
     ctx->cluster_type = fd_bank_cluster_type_get( bank );
 
