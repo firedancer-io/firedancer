@@ -1213,7 +1213,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_locks_obj_id!=ULONG_MAX );
   FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->tower.accdb_max_depth );
 
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

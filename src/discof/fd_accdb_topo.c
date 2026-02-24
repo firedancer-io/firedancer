@@ -6,12 +6,13 @@
 void
 fd_accdb_init_from_topo( fd_accdb_user_t *      accdb,
                          fd_topo_t const *      topo,
-                         fd_topo_tile_t const * tile ) {
+                         fd_topo_tile_t const * tile,
+                         ulong                  max_depth ) {
   ulong funk_obj_id;
   FD_TEST( (funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX ))!=ULONG_MAX );
   fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
   if( !vinyl_data ) {
-    FD_TEST( fd_accdb_user_v1_init( accdb, fd_topo_obj_laddr( topo, funk_obj_id ) ) );
+    FD_TEST( fd_accdb_user_v1_init( accdb, fd_topo_obj_laddr( topo, funk_obj_id ), max_depth ) );
   } else {
     fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq"    );
     fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
@@ -20,6 +21,7 @@ fd_accdb_init_from_topo( fd_accdb_user_t *      accdb,
         fd_topo_obj_laddr( topo, vinyl_rq->id ),
         topo->workspaces[ vinyl_data->wksp_id ].wksp,
         fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
-        vinyl_rq->id ) );
+        vinyl_rq->id,
+        max_depth ) );
   }
 }

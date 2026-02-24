@@ -9,7 +9,8 @@ fd_accdb_admin_v2_init( fd_accdb_admin_t * accdb_,
                         void *             vinyl_rq,
                         void *             vinyl_data,
                         void *             vinyl_req_pool,
-                        ulong              vinyl_link_id ) {
+                        ulong              vinyl_link_id,
+                        ulong              max_depth ) {
   /* Call superclass constructor */
   if( FD_UNLIKELY( !fd_accdb_admin_v1_init( accdb_, shfunk ) ) ) {
     return NULL;
@@ -28,14 +29,15 @@ fd_accdb_admin_v2_init( fd_accdb_admin_t * accdb_,
   }
 
   fd_accdb_admin_v2_t * accdb = fd_type_pun( accdb_ );
-  accdb->vinyl_req_id    = 0UL;
-  accdb->vinyl_rq        = rq;
-  accdb->vinyl_link_id   = vinyl_link_id;
-  accdb->vinyl_data_wksp = vinyl_data;
-  accdb->vinyl_req_wksp  = fd_wksp_containing( req_pool );
-  accdb->vinyl_req_pool  = req_pool;
-  accdb->base.accdb_type = FD_ACCDB_TYPE_V2;
-  accdb->base.vt         = &fd_accdb_admin_v2_vt;
+  accdb->root_lineage->max_depth = max_depth;
+  accdb->vinyl_req_id            = 0UL;
+  accdb->vinyl_rq                = rq;
+  accdb->vinyl_link_id           = vinyl_link_id;
+  accdb->vinyl_data_wksp         = vinyl_data;
+  accdb->vinyl_req_wksp          = fd_wksp_containing( req_pool );
+  accdb->vinyl_req_pool          = req_pool;
+  accdb->base.accdb_type         = FD_ACCDB_TYPE_V2;
+  accdb->base.vt                 = &fd_accdb_admin_v2_vt;
   return accdb_;
 }
 

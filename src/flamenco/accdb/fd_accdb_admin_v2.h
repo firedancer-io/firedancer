@@ -16,7 +16,8 @@ fd_accdb_admin_v2_init( fd_accdb_admin_t * admin_,
                         void *             vinyl_rq,
                         void *             vinyl_data,
                         void *             vinyl_req_pool,
-                        ulong              vinyl_link_id );
+                        ulong              vinyl_link_id,
+                        ulong              max_depth );
 
 void
 fd_accdb_admin_v2_delay_set( fd_accdb_admin_t * admin,

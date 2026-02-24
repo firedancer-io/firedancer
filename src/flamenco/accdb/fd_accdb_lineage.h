@@ -6,23 +6,24 @@
 
 #include "../../funk/fd_funk_txn.h"
 
-/* FD_ACCDB_DEPTH_MAX specifies the max non-rooted fork depth.
-   FIXME removing this limit is important for outage resilience */
 
-#define FD_ACCDB_DEPTH_MAX (128UL)
+#define FD_ACCDB_MAX_DEPTH_MAX (8192UL)
 
 struct fd_accdb_lineage {
 
   /* Current fork cache */
-  fd_funk_txn_xid_t fork[ FD_ACCDB_DEPTH_MAX ];
+  fd_funk_txn_xid_t fork[ FD_ACCDB_MAX_DEPTH_MAX ];
   ulong             fork_depth;
 
-  uint txn_idx[ FD_ACCDB_DEPTH_MAX ];
+  uint txn_idx[ FD_ACCDB_MAX_DEPTH_MAX ];
 
   /* Current funk txn cache */
   ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
 
+  ulong max_depth;
 };
+
+#define FD_ACCDB_LINEAGE_FOOTPRINT (sizeof(fd_accdb_lineage_t))
 
 typedef struct fd_accdb_lineage fd_accdb_lineage_t;
 

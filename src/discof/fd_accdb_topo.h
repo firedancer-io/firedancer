@@ -11,7 +11,8 @@ FD_PROTOTYPES_BEGIN
 void
 fd_accdb_init_from_topo( fd_accdb_user_t *      accdb,
                          fd_topo_t const *      topo,
-                         fd_topo_tile_t const * tile );
+                         fd_topo_tile_t const * tile,
+                         ulong                  max_depth );
 
 FD_PROTOTYPES_END
 

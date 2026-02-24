@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_admin_h
 
 #include "fd_accdb_base.h"
+#include "fd_accdb_user.h"
 #include "../../funk/fd_funk_base.h"
 
 /* fd_accdb_admin_vt_t specifies the interface (vtable) for the account
@@ -56,7 +57,7 @@ typedef struct fd_accdb_admin_base fd_accdb_admin_base_t;
 struct fd_accdb_admin {
   fd_accdb_admin_base_t base;
 
-  uchar impl[ 4096 ] __attribute__((aligned(64)));
+  uchar impl[ FD_ACCDB_IMPL_FOOTPRINT ] __attribute__((aligned(64)));
 };
 
 FD_PROTOTYPES_BEGIN

@@ -611,7 +611,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_replay->wmark  = fd_dcache_compact_wmark ( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
   ctx->out_replay->chunk  = ctx->out_replay->chunk0;
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->resolv.accdb_max_depth );
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

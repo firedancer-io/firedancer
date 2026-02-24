@@ -61,7 +61,8 @@ fd_accdb_user_v2_init( fd_accdb_user_t * ljoin,
                        void *            vinyl_rq,
                        void *            vinyl_data,
                        void *            vinyl_req_pool,
-                       ulong             vinyl_link_id );
+                       ulong             vinyl_link_id,
+                       ulong             max_depth );
 
 FD_PROTOTYPES_END
 

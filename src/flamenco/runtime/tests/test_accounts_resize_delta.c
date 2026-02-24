@@ -134,7 +134,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   FD_TEST( env->funk_mem );
   FD_TEST( fd_funk_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
   FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem ) );
-  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
+  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem, txn_max ) );
 
   env->pcache_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), env->tag );
   FD_TEST( env->pcache_mem );

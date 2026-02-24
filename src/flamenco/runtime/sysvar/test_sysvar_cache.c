@@ -20,7 +20,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag );
   FD_TEST( funk_mem );
   FD_TEST( fd_funk_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
-  fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem );
+  fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem, txn_max );
   FD_TEST( accdb );
 
   fd_banks_locks_t * bank_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag );

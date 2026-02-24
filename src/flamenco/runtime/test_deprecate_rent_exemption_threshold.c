@@ -113,7 +113,7 @@ test_env_create( test_env_t * env,
   env->tag  = 1UL;
 
   ulong const funk_seed       = 17UL;
-  ulong const txn_max         = 1UL;
+  ulong const txn_max         = 2UL;
   ulong const rec_max         = 16UL;
   ulong const max_total_banks = 2UL;
   ulong const max_fork_width  = 2UL;
@@ -123,7 +123,7 @@ test_env_create( test_env_t * env,
   FD_TEST( fd_funk_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
 
   FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem ) );
-  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
+  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem, txn_max ) );
 
   fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
   FD_TEST( banks_data );

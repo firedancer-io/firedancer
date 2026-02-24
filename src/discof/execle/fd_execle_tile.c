@@ -604,7 +604,7 @@ unprivileged_init( fd_topo_t *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->execle.accdb_max_depth );
 
   void * shprogcache = fd_topo_obj_laddr( topo, tile->execle.progcache_obj_id );
   FD_TEST( shprogcache );
