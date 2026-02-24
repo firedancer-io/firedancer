@@ -910,15 +910,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
   }
 
-  /* At this point we want to remove any stale block id map entry that
-     corresponds to this bank. */
-  fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ ctx->leader_bank->data->idx ];
-  if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr )==block_id_ele ) ) {
-    FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->latest_mr, NULL, ctx->block_id_arr ) );
-  }
-  block_id_ele->block_id_seen = 0;
-  block_id_ele->slot          = slot;
-
   ctx->leader_bank->data->preparation_begin_nanos = before;
 
   fd_bank_slot_set( ctx->leader_bank, slot );
@@ -1527,8 +1518,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
     block_id_ele->latest_mr      = manifest_block_id;
     block_id_ele->slot           = snapshot_slot;
-    block_id_ele->latest_fec_idx = 0U;
     block_id_ele->block_id_seen  = 1;
+    block_id_ele->latest_fec_idx = 0U;
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
     /* We call this after fd_runtime_read_genesis, which sets up the
@@ -1824,7 +1815,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
     if( FD_UNLIKELY( block_id_ele->latest_fec_idx>reasm_fec->fec_set_idx ) ) {
-      FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is older than the latest FEC set (slot=%lu, fec_set_idx=%u)", reasm_fec->slot, reasm_fec->fec_set_idx, block_id_ele->slot, block_id_ele->latest_fec_idx ));
+      FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is at least as old as the latest FEC set (slot=%lu, fec_set_idx=%u)", reasm_fec->slot, reasm_fec->fec_set_idx, block_id_ele->slot, block_id_ele->latest_fec_idx ));
       return;
     }
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
@@ -1958,8 +1949,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( !curr ) ) return; /* If can't connect, drop the FEC. */
     if( FD_LIKELY( !curr->slot_complete ) ) continue;
 
-    path[ path_cnt++ ] = curr;
     FD_TEST( path_cnt<=FD_BANKS_MAX_BANKS );
+    path[ path_cnt++ ] = curr;
 
     fd_bank_t curr_bank[1];
     if( FD_LIKELY( fd_banks_bank_query( curr_bank, ctx->banks, curr->bank_idx ) && curr_bank->data->bank_seq==curr->bank_seq ) ) break;
@@ -1980,6 +1971,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
       slot_fecs[ curr->fec_set_idx ] = curr;
       if( curr->fec_set_idx==0U ) break;
       curr = fd_reasm_parent( ctx->reasm, curr );
+      FD_TEST( curr );
     }
 
     for( ulong j=0UL; j<=leaf->fec_set_idx; j++ ) {
