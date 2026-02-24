@@ -335,14 +335,11 @@ parse_ulong( char const * p,
   buf[ sz ] = '\0';
 
   char * endptr;
-  int saved_errno = errno;
   errno = 0;
   uintmax_t val = strtoumax( (char const *)buf, &endptr, 10 );
-  int parse_errno = errno;
-  errno = saved_errno;
 
   if( FD_UNLIKELY( endptr==(char const *)buf || *endptr!='\0' ) ) return ULONG_MAX;
-  if( FD_UNLIKELY( parse_errno==ERANGE || val>ULONG_MAX ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( errno==ERANGE || val>ULONG_MAX ) ) return ULONG_MAX;
 
   return (ulong)val;
 }
