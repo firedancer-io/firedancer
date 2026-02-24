@@ -15,6 +15,7 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <inttypes.h>
 
 #if FD_HAS_ZSTD
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
@@ -509,20 +510,36 @@ read_conn_http( fd_http_server_t * http,
       return;
     }
 
-    for( ulong i=0UL; i<content_length_len; i++ ) {
-      if( FD_UNLIKELY( content_length[ i ]<'0' || content_length[ i ]>'9' ) ) {
-        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
-        return;
-      }
-
-      ulong digit = (ulong)(content_length[ i ]-'0');
-      if( FD_UNLIKELY( content_len>(ULONG_MAX-digit)/10UL ) ) { /* Overflow */
-        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
-        return;
-      }
-
-      content_len = content_len*10UL + digit;
+    /* Copy the Content-Length value to a null-terminated buffer for strtoumax */
+    uchar content_length_buf[ 32 ];
+    if( FD_UNLIKELY( content_length_len>=sizeof(content_length_buf) ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+      return;
     }
+    fd_memcpy( content_length_buf, content_length, content_length_len );
+    content_length_buf[ content_length_len ] = '\0';
+
+    /* Parse using strtoumax for proper overflow handling */
+    char * endptr;
+    errno = 0;
+    uintmax_t content_len_max = strtoumax( (char const *)content_length_buf, &endptr, 10 );
+    
+    /* Check for parsing errors - reject if no conversion happened, if there
+       are trailing characters, or if there are leading non-digits (including
+       whitespace and minus signs). */
+    if( FD_UNLIKELY( endptr==(char const *)content_length_buf || *endptr!='\0' || 
+                     content_length[0]<'0' || content_length[0]>'9' ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+      return;
+    }
+    
+    if( FD_UNLIKELY( errno==ERANGE || content_len_max>ULONG_MAX ) ) {
+      /* Overflow occurred */
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
+      return;
+    }
+    
+    content_len = (ulong)content_len_max;
 
     ulong total_len = (ulong)result+content_len;
 
