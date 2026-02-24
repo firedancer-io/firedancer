@@ -308,8 +308,8 @@ verify_proof( fd_eqvoc_t const * eqvoc,
   if( FD_UNLIKELY( !fd_shred_merkle_root( shred2, eqvoc->bmtree_mem, &root2 ) ) ) return FD_EQVOC_ERR_MERKLE;
 
   fd_pubkey_t const * leader = fd_epoch_leaders_get( eqvoc->lsched, shred1->slot );
-  FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
   if( FD_UNLIKELY( !leader ) ) return FD_EQVOC_ERR_SIG;
+  FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
 
   fd_sha512_t _sha512[1];
   fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( _sha512 ) );
