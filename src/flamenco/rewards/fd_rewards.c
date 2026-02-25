@@ -5,6 +5,7 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_stake_program.h"
+#include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
@@ -191,15 +192,20 @@ calculate_stake_points_and_credits( fd_accdb_user_t *              accdb,
                                     fd_funk_txn_xid_t const *      xid,
                                     fd_stake_history_t const *     stake_history,
                                     fd_stake_delegation_t const *  stake,
-                                    fd_vote_state_ele_t const *    vote_state,
+                                    fd_pubkey_t const *            vote_account,
                                     ulong *                        new_rate_activation_epoch,
                                     fd_calculated_stake_points_t * result ) {
 
   fd_accdb_ro_t vote_ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &vote_state->vote_account ) ) ) {
-    FD_LOG_ERR(( "Unable to read vote account" ));
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, vote_account ) ) ) {
+    result->points.ud = 0;
+    return;
   }
-
+  if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
+    result->points.ud = 0;
+    fd_accdb_close_ro( accdb, vote_ro );
+    return;
+  }
   fd_vote_epoch_credits_t * epoch_credits = NULL;
 
   uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
@@ -343,7 +349,7 @@ redeem_rewards( fd_accdb_user_t *               accdb,
       xid,
       stake_history,
       stake,
-      vote_state,
+      &vote_state->vote_account,
       new_rate_activation_epoch,
       &stake_points_result );
   } else {
@@ -472,8 +478,6 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
   uint128 total_points = 0;
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
-
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -484,23 +488,16 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
       continue;
     }
 
-    fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
-    if( FD_UNLIKELY( !vote_state_ele ) ) {
-      continue;
-    }
-
     fd_calculated_stake_points_t stake_point_result;
     calculate_stake_points_and_credits( accdb,
                                         xid,
                                         stake_history,
                                         stake_delegation,
-                                        vote_state_ele,
+                                        &stake_delegation->vote_account,
                                         new_warmup_cooldown_rate_epoch,
                                         &stake_point_result );
     total_points += stake_point_result.points.ud;
   }
-
-  fd_bank_vote_states_end_locking_query( bank );
 
   return total_points;
 }
