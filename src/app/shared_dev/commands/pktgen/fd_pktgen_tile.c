@@ -58,6 +58,11 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
                int *                  charge_busy ) {
   if( FD_VOLATILE_CONST( fd_pktgen_active )!=1U ) return;
 
+  if( FD_UNLIKELY( stem->cr_avail[ 0UL ] < stem->cr_decrement_amount ) ) {
+      /* Backpressure if not enough credits available */
+      return;
+  }
+
   *charge_busy = 1;
 
   /* Select an arbitrary public IP as the fake destination.  The outgoing
