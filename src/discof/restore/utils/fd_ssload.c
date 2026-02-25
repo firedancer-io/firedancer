@@ -250,7 +250,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state_curr->node_account_t_1 = *(fd_pubkey_t *)elem->identity;
     vote_state_curr->stake_t_1 = elem->stake;
 
-    vote_state_credits[ vote_state_curr->idx ].vote_account = vote_state_curr->vote_account;
     vote_state_credits[ vote_state_curr->idx ].credits_cnt = elem->epoch_credits_history_len;
     vote_state_credits[ vote_state_curr->idx ].commission  = (uchar)elem->commission;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {

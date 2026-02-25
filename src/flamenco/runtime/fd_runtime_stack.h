@@ -42,9 +42,7 @@ union fd_runtime_stack {
     int                     prev_vote_credits_used;
     fd_vote_state_credits_t vote_credits[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
-    uchar commissions[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-    fd_vote_epoch_credits_t * epoch_credits[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-    struct aligned_vote_state vote_accounts[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    fd_vote_state_credits_t vote_credits_curr[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
     /* Staging memory for vote rewards as they are accumulated. */
     ulong                   vote_rewards[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];

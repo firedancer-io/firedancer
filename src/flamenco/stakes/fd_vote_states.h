@@ -94,7 +94,6 @@
 #define EPOCH_CREDITS_MAX (64UL)
 
 struct fd_vote_state_credits {
-  fd_pubkey_t vote_account;
   ulong       credits_cnt;
   uchar       commission;
   ushort      epoch       [ EPOCH_CREDITS_MAX ];
