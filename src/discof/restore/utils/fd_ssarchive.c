@@ -9,6 +9,8 @@
 
 struct fd_ssarchive_entry {
   ulong slot;
+  ulong base_slot;
+  int   is_zstd;
   char  path[ PATH_MAX ];
 };
 typedef struct fd_ssarchive_entry fd_ssarchive_entry_t;
@@ -18,8 +20,7 @@ typedef struct fd_ssarchive_entry fd_ssarchive_entry_t;
 #define SORT_BEFORE(a,b) ( (a).slot>(b).slot )
 #include "../../../util/tmpl/fd_sort.c"
 
-#define FD_SSARCHIVE_MAX_FULL_ENTRIES        (512UL)
-#define FD_SSARCHIVE_MAX_INCREMENTAL_ENTRIES (512UL)
+#define FD_SSARCHIVE_MAX_ENTRIES (512UL)
 
 int
 fd_ssarchive_parse_filename( char const * _name,
@@ -96,8 +97,12 @@ fd_ssarchive_latest_pair( char const * directory,
     FD_LOG_ERR(( "opendir() failed `%s` (%i-%s)", directory, errno, fd_io_strerror( errno ) ));
   }
 
-  struct dirent * entry;
+  fd_ssarchive_entry_t full_snapshots[ FD_SSARCHIVE_MAX_ENTRIES ];
+  fd_ssarchive_entry_t incremental_snapshots[ FD_SSARCHIVE_MAX_ENTRIES ];
+  ulong full_snapshots_cnt        = 0UL;
+  ulong incremental_snapshots_cnt = 0UL;
 
+  struct dirent * entry;
   errno = 0;
   while(( entry = readdir( dir ) )) {
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
@@ -110,52 +115,95 @@ fd_ssarchive_latest_pair( char const * directory,
       continue;
     }
 
-    if( FD_LIKELY( entry_incremental_slot==ULONG_MAX && (entry_full_slot>*full_slot || *full_slot==ULONG_MAX) ) ) {
-      *full_slot = entry_full_slot;
-      *full_is_zstd = is_zstd;
-      if( FD_UNLIKELY( !fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
+    if( FD_LIKELY( entry_incremental_slot==ULONG_MAX ) ) {
+      if( FD_UNLIKELY( full_snapshots_cnt>=FD_SSARCHIVE_MAX_ENTRIES ) ) {
+        continue;
+      }
+
+      full_snapshots[ full_snapshots_cnt ].slot      = entry_full_slot;
+      full_snapshots[ full_snapshots_cnt ].base_slot = ULONG_MAX;
+      full_snapshots[ full_snapshots_cnt ].is_zstd   = is_zstd;
+      if( FD_UNLIKELY( !fd_cstr_printf_check( full_snapshots[ full_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
         FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
       }
+      full_snapshots_cnt++;
+    } else {
+      if( FD_UNLIKELY( incremental_snapshots_cnt>=FD_SSARCHIVE_MAX_ENTRIES ) ) {
+        continue;
+      }
+
+      incremental_snapshots[ incremental_snapshots_cnt ].slot      = entry_incremental_slot;
+      incremental_snapshots[ incremental_snapshots_cnt ].base_slot = entry_full_slot;
+      incremental_snapshots[ incremental_snapshots_cnt ].is_zstd   = is_zstd;
+      if( FD_UNLIKELY( !fd_cstr_printf_check( incremental_snapshots[ incremental_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
+        FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
+      }
+      incremental_snapshots_cnt++;
     }
   }
 
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( *full_slot==ULONG_MAX ) ) return -1;
-  if( FD_UNLIKELY( !incremental_snapshot ) ) return 0;
+  if( FD_LIKELY( incremental_snapshot ) ) {
+    if( FD_UNLIKELY( incremental_snapshots_cnt==0UL && full_snapshots_cnt==0UL ) ) return -1;
+    if( FD_UNLIKELY( full_snapshots_cnt==0UL ) )                                   return -1;
 
-  dir = opendir( directory );
-  if( FD_UNLIKELY( !dir ) ) {
-    if( FD_LIKELY( errno==ENOENT ) ) return 0;
-    FD_LOG_ERR(( "opendir() failed `%s` (%i-%s)", directory, errno, fd_io_strerror( errno ) ));
-  }
+    sort_ssarchive_entries_inplace( incremental_snapshots, incremental_snapshots_cnt );
+    sort_ssarchive_entries_inplace( full_snapshots, full_snapshots_cnt );
 
-  /* FIXME: This logic may not select the newest snapshot pair.  For
-     example (100, 110) and (90, 120). */
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
-    if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
+    if( FD_UNLIKELY( incremental_snapshots_cnt==0UL ) ) {
+      FD_LOG_WARNING(("no incremental snapshots found in `%s`, falling back to latest full snapshot", directory ));
+      *full_slot           = full_snapshots[ 0UL ].slot;
+      *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
+      *incremental_slot    = ULONG_MAX;
+      *incremental_is_zstd = 0;
+      FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+      return 0;
+    }
 
-    int is_zstd;
-    ulong entry_full_slot, entry_incremental_slot;
-    uchar decoded_hash[ FD_HASH_FOOTPRINT ];
-    if( FD_UNLIKELY( -1==fd_ssarchive_parse_filename( entry->d_name, &entry_full_slot, &entry_incremental_slot, decoded_hash, &is_zstd ) ) ) continue;
-
-    if( FD_UNLIKELY( entry_incremental_slot==ULONG_MAX || *full_slot!=entry_full_slot ) ) continue;
-
-    if( FD_LIKELY( *incremental_slot==ULONG_MAX || entry_incremental_slot>*incremental_slot ) ) {
-      *incremental_slot = entry_incremental_slot;
-      *incremental_is_zstd = is_zstd;
-      if( FD_UNLIKELY( !fd_cstr_printf_check( incremental_path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
-        FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
+    for( ulong i=0UL; i<incremental_snapshots_cnt; i++ ) {
+      ulong base_slot = incremental_snapshots[ i ].base_slot;
+      for( ulong j=0; j<full_snapshots_cnt; j++ ) {
+        if( FD_LIKELY( full_snapshots[ j ].slot==base_slot ) ) {
+          *full_slot           = base_slot;
+          *incremental_slot    = incremental_snapshots[ i ].slot;
+          *full_is_zstd        = full_snapshots[ j ].is_zstd;
+          *incremental_is_zstd = incremental_snapshots[ i ].is_zstd;
+          FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ j ].path ) );
+          FD_TEST( fd_cstr_printf_check( incremental_path, PATH_MAX, NULL, "%s", incremental_snapshots[ i ].path ) );
+          return 0;
+        } else if( FD_LIKELY( full_snapshots[ j ].slot<base_slot ) ) {
+            /* full snapshots are sorted in descending order, so if we reach a
+               full snapshot with slot smaller than the incremental snapshot's
+               base slot, we can stop searching.  */
+            break;
+        }
       }
     }
-  }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  return 0;
+    /* if we reach here, it means all incrementals are dangling (they
+       don't build off any full snapshot). fallback to a full
+       snapshot in that case. */
+    *full_slot           = full_snapshots[ 0UL ].slot;
+    *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
+    *incremental_slot    = ULONG_MAX;
+    *incremental_is_zstd = 0;
+    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+    return 0;
+
+  } else {
+    if( FD_UNLIKELY( full_snapshots_cnt==0UL ) ) return -1;
+
+    sort_ssarchive_entries_inplace( full_snapshots, full_snapshots_cnt );
+
+    *full_slot           = full_snapshots[ 0UL ].slot;
+    *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
+    *incremental_slot    = ULONG_MAX;
+    *incremental_is_zstd = 0;
+    FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+    return 0;
+  }
 }
 
 void
@@ -164,8 +212,8 @@ fd_ssarchive_remove_old_snapshots( char const * directory,
                                    uint         max_incremental_snapshots_to_keep ) {
   ulong full_snapshots_cnt        = 0UL;
   ulong incremental_snapshots_cnt = 0UL;
-  fd_ssarchive_entry_t full_snapshots[ FD_SSARCHIVE_MAX_FULL_ENTRIES ];
-  fd_ssarchive_entry_t incremental_snapshots[ FD_SSARCHIVE_MAX_INCREMENTAL_ENTRIES ];
+  fd_ssarchive_entry_t full_snapshots[ FD_SSARCHIVE_MAX_ENTRIES ];
+  fd_ssarchive_entry_t incremental_snapshots[ FD_SSARCHIVE_MAX_ENTRIES ];
 
   DIR * dir = opendir( directory );
   if( FD_UNLIKELY( !dir ) ) {
@@ -190,20 +238,24 @@ fd_ssarchive_remove_old_snapshots( char const * directory,
     if( FD_LIKELY( entry_incremental_slot==ULONG_MAX ) ) {
       FD_TEST( entry_full_slot!=ULONG_MAX );
 
-      if( FD_UNLIKELY( full_snapshots_cnt>=FD_SSARCHIVE_MAX_FULL_ENTRIES ) ) {
+      if( FD_UNLIKELY( full_snapshots_cnt>=FD_SSARCHIVE_MAX_ENTRIES ) ) {
         continue;
       }
 
-      full_snapshots[ full_snapshots_cnt ].slot = entry_full_slot;
+      full_snapshots[ full_snapshots_cnt ].slot      = entry_full_slot;
+      full_snapshots[ full_snapshots_cnt ].base_slot = ULONG_MAX;
+      full_snapshots[ full_snapshots_cnt ].is_zstd   = is_zstd;
       FD_TEST( fd_cstr_printf_check( full_snapshots[ full_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) );
       full_snapshots_cnt++;
     } else {
 
-      if( FD_UNLIKELY( incremental_snapshots_cnt>=FD_SSARCHIVE_MAX_INCREMENTAL_ENTRIES ) ) {
+      if( FD_UNLIKELY( incremental_snapshots_cnt>=FD_SSARCHIVE_MAX_ENTRIES ) ) {
         continue;
       }
 
-      incremental_snapshots[ incremental_snapshots_cnt ].slot = entry_incremental_slot;
+      incremental_snapshots[ incremental_snapshots_cnt ].slot      = entry_incremental_slot;
+      incremental_snapshots[ incremental_snapshots_cnt ].base_slot = entry_full_slot;
+      incremental_snapshots[ incremental_snapshots_cnt ].is_zstd   = is_zstd;
       FD_TEST( fd_cstr_printf_check( incremental_snapshots[ incremental_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) );
       incremental_snapshots_cnt++;
     }
