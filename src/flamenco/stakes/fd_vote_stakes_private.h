@@ -89,6 +89,8 @@ typedef struct fork fork_t;
 #define DLIST_IDX_T ushort
 #include "../../util/tmpl/fd_dlist.c"
 
+#define FD_VOTE_STAKES_MAGIC (0xF17EDA2CE7601E71UL) /* FIREDANCER VOTER V1 */
+
 struct fd_vote_stakes {
   ulong magic;
   ulong index_pool_off;
@@ -100,7 +102,6 @@ struct fd_vote_stakes {
 
   ulong  stakes_pool_off[ 128UL ]; /* TODO:FIXME: this has to be configurable */
   ulong  stakes_map_off[ 128UL ]; /* TODO:FIXME: this has to be configurable */
-  ulong  outstanding;
 
   ushort root_idx;
 };
