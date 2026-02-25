@@ -11,6 +11,7 @@ struct fd_stakes_staging {
   fd_pubkey_t pubkey;
   ulong       stake;
   uint        next;
+  uchar       invalid;
 };
 typedef struct fd_stakes_staging fd_stakes_staging_t;
 
