@@ -80,11 +80,6 @@ struct fd_txncache_blockcache_shmem {
     ulong next;
     ulong prev;
   } blockhash_map;
-
-  struct {
-    ulong next;
-    ulong prev;
-  } fork_map;
 };
 
 typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
