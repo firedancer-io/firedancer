@@ -363,32 +363,12 @@ telemetry = true
     max_full_snapshots_to_keep = 1
     max_incremental_snapshots_to_keep = 1
 
-    # If an in-progress loading (local, or download) of a full snapshot
-    # has its effective slot age rise above this threshold, we will
-    # cancel the load and start over.
-    #
-    # The effective usable slot of the full snapshot is defined as the
-    # max slot of all trusted incremental snapshots that we could
-    # possibly use (local, or downloaded) that apply on top of this
-    # full snapshot.
-    #
-    # The most common reason this would happen is if the network is all
-    # using the same full snapshot interval (e.g. 100_000) and while we
-    # are downloading a full snapshot from interval N, the network moves
-    # on to N+1, removing availability of all incremental snapshots that
-    # build on N.  If that happens, continuing to use the selected full
-    # snapshot might result in an extremely long catchup, so starting
-    # over would be preferable.
-    full_effective_age_cancel_threshold = 20_000
-
     # Controls how many times the validator will retry loading a full or
     # incremental snapshot before aborting.  Reasons for retrying a
     # snapshot load include snapshot corruption, slow download speed,
     # server availability, and snapshot age.  A peer that is serving us
     # a snapshot may go offline, or network congestion may cause slow
-    # download speeds.  While downloading a snapshot, a newer snapshot
-    # may be available and we may cancel and retry the snapshot download
-    # if the full_effective_age_cancel_threshold is met.
+    # download speeds.
     max_retry_abort = 5
 
     # The minimum download speed the validator will tolerate in MiB/s.

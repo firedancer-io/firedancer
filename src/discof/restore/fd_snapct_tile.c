@@ -22,7 +22,6 @@
 
 #define NAME "snapct"
 
-/* FIXME: Implement full_effective_age_cancel_threshold */
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
 /* FIXME: Make the code more strict about duplicate IP:port's */
 
