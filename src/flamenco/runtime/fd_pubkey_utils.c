@@ -35,7 +35,7 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/pubkey.rs#L578-L625 */
+/* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L391-L442 */
 int
 fd_pubkey_derive_pda( fd_pubkey_t const *   program_id,
                       ulong                 seeds_cnt,
@@ -44,13 +44,18 @@ fd_pubkey_derive_pda( fd_pubkey_t const *   program_id,
                       uchar *               bump_seed,
                       fd_pubkey_t *         out,
                       uint *                custom_err ) {
-  /* https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/program/src/pubkey.rs#L579-L581 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L397-L399 */
   if( seeds_cnt + (bump_seed ? 1 : 0) > MAX_SEEDS ) { // In Agave, seeds_cnt includes the bump seed
     *custom_err = FD_PUBKEY_ERR_MAX_SEED_LEN_EXCEEDED;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-  /* TODO: This does not contain size checks for the seed as checked in
-     https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/pubkey.rs#L586-L588 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L400-L403 */
+  for( ulong i=0UL; i<seeds_cnt; i++ ) {
+    if( seed_szs[i]>MAX_SEED_LEN ) {
+      *custom_err = FD_PUBKEY_ERR_MAX_SEED_LEN_EXCEEDED;
+      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    }
+  }
 
   fd_sha256_t sha = {0};
   fd_sha256_init( &sha );
@@ -73,7 +78,7 @@ fd_pubkey_derive_pda( fd_pubkey_t const *   program_id,
   /* A PDA is valid if it is not a valid ed25519 curve point.
      In most cases the user will have derived the PDA off-chain,
      or the PDA is a known signer.
-     https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/program/src/pubkey.rs#L599-L601 */
+     https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L417-L419 */
   if( FD_UNLIKELY( fd_ed25519_point_validate( out->key ) ) ) {
     *custom_err = FD_PUBKEY_ERR_INVALID_SEEDS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -82,7 +87,11 @@ fd_pubkey_derive_pda( fd_pubkey_t const *   program_id,
   return FD_PUBKEY_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/pubkey.rs#L477-L534 */
+/* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L299-L343
+
+   Agave try_find_program_address iterates bump seeds 255 down to 1
+   (255 iterations via 0..u8::MAX). It returns None if no valid PDA
+   is found. */
 int
 fd_pubkey_find_program_address( fd_pubkey_t const *   program_id,
                                 ulong                 seeds_cnt,
@@ -92,7 +101,7 @@ fd_pubkey_find_program_address( fd_pubkey_t const *   program_id,
                                 uchar *               out_bump_seed,
                                 uint *                custom_err ) {
   uchar bump_seed[ 1UL ];
-  for ( ulong i=0UL; i<256UL; ++i ) {
+  for ( ulong i=0UL; i<255UL; ++i ) {
     bump_seed[ 0UL ] = (uchar)(255UL - i);
 
     fd_pubkey_t derived[ 1UL ];
@@ -101,13 +110,15 @@ fd_pubkey_find_program_address( fd_pubkey_t const *   program_id,
       /* Stop looking if we have found a valid PDA */
       fd_memcpy( out, derived, sizeof(fd_pubkey_t) );
       fd_memcpy( out_bump_seed, bump_seed, 1UL );
-      break;
+      /* Custom error may get set in fd_pubkey_derive_pda call */
+      *custom_err = UINT_MAX;
+      return FD_PUBKEY_SUCCESS;
     } else if( err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR && *custom_err!=FD_PUBKEY_ERR_INVALID_SEEDS ) {
       return err;
     }
   }
 
-  // Custom error may get set in fd_pubkey_derive_pda call
-  *custom_err = UINT_MAX;
-  return FD_PUBKEY_SUCCESS;
+  /* No valid PDA found (equivalent to Agave returning None) */
+  *custom_err = FD_PUBKEY_ERR_INVALID_SEEDS;
+  return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 }
