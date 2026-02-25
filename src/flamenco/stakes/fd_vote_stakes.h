@@ -89,6 +89,8 @@
 
 FD_PROTOTYPES_BEGIN
 
+#define FD_VOTE_STAKES_ALIGN (128UL)
+
 struct fd_vote_stakes;
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
