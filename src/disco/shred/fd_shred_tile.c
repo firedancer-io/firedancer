@@ -948,8 +948,8 @@ after_frag( fd_shred_ctx_t *    ctx,
       fd_stem_publish( stem, ctx->shred_out_idx, sig_, ctx->shred_out_chunk, 0, 0, ctx->tsorig, tspub );
     }
 
-    if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
-      if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR ) ) {
+    if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) | (rv==FD_FEC_RESOLVER_SHRED_DUPLICATE) ) {
+      if( FD_LIKELY( fd_disco_netmux_sig_proto( sig ) != DST_PROTO_REPAIR && rv!=FD_FEC_RESOLVER_SHRED_DUPLICATE ) ) {
         /* Relay this shred */
         ulong max_dest_cnt[1];
         do {

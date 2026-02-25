@@ -819,9 +819,9 @@ fd_forest_publish( fd_forest_t * forest, ulong slot );
      2. Connected, unconfirmed leaves
      3. Orphaned,  confirmed   leaves
 
-  We follow a general heuristic of evicting by oldest slot in the
-  category first, with an exception.  If the oldest slot in the category
-  is the parent of the slot we are adding, we take the second oldest
+  We follow a general heuristic of evicting by newest slot in the
+  category first, with an exception.  If the newest slot in the category
+  is the parent of the slot we are adding, we take the second newest
   slot in the category.  This is to avoid needlessly creating an orphan
   that would immediately get evicted again by its parent getting
   requested again.  If we have confirmations we can also avoid adding
@@ -841,7 +841,8 @@ fd_forest_publish( fd_forest_t * forest, ulong slot );
   we would evict slot 2000, and add slot 1000, and we make progress
   towards completing catchup.  But if we receive slot 2002, and we evict
   slot 2000, then the next orphan request would give us 2001, 2000 again
-  and again, and theoretically we never make progress towards completing catchup.
+  and again, and theoretically we never make progress towards completing
+  catchup.
 
   It's unclear if we should evict orphans ONLY if the slot being added
   is closer to the root.  It's possible that the new, later orphan is
@@ -898,9 +899,7 @@ fd_forest_publish( fd_forest_t * forest, ulong slot );
   Even if the confirmation for 5 is lagging coming in (or it requires us
   to replay 6 to see it), we can follow a general policy of evicting the
   newest unconfirmed leaf. Newest implies furthest from the root. So we
-  would evict 1995' first, and then add 6.
-*/
-
+  would evict 1995' first, and then add 6. */
 int
 fd_forest_evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot, ulong * evicted );
 
