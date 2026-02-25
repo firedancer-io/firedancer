@@ -103,13 +103,29 @@ fd_vote_stakes_new( void * shmem,
   vote_stakes->root_idx            = (ushort)fork_pool_idx_acquire( fork_pool );
   fork_dlist_idx_push_tail( fork_dlist, vote_stakes->root_idx, fork_pool );
 
-  return shmem;
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( vote_stakes->magic ) = FD_VOTE_STAKES_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return vote_stakes;
 }
 
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem ) {
-  /* TODO:FIXME: MAGIC */
-  return (fd_vote_stakes_t *)shmem;
+  fd_vote_stakes_t * vote_stakes = (fd_vote_stakes_t *)shmem;
+
+  if( FD_UNLIKELY( !vote_stakes ) ) {
+    FD_LOG_WARNING(( "NULL vote stakes" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( vote_stakes->magic != FD_VOTE_STAKES_MAGIC ) ) {
+    FD_LOG_WARNING(( "Invalid vote stakes magic" ));
+    return NULL;
+  }
+
+  return vote_stakes;
 }
 
 void
