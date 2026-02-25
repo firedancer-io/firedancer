@@ -233,7 +233,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->node_account        = *(fd_pubkey_t *)elem->node_account_pubkey;
     vote_state->last_vote_timestamp = elem->last_timestamp;
     vote_state->last_vote_slot      = elem->last_slot;
-    vote_state->stake               = elem->stake;
 
     vote_state_credits[ vote_state->idx ].credits_cnt = 0UL;
   }

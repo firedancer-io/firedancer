@@ -210,7 +210,6 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
   fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele_acquire( vote_state_pool );
 
   vote_state->vote_account = *vote_account;
-  vote_state->stake        = 0UL;
   vote_state->stake_t_1    = 0UL;
   vote_state->stake_t_2    = 0UL;
 
@@ -321,31 +320,6 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
   vote_state->last_vote_slot      = last_vote_slot;
 
   return vote_state;
-}
-
-void
-fd_vote_states_reset_stakes( fd_vote_states_t * vote_states ) {
-  fd_vote_state_ele_t * vote_state_pool = fd_vote_states_get_pool( vote_states );
-  fd_vote_state_map_t * vote_state_map  = fd_vote_states_get_map( vote_states );
-  if( FD_UNLIKELY( !vote_state_pool ) ) {
-    FD_LOG_CRIT(( "unable to retrieve join to vote state pool" ));
-  }
-  if( FD_UNLIKELY( !vote_state_map ) ) {
-    FD_LOG_CRIT(( "unable to retrieve join to vote state map" ));
-  }
-
-  for( fd_vote_state_map_iter_t iter = fd_vote_state_map_iter_init( vote_state_map, vote_state_pool );
-       !fd_vote_state_map_iter_done( iter, vote_state_map, vote_state_pool );
-       iter = fd_vote_state_map_iter_next( iter, vote_state_map, vote_state_pool ) ) {
-    ulong idx = fd_vote_state_map_iter_idx( iter, vote_state_map, vote_state_pool );
-
-    fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_state_pool, idx );
-    if( FD_UNLIKELY( !vote_state ) ) {
-      FD_LOG_CRIT(( "unable to retrieve vote state" ));
-    }
-
-    vote_state->stake = 0UL;
-  }
 }
 
 fd_vote_state_ele_t *

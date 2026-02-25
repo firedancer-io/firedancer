@@ -364,7 +364,8 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 /******************************************************************************/
 
 static void
-fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
+fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
+                                          fd_runtime_stack_t * runtime_stack ) {
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
@@ -374,7 +375,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
     vote_state->node_account_t_2 = vote_state->node_account_t_1;
     vote_state->node_account_t_1 = vote_state->node_account;
     vote_state->stake_t_2 = vote_state->stake_t_1;
-    vote_state->stake_t_1 = vote_state->stake;
+    vote_state->stake_t_1 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
   }
   fd_bank_vote_states_end_locking_modify( bank );
 }
@@ -620,7 +621,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
      calculations (T-1 stake) and clock calculation (T-2 stake).
      We use the current stake to populate the T-1 stake and the T-1
      stake to populate the T-2 stake. */
-  fd_runtime_refresh_previous_stake_values( bank );
+  fd_runtime_refresh_previous_stake_values( bank, runtime_stack );
 
   /* Now that our stakes caches have been updated, we can calculate the
      leader schedule for the upcoming epoch epoch using our new
@@ -1604,8 +1605,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &account->pubkey );
 
-      vote_state->stake_t_1 = vote_state->stake;
-      vote_state->stake_t_2 = vote_state->stake;
+      vote_state->stake_t_1 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
+      vote_state->stake_t_2 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
 
       vote_state->node_account_t_1 = vote_state->node_account;
       vote_state->node_account_t_2 = vote_state->node_account;
