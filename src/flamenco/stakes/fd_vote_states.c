@@ -284,26 +284,22 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
   }
 
   fd_pubkey_t node_account;
-  uchar       commission;
   long        last_vote_timestamp;
   ulong       last_vote_slot;
 
   switch( vsv->discriminant ) {
   case fd_vote_state_versioned_enum_v0_23_5:
     node_account        = vsv->inner.v0_23_5.node_pubkey;
-    commission          = vsv->inner.v0_23_5.commission;
     last_vote_timestamp = vsv->inner.v0_23_5.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v0_23_5.last_timestamp.slot;
     break;
   case fd_vote_state_versioned_enum_v1_14_11:
     node_account        = vsv->inner.v1_14_11.node_pubkey;
-    commission          = vsv->inner.v1_14_11.commission;
     last_vote_timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
     break;
   case fd_vote_state_versioned_enum_v3:
     node_account        = vsv->inner.v3.node_pubkey;
-    commission          = vsv->inner.v3.commission;
     last_vote_timestamp = vsv->inner.v3.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v3.last_timestamp.slot;
     break;
@@ -311,7 +307,6 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
   /* Commission calculation is deliberate according to this:
      https://github.com/anza-xyz/agave/blob/v3.1.1/vote/src/vote_state_view/field_frames.rs#L353 */
     node_account        = vsv->inner.v4.node_pubkey;
-    commission          = (uchar)fd_ushort_min( vsv->inner.v4.inflation_rewards_commission_bps/100, UCHAR_MAX );
     last_vote_timestamp = vsv->inner.v4.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v4.last_timestamp.slot;
     break;
@@ -322,7 +317,6 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
   fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_states, vote_account );
 
   vote_state->node_account        = node_account;
-  vote_state->commission          = commission;
   vote_state->last_vote_timestamp = last_vote_timestamp;
   vote_state->last_vote_slot      = last_vote_slot;
 

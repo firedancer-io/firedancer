@@ -52,7 +52,6 @@ int main( int argc, char ** argv ) {
 
   fd_vote_state_ele_t * vote_state_ele = fd_vote_states_update( vote_states, &vote_account_0 );
   vote_state_ele->node_account        = node_account_0;
-  vote_state_ele->commission          = 50;
   vote_state_ele->last_vote_timestamp = 100L;
   vote_state_ele->last_vote_slot      = 1000UL;
   vote_state_ele->stake               = 10UL;
@@ -61,7 +60,6 @@ int main( int argc, char ** argv ) {
 
   vote_state_ele = fd_vote_states_update( vote_states, &vote_account_1 );
   vote_state_ele->node_account        = node_account_0;
-  vote_state_ele->commission          = 51;
   vote_state_ele->last_vote_timestamp = 100L;
   vote_state_ele->last_vote_slot      = 10000UL;
 
@@ -73,7 +71,6 @@ int main( int argc, char ** argv ) {
   FD_TEST( memcmp( &vote_state_ele->node_account, &node_account_0, sizeof(fd_pubkey_t) ) == 0 );
   FD_TEST( vote_state_ele->last_vote_slot == 1000UL );
   FD_TEST( vote_state_ele->last_vote_timestamp == 100L );
-  FD_TEST( vote_state_ele->commission == 50 );
   FD_TEST( vote_state_ele->stake == 10UL );
 
   fd_vote_state_ele_t * vote_state_ele_1 = fd_vote_states_query( vote_states, &vote_account_1 );
@@ -82,7 +79,6 @@ int main( int argc, char ** argv ) {
   FD_TEST( memcmp( &vote_state_ele_1->node_account, &node_account_0, sizeof(fd_pubkey_t) ) == 0 );
   FD_TEST( vote_state_ele_1->last_vote_slot == 10000UL );
   FD_TEST( vote_state_ele_1->last_vote_timestamp == 100L );
-  FD_TEST( vote_state_ele_1->commission == 51 );
 
   fd_vote_states_reset_stakes( vote_states );
 
