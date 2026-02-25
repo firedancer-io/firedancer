@@ -78,22 +78,29 @@ backtest_topo( config_t * config ) {
 
   /* specified by [tiles.replay] */
 
-  fd_topob_wksp( topo, "funk" );
-  fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
+  fd_topob_wksp( topo, "funk"       );
+  fd_topob_wksp( topo, "funk_locks" );
+  setup_topo_funk( topo,
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots,
       config->firedancer.accounts.in_memory_only
           ? config->firedancer.accounts.file_size_gib
           : config->firedancer.accounts.max_unrooted_account_size_gib );
-  fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  fd_topob_tile_uses( topo, replay_tile, &topo->objs[ funk_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, &topo->objs[ funk_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topob_wksp( topo, "progcache" );
-  fd_topo_obj_t * progcache_obj = setup_topo_progcache( topo, "progcache",
+  setup_topo_progcache( topo, "progcache",
       fd_progcache_est_rec_max( config->firedancer.runtime.program_cache.heap_size_mib<<20,
                                 config->firedancer.runtime.program_cache.mean_cache_entry_size ),
       config->firedancer.runtime.max_live_slots,
       config->firedancer.runtime.program_cache.heap_size_mib<<20 );
-  fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  ulong progcache_obj_id;       FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong progcache_locks_obj_id; FD_TEST( (progcache_locks_obj_id = fd_pod_query_ulong( topo->props, "progcache_locks", ULONG_MAX ) )!=ULONG_MAX );
+  fd_topob_tile_uses( topo, replay_tile, &topo->objs[ progcache_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, replay_tile, &topo->objs[ progcache_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */
@@ -481,7 +488,8 @@ backtest_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, snapin_tile, &topo->objs[ funk_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, snapin_tile, &topo->objs[ funk_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
   if( vinyl_enabled ) {

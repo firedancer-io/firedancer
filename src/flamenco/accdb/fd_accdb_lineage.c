@@ -57,11 +57,12 @@ retry:
     } while(0);
     FD_COMPILER_MFENCE();
 
-    fd_rwlock_read( candidate->lock );
+    ulong candidate_idx = (ulong)( candidate - funk->txn_pool->ele );
+    fd_rwlock_read( &funk->txn_lock[ candidate_idx ] );
 
     /* Verify speculative loads by ensuring txn still exists in map */
     if( FD_UNLIKELY( fd_funk_txn_map_query_test( query )!=FD_MAP_SUCCESS ) ) {
-      fd_rwlock_unread( candidate->lock );
+      fd_rwlock_unread( &funk->txn_lock[ candidate_idx ] );
       FD_SPIN_PAUSE();
       goto retry;
     }
@@ -74,7 +75,7 @@ retry:
     }
 
     if( !tip ) tip = candidate;  /* remember head of fork */
-    else       fd_rwlock_unread( candidate->lock );
+    else       fd_rwlock_unread( &funk->txn_lock[ candidate_idx ] );
     lineage->fork   [ i ] = next_xid;
     lineage->txn_idx[ i ] = (uint)( candidate - funk->txn_pool->ele );
     if( fd_funk_txn_idx_is_null( parent_idx ) ) {
@@ -99,7 +100,7 @@ done:
   /* Remember head of fork */
   if( tip ) {
     lineage->tip_txn_idx = (ulong)( tip - funk->txn_pool->ele );
-    fd_rwlock_unread( tip->lock );
+    fd_rwlock_unread( &funk->txn_lock[ lineage->tip_txn_idx ] );
   } else {
     lineage->tip_txn_idx = ULONG_MAX;  /* XID is rooted */
   }

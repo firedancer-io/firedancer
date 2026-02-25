@@ -112,11 +112,12 @@ add_account_funk( fd_accdb_user_t * accdb_,
 
   fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( rec_pool, NULL, 1, NULL );
   FD_TEST( rec );
+  ulong rec_idx = (ulong)( rec - rec_pool->ele );
   *rec = (fd_funk_rec_t) {
     .next_idx = UINT_MAX,
-    .prev_idx = UINT_MAX,
-    .ver_lock = fd_funk_rec_ver_lock( 1UL, 0UL )
+    .prev_idx = UINT_MAX
   };
+  accdb->funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( 1UL, 0UL );
   fd_funk_txn_xid_set_root( rec->pair.xid );
   memcpy( rec->pair.key->uc, key, 32UL );
 
@@ -137,6 +138,13 @@ ref_funk_rec( fd_accdb_ref_t const * ref ) {
   return (fd_funk_rec_t *)ref->user_data;
 }
 
+static ulong
+ref_ver_lock( fd_funk_t const *     funk,
+              fd_funk_rec_t const * rec ) {
+  ulong rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  return funk->rec_lock[ rec_idx ];
+}
+
 static void
 test_account_creation( fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid2,
@@ -144,6 +152,7 @@ test_account_creation( fd_accdb_user_t *         accdb,
                        ulong                     lamports ) {
   fd_accdb_rw_t rw[1];
   fd_accdb_ro_t ro[1];
+  fd_funk_t * funk = ((fd_accdb_user_v2_t *)accdb)->funk;
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
 
   fd_funk_rec_t * rec;
@@ -151,33 +160,33 @@ test_account_creation( fd_accdb_user_t *         accdb,
   FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, FD_ACCDB_FLAG_CREATE ) );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==1 );
   rec = ref_funk_rec( rw->ref );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
-  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==FD_FUNK_REC_LOCK_MASK ); /* write locked */
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( funk, rec ) ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( ref_ver_lock( funk, rec ) )==FD_FUNK_REC_LOCK_MASK ); /* write locked */
   fd_accdb_ref_lamports_set( rw, lamports );
   fd_accdb_close_rw( accdb, rw );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
-  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==0 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( funk, rec ) ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( ref_ver_lock( funk, rec ) )==0 );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
 
   FD_TEST( fd_accdb_open_ro( accdb, ro, xid2, addr ) );
   FD_TEST( accdb->base.ro_active==1 && accdb->base.rw_active==0 );
   rec = ref_funk_rec( ro->ref );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
-  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==1UL ); /* read lock */
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( funk, rec ) ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( ref_ver_lock( funk, rec ) )==1UL ); /* read lock */
   FD_TEST( fd_accdb_ref_lamports( ro )==lamports );
   fd_accdb_close_ro( accdb, ro );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
-  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==0 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( funk, rec ) ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( ref_ver_lock( funk, rec ) )==0 );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
 
   FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, 0 ) );
   rec = ref_funk_rec( rw->ref );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
-  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==FD_FUNK_REC_LOCK_MASK ); /* write locked */
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( funk, rec ) ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( ref_ver_lock( funk, rec ) )==FD_FUNK_REC_LOCK_MASK ); /* write locked */
   fd_accdb_ref_lamports_set( rw, 0UL ); /* delete */
   fd_accdb_close_rw( accdb, rw );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
-  FD_TEST( fd_funk_rec_lock_bits( rec->ver_lock )==0UL );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( funk, rec ) ) )==1 );
+  FD_TEST( fd_funk_rec_lock_bits( ref_ver_lock( funk, rec ) )==0UL );
 
   FD_TEST( !fd_accdb_open_rw( accdb, rw, xid2, addr, 16UL, 0 ) );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
@@ -321,13 +330,13 @@ run_tests( fd_accdb_user_t * accdb ) {
 
   FD_TEST( fd_accdb_open_ro( accdb, ro, xid, s_key_c ) );
   fd_funk_rec_t * rec = ref_funk_rec( ro->ref );
-  FD_TEST( rec->ver_lock==fd_funk_rec_ver_lock( 1UL, 1UL ) );
+  FD_TEST( ref_ver_lock( v2->funk, rec )==fd_funk_rec_ver_lock( 1UL, 1UL ) );
   FD_TEST( accdb->base.ro_active==1UL );
   FD_TEST( ro->ref->accdb_type==FD_ACCDB_TYPE_V1 );
   FD_TEST( ro->ref->ref_type==FD_ACCDB_REF_RO );
   FD_TEST( fd_accdb_ref_lamports( ro )==20000UL );
   fd_accdb_close_ro( accdb, ro );
-  FD_TEST( rec->ver_lock==fd_funk_rec_ver_lock( 1UL, 0UL ) );
+  FD_TEST( ref_ver_lock( v2->funk, rec )==fd_funk_rec_ver_lock( 1UL, 0UL ) );
   FD_TEST( accdb->base.ro_active==0UL );
   FD_TEST( req_pool->free_cnt==2UL );
 
@@ -404,7 +413,7 @@ run_tests( fd_accdb_user_t * accdb ) {
   fd_accdb_rw_t rw[1];
   fd_funk_txn_xid_t xid2[1] = {{ .ul={ 1UL, 2UL } }};
   fd_accdb_admin_t admin[1];
-  fd_accdb_admin_v1_init( admin, v2->funk->shmem );
+  fd_accdb_admin_v1_init( admin, v2->funk->shmem, (void *)v2->funk->txn_lock );
   fd_accdb_attach_child( admin, xid, xid2 );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
 
@@ -444,14 +453,14 @@ run_tests( fd_accdb_user_t * accdb ) {
   FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, s_key_a, 0UL, 0 ) );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==1 );
   rec = ref_funk_rec( rw->ref );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( v2->funk, rec ) ) )==1 );
   FD_TEST( fd_accdb_ref_data_sz( rw->ro )==32UL );
   FD_TEST( 0==memcmp( fd_accdb_ref_data_const( rw->ro ), s_key_a, 32UL ) );
   fd_accdb_close_rw( accdb, rw );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( v2->funk, rec ) ) )==1 );
   fd_accdb_cancel( admin, xid2 );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==0 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( v2->funk, rec ) ) )==0 );
 
   /* Open vinyl record as writable (truncate) */
 
@@ -460,13 +469,13 @@ run_tests( fd_accdb_user_t * accdb ) {
   FD_TEST( fd_accdb_open_rw( accdb, rw, xid2, s_key_a, 0UL, FD_ACCDB_FLAG_TRUNCATE ) );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==1 );
   rec = ref_funk_rec( rw->ref );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( v2->funk, rec ) ) )==1 );
   FD_TEST( fd_accdb_ref_data_sz( rw->ro )==0UL );
   fd_accdb_close_rw( accdb, rw );
   FD_TEST( accdb->base.ro_active==0 && accdb->base.rw_active==0 );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==1 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( v2->funk, rec ) ) )==1 );
   fd_accdb_cancel( admin, xid2 );
-  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( rec->ver_lock ) )==0 );
+  FD_TEST( fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ref_ver_lock( v2->funk, rec ) ) )==0 );
 
   fd_accdb_admin_fini( admin );
 }
@@ -583,10 +592,14 @@ main( int     argc,
   FD_LOG_NOTICE(( "Vinyl running" ));
 
   ulong funk_seed      = 9876UL;
-  ulong funk_footprint = fd_funk_footprint( txn_max, rec_max );
-  void * shfunk = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, tag );
+  ulong funk_footprint = fd_funk_shmem_footprint( txn_max, rec_max );
+  ulong lock_footprint = fd_funk_locks_footprint( txn_max, rec_max );
+  void * shfunk  = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, tag );
+  void * shlocks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), lock_footprint, tag );
   FD_TEST( shfunk );
-  FD_TEST( fd_funk_new( shfunk, tag, funk_seed, txn_max, rec_max ) );
+  FD_TEST( shlocks );
+  FD_TEST( fd_funk_shmem_new( shfunk, tag, funk_seed, txn_max, rec_max ) );
+  FD_TEST( fd_funk_locks_new( shlocks, txn_max, rec_max ) );
 
   ulong req_pool_footprint = fd_vinyl_req_pool_footprint( 2UL, 4UL );
   FD_TEST( req_pool_footprint );
@@ -600,7 +613,7 @@ main( int     argc,
   FD_TEST( !fd_vinyl_client_join( cnc, rq, cq, wksp, link_id, burst_max, quota_max ) );
 
   fd_accdb_user_t accdb[1];
-  FD_TEST( fd_accdb_user_v2_init( accdb, shfunk, _rq, wksp, req_pool, link_id, txn_max ) );
+  FD_TEST( fd_accdb_user_v2_init( accdb, shfunk, shlocks, _rq, wksp, req_pool, link_id, txn_max ) );
   FD_TEST( accdb->base.accdb_type == FD_ACCDB_TYPE_V2 );
 
   FD_LOG_NOTICE(( "Running tests" ));
@@ -610,7 +623,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Cleaning up" ));
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, shlocks ) );
   fd_accdb_v1_clear( admin );
   fd_accdb_admin_fini( admin );
 
@@ -631,6 +644,7 @@ main( int     argc,
   FD_TEST( fd_vinyl_io_fini( io )==_io );
 
   fd_wksp_free_laddr( fd_vinyl_req_pool_delete( req_pool ) );
+  fd_wksp_free_laddr( shlocks );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
   fd_wksp_free_laddr( _cq      );
   fd_wksp_free_laddr( _rq      );

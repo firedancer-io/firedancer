@@ -462,9 +462,9 @@ unprivileged_init( fd_topo_t *      topo,
                            FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
 
-  ulong funk_obj_id;
-  FD_TEST( (funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX ) )!=ULONG_MAX );
-  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, funk_obj_id ) ) );
+  ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, locks_obj_id ) ) );
   fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->genesi.accdb_max_depth );
 
   fd_lthash_zero( ctx->lthash );

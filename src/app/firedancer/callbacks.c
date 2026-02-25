@@ -75,8 +75,7 @@ funk_align( fd_topo_t const *     topo,
 static ulong
 funk_footprint( fd_topo_t const *     topo,
                 fd_topo_obj_t const * obj ) {
-  (void)topo;
-  return fd_funk_footprint( VAL("txn_max"), VAL("rec_max") );
+  return fd_funk_shmem_footprint( VAL("txn_max"), VAL("rec_max") );
 }
 
 static ulong
@@ -87,10 +86,10 @@ funk_loose( fd_topo_t const *     topo,
 
 static void
 funk_new( fd_topo_t const *     topo,
-           fd_topo_obj_t const * obj ) {
+          fd_topo_obj_t const * obj ) {
   ulong funk_seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
   if( !funk_seed ) FD_TEST( fd_rng_secure( &funk_seed, sizeof(ulong) ) );
-  FD_TEST( fd_funk_new( fd_topo_obj_laddr( topo, obj->id ), 2UL, funk_seed, VAL("txn_max"), VAL("rec_max") ) );
+  FD_TEST( fd_funk_shmem_new( fd_topo_obj_laddr( topo, obj->id ), 2UL, funk_seed, VAL("txn_max"), VAL("rec_max") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_funk = {
@@ -99,6 +98,25 @@ fd_topo_obj_callbacks_t fd_obj_cb_funk = {
   .loose     = funk_loose,
   .align     = funk_align,
   .new       = funk_new,
+};
+
+static ulong
+funk_locks_footprint( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  return fd_funk_locks_footprint( VAL("txn_max"), VAL("rec_max") );
+}
+
+static void
+funk_locks_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_funk_locks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("txn_max"), VAL("rec_max") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_funk_locks = {
+  .name      = "funk_locks",
+  .footprint = funk_locks_footprint,
+  .align     = funk_align,
+  .new       = funk_locks_new,
 };
 
 /* cnc: a tile admin message queue */

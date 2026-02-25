@@ -82,15 +82,21 @@ test_ctx_setup( void ) {
   test_ctx->wksp = wksp;
 
   /* Allocate memory for funk (account database) */
-  ulong  funk_footprint = fd_funk_footprint( TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
-  void * funk_mem       = fd_wksp_alloc_laddr( test_ctx->wksp, fd_funk_align(), funk_footprint, wksp_tag );
+  ulong  funk_footprint  = fd_funk_shmem_footprint( TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
+  void * funk_mem        = fd_wksp_alloc_laddr( test_ctx->wksp, fd_funk_align(), funk_footprint, wksp_tag );
   FD_TEST( funk_mem );
 
+  ulong  locks_footprint = fd_funk_locks_footprint( TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
+  void * locks_mem       = fd_wksp_alloc_laddr( test_ctx->wksp, fd_funk_align(), locks_footprint, wksp_tag );
+  FD_TEST( locks_mem );
+
   /* Initialize funk */
-  void * shfunk = fd_funk_new( funk_mem, wksp_tag, 42UL, TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
+  void * shfunk   = fd_funk_shmem_new( funk_mem,  wksp_tag, 42UL, TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
   FD_TEST( shfunk );
-  FD_TEST( fd_accdb_admin_v1_init( test_ctx->accdb_admin, funk_mem ) );
-  FD_TEST( fd_accdb_user_v1_init ( test_ctx->accdb,       funk_mem, TEST_FUNK_TXN_MAX ) );
+  void * shlocks  = fd_funk_locks_new( locks_mem, TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
+  FD_TEST( shlocks );
+  FD_TEST( fd_accdb_admin_v1_init( test_ctx->accdb_admin, shfunk, shlocks ) );
+  FD_TEST( fd_accdb_user_v1_init ( test_ctx->accdb,       shfunk, shlocks, TEST_FUNK_TXN_MAX ) );
 
   /* Allocate memory for banks */
   ulong  banks_footprint = fd_banks_footprint( TEST_BANK_MAX, TEST_FORK_MAX );
@@ -175,10 +181,13 @@ test_ctx_teardown( test_ctx_t * test_ctx ) {
   fd_wksp_free_laddr( test_ctx->banks->locks );
 
   /* Clean up funk */
-  void * shfunk = fd_accdb_admin_v1_funk( test_ctx->accdb_admin )->shmem;
+  fd_funk_t * funk    = fd_accdb_admin_v1_funk( test_ctx->accdb_admin );
+  void *      shfunk  = funk->shmem;
+  void *      shlocks = (void *)funk->txn_lock;
   fd_accdb_user_fini( test_ctx->accdb );
   fd_accdb_admin_fini( test_ctx->accdb_admin );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
+  fd_wksp_free_laddr( shlocks );
 
   /* Delete test context */
   fd_wksp_free_laddr( test_ctx );

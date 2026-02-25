@@ -129,12 +129,20 @@ main( int     argc,
 
   ulong const funk_txn_max = 16UL;
   ulong const funk_rec_max = 16UL;
-  void * shfunk = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( funk_txn_max, funk_rec_max ), 1UL );
-  FD_TEST( fd_funk_new( shfunk, 1UL, 1UL, funk_txn_max, funk_rec_max ) );
+  void * shfunk = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( funk_txn_max, funk_rec_max ), 1UL );
+  FD_TEST( fd_funk_shmem_new( shfunk, 1UL, 1UL, funk_txn_max, funk_rec_max ) );
   fd_topo_obj_t * funk_obj = fd_topob_obj( topo, "funk", "wksp" );
   funk_obj->wksp_id = topo_wksp->id;
   funk_obj->offset  = fd_wksp_gaddr_fast( wksp, shfunk );
   fd_pod_insert_ulong( topo->props, "funk", funk_obj->id );
+
+  void * shlocks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( funk_txn_max, funk_rec_max ), 1UL );
+  FD_TEST( shlocks );
+  FD_TEST( fd_funk_locks_new( shlocks, funk_txn_max, funk_rec_max ) );
+  fd_topo_obj_t * funk_locks_obj = fd_topob_obj( topo, "funk_locks", "wksp" );
+  funk_locks_obj->wksp_id = topo_wksp->id;
+  funk_locks_obj->offset  = fd_wksp_gaddr_fast( wksp, shlocks );
+  fd_pod_insert_ulong( topo->props, "funk_locks", funk_locks_obj->id );
 
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;

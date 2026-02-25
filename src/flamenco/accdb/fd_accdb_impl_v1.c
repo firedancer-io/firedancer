@@ -118,7 +118,7 @@ void
 fd_accdb_user_v1_fini( fd_accdb_user_t * accdb ) {
   fd_accdb_user_v1_t * user = (fd_accdb_user_v1_t *)accdb;
 
-  if( FD_UNLIKELY( !fd_funk_leave( user->funk, NULL ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
+  if( FD_UNLIKELY( !fd_funk_leave( user->funk, NULL, NULL ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
 }
 
 void
@@ -348,6 +348,7 @@ fd_accdb_user_vt_t const fd_accdb_user_v1_vt = {
 fd_accdb_user_t *
 fd_accdb_user_v1_init( fd_accdb_user_t * accdb,
                        void *            shfunk,
+                       void *            shlocks,
                        ulong             max_depth ) {
   fd_accdb_user_v1_t * ljoin = (fd_accdb_user_v1_t *)accdb;
 
@@ -361,7 +362,7 @@ fd_accdb_user_v1_init( fd_accdb_user_t * accdb,
   }
 
   memset( ljoin, 0, sizeof(fd_accdb_user_v1_t) );
-  if( FD_UNLIKELY( !fd_funk_join( ljoin->funk, shfunk ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( ljoin->funk, shfunk, shlocks ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
 

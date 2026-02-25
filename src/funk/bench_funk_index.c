@@ -77,8 +77,9 @@ main( int     argc,
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
-  ulong funk_footprint = fd_funk_footprint( txn_max, rec_max );
-  FD_LOG_NOTICE(( "fd_funk_footprint(txn_max=%lu,rec_max=%g) = %.1f MiB", txn_max, (double)rec_max, (double)funk_footprint/(1024.0*1024.0) ));
+  ulong funk_footprint = fd_funk_shmem_footprint( txn_max, rec_max );
+  ulong lock_footprint = fd_funk_locks_footprint( txn_max, rec_max );
+  FD_LOG_NOTICE(( "fd_funk_shmem_footprint(txn_max=%lu,rec_max=%g) = %.1f MiB", txn_max, (double)rec_max, (double)funk_footprint/(1024.0*1024.0) ));
   ulong chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max );
   FD_LOG_NOTICE(( "fd_funk_rec_map_chain_cnt_est(rec_max=%g) = %g", (double)rec_max, (double)chain_cnt ));
   if( FD_UNLIKELY( funk_footprint > (page_cnt*page_sz ) ) ) FD_LOG_ERR(( "funk footprint exceeds memory bounds" ));
@@ -95,8 +96,12 @@ main( int     argc,
 
   void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, FUNK_TAG );
   if( FD_UNLIKELY( !funk_mem ) ) FD_LOG_ERR(( "failed to allocate funk" ));
+  void * lock_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), lock_footprint, FUNK_TAG );
+  if( FD_UNLIKELY( !lock_mem ) ) FD_LOG_ERR(( "failed to allocate locks" ));
   fd_funk_t funk_[1];
-  fd_funk_t * funk = fd_funk_join( funk_, fd_funk_new( funk_mem, FUNK_TAG, funk_seed, 16UL, rec_max ) );
+  fd_funk_shmem_new( funk_mem, FUNK_TAG, funk_seed, txn_max, rec_max );
+  FD_TEST( fd_funk_locks_new( lock_mem, txn_max, rec_max ) );
+  fd_funk_t * funk = fd_funk_join( funk_, funk_mem, lock_mem );
   FD_TEST( funk );
 
   fd_funk_rec_map_t * rec_map = fd_funk_rec_map( funk );
@@ -114,11 +119,12 @@ main( int     argc,
   stat_chains( funk );
 
   dt = -fd_log_wallclock();
-  fd_funk_leave( funk, NULL );
+  fd_funk_leave( funk, NULL, NULL );
   if( fast_clean ) {
     fd_funk_delete_fast( funk_mem );
   } else {
     fd_wksp_free_laddr( fd_funk_delete( funk_mem ) );
+    fd_wksp_free_laddr( lock_mem );
   }
   if( name ) fd_wksp_detach( wksp );
   else       fd_wksp_delete_anonymous( wksp );

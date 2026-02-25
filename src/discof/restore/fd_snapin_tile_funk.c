@@ -191,17 +191,19 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     if( FD_LIKELY( !r ) ) {  /* optimize for new account */
       r = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
       FD_TEST( r );
+      ulong rec_idx = (ulong)( r - rec_tbl );
 
       fd_funk_txn_xid_copy( r->pair.xid, ctx->xid );
       fd_funk_rec_key_copy( r->pair.key, &key );
       r->map_next  = 0U;
-      r->ver_lock  = fd_funk_rec_ver_lock( 1UL, 0UL );
       r->next_idx  = UINT_MAX;
       r->prev_idx  = UINT_MAX;
       r->val_sz    = 0;
       r->val_max   = 0;
       r->tag       = 0;
       r->val_gaddr = 0UL;
+
+      funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( 1UL, 0UL );
 
       /* Insert to hash map.  In theory, a key could appear twice in the
          same batch.  All accounts in a batch are guaranteed to be from
