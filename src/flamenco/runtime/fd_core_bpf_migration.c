@@ -16,7 +16,11 @@ get_program_data_address( fd_pubkey_t const * program_addr ) {
   fd_pubkey_t   out;
   uint          custom_err;
   uchar         out_bump_seed;
-  fd_pubkey_find_program_address( &fd_solana_bpf_loader_upgradeable_program_id, 1UL, &seed, &seed_sz, &out, &out_bump_seed, &custom_err );
+  int err = fd_pubkey_find_program_address( &fd_solana_bpf_loader_upgradeable_program_id, 1UL, &seed, &seed_sz, &out, &out_bump_seed, &custom_err );
+  if( FD_UNLIKELY( err ) ) {
+    /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L277-L279 */
+    FD_LOG_ERR(( "Unable to find a viable program address bump seed" ));
+  }
   return out;
 }
 
