@@ -24,7 +24,7 @@
    account.  We also need to store potentially ~32 forks across each
    epoch boundary.  If done naively, this would require
    2^25 * (32 + 8 + 8) * 32 = 51GB of memory not including any overhead
-   for maintaining looksups for accounts.
+   for maintaining lookups for accounts.
 
    To avoid this, we can use some important runtime protocol properties.
    The most notable is that across forks, we will only have a small
@@ -91,6 +91,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_VOTE_STAKES_ALIGN (128UL)
 
+typedef ushort fd_vote_stakes_fork_id_t;
+
 struct fd_vote_stakes;
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
@@ -133,7 +135,7 @@ fd_vote_stakes_join( void * shmem );
 
 /* fd_vote_stakes_insert_root inserts a new vote account along with its
    stakes into the root fork.  This should only be called during runtime
-   initializtion: when booting off of a genesis file or a snapshot. */
+   initialization: when booting off of a genesis file or a snapshot. */
 
 void
 fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
@@ -142,7 +144,7 @@ fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
                             ulong              stake_t_2 );
 
 /* fd_vote_stakes_new_child creates a new child fork and returns the
-   index identifer for the new fork. */
+   index identifier for the new fork. */
 
 ushort
 fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes );
@@ -178,6 +180,11 @@ fd_vote_stakes_query_stake( fd_vote_stakes_t * vote_stakes,
                             fd_pubkey_t *      pubkey,
                             ulong *            stake_t_1_out,
                             ulong *            stake_t_2_out );
+
+/* fd_vote_stakes_get_root_idx returns the index of the root fork. */
+
+ushort
+fd_vote_stakes_get_root_idx( fd_vote_stakes_t * vote_stakes );
 
 FD_PROTOTYPES_END
 

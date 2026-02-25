@@ -258,6 +258,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( 2<<26UL, max_fork_width, 2048UL ) ); /* TODO:FIXME: setup params for this correctly */
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -290,6 +291,7 @@ fd_banks_new( void * shmem,
   void *            epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   void *            vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
   void *            cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  void *            vote_stakes_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( 2<<26UL, max_fork_width, 2048UL ) ); /* TODO:FIXME: setup params for this correctly */
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -379,6 +381,14 @@ fd_banks_new( void * shmem,
       return NULL;
     }
   }
+
+  /* TODO:FIXME: PARAMETERIZE THIS PLEASE */
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, 2<<26UL, max_fork_width, 2048UL, seed ) );
+  if( FD_UNLIKELY( !vote_stakes ) ) {
+    FD_LOG_WARNING(( "Failed to create vote stakes" ));
+    return NULL;
+  }
+  fd_banks_set_vote_stakes( banks_data, vote_stakes );
 
   /* For each bank, we need to set the offset of the pools and locks
      for each of the non-inlined fields. */
@@ -590,6 +600,9 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   bank->first_transaction_scheduled_nanos = 0L;
   bank->last_transaction_finished_nanos   = 0L;
 
+  fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
+  bank->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
+
   /* Now that the node is inserted, update the root */
 
   banks->data->root_idx = bank->idx;
@@ -674,6 +687,9 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
      the lock for the current bank. */
 
   fd_rwlock_new( &bank_l->locks->lthash_lock[ child_bank->idx ] );
+
+  /* Copy over the parent vote stake fork idx */
+  child_bank->vote_stakes_fork_id = parent_bank->vote_stakes_fork_id;
 
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
@@ -902,6 +918,9 @@ fd_banks_advance_root( fd_banks_t * banks,
 
   new_root->data->parent_idx = null_idx;
   banks->data->root_idx      = new_root->data->idx;
+
+  fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
+  fd_vote_stakes_advance_root( vote_stakes, new_root->data->vote_stakes_fork_id );
 
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 }
