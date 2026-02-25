@@ -23,8 +23,6 @@ typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 #define FD_CRDS_UPSERT_CHECK_UPSERTS ( 0)
 #define FD_CRDS_UPSERT_CHECK_FAILS   (-1)
 
-#define CRDS_MAX_CONTACT_INFO    (1<<15) /* 32768 */
-
 struct fd_crds_metrics {
   ulong count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong expired_cnt;

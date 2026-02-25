@@ -56,9 +56,6 @@ typedef struct fd_crds_contact_info_entry fd_crds_contact_info_entry_t;
 #define POOL_NEXT  pool.next
 #include "../../../util/tmpl/fd_pool.c"
 
-FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO==FD_CONTACT_INFO_TABLE_SIZE,
-                  "CRDS_MAX_CONTACT_INFO must match FD_CONTACT_INFO_TABLE_SIZE" );
-
 struct fd_crds_key {
   uchar tag;
   uchar pubkey[ 32UL ];
@@ -343,17 +340,17 @@ fd_crds_footprint( ulong ele_max ) {
   ulong l;
   l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_CRDS_ALIGN,                         sizeof(fd_crds_t) );
-  l = FD_LAYOUT_APPEND( l, crds_pool_align(),                     crds_pool_footprint( ele_max )      );
-  l = FD_LAYOUT_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )    );
-  l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()     );
-  l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()   );
-  l = FD_LAYOUT_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()      );
-  l = FD_LAYOUT_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )     );
-  l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )     );
-  l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
-  l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
-  l = FD_LAYOUT_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_gossip_wsample_align(),             fd_gossip_wsample_footprint( CRDS_MAX_CONTACT_INFO ) );
+  l = FD_LAYOUT_APPEND( l, crds_pool_align(),                     crds_pool_footprint( ele_max )                                 );
+  l = FD_LAYOUT_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )                               );
+  l = FD_LAYOUT_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()                                );
+  l = FD_LAYOUT_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()                              );
+  l = FD_LAYOUT_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()                                 );
+  l = FD_LAYOUT_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )                                );
+  l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
+  l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
+  l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint()                       );
+  l = FD_LAYOUT_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint()                      );
+  l = FD_LAYOUT_APPEND( l, fd_gossip_wsample_align(),             fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )      );
   return FD_LAYOUT_FINI( l, FD_CRDS_ALIGN );
 }
 
@@ -397,17 +394,17 @@ fd_crds_new( void *                       shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_crds_t * crds              = FD_SCRATCH_ALLOC_APPEND( l, FD_CRDS_ALIGN,                         sizeof(fd_crds_t) );
-  void * _pool                  = FD_SCRATCH_ALLOC_APPEND( l, crds_pool_align(),                     crds_pool_footprint( ele_max ) );
-  void * _evict_treap           = FD_SCRATCH_ALLOC_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max ) );
-  void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint() );
-  void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint() );
-  void * _ci_fresh_15s_dlist    = FD_SCRATCH_ALLOC_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint() );
-  void * _hash_treap            = FD_SCRATCH_ALLOC_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max ) );
-  void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max ) );
-  void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
-  void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
-  void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
-  void * _wsample               = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_wsample_align(),             fd_gossip_wsample_footprint( CRDS_MAX_CONTACT_INFO ) );
+  void * _pool                  = FD_SCRATCH_ALLOC_APPEND( l, crds_pool_align(),                     crds_pool_footprint( ele_max )                                 );
+  void * _evict_treap           = FD_SCRATCH_ALLOC_APPEND( l, evict_treap_align(),                   evict_treap_footprint( ele_max )                               );
+  void * _staked_expire_dlist   = FD_SCRATCH_ALLOC_APPEND( l, staked_expire_dlist_align(),           staked_expire_dlist_footprint()                                );
+  void * _unstaked_expire_dlist = FD_SCRATCH_ALLOC_APPEND( l, unstaked_expire_dlist_align(),         unstaked_expire_dlist_footprint()                              );
+  void * _ci_fresh_15s_dlist    = FD_SCRATCH_ALLOC_APPEND( l, ci_fresh_15s_dlist_align(),            ci_fresh_15s_dlist_footprint()                                 );
+  void * _hash_treap            = FD_SCRATCH_ALLOC_APPEND( l, hash_treap_align(),                    hash_treap_footprint( ele_max )                                );
+  void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
+  void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
+  void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint()                       );
+  void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint()                      );
+  void * _wsample               = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_wsample_align(),             fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )      );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max ) );
 
   crds->activity_update_fn = activity_update_fn;
@@ -440,7 +437,7 @@ fd_crds_new( void *                       shmem,
 
   crds->purged = purged;
 
-  crds->ci_pool = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
+  crds->ci_pool = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( crds->ci_pool );
 
   crds->ci_fresh_dlist = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_dlist ) );
@@ -451,7 +448,7 @@ fd_crds_new( void *                       shmem,
 
   FD_TEST( fd_sha256_join( fd_sha256_new( crds->sha256 ) ) );
 
-  crds->wsample = fd_gossip_wsample_join( fd_gossip_wsample_new( _wsample, rng, CRDS_MAX_CONTACT_INFO ) );
+  crds->wsample = fd_gossip_wsample_join( fd_gossip_wsample_new( _wsample, rng, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( crds->wsample );
 
   memset( crds->metrics, 0, sizeof(fd_crds_metrics_t) );
