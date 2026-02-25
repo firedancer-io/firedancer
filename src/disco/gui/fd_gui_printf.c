@@ -2535,9 +2535,10 @@ fd_gui_printf_shreds_staged( fd_gui_t * gui, ulong start_offset, ulong end_offse
 void
 fd_gui_printf_shreds_history( fd_gui_t * gui, ulong _slot ) {
   fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  FD_TEST( slot );
   ulong end_offset = slot->shreds.end_offset;
   ulong start_offset = slot->shreds.start_offset;
-  FD_TEST( slot && slot->shreds.end_offset > gui->shreds.history_tail-FD_GUI_SHREDS_HISTORY_SZ );
+  FD_TEST( slot->shreds.end_offset > gui->shreds.history_tail-FD_GUI_SHREDS_HISTORY_SZ );
 
   long min_ts = LONG_MAX;
   for( ulong i=start_offset; i<end_offset; i++ ) {
