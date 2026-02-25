@@ -12,7 +12,8 @@ extern fd_accdb_admin_vt_t const fd_accdb_admin_v2_vt;
 
 fd_accdb_admin_t *
 fd_accdb_admin_v2_init( fd_accdb_admin_t * admin_,
-                        void *             funk,
+                        void *             shfunk,
+                        void *             shlocks,
                         void *             vinyl_rq,
                         void *             vinyl_data,
                         void *             vinyl_req_pool,

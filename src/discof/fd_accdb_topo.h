@@ -14,6 +14,12 @@ fd_accdb_init_from_topo( fd_accdb_user_t *      accdb,
                          fd_topo_tile_t const * tile,
                          ulong                  max_depth );
 
+void
+fd_progcache_init_from_topo( fd_progcache_t *  progcache,
+                             fd_topo_t const * topo,
+                             uchar *           scratch,
+                             ulong             scratch_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_fd_accdb_topo_h */

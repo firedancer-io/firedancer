@@ -4,15 +4,17 @@
 #include "../../funk/test_funk_common.h"
 #include "../../funk/test_funk_common.c"
 
-#define WKSP_TAG 1UL
+#define WKSP_TAG_DEF  1UL
+#define WKSP_TAG_FUNK 2UL
 #define VERBOSE 0 /* toggle for more debug info */
 
 /* init_funk does extended initialization of unallocated records. */
 
 static void
-init_funk( void * shfunk ) {
+init_funk( void * shfunk,
+           void * shlocks ) {
   fd_funk_t funk[1];
-  FD_TEST( fd_funk_join( funk, shfunk ) );
+  FD_TEST( fd_funk_join( funk, shfunk, shlocks ) );
 
   ulong rec_max = funk->rec_pool->ele_max;
   fd_funk_rec_t * rec_ele = funk->rec_pool->ele;
@@ -41,7 +43,7 @@ init_funk( void * shfunk ) {
     txn_ele[ j ].state             = FD_FUNK_TXN_STATE_FREE;
   }
 
-  fd_funk_leave( funk, NULL );
+  fd_funk_leave( funk, NULL, NULL );
 }
 
 /* verify_accdb_empty verifies that a funk instance is empty (no recs
@@ -132,7 +134,7 @@ verify_txns_empty( fd_funk_t * funk ) {
     FD_TEST( txn->rec_head_idx==UINT_MAX );
     FD_TEST( txn->rec_tail_idx==UINT_MAX );
     FD_TEST( txn->state==FD_FUNK_TXN_STATE_FREE );
-    FD_TEST( txn->lock->value==0 );
+    FD_TEST( funk->txn_lock[ (ulong)( txn - txn_pool ) ].value==0 );
     txn->tag = 1;
     txn = txn->map_next==UINT_MAX ? NULL : txn_pool + txn->map_next;
   }
@@ -355,15 +357,19 @@ static void
 test_simple( fd_wksp_t * wksp ) {
   ulong txn_max =  4UL;
   ulong rec_max = 32UL;
-  ulong funk_footprint = fd_funk_footprint( txn_max, rec_max );
-  void * shfunk = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, WKSP_TAG );
+  ulong funk_footprint = fd_funk_shmem_footprint( txn_max, rec_max );
+  ulong lock_footprint = fd_funk_locks_footprint( txn_max, rec_max );
+  void * shfunk  = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, WKSP_TAG_DEF );
+  void * shlocks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), lock_footprint, WKSP_TAG_DEF );
   FD_TEST( shfunk );
-  FD_TEST( fd_funk_new( shfunk, WKSP_TAG, 0UL, txn_max, rec_max ) );
-  init_funk( shfunk );
+  FD_TEST( shlocks );
+  FD_TEST( fd_funk_shmem_new( shfunk, WKSP_TAG_FUNK, 0UL, txn_max, rec_max ) );
+  FD_TEST( fd_funk_locks_new( shlocks, txn_max, rec_max ) );
+  init_funk( shfunk, shlocks );
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, shlocks ) );
   fd_accdb_user_t accdb[1];
-  FD_TEST( fd_accdb_user_v1_init( accdb, shfunk, txn_max ) );
+  FD_TEST( fd_accdb_user_v1_init( accdb, shfunk, shlocks, txn_max ) );
 
   test_truncate_create  ( admin, accdb );
   test_truncate_nonexist( admin, accdb );
@@ -376,6 +382,7 @@ test_simple( fd_wksp_t * wksp ) {
   fd_accdb_user_fini( accdb );
   fd_accdb_v1_clear( admin );
   fd_accdb_admin_fini( admin );
+  fd_wksp_free_laddr( shlocks );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 }
 
@@ -394,18 +401,22 @@ test_random_ops( fd_wksp_t * wksp,
                  ulong       rec_max,
                  ulong       iter_max ) {
   ulong funk_seed      = fd_rng_ulong( rng );
-  ulong funk_footprint = fd_funk_footprint( txn_max, rec_max );
-  void * shfunk = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, WKSP_TAG );
+  ulong funk_footprint = fd_funk_shmem_footprint( txn_max, rec_max );
+  ulong lock_footprint = fd_funk_locks_footprint( txn_max, rec_max );
+  void * shfunk  = fd_wksp_alloc_laddr( wksp, fd_funk_align(), funk_footprint, WKSP_TAG_DEF );
+  void * shlocks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), lock_footprint, WKSP_TAG_DEF );
   FD_TEST( shfunk );
-  FD_TEST( fd_funk_new( shfunk, WKSP_TAG, funk_seed, txn_max, rec_max ) );
-  init_funk( shfunk );
+  FD_TEST( shlocks );
+  FD_TEST( fd_funk_shmem_new( shfunk, WKSP_TAG_FUNK, funk_seed, txn_max, rec_max ) );
+  FD_TEST( fd_funk_locks_new( shlocks, txn_max, rec_max ) );
+  init_funk( shfunk, shlocks );
 
   funk_t * ref = funk_new();
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, shfunk, shlocks ) );
   fd_accdb_user_t accdb[1];
-  FD_TEST( fd_accdb_user_v1_init( accdb, shfunk, txn_max ) );
+  FD_TEST( fd_accdb_user_v1_init( accdb, shfunk, shlocks, txn_max ) );
   verify_accdb_empty( admin );
   fd_funk_t * funk = fd_accdb_user_v1_funk( accdb );
 
@@ -500,6 +511,7 @@ test_random_ops( fd_wksp_t * wksp,
 
   fd_accdb_user_fini( accdb );
   fd_accdb_admin_fini( admin );
+  fd_wksp_free_laddr( shlocks );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 
   funk_delete( ref );

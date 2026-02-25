@@ -6,13 +6,10 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_admin_v1_t)<=sizeof(fd_accdb_admin_t),  layou
 
 fd_accdb_admin_t *
 fd_accdb_admin_v1_init( fd_accdb_admin_t * admin_,
-                        void *             shfunk ) {
+                        void *             shfunk,
+                        void *             shlocks ) {
   if( FD_UNLIKELY( !admin_ ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !shfunk ) ) {
-    FD_LOG_WARNING(( "NULL shfunk" ));
     return NULL;
   }
 
@@ -21,7 +18,7 @@ fd_accdb_admin_v1_init( fd_accdb_admin_t * admin_,
   admin->base.accdb_type = FD_ACCDB_TYPE_V1;
   admin->base.vt         = &fd_accdb_admin_v1_vt;
 
-  if( FD_UNLIKELY( !fd_funk_join( admin->funk, shfunk ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( admin->funk, shfunk, shlocks ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
 
@@ -42,7 +39,7 @@ downcast( fd_accdb_admin_t * admin ) {
 void
 fd_accdb_admin_v1_fini( fd_accdb_admin_t * admin_ ) {
   fd_accdb_admin_v1_t * admin = downcast( admin_ );
-  if( FD_UNLIKELY( !fd_funk_leave( admin->funk, NULL ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
+  if( FD_UNLIKELY( !fd_funk_leave( admin->funk, NULL, NULL ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
   memset( admin, 0, sizeof(fd_accdb_admin_base_t) );
 }
 
@@ -92,7 +89,8 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
 
   /* Phase 1: Drain users from transaction */
 
-  fd_rwlock_write( txn->lock );
+  ulong txn_idx = (ulong)( txn - funk->txn_pool->ele );
+  fd_rwlock_write( &funk->txn_lock[ txn_idx ] );
   FD_COMPILER_MFENCE();
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_CANCEL;
 
@@ -109,7 +107,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
   ulong rec_cnt = 0UL;
   uint rec_idx = rec_head_idx;
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-    fd_funk_rec_t * rec = &funk->rec_pool->ele[ rec_idx ];
+    fd_funk_rec_t *        rec  = &funk->rec_pool->ele[ rec_idx ];
     fd_funk_xid_key_pair_t pair = FD_VOLATILE_CONST( rec->pair );
 
     uint next_idx = rec->next_idx;
@@ -135,7 +133,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
     fd_funk_val_flush( rec, funk->alloc, funk->wksp );
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
-    rec->ver_lock = fd_funk_rec_ver_lock( fd_funk_rec_ver_inc( fd_funk_rec_ver_bits( rec->ver_lock ) ), 0UL );
+    funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( fd_funk_rec_ver_inc( fd_funk_rec_ver_bits( funk->rec_lock[ rec_idx ] ) ), 0UL );
     fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
     rec_idx = next_idx;
     rec_cnt++;
@@ -178,7 +176,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
   txn->parent_cidx       = UINT_MAX;
   txn->sibling_prev_cidx = UINT_MAX;
   txn->sibling_next_cidx = UINT_MAX;
-  fd_rwlock_unwrite( txn->lock );
+  fd_rwlock_unwrite( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_FREE;
   fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
 }
@@ -378,7 +376,8 @@ fd_accdb_txn_publish_one( fd_accdb_admin_v1_t * accdb,
 
   /* Phase 2: Drain users from transaction */
 
-  fd_rwlock_write( txn->lock );
+  ulong txn_idx = (ulong)( txn - funk->txn_pool->ele );
+  fd_rwlock_write( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_PUBLISH;
 
   /* Phase 3: Migrate records */
@@ -412,7 +411,7 @@ fd_accdb_txn_publish_one( fd_accdb_admin_v1_t * accdb,
 
   /* Phase 6: Free transaction object */
 
-  fd_rwlock_unwrite( txn->lock );
+  fd_rwlock_unwrite( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_FREE;
   txn->parent_cidx       = UINT_MAX;
   txn->sibling_prev_cidx = UINT_MAX;

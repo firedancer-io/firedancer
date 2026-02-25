@@ -386,7 +386,6 @@ struct fd_topo_tile {
       ulong fec_max;
 
       ulong txncache_obj_id;
-      ulong progcache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
 
@@ -427,7 +426,6 @@ struct fd_topo_tile {
 
     struct {
       ulong txncache_obj_id;
-      ulong progcache_obj_id;
       ulong acc_pool_obj_id;
 
       ulong max_live_slots;
@@ -580,6 +578,7 @@ struct fd_topo_tile {
       ulong max_live_slots;
       ulong accdb_max_depth;
       ulong funk_obj_id;
+      ulong funk_locks_obj_id;
       ulong txncache_obj_id;
 
       uint  lthash_disabled : 1;
@@ -620,7 +619,6 @@ struct fd_topo_tile {
       ulong max_live_slots;
       ulong accdb_max_depth;
       ulong txncache_obj_id;
-      ulong progcache_obj_id;
       ulong acc_pool_obj_id;
     } execle;
 

@@ -57,7 +57,8 @@ extern fd_accdb_user_vt_t const fd_accdb_user_v2_vt;
 
 fd_accdb_user_t *
 fd_accdb_user_v2_init( fd_accdb_user_t * ljoin,
-                       void *            funk,
+                       void *            shfunk,
+                       void *            shlocks,
                        void *            vinyl_rq,
                        void *            vinyl_data,
                        void *            vinyl_req_pool,

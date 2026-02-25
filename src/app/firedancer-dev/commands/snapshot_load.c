@@ -46,7 +46,7 @@ snapshot_load_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "funk" );
-  fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
+  setup_topo_funk( topo,
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots,
       config->firedancer.accounts.in_memory_only
@@ -263,9 +263,12 @@ snapshot_load_topo( config_t * config ) {
   }
 
   /* snapin funk / txncache access */
-  fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  snapin_tile->snapin.funk_obj_id     = funk_obj->id;
+  ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  fd_topob_tile_uses( topo, snapin_tile, &topo->objs[ funk_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, &topo->objs[ funk_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, txncache_obj,   FD_SHMEM_JOIN_MODE_READ_WRITE );
+  snapin_tile->snapin.funk_obj_id     = funk_obj_id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
   if( !config->firedancer.accounts.in_memory_only ) {
     ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
@@ -379,13 +382,15 @@ snapshot_load_args( int *    pargc,
 static uint
 fsck_funk( config_t * config,
            _Bool      lthash ) {
-  ulong funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-  FD_TEST( funk_obj_id!=ULONG_MAX );
-  void * funk_shmem = fd_topo_obj_laddr( &config->topo, funk_obj_id );
+  uchar * props = config->topo.props;
+  ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  void * funk_shmem  = fd_topo_obj_laddr( &config->topo, funk_obj_id  );
+  void * locks_shmem = fd_topo_obj_laddr( &config->topo, locks_obj_id );
   fd_funk_t funk[1];
-  FD_TEST( fd_funk_join( funk, funk_shmem ) );
+  FD_TEST( fd_funk_join( funk, funk_shmem, locks_shmem ) );
   uint fsck_err = fd_accdb_fsck_funk( funk, lthash ? FD_ACCDB_FSCK_FLAGS_LTHASH : 0U );
-  FD_TEST( fd_funk_leave( funk, NULL ) );
+  FD_TEST( fd_funk_leave( funk, NULL, NULL ) );
   return fsck_err;
 }
 
@@ -566,11 +571,13 @@ static void
 accounts_hist_funk( accounts_hist_t * hist,
                     config_t *        config ) {
   fd_topo_t * topo = &config->topo;
-  ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
+  ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( funk_obj_id!=ULONG_MAX );
-  void * funk_shmem = fd_topo_obj_laddr( topo, funk_obj_id );
+  void * funk_shmem  = fd_topo_obj_laddr( topo, funk_obj_id );
+  void * locks_shmem = fd_topo_obj_laddr( topo, locks_obj_id );
   fd_funk_t funk[1];
-  FD_TEST( fd_funk_join( funk, funk_shmem ) );
+  FD_TEST( fd_funk_join( funk, funk_shmem, locks_shmem ) );
 
   fd_funk_rec_map_t const * rec_map = funk->rec_map;
   fd_funk_rec_t const * ele = rec_map->ele;

@@ -2718,19 +2718,26 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
 
-  FD_TEST( fd_progcache_admin_join( ctx->progcache_admin, fd_topo_obj_laddr( topo, tile->replay.progcache_obj_id ) ) );
+  ulong progcache_obj_id;       FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong progcache_locks_obj_id; FD_TEST( (progcache_locks_obj_id = fd_pod_query_ulong( topo->props, "progcache_locks", ULONG_MAX ) )!=ULONG_MAX );
+  FD_TEST( fd_progcache_admin_join( ctx->progcache_admin,
+      fd_topo_obj_laddr( topo, progcache_obj_id       ),
+      fd_topo_obj_laddr( topo, progcache_locks_obj_id ) ) );
 
-  ulong funk_obj_id;
-  FD_TEST( (funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX ) )!=ULONG_MAX );
+  ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   ulong max_depth = tile->replay.max_live_slots + tile->replay.write_delay_slots;
   if( !vinyl_data ) {
-    FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo,funk_obj_id ) ) );
+    FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin,
+        fd_topo_obj_laddr( topo, funk_obj_id       ),
+        fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
   } else {
     fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq" );
     fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
     FD_TEST( fd_accdb_admin_v2_init( ctx->accdb_admin,
-        fd_topo_obj_laddr( topo, funk_obj_id ),
-        fd_topo_obj_laddr( topo, vinyl_rq->id ),
+        fd_topo_obj_laddr( topo, funk_obj_id       ),
+        fd_topo_obj_laddr( topo, funk_locks_obj_id ),
+        fd_topo_obj_laddr( topo, vinyl_rq->id      ),
         topo->workspaces[ vinyl_data->wksp_id ].wksp,
         fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
         vinyl_rq->id,

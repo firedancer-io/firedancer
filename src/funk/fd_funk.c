@@ -8,8 +8,8 @@ fd_funk_align( void ) {
 }
 
 ulong
-fd_funk_footprint( ulong txn_max,
-                   ulong rec_max ) {
+fd_funk_shmem_footprint( ulong txn_max,
+                         ulong rec_max ) {
   if( FD_UNLIKELY( rec_max>UINT_MAX ) ) return 0UL;
 
   ulong l = FD_LAYOUT_INIT;
@@ -31,16 +31,25 @@ fd_funk_footprint( ulong txn_max,
   return l;
 }
 
+ulong
+fd_funk_locks_footprint( ulong txn_max,
+                         ulong rec_max ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_rwlock_t), sizeof(fd_rwlock_t) * txn_max );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),       sizeof(ulong)       * rec_max );
+  return FD_LAYOUT_FINI( l, fd_funk_align() );
+}
+
 /* TODO: Consider letter user just passing a join of alloc to use,
    inferring the backing wksp and cgroup_hint from that and then
    allocating exclusively from that? */
 
 void *
-fd_funk_new( void * shmem,
-             ulong  wksp_tag,
-             ulong  seed,
-             ulong  txn_max,
-             ulong  rec_max ) {
+fd_funk_shmem_new( void * shmem,
+                   ulong  wksp_tag,
+                   ulong  seed,
+                   ulong  txn_max,
+                   ulong  rec_max ) {
   fd_funk_shmem_t * funk = shmem;
   fd_wksp_t *       wksp = fd_wksp_containing( funk );
 
@@ -88,7 +97,7 @@ fd_funk_new( void * shmem,
 
   void * alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 
-  FD_TEST( _l == (ulong)funk + fd_funk_footprint( txn_max, rec_max ) );
+  FD_TEST( _l == (ulong)funk + fd_funk_shmem_footprint( txn_max, rec_max ) );
 
   fd_memset( funk, 0, sizeof(fd_funk_shmem_t) );
 
@@ -109,11 +118,7 @@ fd_funk_new( void * shmem,
   funk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
   for( ulong i=0UL; i<txn_max; i++ ) {
-    fd_rwlock_new( txn_join->ele[ i ].lock );
     txn_join->ele[ i ].state = FD_FUNK_TXN_STATE_FREE;
-  }
-  for( ulong i=0UL; i<rec_max; i++ ) {
-    rec_ele[ i ].ver_lock = 0UL;
   }
 
   fd_funk_txn_xid_set_root( funk->root         );
@@ -139,20 +144,28 @@ fd_funk_new( void * shmem,
 
 fd_funk_t *
 fd_funk_join( fd_funk_t * ljoin,
-              void *      shfunk ) {
+              void *      shfunk,
+              void *      shlocks ) {
   if( FD_UNLIKELY( !shfunk ) ) {
     FD_LOG_WARNING(( "NULL shfunk" ));
     return NULL;
   }
-
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shfunk, fd_funk_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned shfunk" ));
     return NULL;
   }
-
   fd_wksp_t * wksp = fd_wksp_containing( shfunk );
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "shfunk must be part of a workspace" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !shlocks ) ) {
+    FD_LOG_WARNING(( "NULL shlocks" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shlocks, fd_funk_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shlocks" ));
     return NULL;
   }
 
@@ -197,6 +210,9 @@ fd_funk_join( fd_funk_t * ljoin,
     FD_LOG_WARNING(( "failed to join rec_pool" ));
     return NULL;
   }
+  FD_SCRATCH_ALLOC_INIT( l2, shlocks );
+  funk->txn_lock = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_rwlock_t), sizeof(fd_rwlock_t) * shmem->txn_max );
+  funk->rec_lock = FD_SCRATCH_ALLOC_APPEND( l2, alignof(ulong),       sizeof(ulong)       * shmem->rec_max );
   funk->alloc = fd_wksp_laddr( wksp, shmem->alloc_gaddr );
   if( FD_UNLIKELY( !fd_alloc_join( funk->alloc, fd_tile_idx() ) ) ) {
     FD_LOG_WARNING(( "failed to join funk alloc" ));
@@ -207,19 +223,43 @@ fd_funk_join( fd_funk_t * ljoin,
 }
 
 void *
+fd_funk_locks_new( void * shlocks,
+                   ulong  txn_max,
+                   ulong  rec_max ) {
+  if( FD_UNLIKELY( !shlocks ) ) {
+    FD_LOG_WARNING(( "NULL shlocks" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shlocks, fd_funk_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shlocks" ));
+    return NULL;
+  }
+  FD_SCRATCH_ALLOC_INIT( l, shlocks );
+  fd_rwlock_t * txn_lock = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rwlock_t), sizeof(fd_rwlock_t) * txn_max );
+  void *        rec_lock = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),       sizeof(ulong)       * rec_max );
+  memset( txn_lock, 0, sizeof(fd_rwlock_t) * txn_max );
+  memset( rec_lock, 0, sizeof(ulong) *       rec_max );
+  return shlocks;
+}
+
+void *
 fd_funk_leave( fd_funk_t * funk,
-               void **     opt_shfunk ) {
+               void **     opt_shfunk,
+               void **     opt_shlocks ) {
 
   if( FD_UNLIKELY( !funk ) ) {
     FD_LOG_WARNING(( "NULL funk" ));
-    if( opt_shfunk ) *opt_shfunk = NULL;
+    if( opt_shfunk  ) *opt_shfunk  = NULL;
+    if( opt_shlocks ) *opt_shlocks = NULL;
     return NULL;
   }
-  void * shfunk = funk->shmem;
+  void * shfunk  = funk->shmem;
+  void * shlocks = (void *)funk->txn_lock;
 
   memset( funk, 0, sizeof(fd_funk_t) );
 
-  if( opt_shfunk ) *opt_shfunk = shfunk;
+  if( opt_shfunk )  *opt_shfunk  = shfunk;
+  if( opt_shlocks ) *opt_shlocks = shlocks;
   return (void *)funk;
 }
 

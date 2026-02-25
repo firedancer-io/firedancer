@@ -36,13 +36,15 @@ fd_progcache_est_rec_max( ulong wksp_footprint,
 
 fd_progcache_admin_t *
 fd_progcache_admin_join( fd_progcache_admin_t * ljoin,
-                         void *                 shfunk );
+                         void *                 shfunk,
+                         void *                 shlocks );
 
 /* fd_progcache_admin_leave detaches the caller from a program cache. */
 
 void *
 fd_progcache_admin_leave( fd_progcache_admin_t * cache,
-                          void **                opt_shfunk );
+                          void **                opt_shfunk,
+                          void **                opt_shlocks );
 
 /* Transaction-level operations ***************************************/
 

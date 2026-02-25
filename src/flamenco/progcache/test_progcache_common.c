@@ -31,21 +31,25 @@ test_env_create( fd_wksp_t * wksp ) {
   ulong progcache_rec_max = 32UL;
   ulong wksp_tag          =  1UL;
 
-  void * accdb_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, accdb_rec_max ), wksp_tag );
-  FD_TEST( fd_funk_new( accdb_mem, wksp_tag, 1UL, txn_max, accdb_rec_max ) );
+  void * accdb_mem       = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, accdb_rec_max ), wksp_tag );
+  void * accdb_locks     = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, accdb_rec_max ), wksp_tag );
+  FD_TEST( fd_funk_shmem_new( accdb_mem, wksp_tag, 1UL, txn_max, accdb_rec_max ) );
+  FD_TEST( fd_funk_locks_new( accdb_locks, txn_max, accdb_rec_max ) );
 
-  void * progcache_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, progcache_rec_max ), wksp_tag );
-  FD_TEST( fd_funk_new( progcache_mem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
+  void * progcache_mem   = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
+  void * progcache_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, progcache_rec_max ), wksp_tag );
+  FD_TEST( fd_funk_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
+  FD_TEST( fd_funk_locks_new( progcache_locks, txn_max, progcache_rec_max ) );
 
   test_env_t * env = fd_wksp_alloc_laddr( wksp, alignof(test_env_t), sizeof(test_env_t), wksp_tag );
   FD_TEST( env );
   memset( env, 0, sizeof(test_env_t) );
 
   env->wksp = wksp;
-  FD_TEST( fd_progcache_admin_join( env->progcache_admin, progcache_mem ) );
-  FD_TEST( fd_progcache_join      ( env->progcache, progcache_mem, env->scratch, sizeof(env->scratch) ) );
-  FD_TEST( fd_accdb_admin_v1_init ( env->accdb_admin, accdb_mem ) );
-  FD_TEST( fd_accdb_user_v1_init  ( env->accdb,       accdb_mem, txn_max ) );
+  FD_TEST( fd_progcache_admin_join( env->progcache_admin, progcache_mem, progcache_locks ) );
+  FD_TEST( fd_progcache_join      ( env->progcache, progcache_mem, progcache_locks, env->scratch, sizeof(env->scratch) ) );
+  FD_TEST( fd_accdb_admin_v1_init ( env->accdb_admin, accdb_mem, accdb_locks ) );
+  FD_TEST( fd_accdb_user_v1_init  ( env->accdb,       accdb_mem, accdb_locks, txn_max ) );
 
   return env;
 }
@@ -56,14 +60,18 @@ static void
 test_env_destroy( test_env_t * env ) {
   fd_progcache_verify( env->progcache_admin );
 
-  void * progcache_mem = NULL;
-  FD_TEST( fd_progcache_admin_leave( env->progcache_admin, &progcache_mem ) );
-  FD_TEST( fd_progcache_leave      ( env->progcache,       &progcache_mem ) );
+  void * progcache_mem   = NULL;
+  void * progcache_locks = NULL;
+  FD_TEST( fd_progcache_admin_leave( env->progcache_admin, &progcache_mem, &progcache_locks ) );
+  FD_TEST( fd_progcache_leave      ( env->progcache,       &progcache_mem, &progcache_locks ) );
+  fd_wksp_free_laddr( progcache_locks );
   fd_wksp_free_laddr( fd_funk_delete( progcache_mem ) );
 
-  void * accdb_funk = fd_accdb_user_v1_funk( env->accdb )->shmem;
+  void * accdb_funk  = fd_accdb_user_v1_funk( env->accdb )->shmem;
+  void * accdb_locks = (void *)fd_accdb_user_v1_funk( env->accdb )->txn_lock;
   fd_accdb_admin_fini( env->accdb_admin );
   fd_accdb_user_fini( env->accdb );
+  fd_wksp_free_laddr( accdb_locks );
   fd_wksp_free_laddr( fd_funk_delete( accdb_funk ) );
 
   fd_wksp_free_laddr( env );

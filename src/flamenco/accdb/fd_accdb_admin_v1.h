@@ -23,7 +23,8 @@ extern fd_accdb_admin_vt_t const fd_accdb_admin_v1_vt;
 
 fd_accdb_admin_t *
 fd_accdb_admin_v1_init( fd_accdb_admin_t * ljoin,
-                        void *             shfunk );
+                        void *             shfunk,
+                        void *             shlocks );
 
 void
 fd_accdb_admin_v1_fini( fd_accdb_admin_t * admin );

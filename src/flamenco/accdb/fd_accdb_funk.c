@@ -45,11 +45,12 @@ fd_accdb_funk_prep_create( fd_accdb_rw_t *       rw,
 
   fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 1, NULL );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_CRIT(( "Failed to modify account: DB record pool is out of memory" ));
+  ulong rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( fd_funk_rec_ver_inc( fd_funk_rec_ver_bits( funk->rec_lock[ rec_idx ] ) ), FD_FUNK_REC_LOCK_MASK );
 
   fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );
   memcpy( rec->pair.key->uc, address, 32UL );
   rec->map_next  = 0U;
-  rec->ver_lock  = fd_funk_rec_ver_lock( fd_funk_rec_ver_inc( fd_funk_rec_ver_bits( rec->ver_lock ) ), FD_FUNK_REC_LOCK_MASK );
   rec->next_idx  = FD_FUNK_REC_IDX_NULL;
   rec->prev_idx  = FD_FUNK_REC_IDX_NULL;
   rec->val_sz    = (uint)( fd_ulong_min( val_sz,  FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );

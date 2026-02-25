@@ -27,7 +27,8 @@ fd_progcache_est_rec_max( ulong wksp_footprint,
 
 fd_progcache_admin_t *
 fd_progcache_admin_join( fd_progcache_admin_t * ljoin,
-                         void *                 shfunk ) {
+                         void *                 shfunk,
+                         void *                 shlocks ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -38,7 +39,7 @@ fd_progcache_admin_join( fd_progcache_admin_t * ljoin,
   }
 
   memset( ljoin, 0, sizeof(fd_progcache_admin_t) );
-  if( FD_UNLIKELY( !fd_funk_join( ljoin->funk, shfunk ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( ljoin->funk, shfunk, shlocks ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
 
@@ -47,10 +48,13 @@ fd_progcache_admin_join( fd_progcache_admin_t * ljoin,
 
 void *
 fd_progcache_admin_leave( fd_progcache_admin_t * ljoin,
-                          void **                opt_shfunk ) {
+                          void **                opt_shfunk,
+                          void **                opt_shlocks ) {
   if( FD_UNLIKELY( !ljoin ) ) FD_LOG_CRIT(( "NULL ljoin" ));
 
-  if( FD_UNLIKELY( !fd_funk_leave( ljoin->funk, opt_shfunk ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
+  if( FD_UNLIKELY( !fd_funk_leave( ljoin->funk, opt_shfunk, opt_shlocks ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_leave failed" ));
+  }
 
   return ljoin;
 }
@@ -84,7 +88,8 @@ fd_progcache_txn_cancel_one( fd_progcache_admin_t * cache,
 
   /* Phase 1: Drain users from transaction */
 
-  fd_rwlock_write( txn->lock );
+  ulong txn_idx = (ulong)( txn - funk->txn_pool->ele );
+  fd_rwlock_write( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_CANCEL;
 
   /* Phase 2: Remove records */
@@ -140,7 +145,7 @@ fd_progcache_txn_cancel_one( fd_progcache_admin_t * cache,
 
   /* Phase 5: Free transaction object */
 
-  fd_rwlock_unwrite( txn->lock );
+  fd_rwlock_unwrite( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_FREE;
   fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
 }
@@ -333,7 +338,8 @@ fd_progcache_txn_publish_one( fd_progcache_admin_t * cache,
 
   /* Phase 2: Drain users from transaction */
 
-  fd_rwlock_write( txn->lock );
+  ulong txn_idx = (ulong)( txn - funk->txn_pool->ele );
+  fd_rwlock_write( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_PUBLISH;
 
   /* Phase 3: Migrate records */
@@ -367,7 +373,7 @@ fd_progcache_txn_publish_one( fd_progcache_admin_t * cache,
 
   /* Phase 6: Free transaction object */
 
-  fd_rwlock_unwrite( txn->lock );
+  fd_rwlock_unwrite( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_FREE;
   txn->parent_cidx       = UINT_MAX;
   txn->sibling_prev_cidx = UINT_MAX;
