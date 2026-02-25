@@ -63,11 +63,11 @@ pktgen_topo( config_t * config ) {
   }
   fd_topob_link( topo, "pktgen_out", "pktgen", 2048UL, FD_NET_MTU, 1UL );
   fd_topob_tile_out( topo, "pktgen", 0UL, "pktgen_out", 0UL );
-  fd_topob_tile_in( topo, "net", 0UL, "metric_in", "pktgen_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "net", 0UL, "metric_in", "pktgen_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   /* Create dummy RX link */
   fd_topos_net_rx_link( topo, "net_quic", 0UL, config->net.ingress_buffer_size );
-  fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   fd_topos_net_tile_finish( topo, 0UL );
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );

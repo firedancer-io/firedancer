@@ -112,7 +112,6 @@ struct fd_vote_state_ele {
      calculation and clock stake-weighted median calculations.
 
      stake_t_2 is used in Tower, for it's threshold switch checks. */
-  ulong       stake;
   ulong       stake_t_1;
   ulong       stake_t_2;
 
@@ -124,7 +123,6 @@ struct fd_vote_state_ele {
   fd_pubkey_t node_account_t_2;
   ulong       last_vote_slot;
   long        last_vote_timestamp;
-  uchar       commission;
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 
@@ -228,12 +226,6 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
                                     fd_pubkey_t const * vote_account,
                                     uchar const *       account_data,
                                     ulong               account_data_len );
-
-/* fd_vote_states_reset_stakes_t resets the stakes to 0 for each of the
-   vote accounts in fd_vote_states_t. */
-
-void
-fd_vote_states_reset_stakes( fd_vote_states_t * vote_states );
 
 /* fd_vote_states_remove removes the vote state corresponding to a given
    account. Does nothing if the account does not exist. */

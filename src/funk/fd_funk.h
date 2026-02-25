@@ -250,9 +250,11 @@ struct __attribute__((aligned(FD_FUNK_JOIN_ALIGN))) fd_funk_private {
 
   fd_funk_txn_map_t  txn_map[1];
   fd_funk_txn_pool_t txn_pool[1];
+  fd_rwlock_t *      txn_lock;
 
   fd_funk_rec_map_t  rec_map[1];
   fd_funk_rec_pool_t rec_pool[1];
+  ulong volatile *   rec_lock;
 
   fd_wksp_t *  wksp;
   fd_alloc_t * alloc;
@@ -268,16 +270,20 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_funk_align( void );
 
-/* fd_funk_footprint returns the size need for funk and all
-   auxiliary data structures. Note that only record valus are
-   allocated dynamically. */
+/* fd_funk_{shmem,locks}_footprint returns the size needed for the funk
+   {index,lock table}.  Record values are allocated separately. */
 
 FD_FN_CONST ulong
-fd_funk_footprint( ulong txn_max,
-                   ulong rec_max );
+fd_funk_shmem_footprint( ulong txn_max,
+                         ulong rec_max );
 
-/* fd_funk_new formats an unused wksp allocation with the appropriate
-   alignment and footprint as a funk.  Caller is not joined on return.
+FD_FN_CONST ulong
+fd_funk_locks_footprint( ulong txn_max,
+                         ulong rec_max );
+
+/* fd_funk_{shmem,locks}_new formats an unused wksp allocation with the
+   appropriate alignment and footprint as a {funk object,lock table}.
+   Caller is not joined on return.
    Returns shmem on success and NULL on failure (shmem NULL, shmem
    misaligned, zero wksp_tag, shmem is not backed by a wksp ...  logs
    details).  A workspace can be used by multiple funks concurrently.
@@ -290,11 +296,16 @@ fd_funk_footprint( ulong txn_max,
    this is not required. */
 
 void *
-fd_funk_new( void * shmem,
-             ulong  wksp_tag,
-             ulong  seed,
-             ulong  txn_max,
-             ulong  rec_max );
+fd_funk_shmem_new( void * shmem,
+                   ulong  wksp_tag,
+                   ulong  seed,
+                   ulong  txn_max,
+                   ulong  rec_max );
+
+void *
+fd_funk_locks_new( void * shlocks,
+                   ulong  txn_max,
+                   ulong  rec_max );
 
 /* fd_funk_join joins the caller to a funk instance.  ljoin points to a
    fd_funk_t compatible memory region in the caller's address space,
@@ -309,7 +320,8 @@ fd_funk_new( void * shmem,
 
 fd_funk_t *
 fd_funk_join( fd_funk_t * ljoin,
-              void *      shfunk );
+              void *      shfunk,
+              void *      shlocks );
 
 /* fd_funk_leave leaves a funk join.  Returns the memory region used for
    join on success (caller has ownership on return and the caller is no
@@ -318,7 +330,8 @@ fd_funk_join( fd_funk_t * ljoin,
 
 void *
 fd_funk_leave( fd_funk_t * funk,
-               void **     opt_shfunk );
+               void **     opt_shfunk,
+               void **     opt_shlocks );
 
 /* fd_funk_delete unformats a wksp allocation used as a funk
    (additionally frees all wksp allocations used by that funk).  Assumes
@@ -332,9 +345,9 @@ fd_funk_delete( void * shfunk );
 
 /* fd_funk_delete_fast is an optimized version of fd_funk_delete.
    Unlike fd_funk_delete, makes an additional assumption that this funk
-   was created with a wksp_tag (see fd_funk_new) that is distinct from
-   all other tags in the workspace.  Also unlike fd_funk_delete, frees
-   wksp allocation backing the funk instance itself.
+   was created with a wksp_tag (see fd_funk_shmem_new) that is distinct
+   from all other tags in the workspace.  Also unlike fd_funk_delete,
+   frees wksp allocation backing the funk instance itself.
 
    WARNING: Using this function frees all wksp allocations matching the
    funk's wksp_tag. */

@@ -324,7 +324,7 @@ struct fd_gui_leader_slot {
     ulong   start_offset; /* The smallest pack transaction index for this slot. The first transaction for this slot will
                              be written to gui->txs[ start_offset%FD_GUI_TXN_HISTORY_SZ ]. */
     ulong   end_offset;   /* The largest pack transaction index for this slot, plus 1. The last transaction for this
-                             slot will be written to gui->txs[ (start_offset-1)%FD_GUI_TXN_HISTORY_SZ ]. */
+                             slot will be written to gui->txs[ (end_offset-1)%FD_GUI_TXN_HISTORY_SZ ]. */
   } txs;
 
   fd_done_packing_t scheduler_stats[ 1 ];
@@ -429,7 +429,7 @@ struct __attribute__((packed)) fd_gui_txn {
 
      timestamp_delta_start_exec_nanos = (
        (timestamp_delta_end_nanos-timestamp_delta_start_nanos) *
-       ((double)txn_{}_pct/USHORT_MAX)
+       ((double)txn_{}_pct/UCHAR_MAX)
      ) */
   uchar txn_start_pct;
   uchar txn_load_end_pct;
@@ -541,8 +541,8 @@ struct fd_gui_slot {
   struct {
     ulong start_offset; /* gui->shreds.history[ start_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the first shred event in
                            contiguous chunk of events in the shred history corresponding to this slot. */
-    ulong end_offset;   /* gui->shreds.history[ end_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the last shred event in
-                           contiguous chunk of events in the shred history corresponding to this slot. */
+    ulong end_offset;   /* One past the last shred event in the contiguous chunk of events in the shred history
+                           corresponding to this slot. */
   } shreds;
 };
 
@@ -822,10 +822,10 @@ fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         data_len );
 
 void
-fd_gui_plugin_message( fd_gui_t *    gui,
-                       ulong         plugin_msg,
-                       uchar const * msg,
-                       long          now );
+fd_gui_plugin_message( fd_gui_t *   gui,
+                       ulong        plugin_msg,
+                       void const * msg,
+                       long         now );
 
 void
 fd_gui_became_leader( fd_gui_t * gui,
@@ -933,8 +933,8 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              long                      now );
 
 void
-fd_gui_handle_genesis_hash( fd_gui_t *    gui,
-                            uchar const * msg );
+fd_gui_handle_genesis_hash( fd_gui_t *        gui,
+                            fd_hash_t const * msg );
 
 static inline ulong
 fd_gui_current_epoch_idx( fd_gui_t * gui ) {

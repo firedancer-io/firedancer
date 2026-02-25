@@ -245,6 +245,7 @@ typedef struct {
   struct {
     ulong rx_pkt_cnt;
     ulong rx_bytes_total;
+    ulong rx_src_addr_invalid_cnt;
     ulong rx_undersz_cnt;
     ulong rx_fill_blocked_cnt;
     ulong rx_backp_cnt;
@@ -313,6 +314,7 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, RX_GRE_IGNORED_CNT,    ctx->metrics.rx_gre_ignored_cnt    );
   FD_MCNT_SET( NET, TX_GRE_CNT,            ctx->metrics.tx_gre_cnt            );
   FD_MCNT_SET( NET, TX_GRE_ROUTE_FAIL_CNT, ctx->metrics.tx_gre_route_fail_cnt );
+  FD_MCNT_SET( NET, RX_SRC_ADDR_INVALID_CNT, ctx->metrics.rx_src_addr_invalid_cnt );
 }
 
 struct xdp_statistics_v0 {
@@ -964,6 +966,11 @@ net_rx_packet( fd_net_ctx_t * ctx,
   uint   ip_srcaddr   =  iphdr->saddr;
   ushort udp_srcport  =  fd_ushort_bswap( udp_hdr->net_sport );
   ushort udp_dstport  =  fd_ushort_bswap( udp_hdr->net_dport );
+
+  if( FD_UNLIKELY( fd_ip4_addr_is_mcast( ip_srcaddr ) ) ) {
+    ctx->metrics.rx_src_addr_invalid_cnt++;
+    return;
+  }
 
   FD_DTRACE_PROBE_4( net_tile_pkt_rx, ip_srcaddr, udp_srcport, udp_dstport, sz );
 

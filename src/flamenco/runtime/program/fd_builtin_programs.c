@@ -26,13 +26,6 @@
         builtin_program_id                                                                                                     \
     }
 
-#define PRECOMPILE(program_id, feature_offset, verify_fn) \
-    {                                                     \
-        program_id,                                       \
-        feature_offset,                                   \
-        verify_fn                                         \
-    }
-
 /* Core BPF migration configs */
 static const fd_core_bpf_migration_config_t BUILTIN_TO_CORE_BPF_STAKE_PROGRAM_CONFIG = {
     &fd_solana_stake_program_buffer_address,
@@ -104,23 +97,12 @@ static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BP
 #define FEATURE_PROGRAM_BUILTIN               STATELESS_BUILTIN(&fd_solana_feature_program_id,  MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG)
 #define SLASHING_PROGRAM_BUILTIN              STATELESS_BUILTIN(&fd_solana_slashing_program_id, MIGRATE_STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG)
 
-#define SECP256R1_PROGRAM_PRECOMPILE          PRECOMPILE(&fd_solana_secp256r1_program_id,          offsetof(fd_features_t, enable_secp256r1_precompile), fd_precompile_secp256r1_verify)
-#define KECCAK_SECP_PROGRAM_PRECOMPILE        PRECOMPILE(&fd_solana_keccak_secp_256k_program_id,   NO_ENABLE_FEATURE_ID,                                 fd_precompile_secp256k1_verify)
-#define ED25519_SV_PROGRAM_PRECOMPILE         PRECOMPILE(&fd_solana_ed25519_sig_verify_program_id, NO_ENABLE_FEATURE_ID,                                 fd_precompile_ed25519_verify)
-
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/mod.rs#L133-L143 */
 static const fd_stateless_builtin_program_t stateless_programs_builtins[] = {
     FEATURE_PROGRAM_BUILTIN,
     SLASHING_PROGRAM_BUILTIN
 };
 #define STATELESS_BUILTINS_COUNT (sizeof(stateless_programs_builtins) / sizeof(fd_stateless_builtin_program_t))
-
-static const fd_precompile_program_t precompiles[] = {
-    SECP256R1_PROGRAM_PRECOMPILE,
-    KECCAK_SECP_PROGRAM_PRECOMPILE,
-    ED25519_SV_PROGRAM_PRECOMPILE
-};
-#define PRECOMPILE_PROGRAMS_COUNT (sizeof(precompiles) / sizeof(fd_precompile_program_t))
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/mod.rs#L34-L131 */
 static fd_builtin_program_t const builtin_programs[] = {
@@ -207,7 +189,7 @@ fd_write_builtin_account( fd_bank_t  *              bank,
                           fd_funk_txn_xid_t const * xid,
                           fd_capture_ctx_t *        capture_ctx,
                           fd_pubkey_t const         pubkey,
-                          char const *              data,
+                          void const *              data,
                           ulong                     sz ) {
 
   fd_accdb_rw_t rw[1];
@@ -277,16 +259,6 @@ fd_stateless_builtins( void ) {
 ulong
 fd_num_stateless_builtins( void ) {
   return STATELESS_BUILTINS_COUNT;
-}
-
-fd_precompile_program_t const *
-fd_precompiles( void ) {
-  return precompiles;
-}
-
-ulong
-fd_num_precompiles( void ) {
-  return PRECOMPILE_PROGRAMS_COUNT;
 }
 
 uchar

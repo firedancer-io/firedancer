@@ -1002,6 +1002,19 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
                    long         now );
 
 
+/* fd_banks_get_frontier returns the frontier set of bank indices in the
+   banks tree.  The frontier is defined as any bank which has no
+   no children and is initialized or replayable but not dead or frozen.
+   The caller is expected to have enough memory to store the bank
+   indices for the frontier.  The bank indices are written to
+   frontier_indices_out in no particular order.  The number of banks in
+   the frontier is written to the frontier_cnt_out pointer. */
+
+void
+fd_banks_get_frontier( fd_banks_t * banks,
+                       ulong *      frontier_indices_out,
+                       ulong *      frontier_cnt_out );
+
 /* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */
 
 static inline int

@@ -57,8 +57,10 @@ vinyl_spin_wait( fd_vinyl_comp_t const * comp,
    value. */
 
 static ulong
-fd_funk_rec_admin_lock( fd_funk_rec_t * rec ) {
-  ulong * vl = &rec->ver_lock;
+fd_funk_rec_admin_lock( fd_funk_t const * funk,
+                        fd_funk_rec_t *   rec ) {
+  ulong            rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  ulong volatile * vl      = &funk->rec_lock[ rec_idx ];
   for(;;) {
     ulong const ver_lock = FD_VOLATILE_CONST( *vl );
     ulong const ver      = fd_funk_rec_ver_bits ( ver_lock );
@@ -80,9 +82,12 @@ fd_funk_rec_admin_lock( fd_funk_rec_t * rec ) {
 }
 
 static void
-fd_funk_rec_admin_unlock( fd_funk_rec_t * rec,
-                          ulong           ver_lock ) {
-  FD_VOLATILE( rec->ver_lock ) = fd_funk_rec_ver_lock( fd_funk_rec_ver_bits( ver_lock ), 0UL );
+fd_funk_rec_admin_unlock( fd_funk_t const * funk,
+                          fd_funk_rec_t *   rec,
+                          ulong             ver_lock ) {
+  ulong            rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  ulong volatile * vl      = &funk->rec_lock[ rec_idx ];
+  FD_VOLATILE( *vl ) = fd_funk_rec_ver_lock( fd_funk_rec_ver_bits( ver_lock ), 0UL );
 }
 
 static void
@@ -95,7 +100,7 @@ funk_free_rec( fd_funk_t *     funk,
      admin lock always implies the record is about to die) */
 
   FD_COMPILER_MFENCE();
-  ulong ver_lock = fd_funk_rec_admin_lock( rec );
+  ulong ver_lock = fd_funk_rec_admin_lock( funk, rec );
 
   /* Free record */
 
@@ -103,7 +108,7 @@ funk_free_rec( fd_funk_t *     funk,
   FD_COMPILER_MFENCE();
   rec->map_next = FD_FUNK_REC_IDX_NULL;
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
-  fd_funk_rec_admin_unlock( rec, ver_lock );
+  fd_funk_rec_admin_unlock( funk, rec, ver_lock );
   fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
 }
 

@@ -22,7 +22,6 @@
 
 #define NAME "snapct"
 
-/* FIXME: Implement full_effective_age_cancel_threshold */
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
 /* FIXME: Make the code more strict about duplicate IP:port's */
 
@@ -48,9 +47,9 @@ struct fd_snapct_out_link {
 };
 typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 
-#define FD_SNAPCT_GOSSIP_FRESH_DEADLINE_NANOS      (10L*1000L*1000L*1000L)    /* gossip contact info is pushed every ~7.5 seconds */
+#define FD_SNAPCT_GOSSIP_FRESH_DEADLINE_NANOS      (10L*1000L*1000L*1000L) /* gossip contact info is pushed every ~7.5 seconds */
 #define FD_SNAPCT_GOSSIP_SATURATION_CHECK_INTERVAL (      10L*1000L*1000L)
-#define FD_SNAPCT_GOSSIP_SATURATION_THRESHOLD      (0.05)                     /* 5% fresh peers */
+#define FD_SNAPCT_GOSSIP_SATURATION_THRESHOLD      (0.05)                  /* 5% fresh peers */
 
 #define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT         (90L*1000L*1000L*1000L) /* 1.5 minutes */
 #define FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT        (30L*1000L*1000L*1000L) /* 30 seconds */
@@ -746,8 +745,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
-        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
@@ -767,8 +766,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
-        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
@@ -845,8 +844,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
-        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
@@ -866,8 +865,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
-        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
@@ -1000,8 +999,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
-        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;
@@ -1022,8 +1021,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
-        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
-                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
         break;

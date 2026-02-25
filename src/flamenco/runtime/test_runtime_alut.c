@@ -24,6 +24,7 @@ typedef struct {
   fd_wksp_t *         wksp;
   void *              funk_mem;
   void *              funk_shmem;
+  void *              funk_locks;
   fd_funk_t           funk_join[1];
   fd_funk_t *         funk;
   fd_accdb_user_t     accdb[1];
@@ -43,21 +44,25 @@ test_setup( fd_wksp_t * wksp ) {
   ulong txn_max        = 10;
   ulong rec_max        = TEST_FUNK_REC_CNT;
   ulong funk_align     = fd_funk_align();
-  ulong funk_footprint = fd_funk_footprint( txn_max, rec_max );
+  ulong funk_footprint = fd_funk_shmem_footprint( txn_max, rec_max );
+  ulong lock_footprint = fd_funk_locks_footprint( txn_max, rec_max );
   ctx->funk_mem = fd_wksp_alloc_laddr( wksp, funk_align, funk_footprint, 1UL );
   FD_TEST( ctx->funk_mem );
+  ctx->funk_locks = fd_wksp_alloc_laddr( wksp, funk_align, lock_footprint, 1UL );
+  FD_TEST( ctx->funk_locks );
 
-  ctx->funk_shmem = fd_funk_new( ctx->funk_mem, 1UL, 1234UL /* seed */, txn_max, rec_max );
+  ctx->funk_shmem = fd_funk_shmem_new( ctx->funk_mem, 1UL, 1234UL /* seed */, txn_max, rec_max );
   FD_TEST( ctx->funk_shmem );
+  FD_TEST( fd_funk_locks_new( ctx->funk_locks, txn_max, rec_max ) );
 
   /* Check alignment before join */
   FD_TEST( fd_ulong_is_aligned( (ulong)ctx->funk_shmem, funk_align ) );
 
-  ctx->funk = fd_funk_join( ctx->funk_join, ctx->funk_shmem );
+  ctx->funk = fd_funk_join( ctx->funk_join, ctx->funk_shmem, ctx->funk_locks );
   FD_TEST( ctx->funk );
 
   /* Set up accdb interface */
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, ctx->funk_shmem ) );
+  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, ctx->funk_shmem, ctx->funk_locks, txn_max ) );
 
   /* Set up root transaction and target transaction ID */
   fd_funk_txn_xid_t root_xid;
@@ -79,8 +84,9 @@ test_teardown( test_ctx_t * ctx ) {
   if( !ctx ) return;
 
   void * shfunk = NULL;
-  fd_funk_leave( ctx->funk, &shfunk );
+  fd_funk_leave( ctx->funk, &shfunk, NULL );
   fd_funk_delete( shfunk );
+  fd_wksp_free_laddr( ctx->funk_locks );
   fd_wksp_free_laddr( ctx->funk_mem );
   fd_wksp_free_laddr( ctx );
 }

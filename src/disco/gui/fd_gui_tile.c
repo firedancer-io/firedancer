@@ -237,13 +237,15 @@ before_frag( fd_gui_ctx_t * ctx,
 
   /* Ignore "done draining banks" signal from pack->poh */
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==ULONG_MAX ) ) return 1;
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT && sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE ) ) return 1;
   return 0;
 }
 
 static inline void
 during_frag( fd_gui_ctx_t * ctx,
              ulong          in_idx,
-             ulong          seq    FD_PARAM_UNUSED,
+             ulong          seq FD_PARAM_UNUSED,
              ulong          sig,
              ulong          chunk,
              ulong          sz,
@@ -274,7 +276,7 @@ during_frag( fd_gui_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
-    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) sz = sizeof(fd_lthash_value_t)+sizeof(fd_hash_t);
+    sz = sig;
   }
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
@@ -373,10 +375,10 @@ after_frag( fd_gui_ctx_t *      ctx,
 
           ctx->peers->votes[ vote_count ].vote_account        = vote_state->vote_account;
           ctx->peers->votes[ vote_count ].node_account        = vote_state->node_account;
-          ctx->peers->votes[ vote_count ].stake               = vote_state->stake;
+          ctx->peers->votes[ vote_count ].stake               = vote_state->stake_t_1;
           ctx->peers->votes[ vote_count ].last_vote_slot      = vote_state->last_vote_slot;
           ctx->peers->votes[ vote_count ].last_vote_timestamp = vote_state->last_vote_timestamp;
-          ctx->peers->votes[ vote_count ].commission          = vote_state->commission;
+          // ctx->peers->votes[ vote_count ].commission          = vote_state->commission;
           // ctx->peers->votes[ vote_count ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
           // ctx->peers->votes[ vote_count ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
 
@@ -444,12 +446,8 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_GENESI_OUT: {
       FD_TEST( ctx->is_full_client );
-
-      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-        fd_gui_handle_genesis_hash( ctx->gui, src+sizeof(fd_lthash_value_t) );
-      } else {
-        fd_gui_handle_genesis_hash( ctx->gui, src );
-      }
+      fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)src;
+      fd_gui_handle_genesis_hash( ctx->gui, &meta->genesis_hash );
       break;
     }
     case IN_KIND_TOWER_OUT: {
@@ -466,14 +464,14 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_SHRED_OUT: {
       FD_TEST( ctx->is_full_client );
       long tsorig_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
-      if( FD_LIKELY( sz!=0 && sz!=FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int) ) ) {
-        ulong slot = fd_disco_shred_out_shred_sig_slot( sig );
-        int is_turbine = fd_disco_shred_out_shred_sig_is_turbine( sig );
-        ulong shred_idx  = fd_disco_shred_out_shred_sig_shred_idx( sig );
+      if( FD_LIKELY( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_SHRED ) ) {
+        ulong slot      = fd_disco_shred_out_shred_sig_slot( sig );
+        int is_turbine  = fd_disco_shred_out_shred_sig_is_turbine( sig );
+        ulong shred_idx = fd_disco_shred_out_shred_sig_shred_idx( sig );
         /* tsorig is the timestamp when the shred was received by the shred tile */
         fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos );
       }
-      if( FD_UNLIKELY( sz==FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int) && FD_LOAD( int, src + FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 ) ) ) {
+      if( FD_UNLIKELY( fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC && FD_LOAD( int, src + FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 ) ) ) {
         fd_gui_handle_leader_fec( ctx->gui, fd_disco_shred_out_fec_sig_slot( sig ), fd_disco_shred_out_fec_sig_data_cnt( sig ), fd_disco_shred_out_fec_sig_is_slot_complete( sig ), tsorig_nanos );
       }
       break;
@@ -522,13 +520,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_GOSSIP_OUT: {
       FD_TEST( ctx->is_full_client );
-      fd_gossip_update_message_t * update = (fd_gossip_update_message_t *)src;
-      switch( update->tag ) {
-        case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE ); break;
-        case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO ); break;
-        default: break;
-      }
-      fd_gui_peers_handle_gossip_update( ctx->peers, update, fd_clock_now( ctx-> clock ) );
+      fd_gui_peers_handle_gossip_update( ctx->peers, (fd_gossip_update_message_t *)src, fd_clock_now( ctx-> clock ) );
       break;
     }
     case IN_KIND_POH_PACK: {

@@ -758,6 +758,16 @@ process_new_vote_state( fd_exec_instr_ctx_t *       ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+__attribute__((weak)) int
+fd_bls12_381_proof_of_possession_verify( uchar const msg[],
+                                         ulong       msg_sz,
+                                         uchar const proof[ 96 ],
+                                         uchar const public_key[ 48 ] ) {
+  (void)msg; (void)msg_sz; (void)proof; (void)public_key;
+  FD_LOG_ERR(( "This build does not include BLST, which is required to run a validator.\n"
+               "To install BLST, re-run ./deps.sh, make distclean, and make -j" ));
+}
+
 /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/mod.rs#L1053-L1102 */
 #define FD_VOTE_BLS_MSG_SZ ( 9 + 32 + 48 )
 static int

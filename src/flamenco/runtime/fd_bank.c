@@ -1246,6 +1246,39 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 }
 
+static void
+fd_banks_get_frontier_private( fd_bank_data_t * bank_pool,
+                               ulong            bank_idx,
+                               ulong *          frontier_indices_out,
+                               ulong *          frontier_cnt_out ) {
+  if( bank_idx==fd_banks_pool_idx_null( bank_pool ) ) return;
+
+  fd_bank_data_t * bank = fd_banks_pool_ele( bank_pool, bank_idx );
+
+  if( bank->child_idx==fd_banks_pool_idx_null( bank_pool ) ) {
+    if( !(bank->flags&(FD_BANK_FLAGS_FROZEN|FD_BANK_FLAGS_DEAD)) ) {
+      frontier_indices_out[*frontier_cnt_out] = bank->idx;
+      (*frontier_cnt_out)++;
+    }
+  } else {
+    fd_banks_get_frontier_private( bank_pool, bank->child_idx, frontier_indices_out, frontier_cnt_out );
+  }
+  fd_banks_get_frontier_private( bank_pool, bank->sibling_idx, frontier_indices_out, frontier_cnt_out );
+}
+
+void
+fd_banks_get_frontier( fd_banks_t * banks,
+                       ulong *      frontier_indices_out,
+                       ulong *      frontier_cnt_out ) {
+  fd_rwlock_read( &banks->locks->banks_lock );
+
+  *frontier_cnt_out = 0UL;
+  fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
+  fd_banks_get_frontier_private( bank_pool, banks->data->root_idx, frontier_indices_out, frontier_cnt_out );
+
+  fd_rwlock_unread( &banks->locks->banks_lock );
+}
+
 void
 fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank,

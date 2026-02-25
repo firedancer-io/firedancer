@@ -50,21 +50,11 @@ bz2_free( void * opaque,
 }
 #endif
 
-struct fd_rpc_out_link {
-  ulong       idx;
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-  ulong       chunk;
-};
-
-typedef struct fd_rpc_out_link fd_rpc_out_link_t;
-
 struct fd_genesi_tile {
   fd_accdb_admin_t accdb_admin[1];
   fd_accdb_user_t  accdb[1];
 
-  uchar genesis_hash[ 32UL ];
+  fd_hash_t genesis_hash[1];
 
   fd_genesis_client_t * client;
 
@@ -77,10 +67,7 @@ struct fd_genesi_tile {
   int has_expected_genesis_hash;
   uchar expected_genesis_hash[ 32UL ];
   ushort expected_shred_version;
-
-  uchar genesis[ FD_GENESIS_MAX_MESSAGE_SIZE ] __attribute__((aligned(alignof(fd_genesis_t)))); /* 10 MiB buffer for decoded genesis */
-  uchar buffer[ FD_GENESIS_MAX_MESSAGE_SIZE + 5UL*512UL ]; /* 10 MiB buffer for reading genesis file */
-  ulong buffer_sz;
+  int validate_genesis_hash;
 
   char genesis_path[ PATH_MAX ];
 
@@ -88,10 +75,16 @@ struct fd_genesi_tile {
   int out_fd;
   int out_dir_fd;
 
-  fd_rpc_out_link_t out_genesi;
-  fd_rpc_out_link_t out_rpc;
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+  } out;
 
   fd_alloc_t * bz2_alloc;
+
+  fd_genesis_t genesis[1];
+  uchar        genesis_blob[ FD_GENESIS_MAX_MESSAGE_SIZE ];
+  ulong        genesis_blob_sz;
 };
 
 typedef struct fd_genesi_tile fd_genesi_tile_t;
@@ -125,68 +118,69 @@ should_shutdown( fd_genesi_tile_t * ctx ) {
 }
 
 static void
-initialize_accdb( fd_genesi_tile_t * ctx ) {
-  /* Insert accounts at root */
-  fd_genesis_t *    genesis = fd_type_pun( ctx->genesis );
-  fd_accdb_user_t * accdb   = ctx->accdb;
-
+initialize_accdb( fd_accdb_admin_t *   accdb_admin,
+                  fd_accdb_user_t *    accdb,
+                  fd_genesis_t const * genesis,
+                  uchar const *        genesis_blob,
+                  fd_lthash_value_t *  lthash ) {
   fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
   fd_funk_txn_xid_t xid = { .ul={ LONG_MAX, LONG_MAX } };
-  fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &xid );
+  fd_accdb_attach_child( accdb_admin, &root_xid, &xid );
 
-  for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
-    fd_genesis_account_t * account = fd_type_pun( (uchar *)genesis + genesis->accounts_off[ i ] );
+  for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
+    fd_genesis_account_t account[1];
+    fd_genesis_account( genesis, genesis_blob, account, i );
 
     fd_accdb_rw_t rw[1];
-    fd_accdb_open_rw( ctx->accdb, rw, &xid, account->pubkey, account->meta.dlen, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_DONTZERO );
+    fd_accdb_open_rw( accdb, rw, &xid, account->pubkey.key, account->meta.dlen, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_DONTZERO );
     fd_accdb_ref_owner_set   ( rw, account->meta.owner        );
     fd_accdb_ref_lamports_set( rw, account->meta.lamports     );
     fd_accdb_ref_exec_bit_set( rw, !!account->meta.executable );
     fd_accdb_ref_data_set    ( accdb, rw, account->data, account->meta.dlen );
 
     fd_lthash_value_t new_hash[1];
-    fd_hashes_account_lthash( fd_type_pun( account->pubkey ), rw->meta, account->data, new_hash );
-    fd_lthash_add( ctx->lthash, new_hash );
-    fd_accdb_close_rw( ctx->accdb, rw );
+    fd_hashes_account_lthash( &account->pubkey, rw->meta, account->data, new_hash );
+    fd_lthash_add( lthash, new_hash );
+    fd_accdb_close_rw( accdb, rw );
   }
 
-  fd_accdb_advance_root( ctx->accdb_admin, &xid );
+  fd_accdb_advance_root( accdb_admin, &xid );
 }
 
 static inline void
 verify_cluster_type( fd_genesis_t const * genesis,
-                     uchar const *        genesis_hash,
+                     fd_hash_t const *    genesis_hash,
                      char const *         genesis_path ) {
 
-  uchar mainnet_hash[ 32 ];
-  FD_TEST( fd_base58_decode_32( "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", mainnet_hash ) );
+  fd_hash_t mainnet_hash[1];
+  FD_TEST( fd_base58_decode_32( "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", mainnet_hash->uc ) );
 
-  uchar testnet_hash[ 32 ];
-  FD_TEST( fd_base58_decode_32( "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY", testnet_hash ) );
+  fd_hash_t testnet_hash[1];
+  FD_TEST( fd_base58_decode_32( "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY", testnet_hash->uc ) );
 
-  uchar devnet_hash[ 32 ];
-  FD_TEST( fd_base58_decode_32( "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", devnet_hash ) );
+  fd_hash_t devnet_hash[1];
+  FD_TEST( fd_base58_decode_32( "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", devnet_hash->uc ) );
 
   switch( genesis->cluster_type ) {
     case FD_GENESIS_TYPE_MAINNET: {
-      if( FD_UNLIKELY( memcmp( genesis_hash, mainnet_hash, 32UL ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( genesis_hash, genesis_hash_b58 );
+      if( FD_UNLIKELY( !fd_hash_eq( genesis_hash, mainnet_hash ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( genesis_hash->uc, genesis_hash_b58 );
         FD_LOG_ERR(( "genesis file `%s` has cluster type MAINNET but unexpected genesis hash `%s`",
                      genesis_path, genesis_hash_b58 ));
       }
       break;
     }
     case FD_GENESIS_TYPE_TESTNET: {
-      if( FD_UNLIKELY( memcmp( genesis_hash, testnet_hash, 32UL ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( genesis_hash, genesis_hash_b58 );
+      if( FD_UNLIKELY( !fd_hash_eq( genesis_hash, testnet_hash ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( genesis_hash->uc, genesis_hash_b58 );
         FD_LOG_ERR(( "genesis file `%s` has cluster type TESTNET but unexpected genesis hash `%s`",
                      genesis_path, genesis_hash_b58 ));
       }
       break;
     }
     case FD_GENESIS_TYPE_DEVNET: {
-      if( FD_UNLIKELY( memcmp( genesis_hash, devnet_hash, 32UL ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( genesis_hash, genesis_hash_b58 );
+      if( FD_UNLIKELY( !fd_hash_eq( genesis_hash, devnet_hash ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( genesis_hash->uc, genesis_hash_b58 );
         FD_LOG_ERR(( "genesis file `%s` has cluster type DEVNET but unexpected genesis hash `%s`",
                      genesis_path, genesis_hash_b58 ));
       }
@@ -209,30 +203,28 @@ after_credit( fd_genesi_tile_t *  ctx,
   if( FD_LIKELY( ctx->local_genesis ) ) {
     FD_TEST( -1!=ctx->in_fd );
 
-    fd_genesis_t * genesis = fd_type_pun( ctx->genesis );
+    ulong msg_sz = sizeof(fd_genesis_meta_t) + ctx->genesis_blob_sz;
+    if( FD_UNLIKELY( msg_sz>FD_GENESIS_TILE_MTU ) ) {
+      FD_LOG_ERR(( "The genesis file `%s` is too large for this Firedancer build (msg_sz=%lu exceeds FD_GENESIS_TILE_MTU=%lu).\n"
+                   "Cannot start Firedancer. Please use a different genesis config or increase FD_GENESIS_TILE_MTU.",
+                   ctx->genesis_path, msg_sz, (ulong)FD_GENESIS_TILE_MTU ));
+    }
 
-    uchar * dst = fd_chunk_to_laddr( ctx->out_genesi.mem, ctx->out_genesi.chunk );
+    fd_genesis_meta_t * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk0 );
+    memset( dst, 0, sizeof(fd_genesis_meta_t) );
+    dst->genesis_hash = *ctx->genesis_hash;
+
     if( FD_UNLIKELY( ctx->bootstrap ) ) {
-      fd_memcpy( dst, &ctx->lthash->bytes, sizeof(fd_lthash_value_t) );
-      fd_memcpy( dst+sizeof(fd_lthash_value_t), &ctx->genesis_hash, sizeof(fd_hash_t) );
-      fd_memcpy( dst+sizeof(fd_lthash_value_t)+sizeof(fd_hash_t), ctx->genesis, genesis->total_sz );
-
-      fd_stem_publish( stem, ctx->out_genesi.idx, GENESI_SIG_BOOTSTRAP_COMPLETED, ctx->out_genesi.chunk, 0UL, 0UL, 0UL, 0UL );
-      ctx->out_genesi.chunk = fd_dcache_compact_next( ctx->out_genesi.chunk, genesis->total_sz+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t), ctx->out_genesi.chunk0, ctx->out_genesi.wmark );
-    } else {
-      fd_memcpy( dst, ctx->genesis_hash, sizeof(fd_hash_t) );
-      fd_stem_publish( stem, ctx->out_genesi.idx, GENESI_SIG_GENESIS_HASH, ctx->out_genesi.chunk, sizeof(fd_hash_t), 0UL, 0UL, 0UL );
-      ctx->out_genesi.chunk = fd_dcache_compact_next( ctx->out_genesi.chunk, sizeof(fd_hash_t), ctx->out_genesi.chunk0, ctx->out_genesi.wmark );
+      dst->bootstrap  = 1;
+      dst->has_lthash = 1;
+      dst->lthash     = *ctx->lthash;
     }
 
-    if( FD_LIKELY( ctx->out_rpc.idx!=ULONG_MAX ) ) {
-      uchar * dst = fd_chunk_to_laddr( ctx->out_rpc.mem, ctx->out_rpc.chunk );
-      FD_TEST( ctx->buffer_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
-      fd_memcpy( dst, ctx->buffer, ctx->buffer_sz );
-      fd_stem_publish( stem, ctx->out_rpc.idx, GENESI_SIG_GENESIS_FILE, ctx->out_rpc.chunk, ctx->buffer_sz, 0UL, 0UL, 0UL );
-      ctx->out_rpc.chunk = fd_dcache_compact_next( ctx->out_rpc.chunk, sizeof(fd_hash_t), ctx->out_rpc.chunk0, ctx->out_rpc.wmark );
-    }
+    uchar * dst_blob = (uchar *)( dst+1 );
+    dst->blob_sz = ctx->genesis_blob_sz;
+    fd_memcpy( dst_blob, ctx->genesis_blob, ctx->genesis_blob_sz );
 
+    fd_stem_publish( stem, 0UL, msg_sz, ctx->out.chunk0, msg_sz, 0UL, 0UL, 0UL );
     *charge_busy = 1;
     FD_LOG_NOTICE(( "loaded local genesis.bin from file `%s`", ctx->genesis_path ));
 
@@ -245,7 +237,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "failed to retrieve genesis.bin from any configured gossip entrypoints" ));
     if( FD_LIKELY( 1==result ) ) return;
 
-    uchar * decompressed = ctx->buffer;
+    uchar * decompressed = ctx->genesis_blob;
     ulong   actual_decompressed_sz = 0UL;
 #   if FD_HAS_BZIP2
     bz_stream bzstrm = {0};
@@ -278,18 +270,12 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     fd_tar_meta_t const * meta = (fd_tar_meta_t const *)decompressed;
     FD_TEST( !strcmp( meta->name, "genesis.bin" ) );
-    FD_TEST( actual_decompressed_sz>=512UL+fd_tar_meta_get_size( meta ) );
+    uchar const * blob    = decompressed+512UL;
+    ulong         blob_sz = fd_tar_meta_get_size( meta );
+    FD_TEST( actual_decompressed_sz>=512UL+blob_sz );
 
-    if( FD_LIKELY( ctx->out_rpc.idx!=ULONG_MAX ) ) {
-      uchar * dst = fd_chunk_to_laddr( ctx->out_rpc.mem, ctx->out_rpc.chunk );
-      FD_TEST( actual_decompressed_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
-      fd_memcpy( dst, decompressed, actual_decompressed_sz );
-      fd_stem_publish( stem, ctx->out_rpc.idx, GENESI_SIG_GENESIS_FILE, ctx->out_rpc.chunk, actual_decompressed_sz, 0UL, 0UL, 0UL );
-      ctx->out_rpc.chunk = fd_dcache_compact_next( ctx->out_rpc.chunk, sizeof(fd_hash_t), ctx->out_rpc.chunk0, ctx->out_rpc.wmark );
-    }
-
-    uchar hash[ 32UL ];
-    fd_sha256_hash( decompressed+512UL, fd_tar_meta_get_size( meta ), hash );
+    fd_hash_t hash[1];
+    fd_sha256_hash( blob, blob_sz, hash->uc );
 
     /* Can't verify expected_shred_version here because it needs to be
        mixed in with hard_forks from the snapshot.  Replay tile will
@@ -297,30 +283,43 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     if( FD_LIKELY( ctx->has_expected_genesis_hash && memcmp( hash, ctx->expected_genesis_hash, 32UL ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->expected_genesis_hash, expected_genesis_hash_b58 );
-      FD_BASE58_ENCODE_32_BYTES( hash, hash_b58 );
+      FD_BASE58_ENCODE_32_BYTES( hash->uc, hash_b58 );
       FD_LOG_ERR(( "An expected genesis hash of `%s` has been set in your configuration file at [consensus.expected_genesis_hash] "
                    "but the genesis hash derived from the peer at `http://" FD_IP4_ADDR_FMT ":%hu` has unexpected hash `%s`",
                    expected_genesis_hash_b58, FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), hash_b58 ));
     }
 
     FD_TEST( !ctx->bootstrap );
-    ulong size = fd_tar_meta_get_size( meta );
 
-    fd_genesis_t * genesis = fd_genesis_parse( ctx->genesis, decompressed+512UL, size );
+    fd_genesis_t * genesis = fd_genesis_parse( ctx->genesis, blob, blob_sz );
     if( FD_UNLIKELY( !genesis ) ) {
       FD_LOG_ERR(( "unable to decode downloaded solana genesis file due to violated hardcoded limits" ));
     }
 
-    verify_cluster_type( genesis, hash, ctx->genesis_path );
+    if( FD_LIKELY( ctx->validate_genesis_hash ) ) {
+      verify_cluster_type( genesis, hash, ctx->genesis_path );
+    }
 
-    uchar * dst = fd_chunk_to_laddr( ctx->out_genesi.mem, ctx->out_genesi.chunk );
-    fd_memcpy( dst, hash, sizeof(fd_hash_t) );
-    fd_stem_publish( stem, ctx->out_genesi.idx, GENESI_SIG_GENESIS_HASH, ctx->out_genesi.chunk, 32UL, 0UL, 0UL, 0UL );
-    ctx->out_genesi.chunk = fd_dcache_compact_next( ctx->out_genesi.chunk, sizeof(fd_hash_t), ctx->out_genesi.chunk0, ctx->out_genesi.wmark );
+    ulong msg_sz; FD_TEST( !__builtin_uaddl_overflow( sizeof(fd_genesis_meta_t), blob_sz, &msg_sz ) );
+    if( FD_UNLIKELY( msg_sz>FD_GENESIS_TILE_MTU ) ) {
+      FD_LOG_ERR(( "The genesis blob downloaded from peer at `http://" FD_IP4_ADDR_FMT ":%hu` is too large for this Firedancer build (msg_sz=%lu exceeds FD_GENESIS_TILE_MTU=%lu).\n"
+                   "Cannot start Firedancer. Please use a different genesis config or increase FD_GENESIS_TILE_MTU.",
+                   FD_IP4_ADDR_FMT_ARGS( peer.addr ), fd_ushort_bswap( peer.port ), msg_sz, (ulong)FD_GENESIS_TILE_MTU ));
+    }
+
+    fd_genesis_meta_t * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk0 );
+    memset( dst, 0, sizeof(fd_genesis_meta_t) );
+    dst->genesis_hash = *hash;
+
+    uchar * dst_blob = (uchar *)( dst+1 );
+    dst->blob_sz = blob_sz;
+    fd_memcpy( dst_blob, blob, blob_sz );
+
+    fd_stem_publish( stem, 0UL, msg_sz, ctx->out.chunk0, 0UL, 0UL, 0UL, 0UL );
 
     ulong bytes_written = 0UL;
-    while( bytes_written<fd_tar_meta_get_size( meta ) ) {
-      long result = write( ctx->out_fd, decompressed+512UL+bytes_written, fd_tar_meta_get_size( meta )-bytes_written );
+    while( bytes_written<blob_sz ) {
+      long result = write( ctx->out_fd, blob+bytes_written, blob_sz-bytes_written );
       if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       bytes_written += (ulong)result;
     }
@@ -346,45 +345,34 @@ after_credit( fd_genesi_tile_t *  ctx,
 static void
 process_local_genesis( fd_genesi_tile_t * ctx,
                        char const *       genesis_path ) {
-  struct stat st;
-  int err = fstat( ctx->in_fd, &st );
-  if( FD_UNLIKELY( -1==err ) ) FD_LOG_ERR(( "stat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  ulong size = (ulong)st.st_size;
-
-  if( FD_UNLIKELY( size>sizeof(ctx->buffer) ) ) FD_LOG_ERR(( "genesis file `%s` too large (%lu bytes, max %lu)", genesis_path, size, (ulong)sizeof(ctx->buffer) ));
-
-  ulong bytes_read = 0UL;
-  while( bytes_read<size ) {
-    long result = read( ctx->in_fd, ctx->buffer+bytes_read, size-bytes_read );
+  ctx->genesis_blob_sz = 0UL;
+  for(;;) {
+    if( FD_UNLIKELY( ctx->genesis_blob_sz>=FD_GENESIS_MAX_MESSAGE_SIZE ) ) {
+      FD_LOG_ERR(( "The genesis file at `%s` is too large for this Firedancer build.\n"
+                   "Cannot start Firedancer. Please use a different genesis config or increase FD_GENESIS_MAX_MESSAGE_SIZE.",
+                   genesis_path ));
+    }
+    long result = read( ctx->in_fd, ctx->genesis_blob+ctx->genesis_blob_sz, FD_GENESIS_MAX_MESSAGE_SIZE-ctx->genesis_blob_sz );
     if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( !result ) )  FD_LOG_ERR(( "read() returned 0 before reading full file" ));
-    bytes_read += (ulong)result;
+    if( FD_UNLIKELY( !result ) ) break;
+    ctx->genesis_blob_sz += (ulong)result;
   }
-
-  FD_TEST( bytes_read==size );
-  ctx->buffer_sz = bytes_read;
 
   if( FD_UNLIKELY( -1==close( ctx->in_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_genesis_t * genesis = fd_genesis_parse( ctx->genesis, ctx->buffer, size );
+  fd_genesis_t * genesis = fd_genesis_parse( ctx->genesis, ctx->genesis_blob, ctx->genesis_blob_sz );
   if( FD_UNLIKELY( !genesis ) ) {
     FD_LOG_ERR(( "unable to decode solana genesis from local file due to violated hardcoded limits" ));
   }
 
-  union {
-    uchar  c[ 32 ];
-    ushort s[ 16 ];
-  } hash;
-  fd_sha256_hash( ctx->buffer, size, hash.c );
-
-  verify_cluster_type( genesis, hash.c, genesis_path );
-
-  fd_memcpy( ctx->genesis_hash, hash.c, 32UL );
+  fd_sha256_hash( ctx->genesis_blob, ctx->genesis_blob_sz, ctx->genesis_hash );
+  if( FD_LIKELY( ctx->validate_genesis_hash ) ) {
+    verify_cluster_type( genesis, ctx->genesis_hash, genesis_path );
+  }
 
   if( FD_UNLIKELY( ctx->bootstrap && ctx->expected_shred_version ) ) {
     ushort xor = 0;
-    for( ulong i=0UL; i<16UL; i++ ) xor ^= hash.s[ i ];
+    for( ulong i=0UL; i<16UL; i++ ) xor ^= ctx->genesis_hash->us[ i ];
 
     xor = fd_ushort_bswap( xor );
     xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
@@ -401,7 +389,7 @@ process_local_genesis( fd_genesi_tile_t * ctx,
 
   if( FD_LIKELY( ctx->has_expected_genesis_hash && memcmp( ctx->genesis_hash, ctx->expected_genesis_hash, 32UL ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( ctx->expected_genesis_hash, expected_genesis_hash_b58 );
-    FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash,          genesis_hash_b58          );
+    FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc,      genesis_hash_b58          );
     FD_LOG_ERR(( "An expected genesis hash of `%s` has been set in your configuration file at [consensus.expected_genesis_hash] "
                  "but the genesis hash derived from the genesis file at `%s` has unexpected hash `%s`", expected_genesis_hash_b58, genesis_path, genesis_hash_b58 ));
   }
@@ -469,29 +457,6 @@ privileged_init( fd_topo_t *      topo,
   }
 }
 
-static inline fd_rpc_out_link_t
-out1( fd_topo_t const *      topo,
-      fd_topo_tile_t const * tile,
-      char const *           name ) {
-  ulong idx = ULONG_MAX;
-
-  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
-    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
-    if( !strcmp( link->name, name ) ) {
-      if( FD_UNLIKELY( idx!=ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had multiple output links named %s but expected one", tile->name, tile->kind_id, name ));
-      idx = i;
-    }
-  }
-
-  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_rpc_out_link_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0 };
-
-  void * mem = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
-  ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
-  ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
-
-  return (fd_rpc_out_link_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
-}
-
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -502,10 +467,10 @@ unprivileged_init( fd_topo_t *      topo,
                            FD_SCRATCH_ALLOC_APPEND( l, fd_genesis_client_align(),   fd_genesis_client_footprint() );
   void * _alloc          = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),            fd_alloc_footprint()          );
 
-  ulong funk_obj_id;
-  FD_TEST( (funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX ) )!=ULONG_MAX );
-  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, funk_obj_id ) ) );
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
+  ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, locks_obj_id ) ) );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->genesi.accdb_max_depth );
 
   fd_lthash_zero( ctx->lthash );
 
@@ -513,16 +478,23 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bootstrap = !tile->genesi.entrypoints_cnt;
   ctx->expected_shred_version = tile->genesi.expected_shred_version;
   ctx->has_expected_genesis_hash = tile->genesi.has_expected_genesis_hash;
+  ctx->validate_genesis_hash = tile->genesi.validate_genesis_hash;
   fd_memcpy( ctx->expected_genesis_hash, tile->genesi.expected_genesis_hash, 32UL );
   if( FD_LIKELY( -1!=ctx->in_fd ) ) {
     process_local_genesis( ctx, tile->genesi.genesis_path );
-    if( FD_UNLIKELY( ctx->bootstrap ) ) initialize_accdb( ctx );
+    if( FD_UNLIKELY( ctx->bootstrap ) ) {
+      initialize_accdb( ctx->accdb_admin, ctx->accdb, ctx->genesis, ctx->genesis_blob, ctx->lthash );
+    }
   }
 
   FD_TEST( fd_cstr_printf_check( ctx->genesis_path, PATH_MAX, NULL, "%s", tile->genesi.genesis_path ) );
 
-  ctx->out_genesi = out1( topo, tile, "genesi_out" );
-  ctx->out_rpc    = out1( topo, tile, "genesi_rpc" );
+  FD_TEST( tile->out_cnt==1UL );
+  fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ 0 ] ];
+  FD_TEST( out_link->depth==1UL );  /* buffer holds a single message (dcache not a ring buffer) */
+  FD_TEST( out_link->mtu>=FD_GENESIS_TILE_MTU );
+  ctx->out.mem    = fd_wksp_containing( out_link->dcache );
+  ctx->out.chunk0 = fd_dcache_compact_chunk0( ctx->out.mem, out_link->dcache );
 
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
@@ -610,6 +582,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
+#define STEM_LAZY                     ((long)1e5) /* 0.1ms */
 
 #include "../../disco/stem/fd_stem.c"
 

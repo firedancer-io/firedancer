@@ -203,9 +203,11 @@ build_elf( uchar * buf,
 struct test_env {
   fd_wksp_t *          wksp;
   void *               funk_mem;
+  void *               funk_locks;
   fd_accdb_admin_t     accdb_admin[1];
   fd_accdb_user_t      accdb[1];
   void *               pcache_mem;
+  void *               pcache_locks;
   fd_progcache_admin_t progcache_admin[1];
   fd_progcache_t       progcache[1];
   uchar *              progcache_scratch;
@@ -316,20 +318,26 @@ test_env_create( test_env_t * env,
   ulong rec_max   = 1024UL;
 
   /* Account database */
-  env->funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), TEST_WKSP_TAG );
+  env->funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, rec_max ), TEST_WKSP_TAG );
   FD_TEST( env->funk_mem );
-  FD_TEST( fd_funk_new( env->funk_mem, TEST_WKSP_TAG, funk_seed, txn_max, rec_max ) );
-  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem ) );
-  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
+  FD_TEST( fd_funk_shmem_new( env->funk_mem, TEST_WKSP_TAG, funk_seed, txn_max, rec_max ) );
+  env->funk_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, rec_max ), TEST_WKSP_TAG );
+  FD_TEST( env->funk_locks );
+  FD_TEST( fd_funk_locks_new( env->funk_locks, txn_max, rec_max ) );
+  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, env->funk_locks ) );
+  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem, env->funk_locks, txn_max ) );
 
   /* Program cache */
-  env->pcache_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), TEST_WKSP_TAG );
+  env->pcache_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, rec_max ), TEST_WKSP_TAG );
   FD_TEST( env->pcache_mem );
-  FD_TEST( fd_funk_new( env->pcache_mem, TEST_WKSP_TAG, funk_seed + 1UL, txn_max, rec_max ) );
+  FD_TEST( fd_funk_shmem_new( env->pcache_mem, TEST_WKSP_TAG, funk_seed + 1UL, txn_max, rec_max ) );
+  env->pcache_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, rec_max ), TEST_WKSP_TAG );
+  FD_TEST( env->pcache_locks );
+  FD_TEST( fd_funk_locks_new( env->pcache_locks, txn_max, rec_max ) );
   env->progcache_scratch = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT, TEST_WKSP_TAG );
   FD_TEST( env->progcache_scratch );
-  FD_TEST( fd_progcache_join( env->progcache, env->pcache_mem, env->progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-  FD_TEST( fd_progcache_admin_join( env->progcache_admin, env->pcache_mem ) );
+  FD_TEST( fd_progcache_join( env->progcache, env->pcache_mem, env->pcache_locks, env->progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+  FD_TEST( fd_progcache_admin_join( env->progcache_admin, env->pcache_mem, env->pcache_locks ) );
 
   /* Banks */
   ulong max_total_banks = 1UL;
@@ -526,16 +534,18 @@ test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( env->banks->data );
   fd_wksp_free_laddr( env->banks->locks );
 
-  fd_progcache_leave( env->progcache, NULL );
+  fd_progcache_leave( env->progcache, NULL, NULL );
   void * pcache_funk = NULL;
-  fd_progcache_admin_leave( env->progcache_admin, &pcache_funk );
+  fd_progcache_admin_leave( env->progcache_admin, &pcache_funk, NULL );
   fd_wksp_free_laddr( fd_funk_delete( pcache_funk ) );
+  fd_wksp_free_laddr( env->pcache_locks );
   fd_wksp_free_laddr( env->progcache_scratch );
 
   void * accdb_shfunk = fd_accdb_admin_v1_funk( env->accdb_admin )->shmem;
   fd_accdb_admin_fini( env->accdb_admin );
   fd_accdb_user_fini( env->accdb );
   fd_wksp_free_laddr( fd_funk_delete( accdb_shfunk ) );
+  fd_wksp_free_laddr( env->funk_locks );
 }
 
 static void

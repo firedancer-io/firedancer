@@ -3,38 +3,37 @@
 
 #include "../../util/fd_util_base.h"
 #include "../fd_flamenco_base.h"
+#include "../types/fd_types_custom.h"
 
-/* These two constants are not defined at the Solana protocol level
-   and are instead used to bound out the amount of memory that will be
-   allocated for the genesis message. */
-#define FD_GENESIS_ACCOUNT_MAX_COUNT (2048UL)
+/* Hardcoded max serialized genesis blob size */
+#define FD_GENESIS_MAX_MESSAGE_SIZE (1UL<<28) /* 256 MiB */
+
+/* Hardcoded genesis array limits */
+#define FD_GENESIS_ACCOUNT_MAX_COUNT (65536UL)
 #define FD_GENESIS_BUILTIN_MAX_COUNT (16UL)
-#define FD_GENESIS_MAX_MESSAGE_SIZE  (1024UL*1024UL*10UL) /* 10MiB */
 
 #define FD_GENESIS_TYPE_TESTNET     (0)
 #define FD_GENESIS_TYPE_MAINNET     (1)
 #define FD_GENESIS_TYPE_DEVNET      (2)
 #define FD_GENESIS_TYPE_DEVELOPMENT (3)
 
-struct fd_genesis_account {
-  uchar             pubkey[32];
-  fd_account_meta_t meta;
-  uchar             data[];
+struct fd_genesis_account_off {
+  ulong pubkey_off;
+  ulong owner_off;
 };
-typedef struct fd_genesis_account fd_genesis_account_t;
+typedef struct fd_genesis_account_off fd_genesis_account_off_t;
 
-struct fd_genesis_builtin {
-  uchar             pubkey[32];
-  ulong             data_len;
-  uchar             data[];
+struct fd_genesis_builtin_off {
+  ulong data_len_off;
+  ulong pubkey_off;
 };
-typedef struct fd_genesis_builtin fd_genesis_builtin_t;
+typedef struct fd_genesis_builtin_off fd_genesis_builtin_off_t;
+
+/* fd_genesis_t helps interpret a genesis blob.  Contains deserialized
+   values and offsets to binary account data.  This is a very large
+   struct (~1 MiB) so it should not be stack allocated. */
 
 struct fd_genesis {
-  /* total_sz represents the total memory footprint taken up by
-     fd_genesis_t and the variable length data that follows. */
-  ulong total_sz;
-
   ulong creation_time;
   uint  cluster_type;
 
@@ -76,41 +75,65 @@ struct fd_genesis {
     ulong first_normal_slot;
   } epoch_schedule;
 
-  ulong accounts_len;
-  uint  accounts_off[ FD_GENESIS_ACCOUNT_MAX_COUNT ];
-  ulong builtin_len;
-  uint  builtin_off[ FD_GENESIS_BUILTIN_MAX_COUNT ];
+  ulong builtin_cnt;
+  ulong account_cnt;
 
-  /* variable length account data follows */
+  fd_genesis_builtin_off_t builtin[ FD_GENESIS_BUILTIN_MAX_COUNT ];
+  fd_genesis_account_off_t account[ FD_GENESIS_ACCOUNT_MAX_COUNT ];
 };
+
 typedef struct fd_genesis fd_genesis_t;
+
+struct fd_genesis_account {
+  fd_pubkey_t       pubkey;
+  fd_account_meta_t meta; /* do not use fd_account_data() */
+  uchar const *     data;
+};
+
+typedef struct fd_genesis_account fd_genesis_account_t;
+
+struct fd_genesis_builtin {
+  fd_pubkey_t   pubkey;
+  ulong         dlen;
+  uchar const * data;
+};
+
+typedef struct fd_genesis_builtin fd_genesis_builtin_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_genesis_parse is a bincode parser for an encoded genesis type
-   which outputs a pointer to a decoded struct (fd_genesis_t).
-   A genesis_mem which is a region of memory assumed to be at minimum
-   of footprint FD_GENESIS_MAX_MESSAGE_SIZE with alignment of
-   alignof(fd_genesis_t) is passed in along with a binary blob (bin) of
-   size (bin_sz).
+/* fd_genesis_parse decodes a bincode-encoded 'GenesisConfig'.
+   The genesis blob is found in the genesis archive, e.g.
+   GET http://<rpc>/genesis.tar.bz2
 
-   The data in the binary blob will be assumed to be a bincode encoded
-   genesis type and will be decoded into a fd_genesis_t
-   type using the memory in genesis_mem.  If the type is a valid bincode
-   encoded genesis type and it doesn't violate any Solana cluster
-   protocol limits as well as any Firedancer specific buffer limits
-   (e.g. number of accounts, total accounts footprint, etc.) then a
-   pointer to a valid fd_genesis_t will be returned.  If the decoding
-   fails due to being an invalid input or violating aforementioned
-   limits, then NULL will be returned.
+   Agave type definition:
+   https://github.com/anza-xyz/solana-sdk/blob/genesis-config%40v3.0.0/genesis-config/src/lib.rs#L59
 
-   The bincode encoded type matches the Agave client GenesisConfig type.
-   https://github.com/anza-xyz/solana-sdk/blob/genesis-config%40v3.0.0/genesis-config/src/lib.rs#L59 */
+   Decodes the message at bin of size bin_sz.  On success, populates
+   and returns the fd_genesis_t object.  On failure, logs warning and
+   returns NULL.  Reasons for failure include:
+   - Deserialize failed (invalid bincode?)
+   - Hardcoded limit exceeded (builtin/account count)
+   - Garbage trailing data */
 
 fd_genesis_t *
-fd_genesis_parse( void *        genesis_mem,
-                  uchar const * bin,
-                  ulong         bin_sz );
+fd_genesis_parse( fd_genesis_t * genesis,
+                  uchar const *  bin,
+                  ulong          bin_sz );
+
+/* Account/builtin getter */
+
+fd_genesis_account_t *
+fd_genesis_account( fd_genesis_t const *   genesis,
+                    uchar const *          bin,
+                    fd_genesis_account_t * out,
+                    ulong                  idx );
+
+fd_genesis_builtin_t *
+fd_genesis_builtin( fd_genesis_t const *   genesis,
+                    uchar const *          bin,
+                    fd_genesis_builtin_t * out,
+                    ulong                  idx );
 
 FD_PROTOTYPES_END
 

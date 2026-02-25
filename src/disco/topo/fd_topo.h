@@ -236,6 +236,8 @@ struct fd_topo_tile {
       ulong  max_purged;
       ulong  max_failed;
 
+      fd_hash_t wait_for_supermajority_with_bank_hash;
+
       struct {
         ushort gossip;
         ushort tvu;
@@ -372,6 +374,7 @@ struct fd_topo_tile {
       ulong max_http_request_length;
 
       ulong max_live_slots;
+      ulong accdb_max_depth;
 
       char identity_key_path[ PATH_MAX ];
     } rpc;
@@ -385,7 +388,6 @@ struct fd_topo_tile {
       ulong fec_max;
 
       ulong txncache_obj_id;
-      ulong progcache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
 
@@ -393,6 +395,7 @@ struct fd_topo_tile {
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
+      fd_hash_t wait_for_supermajority_with_bank_hash;
       ushort expected_shred_version;
       int    wait_for_vote_to_start_leader;
 
@@ -426,10 +429,10 @@ struct fd_topo_tile {
 
     struct {
       ulong txncache_obj_id;
-      ulong progcache_obj_id;
       ulong acc_pool_obj_id;
 
       ulong max_live_slots;
+      ulong accdb_max_depth;
 
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
@@ -510,6 +513,7 @@ struct fd_topo_tile {
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
       ulong max_live_slots;
+      ulong accdb_max_depth;
       ulong max_vote_lookahead;
       int   debug_logging;
       char  identity_key[ PATH_MAX ];
@@ -564,7 +568,6 @@ struct fd_topo_tile {
       int  incremental_snapshots;
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
-      uint full_effective_age_cancel_threshold;
       uint max_retry_abort;
     } snapct;
 
@@ -576,7 +579,9 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
+      ulong accdb_max_depth;
       ulong funk_obj_id;
+      ulong funk_locks_obj_id;
       ulong txncache_obj_id;
 
       uint  lthash_disabled : 1;
@@ -615,12 +620,13 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
+      ulong accdb_max_depth;
       ulong txncache_obj_id;
-      ulong progcache_obj_id;
       ulong acc_pool_obj_id;
     } execle;
 
     struct {
+      int validate_genesis_hash;
       int allow_download;
 
       ushort expected_shred_version;
@@ -634,6 +640,8 @@ struct fd_topo_tile {
 
       uint target_gid;
       uint target_uid;
+
+      ulong accdb_max_depth;
     } genesi;
 
     struct {
@@ -654,6 +662,10 @@ struct fd_topo_tile {
       int   recent_only;
       ulong recent_slots_per_file;
     } solcap;
+
+    struct {
+      ulong accdb_max_depth;
+    } resolv;
   };
 };
 

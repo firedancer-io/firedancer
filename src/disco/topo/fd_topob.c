@@ -403,7 +403,6 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     "execrp", /* FIREDANCER only */
     "txsend", /* FIREDANCER only */
     "tower",  /* FIREDANCER only */
-    "rpc",    /* FIREDANCER only */
     "pktgen",
     "snapct", /* FIREDANCER only */
     "snapld", /* FIREDANCER only */
@@ -604,15 +603,17 @@ initialize_numa_assignments( fd_topo_t * topo ) {
 
     if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
 
-    int found_strict = 0;
-    int found_lazy   = 0;
+    int found_strict   = 0;
+    int found_lazy     = 0;
+    int found_assigned = 0;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx<FD_TILE_MAX ) ) {
         topo->workspaces[ i ].numa_idx = fd_numa_node_idx( tile->cpu_idx );
         FD_TEST( topo->workspaces[ i ].numa_idx!=ULONG_MAX );
-        found_strict = 1;
-        found_lazy = 1;
+        found_strict   = 1;
+        found_lazy     = 1;
+        found_assigned = 1;
         break;
       } else if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx>=FD_TILE_MAX ) ) {
         topo->workspaces[ i ].numa_idx = 0;
@@ -628,7 +629,8 @@ initialize_numa_assignments( fd_topo_t * topo ) {
           if( FD_LIKELY( tile->uses_obj_id[ k ]==max_obj && tile->cpu_idx<FD_TILE_MAX ) ) {
             topo->workspaces[ i ].numa_idx = fd_numa_node_idx( tile->cpu_idx );
             FD_TEST( topo->workspaces[ i ].numa_idx!=ULONG_MAX );
-            found_lazy = 1;
+            found_lazy     = 1;
+            found_assigned = 1;
             break;
           } else if( FD_UNLIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx>=FD_TILE_MAX ) {
             topo->workspaces[ i ].numa_idx = 0;
@@ -639,7 +641,7 @@ initialize_numa_assignments( fd_topo_t * topo ) {
           }
         }
 
-        if( FD_UNLIKELY( found_lazy ) ) break;
+        if( FD_UNLIKELY( found_assigned ) ) break;
       }
     }
 

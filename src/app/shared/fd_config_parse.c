@@ -84,6 +84,7 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( cstr,   gossip.host                                         );
 
+  CFG_POP      ( bool,   layout.enable_block_production                      );
   CFG_POP      ( uint,   layout.execrp_tile_count                            );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.resolv_tile_count                            );
@@ -92,17 +93,15 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.snapshot_hash_tile_count                     );
   CFG_POP      ( uint,   layout.snapwr_tile_count                            );
 
-  CFG_POP      ( ulong,  funk.max_account_records                            );
-  CFG_POP      ( ulong,  funk.heap_size_gib                                  );
-
-  CFG_POP      ( bool,   vinyl.enabled                                       );
-  CFG_POP      ( ulong,  vinyl.max_account_records                           );
-  CFG_POP      ( ulong,  vinyl.file_size_gib                                 );
-  CFG_POP      ( ulong,  vinyl.max_cache_entries                             );
-  CFG_POP      ( ulong,  vinyl.cache_size_gib                                );
-  CFG_POP      ( ulong,  vinyl.write_delay_slots                             );
-  CFG_POP      ( bool,   vinyl.io_uring.enabled                              );
-  CFG_POP      ( uint,   vinyl.io_uring.queue_depth                          );
+  CFG_POP      ( ulong,  accounts.max_accounts                               );
+  CFG_POP      ( ulong,  accounts.file_size_gib                              );
+  CFG_POP      ( ulong,  accounts.max_unrooted_account_size_gib              );
+  CFG_POP      ( ulong,  accounts.cache_size_gib                             );
+  CFG_POP      ( ulong,  accounts.write_delay_slots                          );
+  CFG_POP      ( bool,   accounts.in_memory_only                             );
+  CFG_POP      ( cstr,   accounts.io_provider                                );
+  CFG_POP      ( ulong,  accounts.mean_account_footprint                     );
+  CFG_POP      ( uint,   accounts.io_uring.queue_depth                       );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( ulong,  runtime.max_account_cnt                             );
@@ -110,6 +109,8 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  runtime.program_cache.heap_size_mib                 );
   CFG_POP      ( ulong,  runtime.program_cache.mean_cache_entry_size         );
+
+  CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
 
   CFG_POP      ( uint,   snapshots.sources.max_local_full_effective_age      );
   CFG_POP      ( uint,   snapshots.sources.max_local_incremental_age         );
@@ -121,12 +122,12 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( bool,   snapshots.genesis_download                          );
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
-  CFG_POP      ( uint,   snapshots.full_effective_age_cancel_threshold       );
   CFG_POP      ( uint,   snapshots.max_retry_abort                           );
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
   CFG_POP      ( ulong,  development.replay.scheduler_depth                  );
+  CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
 
   return config;
 }

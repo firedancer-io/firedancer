@@ -10,14 +10,11 @@ FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 fd_progcache_t *
 fd_progcache_join( fd_progcache_t * ljoin,
                    void *           shfunk,
+                   void *           shlocks,
                    uchar *          scratch,
                    ulong            scratch_sz ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !shfunk ) ) {
-    FD_LOG_WARNING(( "NULL shfunk" ));
     return NULL;
   }
   if( FD_LIKELY( scratch_sz ) ) {
@@ -31,7 +28,7 @@ fd_progcache_join( fd_progcache_t * ljoin,
     }
   }
   memset( ljoin, 0, sizeof(fd_progcache_t) );
-  if( FD_UNLIKELY( !fd_funk_join( ljoin->funk, shfunk ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_funk_join( ljoin->funk, shfunk, shlocks ) ) ) return NULL;
 
   ljoin->metrics    = &fd_progcache_metrics_default;
   ljoin->scratch    = scratch;
@@ -42,12 +39,13 @@ fd_progcache_join( fd_progcache_t * ljoin,
 
 void *
 fd_progcache_leave( fd_progcache_t * cache,
-                    void **          opt_shfunk ) {
+                    void **          opt_shfunk,
+                    void **          opt_shlocks ) {
   if( FD_UNLIKELY( !cache ) ) {
     FD_LOG_WARNING(( "NULL cache" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !fd_funk_leave( cache->funk, opt_shfunk ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_funk_leave( cache->funk, opt_shfunk, opt_shlocks ) ) ) return NULL;
   cache->scratch    = NULL;
   cache->scratch_sz = 0UL;
   return cache;
@@ -414,9 +412,10 @@ fd_progcache_push( fd_progcache_t * cache,
 #if FD_HAS_ATOMIC
 
 static int
-fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
+fd_progcache_txn_try_lock( fd_funk_t * funk, fd_funk_txn_t * txn ) {
+  fd_rwlock_t * txn_lock = &funk->txn_lock[ (ulong)( txn - funk->txn_pool->ele ) ];
   for(;;) {
-    ushort * lock  = &txn->lock->value;
+    ushort * lock  = &txn_lock->value;
     ushort   value = FD_VOLATILE_CONST( *lock );
     if( FD_UNLIKELY( value>=0xFFFE ) ) return 0; /* txn is write-locked */
     if( FD_LIKELY( FD_ATOMIC_CAS( lock, value, value+1 )==value ) ) {
@@ -428,8 +427,9 @@ fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
 #else
 
 static int
-fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
-  ushort * lock  = &txn->lock->value;
+fd_progcache_txn_try_lock( fd_funk_t * funk, fd_funk_txn_t * txn ) {
+  fd_rwlock_t * txn_lock = &funk->txn_lock[ (ulong)( txn - funk->txn_pool->ele ) ];
+  ushort * lock  = &txn_lock->value;
   ushort   value = FD_VOLATILE_CONST( *lock );
   if( FD_UNLIKELY( value>=0xFFFE ) ) return 0; /* txn is write-locked */
   *lock = value + 1;
@@ -439,9 +439,9 @@ fd_progcache_txn_try_lock( fd_funk_txn_t * txn ) {
 #endif
 
 static void
-fd_progcache_txn_unlock( fd_funk_txn_t * txn ) {
+fd_progcache_txn_unlock( fd_funk_t * funk, fd_funk_txn_t * txn ) {
   if( !txn ) return;
-  fd_rwlock_unread( txn->lock );
+  fd_rwlock_unread( &funk->txn_lock[ (ulong)( txn - funk->txn_pool->ele ) ] );
 }
 
 /* fd_progcache_lock_best_txn picks a fork graph node close to
@@ -496,12 +496,12 @@ fd_progcache_lock_best_txn( fd_progcache_t * cache,
       if( FD_LIKELY( query_err==FD_MAP_SUCCESS ) ) {
         /* Attempt to read-lock transaction */
         fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
-        if( FD_LIKELY( fd_progcache_txn_try_lock( txn ) ) ) {
+        if( FD_LIKELY( fd_progcache_txn_try_lock( cache->funk, txn ) ) ) {
           /* Check for unlikely case we acquired a read-lock _after_ the
              transaction object was destroyed (ABA problem) */
           fd_funk_txn_xid_t found_xid[1];
           if( FD_UNLIKELY( !fd_funk_txn_xid_eq( fd_funk_txn_xid_ld_atomic( found_xid, &txn->xid ), xid ) ) ) {
-            fd_progcache_txn_unlock( txn );
+            fd_progcache_txn_unlock( cache->funk, txn );
             break;
           }
           return txn;
@@ -659,7 +659,7 @@ fd_progcache_insert( fd_progcache_t *           cache,
 
   /* Done modifying transaction */
 
-  fd_progcache_txn_unlock( txn );
+  fd_progcache_txn_unlock( funk, txn );
 
   /* If another thread was faster publishing the same record, use that
      one instead.  FIXME POSSIBLE RACE CONDITION WHERE THE OTHER REC IS
@@ -749,7 +749,7 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
   /* Select a fork node to create invalidate record in
      Do not create invalidation records at the funk root */
 
-  if( FD_UNLIKELY( !fd_progcache_txn_try_lock( txn ) ) ) {
+  if( FD_UNLIKELY( !fd_progcache_txn_try_lock( funk, txn ) ) ) {
     FD_LOG_CRIT(( "fd_progcache_invalidate(xid=%lu,...) failed: txn is write-locked", xid->ul[0] ));
   }
 
@@ -780,7 +780,7 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
 
   /* Done modifying transaction */
 
-  fd_progcache_txn_unlock( txn );
+  fd_progcache_txn_unlock( funk, txn );
 
   /* If another thread was faster publishing the same record, use that
      one instead.  FIXME POSSIBLE RACE CONDITION WHERE THE OTHER REC IS

@@ -60,9 +60,9 @@ echo "
 [paths]
     identity_key = \"fd-identity-keypair.json\"
     vote_account = \"fd-vote-keypair.json\"
-[funk]
-    max_account_records = 10000000
-    heap_size_gib = 32
+[accounts]
+    max_accounts = 10000000
+    file_size_gib = 32
 [log]
     path = \"firedancer-dev.log\"
     level_stderr = \"INFO\"

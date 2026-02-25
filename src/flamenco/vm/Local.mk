@@ -18,7 +18,7 @@ $(call run-unit-test,test_vm_interp)
 endif
 endif
 
-$(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util fd_funk)
 
 ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_funk fd_ballet fd_util,$(SECP256K1_LIBS) $(BLST_LIBS))

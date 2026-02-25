@@ -6,6 +6,9 @@ static void ver_inc( ulong ** ver ) {
 
 #define VER_INC ulong * ver __attribute__((cleanup(ver_inc))) = fd_forest_ver( forest ); ver_inc( &ver )
 
+static fd_hash_t empty_mr   = { .ul = { 0, 0, 0, 0 } };
+static fd_hash_t invalid_mr = { .ul = { ULONG_MAX, ULONG_MAX, ULONG_MAX, ULONG_MAX } };
+
 void *
 fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   FD_TEST( fd_ulong_is_pow2( ele_max ) );
@@ -209,9 +212,9 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
   root_ele->sibling          = null;
   root_ele->buffered_idx     = 0;
   root_ele->complete_idx     = 0;
+  root_ele->confirmed        = 1;
 
-  fd_forest_blk_idxs_full( root_ele->fecs );
-  fd_forest_blk_idxs_full( root_ele->cmpl );
+  root_ele->merkle_roots[0].mr = (fd_hash_t){ .key = { 0 } };
 
   forest->root = fd_forest_pool_idx( pool, root_ele );
   fd_forest_frontier_ele_insert( frontier, root_ele, pool ); /* cannot fail */
@@ -480,14 +483,14 @@ advance_consumed_frontier( fd_forest_t * forest, ulong slot, ulong parent_slot )
   while( FD_LIKELY( fd_forest_deque_cnt( queue ) ) ) {
     fd_forest_blk_t * head  = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
     fd_forest_blk_t * child = fd_forest_pool_ele( pool, head->child );
-    if( FD_LIKELY( child &&
-                   head->complete_idx != UINT_MAX &&
-                   head->complete_idx == head->buffered_idx &&                                                     /* we've received all the shreds for the slot */
-                   0==memcmp( head->cmpl, head->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) /* AND all the FECs for the slot have been completed */) ) {
+
+    int all_shreds_received = head->complete_idx != UINT_MAX && head->complete_idx == head->buffered_idx;
+    if( FD_LIKELY( all_shreds_received ) ) head->consumed = 1;
+
+    if( FD_LIKELY( child && all_shreds_received ) )  { /* we've received all the shreds for the slot - not all the FECs for the slot need to be completed */
       consumed_remove( forest, fd_forest_pool_idx( pool, head ) );
       while( FD_LIKELY( child ) ) { /* add children to consumed frontier */
         consumed_insert( forest, fd_forest_pool_idx( pool, child ) );
-
         fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, child ) );
         child = fd_forest_pool_ele( pool, child->sibling );
       }
@@ -530,20 +533,22 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   blk->parent      = null;
   blk->child       = null;
   blk->sibling     = null;
+  blk->confirmed   = 0;
+  blk->consumed    = 0;
 
-  blk->consumed_idx = UINT_MAX;
   blk->buffered_idx = UINT_MAX;
   blk->complete_idx = UINT_MAX;
 
-  fd_forest_blk_idxs_null( blk->fecs ); /* expensive */
-  fd_forest_blk_idxs_null( blk->idxs ); /* expensive */
-  fd_forest_blk_idxs_null( blk->cmpl ); /* expensive */
+  fd_forest_blk_idxs_null( blk->idxs );
+  blk->lowest_verified_fec = UINT_MAX;
+  memset( blk->merkle_roots, 0, sizeof( blk->merkle_roots ) ); /* expensive*/
+  blk->confirmed_bid = empty_mr;
 
   blk->est_buffered_tick_recv = 0;
 
   /* Metrics tracking */
 
-  fd_forest_blk_idxs_null( blk->code ); /* expensive */
+  fd_forest_blk_idxs_null( blk->code );
   blk->first_shred_ts = 0;
   blk->first_req_ts   = 0;
   blk->turbine_cnt    = 0;
@@ -564,7 +569,18 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   FD_TEST( slot > fd_forest_root_slot( forest ) ); /* caller error - inval */
 # endif
   fd_forest_blk_t * ele = query( forest, slot );
-  if( FD_LIKELY( ele ) ) { return ele; }
+  if( FD_LIKELY( ele ) ) {
+    // potentially may need to update the parent_slot, if this
+    // this was a sentinel block that was created for a confirmed msg
+    if( FD_UNLIKELY( parent_slot != ele->parent_slot ) ) {
+      ele->parent_slot = parent_slot;
+      subtrees_orphaned_remove( forest, slot ); // if this is a sentinel block, then it must be in subtrees
+    } else {
+      return ele;
+    }
+  } else {
+    ele = acquire( forest, slot, parent_slot );
+  }
 
   fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
@@ -580,8 +596,6 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   ulong                  null     = fd_forest_pool_idx_null( pool );
 
   fd_forest_blk_t * parent = NULL;
-
-  ele = acquire( forest, slot, parent_slot );
 
   if(        FD_LIKELY  ( parent = fd_forest_ancestry_ele_query ( ancestry, &parent_slot, NULL, pool ) ) ) { /* parent is in ancestry, ele makes new frontier */
     fd_forest_frontier_ele_insert( frontier, ele, pool );
@@ -608,7 +622,8 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
        !fd_forest_subtlist_iter_done( iter, subtlist, pool );
        iter = fd_forest_subtlist_iter_fwd_next( iter, subtlist, pool ) ) {
     fd_forest_blk_t * orphan = fd_forest_subtlist_iter_ele( iter, subtlist, pool );
-    fd_forest_deque_push_tail( bfs, fd_forest_pool_idx( pool, orphan ) );
+    // edge case where for a sentinel node the parent_slot == slot, so we want to avoid linking it to itself
+    if( FD_LIKELY( orphan->slot != ele->slot ) ) fd_forest_deque_push_tail( bfs, fd_forest_pool_idx( pool, orphan ) );
   }
   while( FD_LIKELY( fd_forest_deque_cnt( bfs ) ) ) {
     fd_forest_blk_t * orphan = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( bfs ) );
@@ -666,16 +681,74 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   return ele;
 }
 
+static inline int
+merkle_recvd( fd_forest_blk_t * ele, uint fec_idx ) {
+  return memcmp( &ele->merkle_roots[fec_idx].mr, &empty_mr, sizeof(fd_hash_t) ) != 0;
+}
+
+static inline int
+merkle_verified( fd_forest_blk_t * ele, uint fec_idx ) {
+  // not possible for anything to be verified if the slot doesn't know the last index
+  if( ele->complete_idx == UINT_MAX ) return 0;
+  /* if we are asking about the block_id, it's stored in the confirmed_bid field */
+  if( FD_UNLIKELY( fec_idx == (ele->complete_idx / 32UL + 1) ) ) {
+    return !fd_hash_eq( &ele->confirmed_bid, &empty_mr );
+  }
+  return ele->lowest_verified_fec <= fec_idx;
+}
+
 fd_forest_blk_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, int src ) {
+fd_forest_data_shred_insert( fd_forest_t * forest,
+                             ulong         slot,
+                             ulong         parent_slot,
+                             uint          shred_idx,
+                             uint          fec_set_idx,
+                             int           slot_complete,
+                             int           ref_tick,
+                             int           src,
+                             fd_hash_t   * mr,
+                             fd_hash_t   * cmr ) {
   VER_INC;
   FD_TEST( shred_idx <= FD_SHRED_IDX_MAX );
   fd_forest_blk_t * ele = query( forest, slot );
 # if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest: fd_forest_data_shred_insert: ele %lu is not in the forest. data_shred_insert should be preceded by blk_insert", slot ));
 # endif
-  fd_forest_blk_idxs_insert_if( ele->fecs, fec_set_idx > 0, fec_set_idx - 1 );
-  fd_forest_blk_idxs_insert_if( ele->fecs, slot_complete,   shred_idx       );
+
+  /* Pre-filtering on merkle root.
+     If we have knowledge of the confirmed merkle root, we can reject
+     shreds that don't match it.  Else, we'll accept any and all shreds,
+     and invalidating the merkle root if we see more than 1 version of
+     the FEC. */
+  uint fec_idx = fec_set_idx / 32UL;
+  if( FD_UNLIKELY( merkle_verified( ele, fec_idx + 1 ) ) ) { /* if the cmr pointing to this FEC has been verified, then... */
+    if( FD_UNLIKELY(
+         ( fec_idx == (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->confirmed_bid, mr ) ) ||
+         ( fec_idx != (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->merkle_roots[fec_idx + 1].cmr, mr ) ) ) ) {
+      /* merkle root doesn't match the verified CMR  */
+      return NULL; /* do not accept this shred. */
+    } else {
+      ele->merkle_roots[fec_idx].mr = *mr;
+      ele->merkle_roots[fec_idx].cmr = *cmr;
+    }
+  }
+  else { /* No verification / knowledge of canonical merkle root */
+    if( FD_UNLIKELY( !merkle_recvd( ele, fec_idx ) ) ) {
+      ele->merkle_roots[fec_idx].mr  = *mr;
+      ele->merkle_roots[fec_idx].cmr = *cmr;
+    } else {
+      /* verify that the received merkle root is consistent with the current merkle root.
+         No need to check the cmr, because matching mr implies matching cmr. */
+      fd_hash_t * current_mr = &ele->merkle_roots[fec_idx].mr;
+      if( FD_UNLIKELY( !fd_hash_eq( current_mr, mr ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( current_mr->key, current_mr_b58 ); FD_BASE58_ENCODE_32_BYTES( mr->key, mr_b58 );
+        FD_LOG_INFO(( "fd_forest_data_shred_insert: multiple versions detected for slot %lu, fec_set_idx %u. current_mr %s, received_mr %s", slot, fec_set_idx, current_mr_b58, mr_b58 ));
+        ele->merkle_roots[fec_idx].mr = invalid_mr; /* invalidate the merkle root */
+      }
+    }
+  }
+
+  /* Shred accepted, merkle root verified (as much as possible) */
   ele->complete_idx = fd_uint_if( slot_complete, shred_idx, ele->complete_idx );
 
   if( !fd_forest_blk_idxs_test( ele->idxs, shred_idx ) ) { /* newly seen shred */
@@ -690,23 +763,14 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot
     ele->buffered_idx++;
     ele->est_buffered_tick_recv = ref_tick;
     /* If the buffered_idx increases, this means the
-    est_buffered_tick_recv is at least ref_tick */
+       est_buffered_tick_recv is at least ref_tick */
   }
   advance_consumed_frontier( forest, slot, parent_slot );
   return ele;
 }
 
 fd_forest_blk_t *
-fd_forest_blk_parent_update( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
-  VER_INC;
-  fd_forest_blk_t * ele = query( forest, slot );
-  if( FD_UNLIKELY( !ele ) ) return NULL;
-  ele->parent_slot = parent_slot;
-  return ele;
-}
-
-fd_forest_blk_t *
-fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick ) {
+fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, fd_hash_t * mr, fd_hash_t * cmr ) {
   VER_INC;
   FD_TEST( last_shred_idx <= FD_SHRED_IDX_MAX );
 
@@ -714,13 +778,60 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 # if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest_fec_insert: ele %lu is not in the forest. fec_insert should be preceded by blk_insert", slot ));
 # endif
+
+  uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
+  if( FD_UNLIKELY( merkle_recvd( ele, fec_idx )
+                   && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[fec_idx].mr.key, mr_b58 );
+    FD_BASE58_ENCODE_32_BYTES( mr->key, mr_recv_b58 );
+    FD_LOG_WARNING(( "fd_forest_fec_insert: fec_resolver a version of fec_set_idx %u we dont have recorded. current_mr %s, received_mr %s", fec_set_idx, mr_b58, mr_recv_b58 ));
+    /* there are two cases:
+
+       (1) the first and common case is that we've received a mix of
+           shreds from equivocating FEC siblings A & B.  In forest we
+           have recorded hash = { 0 } for this fec set because we've
+           received a mix of merkle roots, so we nulled the FEC set.
+           Let's say fec_resolver then completes version B, and delivers
+           it.  We can safely overwrite our null merkle root with B
+           because we know we must've received all the data for version
+           B!
+       (2) the second case is that we get two FEC completion msgs:
+           one for both version B and A. They get completed, one after
+           the other. In this case we've first overwritten from { 0 } to
+           B.  But when version A arrives, what should we do? If A is
+           the correct version but we ignore it, when we chain verify
+           down the line, we'll evict B and try to repair for A, but
+           fec_resolver is not going to let it through! Vice versa if B
+           is the correct version, but we choose to overwrite the fec
+           when A arrive. No way around it (unless) we ask shred to
+           re-deliver the FEC set. In practice, we'll likely still
+           progress because reasm will have information about both B and
+           A, but if reasm has evicted it. (unlikely, but possible),
+           then we'll stall. */
+    // overwrite the merkle root with the new one
+    ele->merkle_roots[fec_idx].mr  = *mr;
+    ele->merkle_roots[fec_idx].cmr = *cmr;
+  }
+
+  if( FD_UNLIKELY( slot_complete && ele->child != ULONG_MAX ) ) {
+    /* check for a child that is confirmed */
+    fd_forest_blk_t * child = fd_forest_pool_ele( fd_forest_pool( forest ), ele->child );
+    while( FD_UNLIKELY( child ) ) {
+      if( FD_UNLIKELY( child->confirmed ) ) {
+        ele->confirmed_bid       = child->merkle_roots[0].cmr;
+        ele->lowest_verified_fec = fec_idx + 1; /* populate the block id with the confirmed child's CMR */
+        break;
+      }
+      child = fd_forest_pool_ele( fd_forest_pool( forest ), child->sibling );
+    }
+  }
+
   /* It's important that we set the cmpl idx here. If this happens to be
      the last fec_complete we needed to finish the slot, then we rely on
      the advance_consumed_frontier call in the below data_shred_insert
      to move forward the consumed frontier.  */
-  fd_forest_blk_idxs_insert( ele->cmpl, last_shred_idx );
   for( uint idx = fec_set_idx; idx <= last_shred_idx; idx++ ) {
-    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED );
+    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, mr, cmr );
   }
   return ele;
 }
@@ -747,6 +858,41 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) 
   return ele;
 }
 
+fd_forest_blk_t *
+fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * bid ) {
+  fd_hash_t const * expected_mr = bid;
+  uint fec_idx = ele->complete_idx / 32UL;
+
+  ele->lowest_verified_fec = fec_idx+1;
+  ele->confirmed_bid       = *bid; /* confirmed */
+
+  while( FD_UNLIKELY( !ele->confirmed ) ) {
+    if( FD_UNLIKELY( !fd_hash_eq( expected_mr, &ele->merkle_roots[fec_idx].mr ) ) ) return ele;
+
+    /* This FEC merkle is correct, and the chained merkle is correct. */
+    ele->lowest_verified_fec = fec_idx;
+    expected_mr = &ele->merkle_roots[fec_idx].cmr;
+
+    if( FD_UNLIKELY( fec_idx==0 ) ) {
+      /* hop to the parent slot, but first we've made it through this
+         slot successfully verifying the chain! mark it confirmed! */
+      ele->confirmed = 1;
+      ele = fd_forest_pool_ele( fd_forest_pool( forest ), ele->parent );
+      if( FD_UNLIKELY( !ele || ele->complete_idx == UINT_MAX || ele->buffered_idx != ele->complete_idx ) ) {
+        /* can't verify the chain further */
+        return NULL;
+      }
+
+      fec_idx = ele->complete_idx / 32UL;
+      ele->lowest_verified_fec = fec_idx+1;
+      ele->confirmed_bid       = *expected_mr; /* CMR of child slot */
+      continue;
+    }
+    fec_idx--; /* go back one FEC set */
+  }
+  return NULL;
+}
+
 void
 fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx ) {
   VER_INC;
@@ -757,27 +903,21 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
   }
   fd_forest_blk_t * ele = query( forest, slot );
   if( FD_UNLIKELY( !ele ) ) return;
-  if( FD_UNLIKELY( fd_forest_blk_idxs_test( ele->cmpl, max_shred_idx ) ) ) {
-    /* It's possible the fec_resolver evicted something that we already
-       completed.  One way this can happen is if we produce a FEC set as
-       leader, but for some reason a validator sends us shreds from that
-       same FEC set. fec_resolver is still going to buffer those fec
-       sets, because our own shreds don't go through fec_resolver.  So
-       then we are in a state where we have received fec_complete
-       messages for all the FECs in our slot, but fec_resolver possibly
-       has some incomplete ctxs for some of those FEC sets, that will
-       eventually get evicted). */
-    return;
-  }
+
   for( uint i=fec_set_idx; i<=fec_set_idx+max_shred_idx; i++ ) {
     fd_forest_blk_idxs_remove( ele->idxs, i );
   }
-  if( FD_UNLIKELY( fec_set_idx == 0 ) ) ele->buffered_idx = UINT_MAX;
-  else                                  ele->buffered_idx = fd_uint_if( ele->buffered_idx != UINT_MAX, fd_uint_min( ele->buffered_idx, fec_set_idx - 1 ), UINT_MAX );
+  if( FD_UNLIKELY( ele->complete_idx == fec_set_idx+max_shred_idx ) ) ele->complete_idx = UINT_MAX;
+  if( FD_UNLIKELY( fec_set_idx == 0 ) )                               ele->buffered_idx = UINT_MAX;
+  else                                                                ele->buffered_idx = fd_uint_if( ele->buffered_idx != UINT_MAX, fd_uint_min( ele->buffered_idx, fec_set_idx - 1 ), UINT_MAX );
+
+  uint fec_idx = fec_set_idx / 32UL;
+  memset( &ele->merkle_roots[fec_idx].mr, 0, sizeof(fd_hash_t) );
 
   /* Add this slot back to requests map */
   fd_forest_blk_t * pool = fd_forest_pool( forest );
   requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
+  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared fec_set_idx %u to %u, slot %lu", fec_set_idx, fec_set_idx+max_shred_idx, slot ));
 }
 
 fd_forest_blk_t const *
@@ -817,8 +957,6 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     new_root_ele = fd_forest_blk_insert( forest, new_root_slot, 0 );
     new_root_ele->complete_idx = 0;
     new_root_ele->buffered_idx = 0;
-    fd_forest_blk_idxs_full( new_root_ele->cmpl );
-    fd_forest_blk_idxs_full( new_root_ele->fecs );
     requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
     advance_consumed_frontier( forest, new_root_slot, 0 ); /* advances consumed frontier if possible */
   }
@@ -856,8 +994,9 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     fd_forest_pool_ele_release( pool, head );
   }
 
-  new_root_ele->parent = null; /* unlink new root from parent */
-  forest->root         = fd_forest_pool_idx( pool, new_root_ele );
+  new_root_ele->parent    = null; /* unlink new root from parent */
+  new_root_ele->confirmed = 1;
+  forest->root            = fd_forest_pool_idx( pool, new_root_ele );
 
   /* 3. New root is in orphaned. This is the case where maybe the
         expected snapshot slot has jumped far ahead.  Invariants tell
@@ -901,8 +1040,6 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
        invalid */
     new_root_ele->complete_idx = 0;
     new_root_ele->buffered_idx = 0;
-    fd_forest_blk_idxs_full( new_root_ele->cmpl );
-    fd_forest_blk_idxs_full( new_root_ele->fecs );
     advance_consumed_frontier( forest, new_root_ele->slot, 0 );
   }
 
@@ -996,7 +1133,7 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
        was a highest_window_idx request). Also requires moving to next
        slot and wrapping the shred_idx. */
 
-    if( FD_UNLIKELY( !ele || next_shred_idx >= ele->complete_idx || iter->shred_idx == UINT_MAX ) ) {
+    if( FD_UNLIKELY( !ele || next_shred_idx > ele->complete_idx || iter->shred_idx == UINT_MAX ) ) {
 
       /* done requesting this slot.  peek the next slot from requests
          deque. But first, add this slot's children to the requests
@@ -1050,10 +1187,11 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
 
     /* Common case - valid shred to request. Note you can't know the
        ele->complete_idx until you have actually received the slot
-       complete shred, thus the we can do lt instead of leq  */
+       complete shred, but the last shred may have been evicted, so we
+       need leq. */
 
     if( ele->complete_idx != UINT_MAX &&
-        next_shred_idx < ele->complete_idx &&
+        next_shred_idx <= ele->complete_idx &&
         !fd_forest_blk_idxs_test( ele->idxs, next_shred_idx ) ) {
       iter->shred_idx = next_shred_idx;
       break;

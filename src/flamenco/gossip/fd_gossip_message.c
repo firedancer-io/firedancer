@@ -514,6 +514,8 @@ deser_contact_info( fd_gossip_value_t * value,
     cur_port = result;
   }
 
+  memset( value->contact_info->sockets, 0, sizeof( value->contact_info->sockets ) );
+
   cur_port = 0U;
   for( ulong i=0UL; i<sockets_len; i++ ) {
     if( FD_LIKELY( sockets[ i ].key<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT ) ) {

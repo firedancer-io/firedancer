@@ -53,12 +53,14 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static void
-before_credit( fd_pktgen_tile_ctx_t * ctx,
-               fd_stem_context_t *    stem,
-               int *                  charge_busy ) {
+after_credit( fd_pktgen_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in,
+              int *                  charge_busy ) {
   if( FD_VOLATILE_CONST( fd_pktgen_active )!=1U ) return;
 
   *charge_busy = 1;
+  *opt_poll_in = 0;
 
   /* Select an arbitrary public IP as the fake destination.  The outgoing
      packet has an an invalid ip header, so it will not reach that
@@ -90,7 +92,7 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE fd_pktgen_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pktgen_tile_ctx_t)
 
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_AFTER_CREDIT after_credit
 
 #define STEM_LAZY ((ulong)1e9) /* max possible */
 

@@ -52,6 +52,7 @@ struct fd_backt_tile {
   int genesis;
   int snapshot_done;
   int first_fec_complete;
+  int reasm_ready; /* reasm root is set, so we can start publishing FECs to replay */
 
   fd_backtest_rocksdb_t *  rocksdb;
   fd_backtest_shredcap_t * shredcap;
@@ -255,6 +256,7 @@ after_credit( fd_backt_tile_t *   ctx,
 
   int process = ctx->shreds_cnt>=2UL || (ctx->reading_slot>ctx->end_slot && ctx->shreds_cnt );
   if( FD_UNLIKELY( !process ) ) return; /* need to buffer two in ordinary processing for completes fec lookahead */
+  if( FD_UNLIKELY( !ctx->reasm_ready ) ) return;
 
   *charge_busy = 1;
   ctx->idle_cnt = 0UL;
@@ -382,6 +384,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return 0;
       if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
+      if( FD_UNLIKELY( !ctx->reasm_ready ) ) ctx->reasm_ready = 1;
 
       fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       ctx->rooted_slots_block_id[ msg->slot%BANK_HASH_BUFFER_LEN ] = msg->block_id;
@@ -503,6 +506,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
   ctx->first_fec_complete = 0;
+  ctx->reasm_ready = 0;
   ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
 

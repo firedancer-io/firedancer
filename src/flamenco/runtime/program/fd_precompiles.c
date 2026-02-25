@@ -5,6 +5,8 @@
 #include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../ballet/secp256k1/fd_secp256k1.h"
 #include "../../../ballet/secp256r1/fd_secp256r1.h"
+#include "../fd_system_ids.h"
+#include "../fd_system_ids_pp.h"
 
 /* Docs:
    https://docs.solana.com/developing/runtime-facilities/programs#ed25519-program
@@ -220,6 +222,8 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+#if FD_HAS_S2NBIGNUM
+
 /*
   Secp256K1
 */
@@ -420,3 +424,64 @@ fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+static const fd_precompile_program_t precompiles[] = {
+    { &fd_solana_secp256r1_program_id,          offsetof(fd_features_t, enable_secp256r1_precompile), fd_precompile_secp256r1_verify },
+    { &fd_solana_keccak_secp_256k_program_id,   NO_ENABLE_FEATURE_ID,                                 fd_precompile_secp256k1_verify },
+    { &fd_solana_ed25519_sig_verify_program_id, NO_ENABLE_FEATURE_ID,                                 fd_precompile_ed25519_verify   },
+    {0}
+};
+
+fd_precompile_program_t const *
+fd_precompiles( void ) {
+  return precompiles;
+}
+
+#define MAP_PERFECT_NAME fd_native_precompile_program_fn_lookup_tbl
+#define MAP_PERFECT_LG_TBL_SZ 2
+#define MAP_PERFECT_T fd_native_prog_info_t
+#define MAP_PERFECT_HASH_C 63546U
+#define MAP_PERFECT_KEY key.uc
+#define MAP_PERFECT_KEY_T fd_pubkey_t const *
+#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
+#define MAP_PERFECT_COMPLEX_KEY 1
+#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
+
+#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>30)&0x3U)
+
+#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
+                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
+                                          PERFECT_HASH( (a00 | (a01<<8)) )
+#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_2( (uchar const *)ptr ) )
+
+#define MAP_PERFECT_0 ( ED25519_SV_PROG_ID  ), .fn = fd_precompile_ed25519_verify
+#define MAP_PERFECT_1 ( KECCAK_SECP_PROG_ID ), .fn = fd_precompile_secp256k1_verify
+#define MAP_PERFECT_2 ( SECP256R1_PROG_ID   ), .fn = fd_precompile_secp256r1_verify
+
+#include "../../../util/tmpl/fd_map_perfect.c"
+#undef PERFECT_HASH
+
+fd_exec_instr_fn_t
+fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
+  const fd_native_prog_info_t null_function = {0};
+  return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
+}
+
+#else /* !FD_HAS_S2NBIGNUM */
+
+fd_precompile_program_t const *
+fd_precompiles( void ) {
+  FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
+               "To install s2n-bignum, re-run ./deps.sh, make distclean, and make -j" ));
+  return NULL;
+}
+
+fd_exec_instr_fn_t
+fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
+  (void)pubkey;
+  FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
+               "To install s2n-bignum, re-run ./deps.sh, make distclean, and make -j" ));
+  return NULL;
+}
+
+#endif /* FD_HAS_S2NBIGNUM */

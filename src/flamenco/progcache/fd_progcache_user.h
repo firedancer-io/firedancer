@@ -125,6 +125,7 @@ fd_progcache_delete( void * ljoin ) {
 fd_progcache_t *
 fd_progcache_join( fd_progcache_t * ljoin,
                    void *           shfunk,
+                   void *           shlocks,
                    uchar *          scratch,
                    ulong            scratch_sz );
 
@@ -135,7 +136,8 @@ fd_progcache_join( fd_progcache_t * ljoin,
 
 void *
 fd_progcache_leave( fd_progcache_t * cache,
-                    void **          opt_shfunk );
+                    void **          opt_shfunk,
+                    void **          opt_shlocks );
 
 /* Record-level operations ********************************************/
 

@@ -46,17 +46,19 @@ snapshot_load_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "funk" );
-  fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
-      config->firedancer.funk.max_account_records,
+  setup_topo_funk( topo,
+      config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.funk.heap_size_gib );
+      config->firedancer.accounts.in_memory_only
+          ? config->firedancer.accounts.file_size_gib
+          : config->firedancer.accounts.max_unrooted_account_size_gib );
 
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
   ulong lta_tile_cnt           = config->firedancer.layout.snapshot_hash_tile_count;
   ulong snapwr_tile_cnt        = config->firedancer.layout.snapwr_tile_count;
   ulong snaplh_tile_cnt        = config->firedancer.layout.snapshot_hash_tile_count;
 
-  if( config->firedancer.vinyl.enabled ) {
+  if( !config->firedancer.accounts.in_memory_only ) {
     setup_topo_accdb_meta( topo, &config->firedancer );
   }
 
@@ -88,7 +90,7 @@ snapshot_load_topo( config_t * config ) {
   snapin_tile->allow_shutdown = 1;
 
   /* "snapwr": Snapshot writer tile */
-  int vinyl_enabled = config->firedancer.vinyl.enabled;
+  int vinyl_enabled = !config->firedancer.accounts.in_memory_only;
   if( vinyl_enabled ) {
 
     fd_topob_wksp( topo, "snapwm" );
@@ -261,11 +263,14 @@ snapshot_load_topo( config_t * config ) {
   }
 
   /* snapin funk / txncache access */
-  fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  snapin_tile->snapin.funk_obj_id     = funk_obj->id;
+  ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  fd_topob_tile_uses( topo, snapin_tile, &topo->objs[ funk_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, &topo->objs[ funk_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, snapin_tile, txncache_obj,   FD_SHMEM_JOIN_MODE_READ_WRITE );
+  snapin_tile->snapin.funk_obj_id     = funk_obj_id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
-  if( config->firedancer.vinyl.enabled ) {
+  if( !config->firedancer.accounts.in_memory_only ) {
     ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
     ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
 
@@ -377,13 +382,15 @@ snapshot_load_args( int *    pargc,
 static uint
 fsck_funk( config_t * config,
            _Bool      lthash ) {
-  ulong funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-  FD_TEST( funk_obj_id!=ULONG_MAX );
-  void * funk_shmem = fd_topo_obj_laddr( &config->topo, funk_obj_id );
+  uchar * props = config->topo.props;
+  ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  void * funk_shmem  = fd_topo_obj_laddr( &config->topo, funk_obj_id  );
+  void * locks_shmem = fd_topo_obj_laddr( &config->topo, locks_obj_id );
   fd_funk_t funk[1];
-  FD_TEST( fd_funk_join( funk, funk_shmem ) );
+  FD_TEST( fd_funk_join( funk, funk_shmem, locks_shmem ) );
   uint fsck_err = fd_accdb_fsck_funk( funk, lthash ? FD_ACCDB_FSCK_FLAGS_LTHASH : 0U );
-  FD_TEST( fd_funk_leave( funk, NULL ) );
+  FD_TEST( fd_funk_leave( funk, NULL, NULL ) );
   return fsck_err;
 }
 
@@ -564,11 +571,13 @@ static void
 accounts_hist_funk( accounts_hist_t * hist,
                     config_t *        config ) {
   fd_topo_t * topo = &config->topo;
-  ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
+  ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( funk_obj_id!=ULONG_MAX );
-  void * funk_shmem = fd_topo_obj_laddr( topo, funk_obj_id );
+  void * funk_shmem  = fd_topo_obj_laddr( topo, funk_obj_id );
+  void * locks_shmem = fd_topo_obj_laddr( topo, locks_obj_id );
   fd_funk_t funk[1];
-  FD_TEST( fd_funk_join( funk, funk_shmem ) );
+  FD_TEST( fd_funk_join( funk, funk_shmem, locks_shmem ) );
 
   fd_funk_rec_map_t const * rec_map = funk->rec_map;
   fd_funk_rec_t const * ele = rec_map->ele;
@@ -607,37 +616,28 @@ fixup_config( config_t *     config,
   }
 
   if( args->snapshot_load.db_rec_max ) {
-    config->firedancer.funk.max_account_records = args->snapshot_load.db_rec_max;
+    config->firedancer.accounts.max_accounts = args->snapshot_load.db_rec_max;
   }
 
   if( args->snapshot_load.db_sz ) {
-    config->firedancer.funk.heap_size_gib = fd_ulong_align_up( args->snapshot_load.db_sz, (1UL<<30) )>>30;
+    config->firedancer.accounts.file_size_gib = fd_ulong_align_up( args->snapshot_load.db_sz, (1UL<<30) )>>30;
   }
 
   if( args->snapshot_load.cache_sz ) {
-    config->firedancer.vinyl.cache_size_gib = fd_ulong_align_up( args->snapshot_load.cache_sz, (1UL<<30) )>>30;
+    config->firedancer.accounts.cache_size_gib = fd_ulong_align_up( args->snapshot_load.cache_sz, (1UL<<30) )>>30;
   }
 
   if( args->snapshot_load.cache_rec_max ) {
-    config->firedancer.vinyl.max_cache_entries = args->snapshot_load.cache_rec_max;
+    config->firedancer.accounts.mean_account_footprint =
+        (config->firedancer.accounts.cache_size_gib << 30) / args->snapshot_load.cache_rec_max;
   }
 
   if( args->snapshot_load.is_vinyl ) {
-    config->firedancer.vinyl.enabled = 1;
-
-    config->firedancer.vinyl.file_size_gib       = config->firedancer.funk.heap_size_gib;
-    config->firedancer.vinyl.max_account_records = config->firedancer.funk.max_account_records;
-
-    config->firedancer.funk.heap_size_gib       = 0;
-    /* This is a temporary solution, and only needed to avoid failing
-       the "!rec_max" check inside fd_funk_new.  TODO once funk is
-       removed from the snapshot load pipeline, this code would be
-       deprecated. */
-    config->firedancer.funk.max_account_records = 1;
+    config->firedancer.accounts.in_memory_only = 0;
 
     char const * io_mode = args->snapshot_load.vinyl_io;
-    if(      0==strcmp( io_mode, "ur" ) ) config->firedancer.vinyl.io_uring.enabled = 1;
-    else if( 0==strcmp( io_mode, "bd" ) ) {}
+    if(      0==strcmp( io_mode, "ur" ) ) fd_cstr_ncpy( config->firedancer.accounts.io_provider, "io_uring",  sizeof(config->firedancer.accounts.io_provider) );
+    else if( 0==strcmp( io_mode, "bd" ) ) fd_cstr_ncpy( config->firedancer.accounts.io_provider, "portable",  sizeof(config->firedancer.accounts.io_provider) );
     else FD_LOG_ERR(( "unsupported --vinyl-io '%s' (valid options are 'bd' and 'ur')", io_mode ));
   }
 

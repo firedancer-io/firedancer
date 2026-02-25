@@ -44,6 +44,7 @@ struct test_env {
   fd_banks_t           banks[1];
   fd_bank_t            bank[1];
   void *               funk_mem;
+  void *               funk_locks;
   fd_accdb_admin_t     accdb_admin[1];
   fd_accdb_user_t      accdb[1];
   fd_funk_txn_xid_t    xid;
@@ -113,17 +114,20 @@ test_env_create( test_env_t * env,
   env->tag  = 1UL;
 
   ulong const funk_seed       = 17UL;
-  ulong const txn_max         = 1UL;
+  ulong const txn_max         = 2UL;
   ulong const rec_max         = 16UL;
   ulong const max_total_banks = 2UL;
   ulong const max_fork_width  = 2UL;
 
-  env->funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), env->tag );
+  env->funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, rec_max ), env->tag );
   FD_TEST( env->funk_mem );
-  FD_TEST( fd_funk_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
+  env->funk_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, rec_max ), env->tag );
+  FD_TEST( env->funk_locks );
+  FD_TEST( fd_funk_shmem_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
+  FD_TEST( fd_funk_locks_new( env->funk_locks, txn_max, rec_max ) );
 
-  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem ) );
-  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem ) );
+  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, env->funk_locks ) );
+  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem, env->funk_locks, txn_max ) );
 
   fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width ), env->tag );
   FD_TEST( banks_data );
@@ -174,6 +178,7 @@ test_env_destroy( test_env_t * env ) {
   fd_accdb_admin_fini( env->accdb_admin );
   fd_accdb_user_fini( env->accdb );
   fd_wksp_free_laddr( fd_funk_delete( env->funk_mem ) );
+  fd_wksp_free_laddr( env->funk_locks );
 
   fd_wksp_usage_t usage[1];
   fd_wksp_usage( env->wksp, &env->tag, 1UL, usage );

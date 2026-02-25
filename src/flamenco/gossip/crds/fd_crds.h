@@ -6,7 +6,6 @@
 #include "../fd_gossip_purged.h"
 
 #include "../../../disco/metrics/generated/fd_metrics_enums.h"
-#include "../../../ballet/sha256/fd_sha256.h"
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
@@ -39,6 +38,14 @@ struct fd_crds_metrics {
 
 typedef struct fd_crds_metrics fd_crds_metrics_t;
 
+#define FD_GOSSIP_ACTIVITY_CHANGE_TYPE_ACTIVE   (1)
+#define FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE (2)
+
+typedef void (*fd_gossip_activity_update_fn)( void *                           ctx,
+                                              fd_pubkey_t const *              identity,
+                                              fd_gossip_contact_info_t const * ci,
+                                              int                              change_type );
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -48,11 +55,13 @@ FD_FN_CONST ulong
 fd_crds_footprint( ulong ele_max );
 
 void *
-fd_crds_new( void *                shmem,
-             fd_rng_t *            rng,
-             ulong                 ele_max,
-             fd_gossip_purged_t *  purged,
-             fd_gossip_out_ctx_t * gossip_update_out  );
+fd_crds_new( void *                       shmem,
+             fd_rng_t *                   rng,
+             ulong                        ele_max,
+             fd_gossip_purged_t *         purged,
+             fd_gossip_activity_update_fn activity_update_fn,
+             void *                       activity_update_fn_ctx,
+             fd_gossip_out_ctx_t *        gossip_update_out  );
 
 fd_crds_t *
 fd_crds_join( void * shcrds );
@@ -86,65 +95,33 @@ fd_crds_advance( fd_crds_t *         crds,
 ulong
 fd_crds_len( fd_crds_t const * crds );
 
-void
-fd_crds_generate_hash( fd_sha256_t * sha,
-                       uchar const * crds_value,
-                       ulong         crds_value_sz,
-                       uchar         out_hash[ static 32UL ] );
+/* fd_crds_insert upserts a CRDS value into the data store.  If the
+   value's key is not yet present, a new entry is acquired and indexed.
+   If a matching key already exists, the candidate is compared against
+   the incumbent using wallclock (and outset for ContactInfo); the
+   winner is kept and the loser is purged.
 
-/* fd_crds_checks_fast checks if inserting a CRDS value would fail on
-   specific conditions. Updates the CRDS purged table depending on the checks
-   that failed.
+   On top of inserting the CRDS entry, this function also updates the
+   sidetable of ContactInfo entries and the peer samplers if the entry
+   is a ContactInfo.  is_from_me indicates the CRDS entry originates
+   from this node.  We exclude our own entries from peer samplers.
+   origin_stake is used to weigh the peer in the samplers.
 
-   This isn't an exhaustive check, but that does not matter since
-   fd_crds_insert will perform the full check. This avoids expensive operations
-   like sigverify and hashing* if a CRDS value fails these fast checks.
+   stem is used to publish updates to {ContactInfo, Vote, DuplicateShred,
+   SnapshotHashes} entries.
 
-   Returns FD_CRDS_UPSERT_CHECK_UPSERTS if the value passes the fast checks.
-   Returns >0 if the value is a duplicate, with the return value denoting the
-   number of duplicates seen at this point (including current). Returns
-   FD_CRDS_UPSERT_CHECK_UNDETERMINED if further checks are needed
-   (e.g. hash comparison). Returns FD_CRDS_UPSERT_CHECK_FAILS for other
-   failures (e.g. too old). This will result in the candidate being purged.
+   Returns 0L on successful upsert, -1L if the candidate was stale
+   (not inserted), or >0 if the candidate was a duplicate (the return
+   value is the running duplicate count). */
 
-   Note that this function is not idempotent as duplicate counts are tracked by
-   the CRDS table.
-
-   *Hashing is performed if a failure condition warrants a purge insert. */
-
-int
-fd_crds_checks_fast( fd_crds_t *               crds,
-                     fd_gossip_value_t const * value,
-                     uchar const *             value_bytes,
-                     ulong                     value_bytes_len,
-                     uchar                     from_push_msg );
-
-/* fd_crds_insert inserts and indexes a CRDS value into the data store
-   as a CRDS entry, so that it can be returned by future queries. This
-   function should not be called if the result of fd_crds_checks_fast is
-   not FD_CRDS_UPSERT_CHECK_UPSERTS.
-
-   On top of inserting the CRDS entry, this function also updates the sidetable
-   of ContactInfo entries and the peer samplers if the entry is a ContactInfo.
-   is_from_me indicates the CRDS entry originates from this node. We exclude our
-   own entries from peer samplers. origin_stake is used to weigh the peer in the
-   samplers.
-
-   stem is used to publish updates to {ContactInfo, Vote, LowestSlot} entries.
-
-   Returns a pointer to the newly created CRDS entry. Lifetime is guaranteed
-   until the next call to the following functions:
-     - fd_crds_insert
-     - fd_crds_expire
-   Returns NULL if the insertion fails for any reason. */
-
-fd_crds_entry_t const *
+long
 fd_crds_insert( fd_crds_t *               crds,
                 fd_gossip_value_t const * value,
                 uchar const *             value_bytes,
                 ulong                     value_bytes_len,
                 ulong                     origin_stake,
-                uchar                     is_from_me,
+                int                       origin_active,
+                int                       is_me,
                 long                      now,
                 fd_stem_context_t *       stem );
 
@@ -165,19 +142,10 @@ fd_crds_entry_value( fd_crds_entry_t const * entry,
 uchar const *
 fd_crds_entry_hash( fd_crds_entry_t const * entry );
 
-/* fd_crds_entry_is_contact_info returns 1 if entry holds a Contact
-    Info CRDS value. Assumes entry was populated with either
-   fd_crds_populate_{preflight,full} */
-int
-fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry );
-
 /* fd_crds_contact_info returns a pointer to the contact info
    structure in the entry.  This is used to access the contact info
    fields in the entry, such as the pubkey, shred version, and
-   socket address.
-
-   Assumes crds entry is a contact info (check with
-   fd_crds_entry_is_contact_info) */
+   socket address.  Assumes crds entry is a contact info. */
 
 fd_gossip_contact_info_t *
 fd_crds_entry_contact_info( fd_crds_entry_t const * entry );
@@ -186,7 +154,7 @@ fd_crds_entry_contact_info( fd_crds_entry_t const * entry );
    fully decoded contact info of a */
 
 /* fd_crds_contact_info_lookup returns a pointer to the contact info
-   structure corresponding to pubkey. returns NULL if there is no such
+   structure corresponding to pubkey.  Returns NULL if there is no such
    entry. */
 
 fd_gossip_contact_info_t const *
@@ -196,24 +164,23 @@ fd_crds_contact_info_lookup( fd_crds_t const * crds,
 /* fd_crds_peer_count returns the number of Contact Info entries
    present in the sidetable. The lifetime of a Contact Info entry
    tracks the lifetime of the corresponding CRDS entry. */
+
 ulong
 fd_crds_peer_count( fd_crds_t const * crds );
 
-/* The CRDS table tracks whether a peer is active or not to determine
-   whether it should be sampled (see sample APIs).
-   fd_crds_peer_{active,inactive} provide a way to manage this state
-   for a given peer.
-
-   A peer's active state is typicallly determined by its ping/pong status. */
 void
 fd_crds_peer_active( fd_crds_t *   crds,
                      uchar const * peer_pubkey,
-                     long          now );
+                     int           active );
+
+/* fd_crds_self_stake updates the self-stake cap used by the pull
+   request peer sampler.  In Agave, each peer's pull-request weight is
+   computed as min(peer_stake, self_stake).  Call this whenever our own
+   stake changes (e.g. at epoch boundaries or identity change). */
 
 void
-fd_crds_peer_inactive( fd_crds_t *   crds,
-                       uchar const * peer_pubkey,
-                       long          now );
+fd_crds_self_stake( fd_crds_t * crds,
+                    ulong       self_stake );
 
 /* The CRDS Table also maintains a set of peer samplers for use in various
    Gossip tx cases. Namely
@@ -226,16 +193,15 @@ fd_crds_peer_inactive( fd_crds_t *   crds,
 
 uchar const *
 fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
-                                  fd_rng_t *  rng,
                                   ulong       bucket );
 
 /* fd_crds_bucket adds back in a peer that was previously
    sampled with fd_crds_bucket_sample_and_remove.  */
+
 void
 fd_crds_bucket_add( fd_crds_t *   crds,
                     ulong         bucket,
                     uchar const * pubkey );
-
 
 /* fd_crds_sample_peer randomly selects a peer node from the CRDS based
    weighted by stake.  Peers with a ContactInfo that hasn't been
@@ -255,8 +221,7 @@ fd_crds_bucket_add( fd_crds_t *   crds,
    contact info suitable for sending a gossip pull request. */
 
 fd_gossip_contact_info_t const *
-fd_crds_peer_sample( fd_crds_t const * crds,
-                     fd_rng_t *        rng );
+fd_crds_peer_sample( fd_crds_t const * crds );
 
 /* fd_crds_mask_iter_{init,next,done,entry} provide an API to
    iterate over the CRDS values in the table that whose hashes match

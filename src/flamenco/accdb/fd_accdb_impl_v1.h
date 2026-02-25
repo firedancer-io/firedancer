@@ -26,7 +26,9 @@ extern fd_accdb_user_vt_t const fd_accdb_user_v1_vt;
 
 fd_accdb_user_t *
 fd_accdb_user_v1_init( fd_accdb_user_t * ljoin,
-                       void *            shfunk );
+                       void *            shfunk,
+                       void *            shlocks,
+                       ulong             max_depth );
 
 fd_funk_t *
 fd_accdb_user_v1_funk( fd_accdb_user_t * accdb );

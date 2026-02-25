@@ -6,12 +6,14 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_admin_v2_t)<=sizeof(fd_accdb_admin_t),  layou
 fd_accdb_admin_t *
 fd_accdb_admin_v2_init( fd_accdb_admin_t * accdb_,
                         void *             shfunk,
+                        void *             shlocks,
                         void *             vinyl_rq,
                         void *             vinyl_data,
                         void *             vinyl_req_pool,
-                        ulong              vinyl_link_id ) {
+                        ulong              vinyl_link_id,
+                        ulong              max_depth ) {
   /* Call superclass constructor */
-  if( FD_UNLIKELY( !fd_accdb_admin_v1_init( accdb_, shfunk ) ) ) {
+  if( FD_UNLIKELY( !fd_accdb_admin_v1_init( accdb_, shfunk, shlocks ) ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( !vinyl_data ) ) {
@@ -28,14 +30,15 @@ fd_accdb_admin_v2_init( fd_accdb_admin_t * accdb_,
   }
 
   fd_accdb_admin_v2_t * accdb = fd_type_pun( accdb_ );
-  accdb->vinyl_req_id    = 0UL;
-  accdb->vinyl_rq        = rq;
-  accdb->vinyl_link_id   = vinyl_link_id;
-  accdb->vinyl_data_wksp = vinyl_data;
-  accdb->vinyl_req_wksp  = fd_wksp_containing( req_pool );
-  accdb->vinyl_req_pool  = req_pool;
-  accdb->base.accdb_type = FD_ACCDB_TYPE_V2;
-  accdb->base.vt         = &fd_accdb_admin_v2_vt;
+  accdb->root_lineage->max_depth = max_depth;
+  accdb->vinyl_req_id            = 0UL;
+  accdb->vinyl_rq                = rq;
+  accdb->vinyl_link_id           = vinyl_link_id;
+  accdb->vinyl_data_wksp         = vinyl_data;
+  accdb->vinyl_req_wksp          = fd_wksp_containing( req_pool );
+  accdb->vinyl_req_pool          = req_pool;
+  accdb->base.accdb_type         = FD_ACCDB_TYPE_V2;
+  accdb->base.vt                 = &fd_accdb_admin_v2_vt;
   return accdb_;
 }
 
@@ -145,7 +148,8 @@ fd_accdb_txn_publish_one( fd_accdb_admin_v2_t * accdb,
 
   /* Phase 2: Drain users from transaction */
 
-  fd_rwlock_write( txn->lock );
+  ulong txn_idx = (ulong)( txn - funk->txn_pool->ele );
+  fd_rwlock_write( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_PUBLISH;
 
   /* Phase 3: Move records from funk to vinyl */
@@ -158,7 +162,7 @@ fd_accdb_txn_publish_one( fd_accdb_admin_v2_t * accdb,
 
   /* Phase 5: Free transaction object */
 
-  fd_rwlock_unwrite( txn->lock );
+  fd_rwlock_unwrite( &funk->txn_lock[ txn_idx ] );
   txn_free( funk, txn );
 }
 

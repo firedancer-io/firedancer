@@ -18,9 +18,10 @@ union __attribute__((packed)) fd_hash {
   uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangeable
 
   // Generic type specific accessors
-  ulong ul  [ FD_HASH_FOOTPRINT / sizeof(ulong) ];
-  uint  ui  [ FD_HASH_FOOTPRINT / sizeof(uint)  ];
-  uchar uc  [ FD_HASH_FOOTPRINT ];
+  ulong  ul  [ FD_HASH_FOOTPRINT / sizeof(ulong)  ];
+  uint   ui  [ FD_HASH_FOOTPRINT / sizeof(uint)   ];
+  ushort us  [ FD_HASH_FOOTPRINT / sizeof(ushort) ];
+  uchar  uc  [ FD_HASH_FOOTPRINT                  ];
 };
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
@@ -103,6 +104,11 @@ struct fd_stake_weight {
   ulong       stake;    /* total stake by identity */
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
+
+#define SORT_NAME fd_stake_weight_key_sort
+#define SORT_KEY_T fd_stake_weight_t
+#define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )<0)
+#include "../../util/tmpl/fd_sort.c"
 
 static inline void fd_hash_new( fd_hash_t * self ) { (void)self; }
 static inline int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {

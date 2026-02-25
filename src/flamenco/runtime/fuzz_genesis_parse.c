@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
-static uchar genesis_buf[ FD_GENESIS_MAX_MESSAGE_SIZE ] __attribute__((aligned(alignof(fd_genesis_t))));
+static fd_genesis_t g_genesis[1];
 
 int
 LLVMFuzzerInitialize( int  *   argc,
@@ -16,56 +16,55 @@ LLVMFuzzerInitialize( int  *   argc,
   return 0;
 }
 
-static int
-genesis_accounts_check( uchar genesis_buf[ static FD_GENESIS_MAX_MESSAGE_SIZE ] ) {
+static void
+genesis_accounts_check( fd_genesis_t const * genesis,
+                        uchar const *        bin,
+                        ulong                bin_sz ) {
+  ulong prev_off = 0UL;
 
-  fd_genesis_t * genesis                = fd_type_pun( genesis_buf );
-  ulong          genesis_sz             = genesis->total_sz;
-  ulong          lowest_expected_offset = sizeof(fd_genesis_t);
+  assert( genesis->account_cnt<=FD_GENESIS_ACCOUNT_MAX_COUNT );
+  for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
+    ulong pubkey_off = genesis->account[ i ].pubkey_off;
+    ulong owner_off  = genesis->account[ i ].owner_off;
 
-  if( FD_UNLIKELY( genesis_sz>FD_GENESIS_MAX_MESSAGE_SIZE ) ) return 0;
+    assert( pubkey_off >= prev_off );
+    ulong data_off; assert( !__builtin_uaddl_overflow( pubkey_off, 48UL, &data_off ) );
+    ulong end_off;  assert( !__builtin_uaddl_overflow( owner_off,  41UL, &end_off  ) );
+    assert( data_off <= end_off );
+    assert( end_off  <= bin_sz  );
+    prev_off = end_off;
 
-  if( FD_UNLIKELY( genesis->accounts_len>FD_GENESIS_ACCOUNT_MAX_COUNT ) ) return 0;
-  for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
-    ulong account_off = genesis->accounts_off[ i ];
-    if( FD_UNLIKELY( account_off>genesis_sz ) )             return 0;
-    if( FD_UNLIKELY( account_off<lowest_expected_offset ) ) return 0;
-
-    fd_genesis_account_t * account = fd_type_pun( genesis_buf+account_off );
-    if( FD_UNLIKELY( account->meta.dlen>FD_RUNTIME_ACC_SZ_MAX ) ) return 0;
-
-    ulong next_offset = account_off+sizeof(fd_genesis_account_t)+account->meta.dlen;
-    if( FD_UNLIKELY( next_offset<lowest_expected_offset ) ) return 0;
-    lowest_expected_offset = next_offset;
+    ulong data_len = FD_LOAD( ulong, bin+pubkey_off+40UL );
+    assert( data_len<=FD_RUNTIME_ACC_SZ_MAX );
+    assert( pubkey_off+48UL+data_len==owner_off );
   }
 
-  if( FD_UNLIKELY( genesis->builtin_len>FD_GENESIS_BUILTIN_MAX_COUNT ) ) return 0;
-  for( ulong i=0UL; i<genesis->builtin_len; i++ ) {
-    ulong builtin_off = genesis->builtin_off[ i ];
-    if( FD_UNLIKELY( builtin_off>genesis_sz ) )             return 0;
-    if( FD_UNLIKELY( builtin_off<lowest_expected_offset ) ) return 0;
+  assert( genesis->builtin_cnt<=FD_GENESIS_BUILTIN_MAX_COUNT );
+  for( ulong i=0UL; i<genesis->builtin_cnt; i++ ) {
+    ulong data_len_off = genesis->builtin[ i ].data_len_off;
+    ulong pubkey_off   = genesis->builtin[ i ].pubkey_off;
 
-    fd_genesis_builtin_t * builtin = fd_type_pun( genesis_buf+builtin_off );
-    if( FD_UNLIKELY( builtin->data_len>FD_RUNTIME_ACC_SZ_MAX ) ) return 0;
-
-    ulong next_offset = builtin_off+sizeof(fd_genesis_builtin_t)+builtin->data_len;
-    if( FD_UNLIKELY( next_offset<lowest_expected_offset ) ) return 0;
-    lowest_expected_offset = next_offset;
+    assert( data_len_off >= prev_off );
+    ulong data_off; assert( !__builtin_uaddl_overflow( data_len_off, 8UL, &data_off ) );
+    assert( data_off <= bin_sz );
+    ulong data_len = FD_LOAD( ulong, bin+data_len_off );
+    assert( data_len<=FD_RUNTIME_ACC_SZ_MAX );
+    assert( data_off+data_len==pubkey_off );
+    ulong end_off; assert( !__builtin_uaddl_overflow( pubkey_off, 32UL, &end_off ) );
+    assert( end_off <= bin_sz );
+    prev_off = end_off;
   }
-
-  if( FD_UNLIKELY( lowest_expected_offset>genesis_sz  ) ) return 0;
-  return 1;
 }
 
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
+  fd_genesis_t * genesis = g_genesis;
+  if( !fd_genesis_parse( genesis, data, size ) ) return 0;
 
-  if( !fd_genesis_parse( genesis_buf, data, size ) ) return 0;
   /* In the genesis, the only two fields that are not fixed size are the
      accounts and the built-in accounts.  The offsets and bounds of each
      of the accounts are checked here. */
-  assert( genesis_accounts_check( genesis_buf ) );
-
+  genesis_accounts_check( genesis, data, size );
   return 0;
 }

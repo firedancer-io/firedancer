@@ -334,12 +334,9 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join banks" ));
   }
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->execrp.accdb_max_depth );
 
-  void * shprogcache = fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id );
-  if( FD_UNLIKELY( !fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
-  }
+  fd_progcache_init_from_topo( ctx->progcache, topo, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execrp.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

@@ -4,6 +4,7 @@
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
 #include "../program/fd_builtin_programs.h"
+#include "../program/fd_precompiles.h"
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"

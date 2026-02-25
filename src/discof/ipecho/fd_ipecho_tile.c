@@ -1,6 +1,7 @@
 #include "fd_ipecho_client.h"
 #include "fd_ipecho_server.h"
 #include "../genesis/fd_genesi_tile.h"
+#include "../genesis/genesis_hash.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
@@ -111,29 +112,16 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
                  ulong                  tsorig,
                  ulong                  tspub,
                  fd_stem_context_t *    stem ) {
-  (void)in_idx; (void)seq; (void)sig; (void)chunk; (void)sz; (void)ctl; (void)tsorig; (void)tspub;
+  (void)in_idx; (void)seq; (void)sig; (void)sz; (void)ctl; (void)tspub;
+  fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr( ctx->genesi_in_mem, chunk );
 
-  if( FD_UNLIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-    uchar const * src = fd_chunk_to_laddr_const( ctx->genesi_in_mem, chunk );
+  if( genesis_meta->bootstrap ) {
+    ushort shred_version = compute_shred_version( genesis_meta->genesis_hash.uc, NULL, NULL, 0UL );
+    FD_TEST( shred_version );
 
-    union {
-      uchar  c[ 32 ];
-      ushort s[ 16 ];
-    } hash;
-
-    fd_memcpy( hash.c, src+sizeof(fd_lthash_value_t), sizeof(fd_hash_t) );
-
-    ushort xor = 0;
-    for( ulong i=0UL; i<16UL; i++ ) xor ^= hash.s[ i ];
-
-    xor = fd_ushort_bswap( xor );
-    xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
-
-    FD_TEST( xor );
-
-    FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, xor );
-    fd_stem_publish( stem, 0UL, xor, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    fd_ipecho_server_set_shred_version( ctx->server, xor );
+    FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, shred_version );
+    fd_stem_publish( stem, 0UL, shred_version, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_ipecho_server_set_shred_version( ctx->server, shred_version );
     ctx->retrieving = 0;
   }
 

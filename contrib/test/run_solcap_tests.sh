@@ -91,9 +91,9 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
         enabled = false
     [tiles.rpc]
         enabled = false
-[funk]
-    heap_size_gib = 1
-    max_account_records = 2000000
+[accounts]
+    file_size_gib = 1
+    max_accounts = 2000000
 [runtime]
     max_live_slots = 64
     max_fork_width = 4

@@ -17,10 +17,13 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   ulong const txn_max   =  2UL;
   ulong const rec_max   = 32UL;
 
-  void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), funk_tag );
+  void * funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, rec_max ), funk_tag );
   FD_TEST( funk_mem );
-  FD_TEST( fd_funk_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
-  fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem );
+  FD_TEST( fd_funk_shmem_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
+  void * shlocks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, rec_max ), funk_tag );
+  FD_TEST( shlocks );
+  FD_TEST( fd_funk_locks_new( shlocks, txn_max, rec_max ) );
+  fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem, shlocks, txn_max );
   FD_TEST( accdb );
 
   fd_banks_locks_t * bank_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag );
@@ -34,12 +37,13 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   bank->locks = bank_locks;
 
   env->shfunk       = funk_mem;
+  env->shlocks      = shlocks;
   env->bank         = bank;
   env->xid          = (fd_funk_txn_xid_t) { .ul={ 0UL, 0UL } };
   env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->data->non_cow.sysvar_cache ) );
 
   fd_accdb_admin_t admin[1];
-  FD_TEST( fd_accdb_admin_v1_init( admin, funk_mem ) );
+  FD_TEST( fd_accdb_admin_v1_init( admin, funk_mem, shlocks ) );
   fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
   fd_accdb_attach_child( admin, &root, &env->xid );
   fd_accdb_admin_fini( admin );

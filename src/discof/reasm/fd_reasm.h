@@ -182,6 +182,7 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
 
   /* Data (set by caller) */
 
+  ulong bank_dead;
   ulong bank_idx;
   ulong bank_seq;
   ulong parent_bank_idx;

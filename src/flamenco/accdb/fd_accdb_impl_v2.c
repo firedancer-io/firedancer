@@ -22,8 +22,10 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_user_v2_t)<=sizeof(fd_accdb_user_t),  layout 
      current thread to signal completion before attempting to access) */
 
 static void
-fd_funk_rec_write_lock( fd_funk_rec_t * rec ) {
-  ulong volatile * vl = &rec->ver_lock;
+fd_funk_rec_write_lock( fd_funk_t const * funk,
+                        fd_funk_rec_t *   rec ) {
+  ulong rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  ulong volatile * vl = &funk->rec_lock[ rec_idx ];
   ulong val = FD_VOLATILE_CONST( *vl );
   if( FD_UNLIKELY( fd_funk_rec_lock_bits( val ) ) ) {
     FD_LOG_CRIT(( "fd_funk_rec_write_lock(" FD_FUNK_REC_PAIR_FMT ") failed: record has active readers",
@@ -37,15 +39,19 @@ fd_funk_rec_write_lock( fd_funk_rec_t * rec ) {
 }
 
 static void
-fd_funk_rec_write_lock_uncontended( fd_funk_rec_t * rec ) {
-  ulong val     = rec->ver_lock;
+fd_funk_rec_write_lock_uncontended( fd_funk_t const * funk,
+                                    fd_funk_rec_t *   rec ) {
+  ulong rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  ulong val     = funk->rec_lock[ rec_idx ];
   ulong val_ver = fd_funk_rec_ver_bits( val );
-  rec->ver_lock = fd_funk_rec_ver_lock( val_ver, FD_FUNK_REC_LOCK_MASK );
+  funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( val_ver, FD_FUNK_REC_LOCK_MASK );
 }
 
 static void
-fd_funk_rec_write_unlock( fd_funk_rec_t * rec ) {
-  ulong volatile * vl = &rec->ver_lock;
+fd_funk_rec_write_unlock( fd_funk_t const * funk,
+                          fd_funk_rec_t *   rec ) {
+  ulong rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  ulong volatile * vl = &funk->rec_lock[ rec_idx ];
   ulong val = FD_VOLATILE_CONST( *vl );
   if( FD_UNLIKELY( fd_funk_rec_lock_bits( val )!=FD_FUNK_REC_LOCK_MASK ) ) {
     FD_LOG_CRIT(( "fd_funk_rec_write_unlock(" FD_FUNK_REC_PAIR_FMT ") failed: record is not write locked",
@@ -65,8 +71,10 @@ fd_funk_rec_write_unlock( fd_funk_rec_t * rec ) {
    may concurrently root the txn as we are querying. */
 
 static int
-fd_funk_rec_read_lock( fd_funk_rec_t * rec ) {
-  ulong volatile * vl = &rec->ver_lock;
+fd_funk_rec_read_lock( fd_funk_t const * funk,
+                       fd_funk_rec_t *   rec ) {
+  ulong rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  ulong volatile * vl = &funk->rec_lock[ rec_idx ];
   for(;;) {
     ulong val      = FD_VOLATILE_CONST( *vl );
     ulong val_ver  = fd_funk_rec_ver_bits ( val );
@@ -86,8 +94,10 @@ fd_funk_rec_read_lock( fd_funk_rec_t * rec ) {
 }
 
 static void
-fd_funk_rec_read_unlock( fd_funk_rec_t * rec ) {
-  ulong volatile * vl = &rec->ver_lock;
+fd_funk_rec_read_unlock( fd_funk_t const * funk,
+                         fd_funk_rec_t *   rec ) {
+  ulong rec_idx = (ulong)( rec - funk->rec_pool->ele );
+  ulong volatile * vl = &funk->rec_lock[ rec_idx ];
   for(;;) {
     ulong val      = FD_VOLATILE_CONST( *vl );
     ulong val_ver  = fd_funk_rec_ver_bits ( val );
@@ -193,9 +203,9 @@ next:
       is_write = 0;
     }
     if( is_write ) {
-      fd_funk_rec_write_lock( best );
+      fd_funk_rec_write_lock( accdb->funk, best );
     } else {
-      if( fd_funk_rec_read_lock( best )!=FD_MAP_SUCCESS ) {
+      if( fd_funk_rec_read_lock( accdb->funk, best )!=FD_MAP_SUCCESS ) {
         return ACQUIRE_FAILED; /* record about to be moved to vinyl */
       }
     }
@@ -204,8 +214,8 @@ next:
   /* Retry if there was contention at the hash map */
   if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
     if( best ) {
-      if( is_write ) fd_funk_rec_write_unlock( best );
-      else           fd_funk_rec_read_unlock ( best );
+      if( is_write ) fd_funk_rec_write_unlock( accdb->funk, best );
+      else           fd_funk_rec_read_unlock ( accdb->funk, best );
     }
     return ACQUIRE_FAILED;
   }
@@ -464,7 +474,7 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
 
       if( FD_UNLIKELY( !flag_create && fd_accdb_ref_lamports( rw->ro )==0UL ) ) {
         /* Tombstone */
-        fd_funk_rec_write_unlock( rec );
+        fd_funk_rec_write_unlock( v2->funk, rec );
         goto not_found;
       }
 
@@ -491,7 +501,7 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
       fd_accdb_ro_t * ro = rw->ro;
       if( FD_UNLIKELY( !flag_create && fd_accdb_ref_lamports( ro )==0UL ) ) {
         /* Tombstone */
-        fd_funk_rec_read_unlock( rec );
+        fd_funk_rec_read_unlock( v2->funk, rec );
         goto not_found;
       }
 
@@ -520,7 +530,7 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
       accdb->base.rw_active++;
 
       FD_COMPILER_MFENCE();
-      fd_funk_rec_read_unlock( rec );
+      fd_funk_rec_read_unlock( v2->funk, rec );
 
       continue; /* next account */
     }
@@ -537,7 +547,7 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
 not_found:
       if( flag_create ) {
         fd_accdb_funk_create( v2->funk, rw, txn, addr_i, data_max0[ i ] );
-        fd_funk_rec_write_lock_uncontended( (fd_funk_rec_t *)rw->ref->user_data );
+        fd_funk_rec_write_lock_uncontended( v2->funk, (fd_funk_rec_t *)rw->ref->user_data );
         accdb->base.rw_active++;
       } else {
         memset( rw, 0, sizeof(fd_accdb_ref_t) );
@@ -577,7 +587,7 @@ not_found:
     }
 
     fd_accdb_funk_prep_create( rw, v2->funk, txn, addr_i, val, val_sz, val_max );
-    fd_funk_rec_write_lock_uncontended( (fd_funk_rec_t *)rw->ref->user_data );
+    fd_funk_rec_write_lock_uncontended( v2->funk, (fd_funk_rec_t *)rw->ref->user_data );
 
     req_cnt++;
     accdb->base.rw_active++;
@@ -621,7 +631,7 @@ funk_close_rw( fd_accdb_user_v2_t * accdb,
     fd_funk_rec_publish( accdb->funk, &prepare );
   }
 
-  fd_funk_rec_write_unlock( rec );
+  fd_funk_rec_write_unlock( accdb->funk, rec );
   accdb->base.rw_active--;
 }
 
@@ -686,7 +696,7 @@ fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
     switch( ref0[ i ].ref_type ) {
     case FD_ACCDB_REF_RO:
       accdb->base.ro_active--;
-      fd_funk_rec_read_unlock( (fd_funk_rec_t *)ref->user_data );
+      fd_funk_rec_read_unlock( v2->funk, (fd_funk_rec_t *)ref->user_data );
       break;
     case FD_ACCDB_REF_RW:
       funk_close_rw( v2, (fd_accdb_rw_t *)ref );
@@ -764,10 +774,12 @@ fd_accdb_user_v2_rw_data_sz_set( fd_accdb_user_t * accdb,
 fd_accdb_user_t *
 fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
                        void *            shfunk,
+                       void *            shlocks,
                        void *            vinyl_rq,
                        void *            vinyl_data,
                        void *            vinyl_req_pool,
-                       ulong             vinyl_link_id ) {
+                       ulong             vinyl_link_id,
+                       ulong             max_depth ) {
   if( FD_UNLIKELY( !accdb_ ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -784,7 +796,7 @@ fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
   fd_accdb_user_v2_t * accdb = fd_type_pun( accdb_ );
   memset( accdb, 0, sizeof(fd_accdb_user_v2_t) );
 
-  if( FD_UNLIKELY( !fd_funk_join( accdb->funk, shfunk ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_join( accdb->funk, shfunk, shlocks ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
 
@@ -796,14 +808,15 @@ fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
     return NULL;
   }
 
-  accdb->vinyl_req_id    = 0UL;
-  accdb->vinyl_rq        = rq;
-  accdb->vinyl_link_id   = vinyl_link_id;
-  accdb->vinyl_data_wksp = vinyl_data;
-  accdb->vinyl_req_wksp  = fd_wksp_containing( req_pool );
-  accdb->vinyl_req_pool  = req_pool;
-  accdb->base.accdb_type = FD_ACCDB_TYPE_V2;
-  accdb->base.vt         = &fd_accdb_user_v2_vt;
+  accdb->lineage->max_depth = max_depth;
+  accdb->vinyl_req_id       = 0UL;
+  accdb->vinyl_rq           = rq;
+  accdb->vinyl_link_id      = vinyl_link_id;
+  accdb->vinyl_data_wksp    = vinyl_data;
+  accdb->vinyl_req_wksp     = fd_wksp_containing( req_pool );
+  accdb->vinyl_req_pool     = req_pool;
+  accdb->base.accdb_type    = FD_ACCDB_TYPE_V2;
+  accdb->base.vt            = &fd_accdb_user_v2_vt;
   return accdb_;
 }
 
@@ -813,7 +826,7 @@ fd_accdb_user_v2_fini( fd_accdb_user_t * accdb ) {
 
   fd_vinyl_rq_leave( user->vinyl_rq );
 
-  if( FD_UNLIKELY( !fd_funk_leave( user->funk, NULL ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
+  if( FD_UNLIKELY( !fd_funk_leave( user->funk, NULL, NULL ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
 }
 
 ulong

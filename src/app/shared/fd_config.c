@@ -423,6 +423,10 @@ fd_config_fill( fd_config_t * config,
     }
   }
 
+  if( FD_UNLIKELY( config->is_firedancer && strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) && (!config->consensus.expected_shred_version || config->consensus.wait_for_vote_to_start_leader) ) ) {
+    FD_LOG_ERR(( "Config option [consensus.wait_for_supermajority_with_bank_hash] requires consensus.expected_shred_version!=0 and consensus.wait_for_vote_to_start_leader==false." ));
+  }
+
   if( FD_UNLIKELY( config->is_firedancer && config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
@@ -477,8 +481,18 @@ fd_config_validatef( fd_configf_t const * config ) {
     }
   }
 
-  CFG_HAS_NON_ZERO( vinyl.max_account_records );
-  CFG_HAS_NON_ZERO( vinyl.file_size_gib       );
+  CFG_HAS_NON_ZERO( accounts.max_accounts           );
+  CFG_HAS_NON_ZERO( accounts.file_size_gib          );
+  CFG_HAS_NON_ZERO( accounts.mean_account_footprint );
+  if( FD_UNLIKELY( !config->accounts.in_memory_only ) ) {
+    CFG_HAS_NON_ZERO( accounts.cache_size_gib                );
+    CFG_HAS_NON_ZERO( accounts.max_unrooted_account_size_gib );
+  }
+
+  if( 0!=strcmp( config->accounts.io_provider, "io_uring" ) &&
+      0!=strcmp( config->accounts.io_provider, "portable" ) ) {
+    FD_LOG_ERR(( "unsupported `accounts.io_provider`: \"%s\"", config->accounts.io_provider ));
+  }
 }
 
 static void
