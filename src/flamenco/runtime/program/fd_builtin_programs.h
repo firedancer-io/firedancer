@@ -5,7 +5,6 @@
 #include "../fd_bank.h"
 #include "../fd_system_ids_pp.h"
 
-#define NO_ENABLE_FEATURE_ID ULONG_MAX
 #define FD_CORE_BPF_MIGRATION_TARGET_BUILTIN   (0)
 #define FD_CORE_BPF_MIGRATION_TARGET_STATELESS (1)
 
@@ -40,13 +39,6 @@ struct fd_stateless_builtin_program {
   fd_core_bpf_migration_config_t const * core_bpf_migration_config;
 };
 typedef struct fd_stateless_builtin_program fd_stateless_builtin_program_t;
-
-struct fd_precompile_program {
-  fd_pubkey_t const * pubkey;
-  ulong               feature_offset;
-  int                 (*verify_fn)(fd_exec_instr_ctx_t*);
-};
-typedef struct fd_precompile_program fd_precompile_program_t;
 
 struct fd_tmp_account {
   fd_pubkey_t       addr;
@@ -101,12 +93,6 @@ fd_is_migrating_builtin_program( fd_bank_t const *   bank,
 
 uchar
 fd_is_non_migrating_builtin_program( fd_pubkey_t const * pubkey );
-
-fd_precompile_program_t const *
-fd_precompiles( void );
-
-ulong
-fd_num_precompiles( void );
 
 void
 fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,

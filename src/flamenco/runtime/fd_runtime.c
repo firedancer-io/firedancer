@@ -23,6 +23,7 @@
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
+#include "program/fd_precompiles.h"
 #include "program/fd_program_util.h"
 
 #include "sysvar/fd_sysvar_clock.h"
@@ -421,10 +422,10 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
   }
 
   /* https://github.com/anza-xyz/agave/blob/c1080de464cfb578c301e975f498964b5d5313db/runtime/src/bank.rs#L6795-L6805 */
-  fd_precompile_program_t const * precompiles = fd_precompiles();
-  for( ulong i=0UL; i<fd_num_precompiles(); i++ ) {
-    if( precompiles[i].feature_offset != NO_ENABLE_FEATURE_ID && FD_FEATURE_JUST_ACTIVATED_OFFSET( bank, precompiles[i].feature_offset ) ) {
-      fd_write_builtin_account( bank, accdb, xid, capture_ctx, *precompiles[i].pubkey, "", 0 );
+  for( fd_precompile_program_t const * precompiles = fd_precompiles(); precompiles->verify_fn; precompiles++ ) {
+    if( precompiles->feature_offset != NO_ENABLE_FEATURE_ID &&
+        FD_FEATURE_JUST_ACTIVATED_OFFSET( bank, precompiles->feature_offset ) ) {
+      fd_write_builtin_account( bank, accdb, xid, capture_ctx, *precompiles->pubkey, "", 0 );
     }
   }
 }

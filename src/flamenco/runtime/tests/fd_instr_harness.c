@@ -7,6 +7,7 @@
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_loader_v4_program.h"
+#include "../program/fd_precompiles.h"
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../log_collector/fd_log_collector.h"

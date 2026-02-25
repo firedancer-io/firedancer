@@ -35,6 +35,7 @@
 #include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/runtime/program/fd_precompiles.h"
 
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
@@ -2895,6 +2896,9 @@ unprivileged_init( fd_topo_t *      topo,
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, ROOT_SLOT_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics.root_account_dur,   FD_MHIST_SECONDS_MIN( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ) ) );
+
+  /* Ensure precompiles are available, crash fast otherwise */
+  fd_precompiles();
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
