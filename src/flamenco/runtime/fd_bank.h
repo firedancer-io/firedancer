@@ -7,6 +7,7 @@
 #include "../rewards/fd_epoch_rewards.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_vote_states.h"
+#include "../stakes/fd_vote_stakes.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
 #include "sysvar/fd_sysvar_cache.h"
@@ -347,7 +348,8 @@ struct fd_bank_data {
 
   ulong refcnt; /* (r) reference count on the bank, see replay for more details */
 
-  fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
+  fd_txncache_fork_id_t    txncache_fork_id; /* fork id used by the txn cache */
+  fd_vote_stakes_fork_id_t vote_stakes_fork_id; /* fork id used by the vote stakes */
 
   /* Timestamps written and read only by replay */
 
@@ -533,6 +535,8 @@ struct fd_banks_data {
 
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
   ulong vote_states_pool_offset_;
+
+  ulong vote_stakes_pool_offset;
 
   ulong dead_banks_deque_offset;
 
@@ -775,6 +779,16 @@ fd_banks_set_cost_tracker_pool( fd_banks_data_t * banks_data,
     FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
   }
   banks_data->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)banks_data;
+}
+
+static inline fd_vote_stakes_t *
+fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_pool_offset );
+}
+
+static inline void
+fd_banks_set_vote_stakes( fd_banks_data_t * banks_data, fd_vote_stakes_t * vote_stakes ) {
+  banks_data->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)banks_data;
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */

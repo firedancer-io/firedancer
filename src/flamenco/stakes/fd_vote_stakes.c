@@ -205,7 +205,7 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
 
       if( FD_UNLIKELY( ele->refcnt==0U ) ) {
         FD_TEST( index_map_ele_remove( index_map, &ele->index_key, NULL, index_pool ) );
-        FD_TEST( index_map_multi_ele_remove( index_map_multi, &ele->pubkey, NULL, index_pool ) );
+        FD_TEST( index_map_multi_ele_remove_fast( index_map_multi, ele, index_pool ) );
         index_pool_ele_release( index_pool, ele );
       }
     }
@@ -276,4 +276,9 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
   stake_t * stake = stakes_pool_ele_acquire( stakes_pool );
   stake->idx = (uint)index_pool_idx( index_pool, index_ele );
   FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
+}
+
+ushort
+fd_vote_stakes_get_root_idx( fd_vote_stakes_t * vote_stakes ) {
+  return vote_stakes->root_idx;
 }

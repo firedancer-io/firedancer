@@ -39,16 +39,17 @@ typedef struct index_ele index_ele_t;
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define MAP_NAME               index_map_multi
-#define MAP_MULTI              1
-#define MAP_KEY_T              fd_pubkey_t
-#define MAP_ELE_T              index_ele_t
-#define MAP_KEY                pubkey
-#define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
-#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
-#define MAP_PREV               prev_multi
-#define MAP_NEXT               next_multi
-#define MAP_IDX_T              uint
+#define MAP_NAME                           index_map_multi
+#define MAP_MULTI                          1
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#define MAP_KEY_T                          fd_pubkey_t
+#define MAP_ELE_T                          index_ele_t
+#define MAP_KEY                            pubkey
+#define MAP_KEY_EQ(k0,k1)                  (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed)             (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_PREV                           prev_multi
+#define MAP_NEXT                           next_multi
+#define MAP_IDX_T                          uint
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* Each pool index is just an array of uint indices into the pool. */
