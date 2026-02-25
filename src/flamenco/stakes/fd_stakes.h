@@ -44,6 +44,7 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
 
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
+                          fd_runtime_stack_t *           runtime_stack,
                           fd_accdb_user_t *              accdb,
                           fd_funk_txn_xid_t const *      xid,
                           fd_capture_ctx_t *             capture_ctx,
@@ -64,6 +65,7 @@ stake_activating_and_deactivating( fd_delegation_t const * delegation,
 
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
+                          fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch );

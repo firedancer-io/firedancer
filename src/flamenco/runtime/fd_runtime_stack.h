@@ -36,16 +36,15 @@ union fd_runtime_stack {
 
   struct {
 
-    /* Vote state credits as of the end of the previous epoch.  This
-       only used at boot to recalculate partitioned epoch rewards if
-       needed and is not updated after. */
-    int                     prev_vote_credits_used;
+    /* Staging memory for the epoch credits and the commission for each
+       vote account.  This is populated during snapshot loading in case
+       of reward recalculation or during the epoch boundary. */
     fd_vote_state_credits_t vote_credits[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-
-    fd_vote_state_credits_t vote_credits_curr[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
     /* Staging memory for vote rewards as they are accumulated. */
     ulong                   vote_rewards[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+
+    ulong                   computed_stake[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
