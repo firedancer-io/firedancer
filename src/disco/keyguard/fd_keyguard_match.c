@@ -1,6 +1,7 @@
 #include "fd_keyguard.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/txn/fd_compact_u16.h"
+#include "../../flamenco/gossip/fd_gossip_value.h"
 
 /* fd_keyguard_match fingerprints signing requests and checks them for
    ambiguity.
@@ -195,8 +196,8 @@ fd_keyguard_payload_matches_prune_data( uchar const * data,
 
 FD_FN_PURE static int
 fd_keyguard_payload_matches_gossip( uchar const * data,
-                                        ulong         sz,
-                                        int           sign_type ) {
+                                    ulong         sz,
+                                    int           sign_type ) {
 
   /* All gossip messages except pings use raw signing */
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
@@ -206,15 +207,9 @@ fd_keyguard_payload_matches_gossip( uchar const * data,
      location). */
   if( sz<36UL ) return 0;
 
-  /* There probably won't ever be more than 32 different gossip message
-     types. */
-  if( (data[0] <0x20)
-    & (data[1]==0x00)
-    & (data[2]==0x00)
-    & (data[3]==0x00) )
-    return 1;
+  uint tag = FD_LOAD( uint, data );
 
-  return 0;
+  return tag<FD_GOSSIP_VALUE_CNT;
 }
 
 FD_FN_PURE static int

@@ -2,8 +2,14 @@
 #include "fd_keyguard_client.h"
 #include "../bundle/fd_bundle_crank_constants.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/gossip/fd_gossip_value.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../waltz/tls/fd_tls.h"
+/* manually include just fd_features_generated.h so we can get
+   FD_FEATURE_SET_ID without anything else that we don't need. */
+#define HEADER_fd_src_flamenco_features_fd_features_h
+#include "../../flamenco/features/fd_features_generated.h"
+#undef HEADER_fd_src_flamenco_features_fd_features_h
 
 struct fd_keyguard_sign_req {
   fd_keyguard_authority_t * authority;
@@ -90,9 +96,96 @@ fd_keyguard_authorize_gossip( fd_keyguard_authority_t const * authority,
                               uchar const *                   data,
                               ulong                           sz,
                               int                             sign_type ) {
-  /* FIXME Add gossip message authorization here */
-  (void)authority; (void)data; (void)sz; (void)sign_type;
-  return 1;
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
+  /* Every gossip message contains a 4 byte enum variant tag (at the
+     beginning of the message) and a 32 byte public key (at an arbitrary
+     location). */
+  if( sz<36UL        ) return 0;
+  if( sz>1188UL-64UL ) return 0;
+
+  uint tag = FD_LOAD( uint, data );
+  ulong origin_off = ULONG_MAX;
+  switch( tag ) {
+    case FD_GOSSIP_VALUE_VOTE:
+      origin_off = 1UL;
+      if( sz<4UL+1UL+32UL+FD_TXN_MIN_SERIALIZED_SZ+8UL ) return 0;
+      ulong sig_cnt = data[ 4UL+1UL+32UL ];
+      if( (sig_cnt==0UL) | (sig_cnt>2UL) ) return 0;
+      ulong vote_off = 4UL+1UL+32UL+1UL+64UL*sig_cnt;
+      if( !fd_keyguard_authorize_vote_txn( authority, data+vote_off, sz-(vote_off+8UL), FD_KEYGUARD_SIGN_TYPE_ED25519 ) )
+        return 0;
+      break;
+    case FD_GOSSIP_VALUE_CONTACT_INFO:
+      origin_off = 0UL;
+      /* Contact info is pretty tough to parse.  The best we can do is
+         check the feature set and client ID.
+         min sz
+          4B      tag
+         32B      origin
+          1B-10B  wallclock
+          8B      outset
+          2B      shred version
+          1B-3B   major version
+          1B-3B   minor version
+          1B-3B   patch version
+          4B      commit
+          4B      feature set
+          1B-3B   client ID
+          1B-3B   unique addr cnt
+          ???     IP addresses
+          1B-3B   socket cnt
+          ???     ports
+          1B-3B   extension len
+          ...
+
+        Total: 62B+
+         */
+      if( sz<62UL     ) return 0;
+      ulong off = 4UL+32UL;
+      for( ulong i=0UL; i<10UL; i++ ) if( !(data[ off++ ]&0x80) ) break;
+      off += 8UL+2UL;
+      /* off<56, so we're still safe here */
+      if( sz<off+15UL ) return 0;
+      for( ulong i=0UL; i<3UL;  i++ ) if( !(data[ off++ ]&0x80) ) break;
+      for( ulong i=0UL; i<3UL;  i++ ) if( !(data[ off++ ]&0x80) ) break;
+      for( ulong i=0UL; i<3UL;  i++ ) if( !(data[ off++ ]&0x80) ) break;
+      if( sz<off+12UL ) return 0;
+      uint  commit      = FD_LOAD( uint, data+off ); off += 4UL;
+      uint  feature_set = FD_LOAD( uint, data+off ); off += 4UL;
+      uchar client_id   = data[ off ];
+      (void)commit; /* Checking commit introduces a circular dependency between disco and app :'( */
+      if( feature_set!=FD_FEATURE_SET_ID ) return 0;
+      if( client_id  !=5                 ) return 0; /* FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER */
+
+      break;
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
+      origin_off = 2UL;
+      if( sz< 4UL+65UL           ) return 0;
+      ulong chunk_len = FD_LOAD( ulong, data+4UL+57UL );
+      if( sz!=4UL+65UL+chunk_len ) return 0;
+      break;
+
+    /* We don't sign these yet. */
+    case FD_GOSSIP_VALUE_NODE_INSTANCE:   /* origin_off = 0UL; break; */ return 0;
+    case FD_GOSSIP_VALUE_SNAPSHOT_HASHES: /* origin_off = 0UL; break; */ return 0;
+
+    /* We refuse to serialize these */
+    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:
+    case FD_GOSSIP_VALUE_LOWEST_SLOT:
+    case FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES:
+    case FD_GOSSIP_VALUE_ACCOUNT_HASHES:
+    case FD_GOSSIP_VALUE_EPOCH_SLOTS:
+    case FD_GOSSIP_VALUE_LEGACY_VERSION:
+    case FD_GOSSIP_VALUE_VERSION:
+    case FD_GOSSIP_VALUE_RESTART_LAST_VOTED_FORK_SLOTS:
+    case FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK:
+    default:
+                                          return 0;
+  }
+  if( sz<sizeof(uint)+origin_off+32UL ) return 0;
+
+  return fd_memeq( authority->identity_pubkey, data+sizeof(uint)+origin_off, 32UL );
 }
 
 static int
