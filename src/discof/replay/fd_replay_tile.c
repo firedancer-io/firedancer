@@ -2127,6 +2127,7 @@ after_credit( fd_replay_tile_t *  ctx,
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, frontier_indices[i] ) );
       if( FD_UNLIKELY( ctx->is_leader && frontier_indices[i]==ctx->leader_bank->data->idx ) ) continue;
       mark_bank_dead( ctx, stem, bank->data->idx );
+      fd_sched_block_abandon( ctx->sched, bank->data->idx );
     }
   }
 
