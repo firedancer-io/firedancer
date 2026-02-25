@@ -679,6 +679,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                  fd_accdb_ref_data_sz( vote_ro ),
                                  vsv_buf,
                                  &runtime_stack->stakes.vote_credits[ vote_state->idx ] );
+    fd_accdb_close_ro( accdb, vote_ro );
   }
 
   /* First we must compute the stake and vote rewards for the just

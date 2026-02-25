@@ -54,8 +54,7 @@ int main( int argc, char ** argv ) {
   vote_state_ele->node_account        = node_account_0;
   vote_state_ele->last_vote_timestamp = 100L;
   vote_state_ele->last_vote_slot      = 1000UL;
-  vote_state_ele->stake_t_1               = 10UL;
-
+  vote_state_ele->stake_t_1           = 10UL;
   FD_TEST( fd_vote_states_cnt( vote_states ) == 1UL );
 
   vote_state_ele = fd_vote_states_update( vote_states, &vote_account_1 );

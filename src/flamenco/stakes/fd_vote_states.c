@@ -303,8 +303,6 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     last_vote_slot      = vsv->inner.v3.last_timestamp.slot;
     break;
   case fd_vote_state_versioned_enum_v4:
-  /* Commission calculation is deliberate according to this:
-     https://github.com/anza-xyz/agave/blob/v3.1.1/vote/src/vote_state_view/field_frames.rs#L353 */
     node_account        = vsv->inner.v4.node_pubkey;
     last_vote_timestamp = vsv->inner.v4.last_timestamp.timestamp;
     last_vote_slot      = vsv->inner.v4.last_timestamp.slot;
