@@ -7,6 +7,7 @@
 #include "crds/fd_crds.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../leaders/fd_leaders_base.h"
 
 FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT==FD_GOSSIP_MESSAGE_CNT,
                   "FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT must match FD_GOSSIP_MESSAGE_CNT" );
@@ -122,14 +123,14 @@ fd_gossip_footprint( ulong max_values,
                      ulong entrypoints_len ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t),     sizeof(fd_gossip_t)                                                     );
-  l = FD_LAYOUT_APPEND( l, fd_gossip_purged_align(), fd_gossip_purged_footprint( max_values )                                );
-  l = FD_LAYOUT_APPEND( l, fd_crds_align(),          fd_crds_footprint( max_values )                                         );
-  l = FD_LAYOUT_APPEND( l, fd_active_set_align(),    fd_active_set_footprint()                                               );
-  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(),  fd_ping_tracker_footprint( entrypoints_len )                            );
-  l = FD_LAYOUT_APPEND( l, stake_pool_align(),       stake_pool_footprint( CRDS_MAX_CONTACT_INFO )                           );
-  l = FD_LAYOUT_APPEND( l, stake_map_align(),        stake_map_footprint( stake_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO ) ) );
-  l = FD_LAYOUT_APPEND( l, push_set_align(),         push_set_footprint( FD_ACTIVE_SET_MAX_PEERS )                           );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t),     sizeof(fd_gossip_t)                                                  );
+  l = FD_LAYOUT_APPEND( l, fd_gossip_purged_align(), fd_gossip_purged_footprint( max_values )                             );
+  l = FD_LAYOUT_APPEND( l, fd_crds_align(),          fd_crds_footprint( max_values )                                      );
+  l = FD_LAYOUT_APPEND( l, fd_active_set_align(),    fd_active_set_footprint()                                            );
+  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(),  fd_ping_tracker_footprint( entrypoints_len )                         );
+  l = FD_LAYOUT_APPEND( l, stake_pool_align(),       stake_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE )                   );
+  l = FD_LAYOUT_APPEND( l, stake_map_align(),        stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) ) );
+  l = FD_LAYOUT_APPEND( l, push_set_align(),         push_set_footprint( FD_ACTIVE_SET_MAX_PEERS )                        );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
 }
@@ -200,18 +201,18 @@ fd_gossip_new( void *                           shmem,
     FD_LOG_WARNING(( "max_values must be a power of 2" ));
     return NULL;
   }
-  ulong stake_map_chain_cnt = stake_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO );
+  ulong stake_map_chain_cnt = stake_map_chain_cnt_est( MAX_STAKED_LEADERS );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),     sizeof(fd_gossip_t)                           );
-  void * purged         = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_purged_align(), fd_gossip_purged_footprint( max_values )      );
-  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),          fd_crds_footprint( max_values )               );
-  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),    fd_active_set_footprint()                     );
-  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(),  fd_ping_tracker_footprint( entrypoints_len )  );
-  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),       stake_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
-  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),        stake_map_footprint( stake_map_chain_cnt )    );
-  void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),         push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
-  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_gossip_align() ) == (ulong)shmem + fd_gossip_footprint( max_values, entrypoints_len  ) );
+  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),     sizeof(fd_gossip_t)                                );
+  void * purged         = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_purged_align(), fd_gossip_purged_footprint( max_values )           );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),          fd_crds_footprint( max_values )                    );
+  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),    fd_active_set_footprint()                          );
+  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(),  fd_ping_tracker_footprint( entrypoints_len )       );
+  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),       stake_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),        stake_map_footprint( stake_map_chain_cnt )         );
+  void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),         push_set_footprint( FD_ACTIVE_SET_MAX_PEERS )      );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_gossip_align() ) == (ulong)shmem + fd_gossip_footprint( max_values, entrypoints_len  )     );
 
   gossip->gossip_net_out  = gossip_net_out;
 
@@ -231,7 +232,7 @@ fd_gossip_new( void *                           shmem,
   FD_TEST( gossip->ping_tracker );
 
   gossip->stake.count = 0UL;
-  gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, CRDS_MAX_CONTACT_INFO ) );
+  gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( gossip->stake.pool );
 
   gossip->stake.map = stake_map_join( stake_map_new( stake_weights, stake_map_chain_cnt, fd_rng_ulong( rng ) ) );
@@ -472,8 +473,6 @@ void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
                          fd_stake_weight_t const * stake_weights,
                          ulong                     stake_weights_cnt ) {
-  FD_TEST( stake_weights_cnt<=CRDS_MAX_CONTACT_INFO );
-
   stake_map_reset( gossip->stake.map );
 
   for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
