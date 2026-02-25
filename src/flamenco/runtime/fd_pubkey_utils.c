@@ -110,7 +110,6 @@ fd_pubkey_find_program_address( fd_pubkey_t const *   program_id,
       /* Stop looking if we have found a valid PDA */
       fd_memcpy( out, derived, sizeof(fd_pubkey_t) );
       fd_memcpy( out_bump_seed, bump_seed, 1UL );
-      /* Custom error may get set in fd_pubkey_derive_pda call */
       *custom_err = UINT_MAX;
       return FD_PUBKEY_SUCCESS;
     } else if( err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR && *custom_err!=FD_PUBKEY_ERR_INVALID_SEEDS ) {

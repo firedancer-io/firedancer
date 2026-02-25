@@ -262,28 +262,19 @@ fd_bundle_crank_gen_init( void                 * mem,
 static inline void
 fd_bundle_crank_update_epoch( fd_bundle_crank_gen_t * g,
                               ulong                   epoch ) {
-  struct __attribute__((packed)) {
-    char tip_distr_acct[24];
-    uchar vote_pubkey  [32];
-    ulong epoch;
-  } seeds[1] = {{
-    .vote_pubkey = { EXPAND_ARR32( g->crank3->validator_vote_account, 0 ) },
-    .epoch       = epoch
-  }};
-  memcpy( seeds->tip_distr_acct, "TIP_DISTRIBUTION_ACCOUNT", 24 );
-  FD_STATIC_ASSERT( sizeof(seeds)==24UL+32UL+8UL, seed_struct );
-  ulong seed_len = sizeof(seeds);
+  uchar const * const seeds[3] = {
+    (uchar const *)"TIP_DISTRIBUTION_ACCOUNT",
+    (uchar const *)g->crank3->validator_vote_account,
+    (uchar const *)&epoch,
+  };
+  ulong seed_szs[3] = { 24, 32, 8 };
   uint custom_err[1];
-
-  uchar const * _seeds[1] = { (uchar const *)seeds };
-
   FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)g->crank3->tip_distribution_program,
-                                                              1UL, _seeds, &seed_len,
+                                                              3UL, seeds, seed_szs,
                                                               (fd_pubkey_t *)g->crank3->new_tip_receiver,
                                                               &(g->crank3->init_tip_distribution_acct.bump), custom_err ) );
   memcpy( g->crank2->new_tip_receiver, g->crank3->new_tip_receiver, 32UL );
   g->configured_epoch = epoch;
-
 }
 
 void
