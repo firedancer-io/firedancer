@@ -2,10 +2,6 @@
 #include "fd_vote_stakes_private.h"
 
 int main( int argc, char * argv[] ) {
-  (void)argc;
-  (void)argv;
-  FD_LOG_NOTICE(( "pass" ));
-
   fd_boot( &argc, &argv );
 
   char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );

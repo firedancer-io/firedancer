@@ -3,7 +3,7 @@
 
 ulong
 fd_vote_stakes_align( void ) {
-  return 128UL;
+  return FD_VOTE_STAKES_ALIGN;
 }
 
 ulong
@@ -40,13 +40,18 @@ fd_vote_stakes_new( void * shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( max_fork_width>MAX_FORK_WIDTH ) ) {
+    FD_LOG_WARNING(( "max_fork_width is too large" ));
+    return NULL;
+  }
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_vote_stakes_t * vote_stakes         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(), sizeof(fd_vote_stakes_t) );
-  void *             index_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),     index_pool_footprint( max_vote_accounts ) );
-  void *             index_map_mem       = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),      index_map_footprint( map_chain_cnt ) );
+  fd_vote_stakes_t * vote_stakes         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),  sizeof(fd_vote_stakes_t) );
+  void *             index_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts ) );
+  void *             index_map_mem       = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
   void *             index_map_multi_mem = FD_SCRATCH_ALLOC_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
-  void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),      fork_pool_footprint( max_fork_width ) );
-  void *             fork_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(),     fork_dlist_footprint() );
+  void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
+  void *             fork_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
   for( ulong i=0; i<max_fork_width; i++ ) {
     void *    stakes_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
     stake_t * stakes_pool     = stakes_pool_join( stakes_pool_new( stakes_pool_mem, max_vote_accounts ) );
@@ -204,6 +209,7 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
         index_pool_ele_release( index_pool, ele );
       }
     }
+    fork_pool_idx_release( fork_pool, fork_idx );
   }
   /* TODO: There's probably a way to do a more efficient reset here. */
   stakes_map_reset( get_stakes_map( vote_stakes, root_idx ) );
