@@ -212,52 +212,52 @@ fd_xsk_setup_umem( fd_xsk_t *              xsk,
 static void
 fd_xsk_setup_poll( fd_xsk_t *              xsk,
                    fd_xsk_params_t const * params ) {
-    xsk->prefbusy_poll_enabled = 0;
-    if( 0!=strcmp( params->poll_mode, "prefbusy" ) ) return;
+  xsk->prefbusy_poll_enabled = 0;
+  if( 0!=strcmp( params->poll_mode, "prefbusy" ) ) return;
 
-    /* Configure socket options for preferred busy polling */
+  /* Configure socket options for preferred busy polling */
 
-    int prefbusy_poll = 1;
-    if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_PREFER_BUSY_POLL, &prefbusy_poll, sizeof(int) ) ) ) {
-        int err = errno;
-        FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_PREFER_BUSY_POLL,1) failed (%i-%s)", err, fd_io_strerror( err ) ));
-        if( err==EINVAL ) {
-            FD_LOG_WARNING(( "Hint: Does your kernel support preferred busy polling? SO_PREFER_BUSY_POLL is available from Linux 5.11 onwards" ));
-        }
-        return;
+  int prefbusy_poll = 1;
+  if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_PREFER_BUSY_POLL, &prefbusy_poll, sizeof(int) ) ) ) {
+    int err = errno;
+    FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_PREFER_BUSY_POLL,1) failed (%i-%s)", err, fd_io_strerror( err ) ));
+    if( err==EINVAL ) {
+      FD_LOG_WARNING(( "Hint: Does your kernel support preferred busy polling? SO_PREFER_BUSY_POLL is available from Linux 5.11 onwards" ));
     }
+    return;
+  }
 
-    if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL, &params->busy_poll_usecs, sizeof(uint) ) ) ) {
-      FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL,%u) failed (%i-%s)",
-                       params->busy_poll_usecs, errno, fd_io_strerror( errno ) ));
-      return;
-    }
+  if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL, &params->busy_poll_usecs, sizeof(uint) ) ) ) {
+    FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL,%u) failed (%i-%s)",
+                     params->busy_poll_usecs, errno, fd_io_strerror( errno ) ));
+    return;
+  }
 
-    /* The greater busy_poll_budget is, the greater the bias towards max RX pps
-       over max TX pps in a max network load scenario. */
-    uint busy_poll_budget = 64U;
-    if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL_BUDGET, &busy_poll_budget, sizeof(uint) ) ) ) {
-      FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL_BUDGET,%u) failed (%i-%s)",
-                       busy_poll_budget, errno, fd_io_strerror( errno ) ));
-      return;
-    }
+  /* The greater busy_poll_budget is, the greater the bias towards max RX pps
+     over max TX pps in a max network load scenario. */
+  uint busy_poll_budget = 64U;
+  if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL_BUDGET, &busy_poll_budget, sizeof(uint) ) ) ) {
+    FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL_BUDGET,%u) failed (%i-%s)",
+                     busy_poll_budget, errno, fd_io_strerror( errno ) ));
+    return;
+  }
 
-    /* Set socket non blocking */
+  /* Set socket non blocking */
 
-    int sk_flags = fcntl( xsk->xsk_fd, F_GETFL, 0 );
-    if( FD_UNLIKELY( sk_flags == -1 ) ) {
-        FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_GETFL, 0) failed (%i-%s)",
-                         errno, fd_io_strerror( errno ) ));
-        return;
-    }
-    if( FD_UNLIKELY( fcntl( xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK ) ) == -1 ) {
-        FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK) failed (%i-%s)",
-                          errno, fd_io_strerror( errno ) ));
-        return;
-    }
+  int sk_flags = fcntl( xsk->xsk_fd, F_GETFL, 0 );
+  if( FD_UNLIKELY( sk_flags == -1 ) ) {
+    FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_GETFL, 0) failed (%i-%s)",
+                     errno, fd_io_strerror( errno ) ));
+    return;
+  }
+  if( FD_UNLIKELY( fcntl( xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK ) ) == -1 ) {
+    FD_LOG_WARNING(( "fcntl(xsk->xsk_fd, F_SETFL, sk_flags | O_NONBLOCK) failed (%i-%s)",
+                     errno, fd_io_strerror( errno ) ));
+    return;
+  }
 
-    /* Successfully finished setting up prefbusy polling */
-    xsk->prefbusy_poll_enabled = 1U;
+  /* Successfully finished setting up prefbusy polling */
+  xsk->prefbusy_poll_enabled = 1U;
 }
 
 /* fd_xsk_init: Creates and configures an XSK socket object, and
