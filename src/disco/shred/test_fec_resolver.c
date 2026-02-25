@@ -144,7 +144,7 @@ test_one_batch( void ) {
     FD_TEST( sets_eq( set, *out_fec ) );
 
     for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) ADD_SHRED( r2, set->parity_shreds[ j ], OKAY    );
-    for( ulong j=0UL; j<10UL;                 j++ ) ADD_SHRED( r2, set->parity_shreds[ 0 ], IGNORED );
+    for( ulong j=0UL; j<10UL;                 j++ ) ADD_SHRED( r2, set->parity_shreds[ 0 ], DUPLICATE );
     ADD_SHRED( r2, set->data_shreds[ 0 ], COMPLETES );
     FD_TEST( *out_fec==out_sets+4UL+(i%4UL) );
     FD_TEST( sets_eq( set, *out_fec ) );
@@ -345,7 +345,7 @@ test_new_formats( void ) {
     } else {
       /* Some shreds are duplicated, so they can be ignored without the
          set being done. */
-      FD_TEST( retval==FD_FEC_RESOLVER_SHRED_IGNORED );
+      FD_TEST( retval==FD_FEC_RESOLVER_SHRED_DUPLICATE || retval==FD_FEC_RESOLVER_SHRED_IGNORED );
     }
   }
   FD_TEST( fec_sets==5UL );
@@ -576,13 +576,13 @@ test_merkle_root( void ) {
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, 0, pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
-  /* Test merkle root is not written on IGNORED. */
+  /* Test merkle root is not written on REJECTED. */
 
   shred = set->data_shreds[ 0 ].s;
   (*(uchar *)fd_shred_data_payload( shred ))++;
   memset( &actual, 0, sizeof(fd_bmtree_node_t) );
   memset( &expected, 0, sizeof(fd_bmtree_node_t) );
-  FD_TEST( FD_FEC_RESOLVER_SHRED_IGNORED==fd_fec_resolver_add_shred( r, shred, 2048UL, 0, pubkey, out_fec, out_shred, &actual, NULL ) );
+  FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, 0, pubkey, out_fec, out_shred, &actual, NULL ) );
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 
   /* Test merkle root is not written if NULL. */

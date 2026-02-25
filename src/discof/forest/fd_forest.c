@@ -405,6 +405,7 @@ fd_forest_verify( fd_forest_t const * forest ) {
 
   return 0;
 }
+#undef FAIL
 
 /* remove removes and returns a connected ele from ancestry or frontier
    maps.  does not remove orphaned ele.  does not unlink ele. */
@@ -735,6 +736,9 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           src,
                              fd_hash_t   * mr,
                              fd_hash_t   * cmr ) {
+  //FD_BASE58_ENCODE_32_BYTES( mr->key, mr_b58 );
+  //FD_BASE58_ENCODE_32_BYTES( cmr->key, cmr_b58 );
+  //FD_LOG_INFO(( "fd_forest_data_shred_insert: slot %lu, parent_slot %lu, shred_idx %u, fec_set_idx %u, slot_complete %d, src %d, mr %s, cmr %s", slot, parent_slot, shred_idx, fec_set_idx, slot_complete, src, mr_b58, cmr_b58 ));
   VER_INC;
   FD_TEST( shred_idx <= FD_SHRED_IDX_MAX );
   fd_forest_blk_t * ele = query( forest, slot );
@@ -811,7 +815,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
                    && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[fec_idx].mr.key, mr_b58 );
     FD_BASE58_ENCODE_32_BYTES( mr->key, mr_recv_b58 );
-    FD_LOG_WARNING(( "fd_forest_fec_insert: fec_resolver a version of fec_set_idx %u we dont have recorded. current_mr %s, received_mr %s", fec_set_idx, mr_b58, mr_recv_b58 ));
+    FD_LOG_WARNING(( "fd_forest_fec_insert: fec_resolver inserted a version of slot %lu fec_set_idx %u we dont have recorded. current_mr %s, received_mr %s", slot, fec_set_idx, mr_b58, mr_recv_b58 ));
     /* there are two cases:
 
        (1) the first and common case is that we've received a mix of
@@ -1196,6 +1200,7 @@ latest_confirmed_slot( fd_forest_t * forest, ulong root_idx ) {
   ulong * queue = fd_forest_deque( forest );
   fd_forest_blk_t * latest_confirmed = NULL;
   fd_forest_blk_t * pool             = fd_forest_pool( forest );
+  fd_forest_deque_remove_all( queue );
   fd_forest_deque_push_tail( queue, root_idx );
 
   /* BFS through the tree.  Since there can only be one confirmed fork,
