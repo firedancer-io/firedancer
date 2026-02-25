@@ -27,9 +27,6 @@ fd_vote_stakes_new( void * shmem,
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem );
 
-ushort
-fd_vote_stakes_init( fd_vote_stakes_t * vote_stakes );
-
 void
 fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
                             fd_pubkey_t *      pubkey,
@@ -41,13 +38,21 @@ fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes );
 
 void
 fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
-                             ushort             new_root_idx );
+                             ushort             root_idx );
 
 void
 fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
                        ushort             fork_idx,
                        fd_pubkey_t *      pubkey,
-                       ulong              stake );
+                       ulong              stake_t_1,
+                       ulong              stake_t_2 );
+
+void
+fd_vote_stakes_query_stake( fd_vote_stakes_t * vote_stakes,
+                            ushort             fork_idx,
+                            fd_pubkey_t *      pubkey,
+                            ulong *            stake_t_1_out,
+                            ulong *            stake_t_2_out );
 
 /*
   on epoch boundary:
