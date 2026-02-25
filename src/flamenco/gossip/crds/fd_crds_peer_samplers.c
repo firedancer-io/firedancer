@@ -172,10 +172,10 @@ wpeer_sampler_rem( wpeer_sampler_t * ps,
 ulong
 wpeer_sampler_peer_score( fd_crds_entry_t * peer,
                           long              now ) {
-  if( FD_UNLIKELY( !peer->contact_info.is_active ) ) return 0;
+  if( FD_UNLIKELY( !peer->ci->is_active ) ) return 0;
   ulong score  = BASE_WEIGHT;
         score += peer->stake;
-  if( FD_UNLIKELY( peer->wallclock_nanos<now-60*1000L*1000L*1000L ) ) score/=100;
+  if( FD_UNLIKELY( peer->ci->received_wallclock_nanos<now-60L*1000L*1000L*1000L ) ) score/=100;
 
   return score;
 }
@@ -188,8 +188,6 @@ wpeer_sampler_bucket_score( fd_crds_entry_t * peer,
 
   return score*score;
 }
-
-
 
 void
 crds_samplers_new( crds_samplers_t * ps ) {
@@ -215,7 +213,7 @@ crds_samplers_upd_peer_at_idx( crds_samplers_t * ps,
     return -1;
   }
   ps->ele[idx] = peer;
-  peer->contact_info.sampler_idx = idx;
+  peer->ci->sampler_idx = idx;
   ulong peer_score = wpeer_sampler_peer_score( peer, now );
   if( FD_UNLIKELY( wpeer_sampler_upd( ps->pr_sampler, peer_score, idx, ps->ele_cnt )<0 ) ) return -1;
 
@@ -225,25 +223,6 @@ crds_samplers_upd_peer_at_idx( crds_samplers_t * ps,
     if( FD_UNLIKELY( wpeer_sampler_upd( &ps->bucket_samplers[i], bucket_score, idx, ps->ele_cnt )<0 ) ) return -1;
   }
 
-  return 0;
-}
-
-int
-crds_samplers_swap_peer_at_idx( crds_samplers_t *  ps,
-                                fd_crds_entry_t *  new_peer,
-                                ulong              idx ) {
-  if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) {
-    FD_LOG_WARNING(( "Bad peer idx supplied in sample update" ));
-    return -1;
-  }
-  fd_crds_entry_t * old_peer = ps->ele[idx];
-  if( FD_UNLIKELY( !old_peer ) ) {
-    FD_LOG_ERR(( "No peer at index %lu in samplers" , idx ));
-  }
-
-  ps->ele[idx]                       = new_peer;
-  new_peer->contact_info.sampler_idx = idx;
-  old_peer->contact_info.sampler_idx = SAMPLE_IDX_SENTINEL;
   return 0;
 }
 
@@ -265,7 +244,7 @@ crds_samplers_add_peer( crds_samplers_t * ps,
 int
 crds_samplers_rem_peer( crds_samplers_t * ps,
                         fd_crds_entry_t * peer ) {
-  ulong idx = peer->contact_info.sampler_idx;
+  ulong idx = peer->ci->sampler_idx;
   if( FD_UNLIKELY( idx>=ps->ele_cnt ) ) return -1;
   if( FD_UNLIKELY( wpeer_sampler_rem( ps->pr_sampler, idx, ps->ele_cnt )<0 ) ) return -1;
   for( ulong i=0UL; i<25UL; i++ ) {
@@ -275,7 +254,7 @@ crds_samplers_rem_peer( crds_samplers_t * ps,
   // Shift the elements down in elems array
   for( ulong i = idx+1; i < ps->ele_cnt; i++ ) {
     ps->ele[i-1]                           = ps->ele[i];
-    ps->ele[i-1]->contact_info.sampler_idx = i-1;
+    ps->ele[i-1]->ci->sampler_idx = i-1;
   }
   ps->ele_cnt--;
   return 0;

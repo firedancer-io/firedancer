@@ -86,59 +86,26 @@ fd_crds_advance( fd_crds_t *         crds,
 ulong
 fd_crds_len( fd_crds_t const * crds );
 
-void
-fd_crds_generate_hash( fd_sha256_t * sha,
-                       uchar const * crds_value,
-                       ulong         crds_value_sz,
-                       uchar         out_hash[ static 32UL ] );
+/* fd_crds_insert upserts a CRDS value into the data store.  If the
+   value's key is not yet present, a new entry is acquired and indexed.
+   If a matching key already exists, the candidate is compared against
+   the incumbent using wallclock (and outset for ContactInfo); the
+   winner is kept and the loser is purged.
 
-/* fd_crds_checks_fast checks if inserting a CRDS value would fail on
-   specific conditions. Updates the CRDS purged table depending on the checks
-   that failed.
+   On top of inserting the CRDS entry, this function also updates the
+   sidetable of ContactInfo entries and the peer samplers if the entry
+   is a ContactInfo.  is_from_me indicates the CRDS entry originates
+   from this node.  We exclude our own entries from peer samplers.
+   origin_stake is used to weigh the peer in the samplers.
 
-   This isn't an exhaustive check, but that does not matter since
-   fd_crds_insert will perform the full check. This avoids expensive operations
-   like sigverify and hashing* if a CRDS value fails these fast checks.
+   stem is used to publish updates to {ContactInfo, Vote, DuplicateShred,
+   SnapshotHashes} entries.
 
-   Returns FD_CRDS_UPSERT_CHECK_UPSERTS if the value passes the fast checks.
-   Returns >0 if the value is a duplicate, with the return value denoting the
-   number of duplicates seen at this point (including current). Returns
-   FD_CRDS_UPSERT_CHECK_UNDETERMINED if further checks are needed
-   (e.g. hash comparison). Returns FD_CRDS_UPSERT_CHECK_FAILS for other
-   failures (e.g. too old). This will result in the candidate being purged.
+   Returns 0L on successful upsert, -1L if the candidate was stale
+   (not inserted), or >0 if the candidate was a duplicate (the return
+   value is the running duplicate count). */
 
-   Note that this function is not idempotent as duplicate counts are tracked by
-   the CRDS table.
-
-   *Hashing is performed if a failure condition warrants a purge insert. */
-
-int
-fd_crds_checks_fast( fd_crds_t *               crds,
-                     fd_gossip_value_t const * value,
-                     uchar const *             value_bytes,
-                     ulong                     value_bytes_len,
-                     uchar                     from_push_msg );
-
-/* fd_crds_insert inserts and indexes a CRDS value into the data store
-   as a CRDS entry, so that it can be returned by future queries. This
-   function should not be called if the result of fd_crds_checks_fast is
-   not FD_CRDS_UPSERT_CHECK_UPSERTS.
-
-   On top of inserting the CRDS entry, this function also updates the sidetable
-   of ContactInfo entries and the peer samplers if the entry is a ContactInfo.
-   is_from_me indicates the CRDS entry originates from this node. We exclude our
-   own entries from peer samplers. origin_stake is used to weigh the peer in the
-   samplers.
-
-   stem is used to publish updates to {ContactInfo, Vote, LowestSlot} entries.
-
-   Returns a pointer to the newly created CRDS entry. Lifetime is guaranteed
-   until the next call to the following functions:
-     - fd_crds_insert
-     - fd_crds_expire
-   Returns NULL if the insertion fails for any reason. */
-
-fd_crds_entry_t const *
+long
 fd_crds_insert( fd_crds_t *               crds,
                 fd_gossip_value_t const * value,
                 uchar const *             value_bytes,
@@ -165,19 +132,10 @@ fd_crds_entry_value( fd_crds_entry_t const * entry,
 uchar const *
 fd_crds_entry_hash( fd_crds_entry_t const * entry );
 
-/* fd_crds_entry_is_contact_info returns 1 if entry holds a Contact
-    Info CRDS value. Assumes entry was populated with either
-   fd_crds_populate_{preflight,full} */
-int
-fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry );
-
 /* fd_crds_contact_info returns a pointer to the contact info
    structure in the entry.  This is used to access the contact info
    fields in the entry, such as the pubkey, shred version, and
-   socket address.
-
-   Assumes crds entry is a contact info (check with
-   fd_crds_entry_is_contact_info) */
+   socket address.  Assumes crds entry is a contact info. */
 
 fd_gossip_contact_info_t *
 fd_crds_entry_contact_info( fd_crds_entry_t const * entry );

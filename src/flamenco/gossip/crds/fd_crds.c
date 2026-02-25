@@ -1,10 +1,54 @@
 #include "fd_crds.h"
-#include "fd_crds_contact_info.c"
 
 #include "../../../ballet/sha256/fd_sha256.h"
 #include "../../../funk/fd_funk_base.h" /* no link dependency, only using hash */
 
 #include <string.h>
+
+struct fd_crds_contact_info_entry {
+  fd_gossip_contact_info_t contact_info[1];
+  ulong                    outset;
+  long                     received_wallclock_nanos;
+  uchar                    is_active;
+  ulong                    sampler_idx;
+
+  fd_crds_entry_t *        crds_entry; /* Back-pointer to CRDS pool entry */
+
+  /* A list of "fresh" contact info entries is maintained, holding
+     entries that have been refreshed/inserted in the last 60s in
+     upsertion order (oldest first).
+
+     fd_crds_advance periodically checks for and removes peers from
+     this list if they exceed the threshold. Peers removed in this
+     loop are also re-scored in the peer sampler. This is different
+     from dropping the CRDS entry entirely, which also removes the
+     entry from this list. To avoid double-popping an entry we use
+     in_list as a presence check prior to removing */
+  struct {
+    ulong prev;
+    ulong next;
+    uchar in_list; /* 1 if in the fresh list, 0 otherwise */
+  } fresh_dlist;
+
+  /* The contact info side table has a separate size limit, so
+     we maintain a separate evict list to make space for new
+     entries */
+  struct {
+    ulong prev;
+    ulong next;
+  } evict_dlist;
+
+  struct {
+    ulong next;
+  } pool;
+};
+
+typedef struct fd_crds_contact_info_entry fd_crds_contact_info_entry_t;
+
+#define POOL_NAME  crds_contact_info_pool
+#define POOL_T     fd_crds_contact_info_entry_t
+#define POOL_NEXT  pool.next
+#include "../../../util/tmpl/fd_pool.c"
 
 FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO==FD_CONTACT_INFO_TABLE_SIZE,
                   "CRDS_MAX_CONTACT_INFO must match FD_CONTACT_INFO_TABLE_SIZE" );
@@ -28,68 +72,29 @@ typedef struct fd_crds_key fd_crds_key_t;
 
 struct fd_crds_entry_private {
   /* The core operation of the CRDS is to "upsert" a value.  Basically,
-    all of the message types are keyed by the originators public key,
-    and we only want to store the most recent message of each type.
+     all of the message types are keyed by the originators public key,
+     and we only want to store the most recent message of each type.
 
     This key field is the key for the hash table. */
   fd_crds_key_t key;
 
   union {
-    struct {
-      fd_crds_contact_info_entry_t * ci;
-      long                           instance_creation_wallclock_nanos;
-      uchar                          is_active;
-      ulong                          sampler_idx;
-
-      /* A list of "fresh" contact info entries is maintained, holding
-         entries that have been refreshed/inserted in the last 60s in
-         upsertion order (oldest first).
-
-         fd_crds_advance periodically checks for and removes peers from
-         this list if they exceed the threshold. Peers removed in this
-         loop are also re-scored in the peer sampler. This is different
-         from dropping the CRDS entry entirely, which also removes the
-         entry from this list. To avoid double-popping an entry we use
-         in_list as a presence check prior to removing */
-      struct {
-        ulong prev;
-        ulong next;
-        uchar in_list; /* 1 if in the fresh list, 0 otherwise */
-      } fresh_dlist;
-
-      /* The contact info side table has a separate size limit, so
-         we maintain a separate evict list to make space for new
-         entries */
-      struct {
-        ulong prev;
-        ulong next;
-      } evict_dlist;
-
-      /* TODO: stake-ordered treap/pq? */
-    } contact_info;
-    struct {
-      ulong  token;
-    } node_instance;
+    fd_crds_contact_info_entry_t * ci;
+    ulong node_instance_token;
   };
 
   /* When an originator creates a CRDS message, they attach their local
-    wallclock time to it.  This time is used to determine when a
-    message should be upserted.  If messages have the same key, the
-    newer one (as created by the originator) is used.
+     wallclock time to it.  This time is used to determine when a
+     message should be upserted.  If messages have the same key, the
+     newer one (as created by the originator) is used. */
+  ulong wallclock;
 
-    Messages encode wallclock in millis, firedancer converts
-    them into nanos internally. */
-  long    wallclock_nanos;
+  ushort value_sz;
+  uchar  value_bytes[ FD_GOSSIP_VALUE_MAX_SZ ];
+  uchar  value_hash[ 32UL ];
 
-  uchar   value_bytes[ FD_GOSSIP_VALUE_MAX_SZ ];
-  ushort  value_sz;
-
-  /* The value hash is the sha256 of the value_bytes.  It is used in
-     bloom filter generation and as a tiebreaker when a
-     fd_crds_checks_fast call returns CHECK_UNDETERMINED. */
-  uchar   value_hash[ 32UL ];
-  ulong   num_duplicates;
-  ulong   stake;
+  ulong num_duplicates;
+  ulong stake;
 
   struct {
     ulong next;
@@ -145,7 +150,7 @@ struct fd_crds_entry_private {
      matching a given mask.  To do this, we store the first 8 bytes of
      the value_hash in a sorted treap. */
   struct {
-    ulong hash_prefix;
+    ulong hash_prefix; /* TODO: Remove .. just use hash_value */
     ulong parent;
     ulong left;
     ulong right;
@@ -194,15 +199,15 @@ struct fd_crds_entry_private {
 
 
 #define DLIST_NAME  crds_contact_info_fresh_list
-#define DLIST_ELE_T fd_crds_entry_t
-#define DLIST_PREV  contact_info.fresh_dlist.prev
-#define DLIST_NEXT  contact_info.fresh_dlist.next
+#define DLIST_ELE_T fd_crds_contact_info_entry_t
+#define DLIST_PREV  fresh_dlist.prev
+#define DLIST_NEXT  fresh_dlist.next
 #include "../../../util/tmpl/fd_dlist.c"
 
 #define DLIST_NAME  crds_contact_info_evict_dlist
-#define DLIST_ELE_T fd_crds_entry_t
-#define DLIST_PREV  contact_info.evict_dlist.prev
-#define DLIST_NEXT  contact_info.evict_dlist.next
+#define DLIST_ELE_T fd_crds_contact_info_entry_t
+#define DLIST_PREV  evict_dlist.prev
+#define DLIST_NEXT  evict_dlist.next
 #include "../../../util/tmpl/fd_dlist.c"
 
 #define TREAP_NAME      hash_treap
@@ -281,6 +286,7 @@ struct fd_crds_private {
   int has_staked_node;
 
   fd_crds_entry_t * pool;
+  fd_crds_contact_info_entry_t * ci_pool;
 
   evict_treap_t *           evict_treap;
   staked_expire_dlist_t *   staked_expire_dlist;
@@ -288,13 +294,10 @@ struct fd_crds_private {
   hash_treap_t *            hash_treap;
   lookup_map_t *            lookup_map;
 
-  fd_gossip_purged_t *        purged;
+  fd_gossip_purged_t *      purged;
 
-  struct {
-    fd_crds_contact_info_entry_t *    pool;
-    crds_contact_info_fresh_list_t *  fresh_dlist;
-    crds_contact_info_evict_dlist_t * evict_dlist;
-  } contact_info;
+  crds_contact_info_fresh_list_t *  ci_fresh_dlist;
+  crds_contact_info_evict_dlist_t * ci_evict_dlist;
 
   crds_samplers_t samplers[1];
 
@@ -396,14 +399,14 @@ fd_crds_new( void *                    shmem,
 
   crds->purged = purged;
 
-  crds->contact_info.pool = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
-  FD_TEST( crds->contact_info.pool );
+  crds->ci_pool = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
+  FD_TEST( crds->ci_pool );
 
-  crds->contact_info.fresh_dlist = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_dlist ) );
-  FD_TEST( crds->contact_info.fresh_dlist );
+  crds->ci_fresh_dlist = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_dlist ) );
+  FD_TEST( crds->ci_fresh_dlist );
 
-  crds->contact_info.evict_dlist = crds_contact_info_evict_dlist_join( crds_contact_info_evict_dlist_new( _ci_evict_dlist ) );
-  FD_TEST( crds->contact_info.evict_dlist );
+  crds->ci_evict_dlist = crds_contact_info_evict_dlist_join( crds_contact_info_evict_dlist_new( _ci_evict_dlist ) );
+  FD_TEST( crds->ci_evict_dlist );
 
   FD_TEST( fd_sha256_join( fd_sha256_new( crds->sha256 ) ) );
 
@@ -448,48 +451,125 @@ fd_crds_metrics( fd_crds_t const * crds ) {
   return crds->metrics;
 }
 
-static inline void
-remove_contact_info( fd_crds_t *         crds,
-                     fd_crds_entry_t *   ci,
-                     long                now,
-                     fd_stem_context_t * stem ) {
-  FD_TEST( stem );
-  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
-  msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
-  msg->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
-  msg->contact_info_remove->idx = crds_contact_info_pool_idx( crds->contact_info.pool, ci->contact_info.ci );
-  fd_memcpy( msg->origin, ci->key.pubkey, 32UL );
-  fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
-
-  if( FD_LIKELY( ci->stake ) ) crds->metrics->peer_staked_cnt--;
-  else                         crds->metrics->peer_unstaked_cnt--;
-
-  crds->metrics->peer_visible_stake -= ci->stake;
-
-  if( FD_LIKELY( !!ci->contact_info.fresh_dlist.in_list ) ) {
-    crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, ci, crds->pool );
-  }
-  crds_contact_info_evict_dlist_ele_remove( crds->contact_info.evict_dlist, ci, crds->pool );
-  crds_contact_info_pool_ele_release( crds->contact_info.pool, ci->contact_info.ci );
-
-  /* FIXME: If the peer is in any active set bucket, it is NOT removed
-     here. If the peer is re-inserted into the CRDS table in the future,
-     it is added back into the bucket's sampler. This means a peer can
-     be sampled in a bucket (at least) twice during
-     fd_active_set_rotate. */
-  crds_samplers_rem_peer( crds->samplers, ci );
-}
-
 ulong
 fd_crds_len( fd_crds_t const * crds ) {
   return crds_pool_used( crds->pool );
 }
 
-void
-fd_crds_release( fd_crds_t *       crds,
-                 fd_crds_entry_t * value ) {
-  crds_pool_ele_release( crds->pool, value );
-  crds->metrics->count[ value->key.tag ]--;
+static inline void
+crds_unindex( fd_crds_t *       crds,
+              fd_crds_entry_t * entry ) {
+  if( FD_LIKELY( entry->stake ) ) staked_expire_dlist_ele_remove( crds->staked_expire_dlist, entry, crds->pool );
+  else                            unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, entry, crds->pool );
+
+  evict_treap_ele_remove( crds->evict_treap, entry, crds->pool );
+  hash_treap_ele_remove( crds->hash_treap, entry, crds->pool );
+  lookup_map_ele_remove( crds->lookup_map, &entry->key, NULL, crds->pool );
+
+  if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+    if( FD_LIKELY( entry->stake ) ) crds->metrics->peer_staked_cnt--;
+    else                            crds->metrics->peer_unstaked_cnt--;
+    crds->metrics->peer_visible_stake -= entry->stake;
+
+    if( FD_LIKELY( entry->ci->fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
+    crds_contact_info_evict_dlist_ele_remove( crds->ci_evict_dlist, entry->ci, crds->ci_pool );
+  }
+
+  crds->metrics->count[ entry->key.tag ]--;
+}
+
+static inline void
+crds_index( fd_crds_t *       crds,
+            fd_crds_entry_t * entry,
+            int               is_from_me ) {
+  if( FD_LIKELY( entry->stake ) ) staked_expire_dlist_ele_push_tail( crds->staked_expire_dlist, entry, crds->pool );
+  else                            unstaked_expire_dlist_ele_push_tail( crds->unstaked_expire_dlist, entry, crds->pool );
+
+  evict_treap_ele_insert( crds->evict_treap, entry, crds->pool );
+  hash_treap_ele_insert( crds->hash_treap, entry, crds->pool );
+  lookup_map_ele_insert( crds->lookup_map, entry, crds->pool );
+
+  if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+    if( FD_LIKELY( entry->stake ) ) crds->metrics->peer_staked_cnt++;
+    else                            crds->metrics->peer_unstaked_cnt++;
+    crds->metrics->peer_visible_stake += entry->stake;
+
+    crds_contact_info_evict_dlist_ele_push_tail( crds->ci_evict_dlist, entry->ci, crds->ci_pool );
+    if( FD_LIKELY( !is_from_me ) ) {
+      crds_contact_info_fresh_list_ele_push_tail( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
+      entry->ci->fresh_dlist.in_list = 1;
+    } else {
+      entry->ci->fresh_dlist.in_list = 0;
+    }
+  }
+
+  crds->metrics->count[ entry->key.tag ]++;
+}
+
+static inline void
+crds_release( fd_crds_t *         crds,
+              fd_crds_entry_t *   entry,
+              long                now,
+              int                 evicting,
+              fd_stem_context_t * stem ) {
+  crds_unindex( crds, entry );
+  fd_gossip_purged_insert_replaced( crds->purged, entry->value_hash, now );
+
+  if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+    if( FD_UNLIKELY( evicting ) ) crds->metrics->peer_evicted_cnt++;
+
+    /* FIXME: If the peer is in any active set bucket, it is NOT removed
+       here. If the peer is re-inserted into the CRDS table in the
+       future, it is added back into the bucket's sampler. This means a
+       peer can be sampled in a bucket (at least) twice during
+       fd_active_set_rotate. */
+    crds_samplers_rem_peer( crds->samplers, entry );
+
+    fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
+    msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
+    msg->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
+    msg->contact_info_remove->idx = crds_contact_info_pool_idx( crds->ci_pool, entry->ci );
+    fd_memcpy( msg->origin, entry->key.pubkey, 32UL );
+    fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
+
+    crds_contact_info_pool_ele_release( crds->ci_pool, entry->ci );
+  }
+
+  if( FD_UNLIKELY( evicting ) ) crds->metrics->evicted_cnt++;
+  else                          crds->metrics->expired_cnt++;
+
+  crds_pool_ele_release( crds->pool, entry );
+}
+
+static inline fd_crds_entry_t *
+crds_acquire( fd_crds_t *         crds,
+              int                 is_contact_info,
+              long                now,
+              fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( is_contact_info ) ) {
+    /* TODO: Should evict lowest stake CI first, or oldest if equally
+       low stake. */
+    if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->ci_pool ) ) ) {
+      fd_crds_contact_info_entry_t * ci_evict = crds_contact_info_evict_dlist_ele_peek_head( crds->ci_evict_dlist, crds->ci_pool );
+      crds_release( crds, ci_evict->crds_entry, now, 1, stem );
+    } else if( FD_UNLIKELY( !crds_pool_free( crds->pool ) ) ) {
+      evict_treap_fwd_iter_t it = evict_treap_fwd_iter_init( crds->evict_treap, crds->pool );
+      FD_TEST( !evict_treap_fwd_iter_done( it ) );
+      crds_release( crds, evict_treap_fwd_iter_ele( it, crds->pool ), now, 1, stem );
+    }
+    fd_crds_contact_info_entry_t * ci = crds_contact_info_pool_ele_acquire( crds->ci_pool );
+    fd_crds_entry_t * entry = crds_pool_ele_acquire( crds->pool );
+    entry->ci = ci;
+    entry->ci->crds_entry = entry;
+    return entry;
+  } else {
+    if( FD_UNLIKELY( !crds_pool_free( crds->pool ) ) ) {
+      evict_treap_fwd_iter_t it = evict_treap_fwd_iter_init( crds->evict_treap, crds->pool );
+      FD_TEST( !evict_treap_fwd_iter_done( it ) );
+      crds_release( crds, evict_treap_fwd_iter_ele( it, crds->pool ), now, 1, stem );
+    }
+    return crds_pool_ele_acquire( crds->pool );
+  }
 }
 
 static inline void
@@ -504,16 +584,7 @@ expire( fd_crds_t *         crds,
     fd_crds_entry_t * head = staked_expire_dlist_ele_peek_head( crds->staked_expire_dlist, crds->pool );
 
     if( FD_LIKELY( head->expire.wallclock_nanos>now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
-
-    staked_expire_dlist_ele_pop_head( crds->staked_expire_dlist, crds->pool );
-    hash_treap_ele_remove( crds->hash_treap, head, crds->pool );
-    lookup_map_ele_remove( crds->lookup_map, &head->key, NULL, crds->pool );
-    evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
-
-    if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) remove_contact_info( crds, head, now, stem );
-    fd_crds_release( crds, head );
-
-    crds->metrics->expired_cnt++;
+    crds_release( crds, head, now, 0, stem );
   }
 
   long unstaked_expire_duration_nanos = fd_long_if( crds->has_staked_node,
@@ -524,30 +595,20 @@ expire( fd_crds_t *         crds,
     fd_crds_entry_t * head = unstaked_expire_dlist_ele_peek_head( crds->unstaked_expire_dlist, crds->pool );
 
     if( FD_LIKELY( head->expire.wallclock_nanos>now-unstaked_expire_duration_nanos ) ) break;
-
-    unstaked_expire_dlist_ele_pop_head( crds->unstaked_expire_dlist, crds->pool );
-    hash_treap_ele_remove( crds->hash_treap, head, crds->pool );
-    lookup_map_ele_remove( crds->lookup_map, &head->key, NULL, crds->pool );
-    evict_treap_ele_remove( crds->evict_treap, head, crds->pool );
-
-    if( FD_UNLIKELY( head->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) remove_contact_info( crds, head, now, stem );
-    fd_crds_release( crds, head );
-
-    crds->metrics->expired_cnt++;
+    crds_release( crds, head, now, 0, stem );
   }
 }
 
-void
+static void
 unfresh( fd_crds_t * crds,
          long        now ) {
-  while( !crds_contact_info_fresh_list_is_empty( crds->contact_info.fresh_dlist, crds->pool ) ) {
-    fd_crds_entry_t * head = crds_contact_info_fresh_list_ele_peek_head( crds->contact_info.fresh_dlist, crds->pool );
+  while( !crds_contact_info_fresh_list_is_empty( crds->ci_fresh_dlist, crds->ci_pool ) ) {
+    fd_crds_contact_info_entry_t * head = crds_contact_info_fresh_list_ele_peek_head( crds->ci_fresh_dlist, crds->ci_pool );
 
-    if( FD_LIKELY( head->expire.wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
-
-    head = crds_contact_info_fresh_list_ele_pop_head( crds->contact_info.fresh_dlist, crds->pool );
-    head->contact_info.fresh_dlist.in_list = 0;
-    crds_samplers_upd_peer_at_idx( crds->samplers, head, head->contact_info.sampler_idx, now );
+    if( FD_LIKELY( head->received_wallclock_nanos>now-60L*1000L*1000L*1000L ) ) break;
+    head = crds_contact_info_fresh_list_ele_pop_head( crds->ci_fresh_dlist, crds->ci_pool );
+    head->fresh_dlist.in_list = 0;
+    crds_samplers_upd_peer_at_idx( crds->samplers, head->crds_entry, head->sampler_idx, now );
   }
 }
 
@@ -559,167 +620,9 @@ fd_crds_advance( fd_crds_t *         crds,
   unfresh( crds, now );
 }
 
-fd_crds_entry_t *
-fd_crds_acquire( fd_crds_t *         crds,
-                 long                now,
-                 fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( !crds_pool_free( crds->pool ) ) ) {
-    evict_treap_fwd_iter_t head = evict_treap_fwd_iter_init( crds->evict_treap, crds->pool );
-    FD_TEST( !evict_treap_fwd_iter_done( head ) );
-    fd_crds_entry_t * evict = evict_treap_fwd_iter_ele( head, crds->pool );
-
-    if( FD_LIKELY( !evict->stake ) ) unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, evict, crds->pool );
-    else                             staked_expire_dlist_ele_remove( crds->staked_expire_dlist, evict, crds->pool );
-
-    hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
-    lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
-    evict_treap_ele_remove( crds->evict_treap, evict, crds->pool );
-    if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) remove_contact_info( crds, evict, now, stem );
-
-    crds->metrics->evicted_cnt++;
-
-    return evict;
-  } else {
-    return crds_pool_ele_acquire( crds->pool );
-  }
-}
-
 int
 fd_crds_has_staked_node( fd_crds_t const * crds ) {
   return crds->has_staked_node;
-}
-
-static inline void
-generate_key( fd_gossip_value_t const * view,
-              fd_crds_key_t *           out_key ) {
-  out_key->tag = (uchar)view->tag;
-  fd_memcpy( out_key->pubkey, view->origin, 32UL );
-
-  switch( out_key->tag ) {
-    case FD_GOSSIP_VALUE_VOTE:
-      out_key->vote_index = view->vote->index;
-      break;
-    case FD_GOSSIP_VALUE_EPOCH_SLOTS:
-      out_key->epoch_slots_index = view->epoch_slots->index;
-      break;
-    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
-      out_key->duplicate_shred_index = view->duplicate_shred->index;
-      break;
-    default:
-      break;
-  }
-}
-
-void
-fd_crds_generate_hash( fd_sha256_t * sha,
-                       uchar const * crds_value,
-                       ulong         crds_value_sz,
-                       uchar         out_hash[ static 32UL ] ){
-  fd_sha256_init( sha );
-  fd_sha256_append( sha, crds_value, crds_value_sz );
-  fd_sha256_fini( sha, out_hash );
-}
-
-static inline void
-crds_entry_init( fd_gossip_value_t const * value,
-                 uchar const *             value_bytes,
-                 ulong                     value_bytes_len,
-                 fd_sha256_t *             sha,
-                 ulong                     stake,
-                 fd_crds_entry_t *         out_value ) {
-  fd_crds_key_t * key = &out_value->key;
-  generate_key( value, key );
-
-  out_value->wallclock_nanos = FD_MILLI_TO_NANOSEC( value->wallclock );
-  out_value->stake           = stake;
-
-  fd_crds_generate_hash( sha, value_bytes, value_bytes_len, out_value->value_hash );
-  out_value->hash.hash_prefix = fd_ulong_load_8( out_value->value_hash );
-
-  if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
-    out_value->node_instance.token = value->node_instance->token;
-  } else if( FD_UNLIKELY( key->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-    out_value->contact_info.instance_creation_wallclock_nanos = FD_MICRO_TO_NANOSEC( value->contact_info->outset );
-    /* Contact Info entry will be added to sampler upon successful insertion */
-    out_value->contact_info.sampler_idx = SAMPLE_IDX_SENTINEL;
-  }
-}
-
-/* overrides_fast
-    - returns 1 if candidate overrides existing (incumbent) CRDS value
-    - returns 0 if candidate does not override existing CRDS value
-    - return -1 if further checks are needed (e.g. hash comparison) */
-int
-overrides_fast( fd_crds_entry_t const *   incumbent,
-                fd_gossip_value_t const * candidate ){
-  long existing_wc        = incumbent->wallclock_nanos;
-  long candidate_wc       = FD_MILLI_TO_NANOSEC( candidate->wallclock );
-  long existing_ci_onset  = incumbent->contact_info.instance_creation_wallclock_nanos;
-  long candidate_ci_onset = FD_MICRO_TO_NANOSEC( candidate->contact_info->outset );
-
-  switch( candidate->tag ) {
-    case FD_GOSSIP_VALUE_CONTACT_INFO:
-      if( FD_UNLIKELY( candidate_ci_onset>existing_ci_onset ) ) return 1;
-      else if( FD_UNLIKELY( candidate_ci_onset<existing_ci_onset ) ) return 0;
-      else if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
-      else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
-      break;
-    case FD_GOSSIP_VALUE_NODE_INSTANCE:
-      if( FD_LIKELY( candidate->node_instance->token==incumbent->node_instance.token ) ) break;
-      else if( FD_LIKELY( memcmp( candidate->origin, incumbent->key.pubkey, 32UL ) ) ) break;
-      else if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
-      else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
-      else if( candidate->node_instance->token<incumbent->node_instance.token ) return 0;;
-      break;
-    default:
-      break;
-  }
-
-  if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
-  else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
-  return -1;
-}
-
-
-int
-fd_crds_checks_fast( fd_crds_t *               crds,
-                     fd_gossip_value_t const * value,
-                     uchar const *             value_bytes,
-                     ulong                     value_bytes_len,
-                     uchar                     from_push_msg ) {
-  fd_crds_key_t candidate_key;
-  generate_key( value, &candidate_key );
-  fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate_key, NULL, crds->pool );
-
-  if( FD_UNLIKELY( !incumbent ) ) return FD_CRDS_UPSERT_CHECK_UPSERTS;
-
-  if( FD_UNLIKELY( fd_ulong_load_8( incumbent->value_bytes )==fd_ulong_load_8( value->signature ) ) ) {
-    /* We have a duplicate, so we return the number of duplicates */
-    return (int)(++incumbent->num_duplicates);
-  }
-  int overrides = overrides_fast( incumbent, value );
-  if( FD_LIKELY( overrides==1 ) ) return FD_CRDS_UPSERT_CHECK_UPSERTS;
-
-  uchar cand_hash[ 32UL ];
-  fd_crds_generate_hash( crds->sha256, value_bytes, value_bytes_len, cand_hash );
-
-  if( FD_UNLIKELY( overrides==-1 ) ) {
-    /* Tiebreaker case, we compare hash values */
-    int res = memcmp( cand_hash, incumbent->value_hash, 32UL );
-    if( FD_UNLIKELY( !res ) ) {
-      /* Hashes match, so we treat this as a duplicate */
-      return (int)(++incumbent->num_duplicates);
-    } else if( res>0 ) {
-      /* Candidate hash is greater than incumbent hash, so we treat
-        this as an upsert */
-      return FD_CRDS_UPSERT_CHECK_UPSERTS;
-    }
-  }
-
-  from_push_msg ? fd_gossip_purged_insert_replaced( crds->purged, cand_hash, FD_MILLI_TO_NANOSEC( value->wallclock ) ) :
-                  fd_gossip_purged_insert_failed_insert( crds->purged, cand_hash, FD_MILLI_TO_NANOSEC( value->wallclock ) );
-
-  return FD_CRDS_UPSERT_CHECK_FAILS;
 }
 
 static inline void
@@ -737,15 +640,15 @@ publish_update_msg( fd_crds_t *               crds,
   }
 
   fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( crds->gossip_update );
-  msg->wallclock = (ulong)FD_NANOSEC_TO_MILLI( entry->wallclock_nanos );
+  msg->wallclock = entry->wallclock;
   fd_memcpy( msg->origin, entry->key.pubkey, 32UL );
 
   ulong sz;
   switch( entry->key.tag ) {
     case FD_GOSSIP_VALUE_CONTACT_INFO:
       msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
-      *msg->contact_info->value = *entry->contact_info.ci->contact_info;
-      msg->contact_info->idx = crds_contact_info_pool_idx( crds->contact_info.pool, entry->contact_info.ci );
+      *msg->contact_info->value = *entry->ci->contact_info;
+      msg->contact_info->idx = crds_contact_info_pool_idx( crds->ci_pool, entry->ci );
       sz = FD_GOSSIP_UPDATE_SZ_CONTACT_INFO;
       break;
     case FD_GOSSIP_VALUE_VOTE:
@@ -758,13 +661,13 @@ publish_update_msg( fd_crds_t *               crds,
       fd_crds_entry_t * ci = lookup_map_ele_query( crds->lookup_map, &lookup_ci, NULL, crds->pool );
 
       if( FD_LIKELY( ci && ci->key.tag == FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-        msg->vote->socket->is_ipv6 = ci->contact_info.ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6;
+        msg->vote->socket->is_ipv6 = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6;
         if( msg->vote->socket->is_ipv6 ) {
-          fd_memcpy( msg->vote->socket->ip6, ci->contact_info.ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip6, 16UL );
+          fd_memcpy( msg->vote->socket->ip6, ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip6, 16UL );
         } else {
-          msg->vote->socket->ip4 = ci->contact_info.ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
+          msg->vote->socket->ip4 = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4;
         }
-        msg->vote->socket->port = ci->contact_info.ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
+        msg->vote->socket->port = ci->ci->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port;
       } else {
         msg->vote->socket->is_ipv6 = 0;
         msg->vote->socket->ip4 = 0;
@@ -818,7 +721,29 @@ publish_update_msg( fd_crds_t *               crds,
                               now );
 }
 
-fd_crds_entry_t const *
+static int
+crds_compare( fd_crds_entry_t const *   incumbent,
+              fd_gossip_value_t const * candidate ){
+  int compare = 0;
+  switch( candidate->tag ) {
+    case FD_GOSSIP_VALUE_CONTACT_INFO:
+      if( FD_UNLIKELY( candidate->contact_info->outset<incumbent->ci->contact_info->outset ) ) compare = 1;
+      else if( FD_UNLIKELY( candidate->contact_info->outset>incumbent->ci->contact_info->outset ) ) compare = -1;
+      break;
+    /* NodeInstance has no special override logic in Agave — it uses
+       the default wallclock + hash tiebreaker like all other types. */
+    default:
+      break;
+  }
+
+  if( FD_UNLIKELY( compare ) ) return compare;
+
+  if( FD_UNLIKELY( candidate->wallclock<incumbent->wallclock ) ) return 1;
+  else if( FD_UNLIKELY( candidate->wallclock>incumbent->wallclock ) ) return -1;
+  else return 0;
+}
+
+long
 fd_crds_insert( fd_crds_t *               crds,
                 fd_gossip_value_t const * value,
                 uchar const *             value_bytes,
@@ -827,111 +752,85 @@ fd_crds_insert( fd_crds_t *               crds,
                 uchar                     is_from_me,
                 long                      now ,
                 fd_stem_context_t *       stem ) {
-  /* Update table count metrics at the end to avoid early return
-     handling */
-  fd_crds_entry_t * candidate = fd_crds_acquire( crds, now, stem );
-  crds_entry_init( value, value_bytes, value_bytes_len, crds->sha256, origin_stake, candidate );
-
-  crds->metrics->count[ candidate->key.tag ]++;
-
-  fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate->key, NULL, crds->pool );
-  uchar is_replacing = incumbent!=NULL;
-  if( FD_LIKELY( is_replacing ) ) {
-    fd_gossip_purged_insert_replaced( crds->purged, incumbent->value_hash, now );
-
-    if( FD_UNLIKELY( incumbent->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      if( FD_LIKELY( !!incumbent->contact_info.fresh_dlist.in_list ) ) crds_contact_info_fresh_list_ele_remove( crds->contact_info.fresh_dlist, incumbent, crds->pool );
-      crds_contact_info_evict_dlist_ele_remove( crds->contact_info.evict_dlist, incumbent, crds->pool );
-      candidate->contact_info.ci = incumbent->contact_info.ci;
-
-      /* is_active is user controlled (specifically by ping_tracker),
-         and is used in sampler score calculations. So we inherit the
-         incumbent's setting. */
-      candidate->contact_info.is_active = incumbent->contact_info.is_active;
-      if( FD_LIKELY( !is_from_me ) ) {
-        if( FD_UNLIKELY( candidate->stake!=incumbent->stake ) ) {
-          /* Perform a rescore here (expensive) */
-          crds_samplers_upd_peer_at_idx( crds->samplers, candidate, incumbent->contact_info.sampler_idx, now );
-        } else {
-          crds_samplers_swap_peer_at_idx( crds->samplers, candidate, incumbent->contact_info.sampler_idx );
-        }
-      }
-
-      if( FD_LIKELY( incumbent->stake ) ) crds->metrics->peer_staked_cnt--;
-      else                                crds->metrics->peer_unstaked_cnt--;
-      crds->metrics->peer_visible_stake -= incumbent->stake;
-    }
-
-    if( FD_LIKELY( incumbent->stake ) ) {
-      staked_expire_dlist_ele_remove( crds->staked_expire_dlist, incumbent, crds->pool );
-    } else {
-      unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, incumbent, crds->pool );
-    }
-    evict_treap_ele_remove( crds->evict_treap, incumbent, crds->pool );
-    hash_treap_ele_remove( crds->hash_treap, incumbent, crds->pool );
-    lookup_map_ele_remove( crds->lookup_map, &incumbent->key, NULL, crds->pool );
-    fd_crds_release( crds, incumbent );
-  } else if( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
-    if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->contact_info.pool ) ) ) {
-      fd_crds_entry_t * evict = crds_contact_info_evict_dlist_ele_peek_head( crds->contact_info.evict_dlist, crds->pool );
-      remove_contact_info( crds, evict, now, stem );
-      if( FD_LIKELY( evict->stake ) ) {
-        staked_expire_dlist_ele_remove( crds->staked_expire_dlist, evict, crds->pool );
-      } else {
-        unstaked_expire_dlist_ele_remove( crds->unstaked_expire_dlist, evict, crds->pool );
-      }
-      evict_treap_ele_remove( crds->evict_treap, evict, crds->pool );
-      hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
-      lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
-      fd_crds_release( crds, evict );
-      crds->metrics->peer_evicted_cnt++;
-      crds->metrics->evicted_cnt++;
-    }
-
-    candidate->contact_info.ci = crds_contact_info_pool_ele_acquire( crds->contact_info.pool );
+  fd_crds_key_t candidate_key = {
+    .tag = (uchar)value->tag,
+  };
+  switch( candidate_key.tag ) {
+    case FD_GOSSIP_VALUE_VOTE: candidate_key.vote_index = value->vote->index; break;
+    case FD_GOSSIP_VALUE_EPOCH_SLOTS: candidate_key.epoch_slots_index = value->epoch_slots->index; break;
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED: candidate_key.duplicate_shred_index = value->duplicate_shred->index; break;
+    default: break;
   }
+  fd_memcpy( candidate_key.pubkey, value->origin, 32UL );
 
-  candidate->num_duplicates         = 0UL;
-  candidate->expire.wallclock_nanos = now;
-  candidate->value_sz               = (ushort)value_bytes_len;
-  fd_memcpy( candidate->value_bytes, value_bytes, value_bytes_len );
+  fd_crds_entry_t * incumbent = lookup_map_ele_query( crds->lookup_map, &candidate_key, NULL, crds->pool );
+  int replacing = !!incumbent;
 
-  crds->has_staked_node |= candidate->stake ? 1 : 0;
+  uchar value_hash[ 32UL ];
+  if( FD_UNLIKELY( !replacing ) ) {
+    fd_sha256_hash( value_bytes, value_bytes_len, value_hash );
 
-  evict_treap_ele_insert( crds->evict_treap, candidate, crds->pool );
-  if( FD_LIKELY( candidate->stake ) ) {
-    staked_expire_dlist_ele_push_tail( crds->staked_expire_dlist, candidate, crds->pool );
+    incumbent = crds_acquire( crds, value->tag==FD_GOSSIP_VALUE_CONTACT_INFO, now, stem );
+    incumbent->key = candidate_key;
+    if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+      incumbent->ci->is_active = 1;
+      incumbent->ci->sampler_idx = SAMPLE_IDX_SENTINEL;
+    }
   } else {
-    unstaked_expire_dlist_ele_push_tail( crds->unstaked_expire_dlist, candidate, crds->pool );
-  }
-  hash_treap_ele_insert( crds->hash_treap, candidate, crds->pool );
-  lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
+    /* Fast duplicate check by signature before computing expensive
+       sha256 hash. */
+    if( FD_UNLIKELY( fd_ulong_load_8( incumbent->value_bytes )==fd_ulong_load_8( value->signature ) ) ) return (long)(++incumbent->num_duplicates);
 
-  if( FD_UNLIKELY( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-    *candidate->contact_info.ci->contact_info = *value->contact_info;
-    /* Default to active, since we filter inactive entries prior to insertion */
-    candidate->contact_info.is_active = 1;
-
-    crds_contact_info_evict_dlist_ele_push_tail( crds->contact_info.evict_dlist, candidate, crds->pool );
-
-    if( FD_LIKELY( !is_from_me ) ){
-      crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.fresh_dlist, candidate, crds->pool );
-      candidate->contact_info.fresh_dlist.in_list = 1;
-    } else {
-      candidate->contact_info.fresh_dlist.in_list = 0;
+    fd_sha256_hash( value_bytes, value_bytes_len, value_hash );
+    switch( crds_compare( incumbent, value ) ) {
+      case -1: break; /* upserting */
+      case 0: {
+        int result = memcmp( value_hash, incumbent->value_hash, 32UL );
+        if( FD_UNLIKELY( !result ) ) return (long)(++incumbent->num_duplicates);
+        else if( FD_UNLIKELY( result<0 ) ) {
+          fd_gossip_purged_insert_failed_insert( crds->purged, value_hash, now );
+          return -1L; /* stale */
+        }
+        else break; /* upserting */
+      }
+      case 1: {
+        fd_gossip_purged_insert_failed_insert( crds->purged, value_hash, now );
+        return -1L; /* stale */
+      }
     }
 
-    if( FD_UNLIKELY( !is_replacing && !is_from_me ) ) {
-      crds_samplers_add_peer( crds->samplers, candidate, now);
-    }
-
-    if( FD_LIKELY( candidate->stake ) ) crds->metrics->peer_staked_cnt++;
-    else                                crds->metrics->peer_unstaked_cnt++;
-    crds->metrics->peer_visible_stake += candidate->stake;
+    fd_gossip_purged_insert_replaced( crds->purged, incumbent->value_hash, now );
+    crds_unindex( crds, incumbent );
   }
 
-  publish_update_msg( crds, candidate, value, now, stem );
-  return candidate;
+  incumbent->wallclock              = value->wallclock;
+  incumbent->stake                  = origin_stake;
+  incumbent->num_duplicates         = 0UL;
+  incumbent->expire.wallclock_nanos = now;
+  incumbent->value_sz               = (ushort)value_bytes_len;
+  fd_memcpy( incumbent->value_bytes, value_bytes, value_bytes_len );
+  fd_memcpy( incumbent->value_hash, value_hash, 32UL );
+  incumbent->hash.hash_prefix = fd_ulong_load_8( incumbent->value_hash );
+
+  if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
+    incumbent->node_instance_token = value->node_instance->token;
+  } else if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+    *incumbent->ci->contact_info            = *value->contact_info;
+    incumbent->ci->outset                   = value->contact_info->outset;
+    incumbent->ci->received_wallclock_nanos = now;
+  }
+
+  crds_index( crds, incumbent, is_from_me );
+  if( FD_UNLIKELY( !is_from_me && value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+    if( FD_LIKELY(  replacing ) ) crds_samplers_upd_peer_at_idx( crds->samplers, incumbent, incumbent->ci->sampler_idx, now );
+    else                          crds_samplers_add_peer( crds->samplers, incumbent, now );
+  }
+
+  crds->has_staked_node |= incumbent->stake ? 1 : 0;
+
+  publish_update_msg( crds, incumbent, value, now, stem );
+
+  return 0L;
 }
 
 void
@@ -954,14 +853,9 @@ make_contact_info_key( uchar const * pubkey,
   fd_memcpy( key_out->pubkey, pubkey, 32UL );
 }
 
-int
-fd_crds_entry_is_contact_info( fd_crds_entry_t const * entry ) {
-  return entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO;
-}
-
 fd_gossip_contact_info_t *
 fd_crds_entry_contact_info( fd_crds_entry_t const * entry ) {
-  return entry->contact_info.ci->contact_info;
+  return entry->ci->contact_info;
 }
 
 fd_gossip_contact_info_t const *
@@ -975,12 +869,12 @@ fd_crds_contact_info_lookup( fd_crds_t const * crds,
     return NULL;
   }
 
-  return peer_ci->contact_info.ci->contact_info;
+  return peer_ci->ci->contact_info;
 }
 
 ulong
 fd_crds_peer_count( fd_crds_t const * crds ){
-  return crds_contact_info_pool_used( crds->contact_info.pool );
+  return crds_contact_info_pool_used( crds->ci_pool );
 }
 
 static inline void
@@ -995,14 +889,14 @@ set_peer_active_status( fd_crds_t *   crds,
   fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
   /* TODO: error handling? This technically should never hit */
   if( FD_UNLIKELY( !peer_ci ) ) return;
-  uchar old_status = peer_ci->contact_info.is_active;
-  peer_ci->contact_info.is_active = status;
+  uchar old_status = peer_ci->ci->is_active;
+  peer_ci->ci->is_active = status;
 
   if( FD_UNLIKELY( old_status!=status ) ) {
     /* Trigger sampler update */
     crds_samplers_upd_peer_at_idx( crds->samplers,
                                    peer_ci,
-                                   peer_ci->contact_info.sampler_idx,
+                                   peer_ci->ci->sampler_idx,
                                    now );
   }
 }
@@ -1058,15 +952,16 @@ fd_crds_bucket_add( fd_crds_t *   crds,
     FD_LOG_DEBUG(( "Sample peer not found in CRDS. Likely dropped." ));
     return;
   }
+
   wpeer_sampler_t * bucket_sampler = &crds->samplers->bucket_samplers[bucket];
   wpeer_sampler_enable( bucket_sampler,
-                        peer_ci->contact_info.sampler_idx,
+                        peer_ci->ci->sampler_idx,
                         crds->samplers->ele_cnt );
 
   ulong score = wpeer_sampler_bucket_score( peer_ci,  bucket );
   wpeer_sampler_upd( bucket_sampler,
                      score,
-                     peer_ci->contact_info.sampler_idx,
+                     peer_ci->ci->sampler_idx,
                      crds->samplers->ele_cnt );
 }
 
@@ -1098,13 +993,12 @@ fd_crds_mask_iter_next( fd_crds_mask_iter_t * it, fd_crds_t const * crds ) {
 
 int
 fd_crds_mask_iter_done( fd_crds_mask_iter_t * it, fd_crds_t const * crds ) {
+  if( FD_UNLIKELY( hash_treap_idx_is_null( it->idx ) ) ) return 1;
   fd_crds_entry_t const * val = hash_treap_ele_fast_const( it->idx, crds->pool );
-  return hash_treap_idx_is_null( it->idx ) ||
-         (it->end_hash < val->hash.hash_prefix);
+  return it->end_hash < val->hash.hash_prefix;
 }
 
 fd_crds_entry_t const *
 fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it, fd_crds_t const * crds ){
   return hash_treap_ele_fast_const( it->idx, crds->pool );
 }
-
