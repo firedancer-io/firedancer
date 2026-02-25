@@ -308,5 +308,15 @@ int main( int argc, char ** argv ) {
   FD_TEST( t_11_cnt==1 );
   FD_TEST( t_10_cnt==1 );
 
+  /* Try eviction where all of the eviction is with old timestamps. */
+
+  ushort child_idx7 = fd_vote_timestamps_attach_child( vote_timestamps, child_idx5, 1000000UL, 0 );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx7, pubkey_A, 200, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx7, pubkey_B, 200, 0UL );
+  fd_vote_timestamps_insert( vote_timestamps, child_idx7, pubkey_C, 200, 0UL );
+  fd_vote_timestamps_get_timestamp( vote_timestamps, child_idx7 );
+  fd_vote_timestamps_advance_root( vote_timestamps, child_idx7 );
+  FD_TEST( 3U==index_pool_used(fd_vote_timestamps_get_index_pool( vote_timestamps ) ) );
+
   FD_LOG_NOTICE(( "pass" ));
 }

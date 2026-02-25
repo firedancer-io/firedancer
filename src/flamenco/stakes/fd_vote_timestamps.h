@@ -75,6 +75,16 @@ ulong
 fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
                                   ushort                 fork_idx );
 
+void
+fd_vote_timestamps_update_stakes( fd_vote_timestamps_t * vote_ts,
+                                  fd_pubkey_t *          pubkey,
+                                  ulong                  stake,
+                                  ushort                 epoch );
+
+void
+fd_vote_timestamps_prune_child( fd_vote_timestamps_t * vote_ts,
+                                ushort                 prune_idx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_vote_timestamps_h */

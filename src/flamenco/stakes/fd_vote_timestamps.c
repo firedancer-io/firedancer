@@ -609,3 +609,40 @@ fd_vote_timestamps_update_stakes( fd_vote_timestamps_t * vote_ts,
 
   ele->epoch_stakes[ epoch % 2UL ] = stake;
 }
+
+void
+fd_vote_timestamps_prune_child( fd_vote_timestamps_t * vote_ts,
+                                ushort                 prune_idx ) {
+
+  fork_ele_t *  fork_pool  = fd_vote_timestamps_get_fork_pool( vote_ts );
+  fork_ele_t *  fork       = fork_pool_ele( fork_pool, prune_idx );
+  index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
+  index_map_t * index_map  = fd_vote_timestamps_get_index_map( vote_ts );
+
+  fork_ele_t *     root              = fork_pool_ele( fork_pool, vote_ts->root_idx );
+  snapshot_ele_t * root_snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, root->snapshot_idx );
+  snapshot_map_t * root_snapshot_map = fd_vote_timestamps_get_snapshot_map( vote_ts, root->snapshot_idx );
+  for( ushort i=0; i<fork->deltas_cnt; i++ ) {
+    delta_ele_t * delta = &fork->deltas[i];
+    index_ele_t * ele = index_pool_ele( index_pool, delta->pubkey_idx );
+    ele->refcnt--;
+    if( FD_UNLIKELY( ele->refcnt==0UL && !snapshot_map_ele_query( root_snapshot_map, &delta->pubkey_idx, NULL, root_snapshot ) ) ) {
+      index_map_ele_remove( index_map, &ele->pubkey, NULL, index_pool );
+      index_pool_ele_release( index_pool, ele );
+    }
+  }
+  fork->deltas_cnt = 0;
+
+  fork_ele_t * parent = fork_pool_ele( fork_pool, fork->parent_idx );
+  if( parent->child_idx==prune_idx ) {
+    parent->child_idx = USHORT_MAX;
+  } else {
+    fork_ele_t * curr = fork_pool_ele( fork_pool, parent->child_idx );
+    while( curr->sibling_idx!=prune_idx ) {
+      curr = fork_pool_ele( fork_pool, curr->sibling_idx );
+    }
+    curr->sibling_idx = fork->sibling_idx;
+  }
+
+  fork_pool_ele_release( fork_pool, fork );
+}
