@@ -24,15 +24,6 @@ FD_PROTOTYPES_BEGIN
    https://github.com/anza-xyz/agave/blob/v3.0.8/runtime/src/bank.rs#L2946 */
 #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION (64UL)
 
-/* The initial block id hash is a dummy value for the initial block id
-   as one is not provided in snapshots.  This does not have an
-   equivalent in Agave.
-
-   TODO: This should be removed in favor of repairing the last shred of
-   the snapshot slot to get the actual block id of the snapshot slot. */
-
-#define FD_RUNTIME_INITIAL_BLOCK_ID (0xF17EDA2CE7B1DUL)
-
 /* FD_RUNTIME_ACC_SZ_MAX is the protocol level hardcoded size limit of a
    Solana account. */
 
