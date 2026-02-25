@@ -727,12 +727,14 @@ metric introduced.
 </tile>
 
 <enum name="ShredProcessingResult">
-    <int value="-4" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
-    <int value="-3" name="ParseFailed" label="Shred parsing failed" />
+    <int value="-6" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
+    <int value="-5" name="ParseFailed" label="Shred parsing failed" />
     <!-- The following need to stay in sync with the #defines in
          fd_fec_resolver.h -->
-    <int value="-2" name="Rejected" label="Shred was invalid for one of many reasons" />
-    <int value="-1" name="Ignored" label="Shred was ignored because we had already received or reconstructed it" />
+    <int value="-4" name="Equivoc" label="Shred was equivocated with another shred" />
+    <int value="-3" name="Rejected" label="Shred was invalid for one of many reasons" />
+    <int value="-2" name="Ignored" label="Shred was ignored because we had already reconstructed the FEC set, or was for an old slot" />
+    <int value="-1" name="Duplicate" label="Shred was a duplicate of a previously received valid shred of an incomplete FEC set" />
     <int value="0" name="Okay" label="Shred accepted to an incomplete FEC set" />
     <int value="1" name="Completes" label="Shred accepted and resulted in a valid, complete FEC set" />
 </enum>

@@ -183,15 +183,16 @@ fd_fec_resolver_advance_slot_old( fd_fec_resolver_t * resolver,
                                   ulong               slot_old );
 
 
-#define FD_FEC_RESOLVER_SHRED_EQUIVOC   (-3)
-#define FD_FEC_RESOLVER_SHRED_REJECTED  (-2)
-#define FD_FEC_RESOLVER_SHRED_IGNORED   (-1)
+#define FD_FEC_RESOLVER_SHRED_EQUIVOC   (-4)
+#define FD_FEC_RESOLVER_SHRED_REJECTED  (-3)
+#define FD_FEC_RESOLVER_SHRED_IGNORED   (-2)
+#define FD_FEC_RESOLVER_SHRED_DUPLICATE (-1)
 #define FD_FEC_RESOLVER_SHRED_OKAY      ( 0)
 #define FD_FEC_RESOLVER_SHRED_COMPLETES ( 1)
 
 /* Return values + RETVAL_OFF are in [0, RETVAL_CNT) */
-#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT 5
-#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF 3
+#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT 6
+#define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF 4
 
 struct fd_fec_resolver_spilled {
   ulong            slot;
@@ -230,14 +231,18 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    checks are bypassed if is_repair is non-zero.
 
    If the shred has the same slot, shred index, and signature as a shred
-   that has already been successfully processed by the FEC resolver, or
-   if the shred is for a slot older than slot_old, returns SHRED_IGNORED
-   and does not write to out_{fec_set,shred,merkle_root}.  Note that
-   "successfully processed by the FEC resolver" above includes shreds
-   that are reconstructed when returning SHRED_COMPLETES, so for
-   example, after returning SHRED_COMPLETES for a FEC set, adding any
-   shred for that FEC set will return SHRED_IGNORED, even if that
-   particular shred hadn't been received.
+   that has already been successfully completed in a FEC by the FEC
+   resolver, or if the shred is for a slot older than slot_old, returns
+   SHRED_IGNORED and does not write to out_{fec_set,shred,merkle_root}.
+   Note that "successfully completed in a FEC by the FEC resolver" above
+   includes shreds that are reconstructed when returning
+   SHRED_COMPLETES, so for example, after returning SHRED_COMPLETES for
+   a FEC set, adding any shred for that FEC set will return
+   SHRED_IGNORED, even if that particular shred hadn't been received.
+
+   However, if the shred is part of an in progress FEC set but has
+   already been received, FEC resolver returns SHRED_DUPLICATE and
+   populates out_merkle_root if it is non-NULL.
 
    If the shred fails validation for any other reason, returns
    SHRED_REJECTED and does not write to out_{fec_set,shred,merkle_root}.
