@@ -364,7 +364,8 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 /******************************************************************************/
 
 static void
-fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
+fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
+                                          fd_runtime_stack_t * runtime_stack ) {
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
@@ -374,7 +375,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
     vote_state->node_account_t_2 = vote_state->node_account_t_1;
     vote_state->node_account_t_1 = vote_state->node_account;
     vote_state->stake_t_2 = vote_state->stake_t_1;
-    vote_state->stake_t_1 = vote_state->stake;
+    vote_state->stake_t_1 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
   }
   fd_bank_vote_states_end_locking_modify( bank );
 }
@@ -568,8 +569,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   FD_LOG_NOTICE(( "fd_process_new_epoch start, epoch: %lu, slot: %lu", fd_bank_epoch_get( bank ), fd_bank_slot_get( bank ) ));
   long start = fd_log_wallclock();
 
-  runtime_stack->stakes.prev_vote_credits_used = 0;
-
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
@@ -593,7 +592,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
-  fd_stakes_activate_epoch( bank, accdb, xid, capture_ctx, stake_delegations, new_rate_activation_epoch );
+  fd_stakes_activate_epoch( bank, runtime_stack, accdb, xid, capture_ctx, stake_delegations, new_rate_activation_epoch );
 
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */
@@ -622,7 +621,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
      calculations (T-1 stake) and clock calculation (T-2 stake).
      We use the current stake to populate the T-1 stake and the T-1
      stake to populate the T-2 stake. */
-  fd_runtime_refresh_previous_stake_values( bank );
+  fd_runtime_refresh_previous_stake_values( bank, runtime_stack );
 
   /* Now that our stakes caches have been updated, we can calculate the
      leader schedule for the upcoming epoch epoch using our new
@@ -1405,6 +1404,7 @@ fd_runtime_genesis_init_program( fd_bank_t *               bank,
 static void
 fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
                                    fd_bank_t *               bank,
+                                   fd_runtime_stack_t *      runtime_stack,
                                    fd_accdb_user_t *         accdb,
                                    fd_funk_txn_xid_t const * xid,
                                    fd_genesis_t const *      genesis,
@@ -1580,6 +1580,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
   fd_refresh_vote_accounts(
       bank,
+      runtime_stack,
       stake_delegations,
       stake_history,
       &new_rate_activation_epoch );
@@ -1604,8 +1605,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &account->pubkey );
 
-      vote_state->stake_t_1 = vote_state->stake;
-      vote_state->stake_t_2 = vote_state->stake;
+      vote_state->stake_t_1 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
+      vote_state->stake_t_2 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
 
       vote_state->node_account_t_1 = vote_state->node_account;
       vote_state->node_account_t_2 = vote_state->node_account;
@@ -1692,7 +1693,7 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
      setting some fields, and notably setting up the vote and stake
      caches which are used for leader scheduling/rewards. */
 
-  fd_runtime_init_bank_from_genesis( banks, bank, accdb, xid, genesis, genesis_blob, genesis_hash );
+  fd_runtime_init_bank_from_genesis( banks, bank, runtime_stack, accdb, xid, genesis, genesis_blob, genesis_hash );
 
   /* Write the native programs to the accounts db. */
 

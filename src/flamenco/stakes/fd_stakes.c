@@ -3,6 +3,7 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../runtime/fd_runtime_stack.h"
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 
@@ -33,9 +34,11 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L471 */
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
+                          fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
+  fd_memset( runtime_stack->stakes.computed_stake, 0UL, sizeof(runtime_stack->stakes.computed_stake) );
 
   ulong epoch = fd_bank_epoch_get( bank );
 
@@ -45,10 +48,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   if( FD_UNLIKELY( !vote_states ) ) {
     FD_LOG_CRIT(( "vote_states is NULL" ));
   }
-
-  /* Reset the vote stakes so we can re-compute them based on the most
-     current stake delegation values. */
-  fd_vote_states_reset_stakes( vote_states );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -64,8 +63,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
     if( FD_LIKELY( vote_state ) ) {
-      total_stake       += new_entry.effective;
-      vote_state->stake += new_entry.effective;
+      total_stake += new_entry.effective;
+      runtime_stack->stakes.computed_stake[ vote_state->idx ] += new_entry.effective;
     }
   }
 
@@ -77,6 +76,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
+                          fd_runtime_stack_t *           runtime_stack,
                           fd_accdb_user_t *              accdb,
                           fd_funk_txn_xid_t const *      xid,
                           fd_capture_ctx_t *             capture_ctx,
@@ -131,6 +131,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   fd_bank_epoch_set( bank, fd_bank_epoch_get( bank ) + 1UL );
 
   fd_refresh_vote_accounts( bank,
+                            runtime_stack,
                             stake_delegations,
                             stake_history,
                             new_rate_activation_epoch );

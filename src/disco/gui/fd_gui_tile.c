@@ -373,10 +373,10 @@ after_frag( fd_gui_ctx_t *      ctx,
 
           ctx->peers->votes[ vote_count ].vote_account        = vote_state->vote_account;
           ctx->peers->votes[ vote_count ].node_account        = vote_state->node_account;
-          ctx->peers->votes[ vote_count ].stake               = vote_state->stake;
+          ctx->peers->votes[ vote_count ].stake               = vote_state->stake_t_1;
           ctx->peers->votes[ vote_count ].last_vote_slot      = vote_state->last_vote_slot;
           ctx->peers->votes[ vote_count ].last_vote_timestamp = vote_state->last_vote_timestamp;
-          ctx->peers->votes[ vote_count ].commission          = vote_state->commission;
+          // ctx->peers->votes[ vote_count ].commission          = vote_state->commission;
           // ctx->peers->votes[ vote_count ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
           // ctx->peers->votes[ vote_count ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
 

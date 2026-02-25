@@ -54,7 +54,6 @@ fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, voter_pubkey );
     if( !vote_state ) continue;
 
-    vote_state->stake     += stake;
     vote_state->stake_t_1 += stake;
     vote_state->stake_t_2 += stake;
   }
@@ -84,7 +83,6 @@ fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
       fd_accdb_ref_data_const( ro ),
       fd_accdb_ref_data_sz   ( ro ) );
   fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, fd_accdb_ref_address( ro ) );
-  vote_state->stake     = 0UL;
   vote_state->stake_t_1 = 0UL;
   vote_state->stake_t_2 = 0UL;
   vote_state->node_account_t_1 = vote_state->node_account;
@@ -312,9 +310,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     /* Update the stake delegations cache for epoch T */
     fd_solfuzz_block_register_stake_delegation( accdb, xid, stake_delegations, &pubkey );
   }
-
-  /* Zero out vote stakes to avoid leakage across tests */
-  fd_vote_states_reset_stakes( vote_states );
 
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
