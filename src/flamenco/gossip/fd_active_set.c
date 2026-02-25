@@ -139,6 +139,30 @@ fd_active_set_prune( fd_active_set_t * active_set,
   }
 }
 
+void
+fd_active_set_remove_peer( fd_active_set_t * active_set,
+                           uchar const *     pubkey ) {
+  for( ulong b=0UL; b<25UL; b++ ) {
+    fd_active_set_entry_t * entry = active_set->entries[ b ];
+
+    for( ulong i=0UL; i<entry->nodes_len; i++ ) {
+      ulong slot = (entry->nodes_idx+i) % 12UL;
+      if( FD_UNLIKELY( !memcmp( entry->nodes[ slot ]->pubkey, pubkey, 32UL ) ) ) {
+        ulong last_slot = (entry->nodes_idx+entry->nodes_len-1UL) % 12UL;
+        if( FD_LIKELY( slot!=last_slot ) ) {
+          fd_memcpy( entry->nodes[ slot ]->pubkey, entry->nodes[ last_slot ]->pubkey, 32UL );
+          fd_bloom_t * tmp                  = entry->nodes[ slot ]->bloom;
+          entry->nodes[ slot ]->bloom       = entry->nodes[ last_slot ]->bloom;
+          entry->nodes[ last_slot ]->bloom  = tmp;
+        }
+        entry->nodes_len--;
+        if( FD_UNLIKELY( !entry->nodes_len ) ) entry->nodes_idx = 0UL;
+        break;
+      }
+    }
+  }
+}
+
 ulong
 fd_active_set_rotate( fd_active_set_t * active_set,
                       fd_crds_t *       crds ) {
@@ -159,7 +183,7 @@ fd_active_set_rotate( fd_active_set_t * active_set,
 
   fd_active_set_peer_t * replace = entry->nodes[ replace_idx ];
 
-  uchar const * new_peer = fd_crds_bucket_sample_and_remove( crds, active_set->rng, bucket );
+  uchar const * new_peer = fd_crds_bucket_sample_and_remove( crds, bucket );
   if( FD_UNLIKELY( !new_peer ) ) return ULONG_MAX;
 
   fd_bloom_initialize( replace->bloom, num_bloom_filter_items );

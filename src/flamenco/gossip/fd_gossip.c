@@ -146,12 +146,15 @@ ping_tracker_change( void *        _ctx,
 
   switch( change_type ) {
     case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:
-      fd_crds_peer_active( ctx->crds, peer_pubkey, now );
+      fd_crds_peer_active( ctx->crds, peer_pubkey, 1 );
       if( FD_LIKELY( fd_crds_contact_info_lookup( ctx->crds, peer_pubkey ) ) ) {
         fd_gossip_purged_drain_no_contact_info( ctx->purged, peer_pubkey );
       }
       break;
-    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE: fd_crds_peer_inactive( ctx->crds, peer_pubkey, now ); break;
+    case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE:
+      fd_crds_peer_active( ctx->crds, peer_pubkey, 0 );
+      fd_active_set_remove_peer( ctx->active_set, peer_pubkey );
+      break;
     case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED: break;
     default: FD_LOG_ERR(( "Unknown change type %d", change_type )); return;
   }
@@ -426,34 +429,63 @@ void
 fd_gossip_set_identity( fd_gossip_t * gossip,
                         uchar const * identity_pubkey,
                         long          now ) {
+  uchar old_identity[ 32UL ];
+  fd_memcpy( old_identity, gossip->identity_pubkey, 32UL );
+
+  int identity_changed = !!memcmp( old_identity, identity_pubkey, 32UL );
+
+  if( FD_UNLIKELY( identity_changed ) ) {
+    /* The new identity may already exist in CRDS as a normal peer
+       (active in the wsample and potentially present in the active
+       set).  We must deactivate it before updating identity_pubkey to
+       maintain the invariant that our own identity is never sampleable.
+
+       Deactivate in wsample first (zeroes all 26 tree weights), then
+       remove from active set.  fd_active_set_remove_peer assumes the
+       peer's bucket weights are already zeroed. */
+    fd_crds_peer_active( gossip->crds, identity_pubkey, 0 );
+    fd_active_set_remove_peer( gossip->active_set, identity_pubkey );
+  }
+
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
   gossip->identity_stake = get_stake( gossip, identity_pubkey );
+  fd_crds_self_stake( gossip->crds, gossip->identity_stake );
   refresh_contact_info( gossip, now );
+
+  if( FD_UNLIKELY( identity_changed ) ) {
+    /* The old identity is now a normal peer.  If the ping tracker
+       considers it active (validated via pong), restore its weights
+       in the wsample so it becomes sampleable.  If not, it stays
+       inactive and will be activated naturally when/if the ping
+       tracker fires an ACTIVE callback for it.
+
+       Note: identity_pubkey has been updated, so the filter in
+       ping_tracker_change now blocks the new identity (correct) and
+       allows the old identity through (correct). */
+    if( fd_ping_tracker_active( gossip->ping_tracker, old_identity ) ) {
+      fd_crds_peer_active( gossip->crds, old_identity, 1 );
+    }
+  }
 }
 
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
                          fd_stake_weight_t const * stake_weights,
                          ulong                     stake_weights_cnt ) {
-  if( FD_UNLIKELY( stake_weights_cnt>CRDS_MAX_CONTACT_INFO ) ) {
-    FD_LOG_ERR(( "stake_weights_cnt %lu exceeds maximum of %d", stake_weights_cnt, CRDS_MAX_CONTACT_INFO ));
-  }
+  FD_TEST( stake_weights_cnt<=CRDS_MAX_CONTACT_INFO );
 
-  /* Clear the map, this requires us to iterate through all elements and
-     individually call map remove. */
-  for( ulong i=0UL; i<gossip->stake.count; i++ ) {
-    stake_map_idx_remove_fast( gossip->stake.map, i, gossip->stake.pool );
-  }
+  stake_map_reset( gossip->stake.map );
 
   for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
     stake_t * entry = stake_pool_ele( gossip->stake.pool, i );
-    fd_memcpy( entry->pubkey.uc, stake_weights[i].key.uc, 32UL );
-    entry->stake = stake_weights[i].stake;
+    fd_memcpy( entry->pubkey.uc, stake_weights[ i ].key.uc, 32UL );
+    entry->stake = stake_weights[ i ].stake;
 
     stake_map_idx_insert( gossip->stake.map, i, gossip->stake.pool );
   }
-  /* Update the identity stake */
+
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
+  fd_crds_self_stake( gossip->crds, gossip->identity_stake );
   gossip->stake.count    = stake_weights_cnt;
 }
 
@@ -525,9 +557,10 @@ rx_values( fd_gossip_t *             gossip,
     }
 
     ulong origin_stake = get_stake( gossip, value->origin );
-    uchar is_me = !memcmp( value->origin, gossip->identity_pubkey, 32UL );
+    int origin_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin );
+    int is_me = !memcmp( value->origin, gossip->identity_pubkey, 32UL );
 
-    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, is_me, now, stem );
+    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_active, is_me, now, stem );
     if( FD_UNLIKELY( results[ i ] ) ) continue;
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
@@ -681,7 +714,8 @@ fd_gossip_push( fd_gossip_t *             gossip,
   FD_TEST( serialized_sz!=-1L );
   gossip->sign_fn( gossip->sign_ctx, serialized+64UL, (ulong)serialized_sz-64UL, FD_KEYGUARD_SIGN_TYPE_ED25519, serialized );
 
-  if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, serialized, (ulong)serialized_sz, gossip->identity_stake, 1, now, stem ) ) ) return -1;
+  int origin_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin );
+  if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, serialized, (ulong)serialized_sz, gossip->identity_stake, origin_active, 1, now, stem ) ) ) return -1;
 
   active_push_set_insert( gossip, serialized, (ulong)serialized_sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
   return 0;
@@ -819,7 +853,7 @@ tx_pull_request( fd_gossip_t *       gossip,
   for( ulong i=0UL; i<(num_bits+63)/64UL; i++ ) num_bits_set += fd_ulong_popcnt( bits_ptr[ i ] );
   *bits_set = (ulong)num_bits_set;
 
-  fd_gossip_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
+  fd_gossip_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds );
   fd_ip4_port_t peer_addr;
   if( FD_UNLIKELY( !peer ) ) {
     if( FD_UNLIKELY( !gossip->entrypoints_cnt ) ) {

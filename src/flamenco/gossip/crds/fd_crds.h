@@ -6,7 +6,6 @@
 #include "../fd_gossip_purged.h"
 
 #include "../../../disco/metrics/generated/fd_metrics_enums.h"
-#include "../../../ballet/sha256/fd_sha256.h"
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
@@ -121,7 +120,8 @@ fd_crds_insert( fd_crds_t *               crds,
                 uchar const *             value_bytes,
                 ulong                     value_bytes_len,
                 ulong                     origin_stake,
-                uchar                     is_from_me,
+                int                       origin_active,
+                int                       is_me,
                 long                      now,
                 fd_stem_context_t *       stem );
 
@@ -164,24 +164,23 @@ fd_crds_contact_info_lookup( fd_crds_t const * crds,
 /* fd_crds_peer_count returns the number of Contact Info entries
    present in the sidetable. The lifetime of a Contact Info entry
    tracks the lifetime of the corresponding CRDS entry. */
+
 ulong
 fd_crds_peer_count( fd_crds_t const * crds );
 
-/* The CRDS table tracks whether a peer is active or not to determine
-   whether it should be sampled (see sample APIs).
-   fd_crds_peer_{active,inactive} provide a way to manage this state
-   for a given peer.
-
-   A peer's active state is typically determined by its ping/pong status. */
 void
 fd_crds_peer_active( fd_crds_t *   crds,
                      uchar const * peer_pubkey,
-                     long          now );
+                     int           active );
+
+/* fd_crds_self_stake updates the self-stake cap used by the pull
+   request peer sampler.  In Agave, each peer's pull-request weight is
+   computed as min(peer_stake, self_stake).  Call this whenever our own
+   stake changes (e.g. at epoch boundaries or identity change). */
 
 void
-fd_crds_peer_inactive( fd_crds_t *   crds,
-                       uchar const * peer_pubkey,
-                       long          now );
+fd_crds_self_stake( fd_crds_t * crds,
+                    ulong       self_stake );
 
 /* The CRDS Table also maintains a set of peer samplers for use in various
    Gossip tx cases. Namely
@@ -194,16 +193,15 @@ fd_crds_peer_inactive( fd_crds_t *   crds,
 
 uchar const *
 fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
-                                  fd_rng_t *  rng,
                                   ulong       bucket );
 
 /* fd_crds_bucket adds back in a peer that was previously
    sampled with fd_crds_bucket_sample_and_remove.  */
+
 void
 fd_crds_bucket_add( fd_crds_t *   crds,
                     ulong         bucket,
                     uchar const * pubkey );
-
 
 /* fd_crds_sample_peer randomly selects a peer node from the CRDS based
    weighted by stake.  Peers with a ContactInfo that hasn't been
@@ -223,8 +221,7 @@ fd_crds_bucket_add( fd_crds_t *   crds,
    contact info suitable for sending a gossip pull request. */
 
 fd_gossip_contact_info_t const *
-fd_crds_peer_sample( fd_crds_t const * crds,
-                     fd_rng_t *        rng );
+fd_crds_peer_sample( fd_crds_t const * crds );
 
 /* fd_crds_mask_iter_{init,next,done,entry} provide an API to
    iterate over the CRDS values in the table that whose hashes match

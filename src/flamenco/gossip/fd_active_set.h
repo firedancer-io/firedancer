@@ -124,8 +124,17 @@ fd_active_set_prune( fd_active_set_t * active_set,
    active set. Returns ULONG_MAX if no peer replacement is found. */
 
 ulong
-fd_active_set_rotate( fd_active_set_t *     active_set,
-                      fd_crds_t *           crds );
+fd_active_set_rotate( fd_active_set_t * active_set,
+                      fd_crds_t *       crds );
+
+/* fd_active_set_remove_peer removes a peer from all active set entries
+   it appears in.  For each bucket entry where the peer is found, the
+   peer is swapped with the last entry and the bucket length is
+   decremented. */
+
+void
+fd_active_set_remove_peer( fd_active_set_t * active_set,
+                           uchar const *     pubkey );
 
 FD_PROTOTYPES_END
 
