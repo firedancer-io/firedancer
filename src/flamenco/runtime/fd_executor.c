@@ -37,14 +37,6 @@
 #include <unistd.h>  /* write(3) */
 #include <time.h>
 
-struct fd_native_prog_info {
-  fd_pubkey_t key;
-  fd_exec_instr_fn_t fn;
-  uchar is_bpf_loader;
-  ulong feature_enable_offset; /* offset to the feature that enables this program, if any */
-};
-typedef struct fd_native_prog_info fd_native_prog_info_t;
-
 /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm-rent-collector/src/rent_state.rs#L5-L15 */
 struct fd_rent_state {
   uint  discriminant;
@@ -88,36 +80,6 @@ typedef struct fd_rent_state fd_rent_state_t;
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
-
-#define MAP_PERFECT_NAME fd_native_precompile_program_fn_lookup_tbl
-#define MAP_PERFECT_LG_TBL_SZ 2
-#define MAP_PERFECT_T fd_native_prog_info_t
-#define MAP_PERFECT_HASH_C 63546U
-#define MAP_PERFECT_KEY key.uc
-#define MAP_PERFECT_KEY_T fd_pubkey_t const *
-#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
-#define MAP_PERFECT_COMPLEX_KEY 1
-#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
-
-#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>30)&0x3U)
-
-#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
-                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
-                                          PERFECT_HASH( (a00 | (a01<<8)) )
-#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_2( (uchar const *)ptr ) )
-
-#define MAP_PERFECT_0      ( ED25519_SV_PROG_ID      ), .fn = fd_precompile_ed25519_verify
-#define MAP_PERFECT_1      ( KECCAK_SECP_PROG_ID     ), .fn = fd_precompile_secp256k1_verify
-#define MAP_PERFECT_2      ( SECP256R1_PROG_ID       ), .fn = fd_precompile_secp256r1_verify
-
-#include "../../util/tmpl/fd_map_perfect.c"
-#undef PERFECT_HASH
-
-fd_exec_instr_fn_t
-fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey ) {
-  const fd_native_prog_info_t null_function = {0};
-  return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
-}
 
 uchar
 fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey ) {

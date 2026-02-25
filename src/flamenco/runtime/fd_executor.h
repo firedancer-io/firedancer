@@ -31,9 +31,6 @@ FD_PROTOTYPES_BEGIN
 
 typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
 
-fd_exec_instr_fn_t
-fd_executor_lookup_native_precompile_program( fd_pubkey_t const * pubkey );
-
 /* Returns 1 if the given pubkey matches one of the BPF loader v1/v2/v3/v4
    program IDs, and 0 otherwise. */
 uchar
