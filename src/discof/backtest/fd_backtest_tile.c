@@ -294,7 +294,7 @@ after_credit( fd_backt_tile_t *   ctx,
 
   fd_hash_t cmr = {0};
   if( FD_UNLIKELY( !ctx->first_fec_complete ) ) {
-    cmr.ul[ 0 ] = FD_RUNTIME_INITIAL_BLOCK_ID;
+    cmr.ul[ 0 ] = 0xbaC27e57b1d; /* any initial value works */
     ctx->first_fec_complete = 1;
   } else {
     ulong chained_slot = shred->fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;

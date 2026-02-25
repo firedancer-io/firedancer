@@ -342,6 +342,12 @@ struct fd_replay_tile {
   ulong     published_root_slot;     /* slot number of the published root. */
   ulong     published_root_bank_idx; /* bank index of the published root. */
 
+  /* Randomly generated block id for the initial genesis/snapshot slot.
+     To be replaced with block id in the snapshot manifest when SIMD-333
+     is activated. */
+
+  fd_hash_t initial_block_id;
+
   /* We need to maintain a tile-local mapping of block-ids to bank index
      and vice versa.  This translation layer is needed for conversion
      since tower operates on block-ids and downstream consumers of FEC
@@ -1408,7 +1414,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_bank_block_height_set( bank, 1UL );
 
-  ctx->consensus_root          = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->consensus_root          = ctx->initial_block_id;
   ctx->consensus_root_slot     = 0UL;
   ctx->consensus_root_bank_idx = 0UL;
   ctx->published_root_slot     = 0UL;
@@ -1427,7 +1433,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->is_booted = 1;
   maybe_become_leader( ctx, stem );
 
-  fd_hash_t initial_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
+  fd_hash_t initial_block_id = ctx->initial_block_id;
   fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
@@ -1510,7 +1516,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     /* FIXME: This is a hack because the block id of the snapshot slot
        is not provided in the snapshot.  A possible solution is to get
        the block id of the snapshot slot from repair. */
-    fd_hash_t manifest_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
+    fd_hash_t manifest_block_id = ctx->initial_block_id;
 
     fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
     fd_features_restore( bank, ctx->accdb, &xid );
@@ -2643,6 +2649,10 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_rng_secure( &ctx->block_id_map_seed, sizeof(ulong) ) ) ) {
     FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->initial_block_id, sizeof(fd_hash_t) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
 }
 
 static void
@@ -2693,7 +2703,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( bank->data->idx==FD_REPLAY_BOOT_BANK_IDX );
 
   ctx->consensus_root_slot = ULONG_MAX;
-  ctx->consensus_root      = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->consensus_root      = ctx->initial_block_id;
   ctx->published_root_slot = ULONG_MAX;
 
   ctx->expected_shred_version = tile->replay.expected_shred_version;
@@ -2813,7 +2823,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
   ctx->reset_slot            = 0UL;
   fd_memset( ctx->reset_bank, 0, sizeof(fd_bank_t) );
-  ctx->reset_block_id        = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->reset_block_id        = ctx->initial_block_id;
   ctx->reset_timestamp_nanos = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;

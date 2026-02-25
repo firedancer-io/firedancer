@@ -95,8 +95,6 @@ typedef struct fd_auth_key fd_auth_key_t;
 #define MAP_KEY_HASH(k)        ((uint)fd_ulong_hash( fd_ulong_load_8( (k).uc ) ))
 #include "../../util/tmpl/fd_map.c"
 
-static const fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
-
 typedef struct {
   int         mcache_only;
   fd_wksp_t * mem;
@@ -693,8 +691,7 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Insert the just replayed block into ghost. */
 
   fd_hash_t const * parent_block_id = &slot_completed->parent_block_id;
-  if( FD_UNLIKELY( slot_completed->parent_slot==ctx->init_slot ) ) parent_block_id = &manifest_block_id;
-  if( FD_UNLIKELY( slot_completed->slot       ==ctx->init_slot ) ) parent_block_id = NULL;
+  if( FD_UNLIKELY( slot_completed->slot==ctx->init_slot ) ) parent_block_id = NULL;
 
   if( FD_UNLIKELY( parent_block_id && !fd_ghost_query( ctx->ghost, parent_block_id ) ) ) {
 
