@@ -99,7 +99,7 @@ fd_active_set_nodes( fd_active_set_t * active_set,
     fd_active_set_peer_t * peer = entry->nodes[ (entry->nodes_idx+i) % 12UL ];
 
     int must_push_if_peer_is_origin = ignore_prunes_if_peer_is_origin && !memcmp( peer->pubkey, origin, 32UL );
-    int must_push_own_values = identity_eq_origin && !memcmp( peer->pubkey, identity_pubkey, 32UL ); /* why ? */
+    int must_push_own_values = identity_eq_origin && !memcmp( peer->pubkey, identity_pubkey, 32UL );
     if( FD_UNLIKELY( fd_bloom_contains( peer->bloom, origin, 32UL ) && !must_push_own_values && !must_push_if_peer_is_origin ) ) continue;
     out_nodes[ out_idx++ ] = stake_bucket*12UL + i;
   }
