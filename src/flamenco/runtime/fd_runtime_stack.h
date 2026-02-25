@@ -7,6 +7,23 @@
 #include "program/fd_builtin_programs.h"
 #include "fd_runtime_const.h"
 
+struct fd_stakes_staging {
+  fd_pubkey_t pubkey;
+  ulong       stake;
+  uint        next;
+};
+typedef struct fd_stakes_staging fd_stakes_staging_t;
+
+#define MAP_NAME               fd_stakes_staging_map
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_ELE_T              fd_stakes_staging_t
+#define MAP_KEY                pubkey
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_NEXT               next
+#define MAP_IDX_T              uint
+#include "../../util/tmpl/fd_map_chain.c"
+
 /* fd_runtime_stack_t serves as stack memory to store temporary data
    for the runtime.  This object should only be used and owned by the
    replay tile and is used for short-lived allocations for the runtime,
@@ -40,11 +57,14 @@ union fd_runtime_stack {
     /* Staging memory for vote rewards as they are accumulated. */
     ulong                   vote_rewards[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
-    ulong                   computed_stake[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t  stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+
+    ulong                   stakes_staging_cnt;
+    fd_stakes_staging_t     stakes_staging[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    uchar                   stakes_staging_map[ 8216 ] __attribute__((aligned(128)));
+
   } stakes;
 
   struct {

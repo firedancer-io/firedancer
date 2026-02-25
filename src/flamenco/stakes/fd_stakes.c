@@ -38,17 +38,15 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
-  fd_memset( runtime_stack->stakes.computed_stake, 0UL, sizeof(runtime_stack->stakes.computed_stake) );
+
+  /* TODO:FIXME: This should be a map reset not a map new and pass it down. */
+  fd_stakes_staging_map_t * stakes_staging_map = fd_stakes_staging_map_join( fd_stakes_staging_map_new( runtime_stack->stakes.stakes_staging_map, 2048, 999UL ) );
+  FD_TEST( stakes_staging_map );
+  runtime_stack->stakes.stakes_staging_cnt = 0UL;
 
   ulong epoch = fd_bank_epoch_get( bank );
 
   ulong total_stake = 0UL;
-
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  if( FD_UNLIKELY( !vote_states ) ) {
-    FD_LOG_CRIT(( "vote_states is NULL" ));
-  }
-
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -61,16 +59,18 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         history,
         new_rate_activation_epoch );
 
-    fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
-    if( FD_LIKELY( vote_state ) ) {
-      total_stake += new_entry.effective;
-      runtime_stack->stakes.computed_stake[ vote_state->idx ] += new_entry.effective;
+    fd_stakes_staging_t * stake_ele = fd_stakes_staging_map_ele_query( stakes_staging_map, &stake_delegation->vote_account, NULL, runtime_stack->stakes.stakes_staging );
+    if( FD_UNLIKELY( !stake_ele ) ) {
+      stake_ele = &runtime_stack->stakes.stakes_staging[ runtime_stack->stakes.stakes_staging_cnt ];
+      stake_ele->pubkey = stake_delegation->vote_account;
+      stake_ele->stake  = 0UL;
+      fd_stakes_staging_map_ele_insert( stakes_staging_map, stake_ele, runtime_stack->stakes.stakes_staging );
+      runtime_stack->stakes.stakes_staging_cnt++;
     }
+    stake_ele->stake += new_entry.effective;
+    total_stake += new_entry.effective;
   }
-
   fd_bank_total_epoch_stake_set( bank, total_stake );
-
-  fd_bank_vote_states_end_locking_modify( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */

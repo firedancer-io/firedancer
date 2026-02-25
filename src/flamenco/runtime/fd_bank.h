@@ -375,6 +375,8 @@ struct fd_bank_data {
   ulong cost_tracker_pool_idx;
   ulong cost_tracker_pool_offset;
 
+  ulong vote_stakes_pool_offset;
+
   int   stake_delegations_delta_dirty;
   uchar stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
@@ -485,6 +487,16 @@ fd_bank_set_cost_tracker_pool( fd_bank_data_t * bank, fd_bank_cost_tracker_t * c
 static inline fd_bank_cost_tracker_t *
 fd_bank_get_cost_tracker_pool( fd_bank_data_t * bank ) {
   return fd_bank_cost_tracker_pool_join( (uchar *)bank + bank->cost_tracker_pool_offset );
+}
+
+static inline void
+fd_bank_set_vote_stakes( fd_bank_data_t * bank, fd_vote_stakes_t * vote_stakes ) {
+  bank->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)bank;
+}
+
+static inline fd_vote_stakes_t *
+fd_bank_get_vote_stakes( fd_bank_data_t * bank ) {
+  return fd_type_pun( (uchar *)bank + bank->vote_stakes_pool_offset );
 }
 
 /* fd_bank_t is the alignment for the bank state. */
