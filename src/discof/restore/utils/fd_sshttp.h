@@ -47,6 +47,7 @@ int
 fd_sshttp_advance( fd_sshttp_t * http,
                    ulong *       data_len,
                    uchar *       data,
+                   int *         downloading,
                    long          now );
 
 FD_PROTOTYPES_END

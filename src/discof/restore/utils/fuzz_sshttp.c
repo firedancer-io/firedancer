@@ -90,6 +90,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   uchar buffer[4096];
   ulong buffer_sz = sizeof(buffer);
+  int   downloading = 0;
 
   for( int i=0; i<16 && (!write_done || !read_done); i++ ) {
     FD_FUZZ_MUST_BE_COVERED;
@@ -113,7 +114,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     } else {
       buffer_sz = sizeof(buffer);
       ulong prev_sent_sz = http->request_sent;
-      int result = fd_sshttp_advance( http, &buffer_sz, buffer, 0L );
+      int result = fd_sshttp_advance( http, &buffer_sz, buffer, &downloading, 0L );
       if( prev_sent_sz != http->request_sent ) {
         uchar discard_buf[1024];
         long n;

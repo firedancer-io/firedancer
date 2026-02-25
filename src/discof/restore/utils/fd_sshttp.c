@@ -578,8 +578,6 @@ read_body( fd_sshttp_t * http,
            ulong *       data_len,
            uchar *       data,
            long          now ) {
-  /* FIXME: Add a forward-progress timeout */
-
   if( FD_UNLIKELY( http->content_read>=http->content_len ) ) {
     if( FD_UNLIKELY( http->is_https ) ) {
       http->next_state = FD_SSHTTP_STATE_DONE;
@@ -619,7 +617,9 @@ int
 fd_sshttp_advance( fd_sshttp_t * http,
                    ulong *       data_len,
                    uchar *       data,
+                   int *         downloading,
                    long          now ) {
+  *downloading = 0;
   switch( http->state ) {
     case FD_SSHTTP_STATE_INIT:          return FD_SSHTTP_ADVANCE_AGAIN;
 #if FD_HAS_OPENSSL
@@ -629,7 +629,7 @@ fd_sshttp_advance( fd_sshttp_t * http,
 #endif
     case FD_SSHTTP_STATE_REQ:           return send_request( http, now );
     case FD_SSHTTP_STATE_RESP:          return read_response( http, data_len, data, now );
-    case FD_SSHTTP_STATE_DL:            return read_body( http, data_len, data, now );
+    case FD_SSHTTP_STATE_DL:            *downloading = 1; return read_body( http, data_len, data, now );
     case FD_SSHTTP_STATE_DONE:
       fd_sshttp_cancel( http );
       http->state = FD_SSHTTP_STATE_INIT;
