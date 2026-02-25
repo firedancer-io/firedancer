@@ -456,9 +456,11 @@ test_random_ops( fd_wksp_t * wksp,
       fd_funk_rec_prepare_t prepare[1];
       fd_funk_rec_t * trec = fd_funk_rec_prepare( funk, xid_set( txid, rxid ), key_set( tkey, rkey ), prepare, &err );
       FD_TEST( trec );
-      void * val = fd_funk_val_truncate( trec, funk->alloc, funk->wksp, 1UL, 8UL, NULL );
-      FD_TEST( val );
-      FD_STORE( ulong, val, rkey );
+      ulong val_sz = sizeof(fd_account_meta_t);
+      fd_account_meta_t * meta = fd_funk_val_truncate( trec, funk->alloc, funk->wksp, 1UL, val_sz, NULL );
+      FD_TEST( meta );
+      memset( meta, 0, val_sz );
+      meta->lamports = 1UL;
       fd_funk_rec_publish( funk, prepare );
 #if VERBOSE
       FD_LOG_DEBUG(( "accdb insert key %lu txn %lu:%lu", rkey, txid->ul[0], txid->ul[1] ));
