@@ -2,10 +2,11 @@
 #include "../types/fd_types.h"
 #include "../runtime/program/fd_vote_program.h"
 
-#define POOL_NAME  fd_vote_state_pool
-#define POOL_T     fd_vote_state_ele_t
-#define POOL_NEXT  next_
-#define POOL_IDX_T uint
+#define POOL_NAME   fd_vote_state_pool
+#define POOL_T      fd_vote_state_ele_t
+#define POOL_NEXT   next_
+#define POOL_IDX_T  uint
+#define POOL_POISON 1
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               fd_vote_state_map
@@ -93,11 +94,6 @@ fd_vote_states_new( void * mem,
   if( FD_UNLIKELY( max_vote_accounts>UINT_MAX ) ) {
     FD_LOG_WARNING(( "max_vote_accounts is greater than UINT_MAX" ));
     return NULL;
-  }
-
-  for( uint i=0U; i<max_vote_accounts; i++ ) {
-    fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_states_pool, i );
-    vote_state->idx = i;
   }
 
   if( FD_UNLIKELY( !fd_vote_state_map_join( fd_vote_state_map_new( map_mem, map_chain_cnt, seed ) ) ) ) {
@@ -207,8 +203,10 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
     FD_LOG_CRIT(( "no free vote states in pool" ));
   }
 
-  fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele_acquire( vote_state_pool );
+  idx = fd_vote_state_pool_idx_acquire( vote_state_pool );
+  fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_state_pool, idx );
 
+  vote_state->idx          = (uint)idx;
   vote_state->vote_account = *vote_account;
   vote_state->stake_t_1    = 0UL;
   vote_state->stake_t_2    = 0UL;

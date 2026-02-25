@@ -7,7 +7,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
   fd_banks_t banksl_join[1];
-  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), locks );
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 8888UL ), locks );
   /* Create the following fork tree with refcnts:
 
          P(0)
@@ -280,7 +280,7 @@ test_bank_dead_eviction( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
   fd_banks_t banksl_join[1];
-  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), locks );
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 8888UL ), locks );
   fd_bank_data_t * bank_data_pool = fd_banks_get_bank_pool( banks->data );
 
   fd_bank_t bank_P[1];
@@ -547,7 +547,7 @@ main( int argc, char ** argv ) {
   for( ulong i=0UL; i<fp; i+=8 ) FD_STORE( ulong, mem+i, fd_ulong_hash( i ) );
 # endif
 
-  mem = fd_banks_new( mem, 16UL, 4UL, 0, 8888UL );
+  mem = fd_banks_new( mem, 16UL, 4UL, 8888UL );
   FD_TEST( mem );
 
   /* Init banks */
@@ -693,7 +693,7 @@ main( int argc, char ** argv ) {
   /* Trying to allocate a new epoch leaders should fail because the pool
      now has no free elements. */
 
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank4->data ) ) == 2UL );
+  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_banks_get_epoch_leaders_pool( banks->data ) ) == 2UL );
 
   fd_banks_mark_bank_frozen( banks, bank4 );
 
@@ -795,7 +795,7 @@ main( int argc, char ** argv ) {
 
   /* Check that there are 3 free pool elements. */
 
-  FD_TEST( fd_bank_epoch_rewards_pool_free( fd_bank_get_epoch_rewards_pool( bank9->data ) ) == 3UL );
+  FD_TEST( fd_bank_epoch_rewards_pool_free( fd_banks_get_epoch_rewards_pool( banks->data ) ) == 3UL );
 
   fd_epoch_rewards_t * keys2 = fd_bank_epoch_rewards_modify( bank9 );
   keys2->magic = 101UL;
@@ -855,7 +855,7 @@ main( int argc, char ** argv ) {
 
   /* At this point, there should be an epoch leader pool element that is
      freed up. */
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank10->data ) ) == 3UL );
+  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_banks_get_epoch_leaders_pool( banks->data ) ) == 3UL );
   fd_epoch_leaders_t * epoch_leaders3 = fd_bank_epoch_leaders_modify( bank10 );
   FD_TEST( epoch_leaders3 );
 
@@ -869,7 +869,7 @@ main( int argc, char ** argv ) {
   fd_bank_slot_set( bank11, 11UL );
 
   /* Again, there are no free epoch leader pool elements. */
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11->data ) ) == 2UL );
+  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_banks_get_epoch_leaders_pool( banks->data ) ) == 2UL );
 
   fd_epoch_rewards_t const * keys3 = fd_bank_epoch_rewards_query( bank11 );
   FD_TEST( keys3->magic == 101UL );
@@ -888,7 +888,7 @@ main( int argc, char ** argv ) {
   votes->magic = 102UL;
   fd_bank_vote_states_end_locking_modify( bank11 );
 
-  FD_TEST( fd_bank_vote_states_pool_free( fd_bank_get_vote_states_pool( bank11->data ) ) == 14UL );
+  FD_TEST( fd_bank_vote_states_pool_free( fd_banks_get_vote_states_pool( banks->data ) ) == 14UL );
 
   /* Now there should be 3 forks:
      1. 7 (1234) -> 8

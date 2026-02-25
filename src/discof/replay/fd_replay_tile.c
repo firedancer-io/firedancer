@@ -372,8 +372,6 @@ struct fd_replay_tile {
 
   fd_multi_epoch_leaders_t * mleaders;
 
-  int larger_max_cost_per_block;
-
   fd_pubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
 
   /* When we transition to becoming leader, we can only unbecome the
@@ -694,7 +692,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
 static void
 cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
-  if( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank->data ) ) ) {
+  if( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( NULL ) ) {
     fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
     slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
     slot_info->cost_tracker.vote_cost                    = cost_tracker->vote_cost;
@@ -1272,7 +1270,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
 
-  msg->limits.slot_max_cost = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
+  msg->limits.slot_max_cost = cost_tracker->block_cost_limit;
   msg->limits.slot_max_vote_cost = cost_tracker->vote_cost_limit;
   msg->limits.slot_max_write_cost_per_acct = cost_tracker->account_cost_limit;
 
@@ -2684,6 +2682,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_bank_t bank[1];
   FD_TEST( fd_banks_init_bank( bank, ctx->banks ) );
   fd_bank_slot_set( bank, 0UL );
+  fd_bank_larger_max_cost_per_block_set( bank, tile->replay.larger_max_cost_per_block );
   FD_TEST( bank->data->idx==FD_REPLAY_BOOT_BANK_IDX );
 
   ctx->consensus_root_slot = ULONG_MAX;
@@ -2779,8 +2778,6 @@ unprivileged_init( fd_topo_t *      topo,
 # endif
 
   ctx->is_booted = 0;
-
-  ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
 
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, tile->replay.fec_max, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
