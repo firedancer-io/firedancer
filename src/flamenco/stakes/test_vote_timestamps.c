@@ -30,7 +30,6 @@ int main( int argc, char ** argv ) {
   }
 
   ulong footprint = fd_vote_timestamps_footprint( 16UL, 4, 128UL );
-  FD_LOG_NOTICE(( "footprint: %lu", footprint ));
 
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_vote_timestamps_align(), footprint, wksp_tag );
   FD_TEST( mem );
@@ -159,8 +158,6 @@ int main( int argc, char ** argv ) {
   FD_TEST( t_11_cnt==3 );
   FD_TEST( t_15_cnt==2 );
 
-  FD_LOG_WARNING(("***********************************************************************"));
-
   /* root -> child -> child2 -> child4
                    -> child3           */
 
@@ -280,8 +277,6 @@ int main( int argc, char ** argv ) {
 
   /* child5 */
 
-  FD_LOG_WARNING(("***********************************************************************"));
-
   /* Now try advancing the root to the child_idx5 which has a snapshot.
      Also now every other element in the tree will be pruned. */
   fd_vote_timestamps_advance_root( vote_timestamps, child_idx5 );
@@ -312,9 +307,6 @@ int main( int argc, char ** argv ) {
   FD_TEST( t_20_cnt==3 );
   FD_TEST( t_11_cnt==1 );
   FD_TEST( t_10_cnt==1 );
-
-
-  /* TODO: The index currently leaks elements.  */
 
   FD_LOG_NOTICE(( "pass" ));
 }

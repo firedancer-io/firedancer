@@ -19,7 +19,6 @@ fd_vote_timestamps_footprint( ulong max_live_slots,
   l = FD_LAYOUT_APPEND( l, index_map_align(),          index_map_footprint( map_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, snapshot_key_dlist_align(), snapshot_key_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, snapshot_key_pool_align(),  snapshot_key_pool_footprint( max_snaps ) );
-  l = FD_LAYOUT_APPEND( l, evict_map_align(),          evict_map_footprint( max_vote_accs ) );
   for( uchar i=0; i<max_snaps; i++ ) {
     l = FD_LAYOUT_APPEND( l, snapshot_map_align(),     snapshot_map_footprint( map_chain_cnt ) );
     l = FD_LAYOUT_APPEND( l, alignof(snapshot_ele_t),  sizeof(snapshot_ele_t)*max_vote_accs );
@@ -52,7 +51,6 @@ fd_vote_timestamps_new( void * shmem,
   void *                 index_map_mem           = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),          index_map_footprint( map_chain_cnt ) );
   void *                 snapshot_keys_dlist_mem = FD_SCRATCH_ALLOC_APPEND( l, snapshot_key_dlist_align(), snapshot_key_dlist_footprint() );
   void *                 snapshot_keys_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, snapshot_key_pool_align(),  snapshot_key_pool_footprint( max_snaps ) );
-  void *                 evict_map_mem           = FD_SCRATCH_ALLOC_APPEND( l, evict_map_align(),          evict_map_footprint( max_vote_accs ) );
 
   fork_ele_t * fork_pool = fork_pool_join( fork_pool_new( fork_pool_mem, max_live_slots ) );
   if( FD_UNLIKELY( !fork_pool ) ) {
@@ -72,31 +70,21 @@ fd_vote_timestamps_new( void * shmem,
     return NULL;
   }
 
-  evict_map_t * evict_map = evict_map_join( evict_map_new( evict_map_mem, max_vote_accs, seed ) );
-  if( FD_UNLIKELY( !evict_map ) ) {
-    FD_LOG_WARNING(( "Failed to create vote timestamp evict map" ));
-    return NULL;
-  }
-
   vote_timestamps->fork_pool_offset  = (ulong)fork_pool - (ulong)shmem;
   vote_timestamps->index_pool_offset = (ulong)index_pool - (ulong)shmem;
   vote_timestamps->index_map_offset  = (ulong)index_map - (ulong)shmem;
-  vote_timestamps->evict_map_offset  = (ulong)evict_map - (ulong)shmem;
 
   snapshot_key_ele_t * snapshot_keys_pool = snapshot_key_pool_join( snapshot_key_pool_new( snapshot_keys_pool_mem, max_snaps ) );
   if( FD_UNLIKELY( !snapshot_keys_pool ) ) {
     FD_LOG_WARNING(( "Failed to create vote timestamp snapshot keys pool" ));
     return NULL;
   }
-  FD_LOG_WARNING(("SNAPSHOT KEYS POOL FREE: %lu", snapshot_key_pool_free( snapshot_keys_pool )));
 
   snapshot_key_dlist_t * snapshot_keys = snapshot_key_dlist_join( snapshot_key_dlist_new( snapshot_keys_dlist_mem ) );
   if( FD_UNLIKELY( !snapshot_keys ) ) {
     FD_LOG_WARNING(( "Failed to create vote timestamp snapshot keys" ));
     return NULL;
   }
-
-  FD_LOG_WARNING(("SNAPSHOT KEYS POOL FREE: %lu", snapshot_key_pool_free( snapshot_keys_pool )));
 
   for( uchar i=0; i<max_snaps; i++ ) {
     snapshot_key_ele_t * key = snapshot_key_pool_ele( snapshot_keys_pool, i );
@@ -116,15 +104,6 @@ fd_vote_timestamps_new( void * shmem,
 
   vote_timestamps->snapshot_keys_dlist_offset = (ulong)snapshot_keys - (ulong)shmem;
   vote_timestamps->snapshot_keys_pool_offset  = (ulong)snapshot_keys_pool - (ulong)shmem;
-
-  snapshot_key_ele_t * skp = fd_vote_timestamps_get_snapshot_keys_pool( vote_timestamps );
-  snapshot_key_ele_t * skp_2 = (snapshot_key_ele_t *)((uchar *)shmem + vote_timestamps->snapshot_keys_pool_offset);
-
-  FD_LOG_WARNING(("SNAPSHOT KEYS POOL FREE: %lu", snapshot_key_pool_free( skp )));
-  FD_LOG_WARNING(("SNAPSHOT KEYS POOL FREE: %lu", snapshot_key_pool_free( skp_2 )));
-  FD_LOG_WARNING(("SNAPSHOT KEYS POOL FREE: %lu", snapshot_key_pool_free( snapshot_keys_pool )));
-
-
   return shmem;
 }
 
@@ -276,7 +255,6 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
     /* This means that we need to apply the delta from the new root onto
        the old root's snapshot.  Then transfer ownership of the snapshot
        to the new_root. */
-    FD_LOG_WARNING(("ADVANCING ROOT TO NODE WITHOUT SNAPSHOT"));
     apply_root_delta( vote_ts, new_root, head );
 
     old_root_key->fork_idx = new_root_idx;
@@ -288,8 +266,8 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
   snapshot_ele_t * root_snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, new_root->snapshot_idx );
   snapshot_map_t * root_snapshot_map = fd_vote_timestamps_get_snapshot_map( vote_ts, new_root->snapshot_idx );
 
-  evict_map_t * evict_map  = fd_vote_timestamps_get_evict_map( vote_ts );
-
+  index_ele_t *    index_pool   = fd_vote_timestamps_get_index_pool( vote_ts );
+  index_map_t *    index_map    = fd_vote_timestamps_get_index_map( vote_ts );
 
   head->next = USHORT_MAX;
   fork_ele_t * tail = head;
@@ -325,11 +303,13 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
       delta_ele_t * delta = &head->deltas[i];
       index_ele_t * ele = index_pool_ele( index_pool, delta->pubkey_idx );
       ele->refcnt--;
-      /* If elements are not found in the root snapshot, and not in the
-         evict map already, queue as a possible evictable entry. */
-      snapshot_ele_t * snapshot_ele = snapshot_map_ele_query( root_snapshot_map, &delta->pubkey_idx, NULL, root_snapshot );
-      if( !snapshot_ele && !evict_map_ele_query( evict_map, &ele->pubkey, NULL, index_pool ) ) {
-        evict_map_ele_insert( evict_map, ele, index_pool );
+      /* If elements are not found in the root snapshot, and has no
+         references, remove it from the index. */
+      if( ele->refcnt==0U ) {
+        if( FD_UNLIKELY( !snapshot_map_ele_query( root_snapshot_map, &delta->pubkey_idx, NULL, root_snapshot ) ) ) {
+          index_map_ele_remove( index_map, &ele->pubkey, NULL, index_pool );
+          index_pool_ele_release( index_pool, ele );
+        }
       }
     }
     head->deltas_cnt = 0;
@@ -346,8 +326,6 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
      references and the last vote is at least 432000 slots ago. */
   uint evict_cnt = 0U;
   uint evict_idxs[ USHORT_MAX ];
-  index_ele_t *    index_pool   = fd_vote_timestamps_get_index_pool( vote_ts );
-  index_map_t *    index_map    = fd_vote_timestamps_get_index_map( vote_ts );
   for( snapshot_map_iter_t iter = snapshot_map_iter_init( root_snapshot_map, root_snapshot );
        !snapshot_map_iter_done( iter, root_snapshot_map, root_snapshot );
        iter = snapshot_map_iter_next( iter, root_snapshot_map, root_snapshot ) ) {
@@ -361,21 +339,8 @@ fd_vote_timestamps_advance_root( fd_vote_timestamps_t * vote_ts,
     }
   }
 
-
-  /* Now clear all evictable entries from the index.  Only remove the
-     entry if it has no outstanding references. */
-  for( evict_map_iter_t iter = evict_map_iter_init( evict_map, index_pool );
-       !evict_map_iter_done( iter, evict_map, index_pool );
-       iter = evict_map_iter_next( iter, evict_map, index_pool ) ) {
-    index_ele_t * ele = evict_map_iter_ele( iter, evict_map, index_pool );
-    if( ele->refcnt!=0U ) continue;
-    evict_idxs[ evict_cnt ] = (uint)index_pool_idx( index_pool, ele );
-    evict_cnt++;
-  }
-
   for( uint i=0; i<evict_cnt; i++ ) {
     index_ele_t * ele = index_pool_ele( index_pool, evict_idxs[i] );
-    evict_map_ele_remove( evict_map, &index_pool_ele( index_pool, evict_idxs[i] )->pubkey, NULL, index_pool );
     index_map_ele_remove( index_map, &index_pool_ele( index_pool, evict_idxs[i] )->pubkey, NULL, index_pool );
     index_pool_ele_release( index_pool, ele );
   }
@@ -400,7 +365,6 @@ fd_vote_timestamps_insert( fd_vote_timestamps_t * vote_ts,
   if( FD_LIKELY( ele ) ) {
     ele->refcnt++;
   } else {
-    FD_LOG_NOTICE(("INSERTING NEW ELE"));
     ele = index_pool_ele_acquire( index_pool );
     ele->pubkey = pubkey;
     ele->refcnt = 1UL;
@@ -477,15 +441,10 @@ prune_and_get_snapshot( fd_vote_timestamps_t * vote_ts,
   uchar best_snapshot_idx = curr->snapshot_idx;
   uchar root_snapshot_idx = root->snapshot_idx;
 
-  FD_LOG_NOTICE(("PATH CNT %u BEST %u, ROOT %u", *parent_snapshot_path_cnt, best_snapshot_idx, root_snapshot_idx));
-
   snapshot_key_dlist_t * snapshot_keys_dlist = fd_vote_timestamps_get_snapshot_keys_dlist( vote_ts );
   snapshot_key_ele_t *   snapshot_keys_pool  = fd_vote_timestamps_get_snapshot_keys_pool( vote_ts );
 
-  FD_LOG_WARNING(("SNAPSHOT KEYS POOL FREE: %lu", snapshot_key_pool_free( snapshot_keys_pool )));
-
   if( FD_UNLIKELY( snapshot_key_pool_free( snapshot_keys_pool )==0UL ) ) {
-    FD_LOG_NOTICE(("NO FREE SNAPSHOT KEYS"));
     /* If there are no free slots in the pool, we need to evict. */
 
     snapshot_key_ele_t * key = snapshot_key_dlist_ele_pop_head( snapshot_keys_dlist, snapshot_keys_pool );
@@ -501,7 +460,6 @@ prune_and_get_snapshot( fd_vote_timestamps_t * vote_ts,
       key = snapshot_key_dlist_ele_pop_head( snapshot_keys_dlist, snapshot_keys_pool );
       idx = (uchar)snapshot_key_pool_idx( snapshot_keys_pool, key );
     }
-    FD_LOG_NOTICE(("EVICTED KEY IDX: %u", idx));
     fork_ele_t * fork = fork_pool_ele( fork_pool, key->fork_idx );
     fork->snapshot_idx = UCHAR_MAX;
     key->fork_idx      = USHORT_MAX;
@@ -510,23 +468,17 @@ prune_and_get_snapshot( fd_vote_timestamps_t * vote_ts,
 
   snapshot_key_ele_t * new_key = snapshot_key_pool_ele_acquire( snapshot_keys_pool );
   new_key->fork_idx = fork_idx;
-  FD_LOG_NOTICE(("SNAPSHOT KEY IDX: %u", (uchar)snapshot_key_pool_idx( snapshot_keys_pool, new_key )));
   snapshot_key_dlist_ele_push_tail( snapshot_keys_dlist, new_key, snapshot_keys_pool );
   return (uchar)snapshot_key_pool_idx( snapshot_keys_pool, new_key );
 }
 
 static void
-apply_snapshot( fd_vote_timestamps_t * vote_ts,
-                snapshot_ele_t *     snapshot,
+apply_snapshot( snapshot_ele_t * snapshot,
                 snapshot_map_t * snapshot_map,
-                ulong                base_slot,
-                snapshot_ele_t *     prev_snapshot,
+                ulong            base_slot,
+                snapshot_ele_t * prev_snapshot,
                 snapshot_map_t * prev_snapshot_map,
-                ulong                prev_slot ) {
-
-  (void)vote_ts;
-  //evict_map_t * evict_map = fd_vote_timestamps_get_evict_map( vote_ts );
-  //index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
+                ulong            prev_slot ) {
 
   for( snapshot_map_iter_t iter = snapshot_map_iter_init( prev_snapshot_map, prev_snapshot );
        !snapshot_map_iter_done( iter, prev_snapshot_map, prev_snapshot );
@@ -549,7 +501,6 @@ apply_delta( ulong                     base_slot,
              snapshot_map_t *      snapshot_map,
              fork_ele_t * fork ) {
 
-  FD_LOG_NOTICE(("APPLYING DELTAS %u", fork->deltas_cnt));
   for( ushort i=0; i<fork->deltas_cnt; i++ ) {
     /* We have the property that timestamps are always increasing for
        the same pubkey.  When a pubkey is evicted from the index, then
@@ -564,7 +515,6 @@ apply_delta( ulong                     base_slot,
       snapshot_ele->idx       = delta->pubkey_idx;
       snapshot_ele->timestamp = delta->timestamp;
       snapshot_ele->slot_age  = base_slot - fork->slot;
-      FD_LOG_WARNING(("APPLYING DELTAS %u %lu", delta->pubkey_idx, snapshot_ele->timestamp));
       snapshot_map_ele_insert( snapshot_map, snapshot_ele, snapshot );
     }
   }
@@ -579,7 +529,6 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
   ushort path[ USHORT_MAX ];
   ushort path_cnt = 0;
   fork->snapshot_idx = prune_and_get_snapshot( vote_ts, fork_idx, path, &path_cnt );
-  FD_LOG_NOTICE(("snapshot idx: %u", fork->snapshot_idx));
   snapshot_ele_t * snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, fork->snapshot_idx );
   snapshot_map_t * snapshot_map = fd_vote_timestamps_get_snapshot_map( vote_ts, fork->snapshot_idx );
   snapshot_map_reset( snapshot_map );
@@ -589,7 +538,6 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
      get the timestamp.  We want to iterate backwards through the fork
      indices and apply the deltas. */
   for( ushort i=0; i<path_cnt-1; i++ ) {
-    FD_LOG_WARNING(("APPLYING DELTAS FOR INDEX %u", path[i]));
     apply_delta( fork->slot, snapshot, snapshot_map, fork_pool_ele( fork_pool, path[i] ) );
   }
   fork_ele_t * curr_fork = fork_pool_ele( fork_pool, path[path_cnt-1] );
@@ -598,7 +546,7 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
      snapshot. */
   snapshot_ele_t * prev_snapshot     = fd_vote_timestamps_get_snapshot( vote_ts, curr_fork->snapshot_idx );
   snapshot_map_t * prev_snapshot_map = fd_vote_timestamps_get_snapshot_map( vote_ts, curr_fork->snapshot_idx );
-  apply_snapshot( vote_ts, snapshot, snapshot_map, fork->slot, prev_snapshot, prev_snapshot_map, curr_fork->slot );
+  apply_snapshot( snapshot, snapshot_map, fork->slot, prev_snapshot, prev_snapshot_map, curr_fork->slot );
 
   index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
 
@@ -620,7 +568,6 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
     /* TODO:FIXME: get the right slot duration on boot */
     ulong offset   = fd_ulong_sat_mul( 400e9, slot_delta );
     ulong estimate = timestamp + (offset / ((ulong)1e9));
-    FD_LOG_NOTICE(("IDX %u DISTANCE %lu TIMESTAMP %lu ESTIMATE %lu STAKE %lu", ele_idx, slot_delta, timestamp, estimate, stake));
 
     vote_ts->ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
@@ -648,4 +595,17 @@ fd_vote_timestamps_get_timestamp( fd_vote_timestamps_t * vote_ts,
 
   /* TODO: Let the runtime handle the timestamp adjusting. */
 
+}
+
+void
+fd_vote_timestamps_update_stakes( fd_vote_timestamps_t * vote_ts,
+                                  fd_pubkey_t *          pubkey,
+                                  ulong                  stake,
+                                  ushort                 epoch ) {
+  index_ele_t * index_pool = fd_vote_timestamps_get_index_pool( vote_ts );
+  index_map_t * index_map  = fd_vote_timestamps_get_index_map( vote_ts );
+  index_ele_t * ele = index_map_ele_query( index_map, pubkey, NULL, index_pool );
+  FD_TEST( ele );
+
+  ele->epoch_stakes[ epoch % 2UL ] = stake;
 }
