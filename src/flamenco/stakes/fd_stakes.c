@@ -38,8 +38,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
-
-  fd_memset( runtime_stack->stakes.computed_stake, 0UL, sizeof(runtime_stack->stakes.computed_stake) );
+  (void)runtime_stack;
+  //fd_memset( runtime_stack->stakes.computed_stake, 0UL, sizeof(runtime_stack->stakes.computed_stake) );
 
   ulong epoch = fd_bank_epoch_get( bank );
 
@@ -69,7 +69,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
     if( FD_LIKELY( vote_state ) ) {
       total_stake += new_entry.effective;
-      vote_state += new_entry.effective;
+      vote_state->stake += new_entry.effective;
     }
   }
 

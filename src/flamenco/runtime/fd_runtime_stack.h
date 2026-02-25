@@ -44,7 +44,7 @@ union fd_runtime_stack {
     /* Staging memory for vote rewards as they are accumulated. */
     ulong                   vote_rewards[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
-    ulong                   computed_stake[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    //ulong                   computed_stake[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
