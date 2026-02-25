@@ -1145,8 +1145,6 @@ before_credit_softirq( fd_net_ctx_t *      ctx,
     ctx->rr_idx++;
     ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
   }
-
-
 }
 
 static int
@@ -1168,7 +1166,7 @@ net_prefbusy_poll_ready( fd_xsk_t *         rr_xsk,
 static void
 net_prefbusy_poll_flush( fd_net_flusher_t * flusher,
                          long               now ) {
-  flusher->pending_cnt = 0UL;
+  flusher->pending_cnt              = 0UL;
   flusher->last_prefbusy_poll_ticks = now;
 }
 
@@ -1248,10 +1246,10 @@ before_credit( fd_net_ctx_t *      ctx,
   fd_xsk_t * rr_xsk = &ctx->xsk[ rr_idx ];
 
   if( FD_LIKELY( rr_xsk->prefbusy_poll_enabled ) ) {
-      before_credit_prefbusy( ctx, charge_busy, rr_idx, rr_xsk );
+    before_credit_prefbusy( ctx, charge_busy, rr_idx, rr_xsk );
   } else {
-      /* Fallback poll mode which relies on linux irqs and wakeups */
-      before_credit_softirq( ctx, charge_busy, rr_idx, rr_xsk );
+    /* Fallback poll mode which relies on linux irqs and wakeups */
+    before_credit_softirq( ctx, charge_busy, rr_idx, rr_xsk );
   }
 
   /* Fire comp event if we have comp desc avail */
