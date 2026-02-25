@@ -62,8 +62,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_stakes_staging_t * stake_ele = fd_stakes_staging_map_ele_query( stakes_staging_map, &stake_delegation->vote_account, NULL, runtime_stack->stakes.stakes_staging );
     if( FD_UNLIKELY( !stake_ele ) ) {
       stake_ele = &runtime_stack->stakes.stakes_staging[ runtime_stack->stakes.stakes_staging_cnt ];
-      stake_ele->pubkey = stake_delegation->vote_account;
-      stake_ele->stake  = 0UL;
+      stake_ele->pubkey  = stake_delegation->vote_account;
+      stake_ele->stake   = 0UL;
+      stake_ele->invalid = 0;
       fd_stakes_staging_map_ele_insert( stakes_staging_map, stake_ele, runtime_stack->stakes.stakes_staging );
       runtime_stack->stakes.stakes_staging_cnt++;
     }
