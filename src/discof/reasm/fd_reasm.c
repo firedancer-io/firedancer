@@ -361,6 +361,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->eqvoc           = 0;
   fec->confirmed       = 0;
   fec->popped          = 0;
+  fec->bank_dead       = 0;
   fec->bank_idx        = null;
   fec->parent_bank_idx = null;
   fec->bank_seq        = null;

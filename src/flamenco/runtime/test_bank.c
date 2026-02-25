@@ -438,9 +438,84 @@ test_bank_dead_eviction( void * mem ) {
   fd_banks_new_bank( bank_I, banks, bank_G->data->idx, 0L );
   fd_banks_new_bank( bank_C, banks, bank_G->data->idx, 0L );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
+}
 
 
+static void
+test_bank_frontier( void * mem ) {
+  fd_banks_locks_t locks[1];
+  fd_banks_locks_init( locks );
+  fd_banks_t banksl_join[1];
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 8UL, 0, 8888UL ), locks );
 
+  /*     A
+        / \
+       B   C
+      /|\
+     D E F
+     |\  |
+     I J G
+         |
+         H */
+
+  fd_bank_t bank_A[1];
+  FD_TEST( fd_banks_init_bank( bank_A, banks ) );
+
+  fd_bank_t bank_B[1];
+  fd_banks_new_bank( bank_B, banks, bank_A->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_B, banks, bank_B->data->idx ) );
+  fd_banks_mark_bank_frozen( banks, bank_B );
+
+  fd_bank_t bank_C[1];
+  fd_banks_new_bank( bank_C, banks, bank_A->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_C, banks, bank_C->data->idx ) );
+
+  fd_bank_t bank_D[1];
+  fd_banks_new_bank( bank_D, banks, bank_B->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_D, banks, bank_D->data->idx ) );
+  fd_banks_mark_bank_frozen( banks, bank_D );
+
+  fd_bank_t bank_E[1];
+  fd_banks_new_bank( bank_E, banks, bank_B->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_E, banks, bank_E->data->idx ) );
+
+  fd_bank_t bank_F[1];
+  fd_banks_new_bank( bank_F, banks, bank_B->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_F, banks, bank_F->data->idx ) );
+  fd_banks_mark_bank_frozen( banks, bank_F );
+
+  fd_bank_t bank_G[1];
+  fd_banks_new_bank( bank_G, banks, bank_F->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_G, banks, bank_G->data->idx ) );
+  fd_banks_mark_bank_frozen( banks, bank_G );
+
+  fd_bank_t bank_H[1];
+  fd_banks_new_bank( bank_H, banks, bank_G->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_H, banks, bank_H->data->idx ) );
+
+  fd_bank_t bank_I[1];
+  fd_banks_new_bank( bank_I, banks, bank_D->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_I, banks, bank_I->data->idx ) );
+
+  fd_bank_t bank_J[1];
+  fd_banks_new_bank( bank_J, banks, bank_D->data->idx, 0L );
+  FD_TEST( fd_banks_clone_from_parent( bank_J, banks, bank_J->data->idx ) );
+
+  ulong frontier_indices[32];
+  ulong frontier_cnt = 0UL;
+
+  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  FD_TEST( frontier_cnt==5UL );
+
+  fd_banks_mark_bank_dead( banks, bank_I->data->idx );
+
+  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  FD_TEST( frontier_cnt==4UL );
+
+  fd_banks_mark_bank_frozen( banks, bank_J );
+
+  fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
+  FD_TEST( frontier_cnt==3UL );
 }
 
 int
@@ -862,6 +937,8 @@ main( int argc, char ** argv ) {
   test_bank_advancing( mem );
 
   test_bank_dead_eviction( mem );
+
+  test_bank_frontier( mem );
 
   FD_LOG_NOTICE(( "pass" ));
 
