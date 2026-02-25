@@ -2106,8 +2106,14 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   /* If we are leader, we can only unbecome the leader iff we have
-     received the poh hash from the poh tile and block id from reasm. */
-  if( FD_UNLIKELY( ctx->is_leader && ctx->recv_poh && ctx->block_id_arr[ ctx->leader_bank->data->idx ].block_id_seen ) ) {
+     received the poh hash from the poh tile and block id from reasm.
+     We have to do an additional check against the slot of the leader
+     bank because we lazily remove entries from the block id arr. */
+  if( FD_UNLIKELY( ctx->is_leader &&
+                   ctx->recv_poh &&
+                   ctx->block_id_arr[ ctx->leader_bank->data->idx ].block_id_seen &&
+                   ctx->block_id_arr[ ctx->leader_bank->data->idx ].slot==fd_bank_slot_get( ctx->leader_bank ) ) ) {
+
     fini_leader_bank( ctx, stem );
     *charge_busy = 1;
     *opt_poll_in = 0;
@@ -2820,6 +2826,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
+  for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->block_id_arr[ i ].block_id_seen = 0;
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
 
