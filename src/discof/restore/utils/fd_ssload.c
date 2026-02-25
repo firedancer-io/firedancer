@@ -269,6 +269,22 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state_curr->stake_t_2 = elem->stake;
   }
 
+  /* TODO:FIXME: make this cleaner */
+  fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
+
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+       !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+
+    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+
+    fd_vote_stakes_insert( vote_stakes,
+                           bank->data->vote_stakes_fork_id,
+                           &vote_state->vote_account,
+                           vote_state->stake_t_1,
+                           vote_state->stake_t_2 );
+  }
+
   fd_bank_vote_states_end_locking_modify( bank );
 
   bank->data->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
