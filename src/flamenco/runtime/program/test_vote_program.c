@@ -16,6 +16,7 @@
 #include "../../progcache/fd_progcache_user.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../../ballet/hex/fd_hex.h"
+#include "fd_vote_program.h"
 
 #include <stdlib.h> // ARM64: malloc(3), free(3)
 
@@ -526,6 +527,151 @@ test_account_initialize_v2_no_simd_0387( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_account_initialize_simd_0387... ok" ));
 }
 
+static ulong
+construct_and_measure_footprint( uint disc, uchar * vote_state_buf, ulong vote_state_buf_sz ) {
+  fd_memset( vote_state_buf, 0, vote_state_buf_sz );
+
+  fd_vote_state_versioned_t * state = (fd_vote_state_versioned_t *)vote_state_buf;
+  fd_vote_state_versioned_new_disc( state, disc );
+
+  void * alloc_mem = vote_state_buf + sizeof(fd_vote_state_versioned_t);
+
+  /* Allocate common dynamic structures */
+
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join_new( &alloc_mem, 32 );
+  for( ulong i=0; i<MAX_LOCKOUT_HISTORY; i++ ) {
+    fd_landed_vote_t vote = { .latency = 0, .lockout = { .slot = i, .confirmation_count = 1 } };
+    deq_fd_landed_vote_t_push_tail( landed_votes, vote );
+  }
+
+  fd_vote_lockout_t * lockout_votes = deq_fd_vote_lockout_t_join_new( &alloc_mem, 32 );
+  for( ulong i=0; i<MAX_LOCKOUT_HISTORY; i++ ) {
+    fd_vote_lockout_t lockout = { .slot = i, .confirmation_count = 1 };
+    deq_fd_vote_lockout_t_push_tail( lockout_votes, lockout );
+  }
+
+  fd_vote_authorized_voters_t authorized_voters;
+  authorized_voters.pool  = fd_vote_authorized_voters_pool_join_new( &alloc_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN );
+  authorized_voters.treap = fd_vote_authorized_voters_treap_join_new( &alloc_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN );
+  for( ulong i=0; i<4; i++ ) {
+    fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( authorized_voters.pool );
+    fd_vote_authorized_voter_new( voter );
+    voter->epoch = i;
+    voter->prio  = i;
+    fd_vote_authorized_voters_treap_ele_insert( authorized_voters.treap, voter, authorized_voters.pool );
+  }
+
+  fd_vote_epoch_credits_t * epoch_credits = deq_fd_vote_epoch_credits_t_join_new( &alloc_mem, 64 );
+  for( ulong i=0; i<MAX_EPOCH_CREDITS_HISTORY; i++ ) {
+    fd_vote_epoch_credits_t ec = { .epoch = i, .credits = 0, .prev_credits = 0 };
+    deq_fd_vote_epoch_credits_t_push_tail( epoch_credits, ec );
+  }
+
+  /* Assign into variant-specific fields */
+
+  switch( disc ) {
+
+    case fd_vote_state_versioned_enum_v0_23_5: {
+      fd_vote_state_0_23_5_t * inner = &state->inner.v0_23_5;
+      inner->votes              = lockout_votes;
+      inner->has_root_slot      = 1;
+      inner->root_slot          = 0;
+      inner->prior_voters.idx   = 31;
+      inner->epoch_credits      = epoch_credits;
+      break;
+    }
+
+    case fd_vote_state_versioned_enum_v1_14_11: {
+      fd_vote_state_1_14_11_t * inner = &state->inner.v1_14_11;
+      inner->votes              = lockout_votes;
+      inner->has_root_slot      = 1;
+      inner->root_slot          = 0;
+      inner->authorized_voters  = authorized_voters;
+      inner->prior_voters.idx   = 31;
+      inner->prior_voters.is_empty = 1;
+      inner->epoch_credits      = epoch_credits;
+      break;
+    }
+
+    case fd_vote_state_versioned_enum_v3: {
+      fd_vote_state_v3_t * inner = &state->inner.v3;
+      inner->votes              = landed_votes;
+      inner->has_root_slot      = 1;
+      inner->root_slot          = 0;
+      inner->authorized_voters  = authorized_voters;
+      inner->prior_voters.idx   = 31;
+      inner->prior_voters.is_empty = 1;
+      inner->epoch_credits      = epoch_credits;
+      break;
+    }
+
+    case fd_vote_state_versioned_enum_v4: {
+      fd_vote_state_v4_t * inner = &state->inner.v4;
+      inner->has_bls_pubkey_compressed = 1;
+      inner->votes              = landed_votes;
+      inner->has_root_slot      = 1;
+      inner->root_slot          = 0;
+      inner->authorized_voters  = authorized_voters;
+      inner->epoch_credits      = epoch_credits;
+      break;
+    }
+
+    default:
+      FD_LOG_CRIT(( "unsupported discriminant: %u", disc ));
+  }
+
+  /* Encode the vote state */
+  uchar encode_buf[8192];
+  fd_bincode_encode_ctx_t encode_ctx = {
+    .data    = encode_buf,
+    .dataend = encode_buf + sizeof(encode_buf),
+  };
+  int err = fd_vote_state_versioned_encode( state, &encode_ctx );
+  FD_TEST( !err );
+  ulong encoded_sz = (ulong)encode_ctx.data - (ulong)encode_buf;
+
+  /* Compute decode footprint */
+  fd_bincode_decode_ctx_t decode_ctx = {
+    .data    = encode_buf,
+    .dataend = encode_buf + encoded_sz,
+  };
+  ulong total_sz = 0;
+  err = fd_vote_state_versioned_decode_footprint( &decode_ctx, &total_sz );
+  FD_TEST( !err );
+
+  return total_sz;
+}
+
+static void
+test_vote_state_versioned_footprint( void ) {
+  uchar vote_state_buf[16384] __attribute__((aligned(128)));
+
+  ulong footprint_v0 = construct_and_measure_footprint(
+      fd_vote_state_versioned_enum_v0_23_5, vote_state_buf, sizeof(vote_state_buf) );
+  FD_LOG_NOTICE(( "v0_23_5 footprint: %lu", footprint_v0 ));
+
+  ulong footprint_v1 = construct_and_measure_footprint(
+      fd_vote_state_versioned_enum_v1_14_11, vote_state_buf, sizeof(vote_state_buf) );
+  FD_LOG_NOTICE(( "v1_14_11 footprint: %lu", footprint_v1 ));
+
+  ulong footprint_v3 = construct_and_measure_footprint(
+      fd_vote_state_versioned_enum_v3, vote_state_buf, sizeof(vote_state_buf) );
+  FD_LOG_NOTICE(( "v3 footprint: %lu", footprint_v3 ));
+
+  ulong footprint_v4 = construct_and_measure_footprint(
+      fd_vote_state_versioned_enum_v4, vote_state_buf, sizeof(vote_state_buf) );
+  FD_LOG_NOTICE(( "v4 footprint: %lu", footprint_v4 ));
+
+  ulong max_footprint = fd_ulong_max(  fd_ulong_max( footprint_v0, footprint_v1 ),
+                                       fd_ulong_max( footprint_v3, footprint_v4 )
+  );
+  FD_LOG_NOTICE(( "max footprint: %lu, FD_VOTE_STATE_VERSIONED_FOOTPRINT: %lu",
+                   max_footprint, (ulong)FD_VOTE_STATE_VERSIONED_FOOTPRINT ));
+  FD_TEST( max_footprint==FD_VOTE_STATE_VERSIONED_FOOTPRINT );
+
+  FD_LOG_NOTICE(( "test_vote_state_versioned_footprint... ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -552,6 +698,8 @@ main( int     argc,
   test_account_initialize_v2( wksp );
   test_account_initialize_v2_invalid_proof( wksp );
   test_account_initialize_v2_no_simd_0387( wksp ); /* remove when SIMD-0387 is cleaned up */
+
+  test_vote_state_versioned_footprint();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
