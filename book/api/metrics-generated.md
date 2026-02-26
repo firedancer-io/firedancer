@@ -885,6 +885,8 @@
 | <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;time</span> | histogram | Time in seconds it took to complete a slot |
 | <span class="metrics-name">repair_&#8203;response_&#8203;latency</span> | histogram | Time in nanoseconds it took to receive a repair request response |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
+| <span class="metrics-name">repair_&#8203;blk_&#8203;evicted</span> | counter | How many times we evicted a block from the forest |
+| <span class="metrics-name">repair_&#8203;blk_&#8203;failed_&#8203;insert</span> | counter | How many times we failed to insert a block into the forest due to failed eviction |
 
 </div>
 

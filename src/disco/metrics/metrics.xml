@@ -870,6 +870,8 @@ metric introduced.
       <summary>Time in nanoseconds it took to receive a repair request response</summary>
     </histogram>
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
+    <counter name="BlkEvicted" summary="How many times we evicted a block from the forest" />
+    <counter name="BlkFailedInsert" summary="How many times we failed to insert a block into the forest due to failed eviction" />
 </tile>
 
 <enum name="CrdsValue">

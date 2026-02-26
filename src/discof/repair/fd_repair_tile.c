@@ -270,6 +270,8 @@ struct ctx {
     ulong malformed_ping;
     fd_histf_t slot_compl_time[ 1 ];
     fd_histf_t response_latency[ 1 ];
+    ulong blk_evicted;
+    ulong blk_failed_insert;
   } metrics[ 1 ];
 
   /* Slot-level metrics */
@@ -623,6 +625,21 @@ after_sign( ctx_t             * ctx,
   send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
 }
 
+static int
+blk_insert_check( ctx_t * ctx, fd_forest_blk_t * new_blk, ulong new_slot, ulong evicted ) {
+  if( FD_UNLIKELY( !new_blk ) ) {
+    FD_LOG_WARNING(( "fd_forest_blk_insert: ignoring new slot %lu. pool is full and cannot evict", new_slot ));
+    ctx->metrics->blk_failed_insert++;
+    return 0;
+  } else {
+    if( FD_UNLIKELY( evicted != ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "fd_forest_blk_insert: evicted %lu and inserting new slot %lu", evicted, new_slot ));
+      ctx->metrics->blk_evicted++;
+    }
+    return 1;
+  }
+}
+
 static inline void
 after_shred( ctx_t      * ctx,
              ulong        sig,
@@ -643,10 +660,20 @@ after_shred( ctx_t      * ctx,
       fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
     }
 
+    /* we don't want to add a slot to the forest that chains to a slot
+       older than root, to avoid filling forest up with junk.
+       Especially if we are close to full and we are having trouble
+       rooting, we can't rely on publishing to prune these useless
+       subtrees. TODO: do the same with reasm/store/shred? */
+    if( FD_UNLIKELY( shred->slot - shred->data.parent_off < fd_forest_root_slot( ctx->forest ) ) ) return;
+
     int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
     int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
-    fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-    if( FD_LIKELY( blk ) )  fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
+    ulong evicted     = ULONG_MAX;
+    fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
+    if( FD_LIKELY( blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) {
+      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
+    }
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
   }
@@ -697,9 +724,12 @@ after_fec( ctx_t      * ctx,
   int slot_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
   int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
 
-  fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-  if( FD_LIKELY( ele ) )  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
-  else                    return;
+  /* Similar to after_shred, do not insert a slot that chains to a slot older than root */
+  if( FD_UNLIKELY( shred->slot - shred->data.parent_off < fd_forest_root_slot( ctx->forest ) ) ) return;
+  ulong evicted  = ULONG_MAX;
+  fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
+  if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return;
+  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
 
   /* metrics for completed slots */
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
@@ -809,10 +839,13 @@ after_frag( ctx_t *             ctx,
           /* If we receive a confirmation for a slot we don't have,
              create a sentinel forest block that we can repair from. */
 
-          blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot );
-          blk->confirmed_bid = msg->block_id;
+          ulong evicted = ULONG_MAX;
+          blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot, &evicted );
+          if( FD_LIKELY( blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) {
+            blk->confirmed_bid = msg->block_id;
+            check_confirmed( ctx, blk, &msg->block_id );
+          }
         }
-        check_confirmed( ctx, blk, &msg->block_id );
       }
     }
     return;
@@ -848,6 +881,7 @@ after_frag( ctx_t *             ctx,
       return;
     };
 
+
     if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && ( shred->slot > ctx->turbine_slot0 ) ) ) return;
 #   if LOGGING
     if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
@@ -865,7 +899,7 @@ after_frag( ctx_t *             ctx,
         /* we wait until the first turbine shred arrives to kick off
            the profiler.  This is to let gossip peers accumulate similar
            to a regular Firedancer run. */
-        fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot );
+        fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot, NULL );
         fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
 
         ctx->turbine_slot0 = ctx->profiler.end_slot;
@@ -1172,6 +1206,9 @@ metrics_write( ctx_t * ctx ) {
 
   FD_MHIST_COPY( REPAIR, SLOT_COMPLETE_TIME, ctx->metrics->slot_compl_time );
   FD_MHIST_COPY( REPAIR, RESPONSE_LATENCY,   ctx->metrics->response_latency );
+
+  FD_MCNT_SET( REPAIR, BLK_EVICTED,       ctx->metrics->blk_evicted );
+  FD_MCNT_SET( REPAIR, BLK_FAILED_INSERT, ctx->metrics->blk_failed_insert );
 }
 
 #undef DEBUG_LOGGING

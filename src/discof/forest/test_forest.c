@@ -17,7 +17,8 @@
 
 fd_forest_blk_t *
 fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int data_complete FD_PARAM_UNUSED, int slot_complete ) {
-  fd_forest_blk_insert( forest, slot, parent_slot );
+  ulong evicted = ULONG_MAX;
+  fd_forest_blk_insert( forest, slot, parent_slot, &evicted );
   fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
   fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
   return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR, &mr, &cmr );
@@ -25,7 +26,8 @@ fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_
 
 fd_forest_blk_t *
 fd_forest_blk_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete ) {
-  fd_forest_blk_insert( forest, slot, parent_slot );
+  ulong evicted = ULONG_MAX;
+  fd_forest_blk_insert( forest, slot, parent_slot, &evicted );
   fd_hash_t mr  = (fd_hash_t){ .key = { 1 } };
   fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
   return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0, &mr, &cmr );
@@ -959,8 +961,8 @@ test_slot_clear( fd_wksp_t * wksp ) {
 
   fd_forest_blk_t * ele;
   fd_forest_init( forest, 0 );
-  fd_forest_blk_insert( forest, 2, 0 );
-  fd_forest_blk_insert( forest, 3, 2 );
+  fd_forest_blk_insert( forest, 2, 0, NULL );
+  fd_forest_blk_insert( forest, 3, 2, NULL );
   /*                            slot paren  last  fec_set  slot_cmpl  rt  mr        cmr */
   fd_forest_fec_insert( forest, 2,   0,     31,   0,       0,         0,  &mr_2_0,  &mr_0 );
   fd_forest_fec_insert( forest, 2,   0,     63,   32,      1,         0,  &mr_2_32, &mr_2_0 );
@@ -1070,8 +1072,8 @@ test_verify_orphans( fd_wksp_t * wksp ) {
 
   fd_forest_blk_t * ele;
   fd_forest_init( forest, 0 );
-  fd_forest_blk_insert( forest, 2, 1 );
-  fd_forest_blk_insert( forest, 3, 2 );
+  fd_forest_blk_insert( forest, 2, 1, NULL );
+  fd_forest_blk_insert( forest, 3, 2, NULL );
   print_orphan_requests( forest );
 
   /* check that block 1 is in orphan requests list */
@@ -1089,7 +1091,7 @@ test_verify_orphans( fd_wksp_t * wksp ) {
   /* orphans verify */
 
   /* Now chain 1 to 0, and this should trigger a verifcation of the chain from 2 to 0 */
-  fd_forest_blk_insert( forest, 1, 0 );
+  fd_forest_blk_insert( forest, 1, 0, NULL );
   ele = fd_forest_fec_insert( forest, 1,   0,     31,   0,       0,         0,  &mr_1_0,  &mr_0 );
   FD_TEST( ele->lowest_verified_fec == UINT_MAX );
   ele = fd_forest_fec_insert( forest, 1,   0,     63,   32,      1,         0,  &mr_1_32, &mr_1_0 );
@@ -1116,22 +1118,23 @@ test_eviction_simple( fd_wksp_t * wksp ) {
   fd_forest_blk_fec_insert( forest, 6, 5, 0, 0, 1 );
   fd_forest_blk_fec_insert( forest, 7, 6, 0, 0, 1 );
 
-  /* now forest is full, and there is only one fork.*/
-
+  /* now forest is full, and there is only one fork. */
+  ulong evicted = ULONG_MAX;
   /* try to add 8, parent is leaf 7. should force a root. */
-  FD_TEST( fd_forest_blk_fec_insert( forest, 8, 7, 0, 0, 1) );
+  FD_TEST( fd_forest_blk_fec_insert( forest, 8, 7, 0, 0, 1 ) );
   FD_TEST( !fd_forest_verify( forest ) );
 
-  /* add 9, parent is non-leaf 6. should succeed. 7 is evicted */
+  /* add 9, parent is non-leaf 6. should succeed. 8 is evicted */
   fd_forest_print( forest );
-  FD_TEST( fd_forest_blk_insert( forest, 9, 6 ) );
+  FD_TEST( fd_forest_blk_insert( forest, 9, 6, &evicted ) );
+  FD_TEST( evicted == 8 );
   fd_forest_print( forest );
 
   FD_TEST( !fd_forest_query( forest, 8 ) );
   FD_TEST( !fd_forest_verify( forest ) );
 
   /* add 16, which would be an orphan. should succeed.*/
-  FD_TEST( fd_forest_blk_insert( forest, 16, 15 ) );
+  FD_TEST( fd_forest_blk_insert( forest, 16, 15, &evicted ) );
   fd_forest_print( forest );
 
   FD_TEST( !fd_forest_verify( forest ) );
@@ -1157,7 +1160,7 @@ test_eviction_simple( fd_wksp_t * wksp ) {
   fd_forest_blk_fec_insert( forest, 15, 14, 0, 0, 1 );
   fd_forest_blk_fec_insert( forest, 16, 15, 0, 0, 1 );
   fd_forest_print( forest );
-  FD_TEST( fd_forest_blk_insert( forest, 18, 16 ) );
+  FD_TEST( fd_forest_blk_insert( forest, 18, 16, &evicted ) );
   fd_forest_print( forest );
 }
 
@@ -1183,6 +1186,7 @@ test_eviction_confirmations( fd_wksp_t * wksp ) {
   fd_forest_print( forest );
 
   fd_hash_t mr_17 = (fd_hash_t){ .key = { 1 } };
+  ulong evicted = ULONG_MAX;
 
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 17 ), &mr_17 ) );
 
@@ -1191,7 +1195,7 @@ test_eviction_confirmations( fd_wksp_t * wksp ) {
 
   FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 18 ), &mr_17 ) );
   /* now 18 is verified. don't want to evict it */
-  FD_TEST(  !fd_forest_blk_insert( forest, 16, 14 ) ); /* fails becase we add to a bad fork */
+  FD_TEST(  !fd_forest_blk_insert( forest, 16, 14, &evicted ) ); /* fails becase we add to a bad fork */
 
   fd_forest_publish( forest, 11 ); /* publish forwards to 11. Now we only have one fork. (thats confirmed) */
 
@@ -1214,7 +1218,7 @@ test_eviction_confirmations( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_query( forest, 23 ) ); /* 23 gets evicted. */
 
    /* an older orphan contributes to the awesomeness */
-  FD_TEST( fd_forest_blk_insert( forest, 25, 24 ) );
+  FD_TEST( fd_forest_blk_insert( forest, 25, 24, &evicted ) );
   FD_TEST( !fd_forest_query    ( forest, 22     ) ); /* 22 gets evicted. */
 }
 
@@ -1262,7 +1266,8 @@ test_eviction_deep( fd_wksp_t * wksp ) {
     /* throughout all of this we will be repairing for the ancestry,
        and not really receiving it!!!!! */
   }
-  FD_TEST( fd_forest_blk_insert( forest, 4482, 4481 ) );
+  ulong evicted = ULONG_MAX;
+  FD_TEST( fd_forest_blk_insert( forest, 4482, 4481, &evicted ) );
   FD_TEST( !fd_forest_query( forest, 30 ) ); /* should be evicted */
 
   // resolving: lets say we get a gossip confirmation for slot 70 amidst all this
@@ -1276,7 +1281,7 @@ test_eviction_deep( fd_wksp_t * wksp ) {
      verify. */
 
   for( ulong i = 4000 + 483; i < 8096; i++ ) {
-    fd_forest_blk_insert( forest, i, i-1 );
+    fd_forest_blk_insert( forest, i, i-1, &evicted );
     FD_TEST( fd_forest_query( forest, 29 ) ); /* should remain */
   }
   FD_TEST( fd_forest_query( forest, 8095 ) );
