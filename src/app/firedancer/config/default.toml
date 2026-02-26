@@ -1917,7 +1917,7 @@ telemetry = true
     # any lthash tiles and the value of `snapshot_hash_tile_count` in
     # the layout will be ignored.
     [development.snapshots]
-        disable_lthash_verification = true
+        disable_lthash_verification = false
 
     [development.replay]
         # scheduler_depth controls the number of transactions tracked by
