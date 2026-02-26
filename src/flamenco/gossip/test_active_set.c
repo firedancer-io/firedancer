@@ -1,8 +1,6 @@
 #include "fd_active_set.h"
-#include "fd_active_set_private.h"
 
 FD_STATIC_ASSERT( FD_ACTIVE_SET_ALIGN==64UL,  unit_test );
-FD_STATIC_ASSERT( FD_ACTIVE_SET_ALIGN==alignof(fd_active_set_t), unit_test );
 
 void
 test_get_stake_bucket( void ) {

@@ -192,12 +192,18 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_SET(   GOSSIP, CRDS_PEER_EVICTED_COUNT,  crds_metrics->peer_evicted_cnt );
 
   fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
+  fd_active_set_metrics_t const * active_set_metrics = fd_gossip_active_set_metrics2( ctx->gossip );
 
-  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_COUNT,            metrics->message_tx );
-  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_BYTES,            metrics->message_tx_bytes );
-
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_COUNT,          metrics->crds_tx_push );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_BYTES,          metrics->crds_tx_push_bytes );
+  ulong total_message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ] = {0};
+  ulong total_message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ] = {0};
+  for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
+    total_message_tx[ i ] = metrics->message_tx[ i ] + active_set_metrics->message_tx[ i ];
+    total_message_tx_bytes[ i ] = metrics->message_tx_bytes[ i ] + active_set_metrics->message_tx_bytes[ i ];
+  }
+  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_COUNT,            total_message_tx );
+  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_BYTES,            total_message_tx_bytes );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_COUNT,          active_set_metrics->crds_tx_push );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_BYTES,          active_set_metrics->crds_tx_push_bytes );
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT, metrics->crds_tx_pull_response );
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
 
@@ -557,7 +563,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
    contact info table gets expired, then every CRDS is valid and causes
    a gossip message, and a ping, and a push packet to be sent to all
    peers in the push set. */
-#define STEM_BURST (FD_PING_TRACKER_MAX+FD_CONTACT_INFO_TABLE_SIZE+FD_GOSSIP_MESSAGE_MAX_CRDS*2UL+FD_GOSSIP_MESSAGE_MAX_CRDS*FD_ACTIVE_SET_PEERS_PER_ENTRY)
+#define STEM_BURST (FD_PING_TRACKER_MAX+FD_CONTACT_INFO_TABLE_SIZE+FD_GOSSIP_MESSAGE_MAX_CRDS*2UL)
 
 #define STEM_LAZY  (128L*3000L)
 

@@ -22,13 +22,13 @@ fd_gossip_wsample_join( void * shwsample );
 
 void
 fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
-                       ulong                 idx,
+                       ulong                 ci_idx,
                        ulong                 stake,
                        int                   active );
 
 void
 fd_gossip_wsample_remove( fd_gossip_wsample_t * sampler,
-                          ulong                 idx );
+                          ulong                 ci_idx );
 
 /* fd_gossip_wsample_self_stake sets our own node's stake in the
    sampler.  In Agave, each peer's pull-request weight is computed
@@ -47,7 +47,7 @@ fd_gossip_wsample_self_stake( fd_gossip_wsample_t * sampler,
 
 void
 fd_gossip_wsample_stake( fd_gossip_wsample_t * sampler,
-                         ulong                 idx,
+                         ulong                 ci_idx,
                          ulong                 stake );
 
 /* fd_gossip_wsample_fresh marks a peer as fresh or not fresh in the
@@ -61,7 +61,7 @@ fd_gossip_wsample_stake( fd_gossip_wsample_t * sampler,
 
 void
 fd_gossip_wsample_fresh( fd_gossip_wsample_t * sampler,
-                         ulong                 idx,
+                         ulong                 ci_idx,
                          int                   fresh );
 
 /* fd_gossip_wsample_active marks a peer as active or inactive in the
@@ -72,7 +72,7 @@ fd_gossip_wsample_fresh( fd_gossip_wsample_t * sampler,
 
 void
 fd_gossip_wsample_active( fd_gossip_wsample_t * sampler,
-                          ulong                 idx,
+                          ulong                 ci_idx,
                           int                   active );
 
 /* fd_gossip_wsample_sample_pull_request samples a peer index for
@@ -105,6 +105,6 @@ fd_gossip_wsample_sample_remove_bucket( fd_gossip_wsample_t * sampler,
 void
 fd_gossip_wsample_add_bucket( fd_gossip_wsample_t * sampler,
                               ulong                 bucket,
-                              ulong                 idx );
+                              ulong                 ci_idx );
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_wsample_h */

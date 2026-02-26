@@ -1,5 +1,6 @@
 #include "fd_crds.h"
 
+#include "../fd_active_set.h"
 #include "../../../ballet/sha256/fd_sha256.h"
 #include "../../../funk/fd_funk_base.h" /* no link dependency, only using hash */
 
@@ -296,8 +297,6 @@ lookup_eq( fd_crds_key_t const * key0,
 
 #include "../../../util/tmpl/fd_map_chain.c"
 
-#include "../fd_gossip_wsample.h"
-
 struct fd_crds_private {
   fd_gossip_out_ctx_t * gossip_update;
 
@@ -324,6 +323,7 @@ struct fd_crds_private {
   crds_contact_info_evict_dlist_t * ci_evict_dlist;
 
   fd_gossip_wsample_t *    wsample;
+  fd_active_set_t *        active_set;
 
   fd_crds_metrics_t metrics[1];
 
@@ -350,12 +350,13 @@ fd_crds_footprint( ulong ele_max ) {
   l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint()                       );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint()                      );
-  l = FD_LAYOUT_APPEND( l, fd_gossip_wsample_align(),             fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )      );
   return FD_LAYOUT_FINI( l, FD_CRDS_ALIGN );
 }
 
 void *
 fd_crds_new( void *                       shmem,
+             fd_gossip_wsample_t *        wsample,
+             fd_active_set_t *            active_set, /* TODO: Remove .. circular dep */
              fd_rng_t *                   rng,
              ulong                        ele_max,
              fd_gossip_purged_t *         purged,
@@ -404,8 +405,6 @@ fd_crds_new( void *                       shmem,
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint()                       );
   void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint()                      );
-  void * _wsample               = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_wsample_align(),             fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )      );
-  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max ) );
 
   crds->activity_update_fn = activity_update_fn;
   FD_TEST( crds->activity_update_fn );
@@ -448,8 +447,8 @@ fd_crds_new( void *                       shmem,
 
   FD_TEST( fd_sha256_join( fd_sha256_new( crds->sha256 ) ) );
 
-  crds->wsample = fd_gossip_wsample_join( fd_gossip_wsample_new( _wsample, rng, FD_CONTACT_INFO_TABLE_SIZE ) );
-  FD_TEST( crds->wsample );
+  crds->wsample = wsample;
+  crds->active_set = active_set;
 
   memset( crds->metrics, 0, sizeof(fd_crds_metrics_t) );
 
@@ -566,12 +565,9 @@ crds_release( fd_crds_t *         crds,
     fd_memcpy( msg->origin, entry->key.pubkey, 32UL );
     fd_gossip_tx_publish_chunk( crds->gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE, now );
 
-    /* FIXME: If the peer is in any active set bucket, it is NOT removed
-       here. If the peer is re-inserted into the CRDS table in the
-       future, it is added back into the bucket's sampler. This means a
-       peer can be sampled in a bucket (at least) twice during
-       fd_active_set_rotate. */
-    fd_gossip_wsample_remove( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, entry->ci ) );
+    ulong ci_idx = crds_contact_info_pool_idx( crds->ci_pool, entry->ci );
+    fd_active_set_remove_peer( crds->active_set, ci_idx );
+    fd_gossip_wsample_remove( crds->wsample, ci_idx );
 
     crds_contact_info_pool_ele_release( crds->ci_pool, entry->ci );
   }
@@ -673,11 +669,6 @@ fd_crds_advance( fd_crds_t *         crds,
                  fd_stem_context_t * stem ) {
   expire( crds, now, stem );
   unfresh( crds, now );
-}
-
-int
-fd_crds_has_staked_node( fd_crds_t const * crds ) {
-  return crds->has_staked_node;
 }
 
 static inline void
@@ -889,9 +880,9 @@ fd_crds_insert( fd_crds_t *               crds,
 }
 
 void
-fd_crds_entry_value( fd_crds_entry_t const *  entry,
-                     uchar const **           value_bytes,
-                     ulong *                  value_sz ) {
+fd_crds_entry_value( fd_crds_entry_t const * entry,
+                     uchar const **          value_bytes,
+                     ulong *                 value_sz ) {
   *value_bytes = entry->value_bytes;
   *value_sz    = entry->value_sz;
 }
@@ -901,84 +892,39 @@ fd_crds_entry_hash( fd_crds_entry_t const * entry ) {
   return entry->value_hash;
 }
 
-inline static void
-make_contact_info_key( uchar const * pubkey,
-                       fd_crds_key_t * key_out ) {
-  key_out->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
-  fd_memcpy( key_out->pubkey, pubkey, 32UL );
-}
-
-fd_gossip_contact_info_t *
-fd_crds_entry_contact_info( fd_crds_entry_t const * entry ) {
-  return entry->ci->contact_info;
-}
-
-fd_gossip_contact_info_t const *
-fd_crds_contact_info_lookup( fd_crds_t const * crds,
-                             uchar const *     pubkey ) {
-
-  fd_crds_key_t key[1];
-  make_contact_info_key( pubkey, key );
-  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
-  if( FD_UNLIKELY( !peer_ci ) ) {
-    return NULL;
-  }
-
-  return peer_ci->ci->contact_info;
-}
-
 ulong
 fd_crds_peer_count( fd_crds_t const * crds ){
   return crds_contact_info_pool_used( crds->ci_pool );
 }
 
-void
-fd_crds_peer_active( fd_crds_t *   crds,
-                     uchar const * peer_pubkey,
-                     int           active ) {
-  fd_crds_key_t key[1];
-  make_contact_info_key( peer_pubkey, key );
-
-  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
-  if( FD_UNLIKELY( !peer_ci ) ) return;
-  fd_gossip_wsample_active( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, peer_ci->ci ), active );
-}
-
-void
-fd_crds_self_stake( fd_crds_t * crds,
-                    ulong       self_stake ) {
-  fd_gossip_wsample_self_stake( crds->wsample, self_stake );
-}
-
 fd_gossip_contact_info_t const *
-fd_crds_peer_sample( fd_crds_t const * crds ) {
-  ulong idx = fd_gossip_wsample_sample_pull_request( crds->wsample );
-  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return NULL;
-  return crds->ci_pool[ idx ].contact_info;
+fd_crds_ci( fd_crds_t const * crds,
+            ulong             ci_idx ) {
+  fd_crds_contact_info_entry_t const * ci = crds_contact_info_pool_ele_const( crds->ci_pool, ci_idx );
+  FD_TEST( ci );
+  return ci->contact_info;
 }
 
 uchar const *
-fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
-                                  ulong       bucket ) {
-  ulong idx = fd_gossip_wsample_sample_remove_bucket( crds->wsample, bucket );
-  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return NULL;
-  return crds->ci_pool[ idx ].crds_entry->key.pubkey;
+fd_crds_ci_pubkey( fd_crds_t const * crds,
+                   ulong             ci_idx ) {
+  fd_crds_contact_info_entry_t const * ci = crds_contact_info_pool_ele_const( crds->ci_pool, ci_idx );
+  FD_TEST( ci );
+  return ci->crds_entry->key.pubkey;
 }
 
-void
-fd_crds_bucket_add( fd_crds_t *   crds,
-                    ulong         bucket,
-                    uchar const * pubkey ) {
-  fd_crds_key_t key[1];
-  make_contact_info_key( pubkey, key );
-  fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
-  if( FD_UNLIKELY( !peer_ci ) ) {
-    FD_LOG_DEBUG(( "Sample peer not found in CRDS. Likely dropped." ));
-    return;
-  }
+ulong
+fd_crds_ci_idx( fd_crds_t const * crds,
+                uchar const *     pubkey ) {
+  fd_crds_key_t lookup_ci = {
+    .tag = FD_GOSSIP_VALUE_CONTACT_INFO,
+  };
+  fd_memcpy( lookup_ci.pubkey, pubkey, 32UL );
 
-  ulong ci_idx = crds_contact_info_pool_idx( crds->ci_pool, peer_ci->ci );
-  fd_gossip_wsample_add_bucket( crds->wsample, bucket, ci_idx );
+  fd_crds_entry_t const * ci_entry = lookup_map_ele_query( crds->lookup_map, &lookup_ci, NULL, crds->pool );
+  if( FD_UNLIKELY( !ci_entry ) ) return ULONG_MAX;
+  FD_TEST( ci_entry->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO );
+  return crds_contact_info_pool_idx( crds->ci_pool, ci_entry->ci );
 }
 
 struct fd_crds_mask_iter_private {

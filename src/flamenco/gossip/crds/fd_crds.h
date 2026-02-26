@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
 #define HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
 
+#include "../fd_gossip_wsample.h"
 #include "../fd_gossip_message.h"
 #include "../fd_gossip_out.h"
 #include "../fd_gossip_purged.h"
@@ -19,9 +20,6 @@ typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 #define FD_CRDS_ALIGN 128UL
 
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
-
-#define FD_CRDS_UPSERT_CHECK_UPSERTS ( 0)
-#define FD_CRDS_UPSERT_CHECK_FAILS   (-1)
 
 struct fd_crds_metrics {
   ulong count[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
@@ -52,8 +50,12 @@ fd_crds_align( void );
 FD_FN_CONST ulong
 fd_crds_footprint( ulong ele_max );
 
+typedef struct fd_active_set_private fd_active_set_t;
+
 void *
 fd_crds_new( void *                       shmem,
+             fd_gossip_wsample_t *        wsample,
+             fd_active_set_t *            active_set, /* TODO: Remove .. circular dep */
              fd_rng_t *                   rng,
              ulong                        ele_max,
              fd_gossip_purged_t *         purged,
@@ -123,13 +125,6 @@ fd_crds_insert( fd_crds_t *               crds,
                 long                      now,
                 fd_stem_context_t *       stem );
 
-/* fd_crds_has_staked_node returns true if any node in the cluster is
-   observed to have stake. This is used in timeout calculations, which
-   default to an extended expiry window when we have yet to observe
-   any staked peers. */
-int
-fd_crds_has_staked_node( fd_crds_t const * crds );
-
 void
 fd_crds_entry_value( fd_crds_entry_t const * entry,
                      uchar const **          value_bytes,
@@ -137,27 +132,9 @@ fd_crds_entry_value( fd_crds_entry_t const * entry,
 
 /* fd_crds_entry_hash returns a pointer to the 32b sha256 hash of the
    entry's value hash. This is used for constructing a bloom filter. */
+
 uchar const *
 fd_crds_entry_hash( fd_crds_entry_t const * entry );
-
-/* fd_crds_contact_info returns a pointer to the contact info
-   structure in the entry.  This is used to access the contact info
-   fields in the entry, such as the pubkey, shred version, and
-   socket address.  Assumes crds entry is a contact info. */
-
-fd_gossip_contact_info_t *
-fd_crds_entry_contact_info( fd_crds_entry_t const * entry );
-
-/* fd_crds tracks Contact Info entries with a sidetable that holds the
-   fully decoded contact info of a */
-
-/* fd_crds_contact_info_lookup returns a pointer to the contact info
-   structure corresponding to pubkey.  Returns NULL if there is no such
-   entry. */
-
-fd_gossip_contact_info_t const *
-fd_crds_contact_info_lookup( fd_crds_t const * crds,
-                             uchar const *     pubkey );
 
 /* fd_crds_peer_count returns the number of Contact Info entries
    present in the sidetable. The lifetime of a Contact Info entry
@@ -166,60 +143,17 @@ fd_crds_contact_info_lookup( fd_crds_t const * crds,
 ulong
 fd_crds_peer_count( fd_crds_t const * crds );
 
-void
-fd_crds_peer_active( fd_crds_t *   crds,
-                     uchar const * peer_pubkey,
-                     int           active );
-
-/* fd_crds_self_stake updates the self-stake cap used by the pull
-   request peer sampler.  In Agave, each peer's pull-request weight is
-   computed as min(peer_stake, self_stake).  Call this whenever our own
-   stake changes (e.g. at epoch boundaries or identity change). */
-
-void
-fd_crds_self_stake( fd_crds_t * crds,
-                    ulong       self_stake );
-
-/* The CRDS Table also maintains a set of peer samplers for use in various
-   Gossip tx cases. Namely
-   - Rotating the active push set (bucket_samplers)
-   - Selecting a pull request target (pr_sampler) */
-
-
-/* fd_crds_bucket_* sample APIs are meant to be used by fd_active_set.
-   Each bucket has a unique sampler. */
+fd_gossip_contact_info_t const *
+fd_crds_ci( fd_crds_t const * crds,
+            ulong             ci_idx );
 
 uchar const *
-fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
-                                  ulong       bucket );
+fd_crds_ci_pubkey( fd_crds_t const * crds,
+                   ulong             ci_idx );
 
-/* fd_crds_bucket adds back in a peer that was previously
-   sampled with fd_crds_bucket_sample_and_remove.  */
-
-void
-fd_crds_bucket_add( fd_crds_t *   crds,
-                    ulong         bucket,
-                    uchar const * pubkey );
-
-/* fd_crds_sample_peer randomly selects a peer node from the CRDS based
-   weighted by stake.  Peers with a ContactInfo that hasn't been
-   refreshed in more than 60 seconds are considered offline, and are
-   downweighted in the selection by a factor of 100.  They are still
-   included to mitigate eclipse attacks.  Peers with no ContactInfo in
-   the CRDS are not included in the selection.  The current node is
-   also excluded from the selection.  Low stake peers which are not
-   active in the ping tracker, because they aren't responding to pings
-   are also excluded from the sampling.  Peers with a different shred
-   version than us, or with an invalid gossip socket address are also
-   excluded from the sampling.
-
-   If no valid peer can be found, the returned fd_contact_info_t will be
-   NULL.  The caller should check for this case and handle it
-   appropriately.  On success, the returned fd_contact_info_t is a
-   contact info suitable for sending a gossip pull request. */
-
-fd_gossip_contact_info_t const *
-fd_crds_peer_sample( fd_crds_t const * crds );
+ulong
+fd_crds_ci_idx( fd_crds_t const * crds,
+                uchar const *     pubkey );
 
 /* fd_crds_mask_iter_{init,next,done,entry} provide an API to
    iterate over the CRDS values in the table that whose hashes match
