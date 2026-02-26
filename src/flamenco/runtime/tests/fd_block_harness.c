@@ -145,7 +145,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_st
         __builtin_unreachable();
     }
 
-    fd_vote_state_credits_t * vote_credits = &runtime_stack->stakes.vote_credits[ vote_state->idx ];
+    fd_vote_state_credits_t * vote_credits = &runtime_stack->stakes.vote_ele[ vote_state->idx ].vote_credits;
     vote_credits->credits_cnt = 0UL;
     for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
          !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );

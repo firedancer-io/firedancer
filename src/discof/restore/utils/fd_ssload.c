@@ -236,7 +236,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_slot      = elem->last_slot;
   }
 
-  fd_stakes_staging_map_t * stakes_staging_map = fd_stakes_staging_map_join( fd_stakes_staging_map_new( runtime_stack->stakes.stakes_staging_map, 2048, 999UL ) );
+  fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( fd_vote_ele_map_new( runtime_stack->stakes.vote_ele_map, 2048, 999UL ) );
 
   /* Vote stakes for the previous epoch (E-1). */
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
@@ -250,15 +250,16 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state_curr->node_account_t_1 = *(fd_pubkey_t *)elem->identity;
     vote_state_curr->stake_t_1 = elem->stake;
 
-    fd_stakes_staging_t * stake_ele = &runtime_stack->stakes.stakes_staging[i];
-    fd_vote_state_credits_t * vote_state_credits = &runtime_stack->stakes.vote_credits[i];
-    stake_ele->pubkey  = vote_state_curr->vote_account;
-    stake_ele->stake   = elem->stake;
-    stake_ele->invalid = 0;
-    fd_stakes_staging_map_idx_insert( stakes_staging_map, i, runtime_stack->stakes.stakes_staging );
+    fd_vote_ele_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+    fd_vote_state_credits_t * vote_state_credits = &vote_ele->vote_credits;
+    vote_ele->pubkey     = vote_state_curr->vote_account;
+    vote_ele->stake      = elem->stake;
+    vote_ele->invalid    = 0;
+    vote_ele->commission = (uchar)elem->commission;
+
+    fd_vote_ele_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
 
     vote_state_credits->credits_cnt = elem->epoch_credits_history_len;
-    vote_state_credits->commission  = (uchar)elem->commission;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
       vote_state_credits->epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
       vote_state_credits->credits[ j ]      = elem->epoch_credits[ j ].credits;

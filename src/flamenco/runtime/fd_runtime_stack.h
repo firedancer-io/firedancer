@@ -7,17 +7,21 @@
 #include "program/fd_builtin_programs.h"
 #include "fd_runtime_const.h"
 
-struct fd_stakes_staging {
-  fd_pubkey_t pubkey;
-  ulong       stake;
-  uint        next;
-  uchar       invalid;
+struct fd_vote_ele {
+  fd_pubkey_t             pubkey;
+  fd_pubkey_t             node_account;
+  fd_vote_state_credits_t vote_credits;
+  ulong                   stake;
+  ulong                   vote_rewards;
+  uchar                   commission;
+  uchar                   invalid;
+  uint                    next;
 };
-typedef struct fd_stakes_staging fd_stakes_staging_t;
+typedef struct fd_vote_ele fd_vote_ele_t;
 
-#define MAP_NAME               fd_stakes_staging_map
+#define MAP_NAME               fd_vote_ele_map
 #define MAP_KEY_T              fd_pubkey_t
-#define MAP_ELE_T              fd_stakes_staging_t
+#define MAP_ELE_T              fd_vote_ele_t
 #define MAP_KEY                pubkey
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
@@ -49,22 +53,13 @@ union fd_runtime_stack {
   } bpf_migration;
 
   struct {
-
-    /* Staging memory for the epoch credits and the commission for each
-       vote account.  This is populated during snapshot loading in case
-       of reward recalculation or during the epoch boundary. */
-    fd_vote_state_credits_t vote_credits[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-
-    /* Staging memory for vote rewards as they are accumulated. */
-    ulong                   vote_rewards[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t  stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
-    ulong                   stakes_staging_cnt;
-    fd_stakes_staging_t     stakes_staging[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-    uchar                   stakes_staging_map[ 8216 ] __attribute__((aligned(128)));
+    ulong         vote_ele_cnt;
+    fd_vote_ele_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    uchar         vote_ele_map[ 8216 ] __attribute__((aligned(128)));
 
   } stakes;
 

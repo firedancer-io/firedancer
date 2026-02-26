@@ -95,8 +95,6 @@
 
 struct fd_vote_state_credits {
   ulong       credits_cnt;
-  uchar       commission;
-  fd_pubkey_t node_account;
   ushort      epoch       [ EPOCH_CREDITS_MAX ];
   ulong       credits     [ EPOCH_CREDITS_MAX ];
   ulong       prev_credits[ EPOCH_CREDITS_MAX ];

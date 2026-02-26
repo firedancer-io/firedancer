@@ -365,7 +365,7 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 static void
 fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                                           fd_runtime_stack_t * runtime_stack ) {
-  fd_stakes_staging_map_t * stakes_staging_map = fd_stakes_staging_map_join( runtime_stack->stakes.stakes_staging_map );
+  fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
 
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   fd_vote_states_iter_t iter_[1];
@@ -376,8 +376,8 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
     vote_state->node_account_t_2 = vote_state->node_account_t_1;
     vote_state->node_account_t_1 = vote_state->node_account;
     vote_state->stake_t_2 = vote_state->stake_t_1;
-    fd_stakes_staging_t * stake_ele = fd_stakes_staging_map_ele_query( stakes_staging_map, &vote_state->vote_account, NULL, runtime_stack->stakes.stakes_staging );
-    vote_state->stake_t_1 = stake_ele ? stake_ele->stake : 0UL;
+    fd_vote_ele_t * vote_ele = fd_vote_ele_map_ele_query( vote_ele_map, &vote_state->vote_account, NULL, runtime_stack->stakes.vote_ele );
+    vote_state->stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
   }
   fd_bank_vote_states_end_locking_modify( bank );
 
@@ -396,11 +396,10 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
     fd_pubkey_t node_account_t_1;
     fd_pubkey_t node_account_t_2;
     fd_vote_stakes_fork_iter_ele( vote_stakes, parent_idx, &pubkey, &old_stake_t_1, &old_stake_t_2, &node_account_t_1, &node_account_t_2 );
-    uint stake_ele_idx = (uint)fd_stakes_staging_map_idx_query( stakes_staging_map, &pubkey, UINT_MAX, runtime_stack->stakes.stakes_staging );
-    fd_stakes_staging_t * stake_ele = fd_stakes_staging_map_ele_query( stakes_staging_map, &pubkey, NULL, runtime_stack->stakes.stakes_staging );
+    fd_vote_ele_t * vote_ele = fd_vote_ele_map_ele_query( vote_ele_map, &pubkey, NULL, runtime_stack->stakes.vote_ele );
 
-    ulong         new_stake_t_1 = stake_ele ? stake_ele->stake : 0UL;
-    fd_pubkey_t * node_account  = stake_ele ? &runtime_stack->stakes.vote_credits[stake_ele_idx].node_account : &node_account_t_1;
+    ulong         new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
+    fd_pubkey_t * node_account  = vote_ele ? &vote_ele->node_account : &node_account_t_1;
 
     fd_vote_stakes_insert( vote_stakes, child_idx, &pubkey, new_stake_t_1, old_stake_t_1, node_account, &node_account_t_1 );
   }
@@ -1687,9 +1686,9 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &account->pubkey );
 
-      fd_stakes_staging_map_t * stakes_staging_map = fd_stakes_staging_map_join( runtime_stack->stakes.stakes_staging_map );
-      fd_stakes_staging_t * stake_ele = fd_stakes_staging_map_ele_query( stakes_staging_map, &vote_state->vote_account, NULL, runtime_stack->stakes.stakes_staging );
-      vote_state->stake_t_1 = stake_ele ? stake_ele->stake : 0UL;
+      fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+      fd_vote_ele_t *     vote_ele     = fd_vote_ele_map_ele_query( vote_ele_map, &vote_state->vote_account, NULL, runtime_stack->stakes.vote_ele );
+      vote_state->stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
       vote_state->stake_t_2 = vote_state->stake_t_1;
 
       vote_state->node_account_t_1 = vote_state->node_account;
