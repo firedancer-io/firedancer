@@ -493,9 +493,9 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
       + execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_LANDED_FAILED ) ];
     cur->out.bank_invalid  += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_LANDED_UNLANDED ) ];
 
-    cur->out.bank_nonce_already_advanced = execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_ALREADY_ADVANCED ) ];
-    cur->out.bank_nonce_advance_failed   = execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
-    cur->out.bank_nonce_wrong_blockhash  = execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
+    cur->out.bank_nonce_already_advanced += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_ALREADY_ADVANCED ) ];
+    cur->out.bank_nonce_advance_failed   += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
+    cur->out.bank_nonce_wrong_blockhash  += execle_metrics[ MIDX( COUNTER, EXECLE, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
   }
 
   ulong pack_tile_idx = fd_topo_find_tile( topo, "pack", 0UL );
