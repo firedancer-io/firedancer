@@ -337,7 +337,7 @@ struct fd_bank_data {
 
   ulong refcnt; /* (r) reference count on the bank, see replay for more details */
 
-  fd_txncache_fork_id_t    txncache_fork_id; /* fork id used by the txn cache */
+  fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
 
   ushort vote_stakes_fork_id; /* fork id used by the vote stakes */
 

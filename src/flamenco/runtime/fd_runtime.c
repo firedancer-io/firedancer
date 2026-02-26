@@ -123,11 +123,9 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
-
+  fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes_locking_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
-
   fd_bank_vote_stakes_end_locking_query( bank );
 
   /* Derive leader schedule */
@@ -370,12 +368,14 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 static void
 fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                                           fd_runtime_stack_t * runtime_stack ) {
+
   fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
-  ushort parent_idx = bank->data->vote_stakes_fork_id;
 
-  ushort child_idx = fd_vote_stakes_new_child( vote_stakes );
+  ushort parent_idx = bank->data->vote_stakes_fork_id;
+  ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
+
   bank->data->vote_stakes_fork_id = child_idx;
 
   for( fd_vote_ele_map_iter_t iter = fd_vote_ele_map_iter_init( vote_ele_map, runtime_stack->stakes.vote_ele );
