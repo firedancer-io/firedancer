@@ -363,28 +363,26 @@ after_frag( fd_gui_ctx_t *      ctx,
         FD_TEST( fd_banks_bank_query( bank, ctx->banks, replay->bank_idx ) );
         FD_TEST( bank->data->refcnt!=0 );
 
-        fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
-        FD_TEST( fd_vote_states_cnt( vote_states )<FD_RUNTIME_MAX_VOTE_ACCOUNTS );
+        fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
 
-        fd_vote_states_iter_t iter_[1];
         ulong vote_count = 0UL;
-        for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-            !fd_vote_states_iter_done( iter );
-            fd_vote_states_iter_next( iter ) ) {
-          fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+        for( fd_vote_stakes_fork_iter_init( vote_stakes, bank->data->vote_stakes_fork_id );
+             !fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id );
+             fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id ) ) {
+          fd_pubkey_t pubkey;
+          ulong stake_t_1;
+          ulong stake_t_2;
+          fd_pubkey_t node_account_t_1;
+          fd_pubkey_t node_account_t_2;
+          fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
 
-          ctx->peers->votes[ vote_count ].vote_account        = vote_state->vote_account;
-          ctx->peers->votes[ vote_count ].node_account        = vote_state->node_account;
-          ctx->peers->votes[ vote_count ].stake               = vote_state->stake_t_1;
-          ctx->peers->votes[ vote_count ].last_vote_slot      = vote_state->last_vote_slot;
-          ctx->peers->votes[ vote_count ].last_vote_timestamp = vote_state->last_vote_timestamp;
-          // ctx->peers->votes[ vote_count ].commission          = vote_state->commission;
-          // ctx->peers->votes[ vote_count ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
-          // ctx->peers->votes[ vote_count ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
+          ctx->peers->votes[ vote_count ].vote_account = pubkey;
+          ctx->peers->votes[ vote_count ].node_account = node_account_t_1;
+          ctx->peers->votes[ vote_count ].stake        = stake_t_1;
 
           vote_count++;
         }
-        fd_bank_vote_states_end_locking_query( bank );
+        fd_bank_vote_stakes_end_locking_query( bank );
 
         fd_gui_slot_completed_t slot_completed;
         if( FD_LIKELY( replay->parent_bank_idx!=ULONG_MAX ) ) {

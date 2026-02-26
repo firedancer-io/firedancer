@@ -383,7 +383,7 @@ fd_banks_new( void * shmem,
   }
 
   /* TODO:FIXME: PARAMETERIZE THIS PLEASE */
-  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, 1000000UL, max_fork_width, 2048UL, seed ) );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS, max_fork_width, 2048UL, seed ) );
   if( FD_UNLIKELY( !vote_stakes ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes" ));
     return NULL;
@@ -1356,6 +1356,7 @@ fd_banks_locks_init( fd_banks_locks_t * locks ) {
   fd_rwlock_new( &locks->epoch_rewards_pool_lock );
   fd_rwlock_new( &locks->epoch_leaders_pool_lock );
   fd_rwlock_new( &locks->vote_states_pool_lock );
+  fd_rwlock_new( &locks->vote_stakes_lock );
 
   for( ulong i=0UL; i<FD_BANKS_MAX_BANKS; i++ ) {
     fd_rwlock_new( &locks->lthash_lock[i] );

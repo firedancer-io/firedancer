@@ -113,8 +113,6 @@ struct fd_vote_stakes {
   stakes_map_iter_t fork_iter;
 
   ushort root_idx;
-
-  fd_rwlock_t rwlock;
 };
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
