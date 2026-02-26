@@ -62,6 +62,8 @@ metrics_record_cmd_args( int *    pargc,
     struct fd_action_metrics_record_selector * selector = &args->metrics_record.selectors[ args->metrics_record.selectors_cnt++ ];
 
     char * name = *pargv[ 0 ];
+    if( FD_UNLIKELY( NULL==name || strlen( name )>=sizeof(selector->name)) ) FD_LOG_ERR(( "invalid metric selector name %s", name ));
+
     char * kind = strchr( name, ',' );
     char * kind_id = NULL;
     if( kind!=NULL ) {
@@ -77,7 +79,6 @@ metrics_record_cmd_args( int *    pargc,
     *pargc -= 1;
     *pargv += 1;
 
-    if( FD_UNLIKELY( NULL==name || strlen( name )>=sizeof(selector->name)) ) FD_LOG_ERR(( "invalid metric selector name %s", name ));
     fd_cstr_ncpy( selector->name, name, sizeof(selector->name) );
     if( FD_UNLIKELY( NULL!=kind && strlen( kind )>=sizeof(selector->kind)) ) FD_LOG_ERR(( "invalid metric selector kind %s", kind ));
     fd_cstr_ncpy( selector->kind, kind, sizeof(selector->kind) );
