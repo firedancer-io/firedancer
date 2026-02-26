@@ -2,6 +2,7 @@
 
 #include "./fd_bn254_field.c"
 #include "./fd_bn254_field_ext.c"
+#include "./fd_bn254_glv.h"
 #include "./fd_bn254_g1.c"
 #include "./fd_bn254_g2.c"
 #include "./fd_bn254_pairing.c"
@@ -217,7 +218,7 @@ fd_bn254_g2_add_syscall( uchar       out[128],
   }
 
   /* Compute point add and serialize result */
-  fd_bn254_g2_add_mixed( r, a, b );
+  fd_bn254_g2_affine_add( r, a, b );
   fd_bn254_g2_tobytes( out, r, big_endian );
   return 0;
 }
