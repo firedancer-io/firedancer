@@ -400,7 +400,6 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
 
     ulong         new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
     fd_pubkey_t * node_account  = vote_ele ? &vote_ele->node_account : &node_account_t_1;
-    FD_BASE58_ENCODE_32_BYTES( pubkey.key, pubkey_b58 );
     fd_vote_stakes_insert( vote_stakes, child_idx, &pubkey, new_stake_t_1, old_stake_t_1, node_account, &node_account_t_1 );
   }
 }
@@ -1694,6 +1693,22 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       vote_state->node_account_t_1 = vote_state->node_account;
       vote_state->node_account_t_2 = vote_state->node_account;
     }
+  }
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( bank->data );
+  ushort idx = bank->data->vote_stakes_fork_id;
+
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+       !fd_vote_states_iter_done( iter );
+       fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+    fd_vote_ele_t *     vote_ele     = fd_vote_ele_map_ele_query( vote_ele_map, &vote_state->vote_account, NULL, runtime_stack->stakes.vote_ele );
+    vote_state->stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
+    vote_state->stake_t_2 = vote_state->stake_t_1;
+
+    fd_vote_stakes_insert( vote_stakes, idx, &vote_state->vote_account, vote_state->stake_t_1, vote_state->stake_t_2, &vote_state->node_account_t_1, &vote_state->node_account_t_2 );
   }
 
   fd_bank_vote_states_end_locking_modify( bank );
