@@ -422,15 +422,15 @@ test_fec_after_eos(fd_wksp_t *wksp) {
   fd_hash_t mr5[1] = {{{5}}};
   fd_hash_t mr6[1] = {{{6}}};
   /*                               slot fecidx p_off data_cnt data_cmpl slot_cmpl is_leader */
-  fd_reasm_insert(reasm, mr0, NULL, 0,   0,    0,    0,       0,        1,        0, NULL);
-  fd_reasm_insert(reasm, mr1, mr0,  1,   0,    1,    32,      0,        0,        0, NULL);
-  fd_reasm_insert(reasm, mr2, mr1,  1,   32,   1,    32,      0,        0,        0, NULL);
-  fd_reasm_insert(reasm, mr3, mr2,  1,   64,   1,    32,      0,        1,        0, NULL);
+  fd_reasm_insert(reasm, mr0, NULL, 0,   0,    0,    0,       0,        1,        0, NULL, NULL);
+  fd_reasm_insert(reasm, mr1, mr0,  1,   0,    1,    32,      0,        0,        0, NULL, NULL);
+  fd_reasm_insert(reasm, mr2, mr1,  1,   32,   1,    32,      0,        0,        0, NULL, NULL);
+  fd_reasm_insert(reasm, mr3, mr2,  1,   64,   1,    32,      0,        1,        0, NULL, NULL);
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr1) );
   /* show evidence of equivocation */
-  fd_reasm_insert(reasm, mr4, mr3,  1,   96,   1,    32,      0,        0,        0, NULL);
+  fd_reasm_insert(reasm, mr4, mr3,  1,   96,   1,    32,      0,        0,        0, NULL, NULL);
   FD_TEST( fd_reasm_pop(reasm) == NULL );
-  fd_reasm_insert(reasm, mr5, mr4,  1,   128,  1,    32,      0,        1,        0, NULL);
+  fd_reasm_insert(reasm, mr5, mr4,  1,   128,  1,    32,      0,        1,        0, NULL, NULL);
   FD_TEST( fd_reasm_pop(reasm) == NULL );
 
   fd_reasm_confirm(reasm, mr3);
@@ -438,18 +438,18 @@ test_fec_after_eos(fd_wksp_t *wksp) {
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr3) );
   FD_TEST( fd_reasm_pop(reasm) == NULL );
 
-  fd_reasm_insert( reasm, mr6, mr3,  2,   0,    1,    32,      0,        0,        0, NULL);
+  fd_reasm_insert( reasm, mr6, mr3,  2,   0,    1,    32,      0,        0,        0, NULL, NULL);
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr6) );
 
   /* now get these out of order. */
-  fd_reasm_insert( reasm, mr9, mr8,  2,   96,    1,   32,      0,        0,        0, NULL); /* currently an orphan */
-  fd_reasm_insert( reasm, mr8, mr7,  2,   64,    1,   32,      0,        1,        0, NULL); /* middle slot complete */
+  fd_reasm_insert( reasm, mr9, mr8,  2,   96,    1,   32,      0,        0,        0, NULL, NULL); /* currently an orphan */
+  fd_reasm_insert( reasm, mr8, mr7,  2,   64,    1,   32,      0,        1,        0, NULL, NULL); /* middle slot complete */
 
   FD_TEST( fd_reasm_query(reasm, mr8)->eqvoc );
   FD_TEST( fd_reasm_query(reasm, mr9)->eqvoc );
 
   /* now connect slot 2 from frontier to orphan*/
-  fd_reasm_insert( reasm, mr7, mr6,  2,   32,    1,   32,      0,        0,        0, NULL);
+  fd_reasm_insert( reasm, mr7, mr6,  2,   32,    1,   32,      0,        0,        0, NULL, NULL);
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr7) );
   FD_TEST( fd_reasm_pop(reasm) == NULL );
 }
