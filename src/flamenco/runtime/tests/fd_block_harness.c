@@ -65,6 +65,7 @@ fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
 static void
 fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
                                         fd_funk_txn_xid_t const * xid,
+                                        fd_vote_stakes_t *        vote_stakes,
                                         fd_vote_states_t *        vote_states,
                                         fd_pubkey_t *             pubkey ) {
   fd_accdb_ro_t ro[1];
@@ -76,6 +77,8 @@ fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
     fd_accdb_close_ro( accdb, ro );
     return;
   }
+
+  fd_vote_stakes_insert_root_key( vote_stakes, pubkey );
 
   fd_vote_states_update_from_account(
       vote_states,
@@ -92,7 +95,8 @@ fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
 }
 
 static void
-fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_states,
+fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_stakes,
+                                           fd_vote_states_t *            vote_states,
                                            fd_exec_test_vote_account_t * vote_accounts,
                                            pb_size_t                     vote_accounts_cnt,
                                            fd_runtime_stack_t *          runtime_stack,
@@ -101,6 +105,10 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_st
     fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
     ulong                       stake         = vote_accounts[i].stake;
     fd_pubkey_t                 vote_address  = {0};
+
+    fd_pubkey_t node_account = fd_vsv_get_node_account( vote_account->data->bytes );
+
+    fd_vote_stakes_insert_root_update( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, is_t_1 );
 
     fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &vote_address );
@@ -125,7 +133,6 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_st
     if( FD_UNLIKELY( vsv==NULL ) ) {
       FD_LOG_CRIT(( "unable to decode vote state versioned" ));
     }
-
 
     fd_vote_epoch_credits_t * epoch_credits = NULL;
     switch( vsv->discriminant ) {
@@ -295,6 +302,11 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
+
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], i );
 
@@ -304,6 +316,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_solfuzz_block_register_vote_account(
         accdb,
         xid,
+        vote_stakes,
         vote_states,
         &pubkey );
 
@@ -327,6 +340,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Update vote cache for epoch T-1 */
   fd_solfuzz_block_update_prev_epoch_stakes(
+      vote_stakes,
       vote_states,
       test_ctx->epoch_ctx.vote_accounts_t_1,
       test_ctx->epoch_ctx.vote_accounts_t_1_count,
@@ -335,17 +349,21 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Update vote cache for epoch T-2 */
   fd_solfuzz_block_update_prev_epoch_stakes(
+      vote_stakes,
       vote_states,
       test_ctx->epoch_ctx.vote_accounts_t_2,
       test_ctx->epoch_ctx.vote_accounts_t_2_count,
       runtime_stack,
       0 );
 
+  FD_TEST( fd_vote_ele_map_join( fd_vote_ele_map_new( runtime_stack->stakes.vote_map_mem, 2048UL, 999 ) ) );
+
   /* Refresh vote accounts to calculate stake delegations */
   fd_solfuzz_block_refresh_vote_accounts(
       vote_states,
       stake_delegations );
   fd_bank_vote_states_end_locking_modify( bank );
+  fd_bank_vote_stakes_end_locking_query( bank );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( bank, runtime_stack );
