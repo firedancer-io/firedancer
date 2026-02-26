@@ -37,7 +37,11 @@ typedef struct fd_vote_rewards fd_vote_rewards_t;
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define FD_VOTE_ELE_MAP_FOOTPRINT (8216UL)
+/* The footprint of a map chain is the size of the map struct (always
+   24 bytes followed by the size of the chain idx (always a uint in
+   this case) multiplied by the number of map chains which will be the
+   expected number of vote accounts. */
+#define FD_VOTE_ELE_MAP_FOOTPRINT (sizeof(fd_vote_rewards_map_t) + FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS * sizeof(uint))
 #define FD_VOTE_ELE_MAP_ALIGN     (128UL)
 
 /* fd_runtime_stack_t serves as stack memory to store temporary data

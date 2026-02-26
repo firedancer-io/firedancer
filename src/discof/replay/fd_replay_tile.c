@@ -1111,6 +1111,33 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   /* TODO:FIXME: setup refresh vote accounts */
 
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  ushort fork_idx = bank->data->vote_stakes_fork_id;
+
+  ulong stale_accs = 0UL;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+    fd_pubkey_t pubkey;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL );
+
+    fd_accdb_ro_t acc[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, acc, &xid, &pubkey ) ) ) {
+      ctx->runtime_stack.vote_accounts.stale_accs[stale_accs++] = pubkey;
+      continue;
+    }
+    fd_accdb_close_ro( ctx->accdb, acc );
+  }
+
+  for( ulong i=0UL; i<stale_accs; i++ ) {
+    fd_vote_stakes_purge_root_key( vote_stakes, &ctx->runtime_stack.vote_accounts.stale_accs[i] );
+  }
+
+  fd_bank_vote_stakes_end_locking_query( bank );
+
+
+
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 

@@ -205,6 +205,30 @@ fd_vote_stakes_fini_root( fd_vote_stakes_t * vote_stakes ) {
   }
 }
 
+void
+fd_vote_stakes_purge_root_key( fd_vote_stakes_t *  vote_stakes,
+                               fd_pubkey_t const * pubkey ) {
+  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_t *       index_map       = get_index_map( vote_stakes );
+  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
+
+  uint ele_idx = (uint)index_map_multi_idx_query( index_map_multi, pubkey, UINT_MAX, index_pool );
+  FD_TEST( ele_idx!=UINT_MAX );
+
+  index_ele_t * ele = index_pool_ele( index_pool, ele_idx );
+
+  FD_TEST( index_map_multi_ele_remove_fast( index_map_multi, ele, index_pool ) );
+  FD_TEST( index_map_ele_remove( index_map, &ele->index_key, NULL, index_pool ) );
+
+  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, vote_stakes->root_idx );
+  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, vote_stakes->root_idx );
+
+  stake_t * stake_ele = stakes_map_ele_remove( stakes_map, &ele_idx, NULL, stakes_pool );
+  stakes_pool_ele_release( stakes_pool, stake_ele );
+
+  index_pool_ele_release( index_pool, ele );
+}
+
 ushort
 fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes ) {
 
