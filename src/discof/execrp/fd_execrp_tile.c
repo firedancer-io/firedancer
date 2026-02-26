@@ -47,6 +47,7 @@ struct fd_execrp_tile {
   /* Protobuf dumping context for debugging runtime execution and
      collecting seed corpora. */
   fd_dump_proto_ctx_t * dump_proto_ctx;
+  fd_txn_dump_ctx_t *   txn_dump_ctx;
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
@@ -100,12 +101,15 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
-  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                           );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+  l = FD_LAYOUT_APPEND(   l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
+  l = FD_LAYOUT_APPEND(   l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
+  l = FD_LAYOUT_APPEND(   l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                          );
+  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_txn_dump_context_align(),  fd_txn_dump_context_footprint()                      );
+  }
+  l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
+  l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
+  return FD_LAYOUT_FINI(  l, scratch_align() );
 }
 
 static void
@@ -275,6 +279,10 @@ unprivileged_init( fd_topo_t *      topo,
   fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),  sizeof(fd_execrp_tile_t) );
   void * capture_ctx_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
+  void * txn_dump_ctx_mem   = NULL;
+  if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
+    txn_dump_ctx_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_dump_context_align(), fd_txn_dump_context_footprint() );
+  }
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execrp.max_live_slots ) );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   ulong  scratch_alloc_mem  = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
@@ -416,7 +424,18 @@ unprivileged_init( fd_topo_t *      topo,
     }
 
     /* Transaction dumping config */
-    ctx->dump_proto_ctx->dump_txn_to_pb = !!tile->execrp.dump_txn_to_pb;
+    ctx->dump_proto_ctx->dump_txn_to_pb      = !!tile->execrp.dump_txn_to_pb;
+    ctx->dump_proto_ctx->dump_txn_as_fixture = !!tile->execrp.dump_txn_as_fixture;
+
+    if( FD_UNLIKELY( ctx->dump_proto_ctx->dump_txn_as_fixture && !ctx->dump_proto_ctx->dump_txn_to_pb ) ) {
+      FD_LOG_ERR(( "[capture.dump_txn_as_fixture] requires [capture.dump_txn_to_pb] to be enabled" ));
+    }
+  }
+
+  /* Transaction dump context (for fixture dumping) */
+  ctx->txn_dump_ctx = NULL;
+  if( FD_UNLIKELY( ctx->dump_proto_ctx && ctx->dump_proto_ctx->dump_txn_to_pb ) ) {
+    ctx->txn_dump_ctx = fd_txn_dump_context_join( fd_txn_dump_context_new( txn_dump_ctx_mem ) );
   }
 
   /********************************************************************/
@@ -434,6 +453,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->log.tracing_mem          = &ctx->tracing_mem[0][0];
   ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
   ctx->runtime->log.dump_proto_ctx       = ctx->dump_proto_ctx;
+  ctx->runtime->log.txn_dump_ctx         = ctx->txn_dump_ctx;
 
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );

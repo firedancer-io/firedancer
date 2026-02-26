@@ -35,6 +35,9 @@ typedef struct fd_capture_ctx fd_capture_ctx_t;
 struct fd_dump_proto_ctx;
 typedef struct fd_dump_proto_ctx fd_dump_proto_ctx_t;
 
+struct fd_txn_dump_ctx;
+typedef struct fd_txn_dump_ctx fd_txn_dump_ctx_t;
+
 struct fd_borrowed_account;
 typedef struct fd_borrowed_account fd_borrowed_account_t;
 

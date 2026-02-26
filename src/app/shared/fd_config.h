@@ -524,6 +524,7 @@ struct fd_config {
     int   dump_syscall_to_pb;
     int   dump_instr_to_pb;
     int   dump_txn_to_pb;
+    int   dump_txn_as_fixture;
     int   dump_block_to_pb;
   } capture;
 };

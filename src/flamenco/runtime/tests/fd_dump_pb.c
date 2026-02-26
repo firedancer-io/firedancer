@@ -6,6 +6,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_bank.h"
 #include "../fd_runtime.h"
+#include "../program/fd_precompiles.h"
 #include "../program/fd_address_lookup_table_program.h"
 #include "../../../ballet/nanopb/pb_encode.h"
 #include "../../accdb/fd_accdb_sync.h"
@@ -68,18 +69,6 @@ static fd_pubkey_t const * fd_dump_builtin_ids[] = {
 static ulong const num_loaded_builtins = (sizeof(fd_dump_builtin_ids) / sizeof(fd_pubkey_t *));
 
 /***** UTILITY FUNCTIONS *****/
-
-/** GENERAL UTILITY FUNCTIONS AND MACROS **/
-
-static inline int
-is_builtin_account( fd_pubkey_t const * account_key ) {
-  for( ulong j=0UL; j<num_loaded_builtins; j++ ) {
-    if( !memcmp( account_key, fd_dump_builtin_ids[j], sizeof(fd_pubkey_t) ) ) {
-      return 1;
-    }
-  }
-  return 0;
-}
 
 /** FEATURE DUMPING **/
 static void
@@ -323,8 +312,6 @@ dump_sanitized_transaction( fd_accdb_user_t *                      accdb,
   }
 }
 
-/** BLOCKHASH QUEUE DUMPING **/
-
 static void
 dump_blockhash_queue( fd_blockhashes_t const * queue,
                       fd_spad_t *              spad,
@@ -345,6 +332,74 @@ dump_blockhash_queue( fd_blockhashes_t const * queue,
   }
 
   *output_blockhash_queue_count = cnt;
+}
+
+static void
+dump_txn_bank( fd_bank_t *                  bank,
+               fd_spad_t *                  spad,
+               fd_exec_test_txn_context_t * txn_context ) {
+  txn_context->has_bank              = true;
+  fd_exec_test_txn_bank_t * txn_bank = &txn_context->bank;
+
+  /* TxnBank -> blockhash_queue */
+  fd_blockhashes_t const * bhq      = fd_bank_block_hash_queue_query( bank );
+  ulong                    bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( bhq->d.deque ) );
+  txn_bank->blockhash_queue         = fd_spad_alloc( spad, alignof(fd_exec_test_blockhash_queue_entry_t), bhq_size * sizeof(fd_exec_test_blockhash_queue_entry_t) );
+  txn_bank->blockhash_queue_count   = (uint)bhq_size;
+
+  ulong cnt = 0UL;
+  for( fd_blockhash_deq_iter_t iter=fd_blockhash_deq_iter_init_rev( bhq->d.deque );
+       !fd_blockhash_deq_iter_done_rev( bhq->d.deque, iter ) && cnt<bhq_size;
+       iter=fd_blockhash_deq_iter_prev( bhq->d.deque, iter ), cnt++ ) {
+    fd_blockhash_info_t const * ele              = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
+    fd_exec_test_blockhash_queue_entry_t * entry = &txn_bank->blockhash_queue[bhq_size-cnt-1UL];
+    fd_memcpy( entry->blockhash, ele->hash.uc, sizeof(fd_hash_t) );
+    entry->lamports_per_signature = ele->fee_calculator.lamports_per_signature;
+  }
+
+  /* TxnBank -> rbh_lamports_per_signature */
+  txn_bank->rbh_lamports_per_signature = (uint)fd_bank_rbh_lamports_per_sig_get( bank );
+
+  /* TxnBank -> fee_rate_governor */
+  fd_fee_rate_governor_t const * fee_rate_governor = fd_bank_fee_rate_governor_query( bank );
+  txn_bank->has_fee_rate_governor = true;
+  txn_bank->fee_rate_governor = (fd_exec_test_fee_rate_governor_t){
+    .target_lamports_per_signature = fee_rate_governor->target_lamports_per_signature,
+    .target_signatures_per_slot    = fee_rate_governor->target_signatures_per_slot,
+    .min_lamports_per_signature    = fee_rate_governor->min_lamports_per_signature,
+    .max_lamports_per_signature    = fee_rate_governor->max_lamports_per_signature,
+    .burn_percent                  = fee_rate_governor->burn_percent,
+  };
+
+  /* TxnBank -> total_epoch_stake */
+  txn_bank->total_epoch_stake = fd_bank_total_epoch_stake_get( bank );
+
+  /* TxnBank -> epoch_schedule */
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  txn_bank->has_epoch_schedule = true;
+  txn_bank->epoch_schedule = (fd_exec_test_epoch_schedule_t){
+    .slots_per_epoch             = epoch_schedule->slots_per_epoch,
+    .leader_schedule_slot_offset = epoch_schedule->leader_schedule_slot_offset,
+    .warmup                      = epoch_schedule->warmup,
+    .first_normal_epoch          = epoch_schedule->first_normal_epoch,
+    .first_normal_slot           = epoch_schedule->first_normal_slot,
+  };
+
+  /* TxnBank -> rent */
+  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  txn_bank->has_rent = true;
+  txn_bank->rent = (fd_exec_test_rent_t){
+    .lamports_per_byte_year = rent->lamports_per_uint8_year,
+    .exemption_threshold    = rent->exemption_threshold,
+    .burn_percent           = rent->burn_percent,
+  };
+
+  /* TxnBank -> features */
+  txn_bank->has_features = true;
+  dump_sorted_features( fd_bank_features_query( bank ), &txn_bank->features, spad );
+
+  /* TxnBank -> epoch */
+  txn_bank->epoch = fd_bank_epoch_get( bank );
 }
 
 /** SECONDARY FUNCTIONS **/
@@ -779,29 +834,24 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       - Account data for regular accounts
       - Account data for LUT accounts
       - Account data for executable accounts
-      - Account data for (almost) all sysvars
-
-    We also don't want to store builtins in account shared data due to
-    how Agave's bank handles them in the init phase. */
-  // Dump regular accounts first
+      - Account data for (almost) all sysvars */
   txn_context_msg->account_shared_data_count = 0;
   txn_context_msg->account_shared_data = fd_spad_alloc( spad,
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+
+  /* Dump regular accounts first */
   for( ulong i = 0; i < txn_out->accounts.cnt; ++i ) {
-    // Make sure account is not a non-migrating builtin
-    if( !is_builtin_account( &txn_out->accounts.keys[i] ) ) {
-      dump_account_if_not_already_dumped(
-          runtime->accdb,
-          &xid,
-          &txn_out->accounts.keys[i],
-          spad,
-          txn_context_msg->account_shared_data,
-          &txn_context_msg->account_shared_data_count,
-          NULL
-      );
-    }
+    dump_account_if_not_already_dumped(
+      runtime->accdb,
+      &xid,
+      &txn_out->accounts.keys[i],
+      spad,
+      txn_context_msg->account_shared_data,
+      &txn_context_msg->account_shared_data_count,
+      NULL
+    );
   }
 
   // Dump LUT accounts
@@ -842,8 +892,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
         continue;
       }
       fd_pubkey_t const * referenced_addr = lookup_addrs + writable_lut_idxs[j];
-      if( is_builtin_account( referenced_addr ) ) continue;
-
       dump_account_if_not_already_dumped(
           runtime->accdb,
           &xid,
@@ -861,8 +909,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
         continue;
       }
       fd_pubkey_t const * referenced_addr = lookup_addrs + readonly_lut_idxs[j];
-      if( is_builtin_account( referenced_addr ) ) continue;
-
       dump_account_if_not_already_dumped(
           runtime->accdb,
           &xid,
@@ -902,22 +948,8 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   fd_exec_test_sanitized_transaction_t * sanitized_transaction = &txn_context_msg->tx;
   dump_sanitized_transaction( runtime->accdb, &xid, txn_descriptor, txn_payload, spad, sanitized_transaction );
 
-  /* Transaction Context -> blockhash_queue
-     NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301)
-     entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a
-     huge issue, but something to keep in mind. */
-  pb_bytes_array_t ** output_blockhash_queue = fd_spad_alloc(
-                                                      spad,
-                                                      alignof(pb_bytes_array_t *),
-                                                      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASHES_MAX) * sizeof(pb_bytes_array_t *)) );
-  txn_context_msg->blockhash_queue = output_blockhash_queue;
-  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
-  dump_blockhash_queue( block_hash_queue, spad, output_blockhash_queue, &txn_context_msg->blockhash_queue_count );
-
-  /* Transaction Context -> epoch_ctx */
-  txn_context_msg->has_epoch_ctx = true;
-  txn_context_msg->epoch_ctx.has_features = true;
-  dump_sorted_features( fd_bank_features_query( bank ), &txn_context_msg->epoch_ctx.features, spad );
+  /* Transaction Context -> bank */
+  dump_txn_bank( bank, spad, txn_context_msg );
 }
 
 static void
@@ -1050,6 +1082,174 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
   } FD_SPAD_FRAME_END;
 }
 
+/* Writes a single account state into the resulting_state field of a
+   TxnResult protobuf.  Sub-allocations for account data are bump-
+   allocated from the caller's scratch region via _l. */
+static void
+write_account_to_result( fd_pubkey_t const *              pubkey,
+                         fd_account_meta_t const *        meta,
+                         fd_exec_test_acct_state_t *      out_accounts,
+                         pb_size_t *                      out_accounts_cnt,
+                         ulong *                          scratch_cur,
+                         ulong                            scratch_end ) {
+  fd_exec_test_acct_state_t * out_acct = &out_accounts[ *out_accounts_cnt ];
+  (*out_accounts_cnt)++;
+
+  memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
+  memcpy( out_acct->address, pubkey, sizeof(fd_pubkey_t) );
+  out_acct->lamports = meta->lamports;
+
+  if( meta->dlen>0UL ) {
+    pb_bytes_array_t * data = (pb_bytes_array_t *)fd_ulong_align_up( *scratch_cur, alignof(pb_bytes_array_t) );
+    *scratch_cur = (ulong)data + PB_BYTES_ARRAY_T_ALLOCSIZE( meta->dlen );
+    if( FD_UNLIKELY( *scratch_cur > scratch_end ) ) abort();
+    data->size = (pb_size_t)meta->dlen;
+    fd_memcpy( data->bytes, fd_account_data( meta ), meta->dlen );
+    out_acct->data = data;
+  }
+
+  out_acct->executable = meta->executable;
+  memcpy( out_acct->owner, meta->owner, sizeof(fd_pubkey_t) );
+}
+
+ulong
+create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out,
+                                     void *                       out_buf,
+                                     ulong                        out_bufsz,
+                                     fd_txn_in_t const *          txn_in,
+                                     fd_txn_out_t *               txn_out,
+                                     fd_bank_t *                  bank,
+                                     int                          exec_res ) {
+  FD_SCRATCH_ALLOC_INIT( l, out_buf );
+  ulong out_end = (ulong)out_buf + out_bufsz;
+
+  fd_exec_test_txn_result_t * txn_result =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_txn_result_t),
+                                sizeof(fd_exec_test_txn_result_t) );
+  if( FD_UNLIKELY( _l > out_end ) ) abort();
+  fd_memset( txn_result, 0, sizeof(fd_exec_test_txn_result_t) );
+
+  /* Map nonce errors into the agave expected ones. */
+  if( FD_UNLIKELY( exec_res==FD_RUNTIME_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED ||
+                   exec_res==FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR ||
+                   exec_res==FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE )) {
+    exec_res = FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+  }
+
+  /* Basic result fields */
+  txn_result->executed                  = txn_out->err.is_committable;
+  txn_result->sanitization_error        = !txn_out->err.is_committable;
+  txn_result->modified_accounts_count   = 0;
+  txn_result->rollback_accounts_count   = 0;
+  txn_result->is_ok                     = !exec_res;
+  txn_result->status                    = (uint32_t) -exec_res;
+  txn_result->instruction_error         = 0;
+  txn_result->instruction_error_index   = 0;
+  txn_result->custom_error              = 0;
+  txn_result->has_fee_details           = false;
+  txn_result->loaded_accounts_data_size = txn_out->details.loaded_accounts_data_size;
+
+  if( txn_result->sanitization_error ) {
+    if( txn_out->err.is_fees_only ) {
+      txn_result->has_fee_details                = true;
+      txn_result->fee_details.prioritization_fee = txn_out->details.priority_fee;
+      txn_result->fee_details.transaction_fee    = txn_out->details.execution_fee;
+    }
+
+    if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
+      txn_result->instruction_error       = (uint32_t) -txn_out->err.exec_err;
+      txn_result->instruction_error_index = (uint32_t) txn_out->err.exec_err_idx;
+      if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+        txn_result->custom_error = txn_out->err.custom_err;
+      }
+    }
+
+    *txn_result_out = txn_result;
+    return FD_SCRATCH_ALLOC_FINI( l, 1UL ) - (ulong)out_buf;
+  }
+
+  /* Capture instruction error code for executed transactions */
+  if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
+    fd_txn_t const * txn            = TXN( txn_in->txn );
+    int              instr_err_idx  = txn_out->err.exec_err_idx;
+    int              program_id_idx = txn->instr[instr_err_idx].program_id;
+
+    txn_result->instruction_error       = (uint32_t) -txn_out->err.exec_err;
+    txn_result->instruction_error_index = (uint32_t) instr_err_idx;
+
+    if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
+        fd_executor_lookup_native_precompile_program( &txn_out->accounts.keys[ program_id_idx ] )==NULL ) {
+      txn_result->custom_error = txn_out->err.custom_err;
+    }
+  }
+
+  txn_result->has_fee_details                = true;
+  txn_result->fee_details.transaction_fee    = txn_out->details.execution_fee;
+  txn_result->fee_details.prioritization_fee = txn_out->details.priority_fee;
+  txn_result->executed_units                 = txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter;
+
+  /* Return data */
+  if( txn_out->details.return_data.len>0 ) {
+    txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                                       PB_BYTES_ARRAY_T_ALLOCSIZE( txn_out->details.return_data.len ) );
+    if( FD_UNLIKELY( _l > out_end ) ) abort();
+    txn_result->return_data->size = (pb_size_t)txn_out->details.return_data.len;
+    fd_memcpy( txn_result->return_data->bytes, txn_out->details.return_data.data, txn_out->details.return_data.len );
+  }
+
+  /* Modified accounts */
+  txn_result->modified_accounts = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t), sizeof(fd_exec_test_acct_state_t) * txn_out->accounts.cnt );
+  txn_result->rollback_accounts = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t), sizeof(fd_exec_test_acct_state_t) * 2UL );
+  if( FD_UNLIKELY( _l > out_end ) ) abort();
+
+  if( txn_out->err.is_fees_only || exec_res!=FD_RUNTIME_EXECUTE_SUCCESS ) {
+    /* If the transaction errored, capture the rollback accounts (fee payer and nonce). */
+    if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
+      write_account_to_result(
+        &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX],
+        txn_out->accounts.rollback_fee_payer,
+        txn_result->rollback_accounts,
+        &txn_result->rollback_accounts_count,
+        &_l,
+        out_end
+      );
+    }
+
+    if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+      write_account_to_result(
+        &txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn],
+        txn_out->accounts.rollback_nonce,
+        txn_result->rollback_accounts,
+        &txn_result->rollback_accounts_count,
+        &_l,
+        out_end
+      );
+    }
+  }
+
+  if( !txn_out->err.is_fees_only ) {
+    /* Executed: capture fee payer and writable accounts. */
+    for( ulong j=0UL; j<txn_out->accounts.cnt; j++ ) {
+      if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, (ushort)j ) ||
+             j==FD_FEE_PAYER_TXN_IDX ) ) {
+        continue;
+      }
+
+      write_account_to_result(
+        &txn_out->accounts.keys[j],
+        txn_out->accounts.account[j].meta,
+        txn_result->modified_accounts,
+        &txn_result->modified_accounts_count,
+        &_l,
+        out_end
+      );
+    }
+  }
+
+  *txn_result_out = txn_result;
+  return FD_SCRATCH_ALLOC_FINI( l, 1UL ) - (ulong)out_buf;
+}
+
 void
 fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
                          fd_bank_t *         bank,
@@ -1077,6 +1277,79 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
       if( file ) {
         fwrite( out, 1, stream.bytes_written, file );
         fclose( file );
+      }
+    }
+  } FD_SPAD_FRAME_END;
+}
+
+void
+fd_dump_txn_context_to_protobuf( fd_txn_dump_ctx_t * txn_dump_ctx,
+                                 fd_runtime_t *      runtime,
+                                 fd_bank_t *         bank,
+                                 fd_txn_in_t const * txn_in,
+                                 fd_txn_out_t *      txn_out ) {
+  fd_txn_dump_context_reset( txn_dump_ctx );
+
+  txn_dump_ctx->fixture.has_metadata = true;
+  strncpy(
+      txn_dump_ctx->fixture.metadata.fn_entrypoint,
+      "sol_compat_txn_execute_v1",
+      sizeof(txn_dump_ctx->fixture.metadata.fn_entrypoint)-1UL
+  );
+
+  txn_dump_ctx->fixture.has_input = true;
+  create_txn_context_protobuf_from_txn( &txn_dump_ctx->fixture.input,
+                                        runtime, bank, txn_in, txn_out,
+                                        txn_dump_ctx->spad );
+}
+
+void
+fd_dump_txn_result_to_protobuf( fd_txn_dump_ctx_t * txn_dump_ctx,
+                                fd_txn_in_t const * txn_in,
+                                fd_txn_out_t *      txn_out,
+                                fd_bank_t *         bank,
+                                int                 exec_res ) {
+  txn_dump_ctx->fixture.has_output = true;
+
+  ulong  buf_sz = 100UL<<20UL;
+  void * buf    = fd_spad_alloc( txn_dump_ctx->spad, alignof(fd_exec_test_txn_result_t), buf_sz );
+  fd_exec_test_txn_result_t * result = NULL;
+  create_txn_result_protobuf_from_txn( &result, buf, buf_sz, txn_in, txn_out, bank, exec_res );
+  txn_dump_ctx->fixture.output = *result;
+}
+
+void
+fd_dump_txn_fixture_to_file( fd_txn_dump_ctx_t *         txn_dump_ctx,
+                             fd_dump_proto_ctx_t const * dump_proto_ctx,
+                             fd_txn_in_t const *         txn_in ) {
+  const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( txn_in->txn ), txn_in->txn->payload );
+  char encoded_signature[FD_BASE58_ENCODED_64_SZ];
+  fd_base58_encode_64( signatures[0], NULL, encoded_signature );
+
+  FD_SPAD_FRAME_BEGIN( txn_dump_ctx->spad ) {
+    ulong        out_buf_size = 100UL<<20UL;
+    uchar *      out          = fd_spad_alloc( txn_dump_ctx->spad, alignof(uchar), out_buf_size );
+    pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
+
+    char output_filepath[ PATH_MAX ];
+
+    if( dump_proto_ctx->dump_txn_as_fixture ) {
+      if( pb_encode( &stream, FD_EXEC_TEST_TXN_FIXTURE_FIELDS, &txn_dump_ctx->fixture ) ) {
+        snprintf( output_filepath, PATH_MAX, "%s/txn-%s.fix", dump_proto_ctx->dump_proto_output_dir, encoded_signature );
+        FILE * file = fopen( output_filepath, "wb" );
+        if( file ) {
+          fwrite( out, 1, stream.bytes_written, file );
+          fclose( file );
+        }
+      }
+    } else {
+      if( pb_encode( &stream, FD_EXEC_TEST_TXN_CONTEXT_FIELDS, &txn_dump_ctx->fixture.input ) ) {
+        snprintf( output_filepath, PATH_MAX, "%s/txn-%s.txnctx", dump_proto_ctx->dump_proto_output_dir, encoded_signature );
+        FILE * file = fopen( output_filepath, "wb" );
+        if( file ) {
+          fwrite( out, 1, stream.bytes_written, file );
+          fclose( file );
+        }
       }
     }
   } FD_SPAD_FRAME_END;
