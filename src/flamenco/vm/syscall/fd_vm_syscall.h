@@ -907,12 +907,12 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS   ( 0UL        ) /* ed25519 */
 #define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO ( 1UL        ) /* ristretto255 */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE         ( 4UL        ) /* bls12-381 big endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE         ( 4UL | 0x80 ) /* bls12-381 little endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE      ( 5UL        ) /* bls12-381 G1 big endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE      ( 5UL | 0x80 ) /* bls12-381 G1 little endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE      ( 6UL        ) /* bls12-381 G2 big endian */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE      ( 6UL | 0x80 ) /* bls12-381 G2 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE         ( 4UL | 0x80 ) /* bls12-381 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE         ( 4UL        ) /* bls12-381 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE      ( 5UL | 0x80 ) /* bls12-381 G1 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE      ( 5UL        ) /* bls12-381 G1 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE      ( 6UL | 0x80 ) /* bls12-381 G2 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE      ( 6UL        ) /* bls12-381 G2 little endian */
 
 /* FD_VM_SYSCALL_SOL_CURVE_{...} specifies the curve operation */
 
