@@ -6,7 +6,6 @@
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../flamenco/runtime/fd_bank.h"
 
 typedef struct {
   int         kind;

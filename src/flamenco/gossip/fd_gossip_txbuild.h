@@ -50,6 +50,7 @@ fd_gossip_txbuild_can_fit( fd_gossip_txbuild_t const * txbuild,
    On return builder->msg is a valid Gossip push/pullresp message of
    size builder->msg with N+1 CRDS values appended where N is the
    number of existing CRDS values prior to insertion of crds_val. */
+
 void
 fd_gossip_txbuild_append( fd_gossip_txbuild_t * txbuild,
                           ulong                 crds_len,

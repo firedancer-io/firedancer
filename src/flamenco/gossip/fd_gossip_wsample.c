@@ -10,7 +10,7 @@
    the active-set rotation logic in fd_active_set. */
 
 #include "fd_gossip_wsample.h"
-#include "fd_active_set_private.h"
+#include "fd_active_set.h"
 #include "../../util/log/fd_log.h"
 
 #define R           (9UL)  /* Radix of the sampling trees. */
@@ -306,12 +306,12 @@ fd_gossip_wsample_join( void * shwsample ) {
 
 void
 fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
-                       ulong                 idx,
+                       ulong                 ci_idx,
                        ulong                 stake,
                        int                   active ) {
-  sampler->stakes[idx] = stake;
-  sampler->fresh[idx]  = 1; /* newly added peers are fresh */
-  sampler->active[idx] = (uchar)active;
+  sampler->stakes[ci_idx] = stake;
+  sampler->fresh[ci_idx]  = 1; /* newly added peers are fresh */
+  sampler->active[ci_idx] = (uchar)active;
 
   ulong height       = sampler->height;
   ulong internal_cnt = sampler->internal_cnt;
@@ -324,14 +324,14 @@ fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
        peer's stake capped at our own stake. */
     ulong pr_w = pr_weight( fd_ulong_min( stake, sampler->self_stake ) );
     tree_add_weight( sampler->trees + PR_TREE_IDX * internal_cnt,
-                     height, internal_cnt, idx, pr_w );
+                     height, internal_cnt, ci_idx, pr_w );
     sampler->pr_total_weight += pr_w;
 
     /* Bucket trees. */
     for( ulong b=0UL; b<BUCKET_CNT; b++ ) {
       ulong bw = bucket_score( stake, b );
       tree_add_weight( sampler->trees + (1UL+b) * internal_cnt,
-                       height, internal_cnt, idx, bw );
+                       height, internal_cnt, ci_idx, bw );
       sampler->bucket_total_weight[b] += bw;
     }
   }
@@ -339,7 +339,7 @@ fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
 
 void
 fd_gossip_wsample_remove( fd_gossip_wsample_t * sampler,
-                          ulong                 idx ) {
+                          ulong                 ci_idx ) {
   ulong height       = sampler->height;
   ulong internal_cnt = sampler->internal_cnt;
 
@@ -349,9 +349,9 @@ fd_gossip_wsample_remove( fd_gossip_wsample_t * sampler,
   tree_ele_t * pr = sampler->trees + PR_TREE_IDX * internal_cnt;
   ulong pr_w = tree_find_weight( (tree_ele_t const *)pr, height,
                                  internal_cnt,
-                                 sampler->pr_total_weight, idx );
+                                 sampler->pr_total_weight, ci_idx );
   if( pr_w ) {
-    tree_sub_weight( pr, height, internal_cnt, idx, pr_w );
+    tree_sub_weight( pr, height, internal_cnt, ci_idx, pr_w );
     sampler->pr_total_weight -= pr_w;
   }
 
@@ -361,16 +361,16 @@ fd_gossip_wsample_remove( fd_gossip_wsample_t * sampler,
   for( ulong b=0UL; b<BUCKET_CNT; b++ ) {
     tree_ele_t * bt = sampler->trees + (1UL+b) * internal_cnt;
     ulong bw = tree_find_weight( bt, height, internal_cnt,
-                                 sampler->bucket_total_weight[b], idx );
+                                 sampler->bucket_total_weight[b], ci_idx );
     if( bw ) {
-      tree_sub_weight( bt, height, internal_cnt, idx, bw );
+      tree_sub_weight( bt, height, internal_cnt, ci_idx, bw );
       sampler->bucket_total_weight[b] -= bw;
     }
   }
 
-  sampler->stakes[idx] = 0UL;
-  sampler->fresh[idx]  = 0;
-  sampler->active[idx] = 0;
+  sampler->stakes[ci_idx] = 0UL;
+  sampler->fresh[ci_idx]  = 0;
+  sampler->active[ci_idx] = 0;
 }
 
 ulong
@@ -406,12 +406,12 @@ fd_gossip_wsample_sample_remove_bucket( fd_gossip_wsample_t * sampler,
 
 void
 fd_gossip_wsample_stake( fd_gossip_wsample_t * sampler,
-                         ulong                 idx,
+                         ulong                 ci_idx,
                          ulong                 new_stake ) {
-  sampler->stakes[idx] = new_stake;
-  if( FD_UNLIKELY( !sampler->active[idx] ) ) return;
+  sampler->stakes[ci_idx] = new_stake;
+  if( FD_UNLIKELY( !sampler->active[ci_idx] ) ) return;
 
-  int   is_fresh     = (int)sampler->fresh[idx];
+  int   is_fresh     = (int)sampler->fresh[ci_idx];
   ulong height       = sampler->height;
   ulong internal_cnt = sampler->internal_cnt;
 
@@ -419,16 +419,16 @@ fd_gossip_wsample_stake( fd_gossip_wsample_t * sampler,
   tree_ele_t * pr = sampler->trees + PR_TREE_IDX * internal_cnt;
   ulong old_pr_w = tree_find_weight( (tree_ele_t const *)pr, height,
                                      internal_cnt,
-                                     sampler->pr_total_weight, idx );
+                                     sampler->pr_total_weight, ci_idx );
   ulong new_pr_w = adjusted_pr_weight( new_stake, sampler->self_stake, is_fresh );
 
   if( new_pr_w > old_pr_w ) {
     ulong delta = new_pr_w - old_pr_w;
-    tree_add_weight( pr, height, internal_cnt, idx, delta );
+    tree_add_weight( pr, height, internal_cnt, ci_idx, delta );
     sampler->pr_total_weight += delta;
   } else if( new_pr_w < old_pr_w ) {
     ulong delta = old_pr_w - new_pr_w;
-    tree_sub_weight( pr, height, internal_cnt, idx, delta );
+    tree_sub_weight( pr, height, internal_cnt, ci_idx, delta );
     sampler->pr_total_weight -= delta;
   }
 
@@ -438,16 +438,16 @@ fd_gossip_wsample_stake( fd_gossip_wsample_t * sampler,
     tree_ele_t * bt = sampler->trees + (1UL+b) * internal_cnt;
     ulong cur = tree_find_weight( (tree_ele_t const *)bt, height,
                                   internal_cnt,
-                                  sampler->bucket_total_weight[b], idx );
+                                  sampler->bucket_total_weight[b], ci_idx );
     if( !cur ) continue; /* Peer was sample-removed from this bucket. */
     ulong bw = adjusted_bucket_weight( new_stake, b, is_fresh );
     if( bw > cur ) {
       ulong delta = bw - cur;
-      tree_add_weight( bt, height, internal_cnt, idx, delta );
+      tree_add_weight( bt, height, internal_cnt, ci_idx, delta );
       sampler->bucket_total_weight[b] += delta;
     } else if( bw < cur ) {
       ulong delta = cur - bw;
-      tree_sub_weight( bt, height, internal_cnt, idx, delta );
+      tree_sub_weight( bt, height, internal_cnt, ci_idx, delta );
       sampler->bucket_total_weight[b] -= delta;
     }
   }
@@ -455,12 +455,12 @@ fd_gossip_wsample_stake( fd_gossip_wsample_t * sampler,
 
 void
 fd_gossip_wsample_fresh( fd_gossip_wsample_t * sampler,
-                         ulong                 idx,
+                         ulong                 ci_idx,
                          int                   fresh ) {
-  sampler->fresh[idx] = (uchar)fresh;
-  if( FD_UNLIKELY( !sampler->active[idx] ) ) return;
+  sampler->fresh[ci_idx] = (uchar)fresh;
+  if( FD_UNLIKELY( !sampler->active[ci_idx] ) ) return;
 
-  ulong stake        = sampler->stakes[idx];
+  ulong stake        = sampler->stakes[ci_idx];
   ulong height       = sampler->height;
   ulong internal_cnt = sampler->internal_cnt;
 
@@ -468,15 +468,15 @@ fd_gossip_wsample_fresh( fd_gossip_wsample_t * sampler,
   tree_ele_t * pr = sampler->trees + PR_TREE_IDX * internal_cnt;
   ulong old_pr = tree_find_weight( (tree_ele_t const *)pr, height,
                                    internal_cnt,
-                                   sampler->pr_total_weight, idx );
+                                   sampler->pr_total_weight, ci_idx );
   ulong new_pr = adjusted_pr_weight( stake, sampler->self_stake, fresh );
   if( new_pr > old_pr ) {
     ulong delta = new_pr - old_pr;
-    tree_add_weight( pr, height, internal_cnt, idx, delta );
+    tree_add_weight( pr, height, internal_cnt, ci_idx, delta );
     sampler->pr_total_weight += delta;
   } else if( new_pr < old_pr ) {
     ulong delta = old_pr - new_pr;
-    tree_sub_weight( pr, height, internal_cnt, idx, delta );
+    tree_sub_weight( pr, height, internal_cnt, ci_idx, delta );
     sampler->pr_total_weight -= delta;
   }
 
@@ -485,16 +485,16 @@ fd_gossip_wsample_fresh( fd_gossip_wsample_t * sampler,
     tree_ele_t * bt = sampler->trees + (1UL+b) * internal_cnt;
     ulong cur = tree_find_weight( (tree_ele_t const *)bt, height,
                                   internal_cnt,
-                                  sampler->bucket_total_weight[b], idx );
+                                  sampler->bucket_total_weight[b], ci_idx );
     if( !cur ) continue; /* Peer was sample-removed from this bucket. */
     ulong target = adjusted_bucket_weight( stake, b, fresh );
     if( target > cur ) {
       ulong delta = target - cur;
-      tree_add_weight( bt, height, internal_cnt, idx, delta );
+      tree_add_weight( bt, height, internal_cnt, ci_idx, delta );
       sampler->bucket_total_weight[b] += delta;
     } else if( target < cur ) {
       ulong delta = cur - target;
-      tree_sub_weight( bt, height, internal_cnt, idx, delta );
+      tree_sub_weight( bt, height, internal_cnt, ci_idx, delta );
       sampler->bucket_total_weight[b] -= delta;
     }
   }
@@ -502,12 +502,12 @@ fd_gossip_wsample_fresh( fd_gossip_wsample_t * sampler,
 
 void
 fd_gossip_wsample_active( fd_gossip_wsample_t * sampler,
-                          ulong                 idx,
+                          ulong                 ci_idx,
                           int                   active ) {
-  sampler->active[idx] = (uchar)active;
+  sampler->active[ci_idx] = (uchar)active;
 
-  ulong stake        = sampler->stakes[idx];
-  int   is_fresh     = (int)sampler->fresh[idx];
+  ulong stake        = sampler->stakes[ci_idx];
+  int   is_fresh     = (int)sampler->fresh[ci_idx];
   ulong height       = sampler->height;
   ulong internal_cnt = sampler->internal_cnt;
 
@@ -516,11 +516,11 @@ fd_gossip_wsample_active( fd_gossip_wsample_t * sampler,
     tree_ele_t * pr = sampler->trees + PR_TREE_IDX * internal_cnt;
     ulong cur_pr = tree_find_weight( (tree_ele_t const *)pr, height,
                                      internal_cnt,
-                                     sampler->pr_total_weight, idx );
+                                     sampler->pr_total_weight, ci_idx );
     ulong target_pr = adjusted_pr_weight( stake, sampler->self_stake, is_fresh );
     if( target_pr > cur_pr ) {
       ulong delta = target_pr - cur_pr;
-      tree_add_weight( pr, height, internal_cnt, idx, delta );
+      tree_add_weight( pr, height, internal_cnt, ci_idx, delta );
       sampler->pr_total_weight += delta;
     }
 
@@ -529,11 +529,11 @@ fd_gossip_wsample_active( fd_gossip_wsample_t * sampler,
       tree_ele_t * bt = sampler->trees + (1UL+b) * internal_cnt;
       ulong cur = tree_find_weight( (tree_ele_t const *)bt, height,
                                     internal_cnt,
-                                    sampler->bucket_total_weight[b], idx );
+                                    sampler->bucket_total_weight[b], ci_idx );
       ulong bw  = adjusted_bucket_weight( stake, b, is_fresh );
       if( bw > cur ) {
         ulong delta = bw - cur;
-        tree_add_weight( bt, height, internal_cnt, idx, delta );
+        tree_add_weight( bt, height, internal_cnt, ci_idx, delta );
         sampler->bucket_total_weight[b] += delta;
       }
     }
@@ -542,9 +542,9 @@ fd_gossip_wsample_active( fd_gossip_wsample_t * sampler,
     tree_ele_t * pr = sampler->trees + PR_TREE_IDX * internal_cnt;
     ulong pr_w = tree_find_weight( (tree_ele_t const *)pr, height,
                                    internal_cnt,
-                                   sampler->pr_total_weight, idx );
+                                   sampler->pr_total_weight, ci_idx );
     if( pr_w ) {
-      tree_sub_weight( pr, height, internal_cnt, idx, pr_w );
+      tree_sub_weight( pr, height, internal_cnt, ci_idx, pr_w );
       sampler->pr_total_weight -= pr_w;
     }
 
@@ -553,9 +553,9 @@ fd_gossip_wsample_active( fd_gossip_wsample_t * sampler,
       tree_ele_t * bt = sampler->trees + (1UL+b) * internal_cnt;
       ulong bw = tree_find_weight( (tree_ele_t const *)bt, height,
                                    internal_cnt,
-                                   sampler->bucket_total_weight[b], idx );
+                                   sampler->bucket_total_weight[b], ci_idx );
       if( bw ) {
-        tree_sub_weight( bt, height, internal_cnt, idx, bw );
+        tree_sub_weight( bt, height, internal_cnt, ci_idx, bw );
         sampler->bucket_total_weight[b] -= bw;
       }
     }
@@ -601,12 +601,12 @@ fd_gossip_wsample_self_stake( fd_gossip_wsample_t * sampler,
 void
 fd_gossip_wsample_add_bucket( fd_gossip_wsample_t * sampler,
                               ulong                 bucket,
-                              ulong                 idx ) {
-  ulong stake    = sampler->stakes[idx];
-  int   is_fresh = (int)sampler->fresh[idx];
+                              ulong                 ci_idx ) {
+  ulong stake    = sampler->stakes[ci_idx];
+  int   is_fresh = (int)sampler->fresh[ci_idx];
   ulong bw       = adjusted_bucket_weight( stake, bucket, is_fresh );
 
   tree_add_weight( sampler->trees + (1UL + bucket) * sampler->internal_cnt,
-                   sampler->height, sampler->internal_cnt, idx, bw );
+                   sampler->height, sampler->internal_cnt, ci_idx, bw );
   sampler->bucket_total_weight[bucket] += bw;
 }
