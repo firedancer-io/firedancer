@@ -292,11 +292,15 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   ulong stake_t_1;
   ulong stake_t_2;
+  fd_pubkey_t node_account_t_1;
+  fd_pubkey_t node_account_t_2;
   int found = fd_vote_stakes_query_stake( vote_stakes,
                                           vm->instr_ctx->bank->data->vote_stakes_fork_id,
                                           vote_address,
                                           &stake_t_1,
-                                          &stake_t_2 );
+                                          &stake_t_2,
+                                          &node_account_t_1,
+                                          &node_account_t_2 );
   *_ret = found ? stake_t_1 : 0UL;
 
   return FD_VM_SUCCESS;

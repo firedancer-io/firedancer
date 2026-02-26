@@ -254,9 +254,6 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
   fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( bank ) );
   if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", fd_bank_slot_get( bank ) ));
 
-  FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
-  FD_LOG_NOTICE(( "leader: %s", leader_b58 ));
-
   /* Credit fee collector, creating it if necessary */
   fd_accdb_rw_t rw[1];
   fd_accdb_open_rw( accdb, rw, xid, leader, 0UL, FD_ACCDB_FLAG_CREATE );
@@ -389,21 +386,45 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
   ushort child_idx = fd_vote_stakes_new_child( vote_stakes );
   bank->data->vote_stakes_fork_id = child_idx;
 
-  for( fd_vote_stakes_fork_iter_init( vote_stakes, parent_idx );
-       !fd_vote_stakes_fork_iter_done( vote_stakes, parent_idx );
-       fd_vote_stakes_fork_iter_next( vote_stakes, parent_idx ) ) {
-    fd_pubkey_t pubkey;
-    ulong       old_stake_t_1;
-    ulong       old_stake_t_2;
+  for( fd_vote_ele_map_iter_t iter = fd_vote_ele_map_iter_init( vote_ele_map, runtime_stack->stakes.vote_ele );
+       !fd_vote_ele_map_iter_done( iter, vote_ele_map, runtime_stack->stakes.vote_ele );
+       iter = fd_vote_ele_map_iter_next( iter, vote_ele_map, runtime_stack->stakes.vote_ele ) ) {
+    fd_vote_ele_t * vote_ele = &runtime_stack->stakes.vote_ele[fd_vote_ele_map_iter_idx( iter, vote_ele_map, runtime_stack->stakes.vote_ele )];
+
+    ulong       old_stake_t_1 = 0UL;
+    ulong       old_stake_t_2 = 0UL;
     fd_pubkey_t node_account_t_1;
     fd_pubkey_t node_account_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, parent_idx, &pubkey, &old_stake_t_1, &old_stake_t_2, &node_account_t_1, &node_account_t_2 );
-    fd_vote_ele_t * vote_ele = fd_vote_ele_map_ele_query( vote_ele_map, &pubkey, NULL, runtime_stack->stakes.vote_ele );
+    int found = fd_vote_stakes_query_stake( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, &old_stake_t_2, &node_account_t_1, &node_account_t_2 );
 
-    ulong         new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
-    fd_pubkey_t * node_account  = vote_ele ? &vote_ele->node_account : &node_account_t_1;
-    fd_vote_stakes_insert( vote_stakes, child_idx, &pubkey, new_stake_t_1, old_stake_t_1, node_account, &node_account_t_1 );
+    ulong new_stake_t_2 = found ? old_stake_t_1 : 0UL;
+    ulong new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
+
+    fd_vote_stakes_insert( vote_stakes,
+                           child_idx,
+                           &vote_ele->pubkey,
+                           new_stake_t_1,
+                           new_stake_t_2,
+                           &vote_ele->node_account,
+                           &node_account_t_1 );
   }
+
+
+  // for( fd_vote_stakes_fork_iter_init( vote_stakes, parent_idx );
+      //  !fd_vote_stakes_fork_iter_done( vote_stakes, parent_idx );
+      //  fd_vote_stakes_fork_iter_next( vote_stakes, parent_idx ) ) {
+    // fd_pubkey_t pubkey;
+    // ulong       old_stake_t_1;
+    // ulong       old_stake_t_2;
+    // fd_pubkey_t node_account_t_1;
+    // fd_pubkey_t node_account_t_2;
+    // fd_vote_stakes_fork_iter_ele( vote_stakes, parent_idx, &pubkey, &old_stake_t_1, &old_stake_t_2, &node_account_t_1, &node_account_t_2 );
+    // fd_vote_ele_t * vote_ele = fd_vote_ele_map_ele_query( vote_ele_map, &pubkey, NULL, runtime_stack->stakes.vote_ele );
+//
+    // ulong         new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
+    // fd_pubkey_t * node_account  = vote_ele ? &vote_ele->node_account : &node_account_t_1;
+    // fd_vote_stakes_insert( vote_stakes, child_idx, &pubkey, new_stake_t_1, old_stake_t_1, node_account, &node_account_t_1 );
+  // }
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
