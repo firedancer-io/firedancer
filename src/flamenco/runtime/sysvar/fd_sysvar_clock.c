@@ -163,11 +163,8 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
     fd_pubkey_t pubkey;
-    ulong stake_t_1;
-    ulong stake_t_2;
-    fd_pubkey_t node_account_t_1;
-    fd_pubkey_t node_account_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    ulong       stake_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
     fd_accdb_ro_t ro[1];

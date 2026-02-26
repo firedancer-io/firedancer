@@ -441,19 +441,20 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
                               ushort                  fork_idx,
                               fd_vote_stakes_iter_t * iter,
                               fd_pubkey_t *           pubkey_out,
-                              ulong *                 stake_t_1_out,
-                              ulong *                 stake_t_2_out,
-                              fd_pubkey_t *           node_account_t_1_out,
-                              fd_pubkey_t *           node_account_t_2_out ) {
+                              ulong *                 stake_t_1_out_opt,
+                              ulong *                 stake_t_2_out_opt,
+                              fd_pubkey_t *           node_account_t_1_out_opt,
+                              fd_pubkey_t *           node_account_t_2_out_opt ) {
   stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
   stake_t * stake = stakes_map_iter_ele( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
 
   index_ele_t * index_pool = get_index_pool( vote_stakes );
   index_ele_t * index_ele  = index_pool_ele( index_pool, stake->idx );
 
-  *pubkey_out           = index_ele->index_key.pubkey;
-  *stake_t_1_out        = index_ele->index_key.stake_t_1;
-  *stake_t_2_out        = index_ele->stake_t_2;
-  *node_account_t_1_out = index_ele->node_account_t_1;
-  *node_account_t_2_out = index_ele->node_account_t_2;
+  *pubkey_out = index_ele->index_key.pubkey;
+
+  if( stake_t_1_out_opt )        *stake_t_1_out_opt        = index_ele->index_key.stake_t_1;
+  if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
+  if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
+  if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
 }

@@ -250,10 +250,10 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
                               ushort                  fork_idx,
                               fd_vote_stakes_iter_t * iter,
                               fd_pubkey_t *           pubkey_out,
-                              ulong *                 stake_t_1_out,
-                              ulong *                 stake_t_2_out,
-                              fd_pubkey_t *           node_account_t_1_out,
-                              fd_pubkey_t *           node_account_t_2_out );
+                              ulong *                 stake_t_1_out_opt,
+                              ulong *                 stake_t_2_out_opt,
+                              fd_pubkey_t *           node_account_t_1_out_opt,
+                              fd_pubkey_t *           node_account_t_2_out_opt );
 
 FD_PROTOTYPES_END
 

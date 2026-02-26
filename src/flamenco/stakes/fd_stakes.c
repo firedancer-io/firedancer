@@ -7,7 +7,6 @@
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 
-
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
                           ushort                   fork_idx,
@@ -18,11 +17,9 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter  );
        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
     fd_pubkey_t pubkey;
-    ulong       stake_t_1;
     ulong       stake_t_2;
-    fd_pubkey_t node_account_t_1;
     fd_pubkey_t node_account_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2 );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
     fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );

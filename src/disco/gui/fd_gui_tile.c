@@ -371,11 +371,9 @@ after_frag( fd_gui_ctx_t *      ctx,
              !fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id, iter );
              fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id, iter ) ) {
           fd_pubkey_t pubkey;
-          ulong stake_t_1;
-          ulong stake_t_2;
+          ulong       stake_t_1;
           fd_pubkey_t node_account_t_1;
-          fd_pubkey_t node_account_t_2;
-          fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+          fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL );
 
           ctx->peers->votes[ vote_count ].vote_account = pubkey;
           ctx->peers->votes[ vote_count ].node_account = node_account_t_1;

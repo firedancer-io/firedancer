@@ -509,11 +509,8 @@ query_acct_stake_from_bank( fd_tower_voters_t *  tower_voters_deque,
        !fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id, iter );
        fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id, iter ) ) {
     fd_pubkey_t pubkey;
-    ulong stake_t_1;
-    ulong stake_t_2;
-    fd_pubkey_t node_account_t_1;
-    fd_pubkey_t node_account_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    ulong       stake_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
     fd_tower_voters_push_tail( tower_voters_deque, (fd_tower_voters_t){ .addr = pubkey, .stake = stake_t_2 } );
     prev_voter_idx = fd_tower_stakes_vtr_insert( tower_stakes, slot, &pubkey, stake_t_2, prev_voter_idx );
     total_stake += stake_t_2;
