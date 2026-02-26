@@ -784,3 +784,19 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
 
   return 0;
 }
+
+fd_vote_block_timestamp_t
+fd_vsv_get_vote_block_timestamp( fd_account_meta_t const * meta ) {
+  uchar const * data     = fd_account_data( meta );
+  ulong         data_len = meta->dlen;
+  //uint const *  disc_ptr = (uint const *)data;
+
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = data,
+    .dataend = data + data_len,
+  };
+  ulong total_sz = 0;
+  fd_vote_state_versioned_decode_footprint_no_reset( &ctx, &total_sz );
+  uchar * data_ptr = (uchar *)ctx.data;
+  return *(fd_vote_block_timestamp_t *)(data_ptr-16UL);
+}
