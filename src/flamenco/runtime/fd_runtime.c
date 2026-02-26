@@ -384,11 +384,9 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
     fd_vote_ele_t * vote_ele = &runtime_stack->stakes.vote_ele[fd_vote_ele_map_iter_idx( iter, vote_ele_map, runtime_stack->stakes.vote_ele )];
     if( FD_UNLIKELY( vote_ele->invalid ) ) continue;
 
-    ulong       old_stake_t_1 = 0UL;
-    ulong       old_stake_t_2 = 0UL;
-    fd_pubkey_t node_account_t_1;
-    fd_pubkey_t node_account_t_2;
-    int found = fd_vote_stakes_query_stake( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, &old_stake_t_2, &node_account_t_1, &node_account_t_2 );
+    ulong       old_stake_t_1;
+    fd_pubkey_t old_account_t_1;
+    int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &old_account_t_1, NULL );
 
     ulong new_stake_t_2 = found ? old_stake_t_1 : 0UL;
     ulong new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
@@ -399,7 +397,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                            new_stake_t_1,
                            new_stake_t_2,
                            &vote_ele->node_account,
-                           &node_account_t_1 );
+                           &old_account_t_1 );
   }
   fd_bank_vote_stakes_end_locking_query( bank );
 }

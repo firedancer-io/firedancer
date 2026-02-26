@@ -299,13 +299,13 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
 }
 
 int
-fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
-                            ushort              fork_idx,
-                            fd_pubkey_t const * pubkey,
-                            ulong *             stake_t_1_out,
-                            ulong *             stake_t_2_out,
-                            fd_pubkey_t *       node_account_t_1_out,
-                            fd_pubkey_t *       node_account_t_2_out ) {
+fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
+                      ushort              fork_idx,
+                      fd_pubkey_t const * pubkey,
+                      ulong *             stake_t_1_out_opt,
+                      ulong *             stake_t_2_out_opt,
+                      fd_pubkey_t *       node_account_t_1_out_opt,
+                      fd_pubkey_t *       node_account_t_2_out_opt ) {
 
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
@@ -330,10 +330,10 @@ fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
   }
 
   index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
-  *stake_t_1_out        = index_ele->stake_t_1;
-  *stake_t_2_out        = index_ele->stake_t_2;
-  *node_account_t_1_out = index_ele->node_account_t_1;
-  *node_account_t_2_out = index_ele->node_account_t_2;
+  if( stake_t_1_out_opt )        *stake_t_1_out_opt        = index_ele->stake_t_1;
+  if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
+  if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
+  if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
   return 1;
 }
 

@@ -6,7 +6,6 @@
 #include "../fd_bank.h"
 #include "../fd_blockhashes.h"
 #include "../fd_system_ids.h"
-#include "../../stakes/fd_vote_states.h"
 #include "../../stakes/fd_stake_delegations.h"
 #include "../program/fd_stake_program.h"
 #include "../program/vote/fd_vote_state_versioned.h"
@@ -214,31 +213,6 @@ restore_features_from_proto( fd_features_t * features, fd_exec_test_feature_set_
     features->f[ feature_id->index ] = 0UL;  /* Active from slot 0 */
   }
   return 1;
-}
-
-static void FD_FN_UNUSED
-register_vote_account_from_db( fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_vote_states_t *        vote_states,
-                               fd_pubkey_t *             pubkey ) {
-
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
-
-  if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_vote_program_id ) ||
-      fd_accdb_ref_lamports( ro )==0UL ||
-      !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) {
-
-    fd_accdb_close_ro( accdb, ro );
-    return;
-  }
-
-  fd_vote_states_update_from_account(
-      vote_states,
-      fd_accdb_ref_address   ( ro ),
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
-  fd_accdb_close_ro( accdb, ro );
 }
 
 /* Helper: Register a stake delegation from an account in funk */

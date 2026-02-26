@@ -290,16 +290,13 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( vm->instr_ctx->bank );
 
   ulong stake_t_1;
-  ulong stake_t_2;
-  fd_pubkey_t node_account_t_1;
-  fd_pubkey_t node_account_t_2;
-  int found = fd_vote_stakes_query_stake( vote_stakes,
-                                          vm->instr_ctx->bank->data->vote_stakes_fork_id,
-                                          vote_address,
-                                          &stake_t_1,
-                                          &stake_t_2,
-                                          &node_account_t_1,
-                                          &node_account_t_2 );
+  int found = fd_vote_stakes_query( vote_stakes,
+                                    vm->instr_ctx->bank->data->vote_stakes_fork_id,
+                                    vote_address,
+                                    &stake_t_1,
+                                    NULL,
+                                    NULL,
+                                    NULL );
   *_ret = found ? stake_t_1 : 0UL;
   fd_bank_vote_stakes_end_locking_query( vm->instr_ctx->bank );
 

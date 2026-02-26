@@ -193,16 +193,17 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
 
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
    in the given fork.  If the element is found returns 1, otherwise
-   returns 0.  */
+   returns 0.  If any of the optional fields are set to NULL, then their
+   corresponding value will not be set. */
 
 int
-fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
-                            ushort              fork_idx,
-                            fd_pubkey_t const * pubkey,
-                            ulong *             stake_t_1_out,
-                            ulong *             stake_t_2_out,
-                            fd_pubkey_t *       node_account_t_1_out,
-                            fd_pubkey_t *       node_account_t_2_out );
+fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
+                      ushort              fork_idx,
+                      fd_pubkey_t const * pubkey,
+                      ulong *             stake_t_1_out_opt,
+                      ulong *             stake_t_2_out_opt,
+                      fd_pubkey_t *       node_account_t_1_out_opt,
+                      fd_pubkey_t *       node_account_t_2_out_opt );
 
 /* fd_vote_stakes_query_idx returns the index of the vote account in the
    given fork. */
