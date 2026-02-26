@@ -19,6 +19,10 @@ struct fd_snapls_tile {
 
   fd_lthash_value_t running_lthash;
 
+  struct {
+    fd_lthash_value_t full_lthash;
+  } recovery;
+
   fd_blake3_t b3[1];
   ulong       acc_data_sz;
   int         hash_account;
@@ -182,7 +186,7 @@ recv_acks( fd_snapls_tile_t * ctx,
            ulong              sig ) {
   if( FD_UNLIKELY( !ctx->pending_ctrl_sig ) ) {
     ctx->pending_ctrl_sig = sig;
-    ctx->num_acks = 0UL;
+    ctx->num_acks         = 0UL;
     fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
   } else FD_TEST( ctx->pending_ctrl_sig==sig );
 
@@ -194,7 +198,7 @@ recv_acks( fd_snapls_tile_t * ctx,
   if( FD_LIKELY( ctx->num_acks<1UL+ctx->num_hash_tiles ) ) return 0;
 
   ctx->pending_ctrl_sig = 0UL;
-  ctx->num_acks = 0UL;
+  ctx->num_acks         = 0UL;
   fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
   return 1;
 }
@@ -222,6 +226,16 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       fd_lthash_zero( &ctx->running_lthash );
+      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
+        fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
+        fd_lthash_zero( &ctx->recovery.full_lthash );
+      } else {
+        /* The lthash for the incremental snapshot is computed starting
+           from the full snapshot lthash.  Since an init message may
+           be received after a fail message, always start from the
+           recovery value. */
+        ctx->hash_accum.calculated_lthash = ctx->recovery.full_lthash;
+      }
       break;
     }
 
@@ -252,11 +266,20 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      /* back up full_lthash for future recovery. */
+      if( sig==FD_SNAPSHOT_MSG_CTRL_NEXT ) {
+        ctx->recovery.full_lthash = ctx->hash_accum.calculated_lthash;
+      }
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      /* Reset tracking for received acks because we will now be waiting
+         for a fail control message. */
+      ctx->pending_ctrl_sig = 0UL;
+      ctx->num_acks         = 0UL;
+      fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
       break;
     }
@@ -417,6 +440,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
   fd_lthash_zero( &ctx->running_lthash );
+  fd_lthash_zero( &ctx->recovery.full_lthash );
 }
 
 #define STEM_BURST 2UL /* one control message and one malformed message */
