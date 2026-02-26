@@ -188,6 +188,32 @@ fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
   return fd_backtest_rocksdb_next_slot_private( db, db->iter_root, slot_out, shred_cnt_out );
 }
 
+static ulong
+find_slot( fd_backtest_rocksdb_t * db,
+           void (* seek)( rocksdb_iterator_t * ) ) {
+  rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( db->db, db->readoptions, db->cfs[ 1 ] );
+  FD_TEST( iter );
+  seek( iter );
+  if( FD_UNLIKELY( !rocksdb_iter_valid( iter ) ) ) FD_LOG_ERR(( "rocksdb has no root slot" ));
+
+  ulong klen = 0;
+  void const * key = rocksdb_iter_key( iter, &klen );
+  FD_TEST( klen>=sizeof(ulong) );
+  ulong slot = fd_ulong_bswap( FD_LOAD( ulong, key ) );
+  rocksdb_iter_destroy( iter );
+  return slot;
+}
+
+ulong
+fd_backtest_rocksdb_first_slot( fd_backtest_rocksdb_t * db ) {
+  return find_slot( db, rocksdb_iter_seek_to_first );
+}
+
+ulong
+fd_backtest_rocksdb_last_slot( fd_backtest_rocksdb_t * db ) {
+  return find_slot( db, rocksdb_iter_seek_to_last );
+}
+
 void const *
 fd_backtest_rocksdb_shred( fd_backtest_rocksdb_t * db,
                            ulong                   slot,
