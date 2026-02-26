@@ -114,8 +114,8 @@ privileged_init( fd_topo_t *      topo,
   struct stat st;
   if( FD_UNLIKELY( 0!=fstat( vinyl_fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", vinyl_path, errno, strerror( errno ) ));
 
-  snapwr->dev_fd  = vinyl_fd;
-  snapwr->dev_sz  = fd_ulong_align_dn( (ulong)st.st_size, FD_VINYL_BSTREAM_BLOCK_SZ );
+  snapwr->dev_fd   = vinyl_fd;
+  snapwr->dev_sz   = fd_ulong_align_dn( (ulong)st.st_size, FD_VINYL_BSTREAM_BLOCK_SZ );
   snapwr->dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
 }
 
@@ -220,7 +220,8 @@ before_credit( fd_snapwr_t *       ctx,
 static void
 metrics_write( fd_snapwr_t * ctx ) {
   FD_MGAUGE_SET( SNAPWR, STATE,               ctx->state            );
-  FD_MGAUGE_SET( SNAPWR, VINYL_BYTES_WRITTEN, ctx->metrics.last_off );
+  FD_MGAUGE_SET( SNAPWR, FILE_USED_BYTES,     ctx->metrics.last_off );
+  FD_MGAUGE_SET( SNAPWR, FILE_CAPACITY_BYTES, ctx->dev_sz           );
 }
 
 /* handle_control_frag handles an administrative frag from the snapin

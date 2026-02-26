@@ -145,7 +145,8 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">snapwr_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
-| <span class="metrics-name">snapwr_&#8203;vinyl_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted |
+| <span class="metrics-name">snapwr_&#8203;file_&#8203;capacity_&#8203;bytes</span> | gauge | Account database file capacity in bytes |
+| <span class="metrics-name">snapwr_&#8203;file_&#8203;used_&#8203;bytes</span> | gauge | Current number of bytes used in the account database file |
 
 </div>
 
@@ -980,6 +981,8 @@
 | <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes written (Record cache) |
 | <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes written (I/O layer cache) |
 | <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes written (File access) |
+| <span class="metrics-name">accdb_&#8203;file_&#8203;capacity_&#8203;bytes</span> | gauge | Account database file capacity in bytes |
+| <span class="metrics-name">accdb_&#8203;file_&#8203;used_&#8203;bytes</span> | gauge | Current number of bytes used in account database file |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (Blocks between ancient and past have been written and forgotten (no read, no write)) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (Blocks between past and present have been written (read only)) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
