@@ -139,6 +139,26 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
   rocksdb_iter_seek( db->iter_shred, shred_key, 16UL );
 }
 
+ulong
+fd_backtest_rocksdb_last_slot( fd_backtest_rocksdb_t * db ) {
+  rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( db->db, db->readoptions, db->cfs[ 1 ] );
+  FD_TEST( iter );
+
+  rocksdb_iter_seek_to_last( iter );
+  if( FD_UNLIKELY( !rocksdb_iter_valid( iter ) ) ) {
+    rocksdb_iter_destroy( iter );
+    FD_LOG_ERR(( "rocksdb root column family is empty" ));
+  }
+
+  ulong keylen;
+  char const * key = rocksdb_iter_key( iter, &keylen );
+  FD_TEST( keylen==sizeof(ulong) );
+  ulong slot = fd_ulong_bswap( FD_LOAD( ulong, key ) );
+
+  rocksdb_iter_destroy( iter );
+  return slot;
+}
+
 static int
 fd_backtest_rocksdb_next_slot_private( fd_backtest_rocksdb_t * db,
                                        rocksdb_iterator_t *    iter,

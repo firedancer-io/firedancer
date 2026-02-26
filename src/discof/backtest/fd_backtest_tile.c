@@ -135,6 +135,11 @@ source_init( fd_backt_tile_t * ctx,
 # if FD_HAS_ROCKSDB
   if( ctx->rocksdb ) {
     fd_backtest_rocksdb_init( ctx->rocksdb, start_slot );
+    if( FD_UNLIKELY( ctx->end_slot==ULONG_MAX || ctx->end_slot==0UL ) ) {
+      ctx->end_slot = fd_backtest_rocksdb_last_slot( ctx->rocksdb );
+      FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot );
+      FD_LOG_NOTICE(( "Auto-detected end_slot from rocksdb: %lu", ctx->end_slot ));
+    }
     return;
   }
 # endif

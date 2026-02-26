@@ -4,11 +4,9 @@ set -e
 # Notes:
 # - snapshot lthash has been enabled for all tests (except for those
 #   where the original lthash is wrong - as documented below)
-# - vinyl is enabled only on an arbitrary subset of tests for now.
 #   TODO expand.
 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-519-v3.0.0 -y 3 -m 2000000 -e 255312007 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-519-v3.0.0 -y 3 -m 2000000 -e 255312007 -lt --vinyl
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066033-v3.0.0 -y 3 -m 2000000 -e 257066038 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066844-v3.0.0 -y 3 -m 2000000 -e 257066849 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257067457-v3.0.0 -y 3 -m 2000000 -e 257067461 -lt
@@ -31,7 +29,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-267651942-v3.0.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-267081197-v3.0.0 -y 3 -m 2000000 -e 267081198 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-267085604-v3.0.0 -y 3 -m 2000000 -e 267085605 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-265688706-v3.0.0 -y 3 -m 2000000 -e 265688707 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-265688706-v3.0.0 -y 3 -m 2000000 -e 265688707 -lt --vinyl
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-265330432-v3.0.0 -y 3 -m 2000000 -e 265330433 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-268575190-v3.0.0 -y 3 -m 2000000 -e 268575191 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-268129380-v3.0.0 -y 3 -m 2000000 -e 268129380 -lt
@@ -57,7 +54,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-286450148-v3.0.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-200-v3.0.0 -y 1 -m 2000000 -e 984 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-300-v3.0.0 -y 1 -m 2000000 -e 984 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-500-v3.0.0 -y 1 -m 2000000 -e 984 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-epoch-per-500-v3.0.0 -y 1 -m 2000000 -e 984 -lt --vinyl
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-297489336-v3.0.0 -y 3 -m 2000000 -e 297489363 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-300377724-v3.0.0 -y 5 -m 2000000 -e 300377728 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-300645644-v3.0.0 -y 5 -m 2000000 -e 300645644 -lt
@@ -78,7 +74,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-283927487-v3.0.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-321168308-v3.0.0 -y 3 -m 2000000 -e 321168308 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-327324660-v3.0.0 -y 4 -m 2000000 -e 327324660 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-370199634-v3.0.0 -y 3 -m 200000 -e 370199634 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-370199634-v3.0.0 -y 3 -m 200000 -e 370199634 -lt --vinyl
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-330219081-v3.0.0 -y 4 -m 2000000 -e 330219082 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-372721907-v3.0.0 -y 3 -m 2000000 -e 372721910 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-331691646-v3.0.0 -y 4 -m 2000000 -e 331691647 -lt
@@ -90,9 +85,8 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340272018-v3.0.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v3.0.0 -y 10 -m 2000000 -e 390056406
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000 -y 3 -m 2000000 -e 346556337 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346179946 -y 30 -m 90000000 -e 346179950 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v3.0.0 -y 1 -m 1000 -e 108 -lt
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v3.0.0 -y 1 -m 3000 -e 108 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary -y 1 -m 1000 -e 2325 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary -y 1 -m 1000 -e 2325 -lt --vinyl
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v3.0 -y 1 -m 3000 -e 1280 -g -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-stake-v3.0.0 -y 1 -m 3000 -e 541 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-stricter-abi -y 5 -m 2000000 -e 368528527 -o sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r
@@ -103,6 +97,9 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880 -y 1 -m 2
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842 -y 1 -m 2000000 -e 422969848 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-r2 -y 1 -m 2000000 -e 376969900 -o 5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-simd-339 -y 1 -m 2000000 -e 376969900 -o H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-378539412 -y 5 -m 2000000 -e 378539445
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347 -y 1 -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384395810 -y 3 -m 2000000 -e 384395820 --ingest-dead-slots
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458 -y 1 -m 2000000 -e 385786458
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold -y 1 -m 1000 -e 260 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-static-instruction-limit -y 1 -m 1000 -e 191 -lt

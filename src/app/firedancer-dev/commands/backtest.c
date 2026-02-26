@@ -36,6 +36,7 @@
 #include "../../../flamenco/capture/fd_capture_ctx.h"
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../../flamenco/runtime/fd_rocksdb.h"
 
 #include <errno.h>
 #include <unistd.h>

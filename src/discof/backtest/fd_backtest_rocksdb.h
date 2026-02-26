@@ -29,6 +29,9 @@ void
 fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
                           ulong                   root_slot );
 
+ulong
+fd_backtest_rocksdb_last_slot( fd_backtest_rocksdb_t * db );
+
 int
 fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
                                     ulong *                 slot_out,
