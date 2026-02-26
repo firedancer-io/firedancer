@@ -88,10 +88,10 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
 
 
 static void
-get_vote_credits_commission( uchar const *             account_data,
-                             ulong                     account_data_len,
-                             uchar *                   buf,
-                             fd_vote_state_credits_t * vote_credits_curr ) {
+get_vote_credits_commission( uchar const *   account_data,
+                             ulong           account_data_len,
+                             uchar *         buf,
+                             fd_vote_ele_t * vote_ele ) {
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = account_data,
@@ -107,39 +107,39 @@ get_vote_credits_commission( uchar const *             account_data,
 
   switch( vsv->discriminant ) {
   case fd_vote_state_versioned_enum_v0_23_5:
-    vote_credits = vsv->inner.v0_23_5.epoch_credits;
-    vote_credits_curr->commission = vsv->inner.v0_23_5.commission;
-    vote_credits_curr->node_account = vsv->inner.v0_23_5.node_pubkey;
+    vote_credits           = vsv->inner.v0_23_5.epoch_credits;
+    vote_ele->commission   = vsv->inner.v0_23_5.commission;
+    vote_ele->node_account = vsv->inner.v0_23_5.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v1_14_11:
-    vote_credits = vsv->inner.v1_14_11.epoch_credits;
-    vote_credits_curr->commission = vsv->inner.v1_14_11.commission;
-    vote_credits_curr->node_account = vsv->inner.v1_14_11.node_pubkey;
+    vote_credits           = vsv->inner.v1_14_11.epoch_credits;
+    vote_ele->commission   = vsv->inner.v1_14_11.commission;
+    vote_ele->node_account = vsv->inner.v1_14_11.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v3:
-    vote_credits = vsv->inner.v3.epoch_credits;
-    vote_credits_curr->commission = vsv->inner.v3.commission;
-    vote_credits_curr->node_account = vsv->inner.v3.node_pubkey;
+    vote_credits           = vsv->inner.v3.epoch_credits;
+    vote_ele->commission   = vsv->inner.v3.commission;
+    vote_ele->node_account = vsv->inner.v3.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v4:
-    vote_credits = vsv->inner.v4.epoch_credits;
-    vote_credits_curr->commission = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
-    vote_credits_curr->node_account = vsv->inner.v4.node_pubkey;
+    vote_credits           = vsv->inner.v4.epoch_credits;
+    vote_ele->commission   = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
+    vote_ele->node_account = vsv->inner.v4.node_pubkey;
     break;
   default:
     __builtin_unreachable();
   }
 
 
-  vote_credits_curr->credits_cnt = 0UL;
+  vote_ele->vote_credits.credits_cnt = 0UL;
   for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
        !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, iter );
        iter = deq_fd_vote_epoch_credits_t_iter_next( vote_credits, iter ) ) {
     fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, iter );
-    vote_credits_curr->epoch[ vote_credits_curr->credits_cnt ]        = (ushort)ele->epoch;
-    vote_credits_curr->credits[ vote_credits_curr->credits_cnt ]      = ele->credits;
-    vote_credits_curr->prev_credits[ vote_credits_curr->credits_cnt ] = ele->prev_credits;
-    vote_credits_curr->credits_cnt++;
+    vote_ele->vote_credits.epoch[ vote_ele->vote_credits.credits_cnt ]        = (ushort)ele->epoch;
+    vote_ele->vote_credits.credits[ vote_ele->vote_credits.credits_cnt ]      = ele->credits;
+    vote_ele->vote_credits.prev_credits[ vote_ele->vote_credits.credits_cnt ] = ele->prev_credits;
+    vote_ele->vote_credits.credits_cnt++;
   }
 }
 
@@ -154,8 +154,7 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
                                     ulong                          vote_state_idx,
                                     ulong *                        new_rate_activation_epoch,
                                     fd_calculated_stake_points_t * result ) {
-  fd_vote_state_credits_t * epoch_credits = &runtime_stack->stakes.vote_credits[ vote_state_idx ];
-
+  fd_vote_state_credits_t * epoch_credits = &runtime_stack->stakes.vote_ele[ vote_state_idx ].vote_credits;
 
   ulong credits_in_stake = stake->credits_observed;
   ulong credits_cnt      = epoch_credits->credits_cnt;
@@ -319,7 +318,7 @@ redeem_rewards( fd_stake_history_t const *      stake_history,
     return 1;
   }
 
-  uchar commission = runtime_stack->stakes.vote_credits[ vote_state_idx ].commission;
+  uchar commission = runtime_stack->stakes.vote_ele[ vote_state_idx ].commission;
   fd_commission_split_t split_result;
   fd_vote_commission_split( commission, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
@@ -414,11 +413,11 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
       continue;
     }
 
-    fd_stakes_staging_t * stakes_staging = runtime_stack->stakes.stakes_staging;
-    fd_stakes_staging_map_t * stakes_staging_map = fd_stakes_staging_map_join( runtime_stack->stakes.stakes_staging_map );
-    uint idx = (uint)fd_stakes_staging_map_idx_query( stakes_staging_map, &stake_delegation->vote_account, UINT_MAX, stakes_staging );
+    fd_vote_ele_t *     vote_ele     = runtime_stack->stakes.vote_ele;
+    fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+    uint idx = (uint)fd_vote_ele_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
 
-    if( FD_UNLIKELY( stakes_staging[idx].invalid ) ) continue;
+    if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
 
     fd_calculated_stake_points_t stake_point_result;
     calculate_stake_points_and_credits( stake_history,
@@ -476,9 +475,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_modify( bank );
   fd_epoch_rewards_init( epoch_rewards );
 
-  /* Reset the vote rewards for each vote account. */
-  fd_memset( runtime_stack->stakes.vote_rewards, 0UL, sizeof(runtime_stack->stakes.vote_rewards) );
-
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -491,11 +487,11 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       }
     }
 
-    fd_stakes_staging_t * stakes_staging = runtime_stack->stakes.stakes_staging;
-    fd_stakes_staging_map_t * stakes_staging_map = fd_stakes_staging_map_join( runtime_stack->stakes.stakes_staging_map );
-    uint idx = (uint)fd_stakes_staging_map_idx_query( stakes_staging_map, &stake_delegation->vote_account, UINT_MAX, stakes_staging );
+    fd_vote_ele_t * vote_ele = runtime_stack->stakes.vote_ele;
+    fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+    uint idx = (uint)fd_vote_ele_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
-    if( FD_UNLIKELY( stakes_staging[idx].invalid ) ) continue;
+    if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
 
     /* redeem_rewards is actually just responsible for calculating the
        vote and stake rewards for each stake account.  It does not do
@@ -517,7 +513,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     if( capture_ctx && capture_ctx->capture_solcap ) {
-      uchar commission = runtime_stack->stakes.vote_credits[ idx ].commission;
+      uchar commission = runtime_stack->stakes.vote_ele[ idx ].commission;
       fd_capture_link_write_stake_reward_event( capture_ctx,
                                                 fd_bank_slot_get( bank ),
                                                 stake_delegation->stake_account,
@@ -528,7 +524,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                                                 (long)calculated_stake_rewards->new_credits_observed );
     }
 
-    runtime_stack->stakes.vote_rewards[ idx ] += calculated_stake_rewards->voter_rewards;
+    runtime_stack->stakes.vote_ele[ idx ].vote_rewards += calculated_stake_rewards->voter_rewards;
 
     fd_epoch_rewards_insert( epoch_rewards, &stake_delegation->stake_account, calculated_stake_rewards->new_credits_observed, calculated_stake_rewards->staker_rewards );
   }
@@ -663,14 +659,14 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
-  fd_stakes_staging_t * stakes_staging = runtime_stack->stakes.stakes_staging;
-  fd_stakes_staging_map_t * stakes_staging_map = fd_stakes_staging_map_join( runtime_stack->stakes.stakes_staging_map );
-  for( fd_stakes_staging_map_iter_t iter = fd_stakes_staging_map_iter_init( stakes_staging_map, stakes_staging );
-       !fd_stakes_staging_map_iter_done( iter, stakes_staging_map, stakes_staging );
-       iter = fd_stakes_staging_map_iter_next( iter, stakes_staging_map, stakes_staging ) ) {
+  fd_vote_ele_t *     vote_ele    = runtime_stack->stakes.vote_ele;
+  fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+  for( fd_vote_ele_map_iter_t iter = fd_vote_ele_map_iter_init( vote_ele_map, vote_ele );
+       !fd_vote_ele_map_iter_done( iter, vote_ele_map, vote_ele );
+       iter = fd_vote_ele_map_iter_next( iter, vote_ele_map, vote_ele ) ) {
 
-    uint idx = (uint)fd_stakes_staging_map_iter_idx( iter, stakes_staging_map, stakes_staging );
-    fd_stakes_staging_t * ele = &stakes_staging[idx];
+    uint idx = (uint)fd_vote_ele_map_iter_idx( iter, vote_ele_map, vote_ele );
+    fd_vote_ele_t * ele = &vote_ele[idx];
 
     fd_accdb_ro_t vote_ro[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &ele->pubkey ) ) ) {
@@ -687,7 +683,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
                                  fd_accdb_ref_data_sz( vote_ro ),
                                  vsv_buf,
-                                 &runtime_stack->stakes.vote_credits[ idx ] );
+                                 &runtime_stack->stakes.vote_ele[ idx ] );
     fd_accdb_close_ro( accdb, vote_ro );
   }
 
@@ -710,14 +706,14 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
      to the vote accounts.  After each reward has been paid out,
      calcualte the lthash for each vote account. */
   ulong distributed_rewards = 0UL;
-  for( fd_stakes_staging_map_iter_t iter = fd_stakes_staging_map_iter_init( stakes_staging_map, stakes_staging );
-       !fd_stakes_staging_map_iter_done( iter, stakes_staging_map, stakes_staging );
-       iter = fd_stakes_staging_map_iter_next( iter, stakes_staging_map, stakes_staging ) ) {
+  for( fd_vote_ele_map_iter_t iter = fd_vote_ele_map_iter_init( vote_ele_map, vote_ele );
+       !fd_vote_ele_map_iter_done( iter, vote_ele_map, vote_ele );
+       iter = fd_vote_ele_map_iter_next( iter, vote_ele_map, vote_ele ) ) {
 
-    uint idx = (uint)fd_stakes_staging_map_iter_idx( iter, stakes_staging_map, stakes_staging );
-    fd_stakes_staging_t * ele = &stakes_staging[idx];
+    uint idx = (uint)fd_vote_ele_map_iter_idx( iter, vote_ele_map, vote_ele );
+    fd_vote_ele_t * ele = &vote_ele[idx];
 
-    ulong rewards = runtime_stack->stakes.vote_rewards[ idx ];
+    ulong rewards = runtime_stack->stakes.vote_ele[ idx ].vote_rewards;
     if( rewards==0UL ) {
       continue;
     }

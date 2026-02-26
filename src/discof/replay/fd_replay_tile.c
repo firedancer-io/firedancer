@@ -638,7 +638,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   }
   fd_bank_slot_set( bank, slot );
   fd_bank_parent_slot_set( bank, parent_slot );
-  bank->data->txncache_fork_id    = fd_txncache_attach_child( ctx->txncache, parent_bank->data->txncache_fork_id );
+  bank->data->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->data->txncache_fork_id );
 
   /* Create a new funk txn for the block. */
 
@@ -2660,6 +2660,8 @@ unprivileged_init( fd_topo_t *      topo,
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
   }
 # endif
+
+  FD_TEST( fd_vote_ele_map_join( fd_vote_ele_map_new( ctx->runtime_stack.stakes.vote_ele_map, 2048, 999UL ) ) );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
