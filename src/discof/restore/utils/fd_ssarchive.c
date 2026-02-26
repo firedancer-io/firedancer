@@ -142,8 +142,8 @@ fd_ssarchive_latest_pair( char const * directory,
     }
   }
 
-  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( incremental_snapshot ) ) {
     if( FD_UNLIKELY( incremental_snapshots_cnt==0UL && full_snapshots_cnt==0UL ) ) return -1;
@@ -243,7 +243,7 @@ fd_ssarchive_remove_old_snapshots( char const * directory,
       }
 
       full_snapshots[ full_snapshots_cnt ].slot      = entry_full_slot;
-      full_snapshots[ full_snapshots_cnt ].base_slot = ULONG_MAX;
+      full_snapshots[ full_snapshots_cnt ].base_slot = entry_full_slot;
       full_snapshots[ full_snapshots_cnt ].is_zstd   = is_zstd;
       FD_TEST( fd_cstr_printf_check( full_snapshots[ full_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) );
       full_snapshots_cnt++;
@@ -261,11 +261,40 @@ fd_ssarchive_remove_old_snapshots( char const * directory,
     }
   }
 
+  /* match full snapshots with incremental snapshots. */
+  sort_ssarchive_entries_inplace( incremental_snapshots, incremental_snapshots_cnt );
+  for( ulong i=0UL; i<incremental_snapshots_cnt; i++ ) {
+    ulong base_slot = incremental_snapshots[ i ].base_slot;
+    int found_full  = 0;
+    for( ulong j=0; j<full_snapshots_cnt; j++ ) {
+      if( FD_LIKELY( full_snapshots[ j ].base_slot==base_slot ) ) {
+        /* only update the full snapshot's slot the first time it
+           matches with an incremental snapshot, because the first match
+           is the most recent incremental snapshot due to sorting. */
+        if( FD_UNLIKELY( full_snapshots[ j ].slot==full_snapshots[ j ].base_slot ) ) {
+          full_snapshots[ j ].slot = incremental_snapshots[ i ].slot;
+        }
+        found_full = 1;
+        break;
+      }
+    }
+
+    /* If there is no corresponding full snapshot, then this incremental
+       snapshot is completely useless.  Demote it by setting its slot
+       to 0 so that it will be prioritized for removal. */
+    if( FD_UNLIKELY( !found_full ) ) incremental_snapshots[ i ].slot = 0UL;
+  }
+
+  /* Second sorting pass.
+     sort full snapshots based on their effective incremental slot if
+     any. */
+  sort_ssarchive_entries_inplace( incremental_snapshots, incremental_snapshots_cnt );
+  sort_ssarchive_entries_inplace( full_snapshots, full_snapshots_cnt );
+
   if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( full_snapshots_cnt>max_full_snapshots_to_keep ) ) {
-    sort_ssarchive_entries_inplace( full_snapshots, full_snapshots_cnt );
     for( ulong i=max_full_snapshots_to_keep; i<full_snapshots_cnt; i++ ) {
       if( FD_UNLIKELY( -1==unlink( full_snapshots[ i ].path ) ) ) {
         FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", full_snapshots[ i ].path, errno, fd_io_strerror( errno ) ));
@@ -274,7 +303,6 @@ fd_ssarchive_remove_old_snapshots( char const * directory,
   }
 
   if( FD_LIKELY( incremental_snapshots_cnt>max_incremental_snapshots_to_keep ) ) {
-    sort_ssarchive_entries_inplace( incremental_snapshots, incremental_snapshots_cnt );
     for( ulong i=max_incremental_snapshots_to_keep; i<incremental_snapshots_cnt; i++ ) {
       if( FD_UNLIKELY( -1==unlink( incremental_snapshots[ i ].path ) ) ) {
         FD_LOG_ERR(( "unlink(%s) failed (%i-%s)", incremental_snapshots[ i ].path, errno, fd_io_strerror( errno ) ));

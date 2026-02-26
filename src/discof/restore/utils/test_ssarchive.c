@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <errno.h>
 
 #define FD_TEST_SSARCHIVE_NUM_SNAPSHOTS (3UL)
@@ -152,11 +153,80 @@ test_ssarchive_latest_pair_dangling_incr(void) {
   test_ssarchive_fini( &env );
 }
 
+static void
+test_ssarchive_remove_old_snapshots(void) {
+  fd_test_ssarchive_env_t env;
+  test_ssarchive_init( &env );
+
+  char full_snapshot_name[ PATH_MAX ];
+  fd_cstr_printf_check( full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", 1000UL );
+  env.full_snapshot_fds[ 0UL ] = openat( env.dir_fd, full_snapshot_name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.full_snapshot_fds[ 0UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", full_snapshot_name, errno, fd_io_strerror( errno )));
+
+  /* this full snapshot should be kept because its corresponding
+     incremental snapshot has the highest slot. */
+  fd_cstr_printf_check( full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", 900UL );
+  env.full_snapshot_fds[ 1UL ] = openat( env.dir_fd, full_snapshot_name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.full_snapshot_fds[ 1UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", full_snapshot_name, errno, fd_io_strerror( errno )));
+
+  /* make some incremental snapshots */
+  char incr_snapshot_name[ PATH_MAX ];
+  fd_cstr_printf_check( incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst", 1000UL, 1500UL );
+  env.incr_snapshot_fds[ 0UL ] = openat( env.dir_fd, incr_snapshot_name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.incr_snapshot_fds[ 0UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", incr_snapshot_name, errno, fd_io_strerror( errno )));
+
+  fd_cstr_printf_check( incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst", 900UL, 1600UL );
+  env.incr_snapshot_fds[ 1UL ] = openat( env.dir_fd, incr_snapshot_name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.incr_snapshot_fds[ 1UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", incr_snapshot_name, errno, fd_io_strerror( errno )));
+
+  /* this snapshot should be deleted because even though its slot is the
+     highest, there is no corresponding full snapshot. */
+  fd_cstr_printf_check( incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst", 1100UL, 1700UL );
+  env.incr_snapshot_fds[ 2UL ] = openat( env.dir_fd, incr_snapshot_name, O_CREAT|O_TRUNC|O_WRONLY|O_CLOEXEC, S_IRUSR|S_IWUSR );
+  if( env.incr_snapshot_fds[ 2UL ] == -1 ) FD_LOG_ERR(("openat(%s) failed (%i-%s)", incr_snapshot_name, errno, fd_io_strerror( errno )));
+
+  fd_ssarchive_remove_old_snapshots( env.tmp_path, 1, 1 );
+
+  /* after removing old snapshots, only the full snapshot with slot 900
+     and the incremental snapshot with slot 1600 should remain. */
+  DIR * dir = opendir( env.tmp_path );
+  if( FD_UNLIKELY( !dir ) ) {
+    FD_LOG_ERR(( "opendir() failed `%s` (%i-%s)", env.tmp_path, errno, fd_io_strerror( errno ) ));
+  }
+
+  int seen_full = 0;
+  int seen_incr = 0;
+  struct dirent * entry;
+  errno = 0;
+  while(( entry = readdir( dir ) )) {
+    if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
+
+    if( FD_LIKELY( !strcmp( entry->d_name, "snapshot-900-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst" ) ) ) {
+      seen_full = 1;
+      continue;
+    }
+    if( FD_LIKELY( !strcmp( entry->d_name, "incremental-snapshot-900-1600-J7FkN5APJtHepZGwd155s3V26TUHQ3r2Xu7UbX9y75mN.tar.zst" ) ) ) {
+      seen_incr = 1;
+      continue;
+    }
+
+    FD_LOG_ERR(( "unexpected file `%s/%s` after removing old snapshots", env.tmp_path, entry->d_name ));
+  }
+
+  FD_TEST( seen_full==1 && seen_incr==1 );
+
+  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  test_ssarchive_fini( &env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   test_ssarchive_latest_pair_basic();
   test_ssarchive_latest_pair_dangling_incr();
+  test_ssarchive_remove_old_snapshots();
   return 0;
 }
