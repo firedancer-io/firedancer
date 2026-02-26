@@ -305,7 +305,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       runtime_stack,
       0 );
 
-  FD_TEST( fd_vote_ele_map_join( fd_vote_ele_map_new( runtime_stack->stakes.vote_map_mem, 2048UL, 999 ) ) );
+  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, 2048UL, 999 ) ) );
 
   fd_bank_vote_stakes_end_locking_query( bank );
 

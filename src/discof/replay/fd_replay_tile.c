@@ -460,6 +460,7 @@ struct fd_replay_tile {
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
+  ulong              runtime_stack_seed;
   fd_runtime_stack_t runtime_stack;
 };
 
@@ -2650,6 +2651,10 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_rng_secure( &ctx->initial_block_id, sizeof(fd_hash_t) ) ) ) {
     FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
 }
 
 static void
@@ -2677,7 +2682,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 # endif
 
-  FD_TEST( fd_vote_ele_map_join( fd_vote_ele_map_new( ctx->runtime_stack.stakes.vote_map_mem, 2048, 999UL ) ) );
+  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( ctx->runtime_stack.stakes.vote_map_mem, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, ctx->runtime_stack_seed ) ) );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 

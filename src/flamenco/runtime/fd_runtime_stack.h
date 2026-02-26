@@ -6,30 +6,30 @@
 #include "program/fd_builtin_programs.h"
 #include "fd_runtime_const.h"
 
-struct fd_vote_state_credits {
-  ulong  credits_cnt;
-  uchar  commission;
-  ushort epoch       [ FD_EPOCH_CREDITS_MAX ];
-  ulong  credits     [ FD_EPOCH_CREDITS_MAX ];
-  ulong  prev_credits[ FD_EPOCH_CREDITS_MAX ];
-};
-typedef struct fd_vote_state_credits fd_vote_state_credits_t;
+/* fd_vote_ele and fd_vote_ele_map are used to temporarily cache
+   computed fields for vote accounts during epoch boundary stake
+   and rewards calculations. */
 
-struct fd_vote_ele {
-  fd_pubkey_t             pubkey;
-  fd_pubkey_t             node_account;
-  fd_vote_state_credits_t vote_credits;
-  ulong                   stake;
-  ulong                   vote_rewards;
-  uchar                   commission;
-  uchar                   invalid;
-  uint                    next;
+struct fd_vote_rewards {
+  fd_pubkey_t pubkey;
+  fd_pubkey_t node_account;
+  uchar       commission;
+  ulong       stake;
+  ulong       vote_rewards;
+  uchar       invalid;
+  uint        next;
+  struct {
+    ulong  cnt;
+    ushort epoch       [ FD_EPOCH_CREDITS_MAX ];
+    ulong  credits     [ FD_EPOCH_CREDITS_MAX ];
+    ulong  prev_credits[ FD_EPOCH_CREDITS_MAX ];
+  } epoch_credits;
 };
-typedef struct fd_vote_ele fd_vote_ele_t;
+typedef struct fd_vote_rewards fd_vote_rewards_t;
 
-#define MAP_NAME               fd_vote_ele_map
+#define MAP_NAME               fd_vote_rewards_map
 #define MAP_KEY_T              fd_pubkey_t
-#define MAP_ELE_T              fd_vote_ele_t
+#define MAP_ELE_T              fd_vote_rewards_t
 #define MAP_KEY                pubkey
 #define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
@@ -68,8 +68,8 @@ union fd_runtime_stack {
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
-    fd_vote_ele_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-    uchar         vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
+    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    uchar             vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
 
   } stakes;
 

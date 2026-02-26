@@ -231,7 +231,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     fd_vote_stakes_insert_root_key( vote_stakes, (fd_pubkey_t *)elem->vote_account_pubkey );
   }
 
-  fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
   /* Vote stakes for the previous epoch (E-1). */
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
@@ -240,24 +240,23 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
        vote states.  We need to do this because we may need the vote
        state credits from the end of the previous epoch in case we need
        to recalculate the stake reward partitions. */
-    fd_vote_ele_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
-    fd_vote_state_credits_t * vote_state_credits = &vote_ele->vote_credits;
+    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
     vote_ele->stake      = elem->stake;
     vote_ele->invalid    = 0;
     vote_ele->commission = (uchar)elem->commission;
-    fd_vote_ele_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
+    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
     fd_vote_stakes_insert_root_update( vote_stakes,
                                        (fd_pubkey_t *)elem->vote,
                                        (fd_pubkey_t *)elem->identity,
                                        elem->stake,
                                        1 );
 
-    vote_state_credits->credits_cnt = elem->epoch_credits_history_len;
+    vote_ele->epoch_credits.cnt = elem->epoch_credits_history_len;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      vote_state_credits->epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
-      vote_state_credits->credits[ j ]      = elem->epoch_credits[ j ].credits;
-      vote_state_credits->prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+      vote_ele->epoch_credits.epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
+      vote_ele->epoch_credits.credits[ j ]      = elem->epoch_credits[ j ].credits;
+      vote_ele->epoch_credits.prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
     }
   }
 

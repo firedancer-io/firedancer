@@ -88,10 +88,10 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
 
 
 static void
-get_vote_credits_commission( uchar const *   account_data,
-                             ulong           account_data_len,
-                             uchar *         buf,
-                             fd_vote_ele_t * vote_ele ) {
+get_vote_credits_commission( uchar const *       account_data,
+                             ulong               account_data_len,
+                             uchar *             buf,
+                             fd_vote_rewards_t * vote_ele ) {
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = account_data,
@@ -130,16 +130,15 @@ get_vote_credits_commission( uchar const *   account_data,
     __builtin_unreachable();
   }
 
-
-  vote_ele->vote_credits.credits_cnt = 0UL;
+  vote_ele->epoch_credits.cnt = 0UL;
   for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
        !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, iter );
        iter = deq_fd_vote_epoch_credits_t_iter_next( vote_credits, iter ) ) {
     fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, iter );
-    vote_ele->vote_credits.epoch[ vote_ele->vote_credits.credits_cnt ]        = (ushort)ele->epoch;
-    vote_ele->vote_credits.credits[ vote_ele->vote_credits.credits_cnt ]      = ele->credits;
-    vote_ele->vote_credits.prev_credits[ vote_ele->vote_credits.credits_cnt ] = ele->prev_credits;
-    vote_ele->vote_credits.credits_cnt++;
+    vote_ele->epoch_credits.epoch[ vote_ele->epoch_credits.cnt ]        = (ushort)ele->epoch;
+    vote_ele->epoch_credits.credits[ vote_ele->epoch_credits.cnt ]      = ele->credits;
+    vote_ele->epoch_credits.prev_credits[ vote_ele->epoch_credits.cnt ] = ele->prev_credits;
+    vote_ele->epoch_credits.cnt++;
   }
 }
 
@@ -154,11 +153,12 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
                                     ulong                          vote_state_idx,
                                     ulong *                        new_rate_activation_epoch,
                                     fd_calculated_stake_points_t * result ) {
-  fd_vote_state_credits_t * epoch_credits = &runtime_stack->stakes.vote_ele[ vote_state_idx ].vote_credits;
+
+  fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_state_idx ];
 
   ulong credits_in_stake = stake->credits_observed;
-  ulong credits_cnt      = epoch_credits->credits_cnt;
-  ulong credits_in_vote  = credits_cnt > 0UL ? epoch_credits->credits[ credits_cnt - 1UL ] : 0UL;
+  ulong credits_cnt      = vote_ele->epoch_credits.cnt;
+  ulong credits_in_vote  = credits_cnt > 0UL ? vote_ele->epoch_credits.credits[ credits_cnt - 1UL ] : 0UL;
 
   /* If the Vote account has less credits observed than the Stake account,
       something is wrong and we need to force an update.
@@ -185,10 +185,10 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
   /* Calculate the points for each epoch credit */
   uint128 points               = 0;
   ulong   new_credits_observed = credits_in_stake;
-  for( ulong i=0UL; i<epoch_credits->credits_cnt; i++ ) {
+  for( ulong i=0UL; i<vote_ele->epoch_credits.cnt; i++ ) {
 
-    ulong final_epoch_credits   = epoch_credits->credits[ i ];
-    ulong initial_epoch_credits = epoch_credits->prev_credits[ i ];
+    ulong final_epoch_credits   = vote_ele->epoch_credits.credits[ i ];
+    ulong initial_epoch_credits = vote_ele->epoch_credits.prev_credits[ i ];
     uint128 earned_credits = 0;
     if( FD_LIKELY( credits_in_stake < initial_epoch_credits ) ) {
       earned_credits = (uint128)(final_epoch_credits - initial_epoch_credits);
@@ -200,7 +200,7 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
 
     ulong stake_amount = fd_stake_activating_and_deactivating(
         stake,
-        epoch_credits->epoch[ i ],
+        vote_ele->epoch_credits.epoch[ i ],
         stake_history,
         new_rate_activation_epoch ).effective;
 
@@ -413,9 +413,9 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
       continue;
     }
 
-    fd_vote_ele_t *     vote_ele     = runtime_stack->stakes.vote_ele;
-    fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
-    uint idx = (uint)fd_vote_ele_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+    fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
+    fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
 
     if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
 
@@ -487,9 +487,9 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       }
     }
 
-    fd_vote_ele_t * vote_ele = runtime_stack->stakes.vote_ele;
-    fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
-    uint idx = (uint)fd_vote_ele_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+    fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
+    fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
     if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
 
@@ -659,14 +659,14 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
-  fd_vote_ele_t *     vote_ele    = runtime_stack->stakes.vote_ele;
-  fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
-  for( fd_vote_ele_map_iter_t iter = fd_vote_ele_map_iter_init( vote_ele_map, vote_ele );
-       !fd_vote_ele_map_iter_done( iter, vote_ele_map, vote_ele );
-       iter = fd_vote_ele_map_iter_next( iter, vote_ele_map, vote_ele ) ) {
+  fd_vote_rewards_t *     vote_ele_pool = runtime_stack->stakes.vote_ele;
+  fd_vote_rewards_map_t * vote_ele_map  = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
+       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
+       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
 
-    uint idx = (uint)fd_vote_ele_map_iter_idx( iter, vote_ele_map, vote_ele );
-    fd_vote_ele_t * ele = &vote_ele[idx];
+    uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
+    fd_vote_rewards_t * ele = &vote_ele_pool[idx];
 
     fd_accdb_ro_t vote_ro[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &ele->pubkey ) ) ) {
@@ -706,12 +706,12 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
      to the vote accounts.  After each reward has been paid out,
      calcualte the lthash for each vote account. */
   ulong distributed_rewards = 0UL;
-  for( fd_vote_ele_map_iter_t iter = fd_vote_ele_map_iter_init( vote_ele_map, vote_ele );
-       !fd_vote_ele_map_iter_done( iter, vote_ele_map, vote_ele );
-       iter = fd_vote_ele_map_iter_next( iter, vote_ele_map, vote_ele ) ) {
+  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
+       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
+       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
 
-    uint idx = (uint)fd_vote_ele_map_iter_idx( iter, vote_ele_map, vote_ele );
-    fd_vote_ele_t * ele = &vote_ele[idx];
+    uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
+    fd_vote_rewards_t * ele = &vote_ele_pool[idx];
 
     ulong rewards = runtime_stack->stakes.vote_ele[ idx ].vote_rewards;
     if( rewards==0UL ) {

@@ -369,7 +369,7 @@ static void
 fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                                           fd_runtime_stack_t * runtime_stack ) {
 
-  fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
 
@@ -378,10 +378,10 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
 
   bank->data->vote_stakes_fork_id = child_idx;
 
-  for( fd_vote_ele_map_iter_t iter = fd_vote_ele_map_iter_init( vote_ele_map, runtime_stack->stakes.vote_ele );
-       !fd_vote_ele_map_iter_done( iter, vote_ele_map, runtime_stack->stakes.vote_ele );
-       iter = fd_vote_ele_map_iter_next( iter, vote_ele_map, runtime_stack->stakes.vote_ele ) ) {
-    fd_vote_ele_t * vote_ele = &runtime_stack->stakes.vote_ele[fd_vote_ele_map_iter_idx( iter, vote_ele_map, runtime_stack->stakes.vote_ele )];
+  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, runtime_stack->stakes.vote_ele );
+       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, runtime_stack->stakes.vote_ele );
+       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, runtime_stack->stakes.vote_ele ) ) {
+    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[fd_vote_rewards_map_iter_idx( iter, vote_ele_map, runtime_stack->stakes.vote_ele )];
     if( FD_UNLIKELY( vote_ele->invalid ) ) continue;
 
     ulong       old_stake_t_1;
@@ -1659,9 +1659,9 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     fd_genesis_account( genesis, genesis_blob, account, i );
 
     if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
-      fd_vote_ele_t *     vote_ele     = fd_vote_ele_map_ele_query( vote_ele_map, &account->pubkey, NULL, runtime_stack->stakes.vote_ele );
-      ulong               stake        = vote_ele ? vote_ele->stake : 0UL;
+      fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+      fd_vote_rewards_t *     vote_ele     = fd_vote_rewards_map_ele_query( vote_ele_map, &account->pubkey, NULL, runtime_stack->stakes.vote_ele );
+      ulong                   stake        = vote_ele ? vote_ele->stake : 0UL;
 
       fd_pubkey_t node_account = fd_vsv_get_node_account( account->data );
 
