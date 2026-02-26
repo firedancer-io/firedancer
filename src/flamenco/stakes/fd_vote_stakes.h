@@ -182,7 +182,9 @@ fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
                             ushort              fork_idx,
                             fd_pubkey_t const * pubkey,
                             ulong *             stake_t_1_out,
-                            ulong *             stake_t_2_out );
+                            ulong *             stake_t_2_out,
+                            fd_pubkey_t *       node_account_t_1_out,
+                            fd_pubkey_t *       node_account_t_2_out );
 
 /* fd_vote_stakes_query_idx returns the index of the vote account in the
    given fork. */
