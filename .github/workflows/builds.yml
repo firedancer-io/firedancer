@@ -44,6 +44,10 @@ on:
         type: boolean
         description: Exit on the first error
         default: false
+      no_optimization:
+        type: boolean
+        description: Compile with optimizations disabled
+        default: false
   workflow_dispatch:
     inputs:
       cid:
@@ -85,6 +89,10 @@ on:
       exit_on_err:
         type: boolean
         description: Exit on the first error
+        default: false
+      no_optimization:
+        type: boolean
+        description: Compile with optimizations disabled
         default: false
 concurrency:
   group: builds_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.cid }}
@@ -130,6 +138,10 @@ jobs:
           # gcc
           if [ ! -z "${{ inputs.gcc }}" ] && [ "${{ inputs.gcc }}" != "all" ]; then
             ARGS="$ARGS --gcc-versions ${{ inputs.gcc }}"
+          fi
+          # no-optimization
+          if [ "${{ inputs.no_optimization }}" == "true" ]; then
+            ARGS="$ARGS --no-optimization"
           fi
           # exceptions
           if [ ! -z "${{ inputs.gcc_exceptions }}" ] && [ "${{ inputs.gcc_exceptions }}" != "none" ]; then
@@ -185,6 +197,10 @@ jobs:
           # clang
           if [ ! -z "${{ inputs.clang }}" ] && [ "${{ inputs.clang }}" != "all" ]; then
             ARGS="$ARGS --clang-versions ${{ inputs.clang }}"
+          fi
+          # no-optimization
+          if [ "${{ inputs.no_optimization }}" == "true" ]; then
+            ARGS="$ARGS --no-optimization"
           fi
           # exceptions
           if [ ! -z "${{ inputs.clang_exceptions }}" ] && [ "${{ inputs.clang_exceptions }}" != "none" ]; then
