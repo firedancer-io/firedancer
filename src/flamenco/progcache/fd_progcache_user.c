@@ -722,9 +722,8 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
                          fd_funk_txn_xid_t const * xid,
                          void const *              prog_addr,
                          ulong                     slot ) {
+  if( FD_UNLIKELY( !cache || !cache->funk->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   fd_funk_t * funk = cache->funk;
-
-  if( FD_UNLIKELY( !cache || !funk->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
 
   /* Resolve the fork graph node at xid.  Due to (unrelated) ongoing
      root operations, recover from temporary lock issues. */
