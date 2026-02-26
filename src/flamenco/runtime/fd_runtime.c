@@ -122,9 +122,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( bank );
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_states, epoch_weights );
-  fd_bank_vote_states_end_locking_query( bank );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node_2( fd_bank_get_vote_stakes( bank->data ), bank->data->vote_stakes_fork_id, epoch_weights );
 
   /* Derive leader schedule */
 
@@ -381,6 +379,30 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
     vote_state->stake_t_1 = stake_ele ? stake_ele->stake : 0UL;
   }
   fd_bank_vote_states_end_locking_modify( bank );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( bank->data );
+  ushort parent_idx = bank->data->vote_stakes_parent_fork_id;
+
+  ushort child_idx = fd_vote_stakes_new_child( vote_stakes );
+  bank->data->vote_stakes_fork_id = child_idx;
+
+  for( fd_vote_stakes_fork_iter_init( vote_stakes, parent_idx );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, parent_idx );
+       fd_vote_stakes_fork_iter_next( vote_stakes, parent_idx ) ) {
+    fd_pubkey_t pubkey;
+    ulong       old_stake_t_1;
+    ulong       old_stake_t_2;
+    fd_pubkey_t node_account_t_1;
+    fd_pubkey_t node_account_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, parent_idx, &pubkey, &old_stake_t_1, &old_stake_t_2, &node_account_t_1, &node_account_t_2 );
+    uint stake_ele_idx = (uint)fd_stakes_staging_map_idx_query( stakes_staging_map, &pubkey, UINT_MAX, runtime_stack->stakes.stakes_staging );
+    fd_stakes_staging_t * stake_ele = fd_stakes_staging_map_ele_query( stakes_staging_map, &pubkey, NULL, runtime_stack->stakes.stakes_staging );
+
+    ulong         new_stake_t_1 = stake_ele ? stake_ele->stake : 0UL;
+    fd_pubkey_t * node_account  = stake_ele ? &runtime_stack->stakes.vote_credits[stake_ele_idx].node_account : &node_account_t_1;
+
+    fd_vote_stakes_insert( vote_stakes, child_idx, &pubkey, new_stake_t_1, old_stake_t_1, node_account, &node_account_t_1 );
+  }
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */

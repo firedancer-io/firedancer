@@ -132,7 +132,6 @@ fd_vote_stakes_new( void * shmem,
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem );
 
-
 /* fd_vote_stakes_insert_root inserts a new vote account along with its
    stakes into the root fork.  This should only be called during runtime
    initialization: when booting off of a genesis file or a snapshot. */
@@ -141,7 +140,9 @@ void
 fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
                             fd_pubkey_t *      pubkey,
                             ulong              stake_t_1,
-                            ulong              stake_t_2 );
+                            ulong              stake_t_2,
+                            fd_pubkey_t *      node_account_t_1,
+                            fd_pubkey_t *      node_account_t_2 );
 
 /* fd_vote_stakes_new_child creates a new child fork and returns the
    index identifier for the new fork. */
@@ -168,7 +169,9 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
                        ushort             fork_idx,
                        fd_pubkey_t *      pubkey,
                        ulong              stake_t_1,
-                       ulong              stake_t_2 );
+                       ulong              stake_t_2,
+                       fd_pubkey_t *      node_account_t_1,
+                       fd_pubkey_t *      node_account_t_2 );
 
 
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
@@ -191,8 +194,31 @@ fd_vote_stakes_query_idx( fd_vote_stakes_t *  vote_stakes,
 
 /* fd_vote_stakes_get_root_idx returns the index of the root fork. */
 
+/* TODO:FIXME: document the iterator api */
+
 ushort
 fd_vote_stakes_get_root_idx( fd_vote_stakes_t * vote_stakes );
+
+void
+fd_vote_stakes_fork_iter_init( fd_vote_stakes_t * vote_stakes,
+                               ushort             fork_idx );
+
+int
+fd_vote_stakes_fork_iter_done( fd_vote_stakes_t * vote_stakes,
+                               ushort             fork_idx );
+
+void
+fd_vote_stakes_fork_iter_next( fd_vote_stakes_t * vote_stakes,
+                               ushort             fork_idx );
+
+void
+fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t * vote_stakes,
+                              ushort             fork_idx,
+                              fd_pubkey_t *      pubkey_out,
+                              ulong *            stake_t_1_out,
+                              ulong *            stake_t_2_out,
+                              fd_pubkey_t *      node_account_t_1_out,
+                              fd_pubkey_t *      node_account_t_2_out );
 
 FD_PROTOTYPES_END
 

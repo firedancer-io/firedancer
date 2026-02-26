@@ -293,7 +293,9 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
                            bank->data->vote_stakes_fork_id,
                            &vote_state->vote_account,
                            vote_state->stake_t_1,
-                           vote_state->stake_t_2 );
+                           vote_state->stake_t_2,
+                           &vote_state->node_account_t_1,
+                           &vote_state->node_account_t_2 );
   }
 
   fd_bank_vote_states_end_locking_modify( bank );

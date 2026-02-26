@@ -39,6 +39,11 @@ typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
 ulong
+fd_stake_weights_by_node_2( fd_vote_stakes_t *       vote_stakes,
+                            ushort                   fork_idx,
+                            fd_vote_stake_weight_t * weights );
+
+ulong
 fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
                           fd_vote_stake_weight_t * weights );
 
