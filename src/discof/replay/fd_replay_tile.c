@@ -2693,7 +2693,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 # endif
 
-  FD_TEST( fd_vote_ele_map_join( fd_vote_ele_map_new( ctx->runtime_stack.stakes.vote_ele_map, 2048, 999UL ) ) );
+  FD_TEST( fd_vote_ele_map_join( fd_vote_ele_map_new( ctx->runtime_stack.stakes.vote_map_mem, 2048, 999UL ) ) );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 

@@ -159,7 +159,6 @@ void
 fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
                              ushort             root_idx );
 
-
 /* fd_vote_stakes_insert inserts a new vote account along with its
    stakes into the given fork.  This function assumes that the caller
    will not insert duplicate accounts twice into the same fork. */

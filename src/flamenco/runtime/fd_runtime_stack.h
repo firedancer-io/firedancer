@@ -29,6 +29,9 @@ typedef struct fd_vote_ele fd_vote_ele_t;
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
+#define FD_VOTE_ELE_MAP_FOOTPRINT (8216UL)
+#define FD_VOTE_ELE_MAP_ALIGN     (128UL)
+
 /* fd_runtime_stack_t serves as stack memory to store temporary data
    for the runtime.  This object should only be used and owned by the
    replay tile and is used for short-lived allocations for the runtime,
@@ -55,11 +58,10 @@ union fd_runtime_stack {
   struct {
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
-    fd_vote_stake_weight_t  stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
-    ulong         vote_ele_cnt;
     fd_vote_ele_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-    uchar         vote_ele_map[ 8216 ] __attribute__((aligned(128)));
+    uchar         vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
 
   } stakes;
 

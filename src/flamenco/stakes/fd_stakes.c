@@ -47,10 +47,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
 
-  /* TODO:FIXME: This should be a map reset not a map new and pass it down. */
-  fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( fd_vote_ele_map_new( runtime_stack->stakes.vote_ele_map, 2048, 999UL ) );
-  FD_TEST( vote_ele_map );
-  runtime_stack->stakes.vote_ele_cnt = 0UL;
+  fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_ele_map_reset( vote_ele_map );
+  ulong vote_ele_cnt = 0UL;
 
   ulong epoch = fd_bank_epoch_get( bank );
 
@@ -69,13 +68,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     fd_vote_ele_t * vote_ele = fd_vote_ele_map_ele_query( vote_ele_map, &stake_delegation->vote_account, NULL, runtime_stack->stakes.vote_ele );
     if( FD_UNLIKELY( !vote_ele ) ) {
-      vote_ele               = &runtime_stack->stakes.vote_ele[ runtime_stack->stakes.vote_ele_cnt ];
+      vote_ele               = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
       vote_ele->pubkey       = stake_delegation->vote_account;
       vote_ele->vote_rewards = 0UL;
       vote_ele->stake        = 0UL;
       vote_ele->invalid      = 0;
       fd_vote_ele_map_ele_insert( vote_ele_map, vote_ele, runtime_stack->stakes.vote_ele );
-      runtime_stack->stakes.vote_ele_cnt++;
+      vote_ele_cnt++;
     }
     vote_ele->stake += new_entry.effective;
     total_stake += new_entry.effective;

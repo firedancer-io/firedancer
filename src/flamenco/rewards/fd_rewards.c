@@ -414,7 +414,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     }
 
     fd_vote_ele_t *     vote_ele     = runtime_stack->stakes.vote_ele;
-    fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+    fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
     uint idx = (uint)fd_vote_ele_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
 
     if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
@@ -488,7 +488,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     fd_vote_ele_t * vote_ele = runtime_stack->stakes.vote_ele;
-    fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+    fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
     uint idx = (uint)fd_vote_ele_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
     if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
@@ -660,7 +660,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
   fd_vote_ele_t *     vote_ele    = runtime_stack->stakes.vote_ele;
-  fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+  fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
   for( fd_vote_ele_map_iter_t iter = fd_vote_ele_map_iter_init( vote_ele_map, vote_ele );
        !fd_vote_ele_map_iter_done( iter, vote_ele_map, vote_ele );
        iter = fd_vote_ele_map_iter_next( iter, vote_ele_map, vote_ele ) ) {
