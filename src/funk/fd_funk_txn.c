@@ -134,10 +134,8 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
 
   *_child_tail_cidx = fd_funk_txn_cidx( txn_idx );
 
-  if( parent_xid ) {
-    if( FD_UNLIKELY( fd_funk_txn_map_query_test( query )!=FD_MAP_SUCCESS ) ) {
-      FD_LOG_CRIT(( "Detected data race while preparing a funk txn" ));
-    }
+  if( FD_UNLIKELY( fd_funk_txn_map_query_test( query )!=FD_MAP_SUCCESS ) ) {
+    FD_LOG_CRIT(( "Detected data race while preparing a funk txn" ));
   }
 
   fd_funk_txn_map_insert( funk->txn_map, txn, FD_MAP_FLAG_BLOCKING );
