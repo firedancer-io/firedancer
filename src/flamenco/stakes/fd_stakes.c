@@ -7,6 +7,33 @@
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 
+
+ulong FD_FN_UNUSED
+fd_stake_weights_by_node_2( fd_vote_stakes_t *       vote_stakes,
+                            ushort                   fork_idx,
+                            fd_vote_stake_weight_t * weights ) {
+  ulong weights_cnt = 0;
+  for( fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx ) ) {
+    fd_pubkey_t pubkey;
+    ulong       stake_t_1;
+    ulong       stake_t_2;
+    fd_pubkey_t node_account_t_1;
+    fd_pubkey_t node_account_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
+
+    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
+    weights[ weights_cnt ].stake = stake_t_2;
+    weights_cnt++;
+  }
+  sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
+
+  return weights_cnt;
+}
+
 ulong
 fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
                           fd_vote_stake_weight_t * weights ) {
@@ -23,6 +50,7 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
     weights_cnt++;
   }
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
+
   return weights_cnt;
 }
 

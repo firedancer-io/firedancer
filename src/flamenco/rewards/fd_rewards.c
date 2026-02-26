@@ -109,18 +109,22 @@ get_vote_credits_commission( uchar const *             account_data,
   case fd_vote_state_versioned_enum_v0_23_5:
     vote_credits = vsv->inner.v0_23_5.epoch_credits;
     vote_credits_curr->commission = vsv->inner.v0_23_5.commission;
+    vote_credits_curr->node_account = vsv->inner.v0_23_5.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v1_14_11:
     vote_credits = vsv->inner.v1_14_11.epoch_credits;
     vote_credits_curr->commission = vsv->inner.v1_14_11.commission;
+    vote_credits_curr->node_account = vsv->inner.v1_14_11.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v3:
     vote_credits = vsv->inner.v3.epoch_credits;
     vote_credits_curr->commission = vsv->inner.v3.commission;
+    vote_credits_curr->node_account = vsv->inner.v3.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v4:
     vote_credits = vsv->inner.v4.epoch_credits;
     vote_credits_curr->commission = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
+    vote_credits_curr->node_account = vsv->inner.v4.node_pubkey;
     break;
   default:
     __builtin_unreachable();
@@ -486,7 +490,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         continue;
       }
     }
-
 
     fd_stakes_staging_t * stakes_staging = runtime_stack->stakes.stakes_staging;
     fd_stakes_staging_map_t * stakes_staging_map = fd_stakes_staging_map_join( runtime_stack->stakes.stakes_staging_map );

@@ -45,6 +45,9 @@ typedef struct fd_progcache fd_progcache_t;
 union fd_runtime_stack;
 typedef union fd_runtime_stack fd_runtime_stack_t;
 
+struct fd_vote_stakes;
+typedef struct fd_vote_stakes fd_vote_stakes_t;
+
 struct fd_runtime;
 typedef struct fd_runtime fd_runtime_t;
 
