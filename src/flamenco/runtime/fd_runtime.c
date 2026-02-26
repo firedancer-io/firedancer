@@ -123,7 +123,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( fd_bank_get_vote_stakes( bank->data ), bank->data->vote_stakes_fork_id, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( fd_bank_get_vote_stakes( bank ), bank->data->vote_stakes_fork_id, epoch_weights );
 
   /* Derive leader schedule */
 
@@ -367,21 +367,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                                           fd_runtime_stack_t * runtime_stack ) {
   fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-       !fd_vote_states_iter_done( iter );
-       fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-    vote_state->node_account_t_2 = vote_state->node_account_t_1;
-    vote_state->node_account_t_1 = vote_state->node_account;
-    vote_state->stake_t_2 = vote_state->stake_t_1;
-    fd_vote_ele_t * vote_ele = fd_vote_ele_map_ele_query( vote_ele_map, &vote_state->vote_account, NULL, runtime_stack->stakes.vote_ele );
-    vote_state->stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
-  }
-  fd_bank_vote_states_end_locking_modify( bank );
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( bank->data );
+  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( bank );
   ushort parent_idx = bank->data->vote_stakes_parent_fork_id;
 
   ushort child_idx = fd_vote_stakes_new_child( vote_stakes );
@@ -391,6 +377,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
        !fd_vote_ele_map_iter_done( iter, vote_ele_map, runtime_stack->stakes.vote_ele );
        iter = fd_vote_ele_map_iter_next( iter, vote_ele_map, runtime_stack->stakes.vote_ele ) ) {
     fd_vote_ele_t * vote_ele = &runtime_stack->stakes.vote_ele[fd_vote_ele_map_iter_idx( iter, vote_ele_map, runtime_stack->stakes.vote_ele )];
+    if( FD_UNLIKELY( vote_ele->invalid ) ) continue;
 
     ulong       old_stake_t_1 = 0UL;
     ulong       old_stake_t_2 = 0UL;
@@ -410,22 +397,6 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                            &node_account_t_1 );
   }
 
-
-  // for( fd_vote_stakes_fork_iter_init( vote_stakes, parent_idx );
-      //  !fd_vote_stakes_fork_iter_done( vote_stakes, parent_idx );
-      //  fd_vote_stakes_fork_iter_next( vote_stakes, parent_idx ) ) {
-    // fd_pubkey_t pubkey;
-    // ulong       old_stake_t_1;
-    // ulong       old_stake_t_2;
-    // fd_pubkey_t node_account_t_1;
-    // fd_pubkey_t node_account_t_2;
-    // fd_vote_stakes_fork_iter_ele( vote_stakes, parent_idx, &pubkey, &old_stake_t_1, &old_stake_t_2, &node_account_t_1, &node_account_t_2 );
-    // fd_vote_ele_t * vote_ele = fd_vote_ele_map_ele_query( vote_ele_map, &pubkey, NULL, runtime_stack->stakes.vote_ele );
-//
-    // ulong         new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
-    // fd_pubkey_t * node_account  = vote_ele ? &vote_ele->node_account : &node_account_t_1;
-    // fd_vote_stakes_insert( vote_stakes, child_idx, &pubkey, new_stake_t_1, old_stake_t_1, node_account, &node_account_t_1 );
-  // }
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
@@ -1228,10 +1199,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
        txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
       }
 
-      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_vote_program_id ) ) {
-        fd_stakes_update_vote_state( pubkey, account->meta, bank );
-      }
-
       if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_stake_program_id ) ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
@@ -1719,7 +1686,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     }
   }
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( bank->data );
+  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( bank );
   ushort idx = bank->data->vote_stakes_fork_id;
 
   fd_vote_states_iter_t iter_[1];

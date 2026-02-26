@@ -1,5 +1,6 @@
 #include "../../util/fd_util_base.h"
 #include "../types/fd_types_custom.h"
+#include "../fd_rwlock.h"
 
 struct index_key {
   fd_pubkey_t pubkey;
@@ -112,6 +113,8 @@ struct fd_vote_stakes {
   stakes_map_iter_t fork_iter;
 
   ushort root_idx;
+
+  fd_rwlock_t rwlock;
 };
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
