@@ -221,12 +221,12 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
   fork_dlist_idx_push_head( fork_dlist, root_idx, fork_pool );
 }
 
-void
-fd_vote_stakes_query_stake( fd_vote_stakes_t * vote_stakes,
-                            ushort             fork_idx,
-                            fd_pubkey_t *      pubkey,
-                            ulong *            stake_t_1_out,
-                            ulong *            stake_t_2_out ) {
+int
+fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
+                            ushort              fork_idx,
+                            fd_pubkey_t const * pubkey,
+                            ulong *             stake_t_1_out,
+                            ulong *             stake_t_2_out ) {
 
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
@@ -239,15 +239,21 @@ fd_vote_stakes_query_stake( fd_vote_stakes_t * vote_stakes,
      exists in the given fork's stakes map.  If it does, return the
      t_2 stake value.*/
   uint ele_idx = (uint)index_map_multi_idx_query_const( index_map_multi, pubkey, UINT_MAX, index_pool );
-  FD_TEST( ele_idx!=UINT_MAX );
+  if( FD_UNLIKELY( ele_idx==UINT_MAX ) ) {
+    return 0;
+  }
 
   while( !stakes_map_ele_query( stakes_map, &ele_idx, NULL, stakes_pool ) ) {
     ele_idx = (uint)index_map_multi_idx_next_const( ele_idx, UINT_MAX, index_pool );
+    if( FD_UNLIKELY( ele_idx==UINT_MAX ) ) {
+      return 0;
+    }
   }
 
   index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
   *stake_t_1_out = index_ele->stake_t_1;
   *stake_t_2_out = index_ele->stake_t_2;
+  return 1;
 }
 
 void

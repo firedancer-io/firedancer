@@ -175,14 +175,15 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
 
 
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
-   in the given fork. */
+   in the given fork.  If the element is found returns 1, otherwise
+   returns 0.  */
 
-void
-fd_vote_stakes_query_stake( fd_vote_stakes_t * vote_stakes,
-                            ushort             fork_idx,
-                            fd_pubkey_t *      pubkey,
-                            ulong *            stake_t_1_out,
-                            ulong *            stake_t_2_out );
+int
+fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
+                            ushort              fork_idx,
+                            fd_pubkey_t const * pubkey,
+                            ulong *             stake_t_1_out,
+                            ulong *             stake_t_2_out );
 
 /* fd_vote_stakes_query_idx returns the index of the vote account in the
    given fork. */
