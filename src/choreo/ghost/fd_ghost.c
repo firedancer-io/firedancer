@@ -338,6 +338,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
   }
   vtr->prev_block_id = blk->id;
   vtr->prev_stake    = stake;
+  vtr->prev_slot     = slot;
 }
 
 void
