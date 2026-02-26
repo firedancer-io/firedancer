@@ -125,7 +125,7 @@ fd_sandbox_private_explicit_clear_environment_variables( void ) {
 
   for( char * const * env = environ; *env; env++ ) {
     ulong len = strlen( *env );
-    explicit_bzero( *env, len );
+    fd_memset_explicit( *env, 0, len );
   }
 
   if( clearenv() ) FD_LOG_ERR(( "clearenv failed" ));
