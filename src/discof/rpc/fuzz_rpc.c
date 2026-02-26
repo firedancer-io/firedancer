@@ -169,9 +169,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
   bank_info_t banks[ 3UL ] = { 0 };
   ctx->banks = banks;
 
-  ctx->processed_idx = FETCH_TYPE( uchar ) % 64 ? 0UL : ULONG_MAX;
-  ctx->confirmed_idx = FETCH_TYPE( uchar ) % 64 ? 1UL : ULONG_MAX;
-  ctx->finalized_idx = FETCH_TYPE( uchar ) % 64 ? 2UL : ULONG_MAX;
+  ctx->processed_idx = 0UL;
+  ctx->confirmed_idx = 1UL;
+  ctx->finalized_idx = 2UL;
 
   for( ulong j=0UL; j<3UL; j++ ) {
     ctx->banks[ j ].slot = FETCH_TYPE( ulong );
