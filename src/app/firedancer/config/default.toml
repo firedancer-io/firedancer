@@ -532,7 +532,7 @@ telemetry = true
     #
     # The account index is stored in memory and preallocated.  A limit
     # of 1 billion accounts requires approx 100 GB index space.
-    max_accounts = 400_000_000
+    max_accounts = 30_000_000
 
     # File size of the account database file (see [paths.accounts]).
     # The entire account database is physically preallocated.
