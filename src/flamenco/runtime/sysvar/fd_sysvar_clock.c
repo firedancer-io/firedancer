@@ -170,9 +170,8 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
     fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
-      FD_LOG_ERR(( "fd_accdb_open_ro failed" ));
-    }
+    /* TODO:FIXME: turn this back to fd log err*/
+    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) continue;
     if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) {
       fd_accdb_close_ro( accdb, ro );
       continue;
