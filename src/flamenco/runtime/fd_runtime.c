@@ -123,7 +123,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node_2( fd_bank_get_vote_stakes( bank->data ), bank->data->vote_stakes_fork_id, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( fd_bank_get_vote_stakes( bank->data ), bank->data->vote_stakes_fork_id, epoch_weights );
 
   /* Derive leader schedule */
 
