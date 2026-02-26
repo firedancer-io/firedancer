@@ -643,10 +643,9 @@ fd_sched_join( void * mem ) {
   }
 
   fd_sched_t * sched         = (fd_sched_t *)mem;
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
   ulong        depth         = sched->depth;
   ulong        block_cnt_max = sched->block_cnt_max;
-
-  FD_TEST( sched->canary==FD_SCHED_MAGIC );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   /*           */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                         );

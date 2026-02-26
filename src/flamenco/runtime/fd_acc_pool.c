@@ -90,8 +90,6 @@ fd_acc_pool_new( void * shmem,
 fd_acc_pool_t *
 fd_acc_pool_join( void * mem ) {
 
-  fd_acc_pool_t * acc_pool = (fd_acc_pool_t *)mem;
-
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -99,6 +97,13 @@ fd_acc_pool_join( void * mem ) {
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_acc_pool_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_acc_pool_t * acc_pool = (fd_acc_pool_t *)mem;
+
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( acc_pool->magic )!=FD_ACC_POOL_MAGIC ) ) {
+    FD_LOG_WARNING(( "Invalid acc pool magic" ));
     return NULL;
   }
 
@@ -114,11 +119,6 @@ fd_acc_pool_join( void * mem ) {
       FD_LOG_WARNING(( "Invalid acc entry magic" ));
       return NULL;
     }
-  }
-
-  if( FD_UNLIKELY( acc_pool->magic!=FD_ACC_POOL_MAGIC ) ) {
-    FD_LOG_WARNING(( "Invalid acc pool magic" ));
-    return NULL;
   }
 
   return acc_pool;
