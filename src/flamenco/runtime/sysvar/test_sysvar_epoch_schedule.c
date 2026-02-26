@@ -31,8 +31,19 @@ test_sysvar_epoch_schedule_bounds( void ) {
 static void
 test_sysvar_epoch_schedule_edge_case( void ) {
   fd_epoch_schedule_t schedule = { .slots_per_epoch=0UL };
-  FD_TEST( fd_slot_to_epoch( &schedule, 0UL, NULL )==0UL );
 
+  schedule.first_normal_epoch=0UL;
+  FD_TEST( fd_slot_to_epoch( &schedule, 0UL, NULL )==0UL );
+  FD_TEST( fd_slot_to_epoch( &schedule, 1UL, NULL )==0UL );
+  FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 0UL )==0UL );
+  FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 1UL )==0UL );
+  FD_TEST( fd_epoch_schedule_derive( &schedule, 31UL, 31UL, 0 )==NULL );
+
+  schedule.first_normal_epoch = 3UL;
+  FD_TEST( fd_slot_to_epoch( &schedule, 0UL, NULL )==3UL );
+  FD_TEST( fd_slot_to_epoch( &schedule, 1UL, NULL )==3UL );
+  FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 0UL )==3UL );
+  FD_TEST( fd_slot_to_leader_schedule_epoch( &schedule, 1UL )==3UL );
   FD_TEST( fd_epoch_schedule_derive( &schedule, 31UL, 31UL, 0 )==NULL );
 }
 
