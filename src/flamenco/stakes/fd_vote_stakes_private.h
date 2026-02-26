@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_flamenco_stakes_fd_fd_vote_stakes_private_h
+#define HEADER_fd_src_flamenco_stakes_fd_fd_vote_stakes_private_h
+
 #include "../../util/fd_util_base.h"
 #include "../types/fd_types_custom.h"
 #include "../fd_rwlock.h"
@@ -153,3 +156,5 @@ static inline fork_dlist_t *
 get_fork_dlist( fd_vote_stakes_t * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->fork_dlist_off );
 }
+
+#endif /* HEADER_fd_src_flamenco_stakes_fd_fd_vote_stakes_private_h */

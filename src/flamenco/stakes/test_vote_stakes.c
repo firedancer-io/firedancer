@@ -127,4 +127,7 @@ int main( int argc, char * argv[] ) {
   FD_TEST( 5U==index_pool_used( index_pool ) );
 
   FD_LOG_NOTICE(( "pass" ));
+
+  fd_halt();
+  return 0;
 }

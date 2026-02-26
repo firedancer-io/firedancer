@@ -4,7 +4,6 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "fd_stake_delegations.h"
-#include "fd_vote_states.h"
 
 FD_PROTOTYPES_BEGIN
 

@@ -2,10 +2,18 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h
 
 #include "../types/fd_types_custom.h"
-#include "../stakes/fd_vote_states.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "program/fd_builtin_programs.h"
 #include "fd_runtime_const.h"
+
+struct fd_vote_state_credits {
+  ulong  credits_cnt;
+  uchar  commission;
+  ushort epoch       [ FD_EPOCH_CREDITS_MAX ];
+  ulong  credits     [ FD_EPOCH_CREDITS_MAX ];
+  ulong  prev_credits[ FD_EPOCH_CREDITS_MAX ];
+};
+typedef struct fd_vote_state_credits fd_vote_state_credits_t;
 
 struct fd_vote_ele {
   fd_pubkey_t             pubkey;

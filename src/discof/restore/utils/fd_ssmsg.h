@@ -3,7 +3,6 @@
 
 #include "../../../flamenco/types/fd_types.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
-#include "../../../flamenco/stakes/fd_vote_states.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
@@ -67,7 +66,7 @@ struct fd_snapshot_manifest_vote_account {
      epoch credits history may be short.  The maximum number of entries
      in the epoch credits history is 64. */
   ulong epoch_credits_history_len;
-  epoch_credits_t epoch_credits[ EPOCH_CREDITS_MAX ];
+  epoch_credits_t epoch_credits[ FD_EPOCH_CREDITS_MAX ];
 };
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
@@ -135,7 +134,7 @@ struct fd_snapshot_manifest_vote_stakes {
      epoch credits history may be short.  The maximum number of entries
      in the epoch credits history is 64. */
   ulong           epoch_credits_history_len;
-  epoch_credits_t epoch_credits[ EPOCH_CREDITS_MAX ];
+  epoch_credits_t epoch_credits[ FD_EPOCH_CREDITS_MAX ];
 };
 
 typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes_t;
