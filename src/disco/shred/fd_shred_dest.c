@@ -328,10 +328,11 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
   ulong               slot   = input_shreds[0]->slot;
   fd_pubkey_t const * leader = fd_epoch_leaders_get   ( sdest->lsched, slot );
+  if( FD_UNLIKELY( !leader                 ) ) return NULL; /* Unknown slot */
+
   pubkey_to_idx_t *   query  = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *leader, NULL );
   int                 leader_is_staked = query ? (query->idx<sdest->staked_cnt): 0;
   ulong               leader_idx       = query ?  query->idx                   : ULONG_MAX;
-  if( FD_UNLIKELY( !leader                 ) ) return NULL; /* Unknown slot */
   if( FD_UNLIKELY( leader_idx==my_orig_idx ) ) return NULL; /* I am the leader. Use compute_first */
 
   if( FD_UNLIKELY( (sdest->cnt<=1UL) |                    /* We don't know about a single destination, so we can't send
