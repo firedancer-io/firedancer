@@ -236,7 +236,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_slot      = elem->last_slot;
   }
 
-  fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( fd_vote_ele_map_new( runtime_stack->stakes.vote_ele_map, 2048, 999UL ) );
+  fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
   /* Vote stakes for the previous epoch (E-1). */
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {

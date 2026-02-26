@@ -254,6 +254,9 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
   fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( bank ) );
   if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", fd_bank_slot_get( bank ) ));
 
+  FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
+  FD_LOG_NOTICE(( "leader: %s", leader_b58 ));
+
   /* Credit fee collector, creating it if necessary */
   fd_accdb_rw_t rw[1];
   fd_accdb_open_rw( accdb, rw, xid, leader, 0UL, FD_ACCDB_FLAG_CREATE );
@@ -364,7 +367,7 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 static void
 fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                                           fd_runtime_stack_t * runtime_stack ) {
-  fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+  fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
   fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
   fd_vote_states_iter_t iter_[1];
@@ -1628,7 +1631,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &account->pubkey );
 
-      fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+      fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
       fd_vote_ele_t *     vote_ele     = fd_vote_ele_map_ele_query( vote_ele_map, &vote_state->vote_account, NULL, runtime_stack->stakes.vote_ele );
       vote_state->stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
       vote_state->stake_t_2 = vote_state->stake_t_1;
@@ -1646,7 +1649,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
        !fd_vote_states_iter_done( iter );
        fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-    fd_vote_ele_map_t * vote_ele_map = fd_vote_ele_map_join( runtime_stack->stakes.vote_ele_map );
+    fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
     fd_vote_ele_t *     vote_ele     = fd_vote_ele_map_ele_query( vote_ele_map, &vote_state->vote_account, NULL, runtime_stack->stakes.vote_ele );
     vote_state->stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
     vote_state->stake_t_2 = vote_state->stake_t_1;
