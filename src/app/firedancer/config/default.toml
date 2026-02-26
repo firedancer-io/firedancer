@@ -915,7 +915,7 @@ telemetry = true
     # be required to achieve high throughput.  It is also possible to
     # tradeoff throughput and tile count.  This value is only valid
     # when vinyl is enabled.
-    snapwr_tile_count = 2
+    snapwr_tile_count = 1
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
