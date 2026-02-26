@@ -17,6 +17,12 @@
 
 #define NAME "snapld"
 
+/* download progress in each 10 second window must be at
+   min_download_speed_mibs * 10 seconds or higher.  Catches extremely
+   slow download speeds where we may not get to 100 MiB downloaded for a
+   while. */
+#define FD_SNAPLD_DOWNLOAD_WINDOW_NS (10L*1000L*1000L*1000L) /* 10 seconds */
+
 /* The snapld tile is responsible for loading data from the local file
    or from an HTTP/TCP connection and sending it to the snapdc tile
    for later decompression. */
@@ -38,6 +44,10 @@ typedef struct fd_snapld_tile {
   double download_speed_mibs;
   long   start_batch;
   long   end_batch;
+
+  ulong  bytes_in_window;
+  ulong  min_bytes_in_window;
+  long   window_deadline;
 
   int local_full_fd;
   int local_incr_fd;
@@ -186,6 +196,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bytes_in_batch      = 0UL;
   ctx->start_batch         = 0L;
   ctx->end_batch           = 0L;
+  ctx->bytes_in_window     = 0UL;
+  ctx->window_deadline     = LONG_MAX;
+  ctx->min_bytes_in_window = ((ulong)ctx->config.min_download_speed_mibs * (FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9))<<20UL;
 
   FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -228,6 +241,33 @@ transition_malformed( fd_snapld_tile_t *  ctx,
   fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
+static int
+check_download_progress( fd_snapld_tile_t *  ctx,
+                         fd_stem_context_t * stem,
+                         int                 downloading,
+                         long                now ) {
+  if( FD_UNLIKELY( ctx->window_deadline==LONG_MAX && downloading ) ) {
+    ctx->window_deadline = now + FD_SNAPLD_DOWNLOAD_WINDOW_NS;
+    ctx->bytes_in_window = 0UL;
+  }
+
+  if( FD_UNLIKELY( now>ctx->window_deadline ) ) {
+    if( FD_UNLIKELY( ctx->bytes_in_window<ctx->min_bytes_in_window ) ) {
+      /* cancel the download if the download progress speed in the last
+         window is less than the minimum download speed. */
+      double download_speed_mibs = (double)ctx->bytes_in_window / (double)(FD_SNAPLD_DOWNLOAD_WINDOW_NS / 1e9) / (double)(1<<20UL);
+      FD_LOG_WARNING(( "download progress of %.2f mibs in the last %lu seconds is below the minimum download speed %u mibs. cancelling download.",
+                       download_speed_mibs, FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9, ctx->config.min_download_speed_mibs ));
+      transition_malformed(ctx, stem );
+      fd_sshttp_cancel( ctx->sshttp );
+      return -1;
+    }
+    ctx->window_deadline = now + FD_SNAPLD_DOWNLOAD_WINDOW_NS;
+    ctx->bytes_in_window = 0UL;
+  }
+  return 0;
+}
+
 static void
 after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -267,12 +307,17 @@ after_credit( fd_snapld_tile_t *  ctx,
       return; /* verbose return */
     }
   } else {
-    ulong data_len = ctx->out_dc.mtu;
-    int   result   = fd_sshttp_advance( ctx->sshttp, &data_len, out, fd_log_wallclock() );
+    int   downloading = 0;
+    ulong data_len    = ctx->out_dc.mtu;
+    long  now         = fd_log_wallclock();
+    int   result      = fd_sshttp_advance( ctx->sshttp, &data_len, out, &downloading, now );
     switch( result ) {
       case FD_SSHTTP_ADVANCE_AGAIN:
+        if( FD_UNLIKELY( -1==check_download_progress( ctx, stem, downloading, now ) ) ) break;
         break;
       case FD_SSHTTP_ADVANCE_DATA: {
+        ctx->bytes_in_window += data_len;
+        if( FD_UNLIKELY( -1==check_download_progress( ctx, stem, downloading, now ) ) ) break;
         if( FD_UNLIKELY( !ctx->sent_meta ) ) {
           /* On the first DATA return, the HTTP headers are available
              for use.  We need to send this metadata downstream, but
@@ -359,13 +404,17 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->load_full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->load_file = msg_in->file;
       ctx->sent_meta = 0;
-      ctx->is_https = msg_in->is_https;
+      ctx->is_https  = msg_in->is_https;
+
+      ctx->window_deadline = LONG_MAX;
+      ctx->bytes_in_window = 0UL;
+      long now = fd_log_wallclock();
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
           FD_LOG_ERR(( "lseek(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       } else {
-        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, fd_log_wallclock() );
-        else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, fd_log_wallclock() );
+        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, now );
+        else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, now );
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
       fd_memcpy( msg_out, msg_in, sz );
