@@ -21,9 +21,10 @@ struct index_ele {
   fd_pubkey_t node_account_t_1;
   fd_pubkey_t node_account_t_2;
   uint        next;
-  uint        refcnt;
   uint        prev_multi;
   uint        next_multi;
+  ushort      refcnt;
+  uchar       invalid;
 };
 typedef struct index_ele index_ele_t;
 

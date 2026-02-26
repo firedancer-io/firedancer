@@ -192,6 +192,9 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta );
 fd_vote_block_timestamp_t
 fd_vsv_get_vote_block_timestamp( fd_account_meta_t const * meta );
 
+fd_pubkey_t
+fd_vsv_get_node_account( uchar const * data );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_state_versioned_h */

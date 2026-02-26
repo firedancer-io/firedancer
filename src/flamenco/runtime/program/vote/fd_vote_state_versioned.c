@@ -800,3 +800,11 @@ fd_vsv_get_vote_block_timestamp( fd_account_meta_t const * meta ) {
   uchar * data_ptr = (uchar *)ctx.data;
   return *(fd_vote_block_timestamp_t *)(data_ptr-16UL);
 }
+
+
+fd_pubkey_t
+fd_vsv_get_node_account( uchar const * data ) {
+  fd_pubkey_t pubkey;
+  memcpy( &pubkey, data + sizeof(uint), sizeof(fd_pubkey_t) );
+  return pubkey;
+}
