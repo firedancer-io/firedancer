@@ -143,7 +143,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_add_syscall( res, in, 64, 0 /*LE*/ );
+        fd_bn254_g1_add_syscall( res, in, 128, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_add_syscall", iter, dt );
@@ -214,10 +214,10 @@ int main( int     argc,
     }
 
     {
-      ulong iter = 10000000UL;
+      ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g2_add_syscall( res, in, 128, 0 /*LE*/ );
+        fd_bn254_g2_add_syscall( res, in, 256, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g2_add_syscall", iter, dt );
@@ -360,7 +360,7 @@ int main( int     argc,
     }
 
     {
-      ulong iter = 1000UL;
+      ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
         fd_bn254_g1_scalar_mul_syscall( res, in, 96, 0 /*LE*/ );
