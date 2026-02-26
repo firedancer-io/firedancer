@@ -139,6 +139,7 @@ source_init( fd_backt_tile_t * ctx,
   }
 # endif
   fd_backtest_shredcap_init( ctx->shredcap, start_slot );
+  FD_LOG_NOTICE(( "Replaying from slot %lu to %lu", start_slot, ctx->end_slot ));
 }
 
 # if FD_HAS_ROCKSDB
@@ -503,6 +504,7 @@ unprivileged_init( fd_topo_t *      topo,
 # if FD_HAS_ROCKSDB
   void * _backtest_rocksdb  = FD_SCRATCH_ALLOC_APPEND( l, fd_backtest_rocksdb_align(),  fd_backtest_rocksdb_footprint()                );
 # endif
+  memset( ctx, 0, sizeof(fd_backt_tile_t) );
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
@@ -512,7 +514,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->idle_cnt = 0UL;
 
   ctx->end_slot = tile->backtest.end_slot;
-  FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot );
   ctx->slot_cnt = 0UL;
 
   ctx->shreds_idx = 0UL;
@@ -551,8 +552,15 @@ unprivileged_init( fd_topo_t *      topo,
   if( !ctx->shredcap ) {
     ctx->rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( _backtest_rocksdb, tile->backtest.rocksdb_path ) );
     FD_TEST( ctx->rocksdb );
+    ulong first = fd_backtest_rocksdb_first_slot( ctx->rocksdb );
+    ulong last  = fd_backtest_rocksdb_last_slot ( ctx->rocksdb );
+    FD_LOG_NOTICE(( "RocksDB slot range: [%lu, %lu]", first, last ));
+    if( !ctx->end_slot ) ctx->end_slot = last;
+    FD_TEST( first <= ctx->end_slot );
   }
 # endif
+  FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
+  FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot   );
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );

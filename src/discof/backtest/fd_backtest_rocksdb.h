@@ -39,6 +39,12 @@ fd_backtest_rocksdb_next_dead_slot( fd_backtest_rocksdb_t * db,
                                     ulong *                 slot_out,
                                     ulong *                 shred_cnt_out );
 
+ulong
+fd_backtest_rocksdb_first_slot( fd_backtest_rocksdb_t * db );
+
+ulong
+fd_backtest_rocksdb_last_slot( fd_backtest_rocksdb_t * db );
+
 void const *
 fd_backtest_rocksdb_shred( fd_backtest_rocksdb_t * db,
                            ulong                   slot,
