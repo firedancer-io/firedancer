@@ -82,7 +82,7 @@ send_test_topo( config_t * config ) {
 
   /* Add send tile */
   fd_topob_wksp( topo, "txsend" );
-  fd_topob_tile( topo, "txsend", "txsend", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topob_tile( topo, "txsend", "txsend", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
 
   /* wksps for send links */
   fd_topob_wksp( topo, "txsend_net" );

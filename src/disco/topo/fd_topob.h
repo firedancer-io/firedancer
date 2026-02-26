@@ -102,7 +102,8 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave,
-               int            uses_keyswitch );
+               int            uses_id_keyswitch,
+               int            uses_av_keyswitch );
 
 /* Add an input link to the tile.  If the tile is created with fd_stem,
    it will automatically poll the in link and forward fragments to the

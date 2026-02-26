@@ -1306,7 +1306,7 @@ unprivileged_init( fd_topo_t *      topo,
     expected_shred_version = (ushort)_expected_shred_version;
   }
 
-  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
   /* populate ctx */

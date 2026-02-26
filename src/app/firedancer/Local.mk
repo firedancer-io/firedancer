@@ -38,6 +38,7 @@ $(call add-objs,config,fd_firedancer)
 $(call add-objs,callbacks callbacks_vinyl,fd_firedancer)
 
 # commands
+$(call add-objs,commands/add_authorized_voter,fd_firedancer)
 $(call add-objs,commands/shred_version,fd_firedancer)
 $(call add-objs,commands/configure/accdb,fd_firedancer)
 

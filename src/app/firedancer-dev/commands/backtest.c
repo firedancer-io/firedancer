@@ -68,13 +68,13 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0 );
+  fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0 );
 
   fd_topob_wksp( topo, "backt" );
-  fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", cpu_idx++, 0, 0 );
+  fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", cpu_idx++, 0, 0, 0 );
 
   fd_topob_wksp( topo, "replay" );
-  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 0 );
+  fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", cpu_idx++, 0, 0, 0 );
 
   /* specified by [tiles.replay] */
 
@@ -107,14 +107,14 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "execrp" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
-  FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", cpu_idx++, 0, 0 );
+  FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp", "execrp", "metric_in", cpu_idx++, 0, 0, 0 );
 
   /**********************************************************************/
   /* Add the capture tile to topo                                       */
   /**********************************************************************/
   if( solcap_enabled ) {
     fd_topob_wksp( topo, "solcap" );
-    fd_topob_tile( topo, "solcap", "solcap", "metric_in", cpu_idx++, 0, 0 );
+    fd_topob_tile( topo, "solcap", "solcap", "metric_in", cpu_idx++, 0, 0, 0 );
   }
 
   /**********************************************************************/
@@ -127,10 +127,10 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapdc" );
     fd_topob_wksp( topo, "snapin" );
 
-    fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct",  "snapct",  "metric_in",  cpu_idx++, 0, 0 );
-    fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld",  "snapld",  "metric_in",  cpu_idx++, 0, 0 );
-    fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0 );
-                     snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0 );
+    fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct",  "snapct",  "metric_in",  cpu_idx++, 0, 0, 0 );
+    fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld",  "snapld",  "metric_in",  cpu_idx++, 0, 0, 0 );
+    fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0, 0 );
+                     snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0, 0 );
 
     snapct_tile->allow_shutdown = 1;
     snapld_tile->allow_shutdown = 1;
@@ -139,15 +139,15 @@ backtest_topo( config_t * config ) {
 
     if( vinyl_enabled ) {
       fd_topob_wksp( topo, "snapwm" );
-      fd_topo_tile_t * snapwm_tile = fd_topob_tile( topo, "snapwm", "snapwm", "metric_in", cpu_idx++, 0, 0 );
+      fd_topo_tile_t * snapwm_tile = fd_topob_tile( topo, "snapwm", "snapwm", "metric_in", cpu_idx++, 0, 0, 0 );
       snapwm_tile->allow_shutdown = 1;
 
       fd_topob_wksp( topo, "snapwh" );
-      fd_topo_tile_t * snapwh_tile = fd_topob_tile( topo, "snapwh", "snapwh", "metric_in", cpu_idx++, 0, 0 );
+      fd_topo_tile_t * snapwh_tile = fd_topob_tile( topo, "snapwh", "snapwh", "metric_in", cpu_idx++, 0, 0, 0 );
       snapwh_tile->allow_shutdown = 1;
 
       fd_topob_wksp( topo, "snapwr" );
-      FOR(snapwr_tile_cnt) fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", cpu_idx++, 0, 0 )->allow_shutdown = 1;
+      FOR(snapwr_tile_cnt) fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", cpu_idx++, 0, 0, 0 )->allow_shutdown = 1;
     }
 
     if( snapshot_lthash_disabled ) {
@@ -156,20 +156,20 @@ backtest_topo( config_t * config ) {
       if( vinyl_enabled ) {
         fd_topob_wksp( topo, "snaplh"    );
         fd_topob_wksp( topo, "snaplv"    );
-        FOR(snaplh_tile_cnt) fd_topob_tile( topo, "snaplh", "snaplh", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
-        /**/                 fd_topob_tile( topo, "snaplv", "snaplv", "metric_in", ULONG_MAX, 0, 0 )->allow_shutdown = 1;
+        FOR(snaplh_tile_cnt) fd_topob_tile( topo, "snaplh", "snaplh", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
+        /**/                 fd_topob_tile( topo, "snaplv", "snaplv", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
         fd_topob_wksp( topo, "vinyl_admin" );
       } else {
         fd_topob_wksp( topo, "snapla" );
         fd_topob_wksp( topo, "snapls" );
-        FOR(lta_tile_cnt)  fd_topob_tile( topo, "snapla", "snapla", "metric_in", cpu_idx++,  0, 0 )->allow_shutdown = 1;
-        /**/               fd_topob_tile( topo, "snapls", "snapls", "metric_in", cpu_idx++,  0, 0 )->allow_shutdown = 1;
+        FOR(lta_tile_cnt)  fd_topob_tile( topo, "snapla", "snapla", "metric_in", cpu_idx++,  0, 0, 0 )->allow_shutdown = 1;
+        /**/               fd_topob_tile( topo, "snapls", "snapls", "metric_in", cpu_idx++,  0, 0, 0 )->allow_shutdown = 1;
       }
     }
 
   } else {
     fd_topob_wksp( topo, "genesi" );
-    fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0 )->allow_shutdown = 1;
+    fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0, 0 )->allow_shutdown = 1;
   }
 
   /**********************************************************************/
@@ -355,7 +355,7 @@ backtest_topo( config_t * config ) {
     fd_topo_obj_t * accdb_data = setup_topo_accdb_cache( topo, &config->firedancer );
 
     fd_topob_wksp( topo, "accdb_execrp" );
-    fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb_execrp", "metric_in", cpu_idx++, 0, 0 );
+    fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb_execrp", "metric_in", cpu_idx++, 0, 0, 0 );
     fd_topob_tile_uses( topo, accdb_tile, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, accdb_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, accdb_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

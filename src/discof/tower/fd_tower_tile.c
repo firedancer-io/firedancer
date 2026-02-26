@@ -12,6 +12,7 @@
 #include "../../choreo/tower/fd_tower_stakes.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../disco/topo/fd_topo.h"
@@ -96,6 +97,8 @@ typedef struct auth_vtr auth_vtr_t;
 #define MAP_KEY_HASH(k)        ((uint)fd_ulong_hash( fd_ulong_load_8( (k).uc ) ))
 #include "../../util/tmpl/fd_map.c"
 
+#define AUTH_VOTERS_MAX (16UL)
+
 typedef struct {
   int         mcache_only;
   fd_wksp_t * mem;
@@ -136,6 +139,9 @@ typedef struct {
 
   fd_banks_t      banks[1];
   fd_accdb_user_t accdb[1];
+
+  ulong            auth_vtr_cnt;
+  fd_keyswitch_t * av_keyswitch; /* authorized voters */
 
   /* frag-related structures (consume and publish) */
 
@@ -1065,9 +1071,16 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->auth_vtr = auth_vtr_join( auth_vtr_new( av_map ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
-    auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) ) );
+    fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.authorized_voter_paths[ i ], /* pubkey only: */ 1 ) );
+    if( FD_UNLIKELY( auth_vtr_query( ctx->auth_vtr, pubkey, NULL ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey.uc, pubkey_b58 );
+      FD_LOG_ERR(( "authorized voter key duplicate %s", pubkey_b58 ));
+    }
+
+    auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, pubkey );
     auth_vtr->paths_idx = i;
   }
+  ctx->auth_vtr_cnt = tile->tower.authorized_voter_paths_cnt;
 
   /* The tower file is used to checkpt and restore the state of the
      local tower. */
@@ -1116,6 +1129,9 @@ unprivileged_init( fd_topo_t *      topo,
   void  * publishes  = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),           publishes_footprint( pub_max )                           );
   void  * stkci  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()                               );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+
+  ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+  FD_TEST( ctx->av_keyswitch );
 
   ctx->wksp         = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
@@ -1218,15 +1234,34 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static void
+during_housekeeping( ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_UNLOCKED );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    fd_pubkey_t pubkey = *(fd_pubkey_t const *)fd_type_pun_const( ctx->av_keyswitch->bytes );
+    if( FD_UNLIKELY( auth_vtr_query( ctx->auth_vtr, pubkey, NULL ) ) ) FD_LOG_CRIT(( "keyswitch: duplicate authorized voter key, keys not synced up with sign tile" ));
+    if( FD_UNLIKELY( ctx->auth_vtr_cnt==AUTH_VOTERS_MAX ) ) FD_LOG_CRIT(( "keyswitch: too many authorized voters, keys not synced up with sign tile" ));
+
+    auth_vtr_t * auth_vtr = auth_vtr_insert( ctx->auth_vtr, pubkey );
+    auth_vtr->paths_idx = ctx->auth_vtr_cnt;
+    ctx->auth_vtr_cnt++;
+    fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
 #define STEM_BURST (2UL) /* slot_rooted AND (slot_done OR slot_ignored) */
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
-#define STEM_CALLBACK_CONTEXT_TYPE    ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN   alignof(ctx_t)
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_CONTEXT_TYPE        ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN       alignof(ctx_t)
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../disco/stem/fd_stem.c"
 

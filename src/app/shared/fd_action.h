@@ -36,6 +36,10 @@ union fdctl_args {
   } set_identity;
 
   struct {
+    uchar * keypair;
+  } add_authorized_voter;
+
+  struct {
     int  parent_pipefd;
     int  no_watch;
     int  no_configure;
