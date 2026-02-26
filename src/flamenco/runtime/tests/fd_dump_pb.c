@@ -397,9 +397,6 @@ dump_txn_bank( fd_bank_t *                  bank,
   /* TxnBank -> features */
   txn_bank->has_features = true;
   dump_sorted_features( fd_bank_features_query( bank ), &txn_bank->features, spad );
-
-  /* TxnBank -> epoch */
-  txn_bank->epoch = fd_bank_epoch_get( bank );
 }
 
 /** SECONDARY FUNCTIONS **/

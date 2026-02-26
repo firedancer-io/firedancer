@@ -3,6 +3,7 @@
 #include "fd_txn_harness.h"
 #include "fd_dump_pb.h"
 #include "../fd_runtime.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../log_collector/fd_log_collector.h"
@@ -114,9 +115,9 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   *epoch_schedule = (fd_epoch_schedule_t){
     .slots_per_epoch             = txn_bank->epoch_schedule.slots_per_epoch,
     .leader_schedule_slot_offset = txn_bank->epoch_schedule.leader_schedule_slot_offset,
-    .warmup                     = txn_bank->epoch_schedule.warmup,
-    .first_normal_epoch         = txn_bank->epoch_schedule.first_normal_epoch,
-    .first_normal_slot          = txn_bank->epoch_schedule.first_normal_slot
+    .warmup                      = txn_bank->epoch_schedule.warmup,
+    .first_normal_epoch          = txn_bank->epoch_schedule.first_normal_epoch,
+    .first_normal_slot           = txn_bank->epoch_schedule.first_normal_slot
   };
 
   /* Rent */
@@ -137,7 +138,8 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   /* Epoch */
-  fd_bank_epoch_set( runner->bank, txn_bank->epoch );
+  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
+  fd_bank_epoch_set( runner->bank, epoch );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
