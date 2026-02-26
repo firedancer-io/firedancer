@@ -59,11 +59,11 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 }
 
 void
-fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
-                   fd_banks_t *              banks,
-                   fd_bank_t *               bank,
-                   fd_runtime_stack_t *      runtime_stack,
-                   int                       is_incremental ) {
+fd_ssload_recover( fd_snapshot_manifest_t * manifest,
+                   fd_banks_t *             banks,
+                   fd_bank_t *              bank,
+                   fd_runtime_stack_t *     runtime_stack,
+                   int                      is_incremental ) {
 
   /* Slot */
 
@@ -228,7 +228,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
 
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
-
     fd_vote_stakes_insert_root_key( vote_stakes, (fd_pubkey_t *)elem->vote_account_pubkey );
   }
 
@@ -237,21 +236,17 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   /* Vote stakes for the previous epoch (E-1). */
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
-
     /* First convert the epoch credits to the format expected by the
        vote states.  We need to do this because we may need the vote
        state credits from the end of the previous epoch in case we need
        to recalculate the stake reward partitions. */
-
     fd_vote_ele_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_vote_state_credits_t * vote_state_credits = &vote_ele->vote_credits;
     fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
     vote_ele->stake      = elem->stake;
     vote_ele->invalid    = 0;
     vote_ele->commission = (uchar)elem->commission;
-
     fd_vote_ele_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
-
     fd_vote_stakes_insert_root_update( vote_stakes,
                                        (fd_pubkey_t *)elem->vote,
                                        (fd_pubkey_t *)elem->identity,

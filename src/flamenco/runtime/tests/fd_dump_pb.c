@@ -510,6 +510,8 @@ add_lut_accounts_to_dumped_accounts( fd_accdb_user_t *             accdb,
   fd_accdb_close_ro( accdb, lut_account );
 }
 
+/* FIXME: Block dumping currently is not supported and needs to be
+   reworked. */
 // /* create_synthetic_vote_account_from_vote_state creates a synthetic
 //    vote account from a vote state cache element. It fills in default
 //    values for unspecified fields and encodes the vote state into
@@ -627,7 +629,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* Get vote and stake delegation infos */
   fd_vote_stakes_t * vote_stakes        = fd_bank_vote_stakes_locking_query( parent_bank );
-  ulong              vote_account_t_cnt = fd_vote_stakes_ele_cnt( vote_stakes, parent_bank->data->vote_stakes_parent_fork_id );
+  ulong              vote_account_t_cnt = fd_vote_stakes_ele_cnt( vote_stakes, parent_bank->data->vote_stakes_fork_id );
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, parent_bank );
   ulong                          stake_account_cnt = fd_stake_delegations_cnt( stake_delegations );
@@ -697,7 +699,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &stake_delegation->stake_account );
   }
 
-  ushort fork_idx = parent_bank->data->vote_stakes_parent_fork_id;
+  ushort fork_idx = parent_bank->data->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );

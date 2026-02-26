@@ -41,11 +41,21 @@ int main( int argc, char * argv[] ) {
 
   index_ele_t * index_pool = get_index_pool( vote_stakes );
 
-  fd_vote_stakes_insert_root( vote_stakes, &pubkey_A, 100UL, 200UL, &node_account_t_1, &node_account_t_2 );
-  fd_vote_stakes_insert_root( vote_stakes, &pubkey_B, 101UL, 200UL, &node_account_t_1, &node_account_t_2 );
-  fd_vote_stakes_insert_root( vote_stakes, &pubkey_C, 102UL, 200UL, &node_account_t_1, &node_account_t_2 );
-  fd_vote_stakes_insert_root( vote_stakes, &pubkey_D, 103UL, 200UL, &node_account_t_1, &node_account_t_2 );
-  fd_vote_stakes_insert_root( vote_stakes, &pubkey_E, 104UL, 200UL, &node_account_t_1, &node_account_t_2 );
+  fd_vote_stakes_insert_root_key( vote_stakes, &pubkey_A );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_A, &node_account_t_1, 100UL, 1 );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_A, &node_account_t_2, 200UL, 0 );
+  fd_vote_stakes_insert_root_key( vote_stakes, &pubkey_B );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_B, &node_account_t_1, 101UL, 1 );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_B, &node_account_t_2, 200UL, 0 );
+  fd_vote_stakes_insert_root_key( vote_stakes, &pubkey_C );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_C, &node_account_t_1, 102UL, 1 );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_C, &node_account_t_2, 200UL, 0 );
+  fd_vote_stakes_insert_root_key( vote_stakes, &pubkey_D );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_D, &node_account_t_1, 103UL, 1 );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_D, &node_account_t_2, 200UL, 0 );
+  fd_vote_stakes_insert_root_key( vote_stakes, &pubkey_E );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_E, &node_account_t_1, 104UL, 1 );
+  fd_vote_stakes_insert_root_update( vote_stakes, &pubkey_E, &node_account_t_2, 200UL, 0 );
 
   FD_TEST( 5U==index_pool_used( index_pool ) );
 

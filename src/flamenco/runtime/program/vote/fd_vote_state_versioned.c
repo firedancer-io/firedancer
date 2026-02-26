@@ -786,11 +786,8 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
 }
 
 fd_vote_block_timestamp_t
-fd_vsv_get_vote_block_timestamp( fd_account_meta_t const * meta ) {
-  uchar const * data     = fd_account_data( meta );
-  ulong         data_len = meta->dlen;
-  //uint const *  disc_ptr = (uint const *)data;
-
+fd_vsv_get_vote_block_timestamp( uchar const * data,
+                                 ulong         data_len ) {
   fd_bincode_decode_ctx_t ctx = {
     .data    = data,
     .dataend = data + data_len,

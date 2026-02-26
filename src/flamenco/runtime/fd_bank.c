@@ -517,7 +517,6 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
 
   fd_vote_stakes_t * vote_stakes   = fd_banks_get_vote_stakes( banks->data );
   bank->vote_stakes_fork_id        = fd_vote_stakes_get_root_idx( vote_stakes );
-  bank->vote_stakes_parent_fork_id = bank->vote_stakes_fork_id;
 
   /* Now that the node is inserted, update the root */
 
@@ -601,8 +600,7 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   fd_rwlock_new( &bank_l->locks->lthash_lock[ child_bank->idx ] );
 
   /* Copy over the parent vote stake fork idx */
-  child_bank->vote_stakes_parent_fork_id = parent_bank->vote_stakes_fork_id;
-  child_bank->vote_stakes_fork_id        = parent_bank->vote_stakes_fork_id;
+  child_bank->vote_stakes_fork_id = parent_bank->vote_stakes_fork_id;
 
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
@@ -813,8 +811,7 @@ fd_banks_advance_root( fd_banks_t * banks,
       head->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head ) );
     }
 
-    head->vote_stakes_parent_fork_id = USHORT_MAX;
-    head->vote_stakes_fork_id        = USHORT_MAX;
+    head->vote_stakes_fork_id = USHORT_MAX;
 
     head->flags = 0UL;
     fd_banks_pool_ele_release( bank_pool, head );

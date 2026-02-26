@@ -133,35 +133,6 @@ fd_vote_stakes_join( void * shmem ) {
 }
 
 void
-fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
-                            fd_pubkey_t *      pubkey,
-                            ulong              stake_t_1,
-                            ulong              stake_t_2,
-                            fd_pubkey_t *      node_account_t_1,
-                            fd_pubkey_t *      node_account_t_2 ) {
-
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_t *       index_map       = get_index_map( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  index_ele_t * ele     = index_pool_ele_acquire( index_pool );
-  ele->index_key        = (index_key_t){ .pubkey = *pubkey, .stake_t_1 = stake_t_1, .stake_t_2 = stake_t_2 };
-  ele->node_account_t_1 = *node_account_t_1;
-  ele->node_account_t_2 = *node_account_t_2;
-  ele->refcnt           = 1;
-  FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
-  FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
-  uint pubkey_idx = (uint)index_pool_idx( index_pool, ele );
-
-  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, vote_stakes->root_idx );
-  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, vote_stakes->root_idx );
-
-  stake_t *      new_stake = stakes_pool_ele_acquire( stakes_pool );
-  new_stake->idx = pubkey_idx;
-  FD_TEST( stakes_map_ele_insert( stakes_map, new_stake, stakes_pool ) );
-}
-
-void
 fd_vote_stakes_insert_root_key( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t * const pubkey ) {
 
@@ -377,32 +348,6 @@ fd_vote_stakes_ele_cnt( fd_vote_stakes_t * vote_stakes,
                         ushort             fork_idx ) {
   stake_t * stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
   return (uint)stakes_pool_used( stakes_pool );
-}
-
-uint
-fd_vote_stakes_query_idx( fd_vote_stakes_t *  vote_stakes,
-                          ushort              fork_idx,
-                          fd_pubkey_t const * pubkey ) {
-
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
-  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
-
-  /* The index may have multiple entries for the same pubkey, so every
-      single matching index entry must be checked to see if the index
-      exists in the given fork's stakes map.  If it does, return the
-      t_2 stake value.*/
-  uint ele_idx = (uint)index_map_multi_idx_query_const( index_map_multi, pubkey, UINT_MAX, index_pool );
-  FD_TEST( ele_idx!=UINT_MAX );
-
-  while( !stakes_map_ele_query( stakes_map, &ele_idx, NULL, stakes_pool ) ) {
-    ele_idx = (uint)index_map_multi_idx_next_const( ele_idx, UINT_MAX, index_pool );
-  }
-
-  uint res_idx = (uint)stakes_map_idx_query( stakes_map, &ele_idx, UINT_MAX, stakes_pool );
-  return res_idx;
 }
 
 ushort

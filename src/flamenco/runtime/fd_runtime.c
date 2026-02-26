@@ -373,7 +373,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
   fd_vote_ele_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
-  ushort parent_idx = bank->data->vote_stakes_parent_fork_id;
+  ushort parent_idx = bank->data->vote_stakes_fork_id;
 
   ushort child_idx = fd_vote_stakes_new_child( vote_stakes );
   bank->data->vote_stakes_fork_id = child_idx;

@@ -189,8 +189,17 @@ fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self );
 int
 fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta );
 
+/* Accessor to get the vote block timestamp from a vote account data
+   buffer.  This function assumes that the vote account data is
+   correctly sized and initialized. */
+
 fd_vote_block_timestamp_t
-fd_vsv_get_vote_block_timestamp( fd_account_meta_t const * meta );
+fd_vsv_get_vote_block_timestamp( uchar const * data,
+                                 ulong         data_len );
+
+/* Accessor to get the node account from a vote account data buffer.
+   This function assumes that the vote account data is correctly
+   sized and initialized. */
 
 fd_pubkey_t
 fd_vsv_get_node_account( uchar const * data );

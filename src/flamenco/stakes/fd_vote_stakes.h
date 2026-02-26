@@ -94,8 +94,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_VOTE_STAKES_ITER_FOOTPRINT (16UL)
 #define FD_VOTE_STAKES_ITER_ALIGN     (8UL)
 
-typedef ushort fd_vote_stakes_fork_id_t;
-
 struct fd_vote_stakes;
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
@@ -134,18 +132,6 @@ fd_vote_stakes_new( void * shmem,
 
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem );
-
-/* fd_vote_stakes_insert_root inserts a new vote account along with its
-   stakes into the root fork.  This should only be called during runtime
-   initialization: when booting off of a genesis file or a snapshot. */
-
-void
-fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
-                            fd_pubkey_t *      pubkey,
-                            ulong              stake_t_1,
-                            ulong              stake_t_2,
-                            fd_pubkey_t *      node_account_t_1,
-                            fd_pubkey_t *      node_account_t_2 );
 
 void
 fd_vote_stakes_insert_root_key( fd_vote_stakes_t *  vote_stakes,
@@ -204,14 +190,6 @@ fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
                       ulong *             stake_t_2_out_opt,
                       fd_pubkey_t *       node_account_t_1_out_opt,
                       fd_pubkey_t *       node_account_t_2_out_opt );
-
-/* fd_vote_stakes_query_idx returns the index of the vote account in the
-   given fork. */
-
-uint
-fd_vote_stakes_query_idx( fd_vote_stakes_t *  vote_stakes,
-                          ushort              fork_idx,
-                          fd_pubkey_t const * pubkey );
 
 /* fd_vote_stakes_ele_cnt returns the number of entries for a given
    fork. */

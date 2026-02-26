@@ -4,8 +4,8 @@
 #include "../fd_runtime_stack.h"
 #include "../fd_system_ids.h"
 #include "../program/fd_program_util.h"
-#include "../../accdb/fd_accdb_sync.h"
 #include "../program/vote/fd_vote_state_versioned.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 /* Syvar Clock Possible Values:
   slot:
@@ -147,8 +147,6 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L41 */
   uint128 total_stake = 0UL;
 
-  long start = fd_log_wallclock();
-
   /* A timestamp estimate is calculated at every slot using the most
      recent vote states of voting validators. This estimated is based on
      a stake weighted median using the stake as of the end of epoch E-2
@@ -167,6 +165,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
+    /* TODO: Replace accdb query with vote account cache lookup. */
     fd_accdb_ro_t ro[1];
     /* TODO:FIXME: turn this back to fd log err*/
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) continue;
@@ -174,7 +173,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
       fd_accdb_close_ro( accdb, ro );
       continue;
     }
-    fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( ro->meta );
+    fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
     fd_accdb_close_ro( accdb, ro );
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
@@ -267,9 +266,6 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
         fd_long_sat_add( epoch_start_timestamp, (long)poh_estimate_offset / NS_IN_S ),
         (long)max_allowable_drift_fast / NS_IN_S );
   }
-
-  long end = fd_log_wallclock();
-  FD_LOG_DEBUG(( "get_timestamp_estimate took %ld ns", end - start ));
 
   return estimate;
 }
