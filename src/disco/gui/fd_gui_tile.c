@@ -366,15 +366,16 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
 
         ulong vote_count = 0UL;
-        for( fd_vote_stakes_fork_iter_init( vote_stakes, bank->data->vote_stakes_fork_id );
-             !fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id );
-             fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id ) ) {
+        uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+        for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, bank->data->vote_stakes_fork_id, iter_mem );
+             !fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id, iter );
+             fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id, iter ) ) {
           fd_pubkey_t pubkey;
           ulong stake_t_1;
           ulong stake_t_2;
           fd_pubkey_t node_account_t_1;
           fd_pubkey_t node_account_t_2;
-          fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+          fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
 
           ctx->peers->votes[ vote_count ].vote_account = pubkey;
           ctx->peers->votes[ vote_count ].node_account = node_account_t_1;

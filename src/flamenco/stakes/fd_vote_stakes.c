@@ -410,33 +410,43 @@ fd_vote_stakes_get_root_idx( fd_vote_stakes_t * vote_stakes ) {
   return vote_stakes->root_idx;
 }
 
-void
+fd_vote_stakes_iter_t *
 fd_vote_stakes_fork_iter_init( fd_vote_stakes_t * vote_stakes,
-                               ushort             fork_idx ) {
-  vote_stakes->fork_iter = stakes_map_iter_init( get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
+                               ushort             fork_idx,
+                               uchar              iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] ) {
+
+  stakes_map_iter_t iter = stakes_map_iter_init( get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
+  memcpy( iter_mem, &iter, sizeof(stakes_map_iter_t) );
+  return (fd_vote_stakes_iter_t *)iter_mem;
 }
 
 int
-fd_vote_stakes_fork_iter_done( fd_vote_stakes_t * vote_stakes,
-                               ushort             fork_idx ) {
-  return stakes_map_iter_done( vote_stakes->fork_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
+fd_vote_stakes_fork_iter_done( fd_vote_stakes_t *      vote_stakes,
+                               ushort                  fork_idx,
+                               fd_vote_stakes_iter_t * iter ) {
+  stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
+  return stakes_map_iter_done( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
 }
 
 void
-fd_vote_stakes_fork_iter_next( fd_vote_stakes_t * vote_stakes,
-                               ushort             fork_idx ) {
-  vote_stakes->fork_iter = stakes_map_iter_next( vote_stakes->fork_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
+fd_vote_stakes_fork_iter_next( fd_vote_stakes_t *      vote_stakes,
+                               ushort                  fork_idx,
+                               fd_vote_stakes_iter_t * iter ) {
+  stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
+  *stakes_map_iter = stakes_map_iter_next( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
 }
 
 void
-fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t * vote_stakes,
-                              ushort             fork_idx,
-                              fd_pubkey_t *      pubkey_out,
-                              ulong *            stake_t_1_out,
-                              ulong *            stake_t_2_out,
-                              fd_pubkey_t *      node_account_t_1_out,
-                              fd_pubkey_t *      node_account_t_2_out ) {
-  stake_t * stake = stakes_map_iter_ele( vote_stakes->fork_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
+fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
+                              ushort                  fork_idx,
+                              fd_vote_stakes_iter_t * iter,
+                              fd_pubkey_t *           pubkey_out,
+                              ulong *                 stake_t_1_out,
+                              ulong *                 stake_t_2_out,
+                              fd_pubkey_t *           node_account_t_1_out,
+                              fd_pubkey_t *           node_account_t_2_out ) {
+  stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
+  stake_t * stake = stakes_map_iter_ele( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
 
   index_ele_t * index_pool = get_index_pool( vote_stakes );
   index_ele_t * index_ele  = index_pool_ele( index_pool, stake->idx );

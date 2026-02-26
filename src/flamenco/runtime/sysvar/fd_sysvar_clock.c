@@ -158,15 +158,16 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
   ushort             fork_idx    = bank->data->vote_stakes_fork_id;
 
-  for( fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx );
-       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx );
-       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx ) ) {
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
     fd_pubkey_t pubkey;
     ulong stake_t_1;
     ulong stake_t_2;
     fd_pubkey_t node_account_t_1;
     fd_pubkey_t node_account_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
     fd_accdb_ro_t ro[1];

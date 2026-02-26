@@ -580,16 +580,17 @@ generate_epoch_info_msg( ulong                       epoch,
 
   /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
   ulong idx = 0UL;
-  for( fd_vote_stakes_fork_iter_init( vote_stakes, vote_stakes_fork_idx );
-       !fd_vote_stakes_fork_iter_done( vote_stakes, vote_stakes_fork_idx );
-       fd_vote_stakes_fork_iter_next( vote_stakes, vote_stakes_fork_idx ) ) {
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, vote_stakes_fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, vote_stakes_fork_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, vote_stakes_fork_idx, iter ) ) {
 
     fd_pubkey_t pubkey;
     ulong stake_t_1;
     ulong stake_t_2;
     fd_pubkey_t node_account_t_1;
     fd_pubkey_t node_account_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, vote_stakes_fork_idx, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    fd_vote_stakes_fork_iter_ele( vote_stakes, vote_stakes_fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
 
     ulong       stake        = current_epoch ? stake_t_1 : stake_t_2;
     fd_pubkey_t node_account = current_epoch ? node_account_t_1 : node_account_t_2;
