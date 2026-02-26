@@ -154,18 +154,23 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
      a stake weighted median using the stake as of the end of epoch E-2
      if we are currently in epoch E. We do not count vote accounts that
      have not voted in an epoch's worth of slots (432k). */
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
 
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-       !fd_vote_states_iter_done( iter );
-       fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( bank );
+  ushort             fork_idx    = bank->data->vote_stakes_fork_id;
 
-    if( FD_UNLIKELY( !vote_state->stake_t_2 ) ) continue;
+  for( fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx ) ) {
+    fd_pubkey_t pubkey;
+    ulong stake_t_1;
+    ulong stake_t_2;
+    fd_pubkey_t node_account_t_1;
+    fd_pubkey_t node_account_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
     fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &vote_state->vote_account ) ) ) {
+    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
       FD_LOG_ERR(( "fd_accdb_open_ro failed" ));
     }
     if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) {
@@ -204,14 +209,13 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
-      .stake     = { .ud=vote_state->stake_t_2 },
+      .stake     = { .ud=stake_t_2 },
     };
     ts_ele_cnt++;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L54 */
-    total_stake += vote_state->stake_t_2;
+    total_stake += stake_t_2;
   }
-  fd_bank_vote_states_end_locking_query( bank );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L56-L58 */
   if( FD_UNLIKELY( total_stake==0UL ) ) {

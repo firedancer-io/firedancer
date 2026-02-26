@@ -497,8 +497,8 @@ fd_bank_set_vote_stakes( fd_bank_data_t * bank, fd_vote_stakes_t * vote_stakes )
 }
 
 static inline fd_vote_stakes_t *
-fd_bank_get_vote_stakes( fd_bank_data_t * bank ) {
-  return fd_type_pun( (uchar *)bank + bank->vote_stakes_pool_offset );
+fd_bank_get_vote_stakes( fd_bank_t const * bank ) {
+  return fd_type_pun( (uchar *)bank->data + bank->data->vote_stakes_pool_offset );
 }
 
 /* fd_bank_t is the alignment for the bank state. */

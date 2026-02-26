@@ -81,16 +81,6 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
                                    fd_bank_t *               bank );
 
-/* fd_stakes_update_vote_state is used to maintain the in-memory cache
-   of the vote states that is used at the epoch boundary.  Entries in
-   the cache will be inserted/updated/removed based on the state of
-   the vote account. */
-
-void
-fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
-                             fd_account_meta_t const * meta,
-                             fd_bank_t *               bank );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stakes_h */

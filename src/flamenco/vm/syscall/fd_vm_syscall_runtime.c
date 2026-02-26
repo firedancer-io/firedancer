@@ -287,8 +287,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   fd_pubkey_t const * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( vm->instr_ctx->bank->data );
+  fd_vote_stakes_t * vote_stakes = fd_bank_get_vote_stakes( vm->instr_ctx->bank );
 
   ulong stake_t_1;
   ulong stake_t_2;
