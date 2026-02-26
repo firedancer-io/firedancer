@@ -271,7 +271,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
   }
 
   long end = fd_log_wallclock();
-  FD_LOG_NOTICE(( "get_timestamp_estimate took %ld ns", end - start ));
+  FD_LOG_DEBUG(( "get_timestamp_estimate took %ld ns", end - start ));
 
   return estimate;
 }

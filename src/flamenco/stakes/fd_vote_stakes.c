@@ -370,7 +370,13 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
   stake_t * stake = stakes_pool_ele_acquire( stakes_pool );
   stake->idx = (uint)index_pool_idx( index_pool, index_ele );
   FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
+}
 
+uint
+fd_vote_stakes_ele_cnt( fd_vote_stakes_t * vote_stakes,
+                        ushort             fork_idx ) {
+  stake_t * stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
+  return (uint)stakes_pool_used( stakes_pool );
 }
 
 uint

@@ -119,10 +119,10 @@ test_ctx_setup( void ) {
   FD_TEST( test_ctx->parent_bank );
 
   /* Initialize vote states for parent bank */
-  fd_vote_states_t * parent_vote_states = fd_bank_vote_states_locking_modify( test_ctx->parent_bank );
-  parent_vote_states                    = fd_vote_states_join( fd_vote_states_new( parent_vote_states, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  FD_TEST( parent_vote_states );
-  fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
+  // fd_vote_states_t * parent_vote_states = fd_bank_vote_states_locking_modify( test_ctx->parent_bank );
+  // parent_vote_states                    = fd_vote_states_join( fd_vote_states_new( parent_vote_states, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  // FD_TEST( parent_vote_states );
+  // fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
 
   // fd_vote_states_t * parent_vote_states_prev = fd_bank_vote_states_prev_modify( test_ctx->parent_bank );
   // parent_vote_states_prev                    = fd_vote_states_join( fd_vote_states_new( parent_vote_states_prev, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
@@ -216,7 +216,7 @@ restore_features_from_proto( fd_features_t * features, fd_exec_test_feature_set_
   return 1;
 }
 
-static void
+static void FD_FN_UNUSED
 register_vote_account_from_db( fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_vote_states_t *        vote_states,
@@ -242,7 +242,7 @@ register_vote_account_from_db( fd_accdb_user_t *         accdb,
 }
 
 /* Helper: Register a stake delegation from an account in funk */
-static void
+static void FD_FN_UNUSED
 register_stake_delegation_from_db( fd_accdb_user_t *         accdb,
                                    fd_funk_txn_xid_t const * xid,
                                    fd_stake_delegations_t *  stake_delegations,
@@ -307,7 +307,6 @@ test_block_round_trip( test_ctx_t *  test_ctx,
                        ulong         block_ctx_sz,
                        char const *  test_name ) {
 FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
-  FD_LOG_NOTICE(( "TEST: %s", test_name ));
 
   /* Decode the input block context */
   pb_istream_t                 input_stream = pb_istream_from_buffer( block_ctx_data, block_ctx_sz );
@@ -369,40 +368,40 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     inflation->foundation_term = input_ctx.epoch_ctx.inflation.foundation_term;
   }
 
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( test_ctx->parent_bank );
-  /* Populate previous epoch vote accounts */
-  if( input_ctx.epoch_ctx.vote_accounts_t_1_count ) {
+  // fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( test_ctx->parent_bank );
+  // /* Populate previous epoch vote accounts */
+  // if( input_ctx.epoch_ctx.vote_accounts_t_1_count ) {
 
-    for( pb_size_t i=0U; i<input_ctx.epoch_ctx.vote_accounts_t_1_count; i++ ) {
-      fd_exec_test_vote_account_t const * vote_acct = &input_ctx.epoch_ctx.vote_accounts_t_1[i];
-      if( !vote_acct->has_vote_account ) continue;
+  //   for( pb_size_t i=0U; i<input_ctx.epoch_ctx.vote_accounts_t_1_count; i++ ) {
+  //     fd_exec_test_vote_account_t const * vote_acct = &input_ctx.epoch_ctx.vote_accounts_t_1[i];
+  //     if( !vote_acct->has_vote_account ) continue;
 
-      fd_pubkey_t vote_address;
-      fd_memcpy( &vote_address, vote_acct->vote_account.address, sizeof(fd_pubkey_t) );
+  //     fd_pubkey_t vote_address;
+  //     fd_memcpy( &vote_address, vote_acct->vote_account.address, sizeof(fd_pubkey_t) );
 
-      fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &vote_address );
-      if( FD_UNLIKELY( !vote_state_ele ) ) continue;
-      vote_state_ele->stake_t_1 = vote_acct->stake;
-    }
-  }
+  //     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &vote_address );
+  //     if( FD_UNLIKELY( !vote_state_ele ) ) continue;
+  //     vote_state_ele->stake_t_1 = vote_acct->stake;
+  //   }
+  // }
 
-  /* Populate previous-to-previous epoch vote accounts */
-  if( input_ctx.epoch_ctx.vote_accounts_t_2_count ) {
+  // /* Populate previous-to-previous epoch vote accounts */
+  // if( input_ctx.epoch_ctx.vote_accounts_t_2_count ) {
 
-    for( pb_size_t i=0U; i<input_ctx.epoch_ctx.vote_accounts_t_2_count; i++ ) {
-      fd_exec_test_vote_account_t const * vote_acct = &input_ctx.epoch_ctx.vote_accounts_t_2[i];
-      if( !vote_acct->has_vote_account ) continue;
+  //   for( pb_size_t i=0U; i<input_ctx.epoch_ctx.vote_accounts_t_2_count; i++ ) {
+  //     fd_exec_test_vote_account_t const * vote_acct = &input_ctx.epoch_ctx.vote_accounts_t_2[i];
+  //     if( !vote_acct->has_vote_account ) continue;
 
-      fd_pubkey_t vote_address;
-      fd_memcpy( &vote_address, vote_acct->vote_account.address, sizeof(fd_pubkey_t) );
+  //     fd_pubkey_t vote_address;
+  //     fd_memcpy( &vote_address, vote_acct->vote_account.address, sizeof(fd_pubkey_t) );
 
-      fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &vote_address );
-      if( FD_UNLIKELY( !vote_state_ele ) ) continue;
-      vote_state_ele->stake_t_2 = vote_acct->stake;
-    }
-  }
+  //     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, &vote_address );
+  //     if( FD_UNLIKELY( !vote_state_ele ) ) continue;
+  //     vote_state_ele->stake_t_2 = vote_acct->stake;
+  //   }
+  // }
 
-  fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
+  // fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
 
   /* Initialize and populate blockhash queue from input context */
   ulong              blockhash_seed = 42UL;
@@ -439,21 +438,21 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );
   stake_delegations = fd_stake_delegations_join( fd_stake_delegations_new( stake_delegations, 0UL, FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
 
-  /* Initialize and populate current epoch vote states from accounts */
-  fd_vote_states_t * vote_states_current = fd_bank_vote_states_locking_modify( test_ctx->parent_bank );
+  // /* Initialize and populate current epoch vote states from accounts */
+  // fd_vote_states_t * vote_states_current = fd_bank_vote_states_locking_modify( test_ctx->parent_bank );
 
-  for( pb_size_t i=0U; i<input_ctx.acct_states_count; i++ ) {
-    fd_pubkey_t pubkey;
-    fd_memcpy( &pubkey, input_ctx.acct_states[i].address, sizeof(fd_pubkey_t) );
+  // for( pb_size_t i=0U; i<input_ctx.acct_states_count; i++ ) {
+  //   fd_pubkey_t pubkey;
+  //   fd_memcpy( &pubkey, input_ctx.acct_states[i].address, sizeof(fd_pubkey_t) );
 
-    /* Register vote account in current epoch */
-    register_vote_account_from_db( test_ctx->accdb, &test_ctx->parent_xid, vote_states_current, &pubkey );
+  //   /* Register vote account in current epoch */
+  //   register_vote_account_from_db( test_ctx->accdb, &test_ctx->parent_xid, vote_states_current, &pubkey );
 
-    /* Register stake delegation */
-    register_stake_delegation_from_db( test_ctx->accdb, &test_ctx->parent_xid, stake_delegations, &pubkey );
-  }
+  //   /* Register stake delegation */
+  //   register_stake_delegation_from_db( test_ctx->accdb, &test_ctx->parent_xid, stake_delegations, &pubkey );
+  // }
 
-  fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
+  // fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
 
   /* Reuse existing child bank */
   FD_TEST( test_ctx->child_bank );

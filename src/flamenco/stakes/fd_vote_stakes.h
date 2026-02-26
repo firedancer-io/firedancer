@@ -209,6 +209,13 @@ fd_vote_stakes_query_idx( fd_vote_stakes_t *  vote_stakes,
                           ushort              fork_idx,
                           fd_pubkey_t const * pubkey );
 
+/* fd_vote_stakes_ele_cnt returns the number of entries for a given
+   fork. */
+
+uint
+fd_vote_stakes_ele_cnt( fd_vote_stakes_t * vote_stakes,
+                        ushort             fork_idx );
+
 /* fd_vote_stakes_get_root_idx returns the index of the root fork. */
 
 /* TODO:FIXME: document the iterator api */
