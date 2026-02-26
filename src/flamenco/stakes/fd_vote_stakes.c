@@ -108,8 +108,6 @@ fd_vote_stakes_new( void * shmem,
   vote_stakes->root_idx            = (ushort)fork_pool_idx_acquire( fork_pool );
   fork_dlist_idx_push_tail( fork_dlist, vote_stakes->root_idx, fork_pool );
 
-  fd_rwlock_new( &vote_stakes->rwlock );
-
   FD_COMPILER_MFENCE();
   FD_VOLATILE( vote_stakes->magic ) = FD_VOTE_STAKES_MAGIC;
   FD_COMPILER_MFENCE();
@@ -142,8 +140,6 @@ fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
                             fd_pubkey_t *      node_account_t_1,
                             fd_pubkey_t *      node_account_t_2 ) {
 
-  fd_rwlock_write( &vote_stakes->rwlock );
-
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_t *       index_map       = get_index_map( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
@@ -163,13 +159,83 @@ fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
   stake_t *      new_stake = stakes_pool_ele_acquire( stakes_pool );
   new_stake->idx = pubkey_idx;
   FD_TEST( stakes_map_ele_insert( stakes_map, new_stake, stakes_pool ) );
+}
 
-  fd_rwlock_unwrite( &vote_stakes->rwlock );
+void
+fd_vote_stakes_insert_root_key( fd_vote_stakes_t *  vote_stakes,
+                                fd_pubkey_t * const pubkey ) {
+
+  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
+
+  index_ele_t * ele = index_pool_ele_acquire( index_pool );
+  ele->pubkey       = *pubkey;
+  ele->refcnt       = 1;
+  ele->stake_t_1    = 0UL;
+  ele->stake_t_2    = 0UL;
+  /* We can't insert the element into the other index map yet because we
+     don't know the stake values yet. */
+  FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
+
+  uint pubkey_idx = (uint)index_pool_idx( index_pool, ele );
+
+  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, vote_stakes->root_idx );
+  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, vote_stakes->root_idx );
+
+  stake_t *      new_stake = stakes_pool_ele_acquire( stakes_pool );
+  new_stake->idx = pubkey_idx;
+  FD_TEST( stakes_map_ele_insert( stakes_map, new_stake, stakes_pool ) );
+}
+
+void
+fd_vote_stakes_insert_root_update( fd_vote_stakes_t *  vote_stakes,
+                                   fd_pubkey_t const * vote_acc,
+                                   fd_pubkey_t const * node_acc,
+                                   ulong               stake,
+                                   int                 is_t_1 ) {
+
+  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
+  stake_t *           stakes_pool     = get_stakes_pool( vote_stakes, vote_stakes->root_idx );
+  stakes_map_t *      stakes_map      = get_stakes_map( vote_stakes, vote_stakes->root_idx );
+
+  index_ele_t * ele = index_map_multi_ele_query( index_map_multi, vote_acc, NULL, index_pool );
+  if( FD_UNLIKELY( !ele ) ) {
+    ele = index_pool_ele_acquire( index_pool );
+    ele->pubkey       = *vote_acc;
+    ele->refcnt       = 1;
+    FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
+    uint pubkey_idx = (uint)index_pool_idx( index_pool, ele );
+    stake_t *      new_stake = stakes_pool_ele_acquire( stakes_pool );
+    new_stake->idx = pubkey_idx;
+    FD_TEST( stakes_map_ele_insert( stakes_map, new_stake, stakes_pool ) );
+  }
+
+  if( is_t_1 ) {
+    ele->stake_t_1        = stake;
+    ele->node_account_t_1 = *node_acc;
+  } else {
+    ele->stake_t_2        = stake;
+    ele->node_account_t_2 = *node_acc;
+  }
+}
+
+void
+fd_vote_stakes_fini_root( fd_vote_stakes_t * vote_stakes ) {
+  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_t *       index_map       = get_index_map( vote_stakes );
+  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
+
+  for( index_map_multi_iter_t iter = index_map_multi_iter_init( index_map_multi, index_pool );
+       !index_map_multi_iter_done( iter, index_map_multi, index_pool );
+       iter = index_map_multi_iter_next( iter, index_map_multi, index_pool ) ) {
+    index_ele_t * ele = index_map_multi_iter_ele( iter, index_map_multi, index_pool );
+    FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
+  }
 }
 
 ushort
 fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes ) {
-  fd_rwlock_write( &vote_stakes->rwlock );
 
   fork_t *       fork_pool  = get_fork_pool( vote_stakes );
   fork_dlist_t * fork_dlist = get_fork_dlist( vote_stakes );
@@ -182,18 +248,15 @@ fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes ) {
 
   fork_dlist_idx_push_tail( fork_dlist, idx, fork_pool );
 
-  fd_rwlock_unwrite( &vote_stakes->rwlock );
   return idx;
 }
 
 void
 fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
                              ushort             root_idx ) {
-  fd_rwlock_write( &vote_stakes->rwlock );
 
   /* Only expect the vote stakes to update once an epoch. */
   if( FD_LIKELY( root_idx==vote_stakes->root_idx ) ) {
-    fd_rwlock_unwrite( &vote_stakes->rwlock );
     return;
   }
 
@@ -233,8 +296,6 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
 
   fork_dlist_idx_push_head( fork_dlist, root_idx, fork_pool );
   vote_stakes->root_idx = root_idx;
-
-  fd_rwlock_unwrite( &vote_stakes->rwlock );
 }
 
 int
@@ -245,8 +306,6 @@ fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
                             ulong *             stake_t_2_out,
                             fd_pubkey_t *       node_account_t_1_out,
                             fd_pubkey_t *       node_account_t_2_out ) {
-
-  fd_rwlock_write( &vote_stakes->rwlock );
 
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
@@ -260,14 +319,12 @@ fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
      t_2 stake value.*/
   uint ele_idx = (uint)index_map_multi_idx_query_const( index_map_multi, pubkey, UINT_MAX, index_pool );
   if( FD_UNLIKELY( ele_idx==UINT_MAX ) ) {
-    fd_rwlock_unwrite( &vote_stakes->rwlock );
     return 0;
   }
 
   while( !stakes_map_ele_query( stakes_map, &ele_idx, NULL, stakes_pool ) ) {
     ele_idx = (uint)index_map_multi_idx_next_const( ele_idx, UINT_MAX, index_pool );
     if( FD_UNLIKELY( ele_idx==UINT_MAX ) ) {
-      fd_rwlock_unwrite( &vote_stakes->rwlock );
       return 0;
     }
   }
@@ -277,7 +334,6 @@ fd_vote_stakes_query_stake( fd_vote_stakes_t *  vote_stakes,
   *stake_t_2_out        = index_ele->stake_t_2;
   *node_account_t_1_out = index_ele->node_account_t_1;
   *node_account_t_2_out = index_ele->node_account_t_2;
-  fd_rwlock_unwrite( &vote_stakes->rwlock );
   return 1;
 }
 
@@ -289,7 +345,6 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
                        ulong              stake_t_2,
                        fd_pubkey_t *      node_account_t_1,
                        fd_pubkey_t *      node_account_t_2 ) {
-  fd_rwlock_write( &vote_stakes->rwlock );
 
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_t *       index_map       = get_index_map( vote_stakes );
@@ -316,15 +371,12 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
   stake->idx = (uint)index_pool_idx( index_pool, index_ele );
   FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
 
-  fd_rwlock_unwrite( &vote_stakes->rwlock );
 }
 
 uint
 fd_vote_stakes_query_idx( fd_vote_stakes_t *  vote_stakes,
                           ushort              fork_idx,
                           fd_pubkey_t const * pubkey ) {
-
-  fd_rwlock_write( &vote_stakes->rwlock );
 
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
@@ -344,7 +396,6 @@ fd_vote_stakes_query_idx( fd_vote_stakes_t *  vote_stakes,
   }
 
   uint res_idx = (uint)stakes_map_idx_query( stakes_map, &ele_idx, UINT_MAX, stakes_pool );
-  fd_rwlock_unwrite( &vote_stakes->rwlock );
   return res_idx;
 }
 
@@ -356,16 +407,13 @@ fd_vote_stakes_get_root_idx( fd_vote_stakes_t * vote_stakes ) {
 void
 fd_vote_stakes_fork_iter_init( fd_vote_stakes_t * vote_stakes,
                                ushort             fork_idx ) {
-  fd_rwlock_write( &vote_stakes->rwlock );
   vote_stakes->fork_iter = stakes_map_iter_init( get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
 }
 
 int
 fd_vote_stakes_fork_iter_done( fd_vote_stakes_t * vote_stakes,
                                ushort             fork_idx ) {
-  int is_done = stakes_map_iter_done( vote_stakes->fork_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
-  if( FD_UNLIKELY( is_done ) ) fd_rwlock_unwrite( &vote_stakes->rwlock );
-  return is_done;
+  return stakes_map_iter_done( vote_stakes->fork_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
 }
 
 void

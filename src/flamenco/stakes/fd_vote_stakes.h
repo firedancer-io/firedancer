@@ -144,6 +144,21 @@ fd_vote_stakes_insert_root( fd_vote_stakes_t * vote_stakes,
                             fd_pubkey_t *      node_account_t_1,
                             fd_pubkey_t *      node_account_t_2 );
 
+void
+fd_vote_stakes_insert_root_key( fd_vote_stakes_t *  vote_stakes,
+                                fd_pubkey_t * const pubkey );
+
+void
+fd_vote_stakes_insert_root_update( fd_vote_stakes_t *  vote_stakes,
+                                   fd_pubkey_t const * vote_acc,
+                                   fd_pubkey_t const * node_acc,
+                                   ulong               stake,
+                                   int                 is_t_1 );
+
+void
+fd_vote_stakes_fini_root( fd_vote_stakes_t * vote_stakes );
+
+
 /* fd_vote_stakes_new_child creates a new child fork and returns the
    index identifier for the new fork. */
 

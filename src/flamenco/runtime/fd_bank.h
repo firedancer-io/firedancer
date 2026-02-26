@@ -377,7 +377,7 @@ struct fd_bank_data {
   ulong cost_tracker_pool_idx;
   ulong cost_tracker_pool_offset;
 
-  ulong vote_stakes_pool_offset;
+  ulong vote_stakes_offset;
 
   int   stake_delegations_delta_dirty;
   uchar stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
@@ -415,6 +415,8 @@ struct fd_banks_locks {
   fd_rwlock_t epoch_rewards_pool_lock;
   fd_rwlock_t epoch_leaders_pool_lock;
   fd_rwlock_t vote_states_pool_lock;
+
+  fd_rwlock_t vote_stakes_lock;
 
   /* These locks are per bank and are used to atomically update their
      corresponding fields in each bank.  The locks are indexed by the
@@ -493,12 +495,18 @@ fd_bank_get_cost_tracker_pool( fd_bank_data_t * bank ) {
 
 static inline void
 fd_bank_set_vote_stakes( fd_bank_data_t * bank, fd_vote_stakes_t * vote_stakes ) {
-  bank->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)bank;
+  bank->vote_stakes_offset = (ulong)vote_stakes - (ulong)bank;
 }
 
 static inline fd_vote_stakes_t *
-fd_bank_get_vote_stakes( fd_bank_t const * bank ) {
-  return fd_type_pun( (uchar *)bank->data + bank->data->vote_stakes_pool_offset );
+fd_bank_vote_stakes_locking_query( fd_bank_t const * bank ) {
+  fd_rwlock_write( &bank->locks->vote_stakes_lock );
+  return fd_type_pun( (uchar *)bank->data + bank->data->vote_stakes_offset );
+}
+
+static inline void
+fd_bank_vote_stakes_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->locks->vote_stakes_lock );
 }
 
 /* fd_bank_t is the alignment for the bank state. */

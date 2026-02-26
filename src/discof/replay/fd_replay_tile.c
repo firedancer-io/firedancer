@@ -535,7 +535,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
 static inline ulong
 generate_epoch_info_msg( ulong                       epoch,
                          fd_epoch_schedule_t const * epoch_schedule,
-                         fd_vote_states_t const *    epoch_stakes,
+                         fd_vote_stakes_t *          vote_stakes,
+                         ushort                      vote_stakes_fork_idx,
                          fd_features_t const *       features,
                          fd_epoch_info_msg_t *       epoch_info_msg,
                          int                         current_epoch ) {
@@ -555,17 +556,25 @@ generate_epoch_info_msg( ulong                       epoch,
   }
 
   /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
-  fd_vote_states_iter_t iter_[1];
   ulong idx = 0UL;
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, epoch_stakes ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+  for( fd_vote_stakes_fork_iter_init( vote_stakes, vote_stakes_fork_idx );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, vote_stakes_fork_idx );
+       fd_vote_stakes_fork_iter_next( vote_stakes, vote_stakes_fork_idx ) ) {
 
-    ulong stake = current_epoch ? vote_state->stake_t_1 : vote_state->stake_t_2;
+    fd_pubkey_t pubkey;
+    ulong stake_t_1;
+    ulong stake_t_2;
+    fd_pubkey_t node_account_t_1;
+    fd_pubkey_t node_account_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, vote_stakes_fork_idx, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+
+    ulong       stake        = current_epoch ? stake_t_1 : stake_t_2;
+    fd_pubkey_t node_account = current_epoch ? node_account_t_1 : node_account_t_2;
     if( FD_UNLIKELY( !stake ) ) continue;
 
     stake_weights[ idx ].stake = stake;
-    memcpy( stake_weights[ idx ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ idx ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
     idx++;
   }
   epoch_info_msg->staked_cnt = idx;
@@ -585,12 +594,14 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL );
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
-
   fd_features_t const * features = fd_bank_features_query( bank );
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
-  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states, features, epoch_info_msg, current_epoch );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_stakes, bank->data->vote_stakes_fork_id, features, epoch_info_msg, current_epoch );
+  fd_bank_vote_stakes_end_locking_query( bank );
+
   ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
@@ -598,7 +609,6 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
 
-  fd_bank_vote_states_end_locking_query( bank );
 }
 
 /**********************************************************************/
