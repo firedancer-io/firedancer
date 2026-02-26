@@ -115,8 +115,8 @@ test_env_create( test_env_t * env,
   ulong const funk_seed       = 17UL;
   ulong const txn_max         = 2UL;
   ulong const rec_max         = 16UL;
-  ulong const max_total_banks = 2UL;
-  ulong const max_fork_width  = 2UL;
+  ulong const max_total_banks = 4UL;
+  ulong const max_fork_width  = 4UL;
 
   env->funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), env->tag );
   FD_TEST( env->funk_mem );
