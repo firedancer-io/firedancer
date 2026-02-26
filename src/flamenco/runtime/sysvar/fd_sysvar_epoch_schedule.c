@@ -126,12 +126,6 @@ ulong
 fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
                   ulong                       slot,
                   ulong *                     out_offset_opt ) {
-
-  if( FD_UNLIKELY( schedule->slots_per_epoch == 0UL ) ) {
-    FD_LOG_WARNING(( "zero slots_per_epoch" ));
-    return 0UL;
-  }
-
   ulong epoch;
   ulong offset;
 
@@ -153,6 +147,11 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
           offset    = slot - ( epoch_len - FD_EPOCH_LEN_MIN );
   } else {
     // FD_LOG_WARNING(("First %lu slots per epoch %lu", schedule->first_normal_slot, schedule->slots_per_epoch));
+    if( FD_UNLIKELY( schedule->slots_per_epoch == 0UL ) ) {
+      FD_LOG_WARNING(( "zero slots_per_epoch returning first_normal_epoch %lu", schedule->first_normal_epoch ));
+      if( out_offset_opt ) *out_offset_opt = 0UL;
+      return schedule->first_normal_epoch;
+    }
     ulong n_slot  = slot - schedule->first_normal_slot;
     ulong n_epoch = n_slot / schedule->slots_per_epoch;
           epoch   = schedule->first_normal_epoch + n_epoch;
@@ -174,6 +173,11 @@ fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
 
   if( FD_UNLIKELY( slot<schedule->first_normal_slot ) ) {
     return fd_slot_to_epoch( schedule, slot, NULL ) + 1UL;
+  }
+
+  if( FD_UNLIKELY( schedule->slots_per_epoch == 0UL ) ) {
+    FD_LOG_WARNING(( "zero slots_per_epoch returning first_normal_epoch %lu", schedule->first_normal_epoch ));
+    return schedule->first_normal_epoch;
   }
 
   ulong new_slots_since_first_normal_slot =
