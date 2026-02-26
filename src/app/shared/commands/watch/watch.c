@@ -394,6 +394,33 @@ write_snapshots( config_t const * config,
 }
 
 static uint
+write_accdb( config_t const * config,
+             ulong const *    cur_tile ) {
+  ulong accdb_tile_idx  = fd_topo_find_tile( &config->topo, "accdb",  0UL );
+  ulong snapwm_tile_idx = fd_topo_find_tile( &config->topo, "snapwm", 0UL );
+  ulong snapwr_tile_idx = fd_topo_find_tile( &config->topo, "snapwr", 0UL );
+  if( accdb_tile_idx ==ULONG_MAX ) return 0U;
+  if( snapwm_tile_idx==ULONG_MAX ) return 0U;
+  if( snapwr_tile_idx==ULONG_MAX ) return 0U;
+
+  ulong snapwr_state = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, STATE ) ];
+  ulong used_bytes   = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FILE_USED_BYTES     ) ];
+  ulong cap_bytes    = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FILE_CAPACITY_BYTES ) ];
+  ulong acct_cnt     = cur_tile[ snapwm_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
+  if( snapwr_state==4 ) {
+    used_bytes = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, FILE_USED_BYTES     ) ];
+    cap_bytes  = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, FILE_CAPACITY_BYTES ) ];
+    acct_cnt   = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, ACCOUNTS ) ];
+  }
+
+  double used_gb = (double)used_bytes/1e9;
+  double cap_gb  = (double)cap_bytes /1e9;
+  PRINT( "💾 \033[1m\033[32mACCOUNTS....\033[0m\033[22m USED (%.1f/%.1f GB) NUM %.1fM\033[K\n",
+         used_gb, cap_gb, (double)acct_cnt/1e6 );
+  return 1;
+}
+
+static uint
 write_gossip( config_t const * config,
               ulong const *    cur_tile,
               ulong const *    prev_tile,
@@ -474,7 +501,7 @@ write_replay( config_t const * config,
   for( ulong i=0UL; i<num_tps_samples; i++ ) tps_sum += tps_samples[ i ];
   char * tps_str = COUNTF( 100.0*(double)tps_sum/(double)num_tps_samples );
 
-  PRINT( "💥 \033[1m\033[35mREPLAY......\033[0m\033[22m \033[1mSLOT\033[22m %lu (%02ld) \033[1mTPS\033[22m %s \033[1mSPS\033[22m %s \033[1mLEADER IN\033[22m %s \033[1mROOT DIST\033[22m %lu \033[1mBANKS\033[22m %lu\033[K\n",
+  PRINT( "💥 \033[1m\033[35mREPLAY......\033[0m\033[22m \033[1mSLOT\033[22m %lu (%02ld) \033[1mTPS\033[22m %s \033[1mSPS\033[22m %s \033[1mLEADER IN\033[22m %s \033[1mROOT DIST\033[22m %lu \033[1mBANKS\033[22m %2lu\033[K\n",
     reset_slot,
     (long)reset_slot-(long)turbine_slot,
     tps_str,
@@ -616,6 +643,7 @@ write_summary( config_t const * config,
     write_snapshots( config, cur_tile, prev_tile );
   }
 
+  lines_printed += write_accdb( config, cur_tile );
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );

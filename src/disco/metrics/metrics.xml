@@ -1094,7 +1094,8 @@ metric introduced.
 
 <tile name="snapwr">
     <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" />
-    <gauge name="VinylBytesWritten" summary="Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted" />
+    <gauge name="FileCapacityBytes" summary="Account database file capacity in bytes" />
+    <gauge name="FileUsedBytes" summary="Current number of bytes used in the account database file" />
 </tile>
 
 <tile name="snapwh">
@@ -1321,6 +1322,8 @@ metric introduced.
     <counter name="ReadBytes" enum="StorageType" summary="Total number of bytes read" />
     <counter name="WriteOps" enum="StorageType" summary="Total number of write operations" />
     <counter name="WriteBytes" enum="StorageType" summary="Total number of bytes written" />
+    <gauge name="FileCapacityBytes" summary="Account database file capacity in bytes" />
+    <gauge name="FileUsedBytes" summary="Current number of bytes used in account database file" />
 
     <!-- developer metrics -->
     <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />

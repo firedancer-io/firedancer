@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <lz4.h>
+#include <sys/stat.h>
 #include <linux/io_uring.h>
 
 #define NAME "accdb"
@@ -96,7 +97,8 @@ struct fd_vinyl_tile {
 
   /* I/O */
 
-  int bstream_fd;
+  int   bstream_fd;
+  ulong bstream_file_sz;
 
   /* io_uring */
 
@@ -314,6 +316,12 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( dev_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC) failed (%i-%s)", tile->accdb.bstream_path, errno, fd_io_strerror( errno ) ));
 
   ctx->bstream_fd = dev_fd;
+
+  struct stat st;
+  if( FD_UNLIKELY( fstat( dev_fd, &st )<0 ) ) {
+    FD_LOG_ERR(( "fstat on bstream fd failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  ctx->bstream_file_sz = (ulong)st.st_size;
 
   int io_type = tile->accdb.io_type;
   if( io_type==FD_VINYL_IO_TYPE_UR ) {
@@ -712,6 +720,9 @@ metrics_write( fd_vinyl_tile_t * ctx ) {
   FD_MCNT_SET( ACCDB, READ_BYTES_FILE,      io->file_read_tot_sz   );
   FD_MCNT_SET( ACCDB, WRITE_OPS_FILE,       io->file_write_cnt     );
   FD_MCNT_SET( ACCDB, WRITE_BYTES_FILE,     io->file_write_tot_sz  );
+
+  FD_MGAUGE_SET( ACCDB, FILE_CAPACITY_BYTES, ctx->bstream_file_sz );
+  FD_MGAUGE_SET( ACCDB, FILE_USED_BYTES,     io->seq_future - io->seq_ancient );
 
   FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_ANCIENT, io->seq_ancient );
   FD_MGAUGE_SET( ACCDB, BSTREAM_SEQ_PAST,    io->seq_past    );
