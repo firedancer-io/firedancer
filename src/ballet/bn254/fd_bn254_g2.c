@@ -324,25 +324,153 @@ fd_bn254_g2_add( fd_bn254_g2_t *       r,
   return r;
 }
 
-/* fd_bn254_g2_scalar_mul computes r = s * p.
-   This assumes that p is affine, i.e. p->Z==1. */
+/* fd_bn254_g2_affine_add computes r = p + q.
+   Both p, q are affine, i.e. Z==1. */
+static fd_bn254_g2_t *
+fd_bn254_g2_affine_add( fd_bn254_g2_t *       r,
+                        fd_bn254_g2_t const * p,
+                        fd_bn254_g2_t const * q ) {
+  /* p==0, return q */
+  if( FD_UNLIKELY( fd_bn254_g2_is_zero( p ) ) ) {
+    return fd_bn254_g2_set( r, q );
+  }
+  /* q==0, return p */
+  if( FD_UNLIKELY( fd_bn254_g2_is_zero( q ) ) ) {
+    return fd_bn254_g2_set( r, p );
+  }
+
+  fd_bn254_fp2_t lambda[1], x[1], y[1];
+
+  /* same X, either the points are equal or opposite */
+  if( fd_bn254_fp2_eq( &p->X, &q->X ) ) {
+    if( fd_bn254_fp2_eq( &p->Y, &q->Y ) ) {
+      /* p==q => point double: lambda = 3 * x1^2 / (2 * y1) */
+      fd_bn254_fp2_sqr( x, &p->X ); /* x =   x1^2 */
+      fd_bn254_fp2_add( y, x, x );  /* y = 2 x1^2 */
+      fd_bn254_fp2_add( x, x, y );  /* x = 3 x1^2 */
+      fd_bn254_fp2_add( y, &p->Y, &p->Y );
+      fd_bn254_fp2_inv( lambda, y );
+      fd_bn254_fp2_mul( lambda, lambda, x );
+    } else {
+      /* p==-q => r=0 */
+      return fd_bn254_g2_set_zero( r );
+    }
+  } else {
+    /* point add: lambda = (y1 - y2) / (x1 - x2) */
+    fd_bn254_fp2_sub( x, &p->X, &q->X );
+    fd_bn254_fp2_sub( y, &p->Y, &q->Y );
+    fd_bn254_fp2_inv( lambda, x );
+    fd_bn254_fp2_mul( lambda, lambda, y );
+  }
+
+  /* x3 = lambda^2 - x1 - x2 */
+  fd_bn254_fp2_sqr( x, lambda );
+  fd_bn254_fp2_sub( x, x, &p->X );
+  fd_bn254_fp2_sub( x, x, &q->X );
+
+  /* y3 = lambda * (x1 - x3) - y1 */
+  fd_bn254_fp2_sub( y, &p->X, x );
+  fd_bn254_fp2_mul( y, y, lambda );
+  fd_bn254_fp2_sub( y, y, &p->Y );
+
+  fd_bn254_fp2_set( &r->X, x );
+  fd_bn254_fp2_set( &r->Y, y );
+  fd_bn254_fp2_set_one( &r->Z );
+  return r;
+}
+
+/* fd_bn254_g2_scalar_mul computes r = [s]P.
+   p must be in affine form (p->Z == 1).
+   The result is in projective coordinates over Fp2. */
 fd_bn254_g2_t *
 fd_bn254_g2_scalar_mul( fd_bn254_g2_t *           r,
                         fd_bn254_g2_t const *     p,
                         fd_bn254_scalar_t const * s ) {
-  /* TODO: wNAF, GLV */
+  if( FD_UNLIKELY( fd_uint256_is_zero( s ) || fd_bn254_g2_is_zero( p ) ) ) {
+    return fd_bn254_g2_set_zero( r );
+  }
+
+  const ulong g1_const[ 3 ] = { 0x7a7bd9d4391eb18eUL, 0x4ccef014a773d2cfUL, 0x0000000000000002UL };
+  ulong b1[ 3 ], b2[ 2 ];
+  fd_bn254_glv_sxg3( b1, s, g1_const );
+  fd_bn254_glv_sxg2( b2, s, g2_const );
+
+  /* k1 = s - b1*N_C - b2*N_B (may be negative for G2) */
+  fd_uint256_t k1_abs[1];
+  int k1_neg = 0;
+  {
+    ulong p_nc[ 4 ];
+    /* b2*nb will produce at most 3 limbs, so we want the 4th zeroed for the addition. */
+    ulong p_nb[ 4 ] = {0};
+    ulong    t[ 4 ];
+    fd_bn254_glv_mul3x2( p_nc, b1, nc );
+    fd_bn254_glv_mul2x1( p_nb, b2, nb );
+    fd_bn254_glv_add4( t, p_nc, p_nb );
+    ulong borrow = fd_bn254_glv_sub4( k1_abs->limbs, s->limbs, t );
+    if( borrow ) {
+      k1_neg = 1;
+      fd_bn254_glv_negate4( k1_abs->limbs );
+    }
+  }
+
+  /* k2 = b2*N_A - b1*N_B (usually negative for G2) */
+  fd_uint256_t k2_abs[1];
+  int k2_neg = 0;
+  {
+    ulong pos[ 4 ], neg[ 4 ];
+    fd_bn254_glv_mul2x2( pos, b2, na );
+    fd_bn254_glv_mul3x1( neg, b1, nb );
+    ulong borrow = fd_bn254_glv_sub4( k2_abs->limbs, pos, neg );
+    if( borrow ) {
+      k2_neg = 1;
+      fd_bn254_glv_negate4( k2_abs->limbs );
+    }
+  }
+
+  /* pt1 = P, pt2 = phi(P) = (beta * P.x, P.y).
+     If k1 < 0, negate pt1. If k2 < 0, negate pt2. */
+  fd_bn254_g2_t pt1[1], pt2[1];
+  fd_bn254_g2_set( pt1, p );
+  fd_bn254_fp_mul( &pt2->X.el[0], &p->X.el[0], fd_bn254_const_beta_mont );
+  fd_bn254_fp_mul( &pt2->X.el[1], &p->X.el[1], fd_bn254_const_beta_mont );
+  fd_bn254_fp2_set( &pt2->Y, &p->Y );
+  fd_bn254_fp2_set_one( &pt2->Z );
+  if( k1_neg ) {
+    fd_bn254_fp2_neg( &pt1->Y, &pt1->Y );
+  }
+  if( k2_neg ) {
+    fd_bn254_fp2_neg( &pt2->Y, &pt2->Y );
+  }
+
+  fd_bn254_g2_t pt12[1];
+  fd_bn254_g2_affine_add( pt12, pt1, pt2 );
+
+  /* Shamir's trick: simultaneous double-and-add on k1, k2. */
   int i = 255;
-  for( ; i>=0 && !fd_uint256_bit( s, i ); i-- ) ; /* do nothing, just i-- */
+  for( ; i>=0; i-- ) {
+    int k1b = !!fd_uint256_bit( k1_abs, i );
+    int k2b = !!fd_uint256_bit( k2_abs, i );
+    if( k1b || k2b ) {
+      fd_bn254_g2_set( r, ( k1b && k2b ) ? pt12 : ( k1b ? pt1 : pt2 ) );
+      break;
+    }
+  }
   if( FD_UNLIKELY( i<0 ) ) {
     return fd_bn254_g2_set_zero( r );
   }
-  fd_bn254_g2_set( r, p );
-  for( i--; i>=0; i-- ) {
+  for( i--; i >= 0; i-- ) {
     fd_bn254_g2_dbl( r, r );
-    if( fd_uint256_bit( s, i ) ) {
-      fd_bn254_g2_add_mixed( r, r, p );
+    int k1b = !!fd_uint256_bit( k1_abs, i );
+    int k2b = !!fd_uint256_bit( k2_abs, i );
+    if( k1b && k2b ) {
+      fd_bn254_g2_add_mixed( r, r, pt12 );
+    } else if( k1b ) {
+      fd_bn254_g2_add_mixed( r, r, pt1 );
+    } else if( k2b ) {
+      fd_bn254_g2_add_mixed( r, r, pt2 );
     }
   }
+
   return r;
 }
 
