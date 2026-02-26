@@ -500,21 +500,24 @@ query_acct_stake_from_bank( fd_tower_voters_t *  tower_voters_deque,
                             fd_tower_stakes_t * tower_stakes,
                             fd_bank_t *         bank,
                             ulong               slot ) {
-  ulong total_stake = 0;
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
-  fd_vote_states_iter_t iter_[1];
+  ulong total_stake    = 0UL;
   ulong prev_voter_idx = ULONG_MAX;
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-                                     !fd_vote_states_iter_done( iter );
-                                      fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    if( FD_UNLIKELY( vote_state->stake_t_2 == 0 ) ) continue; /* skip unstaked vote accounts */
-    fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
-    fd_tower_voters_push_tail( tower_voters_deque, (fd_tower_voters_t){ .addr = *vote_account_pubkey, .stake = vote_state->stake_t_2 } );
-    prev_voter_idx = fd_tower_stakes_vtr_insert( tower_stakes, slot, vote_account_pubkey, vote_state->stake_t_2, prev_voter_idx );
-    total_stake += vote_state->stake_t_2;
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  for( fd_vote_stakes_fork_iter_init( vote_stakes, bank->data->vote_stakes_fork_id );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id );
+       fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id ) ) {
+    fd_pubkey_t pubkey;
+    ulong stake_t_1;
+    ulong stake_t_2;
+    fd_pubkey_t node_account_t_1;
+    fd_pubkey_t node_account_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    fd_tower_voters_push_tail( tower_voters_deque, (fd_tower_voters_t){ .addr = pubkey, .stake = stake_t_2 } );
+    prev_voter_idx = fd_tower_stakes_vtr_insert( tower_stakes, slot, &pubkey, stake_t_2, prev_voter_idx );
+    total_stake += stake_t_2;
   }
-  fd_bank_vote_states_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_query( bank );
   return total_stake;
 }
 
