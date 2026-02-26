@@ -119,7 +119,7 @@ int
 fd_bls12_381_g1_validate_syscall( uchar const _a[ 96 ],
                                   int         big_endian ) {
   fd_bls12_381_g1aff_t a[1];
-  return fd_bls12_381_g1_frombytes( a, _a, big_endian )!=NULL ? 0 : -1;
+  return !!fd_bls12_381_g1_frombytes( a, _a, big_endian );
 }
 
 int
@@ -287,7 +287,7 @@ int
 fd_bls12_381_g2_validate_syscall( uchar const _a[ 96*2 ],
                                   int         big_endian ) {
   fd_bls12_381_g2aff_t a[1];
-  return fd_bls12_381_g2_frombytes( a, _a, big_endian )!=NULL ? 0 : -1;
+  return !!fd_bls12_381_g2_frombytes( a, _a, big_endian );
 }
 
 int

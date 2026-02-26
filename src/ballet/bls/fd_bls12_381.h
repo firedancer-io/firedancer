@@ -41,7 +41,7 @@ fd_bls12_381_g1_decompress_syscall( uchar       r[ 96 ], /* G1 point */
 /* fd_bls12_381_g1_validate_syscall validates the G1 point `a`.
    Input is expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
-   The function returns 0 on success, -1 if `a` is not a G1 point. */
+   The function returns 1 if `a` is a valid G1 point, 0 otherwise. */
 int
 fd_bls12_381_g1_validate_syscall( uchar const a[ 96 ], /* G1 point */
                                   int         big_endian );
@@ -93,7 +93,7 @@ fd_bls12_381_g2_decompress_syscall( uchar       r[ 96*2 ], /* G2 point */
 /* fd_bls12_381_g2_validate_syscall validates the G2 point `a`.
    Input is expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
-   The function returns 0 on success, -1 if `a` is not a G2 point. */
+   The function returns 1 if `a` is a valid G2 point, 0 otherwise. */
 int
 fd_bls12_381_g2_validate_syscall( uchar const a[ 96*2 ], /* G2 point */
                                   int         big_endian );

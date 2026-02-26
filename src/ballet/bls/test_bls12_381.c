@@ -43,10 +43,10 @@ test_g1_val( FD_FN_UNUSED fd_rng_t * rng ) {
       fd_hex_decode( in, tests[2*i], in_sz );
 
       if( strlen( tests[2*i+1] )==0 ) {
-        FD_TEST( fd_bls12_381_g1_validate_syscall( r, 1 /*BE*/ )==-1 );
+        FD_TEST( fd_bls12_381_g1_validate_syscall( r, 1 /*BE*/ )==0 );
         continue;
       }
-      FD_TEST( fd_bls12_381_g1_validate_syscall( r, 1 /*BE*/ )==0 );
+      FD_TEST( fd_bls12_381_g1_validate_syscall( r, 1 /*BE*/ )==1 );
     }
   }
   {
@@ -74,10 +74,10 @@ test_g1_val( FD_FN_UNUSED fd_rng_t * rng ) {
       fd_hex_decode( in, tests[2*i], in_sz );
 
       if( strlen( tests[2*i+1] )==0 ) {
-        FD_TEST( fd_bls12_381_g1_validate_syscall( r, 0 /*LE*/ )==-1 );
+        FD_TEST( fd_bls12_381_g1_validate_syscall( r, 0 /*LE*/ )==0 );
         continue;
       }
-      FD_TEST( fd_bls12_381_g1_validate_syscall( r, 0 /*LE*/ )==0 );
+      FD_TEST( fd_bls12_381_g1_validate_syscall( r, 0 /*LE*/ )==1 );
     }
   }
   {
@@ -492,10 +492,10 @@ test_g2_val( FD_FN_UNUSED fd_rng_t * rng ) {
       fd_hex_decode( in, tests[2*i], in_sz );
 
       if( strlen( tests[2*i+1] )==0 ) {
-        FD_TEST( fd_bls12_381_g2_validate_syscall( r, 1 /*BE*/ )==-1 );
+        FD_TEST( fd_bls12_381_g2_validate_syscall( r, 1 /*BE*/ )==0 );
         continue;
       }
-      FD_TEST( fd_bls12_381_g2_validate_syscall( r, 1 /*BE*/ )==0 );
+      FD_TEST( fd_bls12_381_g2_validate_syscall( r, 1 /*BE*/ )==1 );
     }
   }
   {
@@ -520,10 +520,10 @@ test_g2_val( FD_FN_UNUSED fd_rng_t * rng ) {
       fd_hex_decode( in, tests[2*i], in_sz );
 
       if( strlen( tests[2*i+1] )==0 ) {
-        FD_TEST( fd_bls12_381_g2_validate_syscall( r, 0 /*LE*/ )==-1 );
+        FD_TEST( fd_bls12_381_g2_validate_syscall( r, 0 /*LE*/ )==0 );
         continue;
       }
-      FD_TEST( fd_bls12_381_g2_validate_syscall( r, 0 /*LE*/ )==0 );
+      FD_TEST( fd_bls12_381_g2_validate_syscall( r, 0 /*LE*/ )==1 );
     }
   }
   {
