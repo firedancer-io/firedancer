@@ -76,6 +76,8 @@ $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco 
 $(call run-unit-test,test_instr_acct_bounds,)
 $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_accounts_resize_delta,)
+$(call make-unit-test,test_delay_commission_updates,tests/test_delay_commission_updates,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_delay_commission_updates,)
 endif
 endif
 endif

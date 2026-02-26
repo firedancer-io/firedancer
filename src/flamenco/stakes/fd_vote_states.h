@@ -115,6 +115,13 @@ struct fd_vote_state_ele {
   ulong       stake_t_1;
   ulong       stake_t_2;
 
+  /* Vote account commission information. The t_1 and t_2 commission
+     values are used when delay_commission_updates is active.
+
+     UCHAR_MAX indicates that the commission is not set. */
+  uchar       commission_t_1;
+  uchar       commission_t_2;
+
   /* Vote account information which is derived from the vote account
      data and is used for clock timestamp calculations. */
   fd_pubkey_t vote_account;

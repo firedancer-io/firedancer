@@ -83,10 +83,12 @@ fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
       fd_accdb_ref_data_const( ro ),
       fd_accdb_ref_data_sz   ( ro ) );
   fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, fd_accdb_ref_address( ro ) );
-  vote_state->stake_t_1 = 0UL;
-  vote_state->stake_t_2 = 0UL;
-  vote_state->node_account_t_1 = vote_state->node_account;
-  vote_state->node_account_t_2 = vote_state->node_account;
+  vote_state->stake_t_1            = 0UL;
+  vote_state->stake_t_2            = 0UL;
+  vote_state->commission_t_1       = UCHAR_MAX;
+  vote_state->commission_t_2       = UCHAR_MAX;
+  vote_state->node_account_t_1     = vote_state->node_account;
+  vote_state->node_account_t_2     = vote_state->node_account;
 
   fd_accdb_close_ro( accdb, ro );
 }
