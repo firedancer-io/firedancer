@@ -1145,7 +1145,11 @@ getClusterNodes( fd_rpc_tile_t * ctx,
     }
     fd_http_server_printf( ctx->http, "\"pubkey\":\"%s\",", identity_cstr );
     fd_http_server_printf( ctx->http, "\"shredVersion\":%u,", ele->ci->shred_version );
-    fd_http_server_printf( ctx->http, "\"version\":\"%u.%u.%u\"", ele->ci->version.major, ele->ci->version.minor, ele->ci->version.patch );
+
+    char version[ 64UL ];
+    FD_TEST( fd_gossip_version_cstr( ele->ci->version.major, ele->ci->version.minor, ele->ci->version.patch, version, sizeof( version ) ) );
+    fd_http_server_printf( ctx->http, "\"version\":\"%s\"", version );
+
     if( FD_UNLIKELY( is_last ) ) fd_http_server_printf( ctx->http, "}" );
     else                         fd_http_server_printf( ctx->http, "}," );
   }
