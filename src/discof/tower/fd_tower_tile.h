@@ -16,7 +16,7 @@
 /* fd_tower_slot_confirmed describes a Tower frag that notifies protocol
    confirmations.  There are multiple confirmation levels:
 
-   - propagation confirmed: a block is propagated if it has received
+   - propagation confirmed: a block is propagated if it has received
      votes from at least 1/3 of stake in the cluster.  This threshold is
      important in two contexts:
 
@@ -80,7 +80,7 @@
 #define FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC (2)
 #define FD_TOWER_SLOT_CONFIRMED_SUPER      (3)
 #define FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT  (4)
-#define FD_TOWER_SLOT_CONFIRMED_LEVELS     ({ FD_TOWER_SLOT_CONFIRMED_PROPAGATED, FD_TOWER_SLOT_CONFIRMED_DUPLICATE, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC, FD_TOWER_SLOT_CONFIRMED_SUPER })
+#define FD_TOWER_SLOT_CONFIRMED_LEVELS     { FD_TOWER_SLOT_CONFIRMED_PROPAGATED, FD_TOWER_SLOT_CONFIRMED_DUPLICATE, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC, FD_TOWER_SLOT_CONFIRMED_SUPER }
 
 struct fd_tower_slot_confirmed {
   int       level;    /* the confirmation level, see FD_TOWER_SLOT_CONFIRMED_{...} above */

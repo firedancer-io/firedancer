@@ -234,9 +234,8 @@ confirm_block( fd_tower_tile_t * ctx,
 
   fd_ghost_blk_t * ghost_blk = fd_ghost_query( ctx->ghost, &notar_blk->block_id );
   fd_tower_blk_t * tower_blk = fd_tower_blk_query( ctx->tower_blocks->blk_map, notar_blk->slot, NULL );
-  int              levels[]  = { FD_TOWER_SLOT_CONFIRMED_PROPAGATED, FD_TOWER_SLOT_CONFIRMED_DUPLICATE, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC, FD_TOWER_SLOT_CONFIRMED_SUPER };
-  double           ratios[]  = { 1.0 / 3, 0.52, 2.0 / 3, 4.0 / 5 };
-  FD_STATIC_ASSERT( sizeof(levels)/sizeof(int)==sizeof(ratios)/sizeof(double), |levels|/=|ratios| );
+  const int        levels[FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT]  = FD_TOWER_SLOT_CONFIRMED_LEVELS;
+  const double     ratios[FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT]  = { 1.0 / 3, 0.52, 2.0 / 3, 4.0 / 5 };
 
    /* Check if the block meets the threshold for any of the confirmation levels.  Note that
       even if a block meets the threshold for a given confirmation level, it might not be
@@ -246,7 +245,7 @@ confirm_block( fd_tower_tile_t * ctx,
       to confirm the block until we get that vote).  So we check eligibility for each
       confirmation level as well, and only publish confirmations for levels that the block
       is both above the threshold and eligible for. */
-  for( int i = notar_blk->level + 1; i < (int)(sizeof(levels) / sizeof(int)); i++ ) {
+  for( ulong i =0UL; i < FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT; i++ ) {
     if( FD_UNLIKELY( (double)notar_blk->stake / (double)total_stake < ratios[i] ) ) return;
 
     /* If ghost and tower are missing, then we know this is a forward
@@ -1070,9 +1069,10 @@ after_credit( fd_tower_tile_t *   ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   if( FD_LIKELY( !publishes_empty( ctx->publishes ) ) ) {
-    memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), publishes_peek_head( ctx->publishes ), sizeof(fd_tower_msg_t) );
+    publish_t * pub = publishes_peek_head( ctx->publishes );
+    memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), &pub->msg, sizeof(fd_tower_msg_t) );
+    fd_stem_publish( stem, OUT_IDX, pub->sig, ctx->out_chunk, sizeof(fd_tower_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     publishes_pop_head( ctx->publishes ); /* peek->pop to avoid a stack copy */
-    fd_stem_publish( stem, OUT_IDX, FD_TOWER_SIG_SLOT_CONFIRMED, ctx->out_chunk, sizeof(fd_tower_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->out_seq   = stem->seqs[ OUT_IDX ];
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_msg_t), ctx->out_chunk0, ctx->out_wmark );
     *opt_poll_in = 0; /* drain the publishes */

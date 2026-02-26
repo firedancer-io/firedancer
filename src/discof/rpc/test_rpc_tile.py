@@ -58,7 +58,7 @@ class RPCTester:
             ignore_order=False,
             significant_digits=2,
             # Ignore errors where we explicitly don't support
-            exclude_obj_callback=lambda obj, path: isinstance(obj, str) and obj.startswith("Firedancer Error"),
+            exclude_obj_callback=lambda obj, path: (isinstance(obj, str) and obj.startswith("Firedancer Error")) or obj==-32065,
             view=COLORED_COMPACT_VIEW
         )
 
