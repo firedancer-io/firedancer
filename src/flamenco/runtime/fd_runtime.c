@@ -373,12 +373,10 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
        !fd_vote_states_iter_done( iter );
        fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-    vote_state->node_account_t_2     = vote_state->node_account_t_1;
-    vote_state->node_account_t_1     = vote_state->node_account;
-    vote_state->stake_t_2            = vote_state->stake_t_1;
-    vote_state->stake_t_1            = runtime_stack->stakes.computed_stake[ vote_state->idx ];
-    vote_state->commission_t_2       = vote_state->commission_t_1;
-    vote_state->commission_t_1       = runtime_stack->stakes.vote_credits[ vote_state->idx ].commission;
+    vote_state->node_account_t_2 = vote_state->node_account_t_1;
+    vote_state->node_account_t_1 = vote_state->node_account;
+    vote_state->stake_t_2 = vote_state->stake_t_1;
+    vote_state->stake_t_1 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
   }
   fd_bank_vote_states_end_locking_modify( bank );
 }
@@ -1610,9 +1608,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
       vote_state->stake_t_1 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
       vote_state->stake_t_2 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
-
-      vote_state->commission_t_1 = UCHAR_MAX;
-      vote_state->commission_t_2 = UCHAR_MAX;
 
       vote_state->node_account_t_1 = vote_state->node_account;
       vote_state->node_account_t_2 = vote_state->node_account;
