@@ -182,7 +182,7 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_SET_IDENTITY_STATE_POH_HALT_REQUESTED: {
       fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
       if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        fd_memset_explicit( poh->bytes, 0, 64UL );
+        fd_memzero_explicit( poh->bytes, 64UL );
         FD_COMPILER_MFENCE();
         *halted_seq = poh->result;
         *state = FD_SET_IDENTITY_STATE_POH_HALTED;
@@ -244,7 +244,7 @@ poll_keyswitch( fd_topo_t * topo,
       fd_keyswitch_t * sign = find_keyswitch( topo, "sign" );
       memcpy( sign->bytes, keypair, 64UL );
       FD_COMPILER_MFENCE();
-      fd_memset_explicit( keypair, 0, 32UL ); /* Private key no longer needed in this process */
+      fd_memzero_explicit( keypair, 32UL ); /* Private key no longer needed in this process */
       FD_COMPILER_MFENCE();
       sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
@@ -280,7 +280,7 @@ poll_keyswitch( fd_topo_t * topo,
         } else if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
           if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "sign" ) ) ) {
             FD_COMPILER_MFENCE();
-            fd_memset_explicit( tile_ks->bytes, 0, 64UL );
+            fd_memzero_explicit( tile_ks->bytes, 64UL );
             FD_COMPILER_MFENCE();
           }
           continue;

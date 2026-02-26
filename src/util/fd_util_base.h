@@ -1192,10 +1192,18 @@ fd_memset( void  * d,
 
 #endif
 
-/* C23 has memset_explicit, i.e. a memset that can't be removed by the
-   optimizer. This is our own equivalent. */
-
-static void * (* volatile fd_memset_explicit)(void *, int, size_t) = memset;
+/* Calling fd_memzero_explicit will fill the provided region with zeroes.
+   It is guaranteed to not be optimized away.  */
+FD_FN_UNUSED static inline void
+fd_memzero_explicit( void * d,
+                    ulong  sz ) {
+   /* We don't want to depend on explicit_bzero or memset_s, so the simplest
+      way to ensure the memset is not optimized away is to use a compiler fence,
+      identical to how explicit_bzero is implemented.
+      https://elixir.bootlin.com/glibc/glibc-2.40/source/string/explicit_bzero.c#L33 */
+   memset( d, 0, sz );
+   __asm__ __volatile__( "" ::: "memory" );
+}
 
 /* fd_memeq(s0,s1,sz):  Compares two blocks of memory.  Returns 1 if
    equal or sz is zero and 0 otherwise.  No memory accesses made if sz

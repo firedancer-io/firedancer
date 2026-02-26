@@ -93,7 +93,7 @@ static void FD_FN_SENSITIVE
 during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( ctx->private_key, ctx->keyswitch->bytes, 32UL );
-    fd_memset_explicit( ctx->keyswitch->bytes, 0, 32UL );
+    fd_memzero_explicit( ctx->keyswitch->bytes, 32UL );
     FD_COMPILER_MFENCE();
     memcpy( ctx->public_key, ctx->keyswitch->bytes+32UL, 32UL );
 
