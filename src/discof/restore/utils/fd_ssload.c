@@ -224,19 +224,10 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
      in fd_ssmanifest_parser.c. */
   fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
 
-
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
 
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  if( is_incremental ) fd_vote_states_init( vote_states );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
-
-    fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote_account_pubkey );
-
-    vote_state->node_account        = *(fd_pubkey_t *)elem->node_account_pubkey;
-    vote_state->last_vote_timestamp = elem->last_timestamp;
-    vote_state->last_vote_slot      = elem->last_slot;
 
     fd_vote_stakes_insert_root_key( vote_stakes, (fd_pubkey_t *)elem->vote_account_pubkey );
   }
@@ -251,13 +242,10 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
        vote states.  We need to do this because we may need the vote
        state credits from the end of the previous epoch in case we need
        to recalculate the stake reward partitions. */
-    fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
-    vote_state_curr->node_account_t_1 = *(fd_pubkey_t *)elem->identity;
-    vote_state_curr->stake_t_1 = elem->stake;
 
     fd_vote_ele_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_vote_state_credits_t * vote_state_credits = &vote_ele->vote_credits;
-    vote_ele->pubkey     = vote_state_curr->vote_account;
+    fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
     vote_ele->stake      = elem->stake;
     vote_ele->invalid    = 0;
     vote_ele->commission = (uchar)elem->commission;
@@ -287,31 +275,9 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
       (fd_pubkey_t *)elem->identity,
       elem->stake,
       0 );
-
-    fd_vote_state_ele_t * vote_state_curr = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote );
-    vote_state_curr->node_account_t_2 = *(fd_pubkey_t *)elem->identity;
-    vote_state_curr->stake_t_2 = elem->stake;
   }
 
   fd_vote_stakes_fini_root( vote_stakes );
-
-  // fd_vote_states_iter_t iter_[1];
-  // for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-  //      !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-
-  //   fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-
-  //   fd_vote_stakes_insert( vote_stakes,
-  //                          bank->data->vote_stakes_fork_id,
-  //                          &vote_state->vote_account,
-  //                          vote_state->stake_t_1,
-  //                          vote_state->stake_t_2,
-  //                          &vote_state->node_account_t_1,
-  //                          &vote_state->node_account_t_2 );
-  // }
-
-  fd_bank_vote_stakes_end_locking_query( bank );
-  fd_bank_vote_states_end_locking_modify( bank );
 
   bank->data->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 }
