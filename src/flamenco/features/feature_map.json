@@ -258,6 +258,5 @@
   {"name":"enable_alt_bn128_g2_syscalls","pubkey":"bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH"},
   {"name":"switch_to_chacha8_turbine","pubkey":"CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB"},
   {"name":"bls_pubkey_management_in_vote_account","pubkey":"2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq"},
-  {"name":"relax_programdata_account_check_migration","pubkey":"rexav5eNTUSNT1K2N7cfRjnthwhcP5BC25v2tA4rW4h"},
-  {"name":"delay_commission_updates","pubkey":"76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B"}
+  {"name":"relax_programdata_account_check_migration","pubkey":"rexav5eNTUSNT1K2N7cfRjnthwhcP5BC25v2tA4rW4h"}
 ]

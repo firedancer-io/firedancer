@@ -1025,13 +1025,6 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
     enforce_commission_update_rule = (commission>fd_vsv_get_commission( vote_state_versioned ));
   }
 
-  /* TODO: update permalink when Agave 4.0 is cut
-
-     https://github.com/firedancer-io/agave/blob/agave-v4.0.0-prerelease-patches/programs/vote/src/vote_processor.rs#L182-L186 */
-  if( FD_FEATURE_ACTIVE_BANK( ctx->bank, delay_commission_updates ) ) {
-    enforce_commission_update_rule = 0;
-  }
-
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L806-L808 */
   if( FD_UNLIKELY( enforce_commission_update_rule && !is_commission_update_allowed( clock->slot, epoch_schedule ) ) ) {
     ctx->txn_out->err.custom_err = FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE;

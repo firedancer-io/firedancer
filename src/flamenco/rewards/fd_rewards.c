@@ -263,7 +263,6 @@ static int
 redeem_rewards( fd_stake_history_t const *      stake_history,
                 fd_stake_delegation_t const *   stake,
                 ulong                           vote_state_idx,
-                uchar                           commission,
                 ulong                           rewarded_epoch,
                 ulong                           total_rewards,
                 uint128                         total_points,
@@ -316,6 +315,7 @@ redeem_rewards( fd_stake_history_t const *      stake_history,
     return 1;
   }
 
+  uchar commission = runtime_stack->stakes.vote_credits[ vote_state_idx ].commission;
   fd_commission_split_t split_result;
   fd_vote_commission_split( commission, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
@@ -430,30 +430,6 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
   return total_points;
 }
 
-/* Get commission rate for reward calculation
-
-   https://github.com/firedancer-io/agave/blob/agave-v4.0.0-prerelease-patches/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L467-L488
-
-   FIXME: permalink when Agave 4.0 is cut */
-static uchar
-get_commission_rate( fd_bank_t *                 bank,
-                     fd_vote_state_ele_t const * vote_state_ele,
-                     uchar                       current_commission ) {
-  if( !FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-    return current_commission;
-  }
-
-  /* Delayed commission rate */
-  if( FD_LIKELY( vote_state_ele->commission_t_2 != UCHAR_MAX ) ) {
-    return vote_state_ele->commission_t_2;
-  }
-  if( FD_LIKELY( vote_state_ele->commission_t_1 != UCHAR_MAX ) ) {
-    return vote_state_ele->commission_t_1;
-  }
-
-  return current_commission;
-}
-
 /* Calculates epoch rewards for stake/vote accounts.
    Returns vote rewards, stake rewards, and the sum of all stake rewards
    in lamports.
@@ -518,9 +494,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, voter_acc );
     if( FD_UNLIKELY( vote_state_ele==NULL ) ) continue;
 
-    uchar current_commission = runtime_stack->stakes.vote_credits[ vote_state_ele->idx ].commission;
-    uchar commission         = get_commission_rate( bank, vote_state_ele, current_commission );
-
     /* redeem_rewards is actually just responsible for calculating the
        vote and stake rewards for each stake account.  It does not do
        rewards redemption: it is a misnomer. */
@@ -529,7 +502,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         stake_history,
         stake_delegation,
         vote_state_ele->idx,
-        commission,
         rewarded_epoch,
         total_rewards,
         total_points,
@@ -542,6 +514,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     if( capture_ctx && capture_ctx->capture_solcap ) {
+      uchar commission = runtime_stack->stakes.vote_credits[ vote_state_ele->idx ].commission;
       fd_capture_link_write_stake_reward_event( capture_ctx,
                                                 fd_bank_slot_get( bank ),
                                                 stake_delegation->stake_account,
