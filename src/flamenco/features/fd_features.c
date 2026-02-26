@@ -1,6 +1,7 @@
 #include "fd_features.h"
 #include "../runtime/fd_bank.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../accdb/fd_accdb_sync.h"
 
 FD_STATIC_ASSERT( sizeof  ( fd_feature_t                  )==9UL, layout );
@@ -71,7 +72,9 @@ fd_feature_restore( fd_bank_t *               bank,
                     fd_feature_id_t const *   id,
                     fd_pubkey_t const *       addr ) {
 
-  fd_features_t * features = fd_bank_features_modify( bank );
+  fd_features_t *             features       = fd_bank_features_modify( bank );
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  ulong                       slot           = fd_bank_slot_get( bank );
 
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;
@@ -111,6 +114,10 @@ fd_feature_restore( fd_bank_t *               bank,
   if( feature->is_active ) {
     FD_LOG_DEBUG(( "feature %s activated at slot %lu", addr_b58, feature->activation_slot ));
     fd_features_set( features, id, feature->activation_slot );
+  } else if( fd_slot_to_epoch( epoch_schedule, slot, NULL )!=fd_slot_to_epoch( epoch_schedule, slot+1UL, NULL ) ) {
+    ulong activation_slot = slot+1UL;
+    FD_LOG_DEBUG(( "feature %s pending, pre-populating activation at slot %lu", addr_b58, activation_slot ));
+    fd_features_set( features, id, activation_slot );
   } else {
     FD_LOG_DEBUG(( "feature %s not activated at slot %lu", addr_b58, feature->activation_slot ));
   }

@@ -160,8 +160,10 @@ FD_FN_PURE fd_feature_id_t const *
 fd_feature_id_query( ulong prefix );
 
 /* fd_features_restore loads all known feature accounts from the
-   accounts database.  This is used when initializing bank from a
-   snapshot. */
+   accounts database and populates the bank's in-memory feature set
+   with their activation slots.  If we're currently at the last slot
+   before an epoch boundary, any pending features (is_active==0) will
+   also be populated with slot+1 as their activation slot. */
 
 void
 fd_features_restore( fd_bank_t *               bank,

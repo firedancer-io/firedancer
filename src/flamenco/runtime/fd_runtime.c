@@ -746,6 +746,45 @@ fd_runtime_load_txn_address_lookup_tables(
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+/* Pre-populate the bank's in-memory feature set with upcoming feature
+   activations.  If the current slot is the last slot before an epoch
+   boundary, scan all known feature accounts. Otherwise, returns early.
+
+   For any feature that is pending (not yet activated on-chain) but has
+   an account owned by the feature program, set the in-memory activation
+   slot within the bank's featureset to the first slot of the next
+   epoch.  This is needed so that deployment verification (which uses
+   slot+1) can detect features that will activate at the next epoch
+   boundary.
+
+   In Agave, program deployments use the feature set from the next
+   slot via DELAY_VISIBILITY_SLOT_OFFSET.  The runtime environments
+   for deployment are selected based on epoch_of(slot+1):
+   https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank.rs#L3280-L3295
+   https://github.com/anza-xyz/agave/blob/v3.1.8/svm/src/transaction_processor.rs#L339-L345
+
+   This function does NOT write to feature accounts or update the
+   lthash.  It only modifies the bank's in-memory feature set. */
+static void
+fd_features_prepopulate_upcoming( fd_bank_t *               bank,
+                                  fd_accdb_user_t *         accdb,
+                                  fd_funk_txn_xid_t const * xid ) {
+  ulong slot = fd_bank_slot_get( bank );
+  if( FD_UNLIKELY( !slot ) ) {
+    return;
+  }
+
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  ulong curr_epoch = fd_slot_to_epoch( epoch_schedule, slot,     NULL );
+  ulong next_epoch = fd_slot_to_epoch( epoch_schedule, slot+1UL, NULL );
+
+  if( FD_LIKELY( curr_epoch==next_epoch ) ) {
+    return;
+  }
+
+  fd_features_restore( bank, accdb, xid );
+}
+
 void
 fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_bank_t *          bank,
@@ -769,6 +808,9 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
     fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
     fd_bank_cost_tracker_end_locking_modify( bank );
   }
+
+  /* Update the active feature set with any upcoming features */
+  fd_features_prepopulate_upcoming( bank, accdb, &xid );
 
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, &xid, runtime_stack, capture_ctx );
 
