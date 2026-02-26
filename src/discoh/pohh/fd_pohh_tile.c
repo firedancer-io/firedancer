@@ -1195,7 +1195,7 @@ maybe_change_identity( fd_pohh_tile_t * ctx,
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     int failed = fd_ext_admin_rpc_set_identity( ctx->keyswitch->bytes, fd_keyswitch_param_query( ctx->keyswitch )==1 );
-    explicit_bzero( ctx->keyswitch->bytes, 32UL );
+    fd_memzero_explicit( ctx->keyswitch->bytes, 32UL );
     FD_COMPILER_MFENCE();
     if( FD_UNLIKELY( failed==-1 ) ) {
       fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_FAILED );

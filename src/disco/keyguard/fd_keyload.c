@@ -49,8 +49,8 @@ fd_keyload_read( int          key_fd,
 
 
   /* Clear out the buffer just in case it was actually used */
-  explicit_bzero( json_key_file, MAX_KEY_FILE_SZ       );
-  explicit_bzero( tok,           KEY_SZ*sizeof(char *) );
+  fd_memzero_explicit( json_key_file, MAX_KEY_FILE_SZ       );
+  fd_memzero_explicit( tok,           KEY_SZ*sizeof(char *) );
 #undef MAX_KEY_FILE_SZ
 #undef MIN_KEY_FILE_SZ
 #undef KEY_SZ
@@ -93,7 +93,7 @@ fd_keyload_load( char const * key_path,
 
   read_key( key_path, key_page );
 
-  if( public_key_only ) explicit_bzero( key_page, 32UL );
+  if( public_key_only ) fd_memzero_explicit( key_page, 32UL );
 
   if( public_key_only ) return key_page+32UL;
   else                  return key_page;
@@ -107,7 +107,7 @@ fd_keyload_unload( uchar const * key,
 
   if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ | PROT_WRITE ) ) )
     FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  explicit_bzero( key_page, 4096UL );
+  fd_memzero_explicit( key_page, 4096UL );
 
   if( FD_UNLIKELY( -1==munmap( (uchar*)key_page - 2UL*4096UL, sz ) ) )
     FD_LOG_ERR(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
