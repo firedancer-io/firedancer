@@ -213,12 +213,13 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
       }
     }
     fork_pool_idx_release( fork_pool, fork_idx );
+    stakes_map_reset( get_stakes_map( vote_stakes, fork_idx ) );
+    stakes_pool_reset( get_stakes_pool( vote_stakes, fork_idx ) );
   }
   /* TODO: There's probably a way to do a more efficient reset here. */
-  stakes_map_reset( get_stakes_map( vote_stakes, root_idx ) );
-  stakes_pool_reset( get_stakes_pool( vote_stakes, root_idx ) );
 
   fork_dlist_idx_push_head( fork_dlist, root_idx, fork_pool );
+  vote_stakes->root_idx = root_idx;
 }
 
 int

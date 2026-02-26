@@ -400,7 +400,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
 
     ulong         new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
     fd_pubkey_t * node_account  = vote_ele ? &vote_ele->node_account : &node_account_t_1;
-
+    FD_BASE58_ENCODE_32_BYTES( pubkey.key, pubkey_b58 );
     fd_vote_stakes_insert( vote_stakes, child_idx, &pubkey, new_stake_t_1, old_stake_t_1, node_account, &node_account_t_1 );
   }
 }
