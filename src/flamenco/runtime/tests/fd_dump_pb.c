@@ -1098,14 +1098,14 @@ fd_dump_block_to_protobuf( fd_block_dump_ctx_t *       dump_block_ctx,
                            fd_bank_t *                 bank,
                            fd_accdb_user_t *           accdb,
                            fd_dump_proto_ctx_t const * dump_proto_ctx ) {
-FD_SPAD_FRAME_BEGIN( dump_block_ctx->spad ) {
-  if( FD_UNLIKELY( dump_proto_ctx==NULL ) ) {
-    FD_LOG_WARNING(( "Protobuf dumping context may not be NULL when dumping blocks." ));
+  if( FD_UNLIKELY( dump_block_ctx==NULL ) ) {
+    FD_LOG_WARNING(( "Block dumping context may not be NULL when dumping blocks." ));
     return;
   }
 
-  if( FD_UNLIKELY( dump_block_ctx==NULL ) ) {
-    FD_LOG_WARNING(( "Block dumping context may not be NULL when dumping blocks." ));
+FD_SPAD_FRAME_BEGIN( dump_block_ctx->spad ) {
+  if( FD_UNLIKELY( dump_proto_ctx==NULL ) ) {
+    FD_LOG_WARNING(( "Protobuf dumping context may not be NULL when dumping blocks." ));
     return;
   }
 
