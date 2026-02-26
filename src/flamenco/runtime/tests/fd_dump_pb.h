@@ -252,7 +252,7 @@ fd_txn_dump_context_join( void * mem ) {
 static inline void *
 fd_txn_dump_context_delete( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
+    FD_LOG_ERR(( "NULL mem" ));
     return NULL;
   }
   return mem;
@@ -261,7 +261,7 @@ fd_txn_dump_context_delete( void * mem ) {
 static inline void *
 fd_txn_dump_context_leave( fd_txn_dump_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx ) ) {
-    FD_LOG_WARNING(( "NULL ctx" ));
+    FD_LOG_ERR(( "NULL ctx" ));
     return NULL;
   }
   return (void *)ctx;

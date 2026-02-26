@@ -124,7 +124,7 @@ _diff_accounts( fd_exec_test_acct_state_t * expected,
 
   // Verify that the account states are the same
   for( ulong i = 0; i < expected_count; ++i ) {
-    int found = 0;
+    uchar found = 0;
     for( ulong j = 0; j < actual_count; ++j ) {
       if( fd_memeq( expected[i].address, actual[j].address, sizeof(fd_pubkey_t) ) ) {
         found = 1;
