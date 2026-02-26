@@ -209,9 +209,11 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
 
   fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele_acquire( vote_state_pool );
 
-  vote_state->vote_account = *vote_account;
-  vote_state->stake_t_1    = 0UL;
-  vote_state->stake_t_2    = 0UL;
+  vote_state->vote_account    = *vote_account;
+  vote_state->stake_t_1       = 0UL;
+  vote_state->stake_t_2       = 0UL;
+  vote_state->commission_t_1  = UCHAR_MAX;
+  vote_state->commission_t_2  = UCHAR_MAX;
 
   if( FD_UNLIKELY( !fd_vote_state_map_ele_insert(
         vote_state_map,
