@@ -168,6 +168,26 @@ ping_tracker_change( void *        _ctx,
   ctx->ping_tracker_change_fn( ctx->ping_tracker_change_fn_ctx, peer_pubkey, peer_address, now, change_type );
 }
 
+static inline void
+refresh_contact_info( fd_gossip_t * gossip,
+                      long          now ) {
+  fd_memcpy( gossip->my_contact_info.ci->origin, gossip->identity_pubkey, 32UL );
+  gossip->my_contact_info.ci->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
+  long sz = fd_gossip_value_serialize( gossip->my_contact_info.ci, gossip->my_contact_info.crds_val, FD_GOSSIP_VALUE_MAX_SZ );
+  FD_TEST( sz!=-1L );
+  gossip->my_contact_info.crds_val_sz = (ulong)sz;
+
+  gossip->sign_fn( gossip->sign_ctx,
+                   gossip->my_contact_info.crds_val+64UL,
+                   gossip->my_contact_info.crds_val_sz-64UL,
+                   FD_KEYGUARD_SIGN_TYPE_ED25519,
+                   gossip->my_contact_info.crds_val );
+
+  /* We don't have stem_ctx here so we pre-empt in next
+     fd_gossip_advance iteration instead. */
+  gossip->timers.next_contact_info_refresh = now;
+}
+
 void *
 fd_gossip_new( void *                           shmem,
                fd_rng_t *                       rng,
@@ -266,8 +286,9 @@ fd_gossip_new( void *                           shmem,
   gossip->ping_tracker_change_fn_ctx = ping_tracker_change_fn_ctx;
 
   gossip->my_contact_info.ci->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
+  *gossip->my_contact_info.ci->contact_info = *my_contact_info;
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
-  fd_gossip_set_my_contact_info( gossip, my_contact_info, now );
+  refresh_contact_info( gossip, now );
 
   fd_memset( gossip->metrics, 0, sizeof(fd_gossip_metrics_t) );
 
@@ -320,34 +341,6 @@ random_entrypoint( fd_gossip_t const * gossip ) {
   return gossip->entrypoints[ idx ];
 }
 
-static inline void
-refresh_contact_info( fd_gossip_t * gossip,
-                      long          now ) {
-  fd_memcpy( gossip->my_contact_info.ci->origin, gossip->identity_pubkey, 32UL );
-  gossip->my_contact_info.ci->wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
-  long sz = fd_gossip_value_serialize( gossip->my_contact_info.ci, gossip->my_contact_info.crds_val, FD_GOSSIP_VALUE_MAX_SZ );
-  FD_TEST( sz!=-1L );
-  gossip->my_contact_info.crds_val_sz = (ulong)sz;
-
-  gossip->sign_fn( gossip->sign_ctx,
-                   gossip->my_contact_info.crds_val+64UL,
-                   gossip->my_contact_info.crds_val_sz-64UL,
-                   FD_KEYGUARD_SIGN_TYPE_ED25519,
-                   gossip->my_contact_info.crds_val );
-
-  /* We don't have stem_ctx here so we pre-empt in next
-     fd_gossip_advance iteration instead. */
-  gossip->timers.next_contact_info_refresh = now;
-}
-
-void
-fd_gossip_set_my_contact_info( fd_gossip_t *                    gossip,
-                               fd_gossip_contact_info_t const * contact_info,
-                               long                             now ) {
-  *gossip->my_contact_info.ci->contact_info = *contact_info;
-  refresh_contact_info( gossip, now );
-}
-
 ulong
 get_stake( fd_gossip_t const * gossip,
            uchar const *       pubkey ) {
@@ -396,6 +389,14 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
        allows the old identity through (correct). */
     if( FD_LIKELY( old_identity_active && old_ci_idx!=ULONG_MAX ) ) fd_gossip_wsample_active( gossip->wsample, old_ci_idx, 1 );
   }
+}
+
+void
+fd_gossip_set_shred_version( fd_gossip_t * gossip,
+                             ushort        shred_version,
+                             long          now ) {
+  gossip->my_contact_info.ci->contact_info->shred_version = shred_version;
+  refresh_contact_info( gossip, now );
 }
 
 void
@@ -483,6 +484,23 @@ rx_pull_request( fd_gossip_t *                    gossip,
      exhausted, skip generating pull responses entirely. */
   if( FD_UNLIKELY( !outbound_budget_replenish( gossip, now ) ) ) return;
 
+  /* When responding to a pull request, we skip CRDS entries whose
+     wallclock is newer than the caller's wallclock + a random jitter.
+     The jitter is drawn uniformly from [0, TIMEOUT/4) ms, matching
+     Agave's behavior (CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS = 15000ms).
+     This prevents all responders from consistently excluding the same
+     set of very-recent CRDS values. */
+#define FD_GOSSIP_PULL_JITTER_BOUND_MS  (15000UL/4UL)
+
+  /* Generate a random jitter in [0, 3750) ms, added to the caller's
+     wallclock.  CRDS entries newer than this adjusted threshold are
+     excluded from the response.  The jitter prevents all responders
+     from consistently excluding the same near-boundary entries,
+     improving cluster-wide convergence of recent values. */
+  ulong caller_wallclock_ms    = pr_view->contact_info->wallclock;
+  ulong jitter_ms              = fd_rng_ulong_roll( gossip->rng, FD_GOSSIP_PULL_JITTER_BOUND_MS );
+  ulong adjusted_wallclock_ms  = caller_wallclock_ms + jitter_ms;
+
   ulong keys[ sizeof(pr_view->crds_filter->filter->keys)/sizeof(ulong) ];
   ulong bits[ sizeof(pr_view->crds_filter->filter->bits)/sizeof(ulong) ];
   fd_memcpy( keys, pr_view->crds_filter->filter->keys, sizeof(pr_view->crds_filter->filter->keys) );
@@ -505,8 +523,10 @@ rx_pull_request( fd_gossip_t *                    gossip,
        it=fd_crds_mask_iter_next( it, gossip->crds ) ) {
     fd_crds_entry_t const * candidate = fd_crds_mask_iter_entry( it, gossip->crds );
 
-    /* TODO: Add jitter here? */
-    // if( FD_UNLIKELY( fd_crds_value_wallclock( candidate )>contact_info->wallclock_nanos ) ) continue;
+    /* Skip CRDS entries whose originator wallclock is newer than the
+       caller's wallclock + jitter.  The caller hasn't had time to
+       observe these values yet, so including them would be wasteful. */
+    if( FD_UNLIKELY( fd_crds_entry_wallclock( candidate )>adjusted_wallclock_ms ) ) continue;
 
     if( FD_UNLIKELY( fd_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
 
@@ -938,7 +958,29 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   tx_ping( gossip, stem, now );
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
     tx_pull_request( gossip, stem, now );
-    gossip->timers.next_pull_request = now+1600L*1000L; /* TODO: Dynamic, jitter, etc. */
+    /* 1.6ms (625/s).  Agave sends min(1024, ceil(2^mask_bits/8))
+       filters every 500ms.  For a typical mainnet table (~65k items,
+       mask_bits≈7) that is ~16 filters/500ms = one every 31ms.  We
+       send a single filter per round, so we fire ~20× more often to
+       compensate for sending one filter instead of many per period.
+
+       We considered dynamically matching Agave's exact rate by
+       computing 500ms/filters_per_round from mask_bits each round,
+       but this caused slow table fill on startup (mask_bits starts
+       low -> long intervals -> few pulls -> slow CRDS population).
+       Adaptive boosting (counter-based, timestamp-based, and
+       threshold-based) all added complexity without clear benefit:
+       counter decay lost state between send and response arrival,
+       timestamp checks never disarmed because trickle inserts kept
+       refreshing the window, and threshold heuristics required
+       tuning constants that varied by cluster size.
+
+       A fixed 1.6ms is simpler and robust: the cost of a redundant
+       pull request is negligible (a single 1232-byte packet whose
+       reply will be empty if we're already caught up), and it
+       guarantees fast table fill on startup without any adaptive
+       machinery. */
+    gossip->timers.next_pull_request = now+1600L*1000L;
   }
   if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
     /* TODO: Frequency of this? More often if observing? */

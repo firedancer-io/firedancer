@@ -130,6 +130,13 @@ fd_crds_entry_value( fd_crds_entry_t const * entry,
                      uchar const **          value_bytes,
                      ulong *                 value_sz );
 
+/* fd_crds_entry_wallclock returns the originator's wallclock timestamp
+   for this entry, in milliseconds.  This is the wallclock the
+   originator attached when they created the CRDS value. */
+
+ulong
+fd_crds_entry_wallclock( fd_crds_entry_t const * entry );
+
 /* fd_crds_entry_hash returns a pointer to the 32b sha256 hash of the
    entry's value hash. This is used for constructing a bloom filter. */
 
