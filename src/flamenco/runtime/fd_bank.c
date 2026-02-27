@@ -70,62 +70,6 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
   return fd_type_pun( child_epoch_leaders->data );
 }
 
-fd_vote_states_t const *
-fd_bank_vote_states_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->locks->vote_states_lock[ bank->data->idx ] );
-  /* If the pool element hasn't been setup yet, then return NULL */
-  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank->data );
-  if( FD_UNLIKELY( vote_states_pool==NULL ) ) {
-    FD_LOG_CRIT(( "NULL vote states pool" ));
-  }
-  if( FD_UNLIKELY( bank->data->vote_states_pool_idx==fd_bank_vote_states_pool_idx_null( vote_states_pool ) ) ) {
-    FD_LOG_CRIT(( "vote states pool element not set" ));
-  }
-  fd_bank_vote_states_t * bank_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->data->vote_states_pool_idx );
-  return fd_type_pun_const( bank_vote_states->data );
-}
-
-void
-fd_bank_vote_states_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->locks->vote_states_lock[ bank->data->idx ] );
-}
-
-fd_vote_states_t *
-fd_bank_vote_states_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->locks->vote_states_lock[ bank->data->idx ] );
-  /* If the dirty flag is set, then we already have a pool element
-     that was copied over for the current bank. We can simply just
-     query the pool element and return it. */
-  fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( bank->data );
-  if( FD_UNLIKELY( vote_states_pool==NULL ) ) {
-    FD_LOG_CRIT(( "NULL vote states pool" ));
-  }
-  if( bank->data->vote_states_dirty ) {
-    fd_bank_vote_states_t * bank_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->data->vote_states_pool_idx );
-    return fd_type_pun( bank_vote_states->data );
-  }
-  fd_rwlock_write( &bank->locks->vote_states_pool_lock );
-  if( FD_UNLIKELY( !fd_bank_vote_states_pool_free( vote_states_pool ) ) ) {
-    FD_LOG_CRIT(( "Failed to acquire vote states pool element: pool is full" ));
-  }
-  fd_bank_vote_states_t * child_vote_states = fd_bank_vote_states_pool_ele_acquire( vote_states_pool );
-  fd_rwlock_unwrite( &bank->locks->vote_states_pool_lock );
-  /* If the dirty flag has not been set yet, we need to allocated a
-     new pool element and copy over the data from the parent idx.
-     We also need to mark the dirty flag. */
-  ulong child_idx = fd_bank_vote_states_pool_idx( vote_states_pool, child_vote_states );
-  fd_bank_vote_states_t * parent_vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, bank->data->vote_states_pool_idx );
-  fd_memcpy( child_vote_states->data, parent_vote_states->data, FD_VOTE_STATES_FOOTPRINT );
-  bank->data->vote_states_pool_idx = child_idx;
-  bank->data->vote_states_dirty    = 1;
-  return fd_type_pun( child_vote_states->data );
-}
-
-void
-fd_bank_vote_states_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->vote_states_lock[ bank->data->idx ] );
-}
-
 fd_cost_tracker_t *
 fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank->data );
@@ -220,9 +164,9 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
-  l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, max_fork_width, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -252,9 +196,9 @@ fd_banks_new( void * shmem,
   void *            pool_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
   void *            dead_banks_deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   void *            epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
-  void *            vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
   void *            cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   void *            stake_rewards_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),            fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  void *            vote_stakes_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, max_fork_width, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -305,18 +249,6 @@ fd_banks_new( void * shmem,
   }
   fd_banks_set_epoch_leaders_pool( banks_data, epoch_leaders_pool );
 
-  fd_bank_vote_states_t * vote_states_pool = fd_bank_vote_states_pool_join( fd_bank_vote_states_pool_new( vote_states_pool_mem, max_total_banks ) );
-  if( FD_UNLIKELY( !vote_states_pool ) ) {
-    FD_LOG_WARNING(( "Failed to create vote states pool" ));
-    return NULL;
-  }
-  fd_banks_set_vote_states_pool( banks_data, vote_states_pool );
-  fd_bank_vote_states_t * vote_states = fd_bank_vote_states_pool_ele( vote_states_pool, 0UL );
-  if( FD_UNLIKELY( !fd_vote_states_join( fd_vote_states_new( vote_states->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, seed ) ) ) ) {
-    FD_LOG_WARNING(( "Failed to create vote states" ));
-    return NULL;
-  }
-
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) );
   if( FD_UNLIKELY( !cost_tracker_pool ) ) {
     FD_LOG_WARNING(( "Failed to create cost tracker pool" ));
@@ -338,6 +270,12 @@ fd_banks_new( void * shmem,
   }
 
   fd_banks_set_stake_rewards( banks_data, stake_rewards );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS, max_fork_width, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, seed ) );
+  if( FD_UNLIKELY( !vote_stakes ) ) {
+    FD_LOG_WARNING(( "Failed to create vote stakes" ));
+    return NULL;
+  }
+  fd_banks_set_vote_stakes( banks_data, vote_stakes );
 
   /* For each bank, we need to set the offset of the pools and locks
      for each of the non-inlined fields. */
@@ -351,12 +289,13 @@ fd_banks_new( void * shmem,
     fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_banks_get_epoch_leaders_pool( banks_data );
     fd_bank_set_epoch_leaders_pool( bank, epoch_leaders_pool );
 
-    fd_bank_vote_states_t * vote_states_pool = fd_banks_get_vote_states_pool( banks_data );
-    fd_bank_set_vote_states_pool( bank, vote_states_pool );
-
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );
     bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
+
+    fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks_data );
+    fd_bank_set_vote_stakes( bank, vote_stakes );
+
 
     if( FD_UNLIKELY( !fd_stake_delegations_join( fd_stake_delegations_new( bank->stake_delegations_delta, seed, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 ) ) ) ) {
       FD_LOG_WARNING(( "Failed to create stake delegations" ));
@@ -413,7 +352,6 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   void * pool_mem               = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( banks_data->max_total_banks ) );
   void * dead_banks_deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   void * epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( banks_data->max_fork_width ) );
-  void * vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( banks_data->max_total_banks ) );
   void * cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
   void * stake_rewards_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),            fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, banks_data->max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
 
@@ -444,17 +382,6 @@ fd_banks_join( fd_banks_t * banks_ljoin,
 
   if( FD_UNLIKELY( epoch_leaders_pool!=fd_bank_epoch_leaders_pool_join( epoch_leaders_pool_mem ) ) ) {
     FD_LOG_WARNING(( "Failed to join epoch leaders pool" ));
-    return NULL;
-  }
-
-  fd_bank_vote_states_t * vote_states_pool = fd_banks_get_vote_states_pool( banks_data );
-  if( FD_UNLIKELY( !vote_states_pool ) ) {
-    FD_LOG_WARNING(( "Failed to join vote states pool" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( vote_states_pool!=fd_bank_vote_states_pool_join( vote_states_pool_mem ) ) ) {
-    FD_LOG_WARNING(( "Failed to join vote states pool" ));
     return NULL;
   }
 
@@ -518,10 +445,6 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   bank->epoch_leaders_pool_idx = fd_bank_epoch_leaders_pool_idx_null( fd_banks_get_epoch_leaders_pool( banks->data ) );
   bank->epoch_leaders_dirty    = 0;
 
-  bank->vote_states_pool_idx   = fd_bank_vote_states_pool_idx( fd_banks_get_vote_states_pool( banks->data ), fd_bank_vote_states_pool_ele_acquire( fd_banks_get_vote_states_pool( banks->data ) ) );
-  bank->vote_states_dirty      = 1;
-  fd_rwlock_new( &bank_l->locks->vote_states_lock[ bank->idx ] );
-
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_new( &bank_l->locks->cost_tracker_lock[ bank->idx ] );
 
@@ -539,6 +462,9 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   bank->last_transaction_finished_nanos   = 0L;
 
   bank->stake_rewards_fork_id = UCHAR_MAX;
+
+  fd_vote_stakes_t * vote_stakes   = fd_banks_get_vote_stakes( banks->data );
+  bank->vote_stakes_fork_id        = fd_vote_stakes_get_root_idx( vote_stakes );
 
   /* Now that the node is inserted, update the root */
 
@@ -598,10 +524,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   child_bank->epoch_leaders_dirty    = 0;
   child_bank->epoch_leaders_pool_idx = parent_bank->epoch_leaders_pool_idx;
 
-  child_bank->vote_states_dirty    = 0;
-  child_bank->vote_states_pool_idx = parent_bank->vote_states_pool_idx;
-  fd_rwlock_new( &bank_l->locks->vote_states_lock[ child_bank->idx ] );
-
   /* The stake delegation delta needs to be reset. */
 
   child_bank->stake_delegations_delta_dirty = 0;
@@ -621,6 +543,9 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
      the lock for the current bank. */
 
   fd_rwlock_new( &bank_l->locks->lthash_lock[ child_bank->idx ] );
+
+  /* Copy over the parent vote stake fork idx */
+  child_bank->vote_stakes_fork_id = parent_bank->vote_stakes_fork_id;
 
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
@@ -811,17 +736,6 @@ fd_banks_advance_root( fd_banks_t * banks,
       }
     }
 
-    fd_bank_vote_states_t * vote_states_pool = fd_bank_get_vote_states_pool( new_root->data );
-    if( head->vote_states_dirty ) {
-      if( head->vote_states_pool_idx!=new_root->data->vote_states_pool_idx ) {
-        fd_rwlock_write( &banks->locks->vote_states_pool_lock );
-        fd_bank_vote_states_pool_idx_release( vote_states_pool, head->vote_states_pool_idx );
-        fd_rwlock_unwrite( &banks->locks->vote_states_pool_lock );
-      } else {
-        new_root->data->vote_states_dirty = 1;
-      }
-    }
-
     /* It is possible for a bank that never finished replaying to be
        pruned away.  If the bank was never frozen, then it's possible
        that the bank still owns a cost tracker pool element.  If this
@@ -834,6 +748,8 @@ fd_banks_advance_root( fd_banks_t * banks,
     }
 
     head->stake_rewards_fork_id = UCHAR_MAX;
+    head->vote_stakes_fork_id = USHORT_MAX;
+
     head->flags = 0UL;
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;
@@ -841,6 +757,9 @@ fd_banks_advance_root( fd_banks_t * banks,
 
   new_root->data->parent_idx = null_idx;
   banks->data->root_idx      = new_root->data->idx;
+
+  fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
+  fd_vote_stakes_advance_root( vote_stakes, new_root->data->vote_stakes_fork_id );
 
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 }
@@ -1042,7 +961,6 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
   }
 
   child_bank->epoch_leaders_dirty           = 0;
-  child_bank->vote_states_dirty             = 0;
   child_bank->stake_delegations_delta_dirty = 0;
 
   child_bank->first_fec_set_received_nanos      = now;
@@ -1143,11 +1061,6 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
       bank->cost_tracker_pool_idx = null_idx;
     }
 
-    if( FD_UNLIKELY( bank->vote_states_dirty && bank->vote_states_pool_idx!=null_idx ) ) {
-      fd_bank_vote_states_pool_idx_release( fd_bank_get_vote_states_pool( bank ), bank->vote_states_pool_idx );
-      bank->vote_states_pool_idx = null_idx;
-    }
-
     if( FD_UNLIKELY( bank->epoch_leaders_dirty && bank->epoch_leaders_pool_idx!=null_idx ) ) {
       fd_bank_epoch_leaders_pool_idx_release( fd_bank_get_epoch_leaders_pool( bank ), bank->epoch_leaders_pool_idx );
       bank->epoch_leaders_pool_idx = null_idx;
@@ -1231,10 +1144,6 @@ fd_banks_clear_bank( fd_banks_t * banks,
     bank->data->epoch_leaders_pool_idx = parent_bank ? parent_bank->epoch_leaders_pool_idx : fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool );
   }
 
-  bank->data->vote_states_dirty = 1;
-  fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( bank ), max_vote_accounts, 999UL ) );
-  fd_bank_vote_states_end_locking_modify( bank );
-
   /* We need to acquire a cost tracker element. */
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank->data );
   if( FD_UNLIKELY( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
@@ -1246,6 +1155,9 @@ fd_banks_clear_bank( fd_banks_t * banks,
   bank->data->stake_delegations_delta_dirty = 0;
   fd_rwlock_unwrite( &banks->locks->stake_delegations_delta_lock[ bank->data->idx ] );
 
+  fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
+  fd_vote_stakes_new( vote_stakes, max_vote_accounts, banks->data->max_fork_width, 2048UL, 999UL );
+
   fd_rwlock_unread( &banks->locks->banks_lock );
 }
 
@@ -1253,12 +1165,11 @@ void
 fd_banks_locks_init( fd_banks_locks_t * locks ) {
   fd_rwlock_new( &locks->banks_lock );
   fd_rwlock_new( &locks->epoch_leaders_pool_lock );
-  fd_rwlock_new( &locks->vote_states_pool_lock );
+  fd_rwlock_new( &locks->vote_stakes_lock );
 
   for( ulong i=0UL; i<FD_BANKS_MAX_BANKS; i++ ) {
     fd_rwlock_new( &locks->lthash_lock[i] );
     fd_rwlock_new( &locks->cost_tracker_lock[i] );
     fd_rwlock_new( &locks->stake_delegations_delta_lock[i] );
-    fd_rwlock_new( &locks->vote_states_lock[i] );
   }
 }

@@ -2746,6 +2746,12 @@ int fd_vote_state_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   ctx->data = start_data;
   return err;
 }
+int fd_vote_state_versioned_seek_end( fd_bincode_decode_ctx_t * ctx ) {
+  ulong total_sz;
+  int err = fd_vote_state_versioned_decode_footprint_inner( ctx, &total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return err;
+}
 static void fd_vote_state_versioned_inner_decode_inner( fd_vote_state_versioned_inner_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
   switch (discriminant) {
   case 0: {

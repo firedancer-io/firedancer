@@ -1943,6 +1943,7 @@ int fd_vote_state_versioned_encode( fd_vote_state_versioned_t const * self, fd_b
 ulong fd_vote_state_versioned_size( fd_vote_state_versioned_t const * self );
 static inline ulong fd_vote_state_versioned_align( void ) { return FD_VOTE_STATE_VERSIONED_ALIGN; }
 int fd_vote_state_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_vote_state_versioned_seek_end( fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_state_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_FN_PURE uchar fd_vote_state_versioned_is_v0_23_5( fd_vote_state_versioned_t const * self );
