@@ -515,7 +515,6 @@ monitor_cmd_fn( args_t *   args,
                     0U,
                     0,
                     0U,
-                    1,
                     !config->is_firedancer );
   }
 
