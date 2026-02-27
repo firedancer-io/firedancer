@@ -138,6 +138,12 @@
 #define FD_RPC_ERROR_SLOT_NOT_EPOCH_BOUNDARY                     (-32018)
 #define FD_RPC_ERROR_LONG_TERM_STORAGE_UNREACHABLE               (-32019)
 
+
+#define CSTR_JSON(__json) (__extension__({ \
+  char _cstr_json[ 2UL*FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN ]; \
+  cJSON_PrintPreallocated( __json, _cstr_json, sizeof(_cstr_json), 0 ); \
+  _cstr_json; }))
+
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
   return (fd_http_server_params_t) {
@@ -212,6 +218,12 @@ typedef struct fd_rpc_cluster_node fd_rpc_cluster_node_t;
 #include "../../util/tmpl/fd_dlist.c"
 
 struct fd_rpc_tile {
+  /* Server does not start listening to connections until is_booting is
+     false. */
+  int is_booting;
+  uint listen_addr;
+  ushort listen_port;
+
   fd_http_server_t * http;
 
   fd_rpc_cluster_node_dlist_t * cluster_nodes_dlist;
@@ -377,6 +389,14 @@ before_credit( fd_rpc_tile_t *     ctx,
                int *               charge_busy ) {
   (void)stem;
 
+  if( FD_UNLIKELY( ctx->is_booting && ctx->processed_idx!=ULONG_MAX && ctx->confirmed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX ) ) {
+    ctx->is_booting = 0;
+    fd_http_server_listen( ctx->http, ctx->listen_addr, ctx->listen_port );
+    FD_LOG_NOTICE(( "rpc server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( ctx->listen_addr ), ctx->listen_port ));
+    *charge_busy = 1;
+    return;
+  }
+
   long now = fd_tickcount();
   if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
     *charge_busy = fd_http_server_poll( ctx->http, 0 );
@@ -537,7 +557,7 @@ fd_rpc_cjson_type_to_cstr( cJSON const * elt ) {
   if( cJSON_IsNumber( elt ) && !fd_rpc_cjson_is_integer( elt ) ) return "floating point";
   if( cJSON_IsNumber( elt ) ) return "integer";
   if( cJSON_IsNull  ( elt ) ) return "null";
-  FD_LOG_ERR(( "unreachable %s", cJSON_PrintUnformatted( elt ) ));
+  FD_LOG_ERR(( "unreachable %s", CSTR_JSON( elt ) ));
 }
 
 #define STAGE_JSON(__ctx) (__extension__({ \
@@ -577,15 +597,15 @@ fd_rpc_validate_params( fd_rpc_tile_t *             ctx,
   ulong param_cnt;
   if( FD_UNLIKELY( !params ) ) param_cnt = 0UL;
   else if( FD_UNLIKELY( cJSON_IsNumber( params ) || cJSON_IsString( params ) || cJSON_IsBool( params ) ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", CSTR_JSON( id ) );
     return 0;
   }
   else if( FD_UNLIKELY( cJSON_IsObject( params ) && max_cnt==0UL ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":%s}\n", CSTR_JSON( id ) );
     return 0;
   }
   else if( FD_UNLIKELY( cJSON_IsObject( params ) && max_cnt>0UL ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"`params` should be an array\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"`params` should be an array\"},\"id\":%s}\n", CSTR_JSON( id ) );
     return 0;
   }
   else if( FD_UNLIKELY( cJSON_IsNull( params ) ) ) param_cnt = 0UL;
@@ -593,15 +613,15 @@ fd_rpc_validate_params( fd_rpc_tile_t *             ctx,
   else FD_LOG_ERR(("unreachable"));
 
   if( FD_UNLIKELY( param_cnt>0UL && max_cnt==0UL ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":%s}\n", CSTR_JSON( id ) );
     return 0;
   }
   if( FD_UNLIKELY( param_cnt<min_cnt ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"`params` should have at least %lu argument(s)\"},\"id\":%s}\n", min_cnt, cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"`params` should have at least %lu argument(s)\"},\"id\":%s}\n", min_cnt, CSTR_JSON( id ) );
     return 0;
   }
   if( param_cnt>max_cnt ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: Expected from %lu to %lu parameters.\",\"data\":\"\\\"Got: %lu\\\"\"},\"id\":%s}\n", min_cnt, max_cnt, param_cnt, cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: Expected from %lu to %lu parameters.\",\"data\":\"\\\"Got: %lu\\\"\"},\"id\":%s}\n", min_cnt, max_cnt, param_cnt, CSTR_JSON( id ) );
     return 0;
   }
 
@@ -673,19 +693,19 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
                         fd_http_server_response_t * res ) {
 
   if( FD_UNLIKELY( config && (cJSON_IsNumber( config ) || cJSON_IsBool( config )) ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), cJSON_PrintUnformatted( config ), config_rust_type, cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), CSTR_JSON( config ), config_rust_type, CSTR_JSON( id ) );
     return 0;
   }
   if( FD_UNLIKELY( config && cJSON_IsString( config ) ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), config->valuestring, config_rust_type, cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), config->valuestring, config_rust_type, CSTR_JSON( id ) );
     return 0;
   }
   if( FD_UNLIKELY( cJSON_IsArray( config ) ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Firedancer Error: Positional config params not supported\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Firedancer Error: Positional config params not supported\"},\"id\":%s}\n", CSTR_JSON( id ) );
     return 0;
   }
   if( FD_UNLIKELY( config && !(cJSON_IsNull( config ) || cJSON_IsObject( config )) ) ) {
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), config_rust_type, cJSON_PrintUnformatted( id ) );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), config_rust_type, CSTR_JSON( id ) );
     return 0;
   }
 
@@ -700,25 +720,22 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
   } else {
     _bank_idx = ctx->finalized_idx;
   }
-  if( FD_UNLIKELY( _bank_idx==ULONG_MAX ) ) {
-    *res = (fd_http_server_response_t){ .status = 500 }; /* TODO copy Agave's behavior */
-    return 0;
-  }
+  FD_TEST( _bank_idx!=ULONG_MAX );
   *bank_idx = _bank_idx;
 
   if( FD_LIKELY( has_encoding ) ) {
     cJSON const * encoding = cJSON_GetObjectItemCaseSensitive( config, "encoding" );
 
     if( FD_UNLIKELY( cJSON_IsNumber( encoding ) || cJSON_IsBool( encoding ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected string or map.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding ), cJSON_PrintUnformatted( encoding ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected string or map.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding ), CSTR_JSON( encoding ), CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsObject( encoding ) && !(encoding->child && encoding->child->next==NULL) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: map, expected map with a single key.\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: map, expected map with a single key.\"},\"id\":%s}\n", CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( encoding && !cJSON_IsString( encoding ) && !cJSON_IsNull( encoding ) && !cJSON_IsObject( encoding ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected string or map.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected string or map.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding ), CSTR_JSON( id ) );
       return 0;
     }
 
@@ -730,7 +747,7 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       else if( cJSON_HasObjectItem( encoding, "base64+zstd" ) ) encoding_cstr = "base64+zstd";
       else if( cJSON_HasObjectItem( encoding, "jsonParsed" ) ) encoding_cstr = "jsonParsed";
       else {
-        *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding->child->string, cJSON_PrintUnformatted( id ) );
+        *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding->child->string, CSTR_JSON( id ) );
         return 0;
       }
     } else {
@@ -738,23 +755,23 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
 
     if( FD_UNLIKELY( cJSON_IsObject( encoding ) && (cJSON_IsNumber( encoding->child ) || cJSON_IsBool( encoding->child )) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), cJSON_PrintUnformatted( encoding->child ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), CSTR_JSON( encoding->child ), CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsObject( encoding ) && cJSON_IsString( encoding->child ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), encoding->child->valuestring, cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), encoding->child->valuestring, CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsObject( encoding ) && !cJSON_IsNull( encoding->child ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), CSTR_JSON( id ) );
       return 0;
     }
 
     if( 0==strcmp( encoding_cstr, "jsonParsed" ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: jsonParsed is unsupported\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: jsonParsed is unsupported\"},\"id\":%s}\n", CSTR_JSON( id ) );
       return 0;
     } else if( 0!=strcmp( encoding_cstr, "binary" ) && 0!=strcmp( encoding_cstr, "base58" ) && 0!=strcmp( encoding_cstr, "base64" ) && 0!=strcmp( encoding_cstr, "base64+zstd" ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding_cstr, cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding_cstr, CSTR_JSON( id ) );
       return 0;
     }
 
@@ -765,15 +782,15 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     const cJSON * dataSlice = cJSON_GetObjectItemCaseSensitive( config, "dataSlice" );
 
     if( FD_UNLIKELY( cJSON_IsNumber( dataSlice ) || cJSON_IsBool( dataSlice ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), cJSON_PrintUnformatted( dataSlice ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), CSTR_JSON( dataSlice ), CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsString( dataSlice ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), dataSlice->valuestring, cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), dataSlice->valuestring, CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( dataSlice && !cJSON_IsObject( dataSlice ) && !cJSON_IsNull( dataSlice ) && !cJSON_IsArray( dataSlice ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), CSTR_JSON( id ) );
       return 0;
     }
 
@@ -791,52 +808,52 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
 
     if( FD_UNLIKELY( cJSON_IsBool( _offset ) || (cJSON_IsNumber( _offset ) && !fd_rpc_cjson_is_integer( _offset )) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), cJSON_PrintUnformatted( _offset ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), CSTR_JSON( _offset ), CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsBool( _length ) || (cJSON_IsNumber( _length ) && !fd_rpc_cjson_is_integer( _length )) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), cJSON_PrintUnformatted( _length ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), CSTR_JSON( _length ), CSTR_JSON( id ) );
       return 0;
     }
 
     if( FD_UNLIKELY( cJSON_IsNumber( _offset ) && _offset->valueint<0 ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), cJSON_PrintUnformatted( _offset ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), CSTR_JSON( _offset ), CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsNumber( _length ) && _length->valueint<0 ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), cJSON_PrintUnformatted( _length ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), CSTR_JSON( _length ), CSTR_JSON( id ) );
       return 0;
     }
 
     if( FD_UNLIKELY( cJSON_IsString( _offset ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), _offset->valuestring, cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), _offset->valuestring, CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsString( _length ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), _length->valuestring, cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), _length->valuestring, CSTR_JSON( id ) );
       return 0;
     }
 
     if( FD_UNLIKELY( _offset && !fd_rpc_cjson_is_integer( _offset ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( _length && !fd_rpc_cjson_is_integer( _length ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), CSTR_JSON( id ) );
       return 0;
     }
 
     if( FD_UNLIKELY( cJSON_IsObject( dataSlice ) && !has_offset ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `offset`.\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `offset`.\"},\"id\":%s}\n", CSTR_JSON( id ) );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsObject( dataSlice ) && !has_length ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `length`.\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `length`.\"},\"id\":%s}\n", CSTR_JSON( id ) );
       return 0;
     }
 
     if( FD_UNLIKELY( cJSON_IsArray( dataSlice ) && cJSON_GetArraySize( dataSlice )!=2 ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid length %lu, expected struct UiDataSliceConfig with 2 elements.\"},\"id\":%s}\n", (ulong)cJSON_GetArraySize( dataSlice ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid length %lu, expected struct UiDataSliceConfig with 2 elements.\"},\"id\":%s}\n", (ulong)cJSON_GetArraySize( dataSlice ), CSTR_JSON( id ) );
       return 0;
     }
 
@@ -853,29 +870,29 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     ulong minContextSlot = 0UL;
     cJSON const * _minContextSlot = cJSON_GetObjectItemCaseSensitive( config, "minContextSlot" );
     if( FD_UNLIKELY( cJSON_IsBool( _minContextSlot ) || (cJSON_IsNumber( _minContextSlot ) && !fd_rpc_cjson_is_integer( _minContextSlot )) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), cJSON_PrintUnformatted( _minContextSlot ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), CSTR_JSON( _minContextSlot ), CSTR_JSON( id ) );
       return 0;
     }
 
     if( FD_UNLIKELY( cJSON_IsNumber( _minContextSlot ) && _minContextSlot->valueint<0 ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), cJSON_PrintUnformatted( _minContextSlot ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), CSTR_JSON( _minContextSlot ), CSTR_JSON( id ) );
       return 0;
     }
 
     if( FD_UNLIKELY( cJSON_IsString( _minContextSlot ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), _minContextSlot->valuestring, cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), _minContextSlot->valuestring, CSTR_JSON( id ) );
       return 0;
     }
 
     if( FD_UNLIKELY( _minContextSlot && !cJSON_IsNull( _minContextSlot ) && !fd_rpc_cjson_is_integer( _minContextSlot ) ) ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), CSTR_JSON( id ) );
       return 0;
     }
 
     minContextSlot = _minContextSlot && fd_rpc_cjson_is_integer( _minContextSlot ) ? _minContextSlot->valueulong : 0UL;
 
     if( _bank_idx!=ULONG_MAX && ctx->banks[ _bank_idx ].slot<minContextSlot ) {
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, ctx->banks[ _bank_idx ].slot, cJSON_PrintUnformatted( id ) );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Minimum context slot has not been reached\",\"data\":{\"contextSlot\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, ctx->banks[ _bank_idx ].slot, CSTR_JSON( id ) );
       return 0;
     }
   }
@@ -891,21 +908,21 @@ fd_rpc_validate_address( fd_rpc_tile_t *             ctx,
                          fd_http_server_response_t * response ) {
   FD_TEST( address_in );
   if( FD_UNLIKELY( cJSON_IsNumber( address_in ) || cJSON_IsBool( address_in ) ) ) {
-    *response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected a string.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( address_in ), cJSON_PrintUnformatted( address_in ), cJSON_PrintUnformatted( id ) );
+    *response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected a string.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( address_in ), CSTR_JSON( address_in ), CSTR_JSON( id ) );
     return 0;
   }
   if( FD_UNLIKELY( !cJSON_IsString( address_in ) ) ) {
-    *response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected a string.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( address_in ), cJSON_PrintUnformatted( id ) );
+    *response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected a string.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( address_in ), CSTR_JSON( id ) );
     return 0;
   }
   int invalid_char = fd_rpc_cstr_contains_non_base58( address_in->valuestring );
   if( FD_UNLIKELY( invalid_char ) ) {
-    *response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    *response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":%s}\n", CSTR_JSON( id ) );
     return 0;
   }
   int valid = !!fd_base58_decode_32( address_in->valuestring, address_out->uc );
   if( FD_UNLIKELY( !valid ) ) {
-    *response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: WrongSize\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    *response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: WrongSize\"},\"id\":%s}\n", CSTR_JSON( id ) );
     return 0;
   }
 
@@ -956,7 +973,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
   fd_accdb_ro_t ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, address.uc ) ) ) {
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, cJSON_PrintUnformatted( id ) );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, CSTR_JSON( id ) );
   }
 
   ulong const data_sz = fd_accdb_ref_data_sz( ro );
@@ -969,7 +986,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   int is_zstd   = !strncmp( encoding_cstr, "base64+zstd", strlen("base64+zstd") );
   if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
     fd_accdb_close_ro( ctx->accdb, ro );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", CSTR_JSON( id ) );
   }
 
 # if FD_HAS_ZSTD
@@ -977,7 +994,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
     ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), compressed, snip_sz, 0 );
     if( ZSTD_isError( zstd_res ) ) {
       fd_accdb_close_ro( ctx->accdb, ro );
-      return (fd_http_server_response_t){ .status = 500 }; /* TODO log warning */
+      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (%s)\"},\"id\":%s}\n", ZSTD_getErrorName( zstd_res ), CSTR_JSON( id ) );
     }
     compressed    = ctx->compress_buf;
     compressed_sz = (ulong)zstd_res;
@@ -985,7 +1002,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
 # else
   if( is_zstd ) {
     fd_accdb_close_ro( ctx->accdb, ro );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", CSTR_JSON( id ) );
   }
 # endif
 
@@ -998,7 +1015,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
       "\"rentEpoch\":18446744073709551615,"
       "\"space\":%lu,"
       "\"data\":",
-      cJSON_PrintUnformatted( id ),
+      CSTR_JSON( id ),
       FD_RPC_AGAVE_API_VERSION,
       info->slot,
       fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
@@ -1016,7 +1033,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );;
   if( FD_UNLIKELY( !encoded ) ) {
     fd_accdb_close_ro( ctx->accdb, ro );
-    return (fd_http_server_response_t){ .status = 500 }; /* TODO log warning */
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: large accounts unsupported\"},\"id\":%s}\n", CSTR_JSON( id ) );
   }
 
   if( FD_UNLIKELY( is_base58 || is_binary ) ) {
@@ -1068,7 +1085,7 @@ getBalance( fd_rpc_tile_t * ctx,
     fd_accdb_close_ro( ctx->accdb, ro );
   }
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":%lu},\"id\":%s}\n", FD_RPC_AGAVE_API_VERSION, ctx->banks[ bank_idx ].slot, balance, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":%lu},\"id\":%s}\n", FD_RPC_AGAVE_API_VERSION, ctx->banks[ bank_idx ].slot, balance, CSTR_JSON( id ) );
 }
 
 static fd_http_server_response_t
@@ -1092,7 +1109,7 @@ getBlockHeight( fd_rpc_tile_t * ctx,
                                              &response );
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->banks[ bank_idx ].block_height, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->banks[ bank_idx ].block_height, CSTR_JSON( id ) );
 }
 
 UNIMPLEMENTED(getBlockProduction) // TODO: Used by solana-exporter
@@ -1150,7 +1167,7 @@ getClusterNodes( fd_rpc_tile_t * ctx,
     else                         fd_http_server_printf( ctx->http, "}," );
   }
 
-  fd_http_server_printf( ctx->http, "],\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  fd_http_server_printf( ctx->http, "],\"id\":%s}\n", CSTR_JSON( id ) );
   return STAGE_JSON( ctx );
 }
 
@@ -1173,11 +1190,11 @@ getGenesisHash( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
   if( FD_UNLIKELY( !ctx->has_genesis_hash ) ) {
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Firedancer Error: No genesis hash\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, cJSON_PrintUnformatted( id ) );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Firedancer Error: No genesis hash\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, CSTR_JSON( id ) );
   }
 
   FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%s}\n", genesis_hash_b58, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":%s}\n", genesis_hash_b58, CSTR_JSON( id ) );
 }
 
 /* Determines if the node is healthy.  Agave defines this as follows,
@@ -1218,7 +1235,9 @@ getGenesisHash( fd_rpc_tile_t * ctx,
 
 static inline int
 _getHealth( fd_rpc_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX || ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
+  /* fd_http_server_listen is not called until after RPC has initialized banks */
+  FD_TEST( ctx->confirmed_idx!=ULONG_MAX );
+  if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
 
   ulong slots_behind = fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot );
   if( FD_LIKELY( slots_behind<=128UL ) ) return FD_RPC_HEALTH_STATUS_OK;
@@ -1238,9 +1257,9 @@ getHealth( fd_rpc_tile_t * ctx,
   int health_status = _getHealth( ctx );
 
   switch( health_status ) {
-    case FD_RPC_HEALTH_STATUS_UNKNOWN: return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, cJSON_PrintUnformatted( id ) );
-    case FD_RPC_HEALTH_STATUS_BEHIND:  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot ), cJSON_PrintUnformatted( id ) );
-    case FD_RPC_HEALTH_STATUS_OK:      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    case FD_RPC_HEALTH_STATUS_UNKNOWN: return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, CSTR_JSON( id ) );
+    case FD_RPC_HEALTH_STATUS_BEHIND:  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":%lu}},\"id\":%s}\n", FD_RPC_ERROR_NODE_UNHEALTHY, fd_ulong_sat_sub( ctx->cluster_confirmed_slot, ctx->banks[ ctx->confirmed_idx ].slot ), CSTR_JSON( id ) );
+    case FD_RPC_HEALTH_STATUS_OK:      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%s}\n", CSTR_JSON( id ) );
     default: FD_LOG_ERR(( "unknown health status" ));
   }
 }
@@ -1255,7 +1274,7 @@ getIdentity( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->identity_pubkey, identity_pubkey_b58 );
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"%s\"},\"id\":%s}\n", identity_pubkey_b58, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"identity\":\"%s\"},\"id\":%s}\n", identity_pubkey_b58, CSTR_JSON( id ) );
 }
 
 static fd_http_server_response_t
@@ -1286,7 +1305,7 @@ getInflationGovernor( fd_rpc_tile_t * ctx,
                            bank->inflation.initial, bank->inflation.initial==0 ? ".0" : "",
                            bank->inflation.taper, bank->inflation.taper==0 ? ".0" : "",
                            bank->inflation.terminal, bank->inflation.terminal==0 ? ".0" : "",
-                           cJSON_PrintUnformatted( id ) );
+                           CSTR_JSON( id ) );
 }
 
 UNIMPLEMENTED(getInflationRate)
@@ -1297,7 +1316,8 @@ static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t * ctx,
                     cJSON const *   id,
                     cJSON const *   params ) {
-  if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX || ctx->banks[ ctx->processed_idx ].slot==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 500 };
+  /* fd_http_server_listen is not called until after RPC has initialized banks */
+  FD_TEST( ctx->processed_idx!=ULONG_MAX );
 
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
@@ -1322,7 +1342,7 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
   ulong age = ctx->banks[ ctx->processed_idx ].block_height - bank->block_height;
   FD_TEST( bank->block_height <= ctx->banks[ ctx->processed_idx ].block_height );
   FD_TEST( bank->block_height + 150UL >= age );
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu,\"apiVersion\":\"%s\"},\"value\":{\"blockhash\":\"%s\",\"lastValidBlockHeight\":%lu}},\"id\":%s}\n", bank->slot, FD_RPC_AGAVE_API_VERSION, block_hash_b58, bank->block_height + 150UL - age, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu,\"apiVersion\":\"%s\"},\"value\":{\"blockhash\":\"%s\",\"lastValidBlockHeight\":%lu}},\"id\":%s}\n", bank->slot, FD_RPC_AGAVE_API_VERSION, block_hash_b58, bank->block_height + 150UL - age, CSTR_JSON( id ) );
 }
 
 UNIMPLEMENTED(getLeaderSchedule) // TODO: Used by solana-exporter
@@ -1353,16 +1373,16 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
   cJSON const * acct_sz = cJSON_GetArrayItem( params, 0 );
 
   if( FD_UNLIKELY( cJSON_IsBool( acct_sz ) || (cJSON_IsNumber( acct_sz ) && !fd_rpc_cjson_is_integer( acct_sz )) ) ) {
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), cJSON_PrintUnformatted( acct_sz ), cJSON_PrintUnformatted( id ) );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), CSTR_JSON( acct_sz ), CSTR_JSON( id ) );
   }
   if( FD_UNLIKELY( cJSON_IsNumber( acct_sz ) && acct_sz->valueint<0 ) ) {
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), cJSON_PrintUnformatted( acct_sz ), cJSON_PrintUnformatted( id ) );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), CSTR_JSON( acct_sz ), CSTR_JSON( id ) );
   }
   if( FD_UNLIKELY( cJSON_IsString( acct_sz ) ) ) {
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), acct_sz->valuestring, cJSON_PrintUnformatted( id ) );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), acct_sz->valuestring, CSTR_JSON( id ) );
   }
   if( FD_UNLIKELY( acct_sz && !fd_rpc_cjson_is_integer( acct_sz ) ) ) {
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), cJSON_PrintUnformatted( id ) );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), CSTR_JSON( id ) );
   }
 
   bank_info_t const * bank = &ctx->banks[ bank_idx ];
@@ -1373,7 +1393,7 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
     .burn_percent = bank->rent.burn_percent,
   };
   ulong minimum = fd_rent_exempt_minimum_balance( &rent, acct_sz->valueulong );
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", minimum, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", minimum, CSTR_JSON( id ) );
 }
 
 UNIMPLEMENTED(getMultipleAccounts)
@@ -1405,7 +1425,7 @@ getSlot( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   bank_info_t * bank = &ctx->banks[ bank_idx ];
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", bank->slot, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", bank->slot, CSTR_JSON( id ) );
 }
 
 UNIMPLEMENTED(getSlotLeader)
@@ -1441,7 +1461,7 @@ getTransactionCount( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   bank_info_t * bank = &ctx->banks[ bank_idx ];
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", bank->transaction_count, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", bank->transaction_count, CSTR_JSON( id ) );
 }
 
 static fd_http_server_response_t
@@ -1451,7 +1471,7 @@ getVersion( fd_rpc_tile_t * ctx,
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"solana-core\":\"%s\",\"feature-set\":%u},\"id\":%s}\n", ctx->version_string, FD_FEATURE_SET_ID, cJSON_PrintUnformatted( id ) );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"solana-core\":\"%s\",\"feature-set\":%u},\"id\":%s}\n", ctx->version_string, FD_FEATURE_SET_ID, CSTR_JSON( id ) );
 }
 
 UNIMPLEMENTED(getVoteAccounts) // TODO: Used by solana-exporter
@@ -1506,13 +1526,14 @@ rpc_http_request( fd_http_server_request_t const * request ) {
     cJSON_Delete( json );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32700,\"message\":\"Parse error\"},\"id\":null}\n" );
   }
+
   const cJSON * id = cJSON_GetObjectItemCaseSensitive( json, "id" );
 
   cJSON * item = json->child;
   while( item ) {
     if( FD_UNLIKELY( strcmp( item->string, "jsonrpc" ) && strcmp( item->string, "id" ) && strcmp( item->string, "method" ) && strcmp( item->string, "params" ) ) ) {
       cJSON_Delete( json );
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id ? cJSON_PrintUnformatted( id ) : "null" );
+      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id ? CSTR_JSON( id ) : "null" );
     }
     item = item->next;
   }
@@ -1525,14 +1546,14 @@ rpc_http_request( fd_http_server_request_t const * request ) {
 
   const cJSON * jsonrpc = cJSON_GetObjectItemCaseSensitive( json, "jsonrpc" );
   if( FD_UNLIKELY( !cJSON_HasObjectItem( json, "jsonrpc" ) && cJSON_HasObjectItem( json, "method" ) ) ) {
-    fd_http_server_response_t response = PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", id ? cJSON_PrintUnformatted( id ) : "null" );
+    fd_http_server_response_t response = PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", id ? CSTR_JSON( id ) : "null" );
     cJSON_Delete( json );
     return response;
   }
 
   if( FD_UNLIKELY( cJSON_IsObject( json ) && (!cJSON_HasObjectItem( json, "jsonrpc" ) || !cJSON_HasObjectItem( json, "method" )) ) ) {
     cJSON_Delete( json );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id ? cJSON_PrintUnformatted( id ) : "null" );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id ? CSTR_JSON( id ) : "null" );
   }
 
   if( FD_UNLIKELY( !(id && fd_rpc_cjson_is_integer( id ) && id->valueint >= 0) && !cJSON_IsString( id ) && !cJSON_IsNull( id ) ) ) {
@@ -1541,13 +1562,13 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   }
 
   if( FD_UNLIKELY( !cJSON_HasObjectItem( json, "jsonrpc" ) || cJSON_IsNull( jsonrpc ) ) ) {
-    fd_http_server_response_t response = PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    fd_http_server_response_t response = PRINTF_JSON( ctx, "{\"error\":{\"code\":-32600,\"message\":\"Unsupported JSON-RPC protocol version\"},\"id\":%s}\n", CSTR_JSON( id ) );
     cJSON_Delete( json );
     return response;
   }
 
   if( FD_UNLIKELY( !cJSON_IsString( jsonrpc ) || strcmp( jsonrpc->valuestring, "2.0" ) ) ) {
-    fd_http_server_response_t response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+    fd_http_server_response_t response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", CSTR_JSON( id ) );
     cJSON_Delete( json );
     return response;
   }
@@ -1558,7 +1579,7 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   const cJSON * _method = cJSON_GetObjectItemCaseSensitive( json, "method" );
   if( FD_LIKELY( !cJSON_IsString( _method ) || _method->valuestring==NULL ) ) {
       cJSON_Delete( json );
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", CSTR_JSON( id ) );
   }
 
   if( FD_LIKELY(      !strcmp( _method->valuestring, "getAccountInfo"                    ) ) ) response = getAccountInfo( ctx, id, params );
@@ -1613,7 +1634,7 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   else if( FD_LIKELY( !strcmp( _method->valuestring, "requestAirdrop"                    ) ) ) response = requestAirdrop( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id, params );
-  else response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", cJSON_PrintUnformatted( id ) );
+  else response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", CSTR_JSON( id ) );
 
   cJSON_Delete( json );
   return response;
@@ -1640,9 +1661,6 @@ privileged_init( fd_topo_t *      topo,
     .request = rpc_http_request,
   };
   ctx->http = fd_http_server_join( fd_http_server_new( _http, http_params, callbacks, ctx ) );
-  fd_http_server_listen( ctx->http, tile->rpc.listen_addr, tile->rpc.listen_port );
-
-  FD_LOG_NOTICE(( "rpc server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->rpc.listen_addr ), tile->rpc.listen_port ));
 }
 
 extern char const fdctl_version_string[];
@@ -1692,6 +1710,10 @@ unprivileged_init( fd_topo_t *      topo,
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( alloc );
   cJSON_alloc_install( alloc );
+
+  ctx->is_booting = 1;
+  ctx->listen_addr = tile->rpc.listen_addr;
+  ctx->listen_port = tile->rpc.listen_port;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
