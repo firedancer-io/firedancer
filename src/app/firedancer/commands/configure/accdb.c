@@ -2,9 +2,10 @@
 #include "../../../platform/fd_file_util.h"
 
 #include <errno.h>
-#include <fcntl.h>    /* open */
-#include <unistd.h>   /* fchown, close */
+#include <fcntl.h> /* open */
+#include <unistd.h> /* fchown, close */
 #include <sys/stat.h> /* fchmod */
+#include <sys/statvfs.h> /* fstatvfs */
 
 static int
 enabled( config_t const * config ) {
@@ -40,6 +41,17 @@ init( config_t const * config ) {
 
   ulong bstream_sz = config->firedancer.accounts.file_size_gib<<30;
   if( (ulong)st.st_size < bstream_sz ) {
+    struct statvfs fs;
+    if( FD_UNLIKELY( 0!=fstatvfs( vinyl_fd, &fs ) ) ) {
+      FD_LOG_ERR(( "fstatvfs(`%s`) failed (%i-%s)", config->paths.accounts, errno, fd_io_strerror( errno ) ));
+    }
+    ulong avail = (ulong)fs.f_bavail * (ulong)fs.f_frsize;
+    ulong need  = bstream_sz - (ulong)st.st_size;
+    if( FD_UNLIKELY( avail<need ) ) {
+      FD_LOG_ERR(( "insufficient disk space for accounts database `%s` "
+                   "(need %lu GiB, available %lu GiB)",
+                   config->paths.accounts, (need>>30)+1, avail>>30 ));
+    }
     FD_LOG_NOTICE(( "RUN: `fallocate -l %lu %s`", bstream_sz, config->paths.accounts ));
     int err = posix_fallocate( vinyl_fd, 0L, (long)bstream_sz );
     if( FD_UNLIKELY( err ) ) {
