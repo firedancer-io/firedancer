@@ -103,21 +103,18 @@ FD_PROTOTYPES_BEGIN
      - 10240 bytes for resizing the data
      - 0 padding bytes because this is already 8 byte aligned
    - 8 bytes for instruction data length
-   - 1232 bytes for the instruction data (TXN_MTU)
+   - 10240 bytes for the instruction data (CPI_MAX_INSTR_DATA_LEN)
    - 32 bytes for the program id
 
   So the total footprint is:
   8 header bytes +
-  192 duplicate accounts (256 instr accounts - 64 unique accounts) * 8 bytes     = 1536      duplicate account bytes +
+  191 duplicate accounts (255 instr accounts - 64 unique accounts) * 8 bytes     = 1528      duplicate account bytes +
   64 unique accounts * (96 header bytes + 10485760 bytes + 10240 resizing bytes) = 671750144 unique account bytes +
-  8 + 1232 + 32                                                                  = 1272 bytes trailer bytes + program id = 671751416 bytes
-  Total footprint: 671752960 bytes
+  8 + 10240 + 32                                                                 = 10280     trailer bytes
+  Subtotal: 671761960 bytes, aligned up to 16 = 671761968 bytes
 
   This is a reasonably tight-ish upper bound on the input region
-  footprint for a single instruction at a single stack depth.  In
-  reality the footprint would be slightly smaller because the
-  instruction data can't be equal to the transaction MTU.
- */
+  footprint for a single instruction at a single stack depth. */
 #define MAX_PERMITTED_DATA_INCREASE (10240UL) // 10KB
 #define FD_BPF_ALIGN_OF_U128        (8UL)
 #define FD_ACCOUNT_REC_ALIGN        (8UL)
@@ -197,17 +194,17 @@ FD_PROTOTYPES_BEGIN
 #define FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT (8UL) /* 1 dup byte + 7 bytes for padding */
 
 #define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit, direct_mapping)                                                                      \
-                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)         /* acct_cnt       */                                       + \
+                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)                      /* acct_cnt       */                          + \
                                                                    account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)        + \
                                                                    (FD_BPF_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
-                                                                   sizeof(ulong)         /* instr data len */                                       + \
-                                                                   FD_TXN_MTU            /* No instr data  */                                       + \
-                                                                   sizeof(fd_pubkey_t)), /* program id     */                                          \
+                                                                   sizeof(ulong)                      /* instr data len */                          + \
+                                                                   FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN  /* instr data  */                             + \
+                                                                   sizeof(fd_pubkey_t)),              /* program id     */                            \
                                                                    FD_RUNTIME_EBPF_HOST_ALIGN ))
 
 
 
-#define BPF_LOADER_SERIALIZATION_FOOTPRINT (671752960UL)
+#define BPF_LOADER_SERIALIZATION_FOOTPRINT (671761968UL)
 FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
 
 
