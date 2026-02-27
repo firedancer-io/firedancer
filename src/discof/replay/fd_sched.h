@@ -229,7 +229,9 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 ulong
 fd_sched_can_ingest_cnt( fd_sched_t * sched );
 
-/* Returns 1 if sched is drained, 0 otherwise. */
+/* Returns 1 if sched is drained, 0 otherwise.  A drained scheduler will
+   not return more work.  Otherwise, next_ready will return more work,
+   so long as there are exec tiles available. */
 int
 fd_sched_is_drained( fd_sched_t * sched );
 

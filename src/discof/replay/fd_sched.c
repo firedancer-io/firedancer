@@ -36,6 +36,7 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(fd_microblock_hdr_t), resize buffer for res
 FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for residual data );
 
 #define FD_SCHED_MAX_TXN_PER_FEC           ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/FD_TXN_MIN_SERIALIZED_SZ+1UL) /* 478 */
+#define FD_SCHED_MAX_MBLK_PER_FEC          ((FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/sizeof(fd_microblock_hdr_t)+1UL) /* 1334 */
 
 FD_STATIC_ASSERT( FD_SCHED_MIN_DEPTH>=FD_SCHED_MAX_TXN_PER_FEC, limits );
 FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
@@ -50,9 +51,23 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
 /* Structs. */
 
 struct fd_sched_mblk {
-  ulong end_txn_idx; /* non-inclusive parse idx */
+  /* The start_txn_idx is the end_txn_idx of the previous mblk.  In
+     theory we should be able to just read this value from the previous
+     mblk in parse order.  However, we free mblks eagerly, including an
+     in-progress mblk's immediate predecessor, so long as the
+     predecessor is done.  This is to preserve the property that the
+     mblk pool is simply an OOO scheduling window not tied to
+     max_live_slots sizing requirements, similar to the txn pool.  So,
+     we stash the txn_idx here for later use, when the predecessor may
+     have already been recycled.  An alternative is to eagerly free
+     mblks up to the last two. */
+  ulong start_txn_idx; /* inclusive parse idx */
+  ulong end_txn_idx;   /* non-inclusive parse idx */
   ulong hashcnt; /* number of hashes to do, excluding the final mixin */
   fd_hash_t end_hash[ 1 ];
+  uint next;
+  uint prev;
+  int  done;
 };
 typedef struct fd_sched_mblk fd_sched_mblk_t;
 
@@ -102,16 +117,20 @@ struct fd_sched_block {
   uint                shred_cnt;
   uint                fec_cnt;
   uint                mblk_cnt;      /* Total number of microblocks, including ticks and non ticks. */
+  uint                mblk_freed_cnt;
   uint                mblk_tick_cnt; /* Total number of tick microblocks. */
   uint                mblk_unhashed_cnt; /* mblk_cnt==mblk_unhashed_cnt+len(hashing_in_progress)+len(mixin_in_progress)+poh_hash_cmp_done_cnt */
   ulong               hashcnt; /* How many hashes this block wants replay to do.  A mixin/record counts as one hash. */
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
+  ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
   ulong               block_pool_max_popcnt; /* Peak block pool occupancy. */
   ulong               txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
 
   /* PoH verify. */
   fd_hash_t start_hash[ 1 ];
-  fd_sched_mblk_t mblk_pool[ FD_SCHED_MAX_MBLK_PER_SLOT ]; /* Indexed by parse order. */
+  uint mblk_head_idx;          /* First mblk in parse order.  Index into pool. */
+  uint mblk_tail_idx;          /* Last mblk in parse order.  Index into pool. */
+  uint mblk_next_unhashed_idx; /* Index into pool. */
   mblk_in_progress_slist_t mblks_hashing_in_progress[ 1 ]; /* Microblocks progress from the unhashed state into hashing ... */
   mblk_in_progress_slist_t mblks_mixin_in_progress[ 1 ];   /* ... and then from hashing into the mixin queue.  FIFO. */
   mblk_in_progress_bitset_t mblk_in_progress_pool_free_bitset[ mblk_in_progress_bitset_word_cnt ];
@@ -234,6 +253,9 @@ struct fd_sched {
   ulong                 txn_pool_free_cnt;
   fd_txn_p_t *          txn_pool;
   fd_sched_txn_info_t * txn_info_pool;
+  fd_sched_mblk_t *     mblk_pool;
+  ulong                 mblk_pool_free_cnt;
+  uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
   txn_bitset_t          exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
   txn_bitset_t          sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
@@ -251,7 +273,7 @@ static int
 verify_ticks_eager( fd_sched_block_t * block );
 
 static int
-verify_ticks_final( fd_sched_block_t * block );
+verify_ticks_final( fd_sched_t * sched, fd_sched_block_t * block );
 
 static void
 add_block( fd_sched_t * sched,
@@ -471,14 +493,14 @@ print_histogram( fd_sched_t * sched, fd_histf_t * hist, ulong converter, char * 
 
 FD_FN_UNUSED static void
 print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, max_tick_hashcnt %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->max_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, max_tick_hashcnt %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->max_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -541,6 +563,8 @@ fd_sched_footprint( ulong depth,
                     ulong block_cnt_max ) {
   if( FD_UNLIKELY( depth<FD_SCHED_MIN_DEPTH || depth>FD_SCHED_MAX_DEPTH ) ) return 0UL; /* bad depth */
   if( FD_UNLIKELY( !block_cnt_max ) ) return 0UL; /* bad block_cnt_max */
+  if( FD_UNLIKELY( depth>UINT_MAX-1UL ) ) return 0UL; /* mblk_pool use uint as pointers */
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                         );
   l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max ) ); /* dispatcher */
@@ -548,6 +572,7 @@ fd_sched_footprint( ulong depth,
   l = FD_LAYOUT_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )           );
   l = FD_LAYOUT_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   ); /* txn_pool */
   l = FD_LAYOUT_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          ); /* txn_info_pool */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              ); /* mblk_pool */
   return FD_LAYOUT_FINI( l, fd_sched_align() );
 }
 
@@ -577,6 +602,11 @@ fd_sched_new( void * mem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( depth>UINT_MAX-1UL ) ) {
+    FD_LOG_WARNING(( "bad depth (%lu)", depth ));
+    return NULL;
+  }
+
   if( FD_UNLIKELY( !exec_cnt || exec_cnt>FD_SCHED_MAX_EXEC_TILE_CNT ) ) {
     FD_LOG_WARNING(( "bad exec_cnt (%lu)", exec_cnt ));
     return NULL;
@@ -589,10 +619,12 @@ fd_sched_new( void * mem,
   void *                _ref_q         = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )           );
   fd_txn_p_t *          _txn_pool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   );
   fd_sched_txn_info_t * _txn_info_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          );
+  fd_sched_mblk_t *     _mblk_pool     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->txn_pool      = _txn_pool;
   sched->txn_info_pool = _txn_info_pool;
+  sched->mblk_pool     = _mblk_pool;
 
   ulong seed = ((ulong)fd_tickcount()) ^ FD_SCHED_MAGIC;
   fd_rdisp_new( _rdisp, depth, block_cnt_max, seed );
@@ -623,6 +655,11 @@ fd_sched_new( void * mem,
 
   sched->txn_pool_free_cnt = depth-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
 
+  for( ulong i=0UL; i<depth-1UL; i++ ) sched->mblk_pool[ i ].next = (uint)(i+1UL);
+  sched->mblk_pool[ depth-1UL ].next = UINT_MAX;
+  sched->mblk_pool_free_head = 0U;
+  sched->mblk_pool_free_cnt  = depth;
+
   txn_bitset_new( sched->exec_done_set );
   txn_bitset_new( sched->sigverify_done_set );
   txn_bitset_new( sched->poh_mixin_done_set );
@@ -648,10 +685,13 @@ fd_sched_join( void * mem ) {
   ulong        block_cnt_max = sched->block_cnt_max;
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  /*           */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                         );
-  void * _rdisp = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( depth, block_cnt_max ) );
-  void * _bpool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)     );
-  void * _ref_q = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),             ref_q_footprint( block_cnt_max )           );
+  /*                     */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),             sizeof(fd_sched_t)                         );
+  void *           _rdisp = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             fd_rdisp_footprint( depth, block_cnt_max ) );
+  void *           _bpool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t),    block_cnt_max*sizeof(fd_sched_block_t)     );
+  void *           _ref_q = FD_SCRATCH_ALLOC_APPEND( l, ref_q_align(),                ref_q_footprint( block_cnt_max )           );
+  /*                     */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_p_t),          depth*sizeof(fd_txn_p_t)                   );
+  /*                     */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_txn_info_t), depth*sizeof(fd_sched_txn_info_t)          );
+  /*                     */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_mblk_t),     depth*sizeof(fd_sched_mblk_t)              );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->rdisp      = fd_rdisp_join( _rdisp );
@@ -698,7 +738,7 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   /* Assuming every transaction is min size, do we have enough free
      entries in the txn pool?  For a more precise txn count, we would
      have to do some parsing. */
-  return sched->txn_pool_free_cnt>=fec_buf_sz/FD_TXN_MIN_SERIALIZED_SZ;
+  return sched->txn_pool_free_cnt>=fec_buf_sz/FD_TXN_MIN_SERIALIZED_SZ && sched->mblk_pool_free_cnt>=fec_buf_sz/sizeof(fd_microblock_hdr_t);
 }
 
 ulong
@@ -707,11 +747,18 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
   /* Worst case, we need one byte from the incoming data to extract a
      transaction out of the residual data, and the rest of the incoming
      data contributes toward min sized transactions. */
-  return sched->txn_pool_free_cnt/FD_SCHED_MAX_TXN_PER_FEC;
+  return fd_ulong_min( sched->txn_pool_free_cnt/FD_SCHED_MAX_TXN_PER_FEC, sched->mblk_pool_free_cnt/FD_SCHED_MAX_MBLK_PER_FEC );
 }
 
 int
 fd_sched_is_drained( fd_sched_t * sched ) {
+  /* We don't bother checking the mblk pool popcnt, because the txn pool
+     alone will answer the question.  All types of tasks will continue
+     to dispatch to the point where all allocated indices in the pool
+     are reclaimed.  In fact, it is not correct to check whether the
+     mblk pool is totally free.  The mblk pool can have outstanding
+     elements while sched is unable to make progress, due to partially
+     parsed microblocks pending mixins. */
   return sched->txn_pool_free_cnt==sched->depth-1;
 }
 
@@ -832,6 +879,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   }
 
   block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
   if( FD_UNLIKELY( block->dying ) ) {
@@ -996,6 +1044,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   }
 
   block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
   if( FD_UNLIKELY( !block->block_start_signaled ) ) {
@@ -1144,7 +1193,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 
   if( FD_UNLIKELY( block_should_signal_end( block ) ) ) {
     FD_TEST( block->block_start_signaled );
-    if( FD_UNLIKELY( verify_ticks_final( block ) ) ) {
+    if( FD_UNLIKELY( verify_ticks_final( sched, block ) ) ) {
       /* Tick verification can't be done at parse time, because we may
          not know the expected number of hashes yet.  It can't be driven
          by transaction dispatch/completion, because the block may be
@@ -1230,6 +1279,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
   }
 
   block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
   int exec_tile_idx = (int)exec_idx;
@@ -1309,7 +1359,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       fd_sched_mblk_in_progress_t * mblk = block->mblk_in_progress_pool+msg->mblk_idx;
       mblk->curr_hashcnt += msg->hashcnt;
       memcpy( mblk->curr_hash, msg->hash, sizeof(fd_hash_t) );
-      fd_sched_mblk_t * mblk_desc = block->mblk_pool+mblk->mblk_idx;
+      fd_sched_mblk_t * mblk_desc = sched->mblk_pool+mblk->mblk_idx;
       ulong hashcnt_todo = mblk_desc->hashcnt-mblk->curr_hashcnt;
       if( !hashcnt_todo ) {
         block->poh_hashing_done_cnt++;
@@ -1320,6 +1370,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
           /* This is a tick.  No need to mixin.  Check the hash value
              right away. */
           block->poh_hash_cmp_done_cnt++;
+          sched->mblk_pool[ mblk->mblk_idx ].done = 1;
           mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, msg->mblk_idx );
           if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk_desc->end_hash, sizeof(fd_hash_t) ) ) ) {
             FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
@@ -1400,13 +1451,6 @@ fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_i
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   add_block( sched, bank_idx, parent_bank_idx );
   block->slot                   = slot;
-  block->txn_parsed_cnt         = UINT_MAX;
-  block->txn_exec_done_cnt      = UINT_MAX;
-  block->txn_sigverify_done_cnt = UINT_MAX;
-  block->poh_hashing_done_cnt   = UINT_MAX;
-  block->poh_hash_cmp_done_cnt  = UINT_MAX;
-  block->txn_done_cnt           = UINT_MAX;
-  block->mblk_cnt               = UINT_MAX;
   block->fec_eos                = 1;
   block->block_start_signaled   = 1;
   block->block_end_signaled     = 1;
@@ -1582,7 +1626,7 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx ) {
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   FD_TEST( block->fec_eos );
   FD_TEST( block->mblk_cnt );
-  return block->mblk_pool[ block->mblk_cnt-1 ].end_hash;
+  return sched->mblk_pool[ block->mblk_tail_idx ].end_hash;
 }
 
 uint
@@ -1627,10 +1671,15 @@ add_block( fd_sched_t * sched,
   block->shred_cnt                   = 0U;
   block->fec_cnt                     = 0U;
   block->mblk_cnt                    = 0U;
+  block->mblk_freed_cnt              = 0U;
   block->mblk_tick_cnt               = 0U;
   block->mblk_unhashed_cnt           = 0U;
+  block->mblk_head_idx               = UINT_MAX;
+  block->mblk_tail_idx               = UINT_MAX;
+  block->mblk_next_unhashed_idx      = UINT_MAX;
   block->hashcnt                     = 0UL;
   block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt;
+  block->mblk_pool_max_popcnt        = sched->depth - sched->mblk_pool_free_cnt;
   block->block_pool_max_popcnt       = sched->block_pool_popcnt;
 
   mblk_in_progress_bitset_full( block->mblk_in_progress_pool_free_bitset );
@@ -1745,7 +1794,7 @@ verify_ticks_eager( fd_sched_block_t * block ) {
 
    Returns 0 on success. */
 static int
-verify_ticks_final( fd_sched_block_t * block ) {
+verify_ticks_final( fd_sched_t * sched, fd_sched_block_t * block ) {
   FD_TEST( block->fec_eos );
 
   if( FD_UNLIKELY( block->mblk_tick_cnt+block->tick_height<block->max_tick_height ) ) {
@@ -1754,9 +1803,9 @@ verify_ticks_final( fd_sched_block_t * block ) {
   }
   /* Number of ticks > 0 implies that number of microblocks > 0, so the
      subtraction won't underflow. */
-  ulong last_mblk_idx = block->mblk_cnt-1UL;
-  ulong start_txn_idx = last_mblk_idx==0UL ? 0UL : block->mblk_pool[ last_mblk_idx-1UL ].end_txn_idx;
-  ulong end_txn_idx = block->mblk_pool[ last_mblk_idx ].end_txn_idx;
+  uint tail_idx = block->mblk_tail_idx;
+  ulong end_txn_idx = sched->mblk_pool[ tail_idx ].end_txn_idx;
+  ulong start_txn_idx = sched->mblk_pool[ tail_idx ].start_txn_idx;
   if( FD_UNLIKELY( start_txn_idx!=end_txn_idx ) ) {
     /* The last microblock should be a tick (0 transactions). */
     FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
@@ -1764,6 +1813,22 @@ verify_ticks_final( fd_sched_block_t * block ) {
   }
 
   return verify_ticks_eager( block );
+}
+
+static void
+free_done_mblks( fd_sched_t * sched, fd_sched_block_t * block ) {
+  uint idx = block->mblk_head_idx;
+  while( idx!=UINT_MAX && idx!=block->mblk_tail_idx ) {
+    fd_sched_mblk_t * m = sched->mblk_pool+idx;
+    if( !m->done ) break;
+    uint next_idx = m->next;
+    m->next = sched->mblk_pool_free_head;
+    sched->mblk_pool_free_head = idx;
+    sched->mblk_pool_free_cnt++;
+    block->mblk_freed_cnt++;
+    idx = next_idx;
+  }
+  block->mblk_head_idx = idx;
 }
 
 #define CHECK( cond )  do {             \
@@ -1805,8 +1870,26 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
 
       block->mblks_rem--;
       block->txns_rem = hdr->txn_cnt;
-      fd_sched_mblk_t * mblk = block->mblk_pool+block->mblk_cnt;
-      mblk->end_txn_idx = ( block->mblk_cnt ? block->mblk_pool[ block->mblk_cnt-1 ].end_txn_idx : 0U )+hdr->txn_cnt;
+
+      FD_TEST( sched->mblk_pool_free_cnt ); /* can_ingest should have guaranteed sufficient free capacity. */
+      uint mblk_idx = sched->mblk_pool_free_head;
+      sched->mblk_pool_free_head = sched->mblk_pool[ mblk_idx ].next;
+      sched->mblk_pool_free_cnt--;
+
+      fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
+      mblk->next = UINT_MAX;
+      mblk->prev = block->mblk_tail_idx;
+      mblk->done = 0;
+      if( FD_LIKELY( block->mblk_tail_idx!=UINT_MAX ) ) {
+        sched->mblk_pool[ block->mblk_tail_idx ].next = mblk_idx;
+      } else {
+        block->mblk_head_idx = mblk_idx;
+      }
+      block->mblk_tail_idx = mblk_idx;
+      if( block->mblk_next_unhashed_idx==UINT_MAX ) block->mblk_next_unhashed_idx = mblk_idx;
+
+      mblk->start_txn_idx = block->mblk_cnt ? sched->mblk_pool[ mblk->prev ].end_txn_idx : 0UL;
+      mblk->end_txn_idx = mblk->start_txn_idx+hdr->txn_cnt;
       /* One might think that every microblock needs to have at least
          one hash, otherwise the block should be considered invalid.  A
          vanilla validator certainly produces microblocks that conform
@@ -1852,8 +1935,11 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       }
       #if FD_SCHED_SKIP_POH
       block->mblk_unhashed_cnt--;
+      block->mblk_next_unhashed_idx = mblk->next;
       block->poh_hashing_done_cnt++;
       block->poh_hash_cmp_done_cnt++;
+      mblk->done = 1;
+      free_done_mblks( sched, block );
       #endif
       continue;
     }
@@ -1995,31 +2081,40 @@ dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int 
   fd_sched_mblk_in_progress_t * mblk = NULL;
   ulong mblk_idx = ULONG_MAX;
   fd_sched_mblk_t * mblk_desc = NULL;
-  ulong mblk_desc_idx = ULONG_MAX;
+  uint mblk_desc_idx = UINT_MAX;
   if( FD_LIKELY( !mblk_in_progress_slist_is_empty( block->mblks_hashing_in_progress, block->mblk_in_progress_pool ) ) ) {
     /* There's a PoH task in progress, just continue working on that. */
     mblk_idx = mblk_in_progress_slist_idx_pop_head( block->mblks_hashing_in_progress, block->mblk_in_progress_pool );
     FD_TEST( !mblk_in_progress_slist_private_idx_is_null( mblk_idx ) );
     mblk = block->mblk_in_progress_pool+mblk_idx;
     mblk_desc_idx = mblk->mblk_idx;
-    mblk_desc = block->mblk_pool+mblk_desc_idx;
+    mblk_desc = sched->mblk_pool+mblk_desc_idx;
   } else {
     /* No in progress PoH task, so start a new one. */
     FD_TEST( block->mblk_unhashed_cnt );
-    mblk_desc_idx = block->mblk_cnt-block->mblk_unhashed_cnt;
-    mblk_desc = block->mblk_pool+mblk_desc_idx;
+    mblk_desc_idx = block->mblk_next_unhashed_idx;
+    mblk_desc = sched->mblk_pool+mblk_desc_idx;
+    block->mblk_next_unhashed_idx = mblk_desc->next;
     block->mblk_unhashed_cnt--;
     mblk_idx = mblk_in_progress_bitset_first( block->mblk_in_progress_pool_free_bitset );
     FD_TEST( mblk_idx<FD_SCHED_MAX_MBLK_IN_PROGRESS_PER_SLOT );
     mblk_in_progress_bitset_remove( block->mblk_in_progress_pool_free_bitset, mblk_idx );
     mblk = block->mblk_in_progress_pool+mblk_idx;
-    ulong start_txn_idx = mblk_desc_idx==0UL ? 0UL : (mblk_desc-1)->end_txn_idx;
+    ulong start_txn_idx = mblk_desc->start_txn_idx;
     mblk->curr_txn_idx = start_txn_idx;
     mblk->curr_hashcnt = 0UL;
     mblk->curr_sig_cnt = 0U;
-    memcpy( mblk->curr_hash, mblk_desc_idx==0UL ? block->start_hash : (mblk_desc-1)->end_hash, sizeof(fd_hash_t) );
-    mblk->mblk_idx = (uint)mblk_desc_idx;
+    memcpy( mblk->curr_hash, mblk_desc->prev==UINT_MAX ? block->start_hash : sched->mblk_pool[ mblk_desc->prev ].end_hash, sizeof(fd_hash_t) );
+    mblk->mblk_idx = mblk_desc_idx;
     mblk->is_tick = start_txn_idx==mblk_desc->end_txn_idx;
+    /* It's safe to free up to the first mblk that is not done yet here.
+       It's not safe to do that in task_done, because the mblk right
+       after the last done mblk may still need to read the end_hash of
+       the previous mblk.  Here we have the natural guarantee that a
+       mblk was just put in progress, and will hence stop the freeing by
+       virtue of being not done yet, and this mblk no longer have a
+       dependency on its predecessor. */
+    free_done_mblks( sched, block );
   }
   FD_TEST( mblk );
   FD_TEST( mblk_desc );
@@ -2048,8 +2143,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
      queue. */
   ulong in_progress_idx = mblk_in_progress_slist_idx_pop_head( block->mblks_mixin_in_progress, block->mblk_in_progress_pool );
   fd_sched_mblk_in_progress_t * mblk = block->mblk_in_progress_pool+in_progress_idx;
-  fd_sched_mblk_t * mblk_desc = block->mblk_pool+mblk->mblk_idx;
-  ulong start_txn_idx = mblk->mblk_idx==0 ? 0UL : (mblk_desc-1)->end_txn_idx;
+  fd_sched_mblk_t * mblk_desc = sched->mblk_pool+mblk->mblk_idx;
+  ulong start_txn_idx = mblk_desc->start_txn_idx;
 
   if( FD_UNLIKELY( mblk_desc->end_txn_idx>block->txn_parsed_cnt ) ) {
     /* Very rarely, we've finished hashing, but not all transactions in
@@ -2069,8 +2164,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
        queue we could try. */
     in_progress_idx = mblk_in_progress_slist_idx_pop_head( block->mblks_mixin_in_progress, block->mblk_in_progress_pool );
     mblk = block->mblk_in_progress_pool+in_progress_idx;
-    mblk_desc = block->mblk_pool+mblk->mblk_idx;
-    start_txn_idx = mblk->mblk_idx==0 ? 0UL : (mblk_desc-1)->end_txn_idx;
+    mblk_desc = sched->mblk_pool+mblk->mblk_idx;
+    start_txn_idx = mblk_desc->start_txn_idx;
     /* Invariant: at any given point in time, there can be at most one
        microblock that hasn't been fully parsed yet, due to the nature
        of sequential parsing.  So this microblock has to be fully
@@ -2105,6 +2200,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   if( FD_LIKELY( mblk->curr_txn_idx==mblk_desc->end_txn_idx ) ) {
     /* Ready to compute the final hash for this microblock. */
     block->poh_hash_cmp_done_cnt++;
+    sched->mblk_pool[ mblk->mblk_idx ].done = 1;
     mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, in_progress_idx );
     uchar * root = fd_bmtree_commit_fini( block->bmtree );
     uchar mixin_buf[ 64 ];
@@ -2339,6 +2435,7 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
       block->in_rdisp = 0;
       fd_rdisp_abandon_block( sched->rdisp, (ulong)(block-sched->block_pool) );
       sched->txn_pool_free_cnt += block->txn_parsed_cnt-block->txn_done_cnt; /* in_flight_cnt==0 */
+
       sched->metrics->block_abandoned_cnt++;
       sched->metrics->txn_abandoned_parsed_cnt    += block->txn_parsed_cnt;
       sched->metrics->txn_abandoned_exec_done_cnt += block->txn_exec_done_cnt;
@@ -2447,9 +2544,22 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
       /* We should have removed it from the dispatcher when we were
          notified of the new root, or when in-flight transactions were
          drained. */
-      FD_LOG_CRIT(( "invariant violation: block is in the dispatcher, slot %lu, parent slot %lu",
-                    head->slot, head->parent_slot ));
+      FD_LOG_CRIT(( "invariant violation: block is in the dispatcher, slot %lu, parent slot %lu", head->slot, head->parent_slot ));
     }
+
+    /* Return remaining mblk descriptors to the shared pool. */
+    uint midx = head->mblk_head_idx;
+    while( midx!=UINT_MAX ) {
+      uint next_idx = sched->mblk_pool[ midx ].next;
+      sched->mblk_pool[ midx ].next = sched->mblk_pool_free_head;
+      sched->mblk_pool_free_head = midx;
+      sched->mblk_pool_free_cnt++;
+      midx = next_idx;
+    }
+    head->mblk_head_idx  = UINT_MAX;
+    head->mblk_tail_idx  = UINT_MAX;
+    head->mblk_cnt       = 0U;
+
     sched->block_pool_popcnt--;
 
     fd_sched_block_t * next = block_pool_ele( sched, head->parent_idx );
