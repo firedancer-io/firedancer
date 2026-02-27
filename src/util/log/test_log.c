@@ -199,6 +199,15 @@ main( int     argc,
   if( !volatile_yes ) FD_LOG_ERR((     "Test ERR          (warning+exit program with error 1)"     ));
   if( !volatile_yes ) backtrace_test();
 
+  FD_CHECK_ERR(  volatile_yes, "never see this" );
+  FD_CHECK_CRIT( volatile_yes, "never see this" );
+
+  FD_TEST_ERR(  volatile_yes );
+  FD_TEST_CRIT( volatile_yes );
+
+  FD_DCHECK_CRIT(  volatile_yes, "never see this" );
+  FD_DCHECK_ALERT( volatile_yes, "never see this" );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

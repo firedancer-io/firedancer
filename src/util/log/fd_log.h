@@ -239,64 +239,101 @@
    should only be used for command output. */
 #define FD_LOG_STDOUT(a) do { fd_log_private_fprintf_nolock_0( STDOUT_FILENO, "%s", fd_log_private_0 a ); } while(0)
 
-/* FD_TEST is a single statement that evaluates condition c and, if c
-   evaluates to false, will FD_LOG_ERR that the condition failed.  It is
-   optimized for the case where c will is non-zero.  This is mostly
-   meant for use in things like unit tests.  Due to linguistic
-   limitations, c cannot contain things like double quotes, etc.  E.g.
+/* FD_CHECK_ERR is a single statement that evaluates c and, if c
+   evaluates to false, will FD_LOG_ERR (typically exits the thread group
+   with status 1) with a descriptie error message.  It is optimized for
+   the case where c is non-zero.  If c is false, m should evaluate to a
+   cstr.  E.g.:
 
-     FD_TEST( broken_func_that_should_return_zero( arg1, arg2 )!=0 );
+     FD_CHECK_ERR( func_that_should_return_zero( arg1, arg2 )!=0, "it's bad you know" );
 
    would typically cause the program to exit with error code 1, logging
    something like:
 
-     ERR     01-23 04:56:07.890123 45678 f0 0 src/foo.c(901): FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
+     ERR     01-23 04:56:07.890123 45678 f0 0 src/foo.c(901): FAIL: func_that_should_return_zero( arg1, arg2 )!=0 (it's bad you know)
 
    to the ephemeral log (stderr) and something like:
 
-     ERR     2023-01-23 04:56:07.890123456 GMT-06 45678:45678 user:host:f0 app:thread:0 src/foo.c(901)[func]: FAIL: broken_func_that_should_return_zero( arg1, arg2 )!=0
+     ERR     2023-01-23 04:56:07.890123456 GMT-06 45678:45678 user:host:f0 app:thread:0 src/foo.c(901)[func]: FAIL: func_that_should_return_zero( arg1, arg2 )!=0 (it's bad you know)
 
-   to the permanent log.  And similarly for other log levels.
+   to the permanent log.  Due to linguistic limitations, c cannot
+   contain things like double quotes, etc.  This macro is robust.
 
-   This macro is robust. */
+   FD_CHECK_CRIT is the same but will FD_LOG_CRIT (typically aborting
+   the thread group) instead.
 
-#define FD_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", #c )); } while(0)
+   FD_TEST_ERR / FD_TEST_CRIT are the same as FD_CHECK_ERR /
+   FD_CHECK_CRIT but do not include a user message.  These are meant
+   for use in unit tests.  FD_TEST is a short for FD_TEST_ERR. */
 
-/* FD_TEST_CUSTOM is like FD_TEST but with a custom error msg err. */
+#define FD_CHECK_ERR( c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR((  "FAIL: %s (%s)", #c, (m) )); } while(0)
+#define FD_CHECK_CRIT(c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT(( "FAIL: %s (%s)", #c, (m) )); } while(0)
 
-#define FD_TEST_CUSTOM(c,err) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", (err) )); } while(0)
+#define FD_TEST_ERR( c)    do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR((  "FAIL: %s", #c )); } while(0)
+#define FD_TEST_CRIT(c)    do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT(( "FAIL: %s", #c )); } while(0)
 
-/* FD_PARANOID / FD_CRIT / FD_ALERT:
+#define FD_TEST FD_TEST_ERR
 
-   FD_PARANOID configures the FD_CRIT / FD_ALERT runtime checks.
+/* FD_DCHECK_STYLE / FD_DCHECK_{CRIT,ALERT}
 
-   If FD_PARANOID is set: FD_CRIT / FD_ALERT will FD_LOG_CRIT /
-   FD_LOG_ALERT the application if c evaluates to false with a
-   descriptive error that includes the user message m (m should evaluate
-   to a cstr when c is false).
+   The main purpose of these is to document assumptions made by a code
+   block in a human and machine readable way.  These contracts can be
+   configured to be run-time assertions in a debugging build
+   (FD_DCHECK_STYLE==1), omitted in production build
+   (FD_DCHECK_STYLE==0) or treated as compiler assumptions in
+   experimental builds (FD_DCHECK_STYLE==-1).
 
-   If not set: FD_CRIT will evaluate c (such that any side effects of c
-   will still happen), the false code path will be marked as unreachable
-   (such that the optimizer will treat the code following the FD_CRIT
-   the same as when paranoid was set) and m will not be evaluated.
-   FD_ALERT will not evaluate c or m.
+   FD_DCHECK_ALERT is meant for code that is expensive to evaluate but
+   has no side effects.  FD_CHECK_CRIT for meant for all other cases.
 
-   In short, use FD_ALERT when c is expensive to evalute but has no side
-   effects.  Use FD_CRIT for all other cases.
+   Specifically:
 
-   FIXME: probably should rename FD_TEST_CUSTOM to FD_ERR. */
+   If FD_DCHECK_STYLE is 1: FD_DCHECK_{CRIT,ALERT} will
+   FD_LOG_{CRIT,ALERT} if c evaluates to false with a descriptive error
+   that includes the user message m (m should evaluate to a cstr when c
+   is false).  m will not be evaluated when c is true.
 
-#ifndef FD_PARANOID
-#define FD_PARANOID 0
+   If FD_DCHECK_STYLE is 0: FD_DCHECK_CRIT will evaluate c, ignore the
+   result and continue (such that any side effects of c still happen).
+   FD_DCHECK_ALERT will evalute neither c nor m.
+
+   If FD_DCHECK_STYLE is -1: FD_DCHECK_{CRIT,ALERT} will evaluate c and
+   the false code path will be marked as unreachable (such that the
+   compiler will optimize the code following the same as when
+   FD_DCHECK_STYLE==1 and proceed regardless how c evaluates).  These
+   will not evalate m.  (For clang, a __builtin_assume implementation of
+   FD_DCHECK_ALERT might be preferable or maybe style for this.)
+
+   IMPORTANT SAFETY TIP!  Don't use FD_DCHECK_STYLE==-1 at build level!
+   It is meant for use in very limited use within individual translation
+   units during development.  If you don't understand when it makes
+   sense to use it, to use it, don't! */
+
+#ifndef FD_DCHECK_STYLE
+#define FD_DCHECK_STYLE 0
 #endif
 
-#if FD_PARANOID
-#define FD_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT (( "FAIL: %s (%s)", #c, (m) )); } while(0)
-#define FD_ALERT(c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ALERT(( "FAIL: %s (%s)", #c, (m) )); } while(0)
+#if FD_DCHECK_STYLE==1
+#define FD_DCHECK_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT((  "FAIL: %s (%s)", #c, (m) )); } while(0)
+#define FD_DCHECK_ALERT(c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ALERT(( "FAIL: %s (%s)", #c, (m) )); } while(0)
+#elif FD_DCHECK_STYLE==0
+#define FD_DCHECK_CRIT( c,m) ((void)(c))
+#define FD_DCHECK_ALERT(c,m) ((void)0)
+#elif FD_DCHECK_STYLE==-1
+#define FD_DCHECK_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) __builtin_unreachable(); } while(0)
+#define FD_DCHECK_ALERT(c,m) do { if( FD_UNLIKELY( !(c) ) ) __builtin_unreachable(); } while(0)
 #else
-#define FD_CRIT( c,m) do { (void)(c); } while(0)
-#define FD_ALERT(c,m) do {            } while(0)
+#error "unknown FD_DCHECK_STYLE"
 #endif
+
+/* FIXME: THESE ARE TEMP SCAFFOLDING ... ALL USAGES OF THESE SHOULD BE
+   ELIMINATED FROM THE CODE IN FAVOR OF THE GIVEN EXPANSIONS.
+   FD_{CRIT,ALERT} SHOULD BE FD_CHECK_{CRIT,ALERT} OUTSIDE OF VINYL. */
+
+#define FD_TEST_CUSTOM FD_CHECK_ERR
+#define FD_PARANOID    FD_DCHECK_STYLE
+#define FD_CRIT        FD_DCHECK_CRIT
+#define FD_ALERT       FD_DCHECK_ALERT
 
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.
