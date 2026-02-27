@@ -3,16 +3,6 @@
 #include "utils/fd_ssparse.h"
 #include "utils/fd_vinyl_io_wd.h"
 
-void
-fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
-                                   fd_topo_t *        topo,
-                                   fd_topo_tile_t *   tile,
-                                   void *             io_mm_mem,
-                                   void *             io_wd_mem ) {
-  /* Nothing to do */
-  (void)ctx; (void)topo; (void)tile; (void)io_mm_mem; (void)io_wd_mem;
-}
-
 /* bstream_push_account finishes processing a single account (pair).
    A single fd_stem_publish is issued, and the chunk always advances
    by mtu size. */
@@ -182,9 +172,4 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
   fd_stem_publish( ctx->stem, ctx->hash_out.idx, FD_SNAPSHOT_MSG_DATA/*sig*/, ctx->hash_out.chunk, FD_SSPARSE_ACC_BATCH_MAX/*sz=acc_cnt*/, 0UL, 0UL/*tsorig*/, 0UL/*tspub*/ );
   ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->hash_out.mtu, ctx->hash_out.chunk0, ctx->hash_out.wmark );
   return 1;
-}
-
-void
-fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx ) {
-  (void)ctx;
 }

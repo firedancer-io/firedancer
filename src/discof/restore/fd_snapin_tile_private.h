@@ -11,11 +11,8 @@
 #include "utils/fd_ssctrl.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_user.h"
-#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../disco/stem/fd_stem.h"
-#include "../../disco/topo/fd_topo.h"
-#include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 
 /* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
@@ -155,76 +152,6 @@ FD_PROTOTYPES_END
 /* Vinyl APIs *********************************************************/
 
 FD_PROTOTYPES_BEGIN
-
-#define FD_SNAPIN_IO_SPAD_MAX (64UL<<20) /* 64 MiB of I/O scratch space */
-
-/* fd_snapin_vinyl_unprivileged_init performs setup tasks after being
-   sandboxed.  (anything that might be exposed to untrusted data) */
-
-void
-fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
-                                   fd_topo_t *        topo,
-                                   fd_topo_tile_t *   tile,
-                                   void *             io_mm_mem,
-                                   void *             io_wd_mem );
-
-/* fd_snapin_vinyl_seccomp returns a seccomp sandbox policy suitable
-   for vinyl operation. */
-
-ulong
-fd_snapin_vinyl_seccomp( ulong                out_cnt,
-                         struct sock_filter * out );
-
-/* fd_snapin_vinyl_reset pauses the snapwr tile (waits for the snapwr
-   tile to ack) and formats a bstream file to be empty.  THIS IS A
-   DESTRUCTIVE ACTION. */
-
-void
-fd_snapin_vinyl_reset( fd_snapin_tile_t * ctx );
-
-/* fd_snapin_vinyl_txn_begin starts a transactional burst write.
-   Assumes vinyl uses the io_mm backend.  The write can then either be
-   committed or cancelled.  There is no practical limit on the size of
-   this burst. */
-
-void
-fd_snapin_vinyl_txn_begin( fd_snapin_tile_t * ctx );
-
-/* fd_snapin_vinyl_txn_commit finishes a transactional burst write.
-   Assumes vinyl uses the io_mm backend.  Reads through bstream records
-   written since txn_begin was called and updates the vinyl_meta index. */
-
-void
-fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx );
-
-/* fd_snapin_vinyl_txn_cancel abandons a transactional burst write.
-   Assumes vinyl uses the io_mm backend.  Reverts the bstream state to
-   when txn_begin was called. */
-
-void
-fd_snapin_vinyl_txn_cancel( fd_snapin_tile_t * ctx );
-
-/* fd_snapin_vinyl_wd_init transitions the vinyl backend from generic
-   vinyl accessor (io_mm) to fast dumb direct account insertion (io_wd).
-   This must be called before calling fd_snapin_process_account_*.
-   Starts the snapwr tile (waits for the snapwr tile to ack). */
-
-void
-fd_snapin_vinyl_wd_init( fd_snapin_tile_t * ctx );
-
-/* fd_snapin_vinyl_wd_fini transitions the vinyl backend from fast dumb
-   direct account insertion (io_wd) back to generic mode (io_mm).
-   Pauses the snapwr tile (waits for the snapwr to ack). */
-
-void
-fd_snapin_vinyl_wd_fini( fd_snapin_tile_t * ctx );
-
-/* fd_snapin_vinyl_shutdown instructs vinyl-related tiles of the loader
-   to shut down.  Blocks until all affected tiles have acknowledged the
-   shutdown signal. */
-
-void
-fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx );
 
 /* Internal APIs for inserting accounts */
 
