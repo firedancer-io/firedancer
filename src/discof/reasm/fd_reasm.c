@@ -241,7 +241,7 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
 
 static void
 overwrite_invalid_cmr( fd_reasm_t     * reasm,
-                        fd_reasm_fec_t * child ) {
+                       fd_reasm_fec_t * child ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
   if( FD_UNLIKELY( child->fec_set_idx==0 && !fd_reasm_query( reasm, &child->cmr ) ) ) {
     xid_t * parent_bid = xid_query( reasm->xid, (child->slot - child->parent_off) << 32 | UINT_MAX, NULL );
