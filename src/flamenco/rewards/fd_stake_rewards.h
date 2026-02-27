@@ -67,19 +67,19 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
                            ulong *              credits_observed_out );
 
 ulong
-fd_stake_rewards_total_rewards( fd_stake_rewards_t * stake_rewards,
-                                uchar                fork_idx );
+fd_stake_rewards_total_rewards( fd_stake_rewards_t const * stake_rewards,
+                                uchar                      fork_idx );
 
 uint
-fd_stake_rewards_num_partitions( fd_stake_rewards_t * stake_rewards,
-                                 uchar                fork_idx );
+fd_stake_rewards_num_partitions( fd_stake_rewards_t const * stake_rewards,
+                                 uchar                      fork_idx );
 
 ulong
-fd_stake_rewards_starting_block_height( fd_stake_rewards_t * stake_rewards,
-                                        uchar                fork_idx );
+fd_stake_rewards_starting_block_height( fd_stake_rewards_t const * stake_rewards,
+                                        uchar                      fork_idx );
 
 ulong
-fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t * stake_rewards,
-                                                uchar                fork_idx );
+fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t const * stake_rewards,
+                                                uchar                      fork_idx );
 
 #endif /* HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h */

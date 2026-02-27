@@ -789,16 +789,7 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->stake == 100UL );
 
-  /* Set some CoW fields. */
-  fd_epoch_rewards_t * keys = fd_bank_epoch_rewards_modify( bank9 );
-  keys->magic = 101UL;
-
   /* Check that there are 3 free pool elements. */
-
-  FD_TEST( fd_bank_epoch_rewards_pool_free( fd_bank_get_epoch_rewards_pool( bank9->data ) ) == 3UL );
-
-  fd_epoch_rewards_t * keys2 = fd_bank_epoch_rewards_modify( bank9 );
-  keys2->magic = 101UL;
 
   fd_banks_mark_bank_frozen( banks, bank9 );
 
@@ -871,15 +862,6 @@ main( int argc, char ** argv ) {
   /* Again, there are no free epoch leader pool elements. */
   FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11->data ) ) == 2UL );
 
-  fd_epoch_rewards_t const * keys3 = fd_bank_epoch_rewards_query( bank11 );
-  FD_TEST( keys3->magic == 101UL );
-
-  fd_epoch_rewards_t const * keys4 = fd_bank_epoch_rewards_query( bank11 );
-  FD_TEST( keys4->magic == 101UL );
-
-  keys = fd_bank_epoch_rewards_modify( bank11 );
-  keys->magic = 101UL;
-
   fd_vote_states_t const * votes_const = fd_bank_vote_states_locking_query( bank11 );
   FD_TEST( votes_const );
   fd_bank_vote_states_end_locking_query( bank11 );
@@ -905,12 +887,6 @@ main( int argc, char ** argv ) {
   FD_TEST( !!fd_banks_bank_query( bank_query, banks, bank10->data->idx ) );
 
   /* Verify that the CoW fields are properly set for bank11 */
-
-  keys3 = fd_bank_epoch_rewards_query( bank11 );
-  FD_TEST( keys3->magic == 101UL );
-
-  keys4 = fd_bank_epoch_rewards_query( bank11 );
-  FD_TEST( keys4->magic == 101UL );
 
   votes_const = fd_bank_vote_states_locking_query( bank11 );
   FD_TEST( votes->magic == 102UL );

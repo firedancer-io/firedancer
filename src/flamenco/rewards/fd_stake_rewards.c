@@ -306,25 +306,25 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
 }
 
 ulong
-fd_stake_rewards_total_rewards( fd_stake_rewards_t * stake_rewards,
-                                uchar                fork_idx ) {
+fd_stake_rewards_total_rewards( fd_stake_rewards_t const * stake_rewards,
+                                uchar                      fork_idx ) {
   return stake_rewards->fork_info[fork_idx].total_stake_rewards;
 }
 
 uint
-fd_stake_rewards_num_partitions( fd_stake_rewards_t * stake_rewards,
-                                 uchar                fork_idx ) {
+fd_stake_rewards_num_partitions( fd_stake_rewards_t const * stake_rewards,
+                                 uchar                      fork_idx ) {
   return stake_rewards->fork_info[fork_idx].partition_cnt;
 }
 
 ulong
-fd_stake_rewards_starting_block_height( fd_stake_rewards_t * stake_rewards,
-                                        uchar                fork_idx ) {
+fd_stake_rewards_starting_block_height( fd_stake_rewards_t const * stake_rewards,
+                                        uchar                      fork_idx ) {
   return stake_rewards->fork_info[fork_idx].starting_block_height;
 }
 
 ulong
-fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t * stake_rewards,
-                                                uchar                fork_idx ) {
+fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t const * stake_rewards,
+                                                uchar                      fork_idx ) {
   return stake_rewards->fork_info[fork_idx].starting_block_height + stake_rewards->fork_info[fork_idx].partition_cnt;
 }
