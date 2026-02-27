@@ -412,6 +412,8 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t epoch_out[1];
 
+  fd_replay_out_link_t repair_out[1];
+
   /* The gui tile needs to reliably own a reference to the most recent
      completed active bank.  Replay needs to know if the gui as a
      consumer is enabled so it can increment the bank's refcnt before
@@ -478,7 +480,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( 512 ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_vinyl_req_pool_align(),    fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
@@ -1434,7 +1436,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+  fd_reasm_evicted_t evicted[1];
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, evicted ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1568,7 +1571,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+    fd_reasm_evicted_t evicted[1];
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, evicted ); /* FIXME manifest block_id */
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -2186,16 +2190,6 @@ before_frag( fd_replay_tile_t * ctx,
              ulong              seq FD_PARAM_UNUSED,
              ulong              sig ) {
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
-    /* If reasm is full, we can not insert any more FEC sets.  We must
-       not consume any frags from shred_out until reasm can process more
-       FEC sets. */
-
-    if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
-      return -1;
-    }
-  }
-
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT && sig!=FD_GOSSIP_UPDATE_TAG_WFS_DONE ) ) return 1;
   return 0;
 }
@@ -2394,8 +2388,9 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
-process_fec_complete( fd_replay_tile_t * ctx,
-                      uchar const *      shred_buf ) {
+process_fec_complete( fd_replay_tile_t *  ctx,
+                      fd_stem_context_t * stem,
+                      uchar const *       shred_buf ) {
   fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
 
   fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
@@ -2409,11 +2404,15 @@ process_fec_complete( fd_replay_tile_t * ctx,
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
 
-  if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
-    FD_LOG_CRIT(( "unimplemented" )); /* TODO reasm eviction */
-  }
   if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
-  FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec ) );
+  fd_reasm_evicted_t evicted = { .slot = ULONG_MAX };
+  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, &evicted );
+
+  if( FD_UNLIKELY( evicted.slot != ULONG_MAX ) ) {
+    fd_memcpy( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ), &evicted, sizeof(fd_reasm_evicted_t) );
+    fd_stem_publish( stem, ctx->repair_out->idx, 0, ctx->repair_out->chunk,  sizeof(fd_reasm_evicted_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_reasm_evicted_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+  }
 }
 
 static void
@@ -2563,7 +2562,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       /* TODO: This message/sz should be defined. */
       if( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC ) {
         /* If receive a FEC complete message. */
-        process_fec_complete( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        process_fec_complete( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }
@@ -2667,7 +2666,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
-  void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
+  void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( 512 ) );
   void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   void * vinyl_req_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_req_pool_align(),   fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
@@ -2798,7 +2797,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
 
-  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, tile->replay.fec_max, ctx->reasm_seed ) );
+  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 512, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
 
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
@@ -2870,6 +2869,7 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
   *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
+  *ctx->repair_out = out1( topo, tile, "replay_repair"  ); FD_TEST( ctx->repair_out->idx!=ULONG_MAX );
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;

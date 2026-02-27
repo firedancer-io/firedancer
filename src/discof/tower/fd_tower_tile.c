@@ -809,8 +809,7 @@ done_vote_iter:
       fd_notar_blk_t * notar_blk = fd_notar_blk_query( ctx->notar->blk_map, notar_slot->block_ids[i], NULL );
       FD_TEST( notar_blk ); /* block_ids_cnt corrupt */
       if( FD_LIKELY( notar_blk->dup_conf ) ) {
-        fork->confirmed          = 1;
-        fork->confirmed_block_id = notar_blk->block_id;
+        fd_tower_blocks_confirmed( fork, &notar_blk->block_id );
         break;
       }
     }

@@ -189,8 +189,8 @@ fd_store_insert( fd_store_t * store,
 
     fd_store_fec_t * fec = fd_store_pool_ele( &pool, idx );
     if( FD_UNLIKELY( fec ) ) {
-      FD_BASE58_ENCODE_32_BYTES( merkle_root->uc, _merkle_root );
-      FD_LOG_WARNING(( "duplicate insert %s", _merkle_root ));
+      //FD_BASE58_ENCODE_32_BYTES( merkle_root->uc, _merkle_root );
+      //FD_LOG_WARNING(( "duplicate insert %s", _merkle_root ));
       return fec;
     };
   }

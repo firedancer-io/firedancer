@@ -8,6 +8,7 @@
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../discof/resolv/fd_resolv_tile.h"
 #include "../../discof/repair/fd_repair.h"
+#include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
@@ -450,6 +451,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "shred_out"     );
   fd_topob_wksp( topo, "repair_shred"  );
+  fd_topob_wksp( topo, "replay_repair" );
   fd_topob_wksp( topo, "replay_epoch"  );
   fd_topob_wksp( topo, "replay_execrp" );
   fd_topob_wksp( topo, "replay_out"    );
@@ -614,6 +616,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",   "quic_verify",   config->tiles.verify.receive_buffer_size, FD_TPU_REASM_MTU,              config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup",  "verify_dedup",  config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,             1UL );
+  /**/                 fd_topob_link( topo, "replay_repair", "replay_repair", 1024,                                     sizeof(fd_reasm_evicted_t),   1UL );
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  128UL,                                    FD_EPOCH_OUT_MTU,              1UL ); /* TODO: This should be 2 but requires fixing STEM_BURST */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL );
                        fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),  1UL );
@@ -917,6 +920,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "replay_repair", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( snapshots_enabled ) {
                        fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -928,6 +932,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_epoch",  0UL                                                );
+  /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_repair", 0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_execrp", 0UL                                                );
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if(leader_enabled)  {fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "poh_replay",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );}
@@ -1348,16 +1353,28 @@ fd_topo_initialize( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
    /* The Store fec_max parameter is the max number of FEC sets that can
-      be retained before the Tower consensus algorithm indicates a new
-      "root", which allows pruning FECs.
+      be retained by store.
 
-      The default value is from multiplying max_live_slots by the
+      The base value is from multiplying max_live_slots by the
       maximum number of FEC sets in a block (currently 32768 but can be
       reduced to 1024 once FECs are restricted to always be size 32,
-      given the current consensus limit of 32768 shreds per block). */
+      given the current consensus limit of 32768 shreds per block).
+      This is capacity of reasm.
 
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( config->firedancer.runtime.max_live_slots ) ) ) FD_LOG_ERR(( "max_live_slots must be a power of 2 for store" ));
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * 1024UL /* FIXME temporary hack to run on 512 gb boxes */, (uint)shred_tile_cnt );
+      Store needs to hold depth(shred_out) more FEC sets than reasm.
+      Any FEC inserted to store will also be inserted to reasm,  but
+      store can be up to depth(shred_out) ahead of reasm. If store is
+      exactly depth(shred_out) ahead of reasm, then this means the
+      shred_out link is full and shred is backpressured. No more FEC
+      sets will be inserted to store until reasm inserts the next FEC,
+      at which point it will be over capacity and will select a FEC to
+      evict from itself and from store. */
+
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( config->firedancer.runtime.max_live_slots ) ) ) FD_LOG_ERR(( "max_live_slots must be a power of 2" ));
+  ulong store_fec_max = config->firedancer.runtime.max_live_slots * 1024 + (shred_depth * shred_tile_cnt) + 1;
+        store_fec_max = fd_ulong_pow2_up( store_fec_max );
+
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
