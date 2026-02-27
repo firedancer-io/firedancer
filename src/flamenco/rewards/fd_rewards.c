@@ -165,7 +165,6 @@ calculate_stake_points_and_credits( fd_stake_history_t const *     stake_history
     result->points.ud = 0;
     result->new_credits_observed = credits_in_vote;
     result->force_credits_update_with_skipped_reward = 1;
-    FD_LOG_WARNING(("FORCE 1"));
     return;
   }
 
@@ -261,13 +260,11 @@ fd_vote_commission_split( uchar                   commission,
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
 static int
-redeem_rewards( fd_stake_history_t const *      stake_history,
-                fd_stake_delegation_t const *   stake,
+redeem_rewards( fd_stake_delegation_t const *   stake,
                 ulong                           vote_state_idx,
                 ulong                           rewarded_epoch,
                 ulong                           total_rewards,
                 uint128                         total_points,
-                ulong *                         new_rate_activation_epoch,
                 fd_runtime_stack_t *            runtime_stack,
                 fd_calculated_stake_rewards_t * result ) {
 
@@ -275,8 +272,6 @@ redeem_rewards( fd_stake_history_t const *      stake_history,
      the helper functions that the Agave implementation uses.
      In Agave: redeem_rewards calls redeem_stake_rewards which calls
      calculate_stake_rewards. */
-  (void)new_rate_activation_epoch;
-  (void)stake_history;
 
   fd_calculated_stake_points_t stake_points_result = runtime_stack->stakes.stake_points_result[ stake->idx ];
 
@@ -421,12 +416,6 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
   fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
 
-
-  // runtime_stack->stakes.rewards_cnt = 0UL;
-
-  // fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  // ulong rewarded_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
-
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -538,13 +527,11 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
        vote and stake rewards for each stake account.  It does not do
        rewards redemption: it is a misnomer. */
     int err = redeem_rewards(
-        stake_history,
         stake_delegation,
         vote_state_ele->idx,
         rewarded_epoch,
         total_rewards,
         total_points,
-        new_warmup_cooldown_rate_epoch,
         runtime_stack,
         calculated_stake_rewards );
 
@@ -553,7 +540,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     }
 
     calculated_stake_rewards->success = 1;
-
 
     if( capture_ctx && capture_ctx->capture_solcap ) {
       uchar commission = runtime_stack->stakes.vote_credits[ vote_state_ele->idx ].commission;

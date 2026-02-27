@@ -259,6 +259,9 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 
   uint index = (uint)index_map_idx_query( index_map, &index_key, UINT_MAX, index_ele );
   if( FD_UNLIKELY( index==UINT_MAX ) ) {
+    if( FD_UNLIKELY( index_pool_free( index_ele )==0UL ) ) {
+      FD_LOG_CRIT(( "invariant violation: index_pool_free( index_ele )==0UL" ));
+    }
     index = (uint)index_pool_idx_acquire( index_ele );
     index_ele_t * ele = index_pool_ele( index_ele, index );
     ele->index_key = index_key;
@@ -276,6 +279,9 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   ulong partition_index = (ulong)((uint128)stake_rewards->fork_info[fork_idx].partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
   uint curr_fork_len = stake_rewards->fork_info[fork_idx].ele_cnt;
+  if( FD_UNLIKELY( curr_fork_len>=stake_rewards->max_stake_accounts ) ) {
+    FD_LOG_CRIT(( "invariant violation: curr_fork_len>=stake_rewards->max_stake_accounts" ));
+  }
 
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, curr_fork_len );
   partition_ele->index = index;
