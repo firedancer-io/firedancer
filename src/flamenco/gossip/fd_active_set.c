@@ -1,5 +1,4 @@
 #include "fd_active_set.h"
-#include "crds/fd_crds.h"
 #include "fd_gossip_txbuild.h"
 #include "fd_gossip_wsample.h"
 #include "fd_bloom.h"

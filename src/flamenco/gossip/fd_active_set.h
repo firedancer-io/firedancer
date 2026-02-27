@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_active_set_h
 #define HEADER_fd_src_flamenco_gossip_fd_active_set_h
 
-#include "crds/fd_crds.h"
+#include "fd_crds.h"
 #include "fd_gossip_wsample.h"
 #include "../../util/net/fd_net_headers.h"
 

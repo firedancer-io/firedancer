@@ -5,7 +5,6 @@
 #include "fd_active_set.h"
 #include "fd_ping_tracker.h"
 #include "fd_gossip_wsample.h"
-#include "crds/fd_crds.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../leaders/fd_leaders_base.h"
