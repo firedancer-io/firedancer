@@ -1,8 +1,8 @@
 #include "fd_crds.h"
 
-#include "../fd_active_set.h"
-#include "../../../ballet/sha256/fd_sha256.h"
-#include "../../../funk/fd_funk_base.h" /* no link dependency, only using hash */
+#include "fd_active_set.h"
+#include "../../ballet/sha256/fd_sha256.h"
+#include "../../funk/fd_funk_base.h" /* no link dependency, only using hash */
 
 #include <string.h>
 
@@ -55,7 +55,7 @@ typedef struct fd_crds_contact_info_entry fd_crds_contact_info_entry_t;
 #define POOL_NAME  crds_contact_info_pool
 #define POOL_T     fd_crds_contact_info_entry_t
 #define POOL_NEXT  pool.next
-#include "../../../util/tmpl/fd_pool.c"
+#include "../../util/tmpl/fd_pool.c"
 
 struct fd_crds_key {
   uchar tag;
@@ -169,7 +169,7 @@ struct fd_crds_entry_private {
 #define POOL_T      fd_crds_entry_t
 #define POOL_NEXT   pool.next
 
-#include "../../../util/tmpl/fd_pool.c"
+#include "../../util/tmpl/fd_pool.c"
 
 #define TREAP_NAME      evict_treap
 #define TREAP_T         fd_crds_entry_t
@@ -186,7 +186,7 @@ struct fd_crds_entry_private {
 #define TREAP_NEXT      evict.next
 #define TREAP_PREV      evict.prev
 
-#include "../../../util/tmpl/fd_treap.c"
+#include "../../util/tmpl/fd_treap.c"
 
 /* staked_expire_dlist tracks contact info crds entries inserted in the
    last 432000L*SLOT_DURATION_NANOS nanoseconds with nonzero active
@@ -196,7 +196,7 @@ struct fd_crds_entry_private {
 #define DLIST_PREV      expire.prev
 #define DLIST_NEXT      expire.next
 
-#include "../../../util/tmpl/fd_dlist.c"
+#include "../../util/tmpl/fd_dlist.c"
 
 /* unstaked_expire_dlist tracks contact info crds entries from the last
    432000L*SLOT_DURATION_NANOS nanoseconds (or from the last 15 seconds,
@@ -207,7 +207,7 @@ struct fd_crds_entry_private {
 #define DLIST_PREV      expire.prev
 #define DLIST_NEXT      expire.next
 
-#include "../../../util/tmpl/fd_dlist.c"
+#include "../../util/tmpl/fd_dlist.c"
 
 /* fresh_15s_dlist tracks all contact info crds entries from the last
    15 seconds. */
@@ -215,7 +215,7 @@ struct fd_crds_entry_private {
 #define DLIST_ELE_T     fd_crds_contact_info_entry_t
 #define DLIST_PREV      fresh_15s_dlist.prev
 #define DLIST_NEXT      fresh_15s_dlist.next
-#include "../../../util/tmpl/fd_dlist.c"
+#include "../../util/tmpl/fd_dlist.c"
 
 /* crds_contact_info_fresh_list tracks all contact info crds entries
    from the last 60 seconds. */
@@ -223,13 +223,13 @@ struct fd_crds_entry_private {
 #define DLIST_ELE_T fd_crds_contact_info_entry_t
 #define DLIST_PREV  fresh_dlist.prev
 #define DLIST_NEXT  fresh_dlist.next
-#include "../../../util/tmpl/fd_dlist.c"
+#include "../../util/tmpl/fd_dlist.c"
 
 #define DLIST_NAME  crds_contact_info_evict_dlist
 #define DLIST_ELE_T fd_crds_contact_info_entry_t
 #define DLIST_PREV  evict_dlist.prev
 #define DLIST_NEXT  evict_dlist.next
-#include "../../../util/tmpl/fd_dlist.c"
+#include "../../util/tmpl/fd_dlist.c"
 
 #define TREAP_NAME      hash_treap
 #define TREAP_T         fd_crds_entry_t
@@ -244,7 +244,7 @@ struct fd_crds_entry_private {
 #define TREAP_LEFT      hash.left
 #define TREAP_RIGHT     hash.right
 #define TREAP_PRIO      hash.prio
-#include "../../../util/tmpl/fd_treap.c"
+#include "../../util/tmpl/fd_treap.c"
 
 static inline ulong
 lookup_hash( fd_crds_key_t const * key,
@@ -295,7 +295,7 @@ lookup_eq( fd_crds_key_t const * key0,
 #define MAP_KEY_EQ(k0,k1) (lookup_eq( k0, k1 ))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 
-#include "../../../util/tmpl/fd_map_chain.c"
+#include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_crds_private {
   fd_gossip_out_ctx_t * gossip_update;

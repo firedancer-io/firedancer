@@ -1,12 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
 #define HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
 
-#include "../fd_gossip_wsample.h"
-#include "../fd_gossip_message.h"
-#include "../fd_gossip_out.h"
-#include "../fd_gossip_purged.h"
+#include "fd_gossip_wsample.h"
+#include "fd_gossip_message.h"
+#include "fd_gossip_out.h"
+#include "fd_gossip_purged.h"
 
-#include "../../../disco/metrics/generated/fd_metrics_enums.h"
+#include "../../disco/metrics/generated/fd_metrics_enums.h"
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
