@@ -64,7 +64,6 @@ gossip_send_fn( void *                ctx,
   ip4->check       = fd_ip4_hdr_check_fast( ip4 );
   udp->check       = 0;
 
-  /* TODO: Construct payload in place to avoid memcpy here. */
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
 
   ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -144,9 +143,6 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   ctx->last_wallclock = fd_log_wallclock();
   ctx->last_tickcount = fd_tickcount();
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    /* TODO: Need some kind of state machine here, to ensure we switch
-       in sync with the signing tile.  Currently, we might send out a
-       badly signed message before the signing tile has switched. */
     fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, ctx->last_wallclock );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }

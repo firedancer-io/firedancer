@@ -4,6 +4,7 @@
 #include "fd_gossip_txbuild.h"
 #include "fd_active_set.h"
 #include "fd_ping_tracker.h"
+#include "fd_prune_finder.h"
 #include "fd_gossip_wsample.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/sha256/fd_sha256.h"
@@ -67,6 +68,7 @@ struct fd_gossip_private {
   fd_gossip_purged_t *  purged;
   fd_active_set_t *     active_set;
   fd_ping_tracker_t *   ping_tracker;
+  fd_prune_finder_t *   prune_finder;
 
   fd_sha256_t sha256[1];
   fd_sha512_t sha512[1];
@@ -133,6 +135,7 @@ fd_gossip_footprint( ulong max_values,
   l = FD_LAYOUT_APPEND( l, fd_crds_align(),          fd_crds_footprint( max_values )                                      );
   l = FD_LAYOUT_APPEND( l, fd_active_set_align(),    fd_active_set_footprint()                                            );
   l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(),  fd_ping_tracker_footprint( entrypoints_len )                         );
+  l = FD_LAYOUT_APPEND( l, fd_prune_finder_align(),  fd_prune_finder_footprint()                                          );
   l = FD_LAYOUT_APPEND( l, stake_pool_align(),       stake_pool_footprint( MAX_STAKED_LEADERS )                           );
   l = FD_LAYOUT_APPEND( l, stake_map_align(),        stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) ) );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
@@ -235,6 +238,7 @@ fd_gossip_new( void *                           shmem,
   void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),           fd_crds_footprint( max_values )                           );
   void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),     fd_active_set_footprint()                                 );
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(),   fd_ping_tracker_footprint( entrypoints_len )              );
+  void * prune_finder   = FD_SCRATCH_ALLOC_APPEND( l, fd_prune_finder_align(),   fd_prune_finder_footprint()                               );
   void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),        stake_pool_footprint( MAX_STAKED_LEADERS )                );
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),         stake_map_footprint( stake_map_chain_cnt )                );
 
@@ -257,6 +261,9 @@ fd_gossip_new( void *                           shmem,
 
   gossip->ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng, gossip->entrypoints_cnt, gossip->entrypoints, ping_tracker_change, gossip ) );
   FD_TEST( gossip->ping_tracker );
+
+  gossip->prune_finder = fd_prune_finder_join( fd_prune_finder_new( prune_finder ) );
+  FD_TEST( gossip->prune_finder );
 
   gossip->stake.count = 0UL;
   gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
@@ -375,6 +382,7 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
   gossip->identity_stake = get_stake( gossip, identity_pubkey );
   fd_gossip_wsample_self_stake( gossip->wsample, gossip->identity_stake );
   fd_active_set_set_identity( gossip->active_set, gossip->identity_pubkey, gossip->identity_stake );
+  fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
   refresh_contact_info( gossip, now );
 
   if( FD_UNLIKELY( identity_changed ) ) {
@@ -416,6 +424,7 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
   fd_gossip_wsample_self_stake( gossip->wsample, gossip->identity_stake );
   fd_active_set_set_identity( gossip->active_set, gossip->identity_pubkey, gossip->identity_stake );
+  fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
   gossip->stake.count = stake_weights_cnt;
 }
 
@@ -602,6 +611,86 @@ rx_pull_response( fd_gossip_t *                     gossip,
   }
 }
 
+/* tx_prune constructs, signs, and sends a prune message telling
+   `relayer` to stop pushing CRDS values originating from `origin`.
+
+   On-wire layout (bincode):
+     Protocol tag        4  (FD_GOSSIP_MESSAGE_PRUNE = 3)
+     sender pubkey      32  (= identity_pubkey, outer PruneMessage field)
+     PruneData.pubkey   32  (= identity_pubkey)
+     prunes_len          8
+     prunes[1]          32
+     signature          64
+     destination        32
+     wallclock           8
+
+   The signable data (input to Ed25519 sign) is the PruneData fields
+   excluding signature:
+     pubkey[32] + prunes_len[8] + prunes[32] + destination[32] + wallclock[8]
+   This must match fd_keyguard_payload_matches_prune_data (80 + 32 bytes). */
+
+static void
+tx_prune( fd_gossip_t *       gossip,
+          uchar const *       relayer,
+          uchar const *       origin,
+          fd_stem_context_t * stem,
+          long                now ) {
+  ulong ci_idx = fd_crds_ci_idx( gossip->crds, relayer );
+  if( FD_UNLIKELY( ci_idx==ULONG_MAX ) ) return;
+
+  fd_gossip_contact_info_t const * ci = fd_crds_ci( gossip->crds, ci_idx );
+  fd_ip4_port_t dest_addr = {
+    .addr = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
+    .port = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
+  };
+  if( FD_UNLIKELY( !dest_addr.addr || !dest_addr.port ) ) return;
+
+  ulong wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
+
+  /* Build the signable payload:
+     pubkey[32] + prunes_len[8] + prunes[32] + destination[32] + wallclock[8] */
+  uchar signable[ 32UL + 8UL + 32UL + 32UL + 8UL ];
+  uchar * p = signable;
+  fd_memcpy( p, gossip->identity_pubkey, 32UL ); p += 32UL;
+  FD_STORE( ulong, p, 1UL );                     p += 8UL;
+  fd_memcpy( p, origin, 32UL );                  p += 32UL;
+  fd_memcpy( p, relayer, 32UL );                 p += 32UL;
+  FD_STORE( ulong, p, wallclock );               p += 8UL;
+
+  uchar signature[ 64UL ];
+  gossip->sign_fn( gossip->sign_ctx, signable, sizeof(signable), FD_KEYGUARD_SIGN_TYPE_ED25519, signature );
+
+  /* Build the on-wire packet:
+     tag(4) + sender(32) + pubkey(32) + prunes_len(8) + prunes[32]
+     + signature(64) + destination(32) + wallclock(8) */
+  uchar pkt[ 4UL + 32UL + 32UL + 8UL + 32UL + 64UL + 32UL + 8UL ];
+  uchar * q = pkt;
+  FD_STORE( uint, q, FD_GOSSIP_MESSAGE_PRUNE );  q += 4UL;
+  fd_memcpy( q, gossip->identity_pubkey, 32UL ); q += 32UL;  /* sender */
+  fd_memcpy( q, gossip->identity_pubkey, 32UL ); q += 32UL;  /* PruneData.pubkey */
+  FD_STORE( ulong, q, 1UL );                     q += 8UL;
+  fd_memcpy( q, origin, 32UL );                  q += 32UL;
+  fd_memcpy( q, signature, 64UL );               q += 64UL;
+  fd_memcpy( q, relayer, 32UL );                 q += 32UL;
+  FD_STORE( ulong, q, wallclock );               q += 8UL;
+
+  gossip->send_fn( gossip->send_ctx, stem, pkt, sizeof(pkt), &dest_addr, (ulong)now );
+
+  gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PRUNE ]++;
+  gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PRUNE ] += sizeof(pkt) + 42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
+}
+
+static void
+tx_prunes( fd_gossip_t *       gossip,
+             fd_stem_context_t * stem,
+             long                now ) {
+  uchar const * relayer;
+  uchar const * origin;
+  while( fd_prune_finder_pop_prune( gossip->prune_finder, &relayer, &origin ) ) {
+    tx_prune( gossip, relayer, origin, stem, now );
+  }
+}
+
 static void
 rx_push( fd_gossip_t *            gossip,
          fd_gossip_push_t const * push,
@@ -611,21 +700,23 @@ rx_push( fd_gossip_t *            gossip,
          fd_stem_context_t *      stem ) {
   long results[ 17UL ];
   rx_values( gossip, push->values_len, push->values, payload, failed, stem, now, results );
+
   for( ulong i=0UL; i<push->values_len; i++ ) {
     if( FD_UNLIKELY( failed[ i ] ) ) continue;
     if( FD_LIKELY( !results[ i ] ) ) gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
     else if( results[ i ]<0L )       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_STALE_IDX ]++;
     else                             gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ]++;
-    /* TODO: implement prune finder
-    ulong num_duplicates         = (ulong)err;
-    uchar const * relayer_pubkey = payload+push->from_off;
-    fd_prune_finder_record( gossip->prune_finder,
-                            origin_pubkey,
-                            origin_stake,
-                            relayer_pubkey,
-                            get_stake( gossip, relayer_pubkey ),
-                            num_duplicates ); */
+
+    ulong num_dups;
+    if( FD_LIKELY( !results[ i ] ) )          num_dups = 0UL;
+    else if( FD_UNLIKELY( results[ i ]<0L ) ) num_dups = ULONG_MAX; /* stale => never timely */
+    else                                      num_dups = (ulong)results[ i ];
+
+    ulong origin_stake = get_stake( gossip, push->values[ i ].origin );
+    fd_prune_finder_record( gossip->prune_finder, push->values[ i ].origin, origin_stake, push->from, get_stake( gossip, push->from ), num_dups );
   }
+
+  tx_prunes( gossip, stem, now );
 }
 
 static void
@@ -646,7 +737,6 @@ rx_ping( fd_gossip_t *            gossip,
          fd_ip4_port_t            peer_address,
          fd_stem_context_t *      stem,
          long                     now ) {
-  /* TODO: have this point to dcache buffer directly instead */
   uchar out_payload[ sizeof(fd_gossip_pong_t)+4UL];
   FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PONG );
 
@@ -763,7 +853,6 @@ static void
 tx_ping( fd_gossip_t *       gossip,
          fd_stem_context_t * stem,
          long                now ) {
-  /* TODO: have this point to dcache buffer directly instead. */
   uchar out_payload[ sizeof(fd_gossip_ping_t) + 4UL ];
   FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PING );
 

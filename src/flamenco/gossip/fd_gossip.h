@@ -10,9 +10,6 @@
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
 
-/* TODO: When we get a pull request, respond with ContactInfos first if
-   we have any available that are responsive. */
-
 /* The Solana gossip protocol is used so that distributed nodes can
    share key-value pairs and reach an eventually consistent consensus on
    what's in the key-value store.
