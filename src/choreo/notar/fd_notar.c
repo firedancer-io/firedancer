@@ -35,7 +35,6 @@ fd_notar_new( void * shmem,
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_notar_align() ) == (ulong)shmem + footprint );
 
   notar->root     = ULONG_MAX;
-  notar->epoch    = ULONG_MAX;
   notar->slot_max = slot_max;
   notar->slot_map = fd_notar_slot_new( slot_map, lg_slot_max, 0UL );
   notar->blk_map  = fd_notar_blk_new( blk_map, lg_blk_max, 0UL );
@@ -121,7 +120,6 @@ fd_notar_count_vote( fd_notar_t *        notar,
     notar_slot->is_leader        = 0;
     notar_slot->is_propagated    = 0;
     notar_slot->block_ids_cnt    = 0;
-    fd_notar_slot_vtrs_null( notar_slot->prev_vtrs );
     fd_notar_slot_vtrs_null( notar_slot->vtrs );
   }
   if( FD_UNLIKELY( vtr->bit==ULONG_MAX                                   ) ) return NULL;
@@ -143,34 +141,6 @@ fd_notar_count_vote( fd_notar_t *        notar,
   }
   notar_blk->stake += vtr->stake;
   return notar_blk;
-}
-
-void
-fd_notar_update_voters( fd_notar_t       *  notar,
-                        fd_tower_voters_t * voters,
-                        ulong               epoch ) {
-
-  notar->epoch       = epoch;
-
-  for( ulong i = 0; i < fd_notar_vtr_key_max( notar->vtr_map ); i++ ) {
-    fd_notar_vtr_t * vtr = &notar->vtr_map[i];
-    if( fd_notar_vtr_key_inval( vtr->vote_acc ) ) continue;
-    vtr->prev_stake = vtr->stake;
-    vtr->stake      = 0;
-    vtr->prev_bit   = vtr->bit;
-    vtr->bit        = ULONG_MAX;
-  }
-
-  ulong vtr_bit = 0;
-  for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( voters       );
-                                    !fd_tower_voters_iter_done( voters, iter );
-                              iter = fd_tower_voters_iter_next( voters, iter ) ) {
-    fd_pubkey_t const * addr = &fd_tower_voters_iter_ele( voters, iter )->addr;
-    fd_notar_vtr_t *    vtr  = fd_notar_vtr_query( notar->vtr_map, *addr, NULL );
-    if( FD_UNLIKELY( !vtr ) ) vtr = fd_notar_vtr_insert( notar->vtr_map, *addr );
-    vtr->stake = fd_tower_voters_iter_ele( voters, iter )->stake;
-    vtr->bit   = vtr_bit++;
-  }
 }
 
 void
