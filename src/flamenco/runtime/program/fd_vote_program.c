@@ -740,7 +740,6 @@ process_new_vote_state( fd_exec_instr_ctx_t *       ctx,
     ulong last_slot = deq_fd_landed_vote_t_peek_tail( new_state )->lockout.slot;
     rc              = fd_vsv_process_timestamp( ctx, versioned, last_slot, timestamp );
     if( FD_UNLIKELY( rc ) ) { return rc; }
-    fd_vsv_process_timestamp( ctx, versioned, last_slot, timestamp );
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L754
