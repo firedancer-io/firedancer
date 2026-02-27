@@ -96,6 +96,8 @@ static inline void
 metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_RESULT, ctx->metrics.txn_result );
   FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_LANDED, ctx->metrics.txn_landed );
+
+  FD_MCNT_SET( EXECLE, COMPUTE_UNITS_TOTAL, ctx->runtime->metrics.cu_cum );
 }
 
 static int

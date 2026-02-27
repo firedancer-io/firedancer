@@ -142,6 +142,8 @@ metrics_write( fd_execrp_tile_t * ctx ) {
 
   FD_STATIC_ASSERT( sizeof(runtime->metrics.txn_account_save)/sizeof(ulong)==FD_METRICS_ENUM_ACCOUNT_CHANGE_CNT, enum );
   FD_MCNT_ENUM_COPY( EXECRP, TXN_ACCOUNT_CHANGES, runtime->metrics.txn_account_save );
+
+  FD_MCNT_SET( EXECRP, COMPUTE_UNITS_TOTAL, runtime->metrics.cu_cum );
 }
 
 static void
