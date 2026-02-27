@@ -903,17 +903,16 @@ distribute_epoch_rewards_in_partition( fd_epoch_rewards_t const * epoch_rewards,
   FD_LOG_WARNING(("PARTITION INDEX %lu", partition_idx));
 
 
-  ulong partition_len = fd_stake_rewards_get_partition_len( stake_rewards, bank->data->stake_rewards_fork_id, partition_idx );
-  FD_LOG_WARNING(("PART LEN %lu", partition_len));
-  for( ulong i=0UL; i<partition_len; i++ ) {
+  for( fd_stake_rewards_iter_init( stake_rewards, bank->data->stake_rewards_fork_id, (ushort)partition_idx );
+       !fd_stake_rewards_iter_done( stake_rewards );
+       fd_stake_rewards_iter_next( stake_rewards, bank->data->stake_rewards_fork_id ) ) {
     fd_pubkey_t pubkey;
     ulong lamports;
     ulong credits_observed;
-    fd_stake_rewards_get_partition_ele( stake_rewards, bank->data->stake_rewards_fork_id, partition_idx, i, &pubkey, &lamports, &credits_observed );
+    fd_stake_rewards_iter_ele( stake_rewards, bank->data->stake_rewards_fork_id, &pubkey, &lamports, &credits_observed );
     FD_BASE58_ENCODE_32_BYTES( pubkey.key, out );
 
-    // if( fd_bank_slot_get( bank) == 346556267 )
-    //   FD_LOG_NOTICE(("pubkey1 %s %lu %lu", out, lamports, credits_observed));
+      FD_LOG_NOTICE(("pubkey1 %s %lu %lu", out, lamports, credits_observed));
 
     if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
       accdb,
@@ -928,6 +927,7 @@ distribute_epoch_rewards_in_partition( fd_epoch_rewards_t const * epoch_rewards,
       lamports_burned += lamports;
     }
   }
+
   ulong cnt =0UL;
   fd_epoch_rewards_iter_t iter_[1];
   for( fd_epoch_rewards_iter_t * iter = fd_epoch_rewards_iter_init( iter_, epoch_rewards, partition_idx );
@@ -937,7 +937,7 @@ distribute_epoch_rewards_in_partition( fd_epoch_rewards_t const * epoch_rewards,
     FD_BASE58_ENCODE_32_BYTES( stake_reward->stake_pubkey.key, out );
     cnt++;
     // if( fd_bank_slot_get( bank) == 346556267 )
-    //   FD_LOG_NOTICE(("pubkey2 %s %lu %lu", out, stake_reward->lamports, stake_reward->credits_observed));
+    FD_LOG_NOTICE(("pubkey2 %s %lu %lu", out, stake_reward->lamports, stake_reward->credits_observed));
 
     // if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
     //                                                       accdb,

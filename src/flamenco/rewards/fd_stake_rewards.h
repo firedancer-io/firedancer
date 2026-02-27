@@ -44,21 +44,27 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                lamports,
                          ulong                credits_observed );
 
-ulong
-fd_stake_rewards_get_partition_len( fd_stake_rewards_t * stake_rewards,
-                                    uchar                fork_idx,
-                                    ulong                partition_index );
-
-void
-fd_stake_rewards_get_partition_ele( fd_stake_rewards_t * stake_rewards,
-                                    uchar                fork_idx,
-                                    ulong                partition_index,
-                                    ulong                index_in_partition,
-                                    fd_pubkey_t *        pubkey_out,
-                                    ulong *              lamports_out,
-                                    ulong *              credits_observed_out );
 
 void
 fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards );
+
+void
+fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
+                            uchar                fork_idx,
+                            ushort               partition_idx );
+
+void
+fd_stake_rewards_iter_next( fd_stake_rewards_t * stake_rewards,
+                            uchar                fork_idx );
+
+int
+fd_stake_rewards_iter_done( fd_stake_rewards_t * stake_rewards );
+
+void
+fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
+                           uchar                fork_idx,
+                           fd_pubkey_t *        pubkey_out,
+                           ulong *              lamports_out,
+                           ulong *              credits_observed_out );
 
 #endif /* HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h */
