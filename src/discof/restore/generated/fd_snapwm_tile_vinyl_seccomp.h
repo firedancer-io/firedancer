@@ -65,7 +65,7 @@ static void populate_sock_filter_policy_fd_snapwm_tile_vinyl( ulong out_cnt, str
 //  check_msync:
     /* load syscall argument 2 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, MS_SYNC, /* RET_ALLOW */ 3, /* RET_KILL_PROCESS */ 2 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, MS_SYNC|MS_INVALIDATE, /* RET_ALLOW */ 3, /* RET_KILL_PROCESS */ 2 ),
 //  check_exit:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),

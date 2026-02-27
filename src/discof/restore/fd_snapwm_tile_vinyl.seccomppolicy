@@ -21,7 +21,7 @@ fsync: (eq (arg 0) logfile_fd)
 madvise: (eq (arg 2) MADV_SEQUENTIAL)
 
 # snapshot: flush mmap writes
-msync: (eq (arg 2) MS_SYNC)
+msync: (eq (arg 2) "MS_SYNC|MS_INVALIDATE")
 
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)
