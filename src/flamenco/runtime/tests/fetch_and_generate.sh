@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT=../../../..
 
 # Allow overriding proto version; default pinned
-PROTO_VERSION="${PROTO_VERSION:-v4.0.0}"
+PROTO_VERSION="${PROTO_VERSION:-v4.0.1}"
 FLATCC="${FLATCC:-${PROJECT_ROOT}/opt/bin/flatcc}"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )

@@ -804,10 +804,15 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1480-L1485 */
-  fd_rent_t const * rent             = fd_bank_rent_query( instr_ctx->bank );
-  ulong             balance          = fd_borrowed_account_get_lamports( &programdata_account );
-  ulong             min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_len ), 1UL );
-  ulong             required_payment = fd_ulong_sat_sub( min_balance, balance );
+  fd_rent_t rent_;
+  fd_rent_t const * rent = fd_sysvar_cache_rent_read( instr_ctx->sysvar_cache, &rent_ );
+  if( FD_UNLIKELY( !rent ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  }
+
+  ulong balance          = fd_borrowed_account_get_lamports( &programdata_account );
+  ulong min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_len ), 1UL );
+  ulong required_payment = fd_ulong_sat_sub( min_balance, balance );
 
   /* Borrowed accounts need to be dropped before native invocations. Note:
      the programdata account is manually released and acquired within the
@@ -1070,13 +1075,17 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      /* rent is accessed directly from the epoch bank and the clock from the
-        slot context. However, a check must be done to make sure that the
-        sysvars are correctly included in the set of transaction accounts. */
       err = fd_sysvar_instr_acct_check( instr_ctx, 4UL, &fd_sysvar_rent_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
+
+      fd_rent_t rent_;
+      fd_rent_t const * rent = fd_sysvar_cache_rent_read( instr_ctx->sysvar_cache, &rent_ );
+      if( FD_UNLIKELY( !rent ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      }
+
       err = fd_sysvar_instr_acct_check( instr_ctx, 5UL, &fd_sysvar_clock_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
@@ -1085,7 +1094,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_sol_sysvar_clock_t clock_;
       fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
       if( FD_UNLIKELY( !clock ) ) {
-        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L538 */
@@ -1100,9 +1109,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L542-L560 */
       /* Verify Program account */
-
       fd_pubkey_t const * new_program_id = NULL;
-      fd_rent_t const *   rent           = fd_bank_rent_query( instr_ctx->bank );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L545 */
       fd_guarded_borrowed_account_t program = {0};
@@ -1410,9 +1417,22 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
+
+      fd_rent_t rent_;
+      fd_rent_t const * rent = fd_sysvar_cache_rent_read( instr_ctx->sysvar_cache, &rent_ );
+      if( FD_UNLIKELY( !rent ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      }
+
       err = fd_sysvar_instr_acct_check( instr_ctx, 5UL, &fd_sysvar_clock_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
+      }
+
+      fd_sol_sysvar_clock_t clock_;
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
+      if( FD_UNLIKELY( !clock ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
 
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 7U ) ) ) {
@@ -1510,8 +1530,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t programdata = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata );
 
-      fd_rent_t const * rent = fd_bank_rent_query( instr_ctx->bank );
-
       programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &programdata ) ) );
 
       if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &programdata )<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
@@ -1527,12 +1545,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       err = fd_bpf_loader_program_get_state( programdata.meta, programdata_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
-      }
-
-      fd_sol_sysvar_clock_t clock_;
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
-      if( FD_UNLIKELY( !clock ) ) {
-        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
 
       if( fd_bpf_upgradeable_loader_state_is_program_data( programdata_state ) ) {
