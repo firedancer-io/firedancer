@@ -155,7 +155,7 @@ fd_bn254_fp_set( fd_bn254_fp_t * r,
   return r;
 }
 
-static inline fd_bn254_fp_t *
+INLINE fd_bn254_fp_t *
 fd_bn254_fp_add( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
@@ -163,7 +163,7 @@ fd_bn254_fp_add( fd_bn254_fp_t * r,
   return r;
 }
 
-static inline fd_bn254_fp_t *
+INLINE fd_bn254_fp_t *
 fd_bn254_fp_sub( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
@@ -171,7 +171,7 @@ fd_bn254_fp_sub( fd_bn254_fp_t * r,
   return r;
 }
 
-static inline fd_bn254_fp_t *
+INLINE fd_bn254_fp_t *
 fd_bn254_fp_neg( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a ) {
   fiat_bn254_opp( r->limbs, a->limbs );
