@@ -93,7 +93,8 @@ fd_stake_delegations_new( void * mem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_stake_delegation_pool_new( pool_mem, max_stake_accounts ) ) ) {
+  fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegation_pool_join( fd_stake_delegation_pool_new( pool_mem, max_stake_accounts ) );
+  if( FD_UNLIKELY( !stake_delegation_pool ) ) {
     FD_LOG_WARNING(( "Failed to create stake delegations pool" ));
     return NULL;
   }
@@ -107,6 +108,11 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->map_offset_         = (ulong)map_mem - (ulong)mem;
   stake_delegations->max_stake_accounts_ = max_stake_accounts;
   stake_delegations->leave_tombstones_   = leave_tombstones;
+
+  for( uint i=0U; i<max_stake_accounts; i++ ) {
+    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, i );
+    stake_delegation->idx = i;
+  }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_delegations->magic ) = FD_STAKE_DELEGATIONS_MAGIC;
