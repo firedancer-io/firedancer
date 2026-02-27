@@ -51,7 +51,7 @@ messages to `stderr`. Reasons for failure include the validator being
 unable to load or verify the provided authorized voter key, if the
 provided key is a duplicate that the validator is already with, or if
 there are too many authorized voters for the running validator (more
-16).
+than 16).
 
 | Arguments         | Description |
 |-------------------|-------------|
