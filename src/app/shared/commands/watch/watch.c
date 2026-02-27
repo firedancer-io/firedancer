@@ -192,6 +192,8 @@ static ulong event_bytes_written_samples_idx = 0UL;
 static ulong event_bytes_written_samples[ 100UL ];
 static ulong event_bytes_read_samples_idx = 0UL;
 static ulong event_bytes_read_samples[ 100UL ];
+static ulong rps_samples_idx = 0UL;
+static ulong rps_samples[ 100UL ];
 
 #define PRINT(...) do {                          \
   char * _buf = fd_alloca_check( 1UL, 1024UL );  \
@@ -413,10 +415,17 @@ write_accdb( config_t const * config,
     acct_cnt   = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, ACCOUNTS ) ];
   }
 
-  double used_gb = (double)used_bytes/1e9;
-  double cap_gb  = (double)cap_bytes /1e9;
-  PRINT( "💾 \033[1m\033[32mACCOUNTS....\033[0m\033[22m USED (%.1f/%.1f GB) NUM %.1fM\033[K\n",
-         used_gb, cap_gb, (double)acct_cnt/1e6 );
+  double data_pct  = 100.0*(double)used_bytes/(double)cap_bytes;
+  double used_gb   = (double)used_bytes/1e9;
+  double index_pct = 100.0*(double)acct_cnt/(double)config->firedancer.accounts.max_accounts;
+
+  ulong rps_sum = 0UL;
+  ulong num_rps_samples = fd_ulong_min( rps_samples_idx, sizeof(rps_samples)/sizeof(rps_samples[0]) );
+  for( ulong i=0UL; i<num_rps_samples; i++ ) rps_sum += rps_samples[ i ];
+  char * rps_str = COUNTF( 100.0*(double)rps_sum/(double)num_rps_samples );
+
+  PRINT( "💾 \033[1m\033[32mACCOUNTS ...\033[0m\033[22m DATA %4.1f%% (%.1f GB)  INDEX %4.1f%% (%.1fM)  RPS %s\033[K\n",
+         data_pct, used_gb, index_pct, (double)acct_cnt/1e6, rps_str );
   return 1;
 }
 
@@ -748,6 +757,18 @@ run( config_t const * config,
       event_bytes_written_samples_idx++;
       event_bytes_read_samples[ event_bytes_read_samples_idx%(sizeof(event_bytes_read_samples)/sizeof(event_bytes_read_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, BYTES_READ ) );
       event_bytes_read_samples_idx++;
+      rps_samples[ rps_samples_idx%(sizeof(rps_samples)/sizeof(rps_samples[0])) ] = (ulong)(
+          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_UNCHANGED_NONEXIST ) ) +
+          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_CREATED            ) ) +
+          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_DELETE             ) ) +
+          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_MODIFY             ) ) +
+          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_UNCHANGED          ) ) +
+          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_CREATED                          ) ) +
+          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_ROOTED                           ) ) +
+          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_REVERTED                         ) ) +
+          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_GC_ROOT                          ) ) +
+          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_RECLAIMED                        ) ) );
+      rps_samples_idx++;
 
       /* move up n lines, delete n lines, and restore cursor and clear to end of screen */
       char erase[ 128UL ];

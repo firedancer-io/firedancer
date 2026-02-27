@@ -249,6 +249,7 @@ fd_accdb_user_v0_open_rw( fd_accdb_user_t *         accdb_,
     if( !flag_create ) return NULL;
     idx = push_rec( v0, address );
     if( FD_UNLIKELY( idx<0L ) ) FD_LOG_CRIT(( "accdb_user_v0_open_rw failed: cannot create account, out of memory" ));
+    accdb->base.created_cnt++;
   }
   rw = rw_;
 

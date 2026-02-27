@@ -528,6 +528,7 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
 
       fd_accdb_funk_prep_create( rw, funk, txn, addr_i, val, val_sz, val_max );
       accdb->base.rw_active++;
+      accdb->base.created_cnt++;
 
       FD_COMPILER_MFENCE();
       fd_funk_rec_read_unlock( v2->funk, rec );
@@ -591,6 +592,7 @@ not_found:
 
     req_cnt++;
     accdb->base.rw_active++;
+    accdb->base.created_cnt++;
   }
 
   /* Send "RELEASE" batch (reuse val_gaddr values),
