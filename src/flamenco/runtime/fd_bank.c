@@ -833,6 +833,7 @@ fd_banks_advance_root( fd_banks_t * banks,
       head->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( head ) );
     }
 
+    head->stake_rewards_fork_id = UCHAR_MAX;
     head->flags = 0UL;
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;
@@ -1152,6 +1153,7 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
       bank->epoch_leaders_pool_idx = null_idx;
     }
 
+    bank->stake_rewards_fork_id = UCHAR_MAX;
     fd_banks_pool_ele_release( bank_pool, bank );
     fd_banks_dead_pop_head( dead_banks_queue );
     any_pruned = 1;

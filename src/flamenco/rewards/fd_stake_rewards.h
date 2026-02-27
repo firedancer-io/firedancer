@@ -97,6 +97,7 @@ fd_stake_rewards_join( void * shmem );
 
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
+                       ulong                epoch,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt );
@@ -111,14 +112,6 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          fd_pubkey_t const *  pubkey,
                          ulong                lamports,
                          ulong                credits_observed );
-
-/* fd_stake_rewards_fini is used to free the memory for a given fork.
-   It should only be called once the fork is no longer needed (when all
-   stake rewards have been distributed). */
-
-void
-fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
-                       uchar                fork_idx );
 
 /* Iterator for iterating over the stake rewards for a given fork and
    partition.  The caller should not interleave any other iteration or

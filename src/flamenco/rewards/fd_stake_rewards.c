@@ -79,6 +79,7 @@ struct fd_stake_rewards {
   ulong       index_pool_offset;
   ulong       index_map_offset;
   ulong       partitions_offset;
+  ulong       epoch;
 
   /* Temporary storage for the current stake reward being computed. */
   fd_hash_t parent_blockhash;
@@ -104,7 +105,6 @@ get_partition_ele( fd_stake_rewards_t const * stake_rewards,
                    uchar                      fork_idx,
                    uint                       ele_cnt ) {
 
-  /* TODO:FIXME: ALIGN HERE */
   return fd_type_pun( (uchar *)stake_rewards + stake_rewards->partitions_offset +
                       (fork_idx * stake_rewards->max_stake_accounts * sizeof(partition_ele_t)) +
                       (ele_cnt * sizeof(partition_ele_t)) );
@@ -180,6 +180,7 @@ fd_stake_rewards_new( void * shmem,
   stake_rewards->index_map_offset   = (ulong)index_map - (ulong)shmem;
   stake_rewards->partitions_offset  = (ulong)partitions_mem - (ulong)shmem;
   stake_rewards->max_stake_accounts = max_stake_accounts;
+  stake_rewards->epoch              = ULONG_MAX;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_rewards->magic ) = FD_STAKE_REWARDS_MAGIC;
@@ -210,19 +211,21 @@ fd_stake_rewards_join( void * shmem ) {
 
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
+                       ulong                epoch,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt ) {
   index_map_t * index_map  = get_index_map( stake_rewards );
   index_ele_t * index_pool = get_index_pool( stake_rewards );
-
-  fork_t * fork_pool = get_fork_pool( stake_rewards );
+  fork_t *      fork_pool  = get_fork_pool( stake_rewards );
 
   /* If this is the first reference to the stake rewards, we need to
      reset the backing map and pool all the forks will share. */
-  if( FD_LIKELY( fork_pool_used( fork_pool )==0UL ) ) {
+  if( FD_LIKELY( stake_rewards->epoch!=epoch ) ) {
+    fork_pool_reset( fork_pool );
     index_map_reset( index_map );
     index_pool_reset( index_pool );
+    stake_rewards->epoch = epoch;
   }
 
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
@@ -291,13 +294,6 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 
   stake_rewards->fork_info[fork_idx].ele_cnt++;
   stake_rewards->fork_info[fork_idx].total_stake_rewards += lamports;
-}
-
-void
-fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
-                       uchar                fork_idx ) {
-  fork_t * fork_pool = get_fork_pool( stake_rewards );
-  fork_pool_idx_release( fork_pool, fork_idx );
 }
 
 void
