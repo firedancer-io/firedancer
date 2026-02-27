@@ -143,10 +143,10 @@ poll_keyswitch( fd_topo_t * topo,
     }
     case FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_UPDATED: {
       memcpy( tower->bytes, keypair+32UL, 32UL );
+      FD_COMPILER_MFENCE();
       tower->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
       *state = FD_ADD_AUTH_VOTER_STATE_TOWER_TILE_REQUESTED;
-      FD_COMPILER_MFENCE();
       FD_LOG_INFO(( "Requesting tower tile to update authorized voter key set..." ));
       break;
     }
