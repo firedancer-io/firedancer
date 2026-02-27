@@ -768,36 +768,105 @@ tx_ping( fd_gossip_t *       gossip,
   }
 }
 
-FD_FN_CONST static inline ulong
-fd_gossip_pull_request_max_filter_bits( ulong num_keys,
-                                        ulong contact_info_crds_sz,
-                                        ulong payload_sz ) {
-  return 8UL*( payload_sz
-             - 4UL          /* discriminant */
-             - 8UL          /* keys len */
-             - 8UL*num_keys /* keys */
-             - 1UL          /* has_bits */
-             - 8UL          /* bloom vec len */
-             - 8UL          /* bloom bits count */
-             - 8UL          /* bloom num bits set */
-             - 8UL          /* mask */
-             - 4UL          /* mask bits */
-             - contact_info_crds_sz ); /* contact info CRDS val */
-}
+/* Construct and send a pull request to a random peer.  The pull
+   request contains a bloom filter over our known CRDS hashes so that
+   the peer can respond with values we are missing.
+
+   NOTE: Divergence from Agave:
+    - Agave builds up to 2^mask_bits filters per pull period
+      (sampling up to 1024), each covering a distinct partition of
+      the hash space.  We build and send exactly one filter per
+      pull period, covering 1/2^mask_bits of the space.
+
+   Maximum bloom filter bits in a PullRequest packet:
+
+     PACKET_DATA_SIZE             = 1232   (= 1280 - 40 - 8)
+
+     Bytes consumed by non-bloom fields:
+       discriminant(4) + keys_len(8) + keys(8*num_keys) +
+       has_bits(1) + bloom_vec_len(8) + bloom_bits_count(8) +
+       bloom_num_bits_set(8) + mask(8) + mask_bits(4)
+       + contact_info_crds_val(crds_val_sz)
+       = 49 + 8*num_keys + crds_val_sz
+
+     The bitvec is serialized as u64 words, so the bitvec storage is
+     ceil(num_bits/64)*8 bytes.  The remaining packet bytes must
+     accommodate this.
+
+     Agave determines the max_bytes parameter (input to Bloom::random)
+     via an empirical cache (get_max_bloom_filter_bytes).  max_bytes*8
+     is passed as the max_bits cap to Bloom::random, but actual
+     num_bits is only ~83% of max_bits (the E/D ratio for p=0.1).
+     We replicate this with a closed-form inversion: the largest
+     max_bytes where ceil(num_bits/64)*8 fits in remaining space is
+     max_bytes = floor(D * floor(64*W/E) / 8), where W is the max
+     number of u64 words, E and D are the bloom filter constants.
+
+     num_keys depends on the bloom sizing, which depends on the
+     overhead, which depends on num_keys.  However there is a closed
+     form: compute num_keys from the pessimistic KEYS=8 overhead, then
+     recompute the tight overhead with the true num_keys.  This always
+     converges in one step because the optimal key count is
+     D*ln(2) ≈ 3.32 (where D = ln(p)/ln(1/2^ln2)), far from any
+     rounding boundary.  For p=0.1 and KEYS=8, num_keys is always 3.
+
+     NB: The has_bits(1) + bloom_vec_len(8) are only written when
+     num_bits>=1.  fd_bloom_num_bits clamps to [1, max_bits], so
+     num_bits>=1 always holds and this layout is correct. */
 
 static void
 tx_pull_request( fd_gossip_t *       gossip,
                  fd_stem_context_t * stem,
                  long                now ) {
   ulong total_crds_vals = fd_crds_len( gossip->crds ) + fd_gossip_purged_len( gossip->purged );
-  ulong num_items       = fd_ulong_max( 512UL, total_crds_vals );
+  ulong num_items       = fd_ulong_max( 65536UL, total_crds_vals );
+  ulong crds_val_sz     = gossip->my_contact_info.crds_val_sz;
 
-  double max_bits       = (double)fd_gossip_pull_request_max_filter_bits( BLOOM_NUM_KEYS, gossip->my_contact_info.crds_val_sz, FD_GOSSIP_MTU );
-  double max_items      = fd_bloom_max_items( max_bits, BLOOM_NUM_KEYS, BLOOM_FALSE_POSITIVE_RATE );
-  ulong  num_bits       = fd_bloom_num_bits( max_items, BLOOM_FALSE_POSITIVE_RATE, max_bits );
+  /* Step 1: Compute num_keys from the pessimistic KEYS=8 overhead
+     (same initial estimate Agave uses in CrdsFilterSet::new). */
+  ulong  pessimistic_overhead = 49UL + 8UL*(ulong)BLOOM_NUM_KEYS + crds_val_sz;
+  FD_TEST( pessimistic_overhead<FD_GOSSIP_MTU );
+  double pessimistic_max_bits = (double)( 8UL*( FD_GOSSIP_MTU - pessimistic_overhead ) );
+  double pessimistic_items    = fd_bloom_max_items( pessimistic_max_bits, BLOOM_NUM_KEYS, BLOOM_FALSE_POSITIVE_RATE );
+  FD_TEST( pessimistic_items>0.0 );
+  ulong  pessimistic_num_bits = fd_bloom_num_bits( pessimistic_items, BLOOM_FALSE_POSITIVE_RATE, pessimistic_max_bits );
+  ulong  num_keys             = fd_bloom_num_keys( (double)pessimistic_num_bits, pessimistic_items );
+
+  /* Step 2: Recompute with the tight overhead using the true num_keys.
+     Find the largest max_bytes parameter (matching Agave's
+     get_max_bloom_filter_bytes cache) such that the resulting bitvec
+     fits in the remaining packet space.
+
+     Given:
+       max_items = ceil(max_bits / D)   where D = -K / ln(1-exp(ln(p)/K))
+       num_bits  = ceil(max_items * E)  where E = ln(p) / ln(1/2^ln2)
+
+     We need ceil(num_bits/64)*8 <= remaining, i.e. num_bits <= 64*W
+     where W = floor(remaining/8).  Working backwards:
+       max_items <= I  where I = floor(64*W / E)
+       max_bytes <= D*I / 8
+
+     So max_bytes = floor(D * floor(64*W/E) / 8). */
+  ulong  overhead       = 49UL + 8UL*num_keys + crds_val_sz;
+  FD_TEST( overhead<FD_GOSSIP_MTU );
+  ulong  remaining      = FD_GOSSIP_MTU - overhead;
+  ulong  max_words      = remaining / 8UL; /* max u64 words for bitvec */
+
+  double E = log( BLOOM_FALSE_POSITIVE_RATE ) / log( 1.0 / pow( 2.0, log( 2.0 ) ) );
+  double D = -BLOOM_NUM_KEYS / log( 1.0 - exp( log( BLOOM_FALSE_POSITIVE_RATE ) / BLOOM_NUM_KEYS ) );
+  ulong  I = (ulong)floor( 64.0 * (double)max_words / E );
+  ulong  max_bytes = (ulong)floor( D * (double)I / 8.0 );
+
+  double max_bits  = (double)( max_bytes * 8UL );
+  double max_items = fd_bloom_max_items( max_bits, BLOOM_NUM_KEYS, BLOOM_FALSE_POSITIVE_RATE );
+  FD_TEST( max_items>0.0 );
+  ulong  num_bits  = fd_bloom_num_bits( max_items, BLOOM_FALSE_POSITIVE_RATE, max_bits );
+  FD_TEST( num_bits>=1UL );
+  FD_TEST( (num_bits+63UL)/64UL<=max_words ); /* verify bitvec fits */
+  FD_TEST( fd_bloom_num_keys( (double)num_bits, max_items )==num_keys ); /* verify convergence */
 
   double _mask_bits     = ceil( log2( (double)num_items / max_items ) );
-  uint   mask_bits      = _mask_bits >= 0.0 ? fd_uint_min( (uint)_mask_bits, 63U ) : 0UL;
+  uint   mask_bits      = _mask_bits >= 0.0 ? fd_uint_min( (uint)_mask_bits, 63U ) : 0U;
   ulong  mask           = fd_rng_ulong( gossip->rng ) | (~0UL>>(mask_bits));
 
   uchar payload[ FD_GOSSIP_MTU ] = {0};
@@ -805,7 +874,7 @@ tx_pull_request( fd_gossip_t *       gossip,
   ulong * keys_ptr, * bits_ptr, * bits_set;
   long payload_sz = fd_gossip_pull_request_init( payload,
                                                  FD_GOSSIP_MTU,
-                                                 BLOOM_NUM_KEYS,
+                                                 num_keys,
                                                  num_bits,
                                                  mask,
                                                  mask_bits,
@@ -817,7 +886,7 @@ tx_pull_request( fd_gossip_t *       gossip,
   FD_TEST( -1L!=payload_sz );
 
   fd_bloom_t filter[1];
-  fd_bloom_init_inplace( keys_ptr, bits_ptr, BLOOM_NUM_KEYS, num_bits, 0, gossip->rng, BLOOM_FALSE_POSITIVE_RATE, filter );
+  fd_bloom_init_inplace( keys_ptr, bits_ptr, num_keys, num_bits, 0, gossip->rng, BLOOM_FALSE_POSITIVE_RATE, filter );
 
   uchar iter_mem[ 16UL ];
   for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init( gossip->crds, mask, mask_bits, iter_mem );

@@ -85,6 +85,16 @@ fd_bloom_num_bits( double num_items,
   return (ulong)fmax( 1.0, fmin( max_bits, num_bits ) );
 }
 
+/* Compute optimal number of bloom hash functions for a given number of
+   bits and items.  Matches Agave's Bloom::num_keys. */
+
+static inline ulong
+fd_bloom_num_keys( double num_bits,
+                   double num_items ) {
+  if( num_items==0.0 ) return 0UL;
+  return (ulong)fmax( 1.0, round( (num_bits / num_items) * log( 2.0 ) ) );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_bloom_h */
