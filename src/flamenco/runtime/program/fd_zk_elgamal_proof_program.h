@@ -8,7 +8,7 @@
 #include "../context/fd_exec_instr_ctx.h"
 
 /* FD_ZKSDK_INSTR_{...}_COMPUTE_UNITS
-   https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs */
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/zk-elgamal-proof/src/lib.rs */
 #define FD_ZKSDK_INSTR_CLOSE_CONTEXT_STATE_COMPUTE_UNITS                                  (  3300UL)
 #define FD_ZKSDK_INSTR_VERIFY_ZERO_CIPHERTEXT_COMPUTE_UNITS                               (  6000UL)
 #define FD_ZKSDK_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY_COMPUTE_UNITS                (  8000UL)
@@ -23,12 +23,12 @@
 #define FD_ZKSDK_INSTR_VERIFY_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_COMPUTE_UNITS         (  8100UL)
 #define FD_ZKSDK_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_3_HANDLES_VALIDITY_COMPUTE_UNITS ( 16400UL)
 
-/* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L33 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/zk-elgamal-proof/src/lib.rs#L33 */
 #define FD_ZKSDK_INSTR_DATA_LENGTH_WITH_PROOF_ACCOUNT (5UL)
 
 FD_PROTOTYPES_BEGIN
 
-/* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/zk-elgamal-proof/src/lib.rs#L174 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/zk-elgamal-proof/src/lib.rs#L174 */
 int
 fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx );
 
