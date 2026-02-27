@@ -233,8 +233,7 @@ static void
 handle_shred_version( fd_gossip_tile_ctx_t * ctx,
                        ulong                 sig ) {
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
-  ctx->my_contact_info->shred_version = (ushort)sig;
-  fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, now );
+  fd_gossip_set_shred_version( ctx->gossip, (ushort)sig, now );
 }
 
 static void
