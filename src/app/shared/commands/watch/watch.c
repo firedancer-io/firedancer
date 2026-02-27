@@ -30,6 +30,22 @@ watch_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 static ulong lines_printed;
 static int ended_on_newline = 1;
 
+static char  frame_buf[ 65536UL ];
+static ulong frame_len;
+
+static void
+flush_frame( void ) {
+  ulong written = 0UL;
+  while( written<frame_len ) {
+    long w = write( STDOUT_FILENO, frame_buf+written, frame_len-written );
+    if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
+    else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( 0==w ) ) break;
+    written += (ulong)w;
+  }
+  frame_len = 0UL;
+}
+
 static int
 drain( int fd ) {
   int needs_reprint = 0;
@@ -41,32 +57,20 @@ drain( int fd ) {
     else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     if( FD_LIKELY( !needs_reprint ) ) {
-      /* move up n lines, delete n lines, and restore cursor and clear to end of screen */
-      char erase[ 128UL ];
-      ulong term_len = 0UL;
+      /* Buffer the erase sequence and first log chunk together so the
+         terminal never renders a blank frame between erase and content. */
+      frame_len = 0UL;
       if( FD_UNLIKELY( !ended_on_newline ) ) {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[1A\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( frame_buf, sizeof(frame_buf), &frame_len, "\033[%luA\033[%luM\033[1A\033[0J", lines_printed, lines_printed ) );
       } else {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[0J", lines_printed, lines_printed ) );
-      }
-
-      ulong erase_written = 0L;
-      while( erase_written<term_len ) {
-        long w = write( STDOUT_FILENO, erase+erase_written, term_len-erase_written );
-        if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
-        else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        erase_written += (ulong)w;
+        FD_TEST( fd_cstr_printf_check( frame_buf, sizeof(frame_buf), &frame_len, "\033[%luA\033[%luM\033[0J", lines_printed, lines_printed ) );
       }
     }
+    FD_TEST( frame_len+(ulong)result<=sizeof(frame_buf) );
+    fd_memcpy( frame_buf+frame_len, buf, (ulong)result );
+    frame_len += (ulong)result;
+    flush_frame();
     needs_reprint = 1;
-
-    long written = 0L;
-    while( written<result ) {
-      long w = write( STDOUT_FILENO, buf+written, (ulong)result-(ulong)written );
-      if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
-      else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      written += w;
-    }
 
     ended_on_newline = buf[ (ulong)result-1UL ]=='\n';
   }
@@ -214,17 +218,10 @@ static ulong rps_samples[ 100UL ];
 #define CLEARLN "\033[K"
 
 #define PRINT(...) do {                          \
-  char * _buf = fd_alloca_check( 1UL, 1024UL );  \
   ulong _len;                                    \
-  FD_TEST( fd_cstr_printf_check( _buf, 1024UL, &_len, __VA_ARGS__ ) ); \
-  ulong _written = 0L;                           \
-  while( _written<_len ) {                       \
-    long w = write( STDOUT_FILENO, _buf+_written, _len-(ulong)_written ); \
-    if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue; \
-    else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) )); \
-    _written += (ulong)w;                        \
-  }                                              \
-} while(0)                                       \
+  FD_TEST( fd_cstr_printf_check( frame_buf+frame_len, sizeof(frame_buf)-frame_len, &_len, __VA_ARGS__ ) ); \
+  frame_len += _len;                             \
+} while(0)
 
 #define DIFF_LINK_BYTES( link_name, metric_type, metric_subtype, metric ) (__extension__({ \
     long bytes = diff_link( config, link_name, prev_link, cur_link, MIDX( metric_type, metric_subtype, metric ) ); \
@@ -794,12 +791,18 @@ run( config_t const * config,
 
   ulong last_snap = 1UL;
 
+  frame_len = 0UL;
   write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+  flush_frame();
 
   long next = fd_log_wallclock()+(long)1e9;
   for(;;) {
     if( FD_UNLIKELY( drain_output_fd>=0 ) ) {
-      if( FD_UNLIKELY( drain( drain_output_fd ) ) ) write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+      if( FD_UNLIKELY( drain( drain_output_fd ) ) ) {
+        frame_len = 0UL;
+        write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+        flush_frame();
+      }
     }
 
     long now = fd_log_wallclock();
@@ -845,23 +848,20 @@ run( config_t const * config,
           diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_RECLAIMED                        ) ) );
       rps_samples_idx++;
 
-      /* move up n lines, delete n lines, and restore cursor and clear to end of screen */
-      char erase[ 128UL ];
-      ulong term_len = 0UL;
+      /* Move cursor to top of dashboard and overwrite in place.
+         All output is buffered and flushed in a single write() so
+         the terminal never renders a partially drawn frame. */
+      frame_len = 0UL;
+      PRINT( "\033[?25l" ); /* hide cursor during redraw */
       if( FD_UNLIKELY( !ended_on_newline ) ) {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[1A\033[0J", lines_printed, lines_printed ) );
+        PRINT( "\033[%luA\r", lines_printed+1UL );
       } else {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[0J", lines_printed, lines_printed ) );
+        PRINT( "\033[%luA\r", lines_printed );
       }
-      ulong erase_written = 0UL;
-      while( erase_written<term_len ) {
-        long w = write( STDOUT_FILENO, erase+erase_written, term_len-(ulong)erase_written );
-        if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
-        else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        erase_written += (ulong)w;
-      }
-
       write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+      PRINT( "\033[0J" );    /* clear any leftover lines below */
+      PRINT( "\033[?25h" ); /* show cursor */
+      flush_frame();
       next += (long)1e7;
     }
   }
