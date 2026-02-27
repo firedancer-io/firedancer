@@ -880,16 +880,6 @@ main( int argc, char ** argv ) {
   keys = fd_bank_epoch_rewards_modify( bank11 );
   keys->magic = 101UL;
 
-  fd_vote_states_t const * votes_const = fd_bank_vote_states_locking_query( bank11 );
-  FD_TEST( votes_const );
-  fd_bank_vote_states_end_locking_query( bank11 );
-
-  fd_vote_states_t * votes = fd_bank_vote_states_locking_modify( bank11 );
-  votes->magic = 102UL;
-  fd_bank_vote_states_end_locking_modify( bank11 );
-
-  FD_TEST( fd_bank_vote_states_pool_free( fd_bank_get_vote_states_pool( bank11->data ) ) == 14UL );
-
   /* Now there should be 3 forks:
      1. 7 (1234) -> 8
      2. 7 (1234) -> 9 -> 11
@@ -911,10 +901,6 @@ main( int argc, char ** argv ) {
 
   keys4 = fd_bank_epoch_rewards_query( bank11 );
   FD_TEST( keys4->magic == 101UL );
-
-  votes_const = fd_bank_vote_states_locking_query( bank11 );
-  FD_TEST( votes->magic == 102UL );
-  fd_bank_vote_states_end_locking_query( bank11 );
 
   /* Clear bank11, we need to make sure that the pool indices are
      cleared and properly released.

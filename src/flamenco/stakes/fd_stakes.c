@@ -8,21 +8,27 @@
 #include "../accdb/fd_accdb_impl_v1.h"
 
 ulong
-fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
+fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
+                          ushort                   fork_idx,
                           fd_vote_stake_weight_t * weights ) {
-
   ulong weights_cnt = 0;
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    if( FD_UNLIKELY( !vote_state->stake_t_2 ) ) continue;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter  );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+    fd_pubkey_t pubkey;
+    ulong       stake_t_2;
+    fd_pubkey_t node_account_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2 );
+    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
-    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
-    fd_memcpy( weights[ weights_cnt ].id_key.uc, &vote_state->node_account_t_2, sizeof(fd_pubkey_t) );
-    weights[ weights_cnt ].stake = vote_state->stake_t_2;
+    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
+    weights[ weights_cnt ].stake = stake_t_2;
     weights_cnt++;
   }
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
+
   return weights_cnt;
 }
 
@@ -38,17 +44,14 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
-  fd_memset( runtime_stack->stakes.computed_stake, 0UL, sizeof(runtime_stack->stakes.computed_stake) );
+
+  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_reset( vote_ele_map );
+  ulong vote_ele_cnt = 0UL;
 
   ulong epoch = fd_bank_epoch_get( bank );
 
   ulong total_stake = 0UL;
-
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  if( FD_UNLIKELY( !vote_states ) ) {
-    FD_LOG_CRIT(( "vote_states is NULL" ));
-  }
-
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -61,16 +64,20 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         history,
         new_rate_activation_epoch );
 
-    fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
-    if( FD_LIKELY( vote_state ) ) {
-      total_stake += new_entry.effective;
-      runtime_stack->stakes.computed_stake[ vote_state->idx ] += new_entry.effective;
+    fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, &stake_delegation->vote_account, NULL, runtime_stack->stakes.vote_ele );
+    if( FD_UNLIKELY( !vote_ele ) ) {
+      vote_ele               = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
+      vote_ele->pubkey       = stake_delegation->vote_account;
+      vote_ele->vote_rewards = 0UL;
+      vote_ele->stake        = 0UL;
+      vote_ele->invalid      = 0;
+      fd_vote_rewards_map_ele_insert( vote_ele_map, vote_ele, runtime_stack->stakes.vote_ele );
+      vote_ele_cnt++;
     }
+    vote_ele->stake += new_entry.effective;
+    total_stake += new_entry.effective;
   }
-
   fd_bank_total_epoch_stake_set( bank, total_stake );
-
-  fd_bank_vote_states_end_locking_modify( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
@@ -190,34 +197,4 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
-}
-
-void
-fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
-                             fd_account_meta_t const * meta,
-                             fd_bank_t *               bank ) {
-
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-
-  /* It's safe to purge the account from the vote states since a vote
-     account cannot be deleted until it hasn't voted in the past two
-     epochs.  This guarantees that it is not going to be used for clock
-     or rewards calculations. */
-  if( meta->lamports==0UL ) {
-    fd_vote_states_remove( vote_states, pubkey );
-    fd_bank_vote_states_end_locking_modify( bank );
-    return;
-  }
-
-  if( !fd_vsv_is_correct_size_and_initialized( meta ) ) {
-    fd_vote_states_remove( vote_states, pubkey );
-    fd_bank_vote_states_end_locking_modify( bank );
-    return;
-  }
-
-  fd_vote_states_update_from_account( vote_states,
-                                      pubkey,
-                                      fd_account_data( meta ),
-                                      meta->dlen );
-  fd_bank_vote_states_end_locking_modify( bank );
 }

@@ -510,102 +510,104 @@ add_lut_accounts_to_dumped_accounts( fd_accdb_user_t *             accdb,
   fd_accdb_close_ro( accdb, lut_account );
 }
 
-/* create_synthetic_vote_account_from_vote_state creates a synthetic
-   vote account from a vote state cache element. It fills in default
-   values for unspecified fields and encodes the vote state into
-   out_vote_account's data field. */
-static void
-create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vote_state,
-                                               fd_spad_t *                   spad,
-                                               fd_exec_test_vote_account_t * out_vote_account,
-                                               int                           is_t_1 ) {
-  out_vote_account->has_vote_account = true;
-  fd_memcpy( out_vote_account->vote_account.address, &vote_state->vote_account, sizeof(fd_pubkey_t) );
-  out_vote_account->vote_account.executable = false;
-  out_vote_account->vote_account.lamports = 100000UL;
-  fd_memcpy( out_vote_account->vote_account.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
-  out_vote_account->stake = is_t_1 ? vote_state->stake_t_1 : vote_state->stake_t_2;
+/* FIXME: Block dumping currently is not supported and needs to be
+   reworked. */
+// /* create_synthetic_vote_account_from_vote_state creates a synthetic
+//    vote account from a vote state cache element. It fills in default
+//    values for unspecified fields and encodes the vote state into
+//    out_vote_account's data field. */
+// static void
+// create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vote_state,
+//                                                fd_spad_t *                   spad,
+//                                                fd_exec_test_vote_account_t * out_vote_account,
+//                                                int                           is_t_1 ) {
+//   out_vote_account->has_vote_account = true;
+//   fd_memcpy( out_vote_account->vote_account.address, &vote_state->vote_account, sizeof(fd_pubkey_t) );
+//   out_vote_account->vote_account.executable = false;
+//   out_vote_account->vote_account.lamports = 100000UL;
+//   fd_memcpy( out_vote_account->vote_account.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
+//   out_vote_account->stake = is_t_1 ? vote_state->stake_t_1 : vote_state->stake_t_2;
 
-  /* Construct the vote account data. Fill in missing fields with
-     arbitrary defaults (since they're not used anyways) */
-  fd_vote_state_versioned_t vsv = {
-    .discriminant = fd_vote_state_versioned_enum_v3,
-    .inner = {
-      .v3 = {
-        .node_pubkey           = vote_state->node_account,
-        .authorized_withdrawer = vote_state->node_account,
-        .commission            = 0,
-        .root_slot             = 0UL,
-        .has_root_slot         = 0,
-        .last_timestamp        = {
-          .timestamp           = vote_state->last_vote_timestamp,
-          .slot                = vote_state->last_vote_slot,
-        },
-      }
-    }
-  };
-  fd_vote_state_v3_t * synthetic_vote_state = &vsv.inner.v3;
+//   /* Construct the vote account data. Fill in missing fields with
+//      arbitrary defaults (since they're not used anyways) */
+//   fd_vote_state_versioned_t vsv = {
+//     .discriminant = fd_vote_state_versioned_enum_v3,
+//     .inner = {
+//       .v3 = {
+//         .node_pubkey           = vote_state->node_account,
+//         .authorized_withdrawer = vote_state->node_account,
+//         .commission            = 0,
+//         .root_slot             = 0UL,
+//         .has_root_slot         = 0,
+//         .last_timestamp        = {
+//           .timestamp           = vote_state->last_vote_timestamp,
+//           .slot                = vote_state->last_vote_slot,
+//         },
+//       }
+//     }
+//   };
+//   fd_vote_state_v3_t * synthetic_vote_state = &vsv.inner.v3;
 
-  /* Create synthetic landed votes */
-  synthetic_vote_state->votes = deq_fd_landed_vote_t_join(
-      deq_fd_landed_vote_t_new(
-          fd_spad_alloc(
-              spad,
-              deq_fd_landed_vote_t_align(),
-              deq_fd_landed_vote_t_footprint( 32UL ) ),
-          32UL ) );
-  for( ulong i=0UL; i<32UL; i++ ) {
-    fd_landed_vote_t elem = {0};
-    deq_fd_landed_vote_t_push_tail( synthetic_vote_state->votes, elem );
-  }
+//   /* Create synthetic landed votes */
+//   synthetic_vote_state->votes = deq_fd_landed_vote_t_join(
+//       deq_fd_landed_vote_t_new(
+//           fd_spad_alloc(
+//               spad,
+//               deq_fd_landed_vote_t_align(),
+//               deq_fd_landed_vote_t_footprint( 32UL ) ),
+//           32UL ) );
+//   for( ulong i=0UL; i<32UL; i++ ) {
+//     fd_landed_vote_t elem = {0};
+//     deq_fd_landed_vote_t_push_tail( synthetic_vote_state->votes, elem );
+//   }
 
-  /* Populate authoritzed voters */
-  void * authorized_voters_pool_mem  = fd_spad_alloc(
-      spad,
-      fd_vote_authorized_voters_pool_align(),
-      fd_vote_authorized_voters_pool_footprint( 5UL ) );
-  void * authorized_voters_treap_mem = fd_spad_alloc(
-      spad,
-      fd_vote_authorized_voters_treap_align(),
-      fd_vote_authorized_voters_treap_footprint( 5UL ) );
-  synthetic_vote_state->authorized_voters.pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( authorized_voters_pool_mem, 5UL ) );
-  synthetic_vote_state->authorized_voters.treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( authorized_voters_treap_mem, 5UL ) );
+//   /* Populate authoritzed voters */
+//   void * authorized_voters_pool_mem  = fd_spad_alloc(
+//       spad,
+//       fd_vote_authorized_voters_pool_align(),
+//       fd_vote_authorized_voters_pool_footprint( 5UL ) );
+//   void * authorized_voters_treap_mem = fd_spad_alloc(
+//       spad,
+//       fd_vote_authorized_voters_treap_align(),
+//       fd_vote_authorized_voters_treap_footprint( 5UL ) );
+//   synthetic_vote_state->authorized_voters.pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( authorized_voters_pool_mem, 5UL ) );
+//   synthetic_vote_state->authorized_voters.treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( authorized_voters_treap_mem, 5UL ) );
 
-  /* Encode the synthetic vote state */
-  ulong encoded_sz                          = fd_vote_state_versioned_size( &vsv );
-  out_vote_account->vote_account.data       = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( encoded_sz ) );
-  out_vote_account->vote_account.data->size = (pb_size_t)encoded_sz;
+//   /* Encode the synthetic vote state */
+//   ulong encoded_sz                          = fd_vote_state_versioned_size( &vsv );
+//   out_vote_account->vote_account.data       = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( encoded_sz ) );
+//   out_vote_account->vote_account.data->size = (pb_size_t)encoded_sz;
 
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = out_vote_account->vote_account.data->bytes,
-    .dataend = out_vote_account->vote_account.data->bytes+encoded_sz,
-  };
-  fd_vote_state_versioned_encode( &vsv, &encode_ctx );
-}
+//   fd_bincode_encode_ctx_t encode_ctx = {
+//     .data    = out_vote_account->vote_account.data->bytes,
+//     .dataend = out_vote_account->vote_account.data->bytes+encoded_sz,
+//   };
+//   fd_vote_state_versioned_encode( &vsv, &encode_ctx );
+// }
 
-static void FD_FN_UNUSED
-dump_prior_vote_accounts( fd_vote_states_t const *      vote_states,
-                          fd_dump_account_key_node_t *  dumped_accounts_pool,
-                          fd_dump_account_key_node_t ** dumped_accounts_root,
-                          fd_exec_test_vote_account_t * out_vote_accounts,
-                          pb_size_t *                   out_vote_accounts_count,
-                          fd_spad_t *                   spad,
-                          int                           is_t_1 ) {
+// static void FD_FN_UNUSED
+// dump_prior_vote_accounts( fd_vote_states_t const *      vote_states,
+//                           fd_dump_account_key_node_t *  dumped_accounts_pool,
+//                           fd_dump_account_key_node_t ** dumped_accounts_root,
+//                           fd_exec_test_vote_account_t * out_vote_accounts,
+//                           pb_size_t *                   out_vote_accounts_count,
+//                           fd_spad_t *                   spad,
+//                           int                           is_t_1 ) {
 
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-                                     !fd_vote_states_iter_done( iter );
-                                      fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    add_account_to_dumped_accounts( dumped_accounts_pool, dumped_accounts_root, &vote_state->vote_account );
+//   fd_vote_states_iter_t iter_[1];
+//   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+//                                      !fd_vote_states_iter_done( iter );
+//                                       fd_vote_states_iter_next( iter ) ) {
+//     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+//     add_account_to_dumped_accounts( dumped_accounts_pool, dumped_accounts_root, &vote_state->vote_account );
 
-    create_synthetic_vote_account_from_vote_state(
-        vote_state,
-        spad,
-        &out_vote_accounts[(*out_vote_accounts_count)++],
-        is_t_1 );
-  }
-}
+//     create_synthetic_vote_account_from_vote_state(
+//         vote_state,
+//         spad,
+//         &out_vote_accounts[(*out_vote_accounts_count)++],
+//         is_t_1 );
+//   }
+// }
 
 static void
 create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
@@ -626,9 +628,8 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_spad_t *                    spad           = dump_ctx->spad;
 
   /* Get vote and stake delegation infos */
-  fd_vote_states_t const * vote_states        = fd_bank_vote_states_locking_query( parent_bank );
-  ulong                    vote_account_t_cnt = fd_vote_states_cnt( vote_states );
-  fd_bank_vote_states_end_locking_query( parent_bank );
+  fd_vote_stakes_t * vote_stakes        = fd_bank_vote_stakes_locking_query( parent_bank );
+  ulong              vote_account_t_cnt = fd_vote_stakes_ele_cnt( vote_stakes, parent_bank->data->vote_stakes_fork_id );
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, parent_bank );
   ulong                          stake_account_cnt = fd_stake_delegations_cnt( stake_delegations );
@@ -698,45 +699,16 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &stake_delegation->stake_account );
   }
 
-  /* Dump vote accounts for this epoch */
-  vote_states = fd_bank_vote_states_locking_query( parent_bank );
-  fd_vote_states_iter_t vote_iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &vote_state->vote_account );
+  ushort fork_idx = parent_bank->data->vote_stakes_fork_id;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+    fd_pubkey_t pubkey;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL );
+    add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &pubkey );
   }
-
-  // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
-  block_context->epoch_ctx.vote_accounts_t_1 = fd_spad_alloc(
-      spad,
-      alignof(fd_exec_test_vote_account_t),
-      sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states ) );
-  block_context->epoch_ctx.vote_accounts_t_1_count = 0U;
-  dump_prior_vote_accounts(
-      vote_states,
-      dumped_accounts_pool,
-      &dumped_accounts_root,
-      block_context->epoch_ctx.vote_accounts_t_1,
-      &block_context->epoch_ctx.vote_accounts_t_1_count,
-      spad,
-      1 );
-
-  // // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
-  block_context->epoch_ctx.vote_accounts_t_2 = fd_spad_alloc(
-    spad,
-    alignof(fd_exec_test_vote_account_t),
-    sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states ) );
-  block_context->epoch_ctx.vote_accounts_t_2_count = 0U;
-  dump_prior_vote_accounts(
-      vote_states,
-      dumped_accounts_pool,
-      &dumped_accounts_root,
-      block_context->epoch_ctx.vote_accounts_t_2,
-      &block_context->epoch_ctx.vote_accounts_t_2_count,
-      spad,
-      0 );
-
-  fd_bank_vote_states_end_locking_query( parent_bank );
+  fd_bank_vote_stakes_end_locking_query( parent_bank );
 
   /* BlockContext -> acct_states
      Iterate over the set and dump all the account keys in one pass. */

@@ -14,7 +14,8 @@ FD_PROTOTYPES_BEGIN
    that are used to determine the max amount of memory that various
    data structures require. */
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (40200UL)   /* ~40k vote accounts */
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS      (40200UL)
+#define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS (2048UL)
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (3000000UL) /* 3M stake accounts */
 
@@ -288,6 +289,8 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
    return fd_ulong_align_up( 32UL + 16UL * 31UL, 8UL ) == 528UL */
 #define FD_VOTE_LOCKOUTS_ALIGN     (32UL)
 #define FD_VOTE_LOCKOUTS_FOOTPRINT (FD_VOTE_STATE_VERSIONED_FOOTPRINT)
+
+#define FD_EPOCH_CREDITS_MAX (64UL)
 
 static const FD_FN_UNUSED fd_account_meta_t FD_ACCOUNT_META_DEFAULT = {0};
 

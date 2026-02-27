@@ -2,10 +2,47 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h
 
 #include "../types/fd_types_custom.h"
-#include "../stakes/fd_vote_states.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "program/fd_builtin_programs.h"
 #include "fd_runtime_const.h"
+
+/* fd_vote_ele and fd_vote_ele_map are used to temporarily cache
+   computed fields for vote accounts during epoch boundary stake
+   and rewards calculations. */
+
+struct fd_vote_rewards {
+  fd_pubkey_t pubkey;
+  fd_pubkey_t node_account;
+  uchar       commission;
+  ulong       stake;
+  ulong       vote_rewards;
+  uchar       invalid;
+  uint        next;
+  struct {
+    ulong  cnt;
+    ushort epoch       [ FD_EPOCH_CREDITS_MAX ];
+    ulong  credits     [ FD_EPOCH_CREDITS_MAX ];
+    ulong  prev_credits[ FD_EPOCH_CREDITS_MAX ];
+  } epoch_credits;
+};
+typedef struct fd_vote_rewards fd_vote_rewards_t;
+
+#define MAP_NAME               fd_vote_rewards_map
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_ELE_T              fd_vote_rewards_t
+#define MAP_KEY                pubkey
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_NEXT               next
+#define MAP_IDX_T              uint
+#include "../../util/tmpl/fd_map_chain.c"
+
+/* The footprint of a map chain is the size of the map struct (always
+   24 bytes followed by the size of the chain idx (always a uint in
+   this case) multiplied by the number of map chains which will be the
+   expected number of vote accounts. */
+#define FD_VOTE_ELE_MAP_FOOTPRINT (sizeof(fd_vote_rewards_map_t) + FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS * sizeof(uint))
+#define FD_VOTE_ELE_MAP_ALIGN     (128UL)
 
 /* fd_runtime_stack_t serves as stack memory to store temporary data
    for the runtime.  This object should only be used and owned by the
@@ -31,20 +68,13 @@ union fd_runtime_stack {
   } bpf_migration;
 
   struct {
-
-    /* Staging memory for the epoch credits and the commission for each
-       vote account.  This is populated during snapshot loading in case
-       of reward recalculation or during the epoch boundary. */
-    fd_vote_state_credits_t vote_credits[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-
-    /* Staging memory for vote rewards as they are accumulated. */
-    ulong                   vote_rewards[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-
-    ulong                   computed_stake[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
-    fd_vote_stake_weight_t  stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+
+    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    uchar             vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
+
   } stakes;
 
   struct {

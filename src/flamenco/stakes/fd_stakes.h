@@ -4,7 +4,6 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "fd_stake_delegations.h"
-#include "fd_vote_states.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -39,7 +38,8 @@ typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
 ulong
-fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
+fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
+                          ushort                   fork_idx,
                           fd_vote_stake_weight_t * weights );
 
 void
@@ -79,16 +79,6 @@ void
 fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
                                    fd_bank_t *               bank );
-
-/* fd_stakes_update_vote_state is used to maintain the in-memory cache
-   of the vote states that is used at the epoch boundary.  Entries in
-   the cache will be inserted/updated/removed based on the state of
-   the vote account. */
-
-void
-fd_stakes_update_vote_state( fd_pubkey_t const *       pubkey,
-                             fd_account_meta_t const * meta,
-                             fd_bank_t *               bank );
 
 FD_PROTOTYPES_END
 

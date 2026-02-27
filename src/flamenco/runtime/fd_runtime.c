@@ -25,6 +25,7 @@
 #include "program/fd_builtin_programs.h"
 #include "program/fd_precompiles.h"
 #include "program/fd_program_util.h"
+#include "program/vote/fd_vote_state_versioned.h"
 
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_last_restart_slot.h"
@@ -122,10 +123,10 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
+  fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes_locking_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( bank );
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_states, epoch_weights );
-  fd_bank_vote_states_end_locking_query( bank );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
+  fd_bank_vote_stakes_end_locking_query( bank );
 
   /* Derive leader schedule */
 
@@ -367,18 +368,38 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 static void
 fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                                           fd_runtime_stack_t * runtime_stack ) {
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-       !fd_vote_states_iter_done( iter );
-       fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-    vote_state->node_account_t_2 = vote_state->node_account_t_1;
-    vote_state->node_account_t_1 = vote_state->node_account;
-    vote_state->stake_t_2 = vote_state->stake_t_1;
-    vote_state->stake_t_1 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
+
+  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+
+  ushort parent_idx = bank->data->vote_stakes_fork_id;
+  ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
+
+  bank->data->vote_stakes_fork_id = child_idx;
+
+  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, runtime_stack->stakes.vote_ele );
+       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, runtime_stack->stakes.vote_ele );
+       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, runtime_stack->stakes.vote_ele ) ) {
+    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[fd_vote_rewards_map_iter_idx( iter, vote_ele_map, runtime_stack->stakes.vote_ele )];
+    if( FD_UNLIKELY( vote_ele->invalid ) ) continue;
+
+    ulong       old_stake_t_1;
+    fd_pubkey_t old_account_t_1;
+    int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &old_account_t_1, NULL );
+
+    ulong new_stake_t_2 = found ? old_stake_t_1 : 0UL;
+    ulong new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
+
+    fd_vote_stakes_insert( vote_stakes,
+                           child_idx,
+                           &vote_ele->pubkey,
+                           new_stake_t_1,
+                           new_stake_t_2,
+                           &vote_ele->node_account,
+                           &old_account_t_1 );
   }
-  fd_bank_vote_states_end_locking_modify( bank );
+  fd_bank_vote_stakes_end_locking_query( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
@@ -1181,10 +1202,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
        txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
       }
 
-      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_vote_program_id ) ) {
-        fd_stakes_update_vote_state( pubkey, account->meta, bank );
-      }
-
       if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_stake_program_id ) ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
@@ -1535,13 +1552,9 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     FD_LOG_CRIT(( "Failed to join and new a stake delegations" ));
   }
 
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  if( FD_UNLIKELY( !vote_states ) ) {
-    FD_LOG_CRIT(( "Failed to join and new a vote states" ));
-  }
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
 
   ulong capitalization = 0UL;
-
 
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
     fd_genesis_account_t account[1];
@@ -1556,7 +1569,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
          inserted into the vote states. Even after the vote account is
          inserted, we still don't know the total amount of stake that is
          delegated to the vote account. This must be calculated later. */
-      fd_vote_states_update_from_account( vote_states, &account->pubkey, acc_data, account->meta.dlen );
+      fd_vote_stakes_insert_root_key( vote_stakes, &account->pubkey );
     } else if( !memcmp( account->meta.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
          stake delegations cache. We should only add stake accounts that
@@ -1623,7 +1636,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       }
     }
   }
-  fd_bank_vote_states_end_locking_modify( bank );
 
   /* fd_refresh_vote_accounts is responsible for updating the vote
      states with the total amount of active delegated stake. It does
@@ -1642,35 +1654,25 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       stake_history,
       &new_rate_activation_epoch );
 
-  /* Now that the stake and vote delegations are updated correctly, we
-     will propagate the vote states to the vote states for the previous
-     epoch and the epoch before that.
-
-     This is despite the fact we are booting off of genesis which means
-     that there is no previous or previous-previous epoch. This is done
-     to simplify edge cases around leader schedule and rewards
-     calculation.
-
-     TODO: Each of the edge cases around this needs to be documented
-     much better where each case is clearly enumerated and explained. */
-
-  vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, genesis_blob, account, i );
 
     if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &account->pubkey );
+      fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+      fd_vote_rewards_t *     vote_ele     = fd_vote_rewards_map_ele_query( vote_ele_map, &account->pubkey, NULL, runtime_stack->stakes.vote_ele );
+      ulong                   stake        = vote_ele ? vote_ele->stake : 0UL;
 
-      vote_state->stake_t_1 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
-      vote_state->stake_t_2 = runtime_stack->stakes.computed_stake[ vote_state->idx ];
+      fd_pubkey_t node_account = fd_vsv_get_node_account( account->data );
 
-      vote_state->node_account_t_1 = vote_state->node_account;
-      vote_state->node_account_t_2 = vote_state->node_account;
+      fd_vote_stakes_insert_root_update( vote_stakes, &account->pubkey, &node_account, stake, 1 );
+      fd_vote_stakes_insert_root_update( vote_stakes, &account->pubkey, &node_account, stake, 0 );
     }
   }
 
-  fd_bank_vote_states_end_locking_modify( bank );
+  fd_vote_stakes_fini_root( vote_stakes );
+
+  fd_bank_vote_stakes_end_locking_query( bank );
 
   fd_bank_epoch_set( bank, 0UL );
 
