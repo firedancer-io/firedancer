@@ -197,6 +197,22 @@ static ulong event_bytes_read_samples[ 100UL ];
 static ulong rps_samples_idx = 0UL;
 static ulong rps_samples[ 100UL ];
 
+#define RESET   "\033[0m"
+#define BOLD    "\033[1m"
+#define UNBOLD  "\033[22m"
+
+#define RED     "\033[31m"
+#define GREEN   "\033[32m"
+#define YELLOW  "\033[33m"
+#define BLUE    "\033[34m"
+#define MAGENTA "\033[35m"
+#define CYAN    "\033[36m"
+
+#define BGREEN  "\033[92m"
+#define BYELLOW "\033[93m"
+
+#define CLEARLN "\033[K"
+
 #define PRINT(...) do {                          \
   char * _buf = fd_alloca_check( 1UL, 1024UL );  \
   ulong _len;                                    \
@@ -239,7 +255,9 @@ write_bench( config_t const * config,
   for( ulong i=0UL; i<num_tps_samples; i++ ) tps_sum += tps_sent_samples[ i ];
   char * tps_str = COUNTF( 100.0*(double)tps_sum/(double)num_tps_samples );
 
-  PRINT( "🌶  \033[1m\033[92mBENCH.......\033[0m\033[22m \033[1mGENERATED TPS\033[22m %s \033[1mBENCHG BUSY\033[22m", tps_str );
+  PRINT( "🌶  " BOLD BGREEN "BENCH......." RESET UNBOLD
+         " " BOLD "GENERATED TPS" UNBOLD " %s"
+         " " BOLD "BENCHG BUSY"   UNBOLD, tps_str );
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchg" ) ) ) continue;
 
@@ -251,7 +269,7 @@ write_bench( config_t const * config,
     PRINT( " %.1f %%", busy_pct );
   }
 
-  PRINT( " \033[1mBENCHS BUSY\033[22m" );
+  PRINT( " " BOLD "BENCHS BUSY" UNBOLD );
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchs" ) ) ) continue;
 
@@ -263,7 +281,7 @@ write_bench( config_t const * config,
     PRINT( " %.1f %%", busy_pct );
   }
 
-  PRINT( "\033[K\n" );
+  PRINT( CLEARLN "\n" );
   return 1;
 }
 
@@ -285,7 +303,9 @@ write_backtest( config_t const * config,
   if( FD_LIKELY( total_slots>0UL ) ) progress = 100.0 * (double)completed_slots / (double)total_slots;
   else progress = 100.0;
 
-  PRINT( "🧪 \033[1m\033[92mBACKTEST....\033[0m\033[22m \033[1mPCT\033[22m %.1f %% (%lu/%lu)\033[K\n", progress, completed_slots, total_slots );
+  PRINT( "🧪 " BOLD BGREEN "BACKTEST...." RESET UNBOLD
+         " " BOLD "PCT" UNBOLD " %.1f %% (%lu/%lu)" CLEARLN "\n",
+    progress, completed_slots, total_slots );
 }
 
 static void
@@ -365,7 +385,13 @@ write_snapshots( config_t const * config,
   double snapls_idle_pct = snapls_tile_idx!=ULONG_MAX ? 100.0*(double)diff_tile( config, "snapls", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapls_total_ticks : 0.0;
 
   if( FD_UNLIKELY( snapls_tile_idx!=ULONG_MAX ) ) {
-    PRINT( "⚡ \033[1m\033[93mSNAPSHOTS...\033[0m\033[22m \033[1mSTATE\033[22m %s \033[1mPCT\033[22m %.1f %% \033[1mRX\033[22m %3.f MB/s \033[1mACC\033[22m %3.1f M/s \033[1mBACKP\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%% \033[1mBUSY\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%\033[K\n",
+    PRINT( "⚡ " BOLD BYELLOW "SNAPSHOTS..." RESET UNBOLD
+           " " BOLD "STATE" UNBOLD " %s"
+           " " BOLD "PCT"   UNBOLD " %.1f %%"
+           " " BOLD "RX"    UNBOLD " %3.f MB/s"
+           " " BOLD "ACC"   UNBOLD " %3.1f M/s"
+           " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
+           " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
       fd_snapct_state_str( state ),
       progress,
       megabytes_per_second,
@@ -381,7 +407,13 @@ write_snapshots( config_t const * config,
       100.0-snapin_idle_pct-snapin_backp_pct,
       100.0-snapls_idle_pct );
   } else {
-    PRINT( "⚡ \033[1m\033[93mSNAPSHOTS...\033[0m\033[22m \033[1mSTATE\033[22m %s \033[1mPCT\033[22m %.1f %% \033[1mRX\033[22m %3.f MB/s \033[1mACC\033[22m %3.1f M/s \033[1mBACKP\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%% \033[1mBUSY\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%\033[K\n",
+    PRINT( "⚡ " BOLD BYELLOW "SNAPSHOTS..." RESET UNBOLD
+           " " BOLD "STATE" UNBOLD " %s"
+           " " BOLD "PCT"   UNBOLD " %.1f %%"
+           " " BOLD "RX"    UNBOLD " %3.f MB/s"
+           " " BOLD "ACC"   UNBOLD " %3.1f M/s"
+           " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
+           " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
       fd_snapct_state_str( state ),
       progress,
       megabytes_per_second,
@@ -426,8 +458,11 @@ write_accdb( config_t const * config,
   for( ulong i=0UL; i<num_rps_samples; i++ ) rps_sum += rps_samples[ i ];
   char * rps_str = COUNTF( 100.0*(double)rps_sum/(double)num_rps_samples );
 
-  PRINT( "💾 \033[1m\033[32mACCOUNTS ...\033[0m\033[22m DATA %4.1f%% (%.1f GB)  INDEX %4.1f%% (%.1fM)  RPS %s\033[K\n",
-         data_pct, used_gb, index_pct, (double)acct_cnt/1e6, rps_str );
+  PRINT( "💾 " BOLD GREEN "ACCOUNTS...." RESET UNBOLD
+         " " BOLD "DATA"  UNBOLD " %4.1f%% (%.1f GB) "
+         " " BOLD "INDEX" UNBOLD " %4.1f%% (%.1fM) "
+         " " BOLD "RPS"   UNBOLD " %s" CLEARLN "\n",
+    data_pct, used_gb, index_pct, (double)acct_cnt/1e6, rps_str );
   return 1;
 }
 
@@ -447,7 +482,13 @@ write_gossip( config_t const * config,
   double gossip_idle_pct = 100.0*(double)diff_tile( config, "gossip", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gossip_total_ticks;
   double gossip_busy_pct = 100.0 - gossip_backp_pct - gossip_idle_pct;
 
-  PRINT( "💬 \033[1m\033[34mGOSSIP......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mCRDS\033[22m %s \033[1mPEERS\033[22m %s \033[1mBUSY\033[22m %3.0f%% \033[1mBACKP\033[22m %3.0f%%\033[K\n",
+  PRINT( "💬 " BOLD BLUE "GOSSIP......" RESET UNBOLD
+         " " BOLD "RX"    UNBOLD " %s"
+         " " BOLD "TX"    UNBOLD " %s"
+         " " BOLD "CRDS"  UNBOLD " %s"
+         " " BOLD "PEERS" UNBOLD " %s"
+         " " BOLD "BUSY"  UNBOLD " %3.0f%%"
+         " " BOLD "BACKP" UNBOLD " %3.0f%%" CLEARLN "\n",
     DIFF_LINK_BYTES( "net_gossvf", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     DIFF_LINK_BYTES( "gossip_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     COUNT( total_crds( &cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ ] ) ),
@@ -466,7 +507,11 @@ write_repair( config_t const * config,
   if( repair_tile_idx==ULONG_MAX ) return 0U;
   ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ];
   ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
-  PRINT( "🧱 \033[1m\033[31mREPAIR......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mREPAIR SLOT\033[22m %lu (%ld) \033[1mTURBINE SLOT\033[22m %lu\033[K\n",
+  PRINT( "🧱 " BOLD RED "REPAIR......" RESET UNBOLD
+         " " BOLD "RX"            UNBOLD " %s"
+         " " BOLD "TX"            UNBOLD " %s"
+         " " BOLD "REPAIR SLOT"   UNBOLD " %lu (%02ld)"
+         " " BOLD "TURBINE SLOT"  UNBOLD " %lu" CLEARLN "\n",
     DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     repair_slot,
@@ -517,14 +562,14 @@ write_replay( config_t const * config,
   for( ulong i=0UL; i<num_cups_samples; i++ ) cups_sum += cups_samples[ i ];
   char * mcups_str = COUNTF( 100.0*(double)cups_sum/(double)num_cups_samples );
 
-  PRINT( "💥 \033[1m\033[35mREPLAY......\033[0m\033[22m "
-         "\033[1mSLOT\033[22m %lu (%02ld) "
-         "\033[1mCU/s\033[22m %s "
-         "\033[1mTPS\033[22m %s "
-         "\033[1mSPS\033[22m %s "
-         "\033[1mLEADER IN\033[22m %s "
-         "\033[1mROOT DIST\033[22m %lu "
-         "\033[1mBANKS\033[22m %2lu\033[K\n",
+  PRINT( "💥 " BOLD MAGENTA "REPLAY......" RESET UNBOLD
+         " " BOLD "SLOT"      UNBOLD " %lu (%02ld)"
+         " " BOLD "CU/s"      UNBOLD " %s"
+         " " BOLD "TPS"       UNBOLD " %s"
+         " " BOLD "SPS"       UNBOLD " %s"
+         " " BOLD "LEADER IN" UNBOLD " %s"
+         " " BOLD "ROOT DIST" UNBOLD " %lu"
+         " " BOLD "BANKS"     UNBOLD " %2lu" CLEARLN "\n",
     reset_slot,
     (long)reset_slot-(long)turbine_slot,
     mcups_str,
@@ -558,7 +603,11 @@ write_gui( config_t const * config,
   char * sent_frame_count_s = COUNT( (ulong)sent_frame_count );
   long received_frame_count = diff_tile( config, "gui", prev_tile, cur_tile, MIDX( COUNTER, GUI, WEBSOCKET_FRAMES_RECEIVED ) );
 
-  PRINT( "👁  \033[1m\033[36mGUI.........\033[0m\033[22m \033[1mCONNS\033[22m %lu \033[1mFRAMES\033[22m %s in %s out \033[1mBW\033[22m %s in %s out \033[1mBUSY\033[22m %3.0f%% \033[K\n",
+  PRINT( "👁  " BOLD CYAN "GUI........." RESET UNBOLD
+         " " BOLD "CONNS"  UNBOLD " %lu"
+         " " BOLD "FRAMES" UNBOLD " %s in %s out"
+         " " BOLD "BW"     UNBOLD " %s in %s out"
+         " " BOLD "BUSY"   UNBOLD " %3.0f%% " CLEARLN "\n",
     connection_count,
     COUNT( (ulong)received_frame_count ),
     sent_frame_count_s,
@@ -616,7 +665,14 @@ write_event( config_t const * config,
 
   char * event_queue_count_s = COUNT( event_queue_count );
 
-  PRINT( "📡 \033[1m\033[33mEVENT.......\033[0m\033[22m \033[1mSTATE\033[22m %12s \033[1mQUEUE\033[22m %s \033[1mSENT\033[22m %s /s \033[1mACKED\033[22m %s /s \033[1mBW\033[22m %s in %s out \033[1mDROPS\033[22m %s \033[1mFULL\033[22m %3.0f%%\033[K\n",
+  PRINT( "📡 " BOLD YELLOW "EVENT......." RESET UNBOLD
+         " " BOLD "STATE" UNBOLD " %12s"
+         " " BOLD "QUEUE" UNBOLD " %s"
+         " " BOLD "SENT"  UNBOLD " %s /s"
+         " " BOLD "ACKED" UNBOLD " %s /s"
+         " " BOLD "BW"    UNBOLD " %s in %s out"
+         " " BOLD "DROPS" UNBOLD " %s"
+         " " BOLD "FULL"  UNBOLD " %3.0f%%" CLEARLN "\n",
     connection_state_str,
     event_queue_count_s,
     events_sent_str,
@@ -640,7 +696,7 @@ write_summary( config_t const * config,
 
   if( FD_UNLIKELY( !ended_on_newline ) ) PRINT( "\n" );
   PRINT( "\033[?7l" ); /* disable autowrap mode */
-  PRINT( "───────────────\033[K\n" );
+  PRINT( "───────────────" CLEARLN "\n" );
 
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
   int shutdown = 1;
