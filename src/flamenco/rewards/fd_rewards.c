@@ -588,11 +588,9 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     runtime_stack->stakes.stake_rewards_cnt );
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar fork_idx = fd_stake_rewards_init( stake_rewards, parent_blockhash, num_partitions );
+  ulong start_block_height = fd_bank_block_height_get( bank ) + REWARD_CALCULATION_NUM_BLOCKS;
+  uchar fork_idx = fd_stake_rewards_init( stake_rewards, parent_blockhash, start_block_height, (uint)num_partitions );
   bank->data->stake_rewards_fork_id = fork_idx;
-
-  FD_BASE58_ENCODE_32_BYTES( parent_blockhash->hash, out );
-  FD_LOG_WARNING(("NUM REWARDS %lu bh %s", runtime_stack->stakes.stake_rewards_cnt, out));
 
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -795,18 +793,19 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   fd_bank_vote_states_end_locking_query( bank );
 
   /* Verify that we didn't pay any more than we expected to */
-  fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_modify( bank );
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  ulong total_stake_rewards = fd_stake_rewards_total_rewards( stake_rewards, bank->data->stake_rewards_fork_id );
 
-  ulong total_rewards = fd_ulong_sat_add( distributed_rewards, epoch_rewards->total_stake_rewards );
+  ulong total_rewards = fd_ulong_sat_add( distributed_rewards, total_stake_rewards );
   if( FD_UNLIKELY( rewards_calc_result->validator_rewards<total_rewards ) ) {
     FD_LOG_CRIT(( "Unexpected rewards calculation result" ));
   }
 
   fd_bank_capitalization_set( bank, fd_bank_capitalization_get( bank ) + distributed_rewards );
 
-  epoch_rewards->distributed_rewards = distributed_rewards;
-  epoch_rewards->total_rewards       = rewards_calc_result->validator_rewards;
-  epoch_rewards->total_points.ud     = rewards_calc_result->validator_points;
+  runtime_stack->stakes.distributed_rewards = distributed_rewards;
+  runtime_stack->stakes.total_rewards       = rewards_calc_result->validator_rewards;
+  runtime_stack->stakes.total_points.ud     = rewards_calc_result->validator_points;
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -900,9 +899,6 @@ distribute_epoch_rewards_in_partition( fd_epoch_rewards_t const * epoch_rewards,
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
 
-  FD_LOG_WARNING(("PARTITION INDEX %lu", partition_idx));
-
-
   for( fd_stake_rewards_iter_init( stake_rewards, bank->data->stake_rewards_fork_id, (ushort)partition_idx );
        !fd_stake_rewards_iter_done( stake_rewards );
        fd_stake_rewards_iter_next( stake_rewards, bank->data->stake_rewards_fork_id ) ) {
@@ -980,14 +976,14 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
 
-  ulong block_height = fd_bank_block_height_get( bank );
-  ulong distribution_starting_block_height = epoch_rewards->starting_block_height;
-  ulong distribution_end_exclusive         = fd_epoch_rewards_get_exclusive_ending_block_height( epoch_rewards );
+  ulong block_height                       = fd_bank_block_height_get( bank );
+  ulong distribution_starting_block_height = fd_stake_rewards_starting_block_height( stake_rewards, bank->data->stake_rewards_fork_id );
+  ulong distribution_end_exclusive         = fd_stake_rewards_exclusive_ending_block_height( stake_rewards, bank->data->stake_rewards_fork_id );
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong                       epoch          = fd_bank_epoch_get( bank );
 
-  if( FD_UNLIKELY( get_slots_in_epoch( epoch, epoch_schedule ) <= epoch_rewards->num_partitions ) ) {
+  if( FD_UNLIKELY( get_slots_in_epoch( epoch, epoch_schedule ) <= fd_stake_rewards_num_partitions( stake_rewards, bank->data->stake_rewards_fork_id ) ) ) {
     FD_LOG_CRIT(( "Should not be distributing rewards" ));
   }
 
@@ -1046,22 +1042,21 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       epoch_rewards->stake_rewards_cnt );
 
 
-  fd_epoch_rewards_hash_into_partitions( epoch_rewards, parent_blockhash, num_partitions );
-
   ulong distribution_starting_block_height = fd_bank_block_height_get( bank ) + REWARD_CALCULATION_NUM_BLOCKS;
 
   epoch_rewards->starting_block_height = distribution_starting_block_height;
+  //epoch_rewards->num_partitions = num_partitions;
 
   fd_sysvar_epoch_rewards_init(
       bank,
       accdb,
       xid,
       capture_ctx,
-      epoch_rewards->distributed_rewards,
+      runtime_stack->stakes.distributed_rewards,
       distribution_starting_block_height,
-      epoch_rewards->num_partitions,
-      epoch_rewards->total_rewards,
-      epoch_rewards->total_points.ud,
+      num_partitions,
+      runtime_stack->stakes.total_rewards,
+      runtime_stack->stakes.total_points.ud,
       parent_blockhash );
 }
 

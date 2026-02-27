@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h
 
 #include "../../util/fd_util_base.h"
-#include "../../util/tmpl/fd_map.h"
 #include "../types/fd_types_custom.h"
 
 FD_PROTOTYPES_BEGIN
@@ -35,7 +34,8 @@ fd_stake_rewards_join( void * shmem );
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
-                       ulong                partitions_cnt );
+                       ulong                starting_block_height,
+                       uint                 partitions_cnt );
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
@@ -44,14 +44,13 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                lamports,
                          ulong                credits_observed );
 
-
 void
 fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards );
 
 void
 fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
                             uchar                fork_idx,
-                            ushort               partition_idx );
+                            uint                 partition_idx );
 
 void
 fd_stake_rewards_iter_next( fd_stake_rewards_t * stake_rewards,
@@ -66,5 +65,21 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
                            fd_pubkey_t *        pubkey_out,
                            ulong *              lamports_out,
                            ulong *              credits_observed_out );
+
+ulong
+fd_stake_rewards_total_rewards( fd_stake_rewards_t * stake_rewards,
+                                uchar                fork_idx );
+
+uint
+fd_stake_rewards_num_partitions( fd_stake_rewards_t * stake_rewards,
+                                 uchar                fork_idx );
+
+ulong
+fd_stake_rewards_starting_block_height( fd_stake_rewards_t * stake_rewards,
+                                        uchar                fork_idx );
+
+ulong
+fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t * stake_rewards,
+                                                uchar                fork_idx );
 
 #endif /* HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h */

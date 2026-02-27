@@ -68,6 +68,10 @@ union fd_runtime_stack {
 
     fd_calculated_stake_rewards_t stake_rewards_result[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
 
+    ulong       total_rewards;
+    ulong       distributed_rewards;
+    fd_w_u128_t total_points;
+
     ulong stake_rewards_cnt;
   } stakes;
 

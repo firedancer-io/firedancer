@@ -51,9 +51,13 @@ struct partition_ele  {
 typedef struct partition_ele partition_ele_t;
 
 struct fork_info {
-  uint ele_cnt;
-  uint partition_idxs_head[43200];
-  uint partition_idxs_tail[43200];
+  uint  ele_cnt;
+  uint  partition_cnt;
+  uint  partition_idxs_head[43200];
+  uint  partition_idxs_tail[43200];
+  ulong starting_block_height;
+  ulong total_stake_rewards;
+
 };
 typedef struct fork_info fork_info_t;
 
@@ -70,8 +74,6 @@ struct fd_stake_rewards {
 
   /* Temporary storage for the current stake reward being computed. */
   fd_hash_t        parent_blockhash;
-  ulong            partitions_cnt;
-
 
   uint iter_curr_fork_idx;
 
@@ -181,7 +183,8 @@ fd_stake_rewards_join( void * shmem ) {
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
-                       ulong                partitions_cnt ) {
+                       ulong                starting_block_height,
+                       uint                 partitions_cnt ) {
   /* 43200UL partitions is a protocol level invariant. */
   FD_TEST( partitions_cnt <= 43200UL && partitions_cnt > 0UL );
 
@@ -199,9 +202,11 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
   stake_rewards->refcnt++;
   stake_rewards->parent_blockhash = *parent_blockhash;
-  stake_rewards->partitions_cnt   = partitions_cnt;
 
-  stake_rewards->fork_info[fork_idx].ele_cnt = 0UL;
+  stake_rewards->fork_info[fork_idx].partition_cnt         = partitions_cnt;
+  stake_rewards->fork_info[fork_idx].starting_block_height = starting_block_height;
+  stake_rewards->fork_info[fork_idx].ele_cnt               = 0UL;
+  stake_rewards->fork_info[fork_idx].total_stake_rewards   = 0UL;
   memset( stake_rewards->fork_info[fork_idx].partition_idxs_head, 0xFF, sizeof(stake_rewards->fork_info[fork_idx].partition_idxs_head) );
   memset( stake_rewards->fork_info[fork_idx].partition_idxs_tail, 0xFF, sizeof(stake_rewards->fork_info[fork_idx].partition_idxs_tail) );
 
@@ -239,7 +244,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   fd_siphash13_append( hasher, (uchar const *)pubkey->uc, sizeof(fd_pubkey_t) );
   ulong hash64 = fd_siphash13_fini( hasher );
 
-  ulong partition_index = (ulong)((uint128)stake_rewards->partitions_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
+  ulong partition_index = (ulong)((uint128)stake_rewards->fork_info[fork_idx].partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
   uint curr_fork_len = stake_rewards->fork_info[fork_idx].ele_cnt;
 
@@ -248,8 +253,6 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   partition_ele->next  = UINT_MAX;
 
   int is_first_ele = stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_index] == UINT_MAX;
-
-  if( partition_index==0 ) FD_LOG_NOTICE((" curr fork len %u", curr_fork_len));
 
   if( FD_LIKELY( !is_first_ele ) ) {
     partition_ele_t * prev_partition_ele = get_partition_ele( stake_rewards, fork_idx, stake_rewards->fork_info[fork_idx].partition_idxs_tail[partition_index] );
@@ -261,6 +264,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   }
 
   stake_rewards->fork_info[fork_idx].ele_cnt++;
+  stake_rewards->fork_info[fork_idx].total_stake_rewards += lamports;
 }
 
 void
@@ -271,7 +275,7 @@ fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards ) {
 void
 fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
                             uchar                fork_idx,
-                            ushort               partition_idx ) {
+                            uint                 partition_idx ) {
   uint first_fork_idx = stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_idx];
   stake_rewards->iter_curr_fork_idx = first_fork_idx;
 }
@@ -299,4 +303,28 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
   *pubkey_out = index_ele->index_key.pubkey;
   *lamports_out = index_ele->index_key.lamports;
   *credits_observed_out = index_ele->index_key.credits_observed;
+}
+
+ulong
+fd_stake_rewards_total_rewards( fd_stake_rewards_t * stake_rewards,
+                                uchar                fork_idx ) {
+  return stake_rewards->fork_info[fork_idx].total_stake_rewards;
+}
+
+uint
+fd_stake_rewards_num_partitions( fd_stake_rewards_t * stake_rewards,
+                                 uchar                fork_idx ) {
+  return stake_rewards->fork_info[fork_idx].partition_cnt;
+}
+
+ulong
+fd_stake_rewards_starting_block_height( fd_stake_rewards_t * stake_rewards,
+                                        uchar                fork_idx ) {
+  return stake_rewards->fork_info[fork_idx].starting_block_height;
+}
+
+ulong
+fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t * stake_rewards,
+                                                uchar                fork_idx ) {
+  return stake_rewards->fork_info[fork_idx].starting_block_height + stake_rewards->fork_info[fork_idx].partition_cnt;
 }

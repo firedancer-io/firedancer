@@ -16,12 +16,12 @@
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-static inline fd_epoch_stake_reward_t *
+static inline fd_epoch_stake_reward_t * FD_FN_UNUSED
 fd_epoch_rewards_get_stake_reward_pool( fd_epoch_rewards_t const * epoch_rewards ) {
   return fd_epoch_stake_reward_pool_join( (uchar *)epoch_rewards + epoch_rewards->pool_offset );
 }
 
-static inline fd_epoch_stake_reward_map_t *
+static inline fd_epoch_stake_reward_map_t * FD_FN_UNUSED
 fd_epoch_rewards_get_stake_reward_map( fd_epoch_rewards_t const * epoch_rewards ) {
   return fd_epoch_stake_reward_map_join( (uchar *)epoch_rewards + epoch_rewards->map_offset );
 }
@@ -189,16 +189,16 @@ fd_epoch_rewards_delete( void * epoch_rewards_shmem ) {
 
 void
 fd_epoch_rewards_init( fd_epoch_rewards_t * epoch_rewards ) {
-  fd_epoch_stake_reward_t * stake_reward_pool = fd_epoch_rewards_get_stake_reward_pool( epoch_rewards );
-  for( ulong i=0UL; i<FD_REWARDS_MAX_PARTITIONS; i++ ) {
-    fd_epoch_stake_reward_dlist_t * dlist = fd_epoch_rewards_get_partition_index( epoch_rewards, i );
-    fd_epoch_stake_reward_dlist_remove_all( dlist, stake_reward_pool );
-  }
+  // fd_epoch_stake_reward_t * stake_reward_pool = fd_epoch_rewards_get_stake_reward_pool( epoch_rewards );
+  // for( ulong i=0UL; i<FD_REWARDS_MAX_PARTITIONS; i++ ) {
+  //   fd_epoch_stake_reward_dlist_t * dlist = fd_epoch_rewards_get_partition_index( epoch_rewards, i );
+  //   fd_epoch_stake_reward_dlist_remove_all( dlist, stake_reward_pool );
+  // }
 
-  fd_epoch_stake_reward_map_t * stake_reward_map  = fd_epoch_rewards_get_stake_reward_map( epoch_rewards );
-  fd_epoch_stake_reward_map_reset( stake_reward_map );
+  // fd_epoch_stake_reward_map_t * stake_reward_map  = fd_epoch_rewards_get_stake_reward_map( epoch_rewards );
+  // fd_epoch_stake_reward_map_reset( stake_reward_map );
 
-  fd_epoch_stake_reward_pool_reset( stake_reward_pool );
+  // fd_epoch_stake_reward_pool_reset( stake_reward_pool );
 
   epoch_rewards->stake_rewards_cnt   = 0UL;
   epoch_rewards->total_stake_rewards = 0UL;
@@ -209,20 +209,24 @@ fd_epoch_rewards_insert( fd_epoch_rewards_t * epoch_rewards,
                          fd_pubkey_t const *  pubkey,
                          ulong                credits,
                          ulong                lamports ) {
-  fd_epoch_stake_reward_t *     stake_reward_pool = fd_epoch_rewards_get_stake_reward_pool( epoch_rewards );
-  fd_epoch_stake_reward_map_t * stake_reward_map  = fd_epoch_rewards_get_stake_reward_map( epoch_rewards );
+  (void)epoch_rewards;
+  (void)pubkey;
+  (void)credits;
+  (void)lamports;
+  // fd_epoch_stake_reward_t *     stake_reward_pool = fd_epoch_rewards_get_stake_reward_pool( epoch_rewards );
+  // fd_epoch_stake_reward_map_t * stake_reward_map  = fd_epoch_rewards_get_stake_reward_map( epoch_rewards );
 
-  if( FD_UNLIKELY( fd_epoch_stake_reward_map_ele_query( stake_reward_map, pubkey, NULL, stake_reward_pool ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: stake reward entry already exists" ));
-  }
+  // if( FD_UNLIKELY( fd_epoch_stake_reward_map_ele_query( stake_reward_map, pubkey, NULL, stake_reward_pool ) ) ) {
+  //   FD_LOG_CRIT(( "invariant violation: stake reward entry already exists" ));
+  // }
 
-  fd_epoch_stake_reward_t * stake_reward = fd_epoch_stake_reward_pool_ele_acquire( stake_reward_pool );
+  // fd_epoch_stake_reward_t * stake_reward = fd_epoch_stake_reward_pool_ele_acquire( stake_reward_pool );
 
-  stake_reward->stake_pubkey     = *pubkey;
-  stake_reward->credits_observed = credits;
-  stake_reward->lamports         = lamports;
+  // stake_reward->stake_pubkey     = *pubkey;
+  // stake_reward->credits_observed = credits;
+  // stake_reward->lamports         = lamports;
 
-  fd_epoch_stake_reward_map_ele_insert( stake_reward_map, stake_reward, stake_reward_pool );
+  // fd_epoch_stake_reward_map_ele_insert( stake_reward_map, stake_reward, stake_reward_pool );
 
   epoch_rewards->total_stake_rewards += lamports;
   epoch_rewards->stake_rewards_cnt++;
@@ -234,30 +238,33 @@ fd_epoch_rewards_hash_into_partitions( fd_epoch_rewards_t * epoch_rewards,
                                        fd_hash_t const *    parent_blockhash,
                                        ulong                num_partitions ) {
 
-  fd_epoch_stake_reward_t *     stake_reward_pool = fd_epoch_rewards_get_stake_reward_pool( epoch_rewards );
-  fd_epoch_stake_reward_map_t * stake_reward_map  = fd_epoch_rewards_get_stake_reward_map( epoch_rewards );
+  // fd_epoch_stake_reward_t *     stake_reward_pool = fd_epoch_rewards_get_stake_reward_pool( epoch_rewards );
+  // fd_epoch_stake_reward_map_t * stake_reward_map  = fd_epoch_rewards_get_stake_reward_map( epoch_rewards );
+  (void)parent_blockhash;
 
-  epoch_rewards->num_partitions = num_partitions;
+  //epoch_rewards->num_partitions = num_partitions;
+  (void)epoch_rewards;
+  (void)num_partitions;
 
-  for( fd_epoch_stake_reward_map_iter_t iter = fd_epoch_stake_reward_map_iter_init( stake_reward_map, stake_reward_pool );
-       !fd_epoch_stake_reward_map_iter_done( iter, stake_reward_map, stake_reward_pool );
-       iter = fd_epoch_stake_reward_map_iter_next( iter, stake_reward_map, stake_reward_pool ) ) {
+  // for( fd_epoch_stake_reward_map_iter_t iter = fd_epoch_stake_reward_map_iter_init( stake_reward_map, stake_reward_pool );
+  //      !fd_epoch_stake_reward_map_iter_done( iter, stake_reward_map, stake_reward_pool );
+  //      iter = fd_epoch_stake_reward_map_iter_next( iter, stake_reward_map, stake_reward_pool ) ) {
 
-    fd_epoch_stake_reward_t * stake_reward = fd_epoch_stake_reward_map_iter_ele( iter, stake_reward_map, stake_reward_pool );
+  //   fd_epoch_stake_reward_t * stake_reward = fd_epoch_stake_reward_map_iter_ele( iter, stake_reward_map, stake_reward_pool );
 
-    fd_siphash13_t   sip[1] = {0};
-    fd_siphash13_t * hasher = fd_siphash13_init( sip, 0UL, 0UL );
-    hasher = fd_siphash13_append( hasher, parent_blockhash->hash, sizeof(fd_hash_t) );
-    fd_siphash13_append( hasher, (uchar const *)stake_reward->stake_pubkey.uc, sizeof(fd_pubkey_t) );
-    ulong hash64 = fd_siphash13_fini( hasher );
+  //   fd_siphash13_t   sip[1] = {0};
+  //   fd_siphash13_t * hasher = fd_siphash13_init( sip, 0UL, 0UL );
+  //   hasher = fd_siphash13_append( hasher, parent_blockhash->hash, sizeof(fd_hash_t) );
+  //   fd_siphash13_append( hasher, (uchar const *)stake_reward->stake_pubkey.uc, sizeof(fd_pubkey_t) );
+  //   ulong hash64 = fd_siphash13_fini( hasher );
 
-    /* Now get the correct dlist based on the hash. */
-    ulong partition_index = (ulong)((uint128)num_partitions * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
+  //   /* Now get the correct dlist based on the hash. */
+  //   ulong partition_index = (ulong)((uint128)num_partitions * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
-    fd_epoch_stake_reward_dlist_t * partition_dlist = fd_epoch_rewards_get_partition_index( epoch_rewards, partition_index );
+  //   fd_epoch_stake_reward_dlist_t * partition_dlist = fd_epoch_rewards_get_partition_index( epoch_rewards, partition_index );
 
-    fd_epoch_stake_reward_dlist_ele_push_tail( partition_dlist, stake_reward, stake_reward_pool );
-  }
+  //   fd_epoch_stake_reward_dlist_ele_push_tail( partition_dlist, stake_reward, stake_reward_pool );
+  // }
 }
 
 fd_epoch_stake_reward_t *

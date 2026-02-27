@@ -104,7 +104,7 @@ struct fd_epoch_rewards {
   /* Data representing the partitioned stake rewards */
   ulong stake_account_max;
   ulong starting_block_height;
-  ulong num_partitions;
+  //ulong num_partitions;
   ulong partitions_lengths[FD_REWARDS_MAX_PARTITIONS];
 
   /* Result of total rewards distribution */
@@ -213,10 +213,10 @@ fd_epoch_rewards_get_distribution_partition_index( fd_epoch_rewards_t const * ep
 /* fd_epoch_rewards_get_exclusive_ending_block_height returns the
    block height that the last partition ends at. */
 
-static inline ulong
-fd_epoch_rewards_get_exclusive_ending_block_height( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->starting_block_height + epoch_rewards->num_partitions;
-}
+// static inline ulong
+// fd_epoch_rewards_get_exclusive_ending_block_height( fd_epoch_rewards_t const * epoch_rewards ) {
+//   return epoch_rewards->starting_block_height + epoch_rewards->num_partitions;
+// }
 
 /* Iterator API for epoch rewards. The iterator is initialized with a
    call to fd_epoch_rewards_iter_init. The caller is responsible for
