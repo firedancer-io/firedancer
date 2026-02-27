@@ -50,9 +50,13 @@ fd_vsv_get_root_slot( fd_vote_state_versioned_t * self );
 fd_vote_block_timestamp_t const *
 fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self );
 
-/* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L938 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L938 */
 int
 fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self );
+
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L823-L828 */
+ulong
+fd_vsv_get_pending_delegator_rewards( fd_vote_state_versioned_t * self );
 
 /**********************************************************************/
 /* Mutable getters                                                    */
@@ -82,7 +86,7 @@ fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
    version.  Only supported for v3 and v4 vote states.
    authorized_withdrawer_signer and signers are parameters to a closure
    called verify, which is passed into the associated Agave method.
-   https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L728 */
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L728 */
 int
 fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
                                  fd_vote_state_versioned_t *        self,

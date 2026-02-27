@@ -147,7 +147,7 @@ fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *              ct
   int           rc;
   fd_pubkey_t * epoch_authorized_voter = NULL;
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L287-L292 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L287-L292 */
   if( FD_UNLIKELY( bls_pubkey!=NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }

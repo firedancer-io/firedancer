@@ -719,6 +719,30 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252"
     },
     {
+      "name": "commission_kind",
+      "type": "enum",
+      "variants": [
+        { "name": "inflation_rewards" },
+        { "name": "block_revenue" }
+      ],
+      "comment": "https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/instruction.rs#L28-L31"
+    },
+    {
+      "name": "update_commission_bps_args",
+      "type": "struct",
+      "fields": [
+        { "name": "commission_bps", "type": "ushort" },
+        { "name": "kind", "type": "commission_kind" }
+      ]
+    },
+    {
+      "name": "deposit_delegator_rewards_args",
+      "type": "struct",
+      "fields": [
+        { "name": "deposit", "type": "ulong" }
+      ]
+    },
+    {
       "name": "vote_instruction",
       "type": "enum",
       "variants": [
@@ -738,7 +762,10 @@
         { "name": "compact_update_vote_state_switch", "type": "compact_vote_state_update_switch"},
         { "name": "tower_sync", "type": "tower_sync"},
         { "name": "tower_sync_switch", "type": "tower_sync_switch"},
-        { "name": "initialize_account_v2", "type": "vote_init_v2"}
+        { "name": "initialize_account_v2", "type": "vote_init_v2"},
+        { "name": "update_commission_collector", "type": "commission_kind"},
+        { "name": "update_commission_bps", "type": "update_commission_bps_args"},
+        { "name": "deposit_delegator_rewards", "type": "deposit_delegator_rewards_args"}
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21"
     },

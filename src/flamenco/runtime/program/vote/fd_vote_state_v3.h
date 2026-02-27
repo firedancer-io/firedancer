@@ -41,7 +41,7 @@ fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_v3_t * self,
 
 /* authorized_withdrawer_signer and signers are parameters to a closure
    called verify, which is passed into the associated Agave method.
-   https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L276 */
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L276 */
 int
 fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
                                            fd_vote_state_v3_t *               self,

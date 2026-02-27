@@ -139,7 +139,7 @@ fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self ) {
   }
 }
 
-/* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L938 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L938 */
 int
 fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
   /* Implementation slightly simplified */
@@ -149,11 +149,24 @@ fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v1_14_11:
       return 0;
     case fd_vote_state_versioned_enum_v3:
-      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L483 */
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L483 */
       return 0;
     case fd_vote_state_versioned_enum_v4:
-      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L676 */
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L676 */
       return !!self->inner.v4.has_bls_pubkey_compressed;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+  }
+}
+
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L823-L828 */
+ulong
+fd_vsv_get_pending_delegator_rewards( fd_vote_state_versioned_t * self ) {
+  switch( self->discriminant ) {
+    case fd_vote_state_versioned_enum_v3:
+      return 0UL;
+    case fd_vote_state_versioned_enum_v4:
+      return self->inner.v4.pending_delegator_rewards;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
   }

@@ -134,7 +134,7 @@ fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t *              ct
   fd_vote_authorized_voters_treap_ele_insert(
       self->authorized_voters.treap, ele, self->authorized_voters.pool );
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/programs/vote/src/vote_state/handler.rs#L528-L530 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L528-L530 */
   if( FD_LIKELY( bls_pubkey!=NULL ) ) {
     self->has_bls_pubkey_compressed = 1;
     self->bls_pubkey_compressed = *bls_pubkey;
