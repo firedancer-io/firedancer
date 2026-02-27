@@ -89,6 +89,15 @@ struct fd_gossip_private {
     long next_flush_push_state;
   } timers;
 
+  /* Token-bucket rate limiter for outbound pull response data.
+     Matches Agave's DataBudget: replenished every 100ms with
+     num_staked*1024 bytes, capped at 5x that amount.  Only
+     pull responses are rate-limited; push messages are not. */
+  struct {
+    ulong remaining;           /* bytes remaining in budget (signed) */
+    long last_replenish_nanos; /* last replenish timestamp in nanos  */
+  } outbound_budget;
+
   /* Callbacks */
   fd_gossip_sign_fn   sign_fn;
   void *              sign_ctx;
@@ -245,6 +254,9 @@ fd_gossip_new( void *                           shmem,
   gossip->timers.next_active_set_refresh = 0L;
   gossip->timers.next_contact_info_refresh = 0L;
   gossip->timers.next_flush_push_state = 0L;
+
+  gossip->outbound_budget.remaining            = 0UL;
+  gossip->outbound_budget.last_replenish_nanos = now;
 
   gossip->send_fn  = send_fn;
   gossip->send_ctx = send_ctx;
@@ -406,6 +418,36 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
   gossip->stake.count = stake_weights_cnt;
 }
 
+/* Outbound data budget constants (matching Agave's DataBudget for gossip).
+   Budget is replenished every BUDGET_REPLENISH_INTERVAL_NS with
+   num_staked * BUDGET_BYTES_PER_INTERVAL bytes, capped at
+   BUDGET_MAX_MULTIPLE * num_staked * BUDGET_BYTES_PER_INTERVAL. */
+
+#define BUDGET_REPLENISH_INTERVAL_NS (100L*1000L*1000L) /* 100 ms */
+#define BUDGET_BYTES_PER_INTERVAL    (1024UL)           /* per staked validator */
+#define BUDGET_MAX_MULTIPLE          (5UL)              /* max accumulation */
+#define BUDGET_MIN_STAKED            (2UL)              /* floor for num_staked */
+
+/* Lazily replenish the outbound pull-response budget if at least
+   BUDGET_REPLENISH_INTERVAL_NS have elapsed since last replenish.
+   Returns current remaining budget in bytes. */
+
+static inline ulong
+outbound_budget_replenish( fd_gossip_t * gossip,
+                           long          now ) {
+  long elapsed = now-gossip->outbound_budget.last_replenish_nanos;
+
+  if( FD_LIKELY( elapsed>=BUDGET_REPLENISH_INTERVAL_NS ) ) {
+    ulong num_staked = fd_ulong_max( gossip->stake.count, BUDGET_MIN_STAKED );
+    ulong increment  = num_staked * BUDGET_BYTES_PER_INTERVAL;
+    ulong cap        = BUDGET_MAX_MULTIPLE * increment;
+    ulong remaining  = gossip->outbound_budget.remaining + increment;
+    gossip->outbound_budget.remaining            = fd_ulong_min( remaining, cap );
+    gossip->outbound_budget.last_replenish_nanos = now;
+  }
+  return gossip->outbound_budget.remaining;
+}
+
 static inline void
 txbuild_flush( fd_gossip_t *         gossip,
                fd_gossip_txbuild_t * txbuild,
@@ -413,6 +455,11 @@ txbuild_flush( fd_gossip_t *         gossip,
                fd_ip4_port_t         dest_addr,
                long                  now ) {
   if( FD_UNLIKELY( !txbuild->crds_len ) ) return;
+
+  /* Debit the outbound data budget (gossip payload bytes only, not
+     including IP/UDP headers — matching Agave's DataBudget which
+     operates on serialized gossip-layer packet sizes). */
+  gossip->outbound_budget.remaining -= fd_ulong_min( txbuild->bytes_len, gossip->outbound_budget.remaining );
 
   gossip->send_fn( gossip->send_ctx, stem, txbuild->bytes, txbuild->bytes_len, &dest_addr, (ulong)now );
 
@@ -432,7 +479,9 @@ rx_pull_request( fd_gossip_t *                    gossip,
                  fd_ip4_port_t                    peer_addr,
                  fd_stem_context_t *              stem,
                  long                             now ) {
-  /* TODO: Implement data budget? Or at least limit iteration range */
+  /* Replenish and check outbound data budget.  If the budget is
+     exhausted, skip generating pull responses entirely. */
+  if( FD_UNLIKELY( !outbound_budget_replenish( gossip, now ) ) ) return;
 
   ulong keys[ sizeof(pr_view->crds_filter->filter->keys)/sizeof(ulong) ];
   ulong bits[ sizeof(pr_view->crds_filter->filter->bits)/sizeof(ulong) ];
@@ -466,6 +515,7 @@ rx_pull_request( fd_gossip_t *                    gossip,
     fd_crds_entry_value( candidate, &crds_val, &crds_size );
     if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( pull_resp, crds_size ) ) ) txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
     fd_gossip_txbuild_append( pull_resp, crds_size, crds_val );
+    if( FD_UNLIKELY( !gossip->outbound_budget.remaining ) ) break;
   }
 
   txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
@@ -810,6 +860,8 @@ void
 fd_gossip_advance( fd_gossip_t *       gossip,
                    long                now,
                    fd_stem_context_t * stem ) {
+  outbound_budget_replenish( gossip, now );
+
   fd_gossip_purged_expire( gossip->purged, now );
   fd_active_set_advance( gossip->active_set, stem, now );
   fd_crds_advance( gossip->crds, now, stem );
