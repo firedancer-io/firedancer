@@ -130,15 +130,31 @@ fd_gossip_purged_metrics2( fd_gossip_t const * gossip );
 fd_active_set_metrics_t const *
 fd_gossip_active_set_metrics2( fd_gossip_t const * gossip );
 
+/* fd_gossip stores the node's contact info for various purposes:
+
+      - The pubkey specified in contact_info will serve as the
+        identity key, used in various checks of the rx path.
+
+      - If the shred version specified in the contact_info is non-zero,
+        it will be used to determine whether to accept or drop incoming
+        messages from peers.
+
+      - The contact info will be periodically gossiped to peers via
+        push messages.
+
+        - contact_info should have its wallclock correctly updated
+          in order to avoid timeouts on peers
+
+          TODO: update wallclock ourselves? */
+void
+fd_gossip_set_my_contact_info( fd_gossip_t *                    gossip,
+                               fd_gossip_contact_info_t const * contact_info,
+                               long                             now );
+
 void
 fd_gossip_set_identity( fd_gossip_t * gossip,
                         uchar const * identity_pubkey,
                         long          now );
-
-void
-fd_gossip_set_shred_version( fd_gossip_t * gossip,
-                             ushort        shred_version,
-                             long          now );
 
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
