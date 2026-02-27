@@ -14,6 +14,3 @@
 [snapshots]
     [snapshots.sources]
         servers = [ "http://solana-mainnet-rpc.jumpisolated.com:8899" ]
-        [snapshots.sources.gossip]
-            allow_any = false
-            allow_list = []

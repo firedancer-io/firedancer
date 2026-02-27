@@ -11,9 +11,6 @@
 [snapshots]
     [snapshots.sources]
         servers = [ "http://solana-testnet-rpc.jumpisolated.com:8899" ]
-        [snapshots.sources.gossip]
-            allow_any = false
-            allow_list = []
 [tiles.bundle]
     enabled = true
     url = "https://testnet.block-engine.jito.wtf"
