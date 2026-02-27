@@ -423,6 +423,7 @@
       "name": "vote_state_versioned",
       "type": "enum",
       "zerocopy": true,
+      "seek_end": true,
       "variants": [
         { "name": "v0_23_5", "type": "vote_state_0_23_5" },
         { "name": "v1_14_11", "type": "vote_state_1_14_11" },
