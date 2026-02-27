@@ -532,11 +532,11 @@ telemetry = true
     #
     # The account index is stored in memory and preallocated.  A limit
     # of 1 billion accounts requires approx 100 GB index space.
-    max_accounts = 30_000_000
+    max_accounts = 1_300_000_000
 
     # File size of the account database file (see [paths.accounts]).
     # The entire account database is physically preallocated.
-    file_size_gib = 16
+    file_size_gib = 800
 
     # The validator keeps account changes that have not yet been
     # finalized (rooted) by consensus in memory.  This setting controls
