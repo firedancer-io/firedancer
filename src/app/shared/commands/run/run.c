@@ -63,9 +63,9 @@ run_cmd_perm( args_t *         args,
 }
 
 struct pidns_clone_args {
-  config_t const * config;
-  int *            pipefd;
-  int              closefd;
+  config_t * config;
+  int *      pipefd;
+  int        closefd;
 };
 
 extern char fd_log_private_path[ 1024 ]; /* empty string on start */
@@ -231,7 +231,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( close( args->closefd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  config_t const * config = args->config;
+  config_t * config = args->config;
 
   fd_log_thread_set( "pidns" );
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
@@ -441,18 +441,37 @@ main_pid_namespace( void * _args ) {
 
       char * tile_name = child_names[ i ];
       ulong  tile_idx = child_idxs[ i ];
-      ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
+      if( FD_UNLIKELY( tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "unreachable" ));
+      fd_topo_tile_t const * tile = &config->topo.tiles[ tile_idx ];
 
       if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-        FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-        fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+        if( FD_UNLIKELY( tile->allow_crash ) ) {
+          FD_LOG_ERR_NOEXIT(( "expendable tile %s:%lu crashed with signal %d (%s)", tile_name, tile->kind_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+
+          /* We need to make all reliable links unreliable by
+             provisioning infinite credits to prevent the application
+             from stalling. */
+          for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+            if( FD_UNLIKELY( !tile->in_link_poll[ j ] || !tile->in_link_reliable[ j ] ) ) continue;
+
+            ulong fseq_id = tile->in_link_fseq_obj_id[ j ];
+            fd_topo_wksp_t * wksp = &config->topo.workspaces[ config->topo.objs[ fseq_id ].wksp_id ];
+            fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
+            ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( &config->topo, fseq_id ) );
+            FD_TEST( fseq );
+            fd_fseq_update( fseq, ULONG_MAX-1UL );
+            fd_topo_leave_workspace( &config->topo, wksp );
+          }
+        } else {
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu crashed with signal %d (%s)", tile_name, tile->kind_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+          fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+        }
       } else {
         int exit_code = WEXITSTATUS( wstatus );
-        if( FD_LIKELY( !exit_code && tile_idx!=ULONG_MAX && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
-          found = 1;
-          FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
+        if( FD_LIKELY( tile->allow_shutdown ) ) {
+          FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile->kind_id, exit_code ));
         } else {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited unexpectedly with code %d", tile_name, tile->kind_id, exit_code ));
           fd_sys_util_exit_group( exit_code ? exit_code : 1 );
         }
       }
@@ -465,9 +484,9 @@ main_pid_namespace( void * _args ) {
 }
 
 int
-clone_firedancer( config_t const * config,
-                  int              close_fd,
-                  int *            out_pipe ) {
+clone_firedancer( config_t * config,
+                  int        close_fd,
+                  int *      out_pipe ) {
   /* This pipe is here just so that the child process knows when the
      parent has died (it will get a HUP). */
   int pipefd[2];

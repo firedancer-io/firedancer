@@ -59,6 +59,16 @@ struct fd_replay_slot_completed {
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
 
+  /* counts for this slot, default to ULONG_MAX */
+  ulong total_txn_cnt;
+  ulong vote_txn_cnt;
+  ulong failed_txn_cnt;
+  ulong nonvote_failed_txn_cnt;
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
+  ulong shred_cnt;
+
   struct {
     ulong block_cost;
     ulong vote_cost;

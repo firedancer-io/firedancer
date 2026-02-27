@@ -13,6 +13,7 @@
 // #define FD_TOWER_SIG_SLOT_DUPLICATE (2)
 // #define FD_TOWER_SIG_SLOT_IGNORED   (3)
 #define FD_TOWER_SIG_SLOT_ROOTED (4)
+// #define FD_TOWER_SIG_VOTE_STATE     (5)
 
 /* fd_tower_slot_rooted describes a Tower frag that notifies a new root.
    A block is rooted if it or any of its descendants reach max lockout

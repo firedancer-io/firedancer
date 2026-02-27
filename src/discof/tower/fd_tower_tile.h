@@ -6,12 +6,14 @@
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../flamenco/stakes/fd_vote_states.h"
 
 #define FD_TOWER_SIG_SLOT_CONFIRMED (0)
 #define FD_TOWER_SIG_SLOT_DONE      (1)
 #define FD_TOWER_SIG_SLOT_DUPLICATE (2)
 #define FD_TOWER_SIG_SLOT_IGNORED   (3)
 // #define FD_TOWER_SIG_SLOT_ROOTED (4)  /* defined in fd_tower_slot_rooted.h */
+#define FD_TOWER_SIG_VOTE_STATE     (5)
 
 /* fd_tower_slot_confirmed describes a Tower frag that notifies protocol
    confirmations.  There are multiple confirmation levels:
@@ -182,12 +184,20 @@ struct fd_tower_slot_ignored {
 };
 typedef struct fd_tower_slot_ignored fd_tower_slot_ignored_t;
 
+struct fd_tower_vote_state {
+  ulong slot;
+  int   is_last_in_slot;
+  fd_vote_state_ele_t vs;
+};
+typedef struct fd_tower_vote_state fd_tower_vote_state_t;
+
 union fd_tower_msg {
   fd_tower_slot_confirmed_t slot_confirmed;
   fd_tower_slot_done_t      slot_done;
   fd_tower_slot_duplicate_t slot_duplicate;
   fd_tower_slot_ignored_t   slot_ignored;
   fd_tower_slot_rooted_t    slot_rooted;
+  fd_tower_vote_state_t     vote_state;
 };
 typedef union fd_tower_msg fd_tower_msg_t;
 
