@@ -72,8 +72,10 @@ fd_grpc_h2_read_response_hdrs( fd_grpc_resp_hdrs_t *       resp,
       break;
     case FD_H2_HDR_CONTENT_TYPE:
       resp->is_grpc_proto =
-        ( 0==strncmp( hdr->value, "application/grpc",       hdr->value_len ) ||
-          0==strncmp( hdr->value, "application/grpc+proto", hdr->value_len ) );
+        ( ( hdr->value_len==(sizeof("application/grpc")-1UL) &&
+            fd_memeq( hdr->value, "application/grpc", sizeof("application/grpc")-1UL ) ) ||
+          ( hdr->value_len==(sizeof("application/grpc+proto")-1UL) &&
+            fd_memeq( hdr->value, "application/grpc+proto", sizeof("application/grpc+proto")-1UL ) ) );
       break;
     case FD_GRPC_HDR_STATUS:
       resp->grpc_status = fd_grpc_h2_parse_num( hdr->value, hdr->value_len );
