@@ -205,10 +205,7 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
 /* SIMD-0387: BLS proof-of-possession verification cost charged by the
    vote program for authorize instructions.
 
-   FIXME: update permalink to an Agave tag when Agave 4.0 is cut, at the
-   moment this constant is only defined in the master branch.
-
-   https://github.com/firedancer-io/agave/blob/agave-v4.0.0-prerelease-patches/programs/vote/src/vote_processor.rs#L74-L75 */
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L83 */
 #define FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS (34500UL)
 
 /* Upper bound on execution CUs used by vote instructions.
