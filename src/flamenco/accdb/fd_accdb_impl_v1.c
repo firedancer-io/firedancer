@@ -223,6 +223,7 @@ fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
       fd_memset( tail, 0, tail_sz );
     }
 
+    accdb->base.created_cnt++;
     return fd_accdb_funk_prep_create( rw, v1->funk, txn, address, val, val_sz, val_max );
 
   }
