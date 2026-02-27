@@ -23,24 +23,24 @@ FD_PROTOTYPES_BEGIN
    char out[ FD_BASE58_ENCODED_32_SZ ];                  \
    ulong out##_len;                                      \
    {                                                     \
-     void const * b = (bytes);                           \
+     uchar const * b = (bytes);                          \
      if( FD_UNLIKELY( !b ) ) {                           \
        strcpy( out, "<NULL>" );                          \
        out##_len = 6UL;                                  \
      }                                                   \
-     else fd_base58_encode_32( bytes, &out##_len, out ); \
+     else fd_base58_encode_32( b, &out##_len, out );     \
    }
 
 #define FD_BASE58_ENCODE_64_BYTES( bytes, out )          \
    char out[ FD_BASE58_ENCODED_64_SZ ];                  \
    ulong out##_len;                                      \
    {                                                     \
-     void const * b = (bytes);                           \
+     uchar const * b = (bytes);                          \
      if( FD_UNLIKELY( !b ) ) {                           \
        strcpy( out, "<NULL>" );                          \
        out##_len = 6UL;                                  \
      }                                                   \
-     else fd_base58_encode_64( bytes, &out##_len, out ); \
+     else fd_base58_encode_64( b, &out##_len, out );     \
    }
 
 /* fd_base58_encode_{32, 64}: Interprets the supplied 32 or 64 bytes
