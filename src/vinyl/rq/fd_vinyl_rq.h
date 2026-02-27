@@ -136,7 +136,7 @@ struct __attribute__((aligned(FD_VINYL_REQ_ALIGN))) fd_vinyl_req {
      that failed will have unchanged entries.  On receipt of a failed
      completion, this array will be unchanged.  In particular:
 
-       ACQUIRE - in (MODIFY): requested val_max for val
+       ACQUIRE - in: (MODIFY) requested val_max for val, (~MODIFY) ignored
                  out: pair val (and pair info) data cache global address
        RELEASE - (BY_KEY) ignored, (~BY_KEY) data cache global addresses
                  of pairs to release (i.e. echo back the array returned
@@ -352,7 +352,7 @@ struct __attribute__((aligned(FD_VINYL_REQ_ALIGN))) fd_vinyl_req {
      sent to the completion queue registered to the client for this
      vinyl tile (and if no completion queue was registered, no
      completion will be sent ... which is not a recommended mode of
-     operations).
+     operation).
 
      If a completion was successful, err will be FD_VINYL_SUCCESS (0),
      batch_cnt will match the request batch_cnt, fail_cnt will give the
