@@ -417,7 +417,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         /* Equivocating slot with same blockhash, ignore.  See fd_txncache.h on how this is possible. */
         if( FD_UNLIKELY( map_query( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc, NULL ) ) ) {
-          FD_LOG_WARNING(( "equivocating slot with same blockhash, ignoring: %lu", msg->slot ));
+          FD_LOG_WARNING(( "slot with same blockhash, ignoring: %lu", msg->slot ));
           return;
         }
 

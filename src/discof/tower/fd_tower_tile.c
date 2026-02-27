@@ -640,12 +640,11 @@ replay_slot_completed( ctx_t *                      ctx,
 
   /* Handle equivocation */
   if( FD_UNLIKELY( fd_tower_blocks_query( ctx->tower_blocks, slot_completed->slot ) ) ) {
-
     FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, block_id );
     FD_LOG_WARNING(( "tower received replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
 
-    /* clear out structures from other version of the fork. TODO: do we want
-       an explicit purge call after the confirmation is sent? */
+    /* clear out structures from other version of the fork. TODO:
+       consider an explicit purge call after the confirmation is sent */
     fd_tower_stakes_blk_t * slot_stakes = fd_tower_stakes_blk_query ( ctx->tower_stakes->blk_map, slot_completed->slot, NULL );
     if( FD_LIKELY( slot_stakes ) )        fd_tower_stakes_blk_remove( ctx->tower_stakes->blk_map, slot_stakes );
     fd_tower_blocks_lockouts_clear( ctx->tower_blocks, slot_completed->slot );
@@ -1012,6 +1011,12 @@ returnable_frag( ctx_t *             ctx,
       count_vote( ctx, TXN(txn_executed->txn), txn_executed->txn->payload );
     } else if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_replay_slot_completed_t * slot_completed = (fd_replay_slot_completed_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      if( FD_UNLIKELY( fd_ghost_query( ctx->ghost, &slot_completed->block_id ) ) ) {
+        /* We have replayed this EXACT block.  Extremely rare and unlikely,
+           can happen only in the degenerate case if we are getting DOS-ed
+           and banks is evicting fully replayed slots. */
+        return 0;
+      }
       replay_slot_completed( ctx, slot_completed, tsorig, stem );
     } else if( FD_LIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
       fd_replay_slot_dead_t * slot_dead = (fd_replay_slot_dead_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
