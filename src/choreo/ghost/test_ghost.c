@@ -217,6 +217,30 @@ test_best( fd_wksp_t * wksp ){
   teardown_ghost( ghost );
 }
 
+void
+test_ignore_out_of_order_vote( fd_wksp_t * wksp ) {
+  fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
+  fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
+
+  fd_pubkey_t voter = { .ul = { 0xc } };
+  ulong       stake = 100UL;
+
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[5] ), &voter, stake, 5UL );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[5] )->stake == stake );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 6UL );
+
+  /* Vote for slot 4 arrives after slot 5.  Since 4 < 5, this vote
+     should be ignored and should not move stake to the other fork. */
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[4] ), &voter, stake, 4UL );
+
+  FD_TEST( fd_ghost_query( ghost, &block_ids[5] )->stake == stake );
+  FD_TEST( fd_ghost_query( ghost, &block_ids[4] )->stake == 0UL  );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 6UL );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  teardown_ghost( ghost );
+}
+
 // void
 // test_vote_leaves( fd_wksp_t * wksp ) {
 //   ulong blk_max     = 8;
@@ -853,6 +877,7 @@ main( int argc, char ** argv ) {
   test_publish_left( wksp );
   test_publish_right( wksp );
   test_best( wksp );
+  test_ignore_out_of_order_vote( wksp );
   // test_vote_leaves( wksp );
   // test_best_full_tree( wksp );
   // test_rooted_vote( wksp );
