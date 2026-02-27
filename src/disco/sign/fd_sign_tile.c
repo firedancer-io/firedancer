@@ -108,6 +108,7 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
       FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
+      explicit_bzero( ctx->av_keyswitch->bytes, 64UL );
       fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
       return;
     }
