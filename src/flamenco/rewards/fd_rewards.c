@@ -910,9 +910,9 @@ distribute_epoch_rewards_in_partition( fd_epoch_rewards_t const * epoch_rewards,
     ulong lamports;
     ulong credits_observed;
     fd_stake_rewards_iter_ele( stake_rewards, bank->data->stake_rewards_fork_id, &pubkey, &lamports, &credits_observed );
-    FD_BASE58_ENCODE_32_BYTES( pubkey.key, out );
+    // FD_BASE58_ENCODE_32_BYTES( pubkey.key, out );
 
-      FD_LOG_NOTICE(("pubkey1 %s %lu %lu", out, lamports, credits_observed));
+    //   FD_LOG_NOTICE(("pubkey1 %s %lu %lu", out, lamports, credits_observed));
 
     if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
       accdb,
@@ -928,30 +928,30 @@ distribute_epoch_rewards_in_partition( fd_epoch_rewards_t const * epoch_rewards,
     }
   }
 
-  ulong cnt =0UL;
-  fd_epoch_rewards_iter_t iter_[1];
-  for( fd_epoch_rewards_iter_t * iter = fd_epoch_rewards_iter_init( iter_, epoch_rewards, partition_idx );
-       !fd_epoch_rewards_iter_done( iter );
-       fd_epoch_rewards_iter_next( iter ) ) {
-    fd_epoch_stake_reward_t * stake_reward = fd_epoch_rewards_iter_ele( iter );
-    FD_BASE58_ENCODE_32_BYTES( stake_reward->stake_pubkey.key, out );
-    cnt++;
-    // if( fd_bank_slot_get( bank) == 346556267 )
-    FD_LOG_NOTICE(("pubkey2 %s %lu %lu", out, stake_reward->lamports, stake_reward->credits_observed));
+  // ulong cnt =0UL;
+  // fd_epoch_rewards_iter_t iter_[1];
+  // for( fd_epoch_rewards_iter_t * iter = fd_epoch_rewards_iter_init( iter_, epoch_rewards, partition_idx );
+  //      !fd_epoch_rewards_iter_done( iter );
+  //      fd_epoch_rewards_iter_next( iter ) ) {
+  //   fd_epoch_stake_reward_t * stake_reward = fd_epoch_rewards_iter_ele( iter );
+  //   FD_BASE58_ENCODE_32_BYTES( stake_reward->stake_pubkey.key, out );
+  //   cnt++;
+  //   // if( fd_bank_slot_get( bank) == 346556267 )
+  //   FD_LOG_NOTICE(("pubkey2 %s %lu %lu", out, stake_reward->lamports, stake_reward->credits_observed));
 
-    // if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
-    //                                                       accdb,
-    //                                                       xid,
-    //                                                       capture_ctx,
-    //                                                       &stake_reward->stake_pubkey,
-    //                                                       stake_reward->lamports,
-    //                                                       stake_reward->credits_observed ) )  ) {
-    //   lamports_distributed += stake_reward->lamports;
-    // } else {
-    //   lamports_burned += stake_reward->lamports;
-    // }
-  }
-  FD_LOG_WARNING(("CNT %lu", cnt));
+  //   // if( FD_LIKELY( !distribute_epoch_reward_to_stake_acc( bank,
+  //   //                                                       accdb,
+  //   //                                                       xid,
+  //   //                                                       capture_ctx,
+  //   //                                                       &stake_reward->stake_pubkey,
+  //   //                                                       stake_reward->lamports,
+  //   //                                                       stake_reward->credits_observed ) )  ) {
+  //   //   lamports_distributed += stake_reward->lamports;
+  //   // } else {
+  //   //   lamports_burned += stake_reward->lamports;
+  //   // }
+  // }
+  // FD_LOG_WARNING(("CNT %lu", cnt));
 
 
   (void)epoch_rewards;

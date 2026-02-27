@@ -241,17 +241,6 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 
   ulong partition_index = (ulong)((uint128)stake_rewards->partitions_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
-  uchar key[32];
-  fd_base58_decode_32( "6T1T9F86pWz5fCU38R6ZXGYAhy5sxYuWD2dFQTGyvtNE", key );
-  if( !memcmp( key, pubkey->uc, sizeof(fd_pubkey_t) )) {
-    FD_LOG_WARNING(("(WAS IN 1)PARTITION INDEX %lu", partition_index));
-  }
-
-  fd_base58_decode_32("BFmai7gU6BMwexcfkYPzGPd9P9wr62CRf5iyA6ChqhL2", key);
-  if( !memcmp( key, pubkey->uc, sizeof(fd_pubkey_t) )) {
-    FD_LOG_WARNING(("(WAS IN 2)PARTITION INDEX %lu", partition_index));
-  }
-
   uint curr_fork_len = stake_rewards->fork_info[fork_idx].ele_cnt;
 
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, curr_fork_len );
@@ -265,6 +254,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   if( FD_LIKELY( !is_first_ele ) ) {
     partition_ele_t * prev_partition_ele = get_partition_ele( stake_rewards, fork_idx, stake_rewards->fork_info[fork_idx].partition_idxs_tail[partition_index] );
     prev_partition_ele->next = curr_fork_len;
+    stake_rewards->fork_info[fork_idx].partition_idxs_tail[partition_index] = curr_fork_len;
   } else {
     stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_index] = curr_fork_len;
     stake_rewards->fork_info[fork_idx].partition_idxs_tail[partition_index] = curr_fork_len;
@@ -282,7 +272,6 @@ void
 fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,
                             uchar                fork_idx,
                             ushort               partition_idx ) {
-  /* Move cursor to the first element in the partition. */
   uint first_fork_idx = stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_idx];
   stake_rewards->iter_curr_fork_idx = first_fork_idx;
 }
