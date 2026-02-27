@@ -331,7 +331,7 @@ fd_banks_new( void * shmem,
     }
   }
 
-  fd_stake_rewards_t * stake_rewards = fd_stake_rewards_join( fd_stake_rewards_new( stake_rewards_pool_mem, FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS, seed ) );
+  fd_stake_rewards_t * stake_rewards = fd_stake_rewards_join( fd_stake_rewards_new( stake_rewards_pool_mem, FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, seed ) );
   if( FD_UNLIKELY( !stake_rewards ) ) {
     FD_LOG_WARNING(( "Failed to create stake rewards" ));
     return NULL;

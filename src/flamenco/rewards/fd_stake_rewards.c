@@ -4,6 +4,8 @@
 
 #define MAX_SUPPORTED_FORKS (128UL)
 
+#define FD_STAKE_REWARDS_MAGIC (0xF17EDA2CE757A4E0) /* FIREDANCER STAKE V0 */
+
 struct index_key {
   fd_pubkey_t pubkey;
   ulong       lamports;
@@ -77,7 +79,6 @@ struct fd_stake_rewards {
   ulong       index_pool_offset;
   ulong       index_map_offset;
   ulong       partitions_offset;
-  uchar       refcnt;
 
   /* Temporary storage for the current stake reward being computed. */
   fd_hash_t parent_blockhash;
@@ -136,8 +137,8 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
 void *
 fd_stake_rewards_new( void * shmem,
                       ulong  max_stake_accounts,
-                      ulong  max_fork_width FD_PARAM_UNUSED,
                       ulong  expected_stake_accs,
+                      ulong  max_fork_width,
                       ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -179,8 +180,10 @@ fd_stake_rewards_new( void * shmem,
   stake_rewards->index_map_offset   = (ulong)index_map - (ulong)shmem;
   stake_rewards->partitions_offset  = (ulong)partitions_mem - (ulong)shmem;
   stake_rewards->max_stake_accounts = max_stake_accounts;
-  stake_rewards->refcnt             = 0;
-  stake_rewards->magic              = 100UL; /* TODO:FIXME: placeholder magic */
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( stake_rewards->magic ) = FD_STAKE_REWARDS_MAGIC;
+  FD_COMPILER_MFENCE();
 
   return shmem;
 }
@@ -191,11 +194,18 @@ fd_stake_rewards_join( void * shmem ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
   }
+
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_stake_rewards_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
   }
-  return fd_type_pun( shmem );
+
+  fd_stake_rewards_t * stake_rewards = (fd_stake_rewards_t *)shmem;
+  if( FD_UNLIKELY( stake_rewards->magic != FD_STAKE_REWARDS_MAGIC ) ) {
+    FD_LOG_WARNING(( "Invalid stake rewards magic" ));
+    return NULL;
+  }
+  return stake_rewards;
 }
 
 uchar
