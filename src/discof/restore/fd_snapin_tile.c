@@ -1011,7 +1011,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( tile->snapin.use_vinyl ) {
     ctx->use_vinyl = 1;
-    fd_snapin_vinyl_unprivileged_init( ctx, topo, tile, NULL, NULL );
   }
 }
 
