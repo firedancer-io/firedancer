@@ -25,7 +25,7 @@ DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 DISABLE_LTHASH_VERIFICATION=true
-DB=${DB:="funk"}
+DB=${DB:="vinyl"}
 EXECRP_TILE_COUNT="10"
 INGEST_DEAD_SLOTS="false"
 ROOT_DISTANCE="2"
@@ -122,8 +122,8 @@ while [[ $# -gt 0 ]]; do
         DISABLE_LTHASH_VERIFICATION=false
         shift
         ;;
-    --vinyl)
-        DB=vinyl
+    --funk)
+        DB=funk
         shift
         ;;
     --exec)
