@@ -384,7 +384,7 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
  */
 FD_FN_CONST static inline
 ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
-  return (ulong) &(((fd_vm_rc_refcell_t *)rc_refcell_vaddr)->payload);
+  return rc_refcell_vaddr + offsetof(fd_vm_rc_refcell_t, payload);
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L310-L316
