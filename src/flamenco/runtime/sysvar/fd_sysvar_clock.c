@@ -167,8 +167,9 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
 
     /* TODO: Replace accdb query with vote account cache lookup. */
     fd_accdb_ro_t ro[1];
-    /* TODO:FIXME: turn this back to fd log err*/
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) continue;
+    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
+      FD_LOG_CRIT(( "failed to open accdb ro for vote account" ));
+    }
     if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) {
       fd_accdb_close_ro( accdb, ro );
       continue;

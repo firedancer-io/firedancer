@@ -1109,8 +1109,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_refresh( root_delegations, ctx->accdb, &xid );
 
-  /* TODO:FIXME: setup refresh vote accounts */
-
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
   ushort fork_idx = bank->data->vote_stakes_fork_id;
 
