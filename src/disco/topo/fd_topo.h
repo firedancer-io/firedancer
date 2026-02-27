@@ -595,6 +595,7 @@ struct fd_topo_tile {
       ulong snapwr_depth;
       char  vinyl_path[ PATH_MAX ];
       uint  lthash_disabled : 1;
+      ulong max_accounts;
     } snapwm;
 
     struct {

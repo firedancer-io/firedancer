@@ -78,6 +78,7 @@ struct fd_snapwm_tile {
 
     ulong pair_cnt;
     ulong full_pair_cnt;
+    ulong pair_cnt_max;
 
     /* Vinyl in either io_wd or io_mm mode */
     fd_vinyl_io_t * io;
