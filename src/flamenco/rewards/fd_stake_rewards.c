@@ -1,12 +1,8 @@
 #include "fd_stake_rewards.h"
+#include "fd_rewards_base.h"
 #include "../../ballet/siphash13/fd_siphash13.h"
 
-struct fd_stake_reward {
-  uint  index_idx; /* position in vote account index */
-  ulong lamports;
-  ulong credits_observed;
-};
-typedef struct fd_stake_reward fd_stake_reward_t;
+#define MAX_SUPPORTED_FORKS (128UL)
 
 struct index_key {
   fd_pubkey_t pubkey;
@@ -44,6 +40,17 @@ typedef struct index_ele index_ele_t;
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
+struct fork {
+  int next;
+};
+typedef struct fork fork_t;
+
+#define POOL_NAME  fork_pool
+#define POOL_T     fork_t
+#define POOL_NEXT  next
+#define POOL_IDX_T int
+#include "../../util/tmpl/fd_pool.c"
+
 struct partition_ele  {
   uint index;
   uint next;
@@ -53,8 +60,8 @@ typedef struct partition_ele partition_ele_t;
 struct fork_info {
   uint  ele_cnt;
   uint  partition_cnt;
-  uint  partition_idxs_head[43200];
-  uint  partition_idxs_tail[43200];
+  uint  partition_idxs_head[MAX_PARTITIONS_PER_EPOCH];
+  uint  partition_idxs_tail[MAX_PARTITIONS_PER_EPOCH];
   ulong starting_block_height;
   ulong total_stake_rewards;
 
@@ -62,24 +69,26 @@ struct fork_info {
 typedef struct fork_info fork_info_t;
 
 struct fd_stake_rewards {
-  ulong            magic;
-  uint             total_ele_used;
-  fork_info_t      fork_info[128];
-  ulong            index_pool_offset;
-  ulong            index_map_offset;
-  ulong            partitions_offset;
-  uchar            refcnt;
-
-  ulong            max_stake_accounts;
+  ulong       magic;
+  uint        total_ele_used;
+  ulong       max_stake_accounts;
+  fork_info_t fork_info[MAX_SUPPORTED_FORKS];
+  ulong       fork_pool_offset;
+  ulong       index_pool_offset;
+  ulong       index_map_offset;
+  ulong       partitions_offset;
+  uchar       refcnt;
 
   /* Temporary storage for the current stake reward being computed. */
-  fd_hash_t        parent_blockhash;
-
-  uint iter_curr_fork_idx;
-
+  fd_hash_t parent_blockhash;
+  uint      iter_curr_fork_idx;
 };
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
+static inline fork_t *
+get_fork_pool( fd_stake_rewards_t const * stake_rewards ) {
+  return fd_type_pun( (uchar *)stake_rewards + stake_rewards->fork_pool_offset );
+}
 static inline index_ele_t *
 get_index_pool( fd_stake_rewards_t const * stake_rewards ) {
   return fd_type_pun( (uchar *)stake_rewards + stake_rewards->index_pool_offset );
@@ -113,6 +122,7 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
 
   ulong l = FD_LAYOUT_INIT;
   l  = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),  sizeof(fd_stake_rewards_t) );
+  l =  FD_LAYOUT_APPEND( l, fork_pool_align(),         fork_pool_footprint( max_fork_width ) );
   l  = FD_LAYOUT_APPEND( l, index_pool_align(),        index_pool_footprint( max_stake_accounts ) );
   l  = FD_LAYOUT_APPEND( l, index_map_align(),         index_map_footprint( map_chain_cnt ) );
   l  = FD_LAYOUT_APPEND( l, alignof(partition_ele_t),  max_fork_width * max_stake_accounts * sizeof(partition_ele_t) );
@@ -142,9 +152,17 @@ fd_stake_rewards_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
+  void *               fork_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),         fork_pool_footprint( max_fork_width ) );
   void *               index_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),       index_pool_footprint( max_stake_accounts ) );
   void *               index_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),        index_map_footprint( map_chain_cnt ) );
   void *               partitions_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), max_fork_width * max_stake_accounts * sizeof(partition_ele_t) );
+
+  fork_t * fork_pool = fork_pool_join( fork_pool_new( fork_pool_mem, max_fork_width ) );
+  if( FD_UNLIKELY( !fork_pool ) ) {
+    FD_LOG_WARNING(( "Failed to create fork pool" ));
+    return NULL;
+  }
+  stake_rewards->fork_pool_offset = (ulong)fork_pool - (ulong)shmem;
 
   index_ele_t * index_pool = index_pool_join( index_pool_new( index_pool_mem, max_stake_accounts ) );
   if( FD_UNLIKELY( !index_pool ) ) {
@@ -185,22 +203,20 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt ) {
-  /* 43200UL partitions is a protocol level invariant. */
-  FD_TEST( partitions_cnt <= 43200UL && partitions_cnt > 0UL );
-
   index_map_t * index_map  = get_index_map( stake_rewards );
   index_ele_t * index_pool = get_index_pool( stake_rewards );
 
+  fork_t * fork_pool = get_fork_pool( stake_rewards );
+
   /* If this is the first reference to the stake rewards, we need to
      reset the backing map and pool all the forks will share. */
-  if( FD_LIKELY( stake_rewards->refcnt==0 ) ) {
+  if( FD_LIKELY( fork_pool_used( fork_pool )==0UL ) ) {
     index_map_reset( index_map );
     index_pool_reset( index_pool );
   }
 
-  uchar fork_idx = stake_rewards->refcnt;
+  uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
 
-  stake_rewards->refcnt++;
   stake_rewards->parent_blockhash = *parent_blockhash;
 
   stake_rewards->fork_info[fork_idx].partition_cnt         = partitions_cnt;
@@ -268,8 +284,10 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
 }
 
 void
-fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards ) {
-  stake_rewards->refcnt--;
+fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
+                       uchar                fork_idx ) {
+  fork_t * fork_pool = get_fork_pool( stake_rewards );
+  fork_pool_idx_release( fork_pool, fork_idx );
 }
 
 void

@@ -36,7 +36,7 @@ FD_PROTOTYPES_BEGIN
 
    In order to support fork-awareness, there are several key features
    that fd_banks_t and fd_bank_t MUST support:
-   1. Query for any non-rooted block's bank: creatfd a fast lookup
+   1. Query for any non-rooted block's bank: create a fast lookup
       from bank index to bank
    2. Be able to create a new bank for a given block from the bank of
       that block's parent and maintain some tree-like structure to

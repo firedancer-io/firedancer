@@ -43,7 +43,8 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          ulong                credits_observed );
 
 void
-fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards );
+fd_stake_rewards_fini( fd_stake_rewards_t * stake_rewards,
+                       uchar                fork_idx );
 
 void
 fd_stake_rewards_iter_init( fd_stake_rewards_t * stake_rewards,

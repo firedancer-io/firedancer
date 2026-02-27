@@ -416,7 +416,6 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   void * vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( banks_data->max_total_banks ) );
   void * cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
   void * stake_rewards_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),            fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, banks_data->max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
-  (void)stake_rewards_mem;
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -469,6 +468,10 @@ fd_banks_join( fd_banks_t * banks_ljoin,
     FD_LOG_WARNING(( "Failed to join cost tracker pool" ));
     return NULL;
   }
+
+  /* TODO: Not critical, but consider verifying stake rewards is
+     joined correctly. */
+  (void)stake_rewards_mem;
 
   banks_ljoin->data  = banks_data;
   banks_ljoin->locks = banks_locks;

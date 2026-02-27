@@ -936,6 +936,7 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
                                          fd_accdb_user_t *         accdb,
                                          fd_funk_txn_xid_t const * xid,
                                          fd_capture_ctx_t *        capture_ctx ) {
+  if( FD_LIKELY( bank->data->stake_rewards_fork_id==UCHAR_MAX ) ) return;
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
 
@@ -958,6 +959,8 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
     /* If we have finished distributing rewards, set the status to inactive */
     if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
       fd_sysvar_epoch_rewards_set_inactive( bank, accdb, xid, capture_ctx );
+      fd_stake_rewards_fini( stake_rewards, bank->data->stake_rewards_fork_id );
+      bank->data->stake_rewards_fork_id = UCHAR_MAX;
     }
   }
 }
