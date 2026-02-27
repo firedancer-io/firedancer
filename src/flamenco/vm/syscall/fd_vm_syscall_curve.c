@@ -348,13 +348,13 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 #if FD_HAS_BLST
   /* BLS12-381 G1 */
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1453 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1453 */
   case MATCH_ID_OP( BLS_G1_BE, FD_VM_SYSCALL_SOL_CURVE_ADD ):
   case MATCH_ID_OP( BLS_G1_LE, FD_VM_SYSCALL_SOL_CURVE_ADD ): {
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
     /* Compute add */
     if( FD_LIKELY( fd_bls12_381_g1_add_syscall( _result, inputL, inputR, big_endian )==0 ) ) {
-      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1474 */
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1474 */
       uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_point_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
       memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
       ret = 0UL; /* success */
@@ -362,7 +362,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
   }
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1485 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1485 */
   case MATCH_ID_OP( BLS_G1_BE, FD_VM_SYSCALL_SOL_CURVE_SUB ):
   case MATCH_ID_OP( BLS_G1_LE, FD_VM_SYSCALL_SOL_CURVE_SUB ): {
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
@@ -375,7 +375,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
   }
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1519 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1519 */
   case MATCH_ID_OP( BLS_G1_BE, FD_VM_SYSCALL_SOL_CURVE_MUL ):
   case MATCH_ID_OP( BLS_G1_LE, FD_VM_SYSCALL_SOL_CURVE_MUL ): {
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
@@ -389,7 +389,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   }
 
   /* BLS12-381 G2 */
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1566 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1566 */
   case MATCH_ID_OP( BLS_G2_BE, FD_VM_SYSCALL_SOL_CURVE_ADD ):
   case MATCH_ID_OP( BLS_G2_LE, FD_VM_SYSCALL_SOL_CURVE_ADD ): {
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
@@ -402,7 +402,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
   }
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1598 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1598 */
   case MATCH_ID_OP( BLS_G2_BE, FD_VM_SYSCALL_SOL_CURVE_SUB ):
   case MATCH_ID_OP( BLS_G2_LE, FD_VM_SYSCALL_SOL_CURVE_SUB ): {
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
@@ -415,7 +415,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
     break;
   }
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1632 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1632 */
   case MATCH_ID_OP( BLS_G2_BE, FD_VM_SYSCALL_SOL_CURVE_MUL ):
   case MATCH_ID_OP( BLS_G2_LE, FD_VM_SYSCALL_SOL_CURVE_MUL ): {
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
@@ -662,7 +662,7 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   r4,
                                     FD_PARAM_UNUSED ulong   r5,
                                     /**/            ulong * _ret ) {
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1118 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1118 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
@@ -671,21 +671,21 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
   uchar const * point = NULL;
   switch( curve_id ) {
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1137 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1137 */
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE:
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE: {
     FD_VM_CU_UPDATE( vm, FD_VM_CURVE_BLS12_381_G1_DECOMPRESS_COST );
     point = FD_VM_MEM_HADDR_LD( vm, point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
     if( FD_LIKELY( fd_bls12_381_g1_decompress_syscall( _result, point, big_endian )==0 ) ) {
-      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1160 */
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1160 */
       uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
       memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
       ret = 0UL; /* success */
     }
   } break;
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1171 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1171 */
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE:
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE: {
     FD_VM_CU_UPDATE( vm, FD_VM_CURVE_BLS12_381_G2_DECOMPRESS_COST );
@@ -715,7 +715,7 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
                                      FD_PARAM_UNUSED ulong   g2_points_addr,
                                      FD_PARAM_UNUSED ulong   result_addr,
                                      /**/            ulong * _ret ) {
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1804 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1804 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
@@ -723,7 +723,7 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
 
   switch( curve_id ) {
 
-  /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1823 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1823 */
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE:
   case FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE: {
 
@@ -740,7 +740,7 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
 
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ ];
     if( FD_LIKELY( fd_bls12_381_pairing_syscall( _result, g1_points, g2_points, num_pairs, big_endian )==0 ) ) {
-      /* https://github.com/firedancer-io/agave/blob/v4.0.0-prerelease/syscalls/src/lib.rs#L1860 */
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1860 */
       uchar * result = FD_VM_HADDR_QUERY_U8_ARRAY( vm, result_addr, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ );
       memcpy( result, _result, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ );
       ret = 0UL; /* success */
