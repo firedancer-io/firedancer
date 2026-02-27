@@ -250,8 +250,19 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     uint actual_execution_cus = consumed_exec_cus[ sanitized_idx-1UL ];
     uint actual_acct_data_cus = consumed_acct_data_cus[ sanitized_idx-1UL ];
 
+    /* FIXME: before remove_simple_vote_from_cost_model is activated
+              we need to change fd_ext_bank_load_and_execute_txns to
+              return the real cost of the transaction and remove
+              this conditional logic.
+
+              The plan is to do this in the next version of
+              Frankendancer as remove_simple_vote_from_cost_model is
+              an Agave 4.0 feature. */
     int is_simple_vote = 0;
     if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
+      /* TODO: remove this once remove_simple_vote_from_cost_model is
+               activated */
+
       /* Simple votes are charged fixed amounts of compute regardless of
       the real cost they incur.  fd_ext_bank_load_and_execute_txns
       returns the real cost, however, so we override it here. */
@@ -439,9 +450,19 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
 
+    /* TODO: remove this once remove_simple_vote_from_cost_model is
+             activated */
     if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
       /* Although bundles dont typically contain simple votes, we want
         to charge them correctly anyways. */
+      /* FIXME: before remove_simple_vote_from_cost_model is activated
+                we need to change fd_ext_bank_load_and_execute_txns to
+                return the real cost of the transaction and remove
+                this conditional logic.
+
+                The plan is to do this in the next version of
+                Frankendancer as remove_simple_vote_from_cost_model is
+                an Agave 4.0 feature. */
       consumed_cus[ i ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
     } else {
       /* Note that some transactions will have 0 consumed cus because
