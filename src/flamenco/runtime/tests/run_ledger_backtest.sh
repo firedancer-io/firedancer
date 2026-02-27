@@ -324,8 +324,13 @@ echo_notice "Running backtest for $LEDGER"
 sudo killall firedancer-dev &> /dev/null || true
 
 set -x
-"${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
-{ status=$?; set +x; }
+if [[ -n "$CI" ]]; then
+  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}" &> /dev/null
+  { status=$?; set +x; } &> /dev/null
+else
+  "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
+  { status=$?; set +x; }
+fi
 
 echo "Log for ledger $LEDGER at $LOG"
 
