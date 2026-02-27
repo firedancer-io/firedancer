@@ -183,6 +183,7 @@ fd_fec_resolver_advance_slot_old( fd_fec_resolver_t * resolver,
                                   ulong               slot_old );
 
 
+/* Keep in sync with metrics.xml */
 #define FD_FEC_RESOLVER_SHRED_EQUIVOC   (-3)
 #define FD_FEC_RESOLVER_SHRED_REJECTED  (-2)
 #define FD_FEC_RESOLVER_SHRED_IGNORED   (-1)
