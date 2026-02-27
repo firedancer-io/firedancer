@@ -887,11 +887,6 @@ fd_crds_entry_value( fd_crds_entry_t const * entry,
   *value_sz    = entry->value_sz;
 }
 
-ulong
-fd_crds_entry_wallclock( fd_crds_entry_t const * entry ) {
-  return entry->wallclock;
-}
-
 uchar const *
 fd_crds_entry_hash( fd_crds_entry_t const * entry ) {
   return entry->value_hash;
