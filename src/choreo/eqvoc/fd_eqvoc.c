@@ -530,7 +530,7 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
     if( FD_UNLIKELY( proof_deque_full( from_->proofs ) ) ) {
       ulong verified = proof_deque_pop_head( from_->proofs );
       xid_t key  = { .slot = verified, .from = *from };
-      ulong null = shred_pool_idx_null( eqvoc->shred_pool );
+      ulong null = proof_pool_idx_null( eqvoc->proof_pool );
       ulong idx  = null;
       while( FD_LIKELY( idx==null ) ) { /* deque removal is lazy, so keys already removed from map might still be in the deque */
         verified = proof_deque_pop_head( from_->proofs );
