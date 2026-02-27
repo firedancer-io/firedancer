@@ -77,8 +77,7 @@ struct fd_notar_slot {
   fd_hash_t block_ids[FD_VOTER_MAX]; /* one block id per voter per slot */
   ulong     block_ids_cnt;           /* count of block ids */
 
-  fd_notar_slot_vtrs_t prev_vtrs[fd_notar_slot_vtrs_word_cnt]; /* who has voted for this slot, prev epoch */
-  fd_notar_slot_vtrs_t vtrs     [fd_notar_slot_vtrs_word_cnt]; /* who has voted for this slot, curr epoch */
+  fd_notar_slot_vtrs_t vtrs[fd_notar_slot_vtrs_word_cnt]; /* who has voted for this slot, curr epoch */
 };
 typedef struct fd_notar_slot fd_notar_slot_t;
 
@@ -114,18 +113,16 @@ typedef struct fd_notar_blk fd_notar_blk_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_notar_vtr {
-  fd_pubkey_t vote_acc;     /* map key, vote account address */
-  uint        hash;         /* reserved for fd_map_dynamic */
-  ulong       prev_stake;   /* amount of stake this voter has in epoch - 1 */
-  ulong       stake;        /* amount of stake this voter has in epoch */
-  ulong       prev_bit;     /* bit position in fd_notar_slot_vtrs in epoch - 1 (ULONG_MAX if not set) */
-  ulong       bit;          /* bit position in fd_notar_slot_vtrs in epoch (ULONG_MAX if not set) */
+  fd_pubkey_t addr;  /* map key, vote account address */
+  uint        hash;  /* reserved for fd_map_dynamic */
+  ulong       stake; /* amount of stake this voter has in epoch */
+  ulong       bit;   /* bit position in fd_notar_slot_vtrs in epoch (ULONG_MAX if not set) */
 };
 typedef struct fd_notar_vtr fd_notar_vtr_t;
 
 #define MAP_NAME              fd_notar_vtr
 #define MAP_T                 fd_notar_vtr_t
-#define MAP_KEY               vote_acc
+#define MAP_KEY               addr
 #define MAP_KEY_T             fd_pubkey_t
 #define MAP_KEY_NULL          pubkey_null
 #define MAP_KEY_EQUAL_IS_SLOW 1
@@ -135,12 +132,11 @@ typedef struct fd_notar_vtr fd_notar_vtr_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_notar {
-  ulong             root;        /* current root */
-  ulong             epoch;       /* current epoch */
-  ulong             slot_max;    /* maximum number of slots notar can track */
-  fd_notar_slot_t * slot_map;    /* tracks who has voted for a given slot */
-  fd_notar_blk_t *  blk_map;     /* tracks amount of stake for a given block (keyed by block id) */
-  fd_notar_vtr_t *  vtr_map;     /* tracks each voter's stake and prev vote */
+  ulong             root;     /* current root slot */
+  ulong             slot_max; /* maximum number of slots notar can track */
+  fd_notar_slot_t * slot_map; /* tracks who has voted for a given slot */
+  fd_notar_blk_t *  blk_map;  /* tracks amount of stake for a given block (keyed by block id) */
+  fd_notar_vtr_t *  vtr_map;  /* tracks each voter's stake and prev vote */
 };
 typedef struct fd_notar fd_notar_t;
 
@@ -217,11 +213,6 @@ fd_notar_count_vote( fd_notar_t *        notar,
                      fd_pubkey_t const * addr,
                      ulong               slot,
                      fd_hash_t const *   block_id );
-
-void
-fd_notar_update_voters( fd_notar_t *        notar,
-                        fd_tower_voters_t * voters,
-                        ulong               epoch );
 
 /* fd_notar_publish publishes root as the new notar root slot, removing
    all blocks with slot numbers < the old notar root slot.  Some slots

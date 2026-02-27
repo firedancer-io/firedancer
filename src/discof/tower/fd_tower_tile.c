@@ -597,6 +597,64 @@ get_authority( ctx_t *       ctx,
   return 0;
 }
 
+static inline void
+reindex_notar( ctx_t * ctx,
+               ulong   new_root ) {
+
+  ushort bits[ FD_VOTER_MAX ] = { 0 };
+
+  /* First, reindex all the bit positions from existing voters in old
+     root's epoch.  Some voters may not be in the new root's epoch, so
+     ignore those. */
+
+  ushort cnt = 0;
+  for( ulong i = 0; i < fd_notar_vtr_key_max( ctx->notar->vtr_map ); i++ ) {
+    fd_notar_vtr_t * notar_vtr = &ctx->notar->vtr_map[i];
+    if( FD_UNLIKELY( fd_notar_vtr_key_inval( notar_vtr->addr ) ) ) continue;
+
+    fd_tower_stakes_vtr_xid_t stake_xid = { .addr = notar_vtr->addr, .slot = new_root };
+    fd_tower_stakes_vtr_t   * stake_vtr = fd_tower_stakes_vtr_map_ele_query( ctx->tower_stakes->vtr_map, &stake_xid, NULL, ctx->tower_stakes->vtr_pool );
+    if( FD_UNLIKELY( !stake_vtr ) ) continue; /* voter is not staked in new root's epoch, so ignore them */
+
+    notar_vtr->stake     = stake_vtr->stake;
+    bits[notar_vtr->bit] = cnt++; /* new bit position */
+    notar_vtr->bit       = bits[notar_vtr->bit];
+  }
+
+  /* Now, find all the voters in the new root's epoch that weren't in
+     the prior root's epoch, and add them to notar voters. */
+
+  for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( ctx->tower_voters );
+                                    !fd_tower_voters_iter_done( ctx->tower_voters, iter );
+                              iter = fd_tower_voters_iter_next( ctx->tower_voters, iter ) ) {
+    fd_tower_voters_t * tower_vtr = fd_tower_voters_iter_ele( ctx->tower_voters, iter );
+    fd_notar_vtr_t *    notar_vtr = fd_notar_vtr_query( ctx->notar->vtr_map, tower_vtr->addr, NULL );
+    if( FD_UNLIKELY( !notar_vtr ) ) { /* optimize for most existing voters carrying over */
+      fd_tower_stakes_vtr_xid_t stake_xid = { .addr = tower_vtr->addr, .slot = new_root };
+      fd_tower_stakes_vtr_t   * stake_vtr = fd_tower_stakes_vtr_map_ele_query( ctx->tower_stakes->vtr_map, &stake_xid, NULL, ctx->tower_stakes->vtr_pool );
+      FD_TEST( stake_vtr ); /* must be in tower_stakes for new_root if in tower_voters, because they're in same epoch */
+
+      notar_vtr        = fd_notar_vtr_insert( ctx->notar->vtr_map, tower_vtr->addr );
+      notar_vtr->stake = stake_vtr->stake;
+      notar_vtr->bit   = cnt++;
+    }
+  }
+
+  /* Finally, reindex all existing slots in notar to reflect the voters
+     new bit positions and stakes. */
+
+  for( ulong i = 0; i < fd_notar_slot_key_max( ctx->notar->slot_map ); i++ ) {
+    fd_notar_slot_t * notar_slot = &ctx->notar->slot_map[i];
+    if( FD_UNLIKELY( fd_notar_slot_key_inval( notar_slot->slot ) ) ) continue;
+
+    fd_notar_slot_vtrs_t temp[fd_notar_slot_vtrs_word_cnt];
+    fd_notar_slot_vtrs_copy( temp, notar_slot->vtrs );
+    for( ulong i = 0; i < fd_notar_slot_vtrs_word_cnt; i++ ) {
+      notar_slot->vtrs[i] = bits[temp[i]];
+    }
+  }
+}
+
 static void
 replay_slot_completed( ctx_t *                      ctx,
                        fd_replay_slot_completed_t * slot_completed,
@@ -773,10 +831,6 @@ done_vote_iter:
     ctx->notar->root = slot_completed->slot;
   }
 
-  if( FD_UNLIKELY( ctx->notar->epoch==ULONG_MAX || slot_completed->epoch > ctx->notar->epoch ) ) { /* FIXME need to be based on root slot's epoch */
-    fd_notar_update_voters( ctx->notar, ctx->tower_voters, slot_completed->epoch );
-  }
-
   /* We replayed an unconfirmed duplicate, warn for now.  Follow-up PR
      will implement eviction and repair of the correct one. */
 
@@ -809,10 +863,9 @@ done_vote_iter:
     /* forks */
 
     for(ulong slot = ctx->root_slot; slot < out.root_slot; slot++ ) {
-      fd_tower_blk_t * fork = fd_tower_blocks_query ( ctx->tower_blocks, slot );
-      if( FD_LIKELY( fork ) )   fd_tower_blocks_remove( ctx->tower_blocks, slot );
-      fd_tower_stakes_blk_t * slot_stakes = fd_tower_stakes_blk_query    ( ctx->tower_stakes->blk_map, slot, NULL );
-      if( FD_LIKELY( slot_stakes ) )         fd_tower_stakes_blk_prune( ctx->tower_stakes, slot_stakes );
+      fd_tower_blocks_remove( ctx->tower_blocks, slot );
+      fd_tower_stakes_blk_t * slot_stakes = fd_tower_stakes_blk_query( ctx->tower_stakes->blk_map, slot, NULL );
+      if( FD_LIKELY( slot_stakes ) ) fd_tower_stakes_blk_prune( ctx->tower_stakes, slot_stakes );
     }
 
     /* ghost */
@@ -828,6 +881,12 @@ done_vote_iter:
 
     /* notar */
 
+    fd_tower_blk_t * oldr_tower_blk = fd_tower_blocks_query( ctx->tower_blocks, ctx->root_slot );
+    fd_tower_blk_t * newr_tower_blk = fd_tower_blocks_query( ctx->tower_blocks, out.root_slot );
+    FD_TEST( oldr_tower_blk );
+    FD_TEST( newr_tower_blk );
+    FD_TEST( oldr_tower_blk->epoch<=newr_tower_blk->epoch ); /* root can only move forward in time */
+    if( FD_UNLIKELY( newr_tower_blk->epoch>oldr_tower_blk->epoch ) ) reindex_notar( ctx, out.root_slot );
     fd_notar_publish( ctx->notar, out.root_slot );
 
     /* Update the new root */

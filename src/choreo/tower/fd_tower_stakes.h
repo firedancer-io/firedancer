@@ -47,9 +47,9 @@ static const fd_tower_stakes_vtr_xid_t fd_tower_stakes_vtr_xid_null = { .addr = 
 
 struct fd_tower_stakes_vtr {
   fd_tower_stakes_vtr_xid_t key;
-  ulong                next;
-  ulong                stake;
-  ulong                prev;
+  ulong                     prev;
+  ulong                     next;
+  ulong                     stake;
 };
 typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
 
