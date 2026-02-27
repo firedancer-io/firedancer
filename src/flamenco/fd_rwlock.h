@@ -50,7 +50,7 @@ fd_rwlock_read( fd_rwlock_t * lock ) FD_ACQUIRE_SHARED( lock ) FD_NO_THREAD_SAFE
 # if FD_HAS_THREADS
   for(;;) {
     ushort value = lock->value;
-    if( FD_UNLIKELY( value<0xFFFE ) ) {
+    if( FD_LIKELY( value<0xFFFE ) ) {
       if( FD_LIKELY( FD_ATOMIC_CAS( &lock->value, value, value+1 )==value ) ) return;
     }
     FD_SPIN_PAUSE();

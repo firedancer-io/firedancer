@@ -101,6 +101,9 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
   l = FD_LAYOUT_APPEND( l, descends_set_align(),           max_active_slots*_descends_footprint                        ); /* blockcache->descends */
   l = FD_LAYOUT_APPEND( l, alignof(ushort),                _max_txnpages*sizeof(ushort)                                ); /* txnpages_free */
   l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), _max_txnpages*sizeof(fd_txncache_txnpage_t)                 ); /* txnpages */
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),                _max_txnpages_per_blockhash*sizeof(ushort)                  ); /* scratchpad txnpage pointer array for purge stale */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_txn_per_slot*sizeof(uint)                               ); /* scratchpad heads for purge stale */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), sizeof(fd_txncache_txnpage_t)                               ); /* scratchpad txnpage for purge stale */
   return FD_LAYOUT_FINI( l, FD_TXNCACHE_SHMEM_ALIGN );
 }
 
@@ -142,6 +145,9 @@ fd_txncache_shmem_new( void * shmem,
   void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                        );
   void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages*sizeof(ushort)                                );
                                 FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)                 );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages_per_blockhash*sizeof(ushort)                  );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_txn_per_slot*sizeof(uint)                               );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  sizeof(fd_txncache_txnpage_t)                               );
 
   fd_txncache_blockcache_shmem_t * blockcache_pool = blockcache_pool_join( blockcache_pool_new( _blockcache_pool, max_active_slots ) );
   FD_TEST( blockcache_pool );
