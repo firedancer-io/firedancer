@@ -1536,7 +1536,7 @@ after_credit( fd_pohh_tile_t *    ctx,
 
   /* We don't want to tick over (finish) the slot until pack tell us
      it's done.  If we're waiting on pack, then we clamp to [0, 1] */
-  if( FD_LIKELY( !ctx->slot_done && is_leader ) ) max_remaining_microblocks = fd_ulong_max( fd_ulong_min( 1UL, max_remaining_microblocks ), max_remaining_microblocks );
+  if( FD_LIKELY( !ctx->slot_done && is_leader ) ) max_remaining_microblocks = fd_ulong_min( 1UL, max_remaining_microblocks );
 
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
