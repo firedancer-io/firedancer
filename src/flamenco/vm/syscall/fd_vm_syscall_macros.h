@@ -291,7 +291,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
       query->haddr = FD_VM_MEM_HADDR_ST( _vm, query->vaddr, query->align, query->sz ); \
     } \
     for( ulong j=0UL; j<i; j++ ) { \
-      fd_vm_haddr_query_t * other_query = queries[j]; \
+      fd_vm_haddr_query_t * other_query = _queries[j]; \
       FD_VM_MEM_CHECK_NON_OVERLAPPING( _vm, (ulong)query->haddr, query->sz, (ulong)other_query->haddr, other_query->sz ); \
     } \
   } \
