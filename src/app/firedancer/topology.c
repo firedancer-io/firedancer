@@ -1573,6 +1573,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwm" ) ) ) {
 
     strcpy( tile->snapwm.vinyl_path, config->paths.accounts );
+    tile->snapwm.max_accounts = config->firedancer.accounts.max_accounts;
     tile->snapwm.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "accdb.meta_map",  ULONG_MAX );
     tile->snapwm.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "accdb.meta_pool", ULONG_MAX );
 
