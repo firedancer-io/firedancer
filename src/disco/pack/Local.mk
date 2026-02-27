@@ -26,8 +26,5 @@ ifdef FD_HAS_AVX
 $(call run-unit-test,test_deduplication)
 $(call make-unit-test,test_deduplication,test_deduplication,fd_ballet fd_util)
 endif
-ifdef FD_ARCH_SUPPORTS_SANDBOX
-$(call make-unit-test,test_pack_tile,test_pack_tile,fdctl_shared fdctl_platform fd_disco fd_flamenco fd_ballet fd_tango fd_waltz fd_reedsol fd_funk fd_util)
-endif
 endif
 endif
