@@ -485,8 +485,8 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
 
       uchar * post_data = buffer+start;
 
-      fd_account_meta_t const * metadata_check = fd_borrowed_account_get_acc_meta( &view_acc );
-      if( FD_UNLIKELY( fd_ulong_sat_sub( post_len, metadata_check->dlen )>MAX_PERMITTED_DATA_INCREASE ||
+      /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L612-L616 */
+      if( FD_UNLIKELY( fd_ulong_sat_sub( post_len, pre_len )>MAX_PERMITTED_DATA_INCREASE ||
                        post_len>MAX_PERMITTED_DATA_LENGTH ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
       }
