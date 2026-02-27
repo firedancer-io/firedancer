@@ -669,7 +669,7 @@ replay_slot_completed( ctx_t *                      ctx,
 
   /* Insert into tower_blocks. */
 
-  fd_tower_blk_t *                tower_block = fd_tower_blocks_query( ctx->tower_blocks, slot_completed->slot ); /* non-NULL if second replay of equivocating slot */
+  fd_tower_blk_t *                tower_block = fd_tower_blocks_query ( ctx->tower_blocks, slot_completed->slot ); /* non-NULL if second replay of equivocating slot */
   if( FD_LIKELY( !tower_block ) ) tower_block = fd_tower_blocks_insert( ctx->tower_blocks, slot_completed->slot, slot_completed->parent_slot );
   tower_block->parent_slot       = slot_completed->parent_slot;
   fd_tower_blocks_replayed( ctx->tower_blocks, tower_block, slot_completed->bank_idx, &slot_completed->block_id );

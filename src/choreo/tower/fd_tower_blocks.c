@@ -140,16 +140,26 @@ fd_tower_blocks_voted( fd_tower_blk_t * fork,
   return fork;
 }
 fd_tower_blk_t *
-fd_tower_blocks_replayed( fd_tower_blocks_t *       forks,
-                   fd_tower_blk_t * fork,
-                   ulong              bank_idx,
-                   fd_hash_t const  * block_id ) {
+fd_tower_blocks_replayed( fd_tower_blocks_t * forks,
+                          fd_tower_blk_t    * fork,
+                          ulong               bank_idx,
+                          fd_hash_t const   * block_id ) {
   fork->bank_idx          = bank_idx;
   fork->replayed          = 1;
   fork->replayed_block_id = *block_id;
 
-  if( FD_UNLIKELY( fd_tower_leaves_map_ele_query( forks->tower_leaves_map, &fork->slot, NULL, forks->tower_leaves_pool ) ) ) {
-    /* slot already is a leaf - equivocation occurred */
+  fd_tower_leaf_t * existing_leaf;
+  if( FD_UNLIKELY( existing_leaf = fd_tower_leaves_map_ele_query( forks->tower_leaves_map, &fork->slot, NULL, forks->tower_leaves_pool ) ) ) {
+    /* slot already is a leaf - equivocation detected. If the second
+       version of the slot has the same parent as the first version,then
+       everything's fine. We are in a correct state mostly.
+
+       Now if the second version has a DIFFERENT parent... Technically,
+       the parent might need to be re-added to the leaves and lockouts
+       should be re-generated if it is a leaf. But luckily the parent of
+       the equivocated not duplicate-confirmed version of the slot
+       shouldn't contribute at all to the switch check. TODO: double
+       check this. */
     return fork;
   }
 

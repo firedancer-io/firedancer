@@ -227,6 +227,36 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
   }
 }
 
+/* This is a gross case reasm needs to handle because Agave currently
+    does not validate chained merkle roots across slots ie. if a leader
+    sends a bad chained merkle root on a slot boundary, the cluster
+    might converge on the leader's block anyways.  So we overwrite the
+    chained merkle root based on the slot and parent_off metadata.
+    There are two cases: 1. we receive the parent before the child.  In
+    this case we just overwrite the child's CMR.  2. we receive the
+    child before the parent.  In this case every time we receive a new
+    FEC set we need to check the orphan roots for whether we can link
+    the orphan to the new FEC via slot metadata, since the chained
+    merkle root metadata on that orphan root might be wrong. */
+
+static void
+overwrite_invalid_cmr( fd_reasm_t     * reasm,
+                        fd_reasm_fec_t * child ) {
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  if( FD_UNLIKELY( child->fec_set_idx==0 && !fd_reasm_query( reasm, &child->cmr ) ) ) {
+    xid_t * parent_bid = xid_query( reasm->xid, (child->slot - child->parent_off) << 32 | UINT_MAX, NULL );
+    if( FD_LIKELY( parent_bid ) ) {
+      fd_reasm_fec_t * parent = pool_ele( pool, parent_bid->idx );
+      if( FD_LIKELY( parent ) ) {
+        FD_BASE58_ENCODE_32_BYTES( child->cmr.key,  cmr_b58        );
+        FD_BASE58_ENCODE_32_BYTES( parent->key.key, parent_key_b58 );
+        FD_LOG_INFO(( "overwriting invalid cmr for FEC slot: %lu fec_set_idx: %u from %s (CMR) to %s (parent's block id)", child->slot, child->fec_set_idx, cmr_b58, parent_key_b58 ));
+        child->cmr = parent->key; /* use the parent's merkle root */
+      }
+    }
+  }
+}
+
 /* Mark the entire subtree beginning from root as equivocating.  This is
    linear in the number of descendants in the subtree, but amortizes
    because we can short-circuit the BFS at nodes that are already marked
@@ -362,7 +392,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     }
     xid_update( reasm, slot, UINT_MAX, pool_idx( pool, fec ) );
   }
-  //overwrite_invalid_cmr( reasm, fec ); /* handle receiving parent before child */
+  overwrite_invalid_cmr( reasm, fec ); /* handle receiving parent before child */
 
   /* First, we search for the parent of this new FEC and link if found.
      The new FEC set may result in a new leaf or a new orphan tree root
@@ -404,7 +434,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   }
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
     fd_reasm_fec_t * orphan_root = pool_ele( pool, bfs_pop_head( bfs ) );
-    //overwrite_invalid_cmr( reasm, orphan_root ); /* handle receiving child before parent */
+    overwrite_invalid_cmr( reasm, orphan_root ); /* handle receiving child before parent */
     if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
       link( reasm, fec, orphan_root );
       subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
