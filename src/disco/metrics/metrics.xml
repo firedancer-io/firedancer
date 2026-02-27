@@ -693,6 +693,7 @@ metric introduced.
 <tile name="execle">
     <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
     <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not" />
+    <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
 </tile>
 
 <tile name="bank" telemetry="false">
@@ -1193,6 +1194,7 @@ metric introduced.
     <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes" />
 
     <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
+    <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
 </tile>
 
 <tile name="benchs" telemetry="false">

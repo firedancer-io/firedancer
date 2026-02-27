@@ -1378,6 +1378,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
+  ulong cu_before = txn_out->details.compute_budget.compute_meter;
 
   txn_out->details.exec_start_timestamp = fd_tickcount();
 
@@ -1388,6 +1389,8 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
     }
     fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );
   }
+  ulong cu_after = txn_out->details.compute_budget.compute_meter;
+  runtime->metrics.cu_cum += fd_ulong_sat_sub( cu_before, cu_after );
 
 # if FD_HAS_FLATCC
   /* Phase 2: Capture TxnResult after execution and write to disk. */

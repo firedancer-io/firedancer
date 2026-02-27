@@ -609,6 +609,7 @@
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;fees_&#8203;only</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but was fees only and did not execute) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but failed to execute) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not (Transaction did not land) |
+| <span class="metrics-name">execle_&#8203;compute_&#8203;units_&#8203;total</span> | counter | Estimated number of compute units executed since tile start |
 
 </div>
 
@@ -959,6 +960,7 @@
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">delete</span>"} | counter | Transaction account change event counters (Account deleted) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">modify</span>"} | counter | Transaction account change event counters (Account modified) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged</span>"} | counter | Transaction account change event counters (Account unchanged) |
+| <span class="metrics-name">execrp_&#8203;compute_&#8203;units_&#8203;total</span> | counter | Estimated number of compute units executed since tile start |
 
 </div>
 

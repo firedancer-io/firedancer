@@ -235,6 +235,8 @@ struct fd_runtime {
 #   define FD_RUNTIME_SAVE_MAX                5  /* enum variant count */
     ulong txn_account_save[ FD_RUNTIME_SAVE_MAX ];
 
+    ulong cu_cum;
+
   } metrics;
 };
 typedef struct fd_runtime fd_runtime_t;
