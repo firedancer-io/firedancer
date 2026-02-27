@@ -100,6 +100,12 @@ fd_vote_stakes_new( void * shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( max_fork_width>USHORT_MAX ) ) {
+    FD_LOG_WARNING(( "max_fork_width is too large" ));
+    return NULL;
+  }
+
+  vote_stakes->max_fork_width      = (ushort)max_fork_width;
   vote_stakes->index_pool_off      = (ulong)index_pool - (ulong)shmem;
   vote_stakes->index_map_off       = (ulong)index_map - (ulong)shmem;
   vote_stakes->index_map_multi_off = (ulong)index_map_multi - (ulong)shmem;
@@ -365,6 +371,27 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
   stake_t * stake = stakes_pool_ele_acquire( stakes_pool );
   stake->idx = (uint)index_pool_idx( index_pool, index_ele );
   FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
+}
+
+void
+fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes ) {
+  /* Pop the fork dlist */
+  fork_t *       fork_pool  = get_fork_pool( vote_stakes );
+  fork_dlist_t * fork_dlist = get_fork_dlist( vote_stakes );
+  fork_dlist_remove_all( fork_dlist, fork_pool );
+
+  /* For each fork, reset the stakes map and pool */
+  for( ushort i=0; i<vote_stakes->max_fork_width; i++ ) {
+    stakes_map_reset( get_stakes_map( vote_stakes, i ) );
+    stakes_pool_reset( get_stakes_pool( vote_stakes, i ) );
+  }
+
+  /* Reset the index map and multi map */
+  index_map_reset( get_index_map( vote_stakes ) );
+  index_map_multi_reset( get_index_map_multi( vote_stakes ) );
+
+  /* Reset the index pool */
+  index_pool_reset( get_index_pool( vote_stakes ) );
 }
 
 uint

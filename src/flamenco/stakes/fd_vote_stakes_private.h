@@ -116,6 +116,7 @@ struct fd_vote_stakes {
 
   stakes_map_iter_t fork_iter;
 
+  ushort max_fork_width;
   ushort root_idx;
 };
 typedef struct fd_vote_stakes fd_vote_stakes_t;

@@ -82,17 +82,21 @@
       boundary and is no longer needed
    2. the fork corresponds to a fork for the previous epoch boundary.
 
-   For any fork that's being removed, we need to reset it's fork's pool
+   For any fork that's being removed, we need to reset its fork's pool
    and remove any references to the index pool entries.  If an index
    entry has a reference count of 0, we can remove it from the index
-   entirely. */
+   entirely.  Under the hood, the forks in use are stored in a deque;
+   when a root is being advanced, all entries from the deque are removed
+   and each removed fork's entries are released.
+
+   As an important note, the vote stakes object can be used globally
+   across different threads, but it is not safe to access concurrently.
+   The caller is responsible for ensuring that reads and writes are
+   properly synchronized. */
 
 FD_PROTOTYPES_BEGIN
 
 #define FD_VOTE_STAKES_ALIGN (128UL)
-
-#define FD_VOTE_STAKES_ITER_FOOTPRINT (16UL)
-#define FD_VOTE_STAKES_ITER_ALIGN     (8UL)
 
 struct fd_vote_stakes;
 typedef struct fd_vote_stakes fd_vote_stakes_t;
@@ -132,6 +136,30 @@ fd_vote_stakes_new( void * shmem,
 
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem );
+
+/* Below are the APIs for inserting elements into the vote stakes object
+   at boot.  It's possible that the insertion of elements happens
+   disjointly.  The caller is able to insert elements in any order and
+   then assign stake/node account values to elements that are already
+   inserted.  After all elements are inserted, fd_vote_stakes_fini_root
+   is called to finalize the root fork.  The caller is responsible for
+   making sure that there are no duplicate keys inserted into
+   fd_vote_stakes_insert_root_key.
+
+   The calling pattern is as follows:
+   for each pubkey: fd_vote_stakes_insert_root_key( pubkey )
+   for each t-1 stake pair: fd_vote_stakes_insert_root( is_t_1==1 )
+   for each t-2 stake pair: fd_vote_stakes_insert_root( is_t_1==0 )
+   fd_vote_stakes_fini_root()
+
+   The caller is also able to purge elements from the root fork after
+   fd_vote_stakes_fini_root() has been called via a call to
+   fd_vote_stakes_purge_root_key().  Although, this is quite messy,
+   this has to be decoupled from insertion because elements are inserted
+   before they can be verified (when the snapshot manifest is being
+   loaded).  It's possible to have entries in snapshots which correspond
+   to vote accounts which are no longer in the validator set.  These
+   entries have to be purged to avoid consensus violations. */
 
 void
 fd_vote_stakes_insert_root_key( fd_vote_stakes_t *  vote_stakes,
@@ -206,10 +234,42 @@ fd_vote_stakes_ele_cnt( fd_vote_stakes_t * vote_stakes,
 ushort
 fd_vote_stakes_get_root_idx( fd_vote_stakes_t * vote_stakes );
 
-/* TODO:FIXME: document the iterator api */
+/* fd_vote_stakes_reset resets the vote stakes object to the initial
+   state.  This is useful for resetting vote stakes if a new snapshot
+   manifest is being loaded. */
 
+void
+fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes );
+
+#define FD_VOTE_STAKES_ITER_FOOTPRINT (16UL)
+#define FD_VOTE_STAKES_ITER_ALIGN     (8UL)
 struct stakes_map_iter_t;
 typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
+
+/* A caller can iterate through the entries for a given fork.  The
+   iterator is initialized by a call to fd_vote_stakes_fork_iter_init.
+   The caller is responsible for managing the memory for the iterator.
+   It is safe to call fd_vote_stakes_fork_iter_next if the result of
+   fd_vote_stakes_fork_iter_done() == 0.  It is safe to call
+   fd_vote_stakes_fork_iter_ele() to get the current entry if there is
+   a valid initialized iterator.  fd_vote_stakes_fork_iter_next is
+   called to advance the iterator.
+
+   It is not safe to call any other vote stakes apis while an iteration
+   is in progress.
+
+   Example use:
+   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
+        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+   }
+
+   Under the hood, the vote stakes iterator is a wrapper of the map
+   chain iterator.
+
+   TODO: fork_idx can probably get absorbed into the iterator. */
 
 fd_vote_stakes_iter_t *
 fd_vote_stakes_fork_iter_init( fd_vote_stakes_t * vote_stakes,

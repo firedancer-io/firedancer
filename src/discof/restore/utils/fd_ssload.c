@@ -225,6 +225,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
 
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
