@@ -19,6 +19,7 @@ struct fd_replay_slot_completed {
   ulong storage_slot;
   ulong epoch;
   ulong slot_in_epoch;
+  ulong slots_per_epoch;
   ulong block_height;
   ulong parent_slot;
 

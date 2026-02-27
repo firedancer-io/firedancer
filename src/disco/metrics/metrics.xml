@@ -1201,6 +1201,19 @@ metric introduced.
 
 <tile name="tower">
 
+    <!-- Replay slot completed -->
+
+    <counter name="SlotIgnoredCnt" summary="Number of replay_slot_completed frags we ignored due to asynchronous state" />
+    <gauge name="SlotIgnoredGauge" summary="Slot number of most recently ignored replay_slot_completed_frag" />
+
+    <!-- Tower slot metadata -->
+
+    <gauge name="ReplaySlot" summary="Replay slot" />
+    <gauge name="VoteSlot" summary="Vote slot" />
+    <gauge name="ResetSlot" summary="Reset slot" />
+    <gauge name="RootSlot" summary="Root slot" />
+    <gauge name="InitSlot" summary="Init slot" />
+
     <!-- Tower voting decisions -->
 
     <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
@@ -1239,22 +1252,6 @@ metric introduced.
     <!-- DuplicateShreds we constructed from shreds -->
 
     <counter name="ProofConstructed" summary="Number of duplicate proofs we constructed" />
-
-    <!-- Tower slot metadata -->
-
-    <gauge name="ClusterRootSlot" summary="Cluster root slot (from on-chain vote account as of ReplaySlotProcessed)" />
-    <gauge name="ClusterVoteSlot" summary="Cluster vote slot (from on-chain vote account as of ReplaySlotProcessed)" />
-    <gauge name="LocalRootSlot" summary="Local root slot (root of local tower)" />
-    <gauge name="LocalVoteSlot" summary="Local vote slot (top of local tower)" />
-    <gauge name="ReplaySlot" summary="Replay slot" />
-    <gauge name="ResetSlot" summary="Reset slot" />
-
-    <!-- Replay slot completed -->
-
-    <gauge name="ReplaySlotProcessed" summary="Most recent processed ReplaySlotCompleted slot" />
-    <gauge name="ReplaySlotIgnored" summary="Most recent ignored ReplaySlotCompleted slot" />
-    <counter name="ReplaySlotProcessed" summary="Number of processed ReplaySlotCompleted frags" />
-    <counter name="ReplaySlotIgnored" summary="Number of ignored ReplaySlotCompleted frags" />
 
     <!-- Hard forks / bank hash cmp tracking -->
 

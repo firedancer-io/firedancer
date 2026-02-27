@@ -317,7 +317,8 @@ after_credit( fd_backt_tile_t *   ctx,
   memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t), &is_leader, sizeof(int) );
   ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
 
-  fd_stem_publish( stem, ctx->shred_out->idx, ULONG_MAX, ctx->shred_out->chunk, fec_complete_sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ulong sig = fd_disco_shred_out_fec_sig( shred->slot, shred->fec_set_idx, 32, shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
+  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, fec_complete_sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, fec_complete_sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
 
@@ -401,7 +402,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         dst->root_block_id         = msg->block_id;
         dst->replay_slot           = msg->slot;
         dst->replay_bank_idx       = msg->bank_idx;
-        fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
         return 0;
       }
@@ -457,7 +458,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       dst->root_slot             = root_slot;
       dst->root_block_id         = ctx->rooted_slots_block_id[ root_slot%BANK_HASH_BUFFER_LEN ];
 
-      fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
       break;
     }

@@ -19,7 +19,7 @@
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../discof/tower/fd_tower_slot_confirmed.h"
+#include "../../discof/tower/fd_tower_slot_rooted.h"
 
 /* The shred tile handles shreds from two data sources: shreds generated
    from microblocks from the leader pipeline, and shreds retransmitted
@@ -403,7 +403,7 @@ before_frag( fd_shred_ctx_t * ctx,
     return sig!=0UL; /* only care about rooted banks, not completed blockhash */
   }
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTED ) ) {
-    return sig!=FD_TOWER_SIG_SLOT_CONFIRMED; /* only care about slot_confirmed messages */
+    return sig!=FD_TOWER_SIG_SLOT_ROOTED; /* only care about slot_confirmed messages */
   }
   return 0;
 }
@@ -455,8 +455,8 @@ during_frag( fd_shred_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
                    ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    fd_tower_slot_confirmed_t const * confirmed_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    ctx->new_root = fd_ulong_if( confirmed_msg->kind==FD_TOWER_SLOT_CONFIRMED_ROOTED, confirmed_msg->slot, 0UL );
+    fd_tower_slot_rooted_t const * rooted_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    ctx->new_root = rooted_msg->slot;
     return;
   }
 

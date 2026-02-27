@@ -111,7 +111,7 @@ struct fd_vote_state_ele {
      delegations.  This information is used for leader schedule
      calculation and clock stake-weighted median calculations.
 
-     stake_t_2 is used in Tower, for it's threshold switch checks. */
+     stake_t_2 is used by Tower consensus. */
   ulong       stake_t_1;
   ulong       stake_t_2;
 

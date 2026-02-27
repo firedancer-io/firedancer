@@ -428,13 +428,6 @@
 #include "../notar/fd_notar.h"
 #include "../../disco/pack/fd_microblock.h"
 
-/* FD_TOWER_PARANOID:  Define this to non-zero at compile time
-   to turn on additional runtime integrity checks. */
-
-#ifndef FD_TOWER_PARANOID
-#define FD_TOWER_PARANOID 1
-#endif
-
 #define FD_TOWER_VOTE_MAX (31UL)
 
 /* fd_tower is a representation of a validator's "vote tower" (described
@@ -482,6 +475,8 @@ struct fd_tower_out {
   fd_hash_t root_block_id;  /* new tower root block ID */
 };
 typedef struct fd_tower_out fd_tower_out_t;
+
+#define FD_TOWER_CSTR_MIN (917UL) /* worst-case tower with 31 entries and 20-digit (ulong max width) slots */
 
 /* fd_tower_vote_and_reset selects both a block to vote for and block to
    reset to.  Returns a struct with a reason code (FD_TOWER_{EMPTY,...})
@@ -551,7 +546,9 @@ fd_tower_to_vote_txn( fd_tower_t    const * tower,
 int
 fd_tower_verify( fd_tower_t const * tower );
 
-/* fd_tower_print pretty-prints tower as a formatted table.
+/* fd_tower_to_cstr pretty-prints tower as a formatted table to the
+   buffer cstr.  Assumes cstr is a buffer of at least FD_TOWER_CSTR_MIN
+   capacity.
 
    Sample output:
 
@@ -564,8 +561,9 @@ fd_tower_verify( fd_tower_t const * tower );
    279803900 | root
 */
 
-void
-fd_tower_print( fd_tower_t const *         tower,
-                ulong                      root );
+char *
+fd_tower_to_cstr( fd_tower_t const * tower,
+                  ulong              root,
+                  char *             cstr );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_h */

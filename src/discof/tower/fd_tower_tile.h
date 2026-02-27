@@ -1,16 +1,94 @@
 #ifndef HEADER_fd_src_discof_tower_fd_tower_tile_h
 #define HEADER_fd_src_discof_tower_fd_tower_tile_h
 
+#include "fd_tower_slot_rooted.h"
 #include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../disco/topo/fd_topo.h"
-#include "fd_tower_slot_confirmed.h"
 
-#define FD_TOWER_SIG_SLOT_DONE      (0)
-/* #define FD_TOWER_SIG_SLOT_CONFIRMED (1) <- defined in fd_tower_slot_confirmed.h */
-#define FD_TOWER_SIG_SLOT_IGNORED   (2)
-#define FD_TOWER_SIG_SLOT_DUPLICATE (3)
+#define FD_TOWER_SIG_SLOT_CONFIRMED (0)
+#define FD_TOWER_SIG_SLOT_DONE      (1)
+#define FD_TOWER_SIG_SLOT_DUPLICATE (2)
+#define FD_TOWER_SIG_SLOT_IGNORED   (3)
+// #define FD_TOWER_SIG_SLOT_ROOTED (4)  /* defined in fd_tower_slot_rooted.h */
+
+/* fd_tower_slot_confirmed describes a Tower frag that notifies protocol
+   confirmations.  There are multiple confirmation levels:
+
+   - propagation confirmed: a block is propagated if it has received
+     votes from at least 1/3 of stake in the cluster.  This threshold is
+     important in two contexts:
+
+     1. When becoming leader, we need to check that our previous leader
+        block _as of_ the parent slot we're building on, has propagated.
+        If it has not propagated, we need to instead retransmit our last
+        block that failed to propagate.  The protocol currently allows
+        for a grace period of one leader rotation for leader blocks to
+        propagate.
+
+     2. When voting, we need to check our previous leader block _as of_
+        the slot we're voting for has propagated (unless we're voting
+        for one of our own leader blocks).  We cannot vote for a slot in
+        which our last ancestor leader block failed to propagate.
+
+   - duplicate confirmed: a block is duplicate confirmed if it has
+     received votes from at least 52% of stake in the cluster.  The
+     "duplicate" adjective is a bit of a misnomer, and a more accurate
+     technical term is equivocation: two (or more) different blocks for
+     the same slot.  This threshold is important for consensus safety,
+     because it ensures Solana eventually converges to the same block
+     per slot.  Specifically fork choice allows choosing a fork if it is
+     duplicate confirmed, even if there is equivocation.
+
+   - optimistically confirmed: a block is optimistically confirmed if it
+     has received votes from at least 2/3 of stake in the cluster.  This
+     threshold is important for end-users, who rely on the "confirmed"
+     commitment status of blocks (queryable via RPC) to determine that
+     their transaction has landed on a block that will not rollback.
+     This is unimplemented in Firedancer and only relevant for RPC.
+     (TODO verify this?)
+
+   - super confirmed: same as optimistic, but the stake threshold is 4/5
+     of stake.  This is used during boot for `--wait-for-supermajority`.
+
+   It's possible Firedancer reaches a confirmation level before the
+   block has actually been replayed.  Firedancer listens to votes from
+   both Gossip and TPU, so if a given block id has received enough votes
+   it might get "forward-confirmed".
+
+   Tower will also notify of forward confirmations, denoted by the `fwd`
+   field on the fd_tower_slot_confirmed frag.  Forward confirmations are
+   only for the given block, and do not imply the ancestry chain leading
+   up to the block are also confirmed.  This is distinct from replay
+   confirmations, which are only emitted after replaying a block (`fwd`
+   = 0), and imply the ancestry chain up from that block is also
+   confirmed.  Forward confirmations are needed for both repair (in case
+   we never got the block over Turbine) and for RPC (since RPC needs to
+   know about confirmations even if replay is behind).
+
+   Other guarantees include that the confirmation frags with `fwd` = 0
+   are delivered in-order with no gaps from tower (there still might be
+   skipped slots, but no gaps means you will always receive an ancestor
+   block's confirmation before its descendants).  That is, if a consumer
+   receives a confirmation frag for slot N, it will have prior received
+   confirmations for all ancestor slots N - 1, N - 2, ... (if they are
+   not skipped / on a different fork). */
+
+#define FD_TOWER_SLOT_CONFIRMED_PROPAGATED (0)
+#define FD_TOWER_SLOT_CONFIRMED_DUPLICATE  (1)
+#define FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC (2)
+#define FD_TOWER_SLOT_CONFIRMED_SUPER      (3)
+#define FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT  (4)
+#define FD_TOWER_SLOT_CONFIRMED_LEVELS     ({ FD_TOWER_SLOT_CONFIRMED_PROPAGATED, FD_TOWER_SLOT_CONFIRMED_DUPLICATE, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC, FD_TOWER_SLOT_CONFIRMED_SUPER })
+
+struct fd_tower_slot_confirmed {
+  int       level;    /* the confirmation level, see FD_TOWER_SLOT_CONFIRMED_{...} above */
+  int       fwd;      /* whether this is a "forward confirmation" ie. we have not yet replayed but the slot is confirmed based on gossip and TPU votes */
+  ulong     slot;     /* slot being confirmed (in general, a slot being confirmed more than once is possible but highly unlikely ) */
+  fd_hash_t block_id; /* block id being confirmed (guaranteed unique) */
+};
+typedef struct fd_tower_slot_confirmed fd_tower_slot_confirmed_t;
 
 /* In response to finishing replay of a slot, the tower tile will
    produce both a block to vote for and block to reset to, and
@@ -88,8 +166,8 @@ struct fd_tower_slot_done {
 
   /* Our current on-chain tower with latencies optionally included. */
 
-  ulong           tower_cnt;
-  fd_vote_acc_vote_t tower[ FD_TOWER_VOTE_MAX ];
+  ulong              tower_cnt;
+  fd_vote_acc_vote_t tower[FD_TOWER_VOTE_MAX];
 };
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;
 
@@ -109,6 +187,7 @@ union fd_tower_msg {
   fd_tower_slot_done_t      slot_done;
   fd_tower_slot_duplicate_t slot_duplicate;
   fd_tower_slot_ignored_t   slot_ignored;
+  fd_tower_slot_rooted_t    slot_rooted;
 };
 typedef union fd_tower_msg fd_tower_msg_t;
 

@@ -188,11 +188,7 @@ fd_store_insert( fd_store_t * store,
     } FD_STORE_SLOCK_END;
 
     fd_store_fec_t * fec = fd_store_pool_ele( &pool, idx );
-    if( FD_UNLIKELY( fec ) ) {
-      FD_BASE58_ENCODE_32_BYTES( merkle_root->uc, _merkle_root );
-      FD_LOG_WARNING(( "duplicate insert %s", _merkle_root ));
-      return fec;
-    };
+    if( FD_UNLIKELY( fec ) ) return fec;
   }
 
   int err; fd_store_fec_t * fec = fd_store_pool_acquire( &pool, NULL, BLOCKING, &err );

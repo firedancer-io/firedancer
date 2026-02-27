@@ -33,13 +33,6 @@
    set's merkle root, so every shred in the same FEC set must have the
    same signature. */
 
-/* FD_EQVOC_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
-
-#ifndef FD_EQVOC_USE_HANDHOLDING
-#define FD_EQVOC_USE_HANDHOLDING 1
-#endif
-
 /* zero means nothing to do (no proof has been verified) */
 
 #define FD_EQVOC_SUCCESS (0) /* shreds do not equivocate */

@@ -1479,28 +1479,6 @@ telemetry = true
         # Must be power of 2
         slot_max = 4096
 
-    # The tower tile runs the fork choice and tower rules to determine
-    # both what block to vote on and what block to build our own leader
-    # blocks on top of, as well as confirming blocks based on vote txns.
-    [tiles.tower]
-        # Solana reaches consensus via replay, but can "cluster confirm"
-        # slots ahead of the replay tip by listening to vote txns from
-        # gossip or TPU.  The larger max_vote_lookahead, the further
-        # ahead slots can be cluster confirmed before they are replayed.
-        #
-        # Specifically, tower will ignore gossip or TPU votes that are
-        # more than max_vote_lookahead slots ahead of the root.
-        #
-        # Note max_vote_lookahead must be >= max_live_slots and
-        # Firedancer will ignore a value where this is not the case.
-        max_vote_lookahead = 4096
-
-        # Whether to enable debug logging for the tower tile.  If
-        # enabled, the tower tile will print ghost and tower to the log
-        # file.  This will generate a lot of data, so by default it is
-        # disabled.
-        debug_logging = false
-
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just
     # used to send votes that our validator produces.

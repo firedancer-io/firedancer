@@ -37,16 +37,16 @@
 
 #include "../fd_choreo_base.h"
 
-struct fd_vote_acc_stake_key {
+struct fd_tower_stakes_vtr_xid {
     fd_hash_t addr; /* vote account address */
     ulong     slot;
 };
-typedef struct fd_vote_acc_stake_key fd_vote_acc_stake_key_t;
+typedef struct fd_tower_stakes_vtr_xid fd_tower_stakes_vtr_xid_t;
 
-static const fd_vote_acc_stake_key_t fd_vote_acc_stake_key_null = { .addr = {{ 0 }}, .slot = 0UL };
+static const fd_tower_stakes_vtr_xid_t fd_tower_stakes_vtr_xid_null = { .addr = {{ 0 }}, .slot = 0UL };
 
 struct fd_tower_stakes_vtr {
-  fd_vote_acc_stake_key_t key;
+  fd_tower_stakes_vtr_xid_t key;
   ulong                next;
   ulong                stake;
   ulong                prev;
@@ -55,8 +55,8 @@ typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
 
 #define MAP_NAME                fd_tower_stakes_vtr_map
 #define MAP_ELE_T               fd_tower_stakes_vtr_t
-#define MAP_KEY_T               fd_vote_acc_stake_key_t
-#define MAP_KEY_EQ(k0,k1)       (!memcmp( k0, k1, sizeof(fd_vote_acc_stake_key_t) ))
+#define MAP_KEY_T               fd_tower_stakes_vtr_xid_t
+#define MAP_KEY_EQ(k0,k1)       (!memcmp( k0, k1, sizeof(fd_tower_stakes_vtr_xid_t) ))
 #define MAP_KEY_HASH(key, seed) fd_ulong_hash( ((key)->slot) ^ ((key)->addr.ul[0]) ^ (seed) )
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -76,6 +76,7 @@ typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
 
 struct fd_tower_stakes_blk {
   ulong slot;
+  ulong epoch;
   ulong head; /* pool idx of the head of a linked list of voters in this slot */
 };
 typedef struct fd_tower_stakes_blk fd_tower_stakes_blk_t;
@@ -89,9 +90,9 @@ typedef struct fd_tower_stakes_blk fd_tower_stakes_blk_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_tower_stakes {
-  fd_tower_stakes_vtr_map_t * voter_stake_map;
-  fd_tower_stakes_vtr_t *     voter_stake_pool;
-  fd_tower_stakes_blk_t *     slot_stakes_map;
+  fd_tower_stakes_vtr_map_t * vtr_map;
+  fd_tower_stakes_vtr_t *     vtr_pool;
+  fd_tower_stakes_blk_t *     blk_map;
   fd_used_acc_scratch_t *     used_acc_scratch;
 };
 typedef struct fd_tower_stakes fd_tower_stakes_t;

@@ -507,11 +507,6 @@ struct fd_config {
       ulong write_buffer_size;
     } shredcap;
 
-    struct {
-      ulong max_vote_lookahead;
-      int   debug_logging;
-    } tower;
-
   } tiles;
   struct {
     ulong capture_start_slot;

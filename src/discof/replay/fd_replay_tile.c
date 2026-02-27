@@ -763,6 +763,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->storage_slot          = ctx->published_root_slot;
   slot_info->epoch                 = epoch;
   slot_info->slot_in_epoch         = slot_idx;
+  slot_info->slots_per_epoch       = fd_epoch_slot_cnt( epoch_schedule, epoch );
   slot_info->block_height          = fd_bank_block_height_get( bank );
   slot_info->parent_slot           = fd_bank_parent_slot_get( bank );
   slot_info->block_id              = block_id_ele->latest_mr;
@@ -2465,17 +2466,31 @@ static void
 process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
                                     fd_stem_context_t *               stem,
                                     fd_tower_slot_confirmed_t const * msg ) {
-  FD_TEST( msg->bank_idx!=ULONG_MAX );
+
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->block_id, NULL, ctx->block_id_arr );
+  if( FD_UNLIKELY( !block_id_ele ) ) {
+    FD_BASE58_ENCODE_32_BYTES( msg->block_id.key, block_id_b58 );
+    FD_LOG_WARNING(( "missing bank for confirmed block_id: %s level %d", block_id_b58, msg->level ));
+    return;
+  }
+
+  ulong bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
+  fd_bank_t bank_[1]; fd_bank_t * bank = fd_banks_bank_query( bank_, ctx->banks, bank_idx );
+
+
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_BASE58_ENCODE_32_BYTES( msg->block_id.key, block_id_cstr );
+    FD_LOG_WARNING(( "failed to query optimistically confirmed bank for block id %s", block_id_cstr ));
+    return;
+  }
 
   if( ctx->rpc_enabled ) {
-    fd_bank_t bank[1];
-    FD_TEST( fd_banks_bank_query( bank, ctx->banks, msg->bank_idx ) );
     bank->data->refcnt++;
     FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
   }
 
   fd_replay_oc_advanced_t * replay_msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  replay_msg->bank_idx = msg->bank_idx;
+  replay_msg->bank_idx = bank_idx;
   replay_msg->slot = msg->slot;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_OC_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -2540,12 +2555,10 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_TOWER: {
       if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
         process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), seq );
-      }
-      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+      } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
         fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        if( msg->kind==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC ) process_tower_optimistic_confirmed( ctx, stem, msg );
-      }
-      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED ) ) {
+        if( msg->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC && !msg->fwd ) process_tower_optimistic_confirmed( ctx, stem, msg );
+      } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED ) ) {
         fd_tower_slot_ignored_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_tower_slot_done_t ignored = {
           .replay_slot     = msg->slot,

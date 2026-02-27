@@ -1,8 +1,6 @@
 #include "fd_ghost.h"
 #include "fd_ghost_private.h"
 
-#define LOGGING 0
-
 ulong
 fd_ghost_align( void ) {
   return alignof(fd_ghost_t);
@@ -123,6 +121,11 @@ fd_ghost_root( fd_ghost_t * ghost ) {
 }
 
 fd_ghost_blk_t *
+fd_ghost_parent( fd_ghost_t * ghost, fd_ghost_blk_t * blk ) {
+  return blk_pool_ele( blk_pool( ghost ), blk->parent );
+}
+
+fd_ghost_blk_t *
 fd_ghost_query( fd_ghost_t       * ghost,
                 fd_hash_t  const * block_id ) {
   return blk_map_ele_query( blk_map( ghost ), block_id, NULL, blk_pool( ghost ) );
@@ -229,14 +232,8 @@ fd_ghost_insert( fd_ghost_t      * ghost,
   ulong            null = blk_pool_idx_null( pool );
   fd_ghost_blk_t * blk  = blk_map_ele_query( blk_map( ghost ), block_id, NULL, pool );
 
-# if FD_GHOST_USE_HANDHOLDING
-  if( FD_UNLIKELY( blk                ) ) {
-    FD_BASE58_ENCODE_32_BYTES( block_id->key, block_id_b58 );
-    FD_LOG_WARNING(( "[%s] hash %s already in ghost", __func__, block_id_b58 ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !blk_pool_free( pool ) ) ) { FD_LOG_WARNING(( "[%s] ghost full",               __func__                                      )); return NULL; }
-# endif
+  FD_TEST( !blk ); /* duplicate insert */
+  FD_TEST( blk_pool_free( pool ) ); /* ghost full */
 
   blk              = blk_pool_ele_acquire( pool );
   blk->id          = *block_id;
@@ -367,6 +364,7 @@ fd_ghost_publish( fd_ghost_t     * ghost,
     while( FD_LIKELY( child ) ) {                                                    /* iterate over children */
       if( FD_LIKELY( child != newr ) ) {                                             /* stop at new root */
         tail->next = blk_map_idx_remove( blk_map( ghost ), &child->id, null, pool ); /* remove ele from map to reuse `.next` */
+        FD_BASE58_ENCODE_32_BYTES( child->id.key, block_id_cstr );
         tail       = blk_pool_ele( blk_pool( ghost ), tail->next );                  /* push onto prune queue (so descendants can be pruned) */
         tail->next = blk_pool_idx_null( blk_pool( ghost ) );
       }
@@ -415,9 +413,7 @@ fd_ghost_verify( fd_ghost_t * ghost ) {
       weight += child->stake;
       child = blk_pool_ele( blk_pool( ghost ), child->sibling );
     }
-  # if FD_GHOST_USE_HANDHOLDING
     FD_TEST( parent->stake >= weight );
-  # endif
     parent = blk_pool_ele_const( pool, parent->next );
   }
 
@@ -431,7 +427,15 @@ fd_ghost_verify( fd_ghost_t * ghost ) {
 #define DEPTH_MAX 512
 
 static void
-print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, int space, const char * prefix, char * s, ulong len, ulong * off, ulong depth ) {
+to_cstr( fd_ghost_t const *     ghost,
+         fd_ghost_blk_t const * ele,
+         ulong                  total_stake,
+         int                    space,
+         const char *           prefix,
+         char *                 cstr,
+         ulong                  len,
+         ulong *                off,
+         ulong                  depth ) {
   if( FD_UNLIKELY( depth>DEPTH_MAX ) ) return;
 
   fd_ghost_blk_t const * pool = blk_pool_const( ghost );
@@ -440,11 +444,11 @@ print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, 
   if( FD_UNLIKELY( ele == NULL ) ) return;
 
   if( FD_LIKELY( space > 0 ) && *off < len ) {
-    s[(*off)++] = '\n';
+    cstr[(*off)++] = '\n';
   }
 
   for( int i = 0; i < space && *off < len; i++ ) {
-    s[(*off)++] = ' ';
+    cstr[(*off)++] = ' ';
   }
 
   if( FD_UNLIKELY( ele->stake > 100 ) ) {
@@ -452,7 +456,7 @@ print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, 
 
   if( FD_UNLIKELY( total_stake == 0 ) ) {
     if( *off < len ) {
-      n = snprintf( s + *off, len - *off, "%s%lu (%lu)", prefix, ele->slot, ele->stake );
+      n = snprintf( cstr + *off, len - *off, "%s%lu (%lu)", prefix, ele->slot, ele->stake );
       if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
       *off += (ulong)n;
     }
@@ -460,13 +464,13 @@ print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, 
     double pct = ( (double)ele->stake / (double)total_stake ) * 100;
     if( FD_UNLIKELY( pct < 0.99 ) ) {
       if( *off < len ) {
-        n = snprintf( s + *off, len - *off, "%s%lu (%.0lf%%, %lu)", prefix, ele->slot, pct, ele->stake );
+        n = snprintf( cstr + *off, len - *off, "%s%lu (%.0lf%%, %lu)", prefix, ele->slot, pct, ele->stake );
         if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
         *off += (ulong)n;
       }
     } else {
       if( *off < len ) {
-        n = snprintf( s + *off, len - *off, "%s%lu (%.0lf%%)", prefix, ele->slot, pct );
+        n = snprintf( cstr + *off, len - *off, "%s%lu (%.0lf%%)", prefix, ele->slot, pct );
         if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
         *off += (ulong)n;
       }
@@ -479,42 +483,37 @@ print( fd_ghost_t const * ghost, fd_ghost_blk_t const * ele, ulong total_stake, 
   while( curr ) {
     if( FD_UNLIKELY( blk_pool_ele_const( pool, curr->sibling ) ) ) {
       sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
-      print( ghost, curr, total_stake, space + 4, new_prefix, s, len, off, depth + 1 ); /* TODO remove recursion */
+      to_cstr( ghost, curr, total_stake, space + 4, new_prefix, cstr, len, off, depth + 1 ); /* TODO remove recursion */
     } else {
       sprintf( new_prefix, "└── " ); /* end branch */
-      print( ghost, curr, total_stake, space + 4, new_prefix, s, len, off, depth + 1 ); /* TODO remove recursion */
+      to_cstr( ghost, curr, total_stake, space + 4, new_prefix, cstr, len, off, depth + 1 ); /* TODO remove recursion */
     }
     curr = blk_pool_ele_const( pool, curr->sibling );
   }
 }
 
-void
-fd_ghost_print( fd_ghost_t const *     ghost,
-                fd_ghost_blk_t const * root ) {
+char *
+fd_ghost_to_cstr( fd_ghost_t const *     ghost,
+                  fd_ghost_blk_t const * root,
+                  char *                 cstr,
+                  ulong                  cstr_max,
+                  ulong *                cstr_len ) {
+
   ulong off = 0;
-  int   n;
 
-  char s[BUF_MAX];
-  ulong len = sizeof(s);
-
-  n = snprintf( s + off, len - off, "[Ghost]\n\n" );
+  int n = snprintf( cstr + off, cstr_max - off, "[Ghost]\n\n" );
   if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
   off += (ulong)n;
 
-  print( ghost, root, root->total_stake, 0, "", s, len, &off, 0 );
+  to_cstr( ghost, root, root->total_stake, 0, "", cstr, cstr_max, &off, 0 );
 
-  if( off < len ) {
-    n = snprintf( s + off, len - off, "\n\n" );
+  if( off < cstr_max ) {
+    n = snprintf( cstr + off, cstr_max - off, "\n\n" );
     if( FD_UNLIKELY( n < 0 )) FD_LOG_CRIT(( "snprintf: %d", n ));
     off += (ulong)n;
   }
 
-  /* Ensure null termination */
-  if( off < len ) {
-    s[off] = '\0';
-  } else if( len > 0 ) {
-    s[len - 1] = '\0';
-  }
-
-  FD_LOG_NOTICE(( "\n\n%s", s ));
+  cstr[fd_ulong_min( off++, cstr_max - 1 )] = '\0';
+  *cstr_len = fd_ulong_min( off, cstr_max );
+  return cstr;
 }

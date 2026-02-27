@@ -152,6 +152,9 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 #define FD_SHRED_BLK_MAX (1 << 15UL) /* 32,768 shreds */
 #define FD_SHRED_IDX_MAX (FD_SHRED_BLK_MAX - 1)
 
+/* Maximum number of FEC sets in a slot / 32 shreds per FEC */
+#define FD_SHRED_FEC_MAX (FD_SHRED_BLK_MAX / 32)
+
 /* Many static bounds are specified around the assumption that this is a
    protocol limit on the max number of shreds in a slot. If this limit
    changes, all the relevant usages in other areas of the Firedancer
