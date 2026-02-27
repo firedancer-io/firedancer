@@ -176,6 +176,8 @@ total_regime( ulong const * metrics ) {
 
 static ulong tps_sent_samples_idx = 0UL;
 static ulong tps_sent_samples[ 200UL ];
+static ulong cups_samples_idx = 0UL;
+static ulong cups_samples[ 100UL ];
 static ulong sps_samples_idx = 0UL;
 static ulong sps_samples[ 200UL ];
 static ulong tps_samples_idx = 0UL;
@@ -510,9 +512,22 @@ write_replay( config_t const * config,
   for( ulong i=0UL; i<num_tps_samples; i++ ) tps_sum += tps_samples[ i ];
   char * tps_str = COUNTF( 100.0*(double)tps_sum/(double)num_tps_samples );
 
-  PRINT( "💥 \033[1m\033[35mREPLAY......\033[0m\033[22m \033[1mSLOT\033[22m %lu (%02ld) \033[1mTPS\033[22m %s \033[1mSPS\033[22m %s \033[1mLEADER IN\033[22m %s \033[1mROOT DIST\033[22m %lu \033[1mBANKS\033[22m %2lu\033[K\n",
+  ulong cups_sum = 0UL;
+  ulong num_cups_samples = fd_ulong_min( cups_samples_idx, sizeof(cups_samples)/sizeof(cups_samples[0]));
+  for( ulong i=0UL; i<num_cups_samples; i++ ) cups_sum += cups_samples[ i ];
+  char * mcups_str = COUNTF( 100.0*(double)cups_sum/(double)num_cups_samples );
+
+  PRINT( "💥 \033[1m\033[35mREPLAY......\033[0m\033[22m "
+         "\033[1mSLOT\033[22m %lu (%02ld) "
+         "\033[1mCU/s\033[22m %s "
+         "\033[1mTPS\033[22m %s "
+         "\033[1mSPS\033[22m %s "
+         "\033[1mLEADER IN\033[22m %s "
+         "\033[1mROOT DIST\033[22m %lu "
+         "\033[1mBANKS\033[22m %2lu\033[K\n",
     reset_slot,
     (long)reset_slot-(long)turbine_slot,
+    mcups_str,
     tps_str,
     sps_str,
     next_leader_slot_str,
@@ -744,6 +759,10 @@ run( config_t const * config,
       sps_samples_idx++;
       tps_samples[ tps_samples_idx%(sizeof(tps_samples)/sizeof(tps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, TRANSACTIONS_TOTAL ) );
       tps_samples_idx++;
+      cups_samples[ cups_samples_idx%(sizeof(cups_samples)/sizeof(cups_samples[0])) ] =
+          (ulong)diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, COMPUTE_UNITS_TOTAL ) ) +
+          (ulong)diff_tile( config, "execle", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECLE, COMPUTE_UNITS_TOTAL ) );
+      cups_samples_idx++;
       snapshot_rx_samples[ snapshot_rx_idx%(sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0])) ] = (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ) +
                                                                                                             (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) );
       snapshot_rx_idx++;
