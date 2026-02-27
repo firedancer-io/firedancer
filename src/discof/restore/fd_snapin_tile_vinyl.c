@@ -1,4 +1,3 @@
-#define _DEFAULT_SOURCE /* madvise */
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssparse.h"
 #include "utils/fd_vinyl_io_wd.h"

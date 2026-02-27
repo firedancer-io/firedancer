@@ -347,12 +347,19 @@ backtest_topo( config_t * config ) {
 
   if( vinyl_enabled ) {
     setup_topo_accdb_meta( topo, &config->firedancer );
+    ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+    ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+    fd_topo_obj_t * accdb_map_obj  = &topo->objs[ vinyl_map_obj_id ];
+    fd_topo_obj_t * accdb_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
 
     fd_topo_obj_t * accdb_data = setup_topo_accdb_cache( topo, &config->firedancer );
 
     fd_topob_wksp( topo, "accdb_execrp" );
     fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb_execrp", "metric_in", cpu_idx++, 0, 0 );
-    fd_topob_tile_uses( topo, accdb_tile,  accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, accdb_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, accdb_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
     fd_topob_tile_uses( topo, replay_tile, accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
     for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -480,6 +487,8 @@ backtest_topo( config_t * config ) {
       fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
       fd_topob_tile_uses( topo, snapin_tile, vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
       fd_topob_tile_uses( topo, snapin_tile, vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
   }
   for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
