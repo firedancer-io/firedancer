@@ -7,6 +7,24 @@
 #include "program/fd_builtin_programs.h"
 #include "fd_runtime_const.h"
 
+/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
+struct fd_calculated_stake_points {
+  fd_w_u128_t points;
+  ulong       new_credits_observed;
+  uchar       force_credits_update_with_skipped_reward;
+};
+typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
+
+/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24 */
+struct fd_calculated_stake_rewards {
+  ulong staker_rewards;
+  ulong voter_rewards;
+  ulong new_credits_observed;
+  uchar success;
+};
+typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
+
+
 /* fd_runtime_stack_t serves as stack memory to store temporary data
    for the runtime.  This object should only be used and owned by the
    replay tile and is used for short-lived allocations for the runtime,
@@ -45,6 +63,12 @@ union fd_runtime_stack {
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t  stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+
+    fd_calculated_stake_points_t stake_points_result[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
+
+    fd_calculated_stake_rewards_t stake_rewards_result[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
+
+    ulong stake_rewards_cnt;
   } stakes;
 
   struct {

@@ -44,6 +44,12 @@ typedef struct index_ele index_ele_t;
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
+// struct partition_ele  {
+//   uint   index;
+//   ushort next;
+// };
+// typedef struct partition_ele partition_ele_t;
+
 struct partition_info {
   ushort partition_idx_lens[43200];
 };
@@ -80,8 +86,8 @@ get_partitions( fd_stake_rewards_t const * stake_rewards,
                 uchar                      fork_idx,
                 ulong                      partition_index ) {
   return fd_type_pun( (uchar *)stake_rewards + stake_rewards->partitions_offset +
-                      (fork_idx * fd_ulong_align_up( stake_rewards->max_stake_accounts, 4096UL ) * sizeof(uint) ) +
-                      (partition_index * 4096UL * sizeof(uint) ) );
+                      (fork_idx * fd_ulong_align_up( stake_rewards->max_stake_accounts, 8192UL ) * sizeof(uint) ) +
+                      (partition_index * 8192UL * sizeof(uint) ) );
 }
 
 ulong
@@ -93,14 +99,16 @@ ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
                             ulong max_fork_width,
                             ulong expected_stake_accs ) {
+  ulong map_chain_cnt = index_map_chain_cnt_est( expected_stake_accs );
+
   ulong l = FD_LAYOUT_INIT;
   l  = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),  sizeof(fd_stake_rewards_t) );
   l  = FD_LAYOUT_APPEND( l, index_pool_align(),        index_pool_footprint( max_stake_accounts ) );
-  l  = FD_LAYOUT_APPEND( l, index_map_align(),         index_map_footprint( expected_stake_accs ) );
-  l  = FD_LAYOUT_APPEND( l, alignof(uint),             max_fork_width * fd_ulong_align_up( max_stake_accounts, 4096UL ) * sizeof(uint) );
+  l  = FD_LAYOUT_APPEND( l, index_map_align(),         index_map_footprint( map_chain_cnt ) );
+  l  = FD_LAYOUT_APPEND( l, alignof(uint),             max_fork_width * fd_ulong_align_up( max_stake_accounts, 8192UL ) * sizeof(uint) );
 
-  /* we take advantage of the fact that the number of partitions * 4096
-     is always == fd_ulong_align_up( max_stake_accounts, 4096UL ) */
+  /* we take advantage of the fact that the number of partitions * 8192
+     is always == fd_ulong_align_up( max_stake_accounts, 8192UL ) */
 
   return FD_LAYOUT_FINI( l, fd_stake_rewards_align() );
 }
@@ -120,11 +128,13 @@ fd_stake_rewards_new( void * shmem,
     return NULL;
   }
 
+  ulong map_chain_cnt = index_map_chain_cnt_est( expected_stake_accs );
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
   void *               index_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),       index_pool_footprint( max_stake_accounts ) );
-  void *               index_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),        index_map_footprint( expected_stake_accs ) );
-  void *               partitions_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            max_fork_width * fd_ulong_align_up( max_stake_accounts, 4096UL ) * sizeof(uint) );
+  void *               index_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),        index_map_footprint( map_chain_cnt ) );
+  void *               partitions_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            max_fork_width * fd_ulong_align_up( max_stake_accounts, 8192UL ) * sizeof(uint) );
 
   index_ele_t * index_pool = index_pool_join( index_pool_new( index_pool_mem, max_stake_accounts ) );
   if( FD_UNLIKELY( !index_pool ) ) {
@@ -133,7 +143,7 @@ fd_stake_rewards_new( void * shmem,
   }
   stake_rewards->index_pool_offset = (ulong)index_pool - (ulong)shmem;
 
-  index_map_t * index_map = index_map_join( index_map_new( index_map_mem, expected_stake_accs, seed ) );
+  index_map_t * index_map = index_map_join( index_map_new( index_map_mem, map_chain_cnt, seed ) );
   if( FD_UNLIKELY( !index_map ) ) {
     FD_LOG_WARNING(( "Failed to create index map" ));
     return NULL;
@@ -212,7 +222,7 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
     index_map_ele_insert( index_map, ele, index_ele );
   }
 
-  /* We have an invariant that there can never be more than 4096 entries
+  /* We have an invariant that there can never be more than 8192 entries
      in a partition. */
   fd_siphash13_t   sip[1] = {0};
   fd_siphash13_t * hasher = fd_siphash13_init( sip, 0UL, 0UL );
@@ -221,6 +231,18 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   ulong hash64 = fd_siphash13_fini( hasher );
 
   ulong partition_index = (ulong)((uint128)stake_rewards->partitions_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
+
+
+  uchar key[32];
+  fd_base58_decode_32( "6T1T9F86pWz5fCU38R6ZXGYAhy5sxYuWD2dFQTGyvtNE", key );
+  if( !memcmp( key, pubkey->uc, sizeof(fd_pubkey_t) )) {
+    FD_LOG_WARNING(("(WAS IN 1)PARTITION INDEX %lu", partition_index));
+  }
+
+  fd_base58_decode_32("BFmai7gU6BMwexcfkYPzGPd9P9wr62CRf5iyA6ChqhL2", key);
+  if( !memcmp( key, pubkey->uc, sizeof(fd_pubkey_t) )) {
+    FD_LOG_WARNING(("(WAS IN 2)PARTITION INDEX %lu", partition_index));
+  }
 
   uint   curr_partition_len = stake_rewards->partition_info[fork_idx].partition_idx_lens[partition_index];
   uint * curr_partition     = get_partitions( stake_rewards, fork_idx, partition_index );

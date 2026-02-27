@@ -146,6 +146,7 @@ struct fd_stake_delegation {
   ushort      deactivation_epoch;
   uchar       is_tombstone;
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
+  uint        idx;
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 

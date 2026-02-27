@@ -68,6 +68,9 @@ typedef struct fd_acc_pool fd_acc_pool_t;
 struct fd_genesis;
 typedef struct fd_genesis fd_genesis_t;
 
+struct fd_stake_rewards;
+typedef struct fd_stake_rewards fd_stake_rewards_t;
+
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;

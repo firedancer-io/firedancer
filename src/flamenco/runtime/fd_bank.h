@@ -37,7 +37,7 @@ FD_PROTOTYPES_BEGIN
 
    In order to support fork-awareness, there are several key features
    that fd_banks_t and fd_bank_t MUST support:
-   1. Query for any non-rooted block's bank: create a fast lookup
+   1. Query for any non-rooted block's bank: creatfd a fast lookup
       from bank index to bank
    2. Be able to create a new bank for a given block from the bank of
       that block's parent and maintain some tree-like structure to
@@ -347,6 +347,8 @@ struct fd_bank_data {
 
   ulong refcnt; /* (r) reference count on the bank, see replay for more details */
 
+  uchar stake_rewards_fork_id;
+
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
 
   /* Timestamps written and read only by replay */
@@ -369,6 +371,8 @@ struct fd_bank_data {
   } non_cow;
 
   /* Layout all information needed for non-templatized fields. */
+
+  ulong stake_rewards_offset;
 
   ulong cost_tracker_pool_idx;
   ulong cost_tracker_pool_offset;
@@ -534,6 +538,8 @@ struct fd_banks_data {
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
   ulong vote_states_pool_offset_;
 
+  ulong stake_rewards_offset;
+
   ulong dead_banks_deque_offset;
 
   /* stake_delegations_root will be the full state of stake delegations
@@ -571,6 +577,12 @@ typedef struct fd_banks fd_banks_t;
 
 /* Bank accesssors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
+
+fd_stake_rewards_t const *
+fd_bank_stake_rewards_query( fd_bank_t * bank );
+
+fd_stake_rewards_t *
+fd_bank_stake_rewards_modify( fd_bank_t * bank );
 
 fd_epoch_rewards_t const *
 fd_bank_epoch_rewards_query( fd_bank_t * bank );
@@ -775,6 +787,18 @@ fd_banks_set_cost_tracker_pool( fd_banks_data_t * banks_data,
     FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
   }
   banks_data->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)banks_data;
+}
+
+static inline void
+fd_banks_set_stake_rewards( fd_banks_data_t *     bank,
+                            fd_stake_rewards_t * stake_rewards ) {
+  bank->stake_rewards_offset = (ulong)stake_rewards - (ulong)bank;
+}
+
+static inline void
+fd_bank_set_stake_rewards( fd_bank_data_t *     bank,
+                           fd_stake_rewards_t * stake_rewards ) {
+  bank->stake_rewards_offset = (ulong)stake_rewards - (ulong)bank;
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */

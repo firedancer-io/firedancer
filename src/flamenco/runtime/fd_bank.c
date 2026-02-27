@@ -1,5 +1,6 @@
 #include "fd_bank.h"
 #include "fd_runtime_const.h"
+#include "../rewards/fd_stake_rewards.h"
 
 ulong
 fd_bank_align( void ) {
@@ -25,6 +26,16 @@ fd_bank_epoch_rewards_query( fd_bank_t * bank ) {
   }
   fd_bank_epoch_rewards_t * bank_epoch_rewards = fd_bank_epoch_rewards_pool_ele( epoch_rewards_pool, bank->data->epoch_rewards_pool_idx );
   return fd_type_pun_const( bank_epoch_rewards->data );
+}
+
+fd_stake_rewards_t const *
+fd_bank_stake_rewards_query( fd_bank_t * bank ) {
+  return fd_type_pun_const( (uchar *)bank->data + bank->data->stake_rewards_offset );
+}
+
+fd_stake_rewards_t *
+fd_bank_stake_rewards_modify( fd_bank_t * bank ) {
+  return fd_type_pun( (uchar *)bank->data + bank->data->stake_rewards_offset );
 }
 
 fd_epoch_rewards_t *
@@ -258,6 +269,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -290,6 +302,7 @@ fd_banks_new( void * shmem,
   void *            epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   void *            vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( max_total_banks ) );
   void *            cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+  void *            stake_rewards_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),            fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -380,12 +393,22 @@ fd_banks_new( void * shmem,
     }
   }
 
+  fd_stake_rewards_t * stake_rewards = fd_stake_rewards_join( fd_stake_rewards_new( stake_rewards_pool_mem, FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS, seed ) );
+  if( FD_UNLIKELY( !stake_rewards ) ) {
+    FD_LOG_WARNING(( "Failed to create stake rewards" ));
+    return NULL;
+  }
+
+  fd_banks_set_stake_rewards( banks_data, stake_rewards );
+
   /* For each bank, we need to set the offset of the pools and locks
      for each of the non-inlined fields. */
 
   for( ulong i=0UL; i<max_total_banks; i++ ) {
 
     fd_bank_data_t * bank = fd_banks_pool_ele( bank_pool, i );
+
+    fd_bank_set_stake_rewards( bank, stake_rewards );
 
     fd_bank_epoch_rewards_t * epoch_rewards_pool = fd_banks_get_epoch_rewards_pool( banks_data );
     fd_bank_set_epoch_rewards_pool( bank, epoch_rewards_pool );
@@ -458,6 +481,8 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   void * epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( banks_data->max_fork_width ) );
   void * vote_states_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_pool_align(),   fd_bank_vote_states_pool_footprint( banks_data->max_total_banks ) );
   void * cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
+  void * stake_rewards_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),            fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, banks_data->max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  (void)stake_rewards_mem;
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -590,6 +615,8 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   bank->first_transaction_scheduled_nanos = 0L;
   bank->last_transaction_finished_nanos   = 0L;
 
+  bank->stake_rewards_fork_id = UCHAR_MAX;
+
   /* Now that the node is inserted, update the root */
 
   banks->data->root_idx = bank->idx;
@@ -677,6 +704,8 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
+
+  child_bank->stake_rewards_fork_id = parent_bank->stake_rewards_fork_id;
 
   fd_rwlock_unwrite( &banks->locks->banks_lock );
 

@@ -35,7 +35,7 @@ fd_stake_rewards_join( void * shmem );
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
-                       ulong                rewards_cnt );
+                       ulong                partitions_cnt );
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
