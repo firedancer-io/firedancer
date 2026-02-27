@@ -398,7 +398,7 @@ fd_vinyl_io_fini( fd_vinyl_io_t * io );
 /* Helpers ************************************************************/
 
 /* fd_vinyl_io_spad_est() returns estimate of the smallest scratch pad
-   size required most applications.  Specifically, this returns:
+   size required for most applications.  Specifically, this returns:
 
      2 pair_sz( LZ4_COMPRESSBOUND( VAL_MAX ) )
 

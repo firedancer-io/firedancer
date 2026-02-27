@@ -187,7 +187,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
 
             }
 
-            if( do_copy ) { /* Pair is either in cache or acquired for modify, append from the bstream */
+            if( do_copy ) { /* Pair is either not in cache or acquired for modify, append from the bstream */
 
               if( FD_LIKELY( (pair_style!=FD_VINYL_BSTREAM_CTL_STYLE_RAW) |
                              (style     ==FD_VINYL_BSTREAM_CTL_STYLE_RAW) |

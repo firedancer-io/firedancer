@@ -49,7 +49,7 @@
      garbage during transients ("compaction").
 
    - compression: Compaction can also statelessly re-encode the storage
-     represetation of pairs.  This will naturally compress seldom used
+     representation of pairs.  This will naturally compress seldom used
      pair data in the background while frequently used pairs will be
      stored uncompressed (RAW encoded) for speed.
 
@@ -157,9 +157,9 @@
      bstream past to be quickly partitioned at object boundaries into
      approximately uniform slices that can be used for parallel
      recovery.  These partitions also include the number of erases and
-     moves that happend in the partition to aid in parallel recovery (to
-     optionally tightly bound the size of temporary data structures at
-     start).
+     moves that happened in the partition to aid in parallel recovery
+     (to optionally tightly bound the size of temporary data structures
+     at start).
 
    - hot or not: the metadata for all pairs at seq_present is always
      available fast O(1) to concurent vinyl users.  This includes a
