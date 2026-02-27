@@ -469,9 +469,9 @@ fd_secp256k1_slide( schar       r[ 2 * 32 + 1 ],
   /* Now, r[0..63] is between 0 and 15, r[63] is between 0 and 7 */
   schar carry = 0;
   for(int i = 0; i<64; i++) {
-    r[i] += carry;
+    r[i]  = (schar)(r[i] + carry);
     carry = (schar)(r[i] + 8) >> 4;
-    r[i] -= (schar)(carry * 16);
+    r[i]  = (schar)(r[i] - carry * 16);
     /* r[i] MUST be between [-8, 8] */
   }
   r[64] = carry;

@@ -42,7 +42,7 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
   off++;
   ulong bytes = fd_cu16_dec_sz( data+off, 3UL );
   if( bytes!=1UL ) return 0;
-  ulong acc_cnt = 2+signer_cnt;
+  ulong acc_cnt = 2UL + signer_cnt;
   if( data[off]!=acc_cnt ) return 0;
 
   /* The first account should always be the authority's public key. */
