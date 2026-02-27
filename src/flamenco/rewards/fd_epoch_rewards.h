@@ -79,7 +79,6 @@ struct fd_epoch_stake_reward {
   /* Internal pointers for pool, dlist, and map. */
   uint        prev;
   uint        next;
-  uint        parent;
   uint        next_map;
 };
 typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
