@@ -4,14 +4,12 @@
 #include "../../util/fd_util_base.h"
 #include "../types/fd_types_custom.h"
 
-FD_PROTOTYPES_BEGIN
-
 #define FD_STAKE_REWARDS_ALIGN (128UL)
 
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
-FD_PROTOTYPES_END
+FD_PROTOTYPES_BEGIN
 
 ulong
 fd_stake_rewards_align( void );
@@ -81,5 +79,7 @@ fd_stake_rewards_starting_block_height( fd_stake_rewards_t const * stake_rewards
 ulong
 fd_stake_rewards_exclusive_ending_block_height( fd_stake_rewards_t const * stake_rewards,
                                                 uchar                      fork_idx );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h */
