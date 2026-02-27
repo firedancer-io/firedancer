@@ -11,6 +11,3 @@
 [snapshots]
     [snapshots.sources]
         servers = [ "http://solana-testnet-rpc.jumpisolated.com:8899", "https://solana-testnet-tls.jumpisolated.com" ]
-        [snapshots.sources.gossip]
-            allow_any = false
-            allow_list = []
