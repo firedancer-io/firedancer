@@ -243,8 +243,8 @@ fd_snapwm_vinyl_seccomp( ulong                out_cnt,
 
 static void
 vinyl_mm_sync( fd_snapwm_tile_t * ctx ) {
-  if( FD_UNLIKELY( 0!=msync( ctx->vinyl.bstream_mem, ctx->vinyl.bstream_sz, MS_SYNC ) ) ) {
-    FD_LOG_ERR(( "msync(addr=%p,sz=%lu,MS_SYNC) failed (%i-%s)",
+  if( FD_UNLIKELY( 0!=msync( ctx->vinyl.bstream_mem, ctx->vinyl.bstream_sz, MS_SYNC|MS_INVALIDATE ) ) ) {
+    FD_LOG_ERR(( "msync(addr=%p,sz=%lu,MS_SYNC|MS_INVALIDATE) failed (%i-%s)",
                  (void *)ctx->vinyl.bstream_mem, ctx->vinyl.bstream_sz,
                  errno, fd_io_strerror( errno ) ));
   }
@@ -518,6 +518,8 @@ fd_snapwm_vinyl_wd_fini( fd_snapwm_tile_t * ctx ) {
   ctx->vinyl.io_mm->spad_used   = 0UL;
 
   ctx->vinyl.io = ctx->vinyl.io_mm;
+
+  vinyl_mm_sync( ctx );
 }
 
 /* bstream_alloc is a faster version of fd_vinyl_io_alloc.  Indirect

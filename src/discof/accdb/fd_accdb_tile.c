@@ -401,17 +401,16 @@ unprivileged_init( fd_topo_t *      topo,
 
 # undef TEST
 
-  ulong snapct_tile_idx = fd_topo_find_tile( topo, "snapct", 0UL );
   ulong snapwm_tile_idx = fd_topo_find_tile( topo, "snapwm", 0UL );
   ulong genesi_tile_idx = fd_topo_find_tile( topo, "genesi", 0UL );
-  int boot_from_genesis = snapct_tile_idx==ULONG_MAX;
+  int boot_from_genesis = snapwm_tile_idx==ULONG_MAX;
 
   if( FD_UNLIKELY( boot_from_genesis ) ) {
     if( FD_UNLIKELY( genesi_tile_idx==ULONG_MAX ) ) {
       FD_LOG_CRIT(( "booting from genesis requires a genesi tile, but none was found in the topology (genesi tile idx %lu)", genesi_tile_idx ));
     }
-    if( FD_UNLIKELY( snapct_tile_idx!=ULONG_MAX || snapwm_tile_idx!=ULONG_MAX ) ) {
-      FD_LOG_CRIT(( "booting from genesis with snapshot load tiles idx %lu %lu is not supported", snapct_tile_idx, snapwm_tile_idx ));
+    if( FD_UNLIKELY( snapwm_tile_idx!=ULONG_MAX ) ) {
+      FD_LOG_CRIT(( "booting from genesis with snapshot load tiles idx %lu is not supported", snapwm_tile_idx ));
     }
     /* When booting from genesis, accdb tile boots immediately, which
        allows the genesi tile to become a vinyl client. */
@@ -422,18 +421,15 @@ unprivileged_init( fd_topo_t *      topo,
        the return (fd_vinyl_io_t *), but it must be checked. */
     FD_TEST( !!fd_vinyl_io_bd_init( ctx->io_mem, IO_SPAD_MAX, ctx->bstream_fd, 1/*reset*/, "accounts-genesis", 17UL, ctx->boot.from_genesis.io_seed ) );
   } else {
-    if( FD_UNLIKELY( snapct_tile_idx==ULONG_MAX || snapwm_tile_idx==ULONG_MAX ) ) {
-      FD_LOG_CRIT(( "booting with incorrect snapshot load tiles idx snapct %lu snapwm %lu", snapct_tile_idx, snapwm_tile_idx ));
+    if( FD_UNLIKELY( snapwm_tile_idx==ULONG_MAX ) ) {
+      FD_LOG_CRIT(( "booting with incorrect snapshot load tiles idx snapwm %lu", snapwm_tile_idx ));
     }
     /* Boot state and expected state */
-    fd_topo_tile_t const * snapct_tile = &topo->tiles[ snapct_tile_idx ];
-    FD_TEST( snapct_tile->metrics );
-    ctx->boot.state_expected = FD_SNAPCT_STATE_SHUTDOWN;
-    ctx->boot.state          = &fd_metrics_tile( snapct_tile->metrics )[ MIDX( GAUGE, SNAPCT, STATE ) ];
-    /* Boot pair_cnt */
     fd_topo_tile_t const * snapwm_tile = &topo->tiles[ snapwm_tile_idx ];
     FD_TEST( snapwm_tile->metrics );
-    ctx->boot.pair_cnt = &fd_metrics_tile( snapwm_tile->metrics )[ MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
+    ctx->boot.state_expected = 2;
+    ctx->boot.state          = &fd_metrics_tile( snapwm_tile->metrics )[ MIDX( GAUGE, TILE, STATUS ) ];
+    ctx->boot.pair_cnt       = &fd_metrics_tile( snapwm_tile->metrics )[ MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
   }
 
   /* Vinyl limit on the number of pairs the meta map will accept */
