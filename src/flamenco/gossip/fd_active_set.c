@@ -200,7 +200,7 @@ push_flush( fd_active_set_t *      active_set,
   fd_gossip_contact_info_t const * ci = fd_crds_ci( active_set->crds, peer->ci_idx );
   // TODO: Support ipv6, or prevent ending up in set
   fd_ip4_port_t dest_addr = {
-    .addr = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0 : ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
+    .addr = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
     .port = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port,
   };
 
