@@ -16,10 +16,10 @@ fdctl_tile_run( fd_topo_tile_t const * tile );
 /* ctx_t is defined in fd_tower_tile.c, we just need to access it */
 
 static void
-tower_ctx_wksp( args_t *          args,
-                config_t *        config,
-                ctx_t **          tower_ctx,
-                fd_topo_wksp_t ** tower_wksp ) {
+tower_ctx_wksp( args_t *           args,
+                config_t *         config,
+                fd_tower_tile_t ** tower_ctx,
+                fd_topo_wksp_t **  tower_wksp ) {
   (void)args;
 
   fd_topo_t * topo = &config->topo;
@@ -41,14 +41,14 @@ tower_ctx_wksp( args_t *          args,
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access tower tile scratch memory" ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * _tower_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  fd_tower_tile_t * _tower_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
   *tower_ctx  = _tower_ctx;
   *tower_wksp = _tower_wksp;
 }
 
 static void
-print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_tower_blocks_t * forks ) {
+print_all_forks( fd_wksp_t * wksp, fd_tower_tile_t * tower_ctx, fd_tower_blocks_t * forks ) {
   printf( "\n[Tower Forks]\n" );
   printf( "=============\n" );
   printf( "%-15s | %-15s | %-10s | %-10s\n", "Slot", "Parent Slot", "Voted", "Confirmed" );
@@ -148,7 +148,7 @@ tower_cmd_help( char const * arg ) {
 static void
 tower_cmd_fn_forks( args_t *   args,
                     config_t * config ) {
-  ctx_t *          tower_ctx;
+  fd_tower_tile_t *          tower_ctx;
   fd_topo_wksp_t * tower_wksp;
   tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
 
@@ -164,7 +164,7 @@ tower_cmd_fn_forks( args_t *   args,
 static void
 tower_cmd_fn_ghost( args_t *   args,
                     config_t * config ) {
-  ctx_t *          tower_ctx;
+  fd_tower_tile_t *          tower_ctx;
   fd_topo_wksp_t * tower_wksp;
   tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
 
@@ -183,7 +183,7 @@ tower_cmd_fn_ghost( args_t *   args,
 static void
 tower_cmd_fn_tower( args_t    * args,
                      config_t * config ) {
-  ctx_t *          tower_ctx;
+  fd_tower_tile_t *          tower_ctx;
   fd_topo_wksp_t * tower_wksp;
   tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
 
