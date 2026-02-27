@@ -49,7 +49,7 @@ The command exits successfully (with an exit code of 0) if the
 authorized voter was added, otherwise it will fail and print diagnostic
 messages to `stderr`. Reasons for failure include the validator being
 unable to load or verify the provided authorized voter key, if the
-provided key is a duplicate that the validator is already with, or if
+provided key is a duplicate that the validator is already using, or if
 there are too many authorized voters for the running validator (more
 than 16).
 
