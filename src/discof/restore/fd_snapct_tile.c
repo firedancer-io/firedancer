@@ -1066,6 +1066,28 @@ gossip_addr_is_duplicate( fd_snapct_tile_t const * ctx,
   return 0;
 }
 
+static int
+remove_gossip_entry( fd_snapct_tile_t *  ctx,
+                     ulong               idx ) {
+  FD_TEST( idx<GOSSIP_PEERS_MAX );
+  gossip_ci_entry_t * entry = ctx->gossip.ci_table + idx;
+  ulong rem_idx = gossip_ci_map_idx_remove( ctx->gossip.ci_map, &entry->pubkey, ULONG_MAX, ctx->gossip.ci_table );
+  if( rem_idx==ULONG_MAX ) return -1;
+  FD_TEST( entry->allowed && rem_idx==idx );
+  fd_ip4_port_t addr = entry->rpc_addr;
+  if( FD_LIKELY( !!addr.l ) ) {
+    int removed = fd_ssping_remove( ctx->ssping, addr );
+    if( FD_LIKELY( removed ) ) fd_sspeer_selector_remove( ctx->selector, addr );
+  }
+  if( !ctx->config.sources.gossip.allow_any ) {
+    FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, pubkey_b58 );
+    FD_LOG_WARNING(( "allowed gossip peer removed with public key `%s` and RPC address `" FD_IP4_ADDR_FMT ":%hu`",
+                      pubkey_b58, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
+  }
+  fd_memset( entry, 0, sizeof(*entry) );
+  return 0;
+}
+
 static void
 gossip_frag( fd_snapct_tile_t *  ctx,
              ulong               sig,
@@ -1084,9 +1106,9 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       fd_pubkey_t const * pubkey = (fd_pubkey_t const *)msg->origin;
       gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info->idx;
 
+      /* Initialize the new gossip entry, which may or may not be allowed */
       int pubkey_eq = fd_pubkey_eq( &entry->pubkey, pubkey );
       if( FD_UNLIKELY( !pubkey_eq ) ) {
-        /* Initialize the new gossip entry, which may or may not be allowed */
         FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
         entry->pubkey      = *pubkey;
         entry->rpc_addr.l  = 0UL;
@@ -1108,38 +1130,53 @@ gossip_frag( fd_snapct_tile_t *  ctx,
             }
           }
         }
-        FD_TEST(  ULONG_MAX==gossip_ci_map_idx_query_const( ctx->gossip.ci_map, pubkey, ULONG_MAX, ctx->gossip.ci_table ) );
+        FD_TEST( ULONG_MAX==gossip_ci_map_idx_query_const( ctx->gossip.ci_map, pubkey, ULONG_MAX, ctx->gossip.ci_table ) );
+        /* If the entry is not allowed, clean the entry entirely, since
+           it will not be added to the map. */
+        if( !entry->allowed ) fd_memset( entry, 0, sizeof(gossip_ci_entry_t) );
       }
       if( !entry->allowed ) break;
 
-      /* Maybe update the RPC address of a new or existing allowed gossip peer */
+      /* Update RPC address of a new or existing allowed gossip peer. */
       fd_ip4_port_t cur_addr = entry->rpc_addr;
-      fd_ip4_port_t new_addr;
-      new_addr.addr = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].is_ipv6 ? 0 : msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].ip4;
-      new_addr.port = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].port;
-      int is_duplicate = new_addr.l==cur_addr.l;
-      if( FD_UNLIKELY( !is_duplicate ) ) {
+      fd_ip4_port_t new_addr = { .l= 0UL };
+      if( !msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].is_ipv6 ) {
+        new_addr.addr = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].ip4;
+        new_addr.port = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].port;
+      }
+      int addr_is_new = new_addr.l!=cur_addr.l;
+
+      /* If no change needed, break. */
+      if( pubkey_eq && !addr_is_new ) break;
+
+      /* Process address */
+      int addr_is_dup = !!new_addr.l && gossip_addr_is_duplicate( ctx, new_addr, pubkey );
+
+      if( FD_UNLIKELY( addr_is_dup ) ) {
+        /* Duplicate case. */
+        FD_BASE58_ENCODE_32_BYTES( pubkey->uc, dup_b58 );
+        FD_LOG_WARNING(( "gossip peer `%s` advertises duplicate RPC address " FD_IP4_ADDR_FMT ":%hu, skipping",
+                          dup_b58, FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), fd_ushort_bswap( new_addr.port ) ));
+        if( pubkey_eq ) {
+          FD_TEST( !remove_gossip_entry( ctx, msg->contact_info->idx ) );
+        } else {
+          /* Clear the entry when the address is a duplicate.  This
+             will allow us to process the same peer next time it is
+             received, potentially with a different address. */
+          fd_memset( entry, 0, sizeof(gossip_ci_entry_t) );
+        }
+      } else {
+        /* New address case. */
         entry->rpc_addr = new_addr;
         if( FD_LIKELY( !!cur_addr.l ) ) {
           int removed = fd_ssping_remove( ctx->ssping, cur_addr );
           if( FD_LIKELY( removed ) ) fd_sspeer_selector_remove( ctx->selector, cur_addr );
         }
         if( FD_LIKELY( !!new_addr.l ) ) {
-          if( FD_UNLIKELY( gossip_addr_is_duplicate( ctx, new_addr, pubkey ) ) ) {
-            FD_BASE58_ENCODE_32_BYTES( pubkey->uc, dup_b58 );
-            FD_LOG_WARNING(( "gossip peer `%s` advertises duplicate RPC address " FD_IP4_ADDR_FMT ":%hu, skipping",
-                             dup_b58, FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), fd_ushort_bswap( new_addr.port ) ));
-            is_duplicate = 1;
-            entry->rpc_addr.l = 0UL;
-            /* Clear the pubkey when the address is a duplicate.  This
-               will allow us to process the same peer next time it is
-               received, potentially with a different address. */
-            fd_memset( &entry->pubkey, 0UL, sizeof(fd_pubkey_t) );
-          } else {
-            fd_ssping_add( ctx->ssping, new_addr );
-          }
+          fd_ssping_add( ctx->ssping, new_addr );
         }
-        if( !is_duplicate && !ctx->config.sources.gossip.allow_any ) {
+        /* Log */
+        if( !ctx->config.sources.gossip.allow_any ) {
           FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
           if( FD_LIKELY( !!new_addr.l ) ) {
             FD_LOG_NOTICE(( "allowed gossip peer added with public key `%s` and RPC address `" FD_IP4_ADDR_FMT ":%hu`",
@@ -1150,28 +1187,14 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         }
       }
 
-      if( FD_UNLIKELY( entry->allowed && !pubkey_eq && !is_duplicate ) ) {
+      /* Insert in map. */
+      if( FD_UNLIKELY( !pubkey_eq && entry->allowed && !addr_is_dup ) ) {
         gossip_ci_map_idx_insert( ctx->gossip.ci_map, msg->contact_info->idx, ctx->gossip.ci_table );
       }
       break;
     }
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
-      FD_TEST( msg->contact_info_remove->idx<GOSSIP_PEERS_MAX );
-      gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info_remove->idx;
-      ulong rem_idx = gossip_ci_map_idx_remove( ctx->gossip.ci_map, &entry->pubkey, ULONG_MAX, ctx->gossip.ci_table );
-      if( rem_idx==ULONG_MAX ) break;
-      FD_TEST( entry->allowed && rem_idx==msg->contact_info_remove->idx );
-      fd_ip4_port_t addr = entry->rpc_addr;
-      if( FD_LIKELY( !!addr.l ) ) {
-        int removed = fd_ssping_remove( ctx->ssping, addr );
-        if( FD_LIKELY( removed ) ) fd_sspeer_selector_remove( ctx->selector, addr );
-      }
-      if( !ctx->config.sources.gossip.allow_any ) {
-        FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, pubkey_b58 );
-        FD_LOG_WARNING(( "allowed gossip peer removed with public key `%s` and RPC address `" FD_IP4_ADDR_FMT ":%hu`",
-                         pubkey_b58, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
-      }
-      fd_memset( entry, 0, sizeof(*entry) );
+      FD_TEST( !remove_gossip_entry( ctx, msg->contact_info_remove->idx ) );
       break;
     }
     case FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES: {
