@@ -135,9 +135,9 @@ find_keyswitch( fd_topo_t const * topo,
                 char const *      tile_name ) {
   ulong tile_idx = fd_topo_find_tile( topo, tile_name, 0UL );
   FD_TEST( tile_idx!=ULONG_MAX );
-  FD_TEST( topo->tiles[ tile_idx ].keyswitch_obj_id!=ULONG_MAX );
+  FD_TEST( topo->tiles[ tile_idx ].id_keyswitch_obj_id!=ULONG_MAX );
 
-  fd_keyswitch_t * keyswitch = fd_topo_obj_laddr( topo, topo->tiles[ tile_idx ].keyswitch_obj_id );
+  fd_keyswitch_t * keyswitch = fd_topo_obj_laddr( topo, topo->tiles[ tile_idx ].id_keyswitch_obj_id );
   FD_TEST( keyswitch );
   return keyswitch;
 }
@@ -203,7 +203,7 @@ poll_keyswitch( fd_topo_t * topo,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( strcmp( tile->name, "shred" ) ) ) continue;
 
-        fd_keyswitch_t * shred = fd_topo_obj_laddr( topo, tile->keyswitch_obj_id );
+        fd_keyswitch_t * shred = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         FD_TEST( shred );
 
         shred->param = *halted_seq;
@@ -222,7 +222,7 @@ poll_keyswitch( fd_topo_t * topo,
         fd_topo_tile_t const * tile = &topo->tiles[ i ];
         if( FD_LIKELY( strcmp( tile->name, "shred" ) ) ) continue;
 
-        fd_keyswitch_t * shred = fd_topo_obj_laddr( topo, tile->keyswitch_obj_id );
+        fd_keyswitch_t * shred = fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id );
         FD_TEST( shred );
 
         if( FD_LIKELY( shred->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
@@ -250,12 +250,12 @@ poll_keyswitch( fd_topo_t * topo,
       FD_COMPILER_MFENCE();
 
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-        if( FD_LIKELY( topo->tiles[ i ].keyswitch_obj_id==ULONG_MAX ) ) continue;
+        if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "sign" ) ||
                        !strcmp( topo->tiles[ i ].name, "poh" ) ||
                        !strcmp( topo->tiles[ i ].name, "shred" ) ) ) continue;
 
-        fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].keyswitch_obj_id );
+        fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
         memcpy( tile_ks->bytes, keypair+32UL, 32UL );
         FD_COMPILER_MFENCE();
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
@@ -269,11 +269,11 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_SET_IDENTITY_STATE_ALL_SWITCH_REQUESTED: {
       ulong all_switched = 1UL;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-        if( FD_LIKELY( topo->tiles[ i ].keyswitch_obj_id==ULONG_MAX ) ) continue;
+        if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "poh" ) ||
                        !strcmp( topo->tiles[ i ].name, "shred" ) ) ) continue;
 
-        fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].keyswitch_obj_id );
+        fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
         if( FD_LIKELY( tile_ks->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
           all_switched = 0UL;
           break;
@@ -358,10 +358,10 @@ set_identity( args_t *   args,
     FD_LOG_ERR(( "The public key in the identity key file does not match the public key derived from the private key. "
                  "Firedancer will not use the key pair to sign as it might leak the private key." ));
 
-  for( ulong i=0UL; i<config->topo.obj_cnt; i++ ) {
-    fd_topo_obj_t * obj = &config->topo.objs[ i ];
-    if( FD_LIKELY( strcmp( obj->name, "keyswitch" ) ) ) continue;
-
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    if( FD_LIKELY( tile->id_keyswitch_obj_id==ULONG_MAX ) ) continue;
+    fd_topo_obj_t * obj = &config->topo.objs[ tile->id_keyswitch_obj_id ];
     fd_topo_join_workspace( &config->topo, &config->topo.workspaces[ obj->wksp_id ], FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   }
 

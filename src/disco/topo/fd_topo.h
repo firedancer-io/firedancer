@@ -144,7 +144,8 @@ struct fd_topo_tile {
 
   ulong tile_obj_id;
   ulong metrics_obj_id;
-  ulong keyswitch_obj_id;
+  ulong id_keyswitch_obj_id; /* keyswitch object id for identity key updates */
+  ulong av_keyswitch_obj_id; /* keyswitch object id for authority key updates */
   ulong in_link_fseq_obj_id[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   ulong uses_obj_cnt;

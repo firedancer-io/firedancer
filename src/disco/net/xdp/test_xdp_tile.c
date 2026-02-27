@@ -287,7 +287,7 @@ main( int     argc,
   /* Mock a topology */
   static fd_topo_t topo[1];
   fd_topob_wksp( topo, "wksp" );
-  fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "net", "wksp", "wksp", cpu_idx, 0, 0 );
+  fd_topo_tile_t * topo_tile = fd_topob_tile( topo, "net", "wksp", "wksp", cpu_idx, 0, 0, 0 );
   topo_tile->xdp.xdp_rx_queue_size = (uint)rxq_depth;
   topo_tile->xdp.xdp_tx_queue_size = (uint)txq_depth;
   topo_tile->xdp.free_ring_depth   = (uint)txq_depth;

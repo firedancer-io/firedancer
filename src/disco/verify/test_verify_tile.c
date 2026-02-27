@@ -59,7 +59,7 @@ mock_topo_create( void ) {
   fd_topo_wksp_t * wksp = fd_topob_wksp( topo, "wksp" );
   wksp->wksp = NULL;
 
-  fd_topo_tile_t * verify = fd_topob_tile( topo, "verify", "wksp", "wksp", 0UL, 0, 0 );
+  fd_topo_tile_t * verify = fd_topob_tile( topo, "verify", "wksp", "wksp", 0UL, 0, 0, 0 );
   verify->verify.tcache_depth = TCACHE_DEPTH;
 
   fd_verify_ctx_t * ctx = test_malloc( scratch_align(), scratch_footprint( verify ) );

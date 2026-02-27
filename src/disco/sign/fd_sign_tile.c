@@ -52,12 +52,14 @@ typedef struct {
 
   fd_keyswitch_t *  keyswitch;
 
+  fd_keyswitch_t *  av_keyswitch; /* authorized voters */
+
   uchar *           public_key;
   uchar *           private_key;
 
   ulong             authorized_voters_cnt;
-  uchar *           authorized_voter_pubkeys[ 16UL ];
-  uchar *           authorized_voter_private_keys[ 16UL ];
+  uchar             authorized_voter_pubkeys[ 16UL ][ 32UL ];
+  uchar             authorized_voter_private_keys[ 16UL ][ 32UL ];
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -99,6 +101,33 @@ during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
 
     derive_fields( ctx );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  /* firedancer only */
+
+  if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
+      FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
+      explicit_bzero( ctx->av_keyswitch->bytes, 64UL );
+      fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
+      return;
+    }
+    for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
+      if( FD_UNLIKELY( !memcmp( ctx->authorized_voter_pubkeys[ i ], ctx->av_keyswitch->bytes+32UL, 32UL ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voter_pubkeys[ i ], pubkey_b58 );
+        FD_LOG_WARNING(( "keyswitch failed: authorized voter key duplicate (%s)", pubkey_b58 ));
+        explicit_bzero( ctx->av_keyswitch->bytes, 64UL );
+        fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
+        return;
+      }
+    }
+
+    memcpy( ctx->authorized_voter_private_keys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes, 32UL );
+    explicit_bzero( ctx->av_keyswitch->bytes, 32UL );
+    FD_COMPILER_MFENCE();
+    memcpy( ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes + 32UL, 32UL );
+    ctx->authorized_voters_cnt++;
+    fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 
@@ -257,8 +286,8 @@ privileged_init_sensitive( fd_topo_t *      topo,
   ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
   for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
     uchar * authorized_voter_key = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
-    ctx->authorized_voter_private_keys[ i ] = authorized_voter_key;
-    ctx->authorized_voter_pubkeys[ i ]      = authorized_voter_key + 32UL;
+    memcpy( ctx->authorized_voter_private_keys[ i ], authorized_voter_key, 32UL );
+    memcpy( ctx->authorized_voter_pubkeys[ i ], authorized_voter_key + 32UL, 32UL );
   }
 
   /* The stack can be taken over and reorganized by under AddressSanitizer,
@@ -300,8 +329,13 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->sign_duration, FD_MHIST_SECONDS_MIN( SIGN, SIGN_DURATION_SECONDS ),
                                                        FD_MHIST_SECONDS_MAX( SIGN, SIGN_DURATION_SECONDS ) ) );
 
-  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   derive_fields( ctx );
+
+  if( FD_LIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
+    ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+    FD_TEST( ctx->av_keyswitch );
+  }
 
   for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
 

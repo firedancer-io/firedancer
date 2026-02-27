@@ -20,7 +20,7 @@ setup_xdp_tile( fd_topo_t *             topo,
                 char const *            if_phys,
                 ulong                   if_queue,
                 int                     xsk_core_dump ) {
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "net",    tile_kind_id,                "net_netlnk", tile_kind_id );
@@ -65,7 +65,7 @@ static void
 setup_sock_tile( fd_topo_t *             topo,
                  ulong const *           tile_to_cpu,
                  fd_config_net_t const * net_cfg ) {
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "sock", "sock", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "sock", "sock", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
   tile->sock.net.bind_address = net_cfg->bind_address_parsed;
 
   if( FD_UNLIKELY( net_cfg->socket.receive_buffer_size>INT_MAX ) ) FD_LOG_ERR(( "invalid [net.socket.receive_buffer_size]" ));
@@ -99,7 +99,7 @@ fd_topos_net_tiles( fd_topo_t *             topo,
     /* net_netlnk: net->netlnk ARP requests */
     fd_topob_wksp( topo, "net_netlnk" );
 
-    fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
 
     /* Enumerate network devices to attach to */

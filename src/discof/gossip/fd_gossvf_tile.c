@@ -990,7 +990,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->allow_private_address = tile->gossvf.allow_private_address;
 
-  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
   ctx->shred_version = tile->gossvf.shred_version;

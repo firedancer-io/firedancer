@@ -147,12 +147,12 @@ main( int     argc,
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
 
-  fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0 );
+  fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
   strcpy( tile->name, "rpc" );
   tile->rpc.max_live_slots = 16UL;
   tile->rpc.send_buffer_size_mb = 64UL;
-  tile->keyswitch_obj_id = keyswitch_obj->id;
+  tile->id_keyswitch_obj_id = keyswitch_obj->id;
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
 
