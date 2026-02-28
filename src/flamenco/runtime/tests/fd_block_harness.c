@@ -256,7 +256,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   fd_stake_delegations_init( stake_delegations );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
 
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
@@ -307,7 +307,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, 2048UL, 999 ) ) );
 
-  fd_bank_vote_stakes_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( bank, runtime_stack );

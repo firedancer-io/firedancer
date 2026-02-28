@@ -431,6 +431,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     }
 
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+    FD_TEST( idx!=UINT_MAX );
 
     if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
 

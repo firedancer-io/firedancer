@@ -123,10 +123,10 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes_locking_query( bank );
+  fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes_locking_modify( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
-  fd_bank_vote_stakes_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* Derive leader schedule */
 
@@ -371,7 +371,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
 
   fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
 
   ushort parent_idx = bank->data->vote_stakes_fork_id;
   ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
@@ -399,7 +399,7 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                            &vote_ele->node_account,
                            &old_account_t_1 );
   }
-  fd_bank_vote_stakes_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
@@ -1552,7 +1552,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     FD_LOG_CRIT(( "Failed to join and new a stake delegations" ));
   }
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
 
   ulong capitalization = 0UL;
 
@@ -1672,7 +1672,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
   fd_vote_stakes_fini_root( vote_stakes );
 
-  fd_bank_vote_stakes_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 
   fd_bank_epoch_set( bank, 0UL );
 

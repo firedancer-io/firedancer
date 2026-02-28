@@ -224,7 +224,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      in fd_ssmanifest_parser.c. */
   fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
 
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
@@ -233,6 +233,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
 
   fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_reset( vote_ele_map );
 
   /* Vote stakes for the previous epoch (E-1). */
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
@@ -273,7 +274,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
 
   fd_vote_stakes_fini_root( vote_stakes );
-  fd_bank_vote_stakes_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 
   bank->data->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 }

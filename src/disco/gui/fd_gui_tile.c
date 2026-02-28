@@ -363,7 +363,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         FD_TEST( fd_banks_bank_query( bank, ctx->banks, replay->bank_idx ) );
         FD_TEST( bank->data->refcnt!=0 );
 
-        fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+        fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
 
         ulong vote_count = 0UL;
         uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
@@ -381,7 +381,7 @@ after_frag( fd_gui_ctx_t *      ctx,
 
           vote_count++;
         }
-        fd_bank_vote_stakes_end_locking_query( bank );
+        fd_bank_vote_stakes_end_locking_modify( bank );
 
         fd_gui_slot_completed_t slot_completed;
         if( FD_LIKELY( replay->parent_bank_idx!=ULONG_MAX ) ) {

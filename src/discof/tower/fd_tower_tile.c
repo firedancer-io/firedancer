@@ -503,7 +503,7 @@ query_acct_stake_from_bank( fd_tower_voters_t *  tower_voters_deque,
   ulong total_stake    = 0UL;
   ulong prev_voter_idx = ULONG_MAX;
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, bank->data->vote_stakes_fork_id, iter_mem );
        !fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id, iter );
@@ -515,7 +515,7 @@ query_acct_stake_from_bank( fd_tower_voters_t *  tower_voters_deque,
     prev_voter_idx = fd_tower_stakes_vtr_insert( tower_stakes, slot, &pubkey, stake_t_2, prev_voter_idx );
     total_stake += stake_t_2;
   }
-  fd_bank_vote_stakes_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_modify( bank );
   return total_stake;
 }
 

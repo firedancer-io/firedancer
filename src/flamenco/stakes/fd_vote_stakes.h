@@ -117,7 +117,7 @@ fd_vote_stakes_align( void );
 ulong
 fd_vote_stakes_footprint( ulong max_vote_accounts,
                           ulong max_fork_width,
-                          ulong map_chain_cnt );
+                          ulong expected_vote_accounts );
 
 
 /* fd_vote_stakes_new creates a new fd_vote_stakes_t object given a
@@ -126,8 +126,8 @@ fd_vote_stakes_footprint( ulong max_vote_accounts,
 void *
 fd_vote_stakes_new( void * shmem,
                     ulong  max_vote_accounts,
+                    ulong  expected_vote_accounts,
                     ulong  max_fork_width,
-                    ulong  map_chain_cnt,
                     ulong  seed );
 
 

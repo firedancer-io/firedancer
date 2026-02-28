@@ -796,6 +796,8 @@ fd_vsv_get_vote_block_timestamp( uchar const * data,
     .dataend = data + data_len,
   };
 
+  FD_TEST( data_len>=16UL );
+
   /* The vote block timestamp are always the last 16 bytes of the vote
      account data. */
 

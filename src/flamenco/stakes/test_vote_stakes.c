@@ -30,12 +30,12 @@ int main( int argc, char * argv[] ) {
     wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
   }
 
-  ulong footprint = fd_vote_stakes_footprint( 16UL, 4, 128UL );
+  ulong footprint = fd_vote_stakes_footprint( 16UL, 16UL, 16UL );
 
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_vote_stakes_align(), footprint, wksp_tag );
   FD_TEST( mem );
 
-  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( mem, 16UL, 16, 128UL, 0UL ) );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( mem, 16UL, 16UL, 16UL, 0UL ) );
   FD_TEST( vote_stakes );
   ushort root_idx = vote_stakes->root_idx; (void)root_idx;
 

@@ -440,13 +440,13 @@ fd_bank_set_vote_stakes( fd_bank_data_t * bank, fd_vote_stakes_t * vote_stakes )
 }
 
 static inline fd_vote_stakes_t *
-fd_bank_vote_stakes_locking_query( fd_bank_t const * bank ) {
+fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank ) {
   fd_rwlock_write( &bank->locks->vote_stakes_lock );
   return fd_type_pun( (uchar *)bank->data + bank->data->vote_stakes_offset );
 }
 
 static inline void
-fd_bank_vote_stakes_end_locking_query( fd_bank_t * bank ) {
+fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->locks->vote_stakes_lock );
 }
 

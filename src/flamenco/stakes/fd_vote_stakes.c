@@ -8,18 +8,18 @@ fd_vote_stakes_align( void ) {
 
 ulong
 fd_vote_stakes_footprint( ulong max_vote_accounts,
-                          ulong max_fork_width,
-                          ulong map_chain_cnt ) {
+                          ulong expected_vote_accounts,
+                          ulong max_fork_width ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),  sizeof(fd_vote_stakes_t) );
   l = FD_LAYOUT_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts ) );
-  l = FD_LAYOUT_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, index_map_align(),       index_map_footprint( expected_vote_accounts ) );
+  l = FD_LAYOUT_APPEND( l, index_map_multi_align(), index_map_multi_footprint( expected_vote_accounts ) );
   l = FD_LAYOUT_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
   for( ulong i=0; i<max_fork_width; i++ ) {
     l = FD_LAYOUT_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
-    l = FD_LAYOUT_APPEND( l, stakes_map_align(),  stakes_map_footprint( map_chain_cnt ) );
+    l = FD_LAYOUT_APPEND( l, stakes_map_align(),  stakes_map_footprint( expected_vote_accounts ) );
   }
   return FD_LAYOUT_FINI( l, fd_vote_stakes_align() );
 }
@@ -27,8 +27,8 @@ fd_vote_stakes_footprint( ulong max_vote_accounts,
 void *
 fd_vote_stakes_new( void * shmem,
                     ulong  max_vote_accounts,
+                    ulong  expected_vote_accounts,
                     ulong  max_fork_width,
-                    ulong  map_chain_cnt,
                     ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -48,8 +48,8 @@ fd_vote_stakes_new( void * shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_vote_stakes_t * vote_stakes         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),  sizeof(fd_vote_stakes_t) );
   void *             index_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts ) );
-  void *             index_map_mem       = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
-  void *             index_map_multi_mem = FD_SCRATCH_ALLOC_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
+  void *             index_map_mem       = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),       index_map_footprint( expected_vote_accounts ) );
+  void *             index_map_multi_mem = FD_SCRATCH_ALLOC_APPEND( l, index_map_multi_align(), index_map_multi_footprint( expected_vote_accounts ) );
   void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
   void *             fork_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
   for( ulong i=0; i<max_fork_width; i++ ) {
@@ -61,8 +61,8 @@ fd_vote_stakes_new( void * shmem,
     }
     vote_stakes->stakes_pool_off[ i ] = (ulong)stakes_pool - (ulong)shmem;
 
-    void * stakes_map_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_map_align(), stakes_map_footprint( map_chain_cnt ) );
-    stakes_map_t * stakes_map = stakes_map_join( stakes_map_new( stakes_map_mem, map_chain_cnt, seed ) );
+    void * stakes_map_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_map_align(), stakes_map_footprint( expected_vote_accounts ) );
+    stakes_map_t * stakes_map = stakes_map_join( stakes_map_new( stakes_map_mem, expected_vote_accounts, seed ) );
     if( FD_UNLIKELY( !stakes_map ) ) {
       FD_LOG_WARNING(( "Failed to create vote stakes ele map" ));
       return NULL;
@@ -76,13 +76,13 @@ fd_vote_stakes_new( void * shmem,
     return NULL;
   }
 
-  index_map_t * index_map = index_map_join( index_map_new( index_map_mem, map_chain_cnt, seed ) );
+  index_map_t * index_map = index_map_join( index_map_new( index_map_mem, expected_vote_accounts, seed ) );
   if( FD_UNLIKELY( !index_map ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes index map" ));
     return NULL;
   }
 
-  index_map_multi_t * index_map_multi = index_map_multi_join( index_map_multi_new( index_map_multi_mem, map_chain_cnt, seed ) );
+  index_map_multi_t * index_map_multi = index_map_multi_join( index_map_multi_new( index_map_multi_mem, expected_vote_accounts, seed ) );
   if( FD_UNLIKELY( !index_map_multi ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes index map multi" ));
     return NULL;
@@ -178,9 +178,9 @@ fd_vote_stakes_insert_root_update( fd_vote_stakes_t *  vote_stakes,
 
   index_ele_t * ele = index_map_multi_ele_query( index_map_multi, vote_acc, NULL, index_pool );
   if( FD_UNLIKELY( !ele ) ) {
-    ele = index_pool_ele_acquire( index_pool );
-    ele->pubkey       = *vote_acc;
-    ele->refcnt       = 1;
+    ele         = index_pool_ele_acquire( index_pool );
+    ele->pubkey = *vote_acc;
+    ele->refcnt = 1;
     FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
     uint pubkey_idx = (uint)index_pool_idx( index_pool, ele );
     stake_t *      new_stake = stakes_pool_ele_acquire( stakes_pool );
@@ -380,6 +380,8 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes ) {
   fork_dlist_t * fork_dlist = get_fork_dlist( vote_stakes );
   fork_dlist_remove_all( fork_dlist, fork_pool );
 
+  fork_pool_reset( fork_pool );
+
   /* For each fork, reset the stakes map and pool */
   for( ushort i=0; i<vote_stakes->max_fork_width; i++ ) {
     stakes_map_reset( get_stakes_map( vote_stakes, i ) );
@@ -392,6 +394,10 @@ fd_vote_stakes_reset( fd_vote_stakes_t * vote_stakes ) {
 
   /* Reset the index pool */
   index_pool_reset( get_index_pool( vote_stakes ) );
+
+  /* Setup the pool again */
+  vote_stakes->root_idx = (ushort)fork_pool_idx_acquire( fork_pool );
+  fork_dlist_idx_push_tail( fork_dlist, vote_stakes->root_idx, fork_pool );
 }
 
 uint

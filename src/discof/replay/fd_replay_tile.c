@@ -623,9 +623,9 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_stakes, bank->data->vote_stakes_fork_id, features, epoch_info_msg, current_epoch );
-  fd_bank_vote_stakes_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 
   ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -1109,11 +1109,11 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_refresh( root_delegations, ctx->accdb, &xid );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_query( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ushort fork_idx = bank->data->vote_stakes_fork_id;
 
   ulong stale_accs = 0UL;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
@@ -1132,7 +1132,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     fd_vote_stakes_purge_root_key( vote_stakes, &ctx->runtime_stack.vote_accounts.stale_accs[i] );
   }
 
-  fd_bank_vote_stakes_end_locking_query( bank );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 
 
 

@@ -628,7 +628,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_spad_t *                    spad           = dump_ctx->spad;
 
   /* Get vote and stake delegation infos */
-  fd_vote_stakes_t * vote_stakes        = fd_bank_vote_stakes_locking_query( parent_bank );
+  fd_vote_stakes_t * vote_stakes        = fd_bank_vote_stakes_locking_modify( parent_bank );
   ulong              vote_account_t_cnt = fd_vote_stakes_ele_cnt( vote_stakes, parent_bank->data->vote_stakes_fork_id );
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, parent_bank );
@@ -708,7 +708,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &pubkey );
   }
-  fd_bank_vote_stakes_end_locking_query( parent_bank );
+  fd_bank_vote_stakes_end_locking_modify( parent_bank );
 
   /* BlockContext -> acct_states
      Iterate over the set and dump all the account keys in one pass. */

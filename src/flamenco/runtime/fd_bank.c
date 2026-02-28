@@ -165,8 +165,8 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
-  l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
-  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, max_fork_width, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) );
+  l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, max_fork_width ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -197,8 +197,8 @@ fd_banks_new( void * shmem,
   void *            dead_banks_deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   void *            epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   void *            cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
-  void *            stake_rewards_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),            fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
-  void *            vote_stakes_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, max_fork_width, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) );
+  void *            stake_rewards_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS, max_fork_width ) );
+  void *            vote_stakes_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, max_fork_width ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -353,7 +353,8 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   void * dead_banks_deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   void * epoch_leaders_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( banks_data->max_fork_width ) );
   void * cost_tracker_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
-  void * stake_rewards_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),            fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, banks_data->max_fork_width, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) );
+  void * stake_rewards_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS, banks_data->max_fork_width ) );
+  void * vote_stakes_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, banks_data->max_fork_width ) );
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -396,9 +397,10 @@ fd_banks_join( fd_banks_t * banks_ljoin,
     return NULL;
   }
 
-  /* TODO: Not critical, but consider verifying stake rewards is
-     joined correctly. */
+  /* TODO: Not critical, but consider verifying stake rewards and vote
+     stakes are joined correctly. */
   (void)stake_rewards_mem;
+  (void)vote_stakes_mem;
 
   banks_ljoin->data  = banks_data;
   banks_ljoin->locks = banks_locks;
