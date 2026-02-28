@@ -263,16 +263,16 @@ fd_active_set_push( fd_active_set_t *   active_set,
   ulong stake_bucket = fd_active_set_stake_bucket( fd_ulong_min( active_set->identity_stake, origin_stake ) );
   fd_active_set_entry_t * entry = active_set->entries[ stake_bucket ];
 
-  int identity_eq_origin = !memcmp( active_set->identity_pubkey, origin_pubkey, 32UL );
-  int ignore_prunes_if_peer_is_origin = 0; /* TODO */
+  int originates_from_me = !memcmp( active_set->identity_pubkey, origin_pubkey, 32UL );
 
   for( ulong i=0UL; i<entry->nodes_len; i++ ) {
     fd_active_set_peer_t * peer = &active_set->peers[ stake_bucket*12UL+((entry->nodes_idx+i) % 12UL) ];
-    uchar const * peer_pubkey = fd_crds_ci_pubkey( active_set->crds, peer->ci_idx );
 
-    int must_push_if_peer_is_origin = ignore_prunes_if_peer_is_origin && !memcmp( peer_pubkey, origin_pubkey, 32UL );
-    int must_push_own_values = identity_eq_origin && !memcmp( peer_pubkey, active_set->identity_pubkey, 32UL );
-    if( FD_UNLIKELY( fd_bloom_contains( peer->bloom, origin_pubkey, 32UL ) && !must_push_own_values && !must_push_if_peer_is_origin ) ) continue;
+    /* If the value originated from us, we should always push it, even
+       if theres a bloom filter hit, since bloom filters can have false
+       positives and we don't want to accidentally not push our own
+       values. */
+    if( FD_UNLIKELY( fd_bloom_contains( peer->bloom, origin_pubkey, 32UL ) && !originates_from_me ) ) continue;
 
     if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( peer->txbuild, crds_sz ) ) ) push_flush( active_set, peer, stem, now );
     if( FD_UNLIKELY( !peer->txbuild->crds_len ) ) {
