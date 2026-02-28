@@ -42,7 +42,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "txncache" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
-      fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
+      FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "funk" );
