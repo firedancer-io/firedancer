@@ -184,7 +184,7 @@ fd_io_seek( int     fd,
             ulong * _idx ) {
   static int const whence[3] = { SEEK_SET, SEEK_CUR, SEEK_END };
 
-  if( FD_UNLIKELY( !((0<=type) & (type<=3) & (rel_off==(long)(off_t)rel_off)) ) ) {
+  if( FD_UNLIKELY( !((0<=type) & (type<3) & (rel_off==(long)(off_t)rel_off)) ) ) {
     *_idx = 0UL;
     return EINVAL;
   }
