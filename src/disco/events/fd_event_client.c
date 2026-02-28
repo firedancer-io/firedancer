@@ -222,7 +222,8 @@ fd_event_client_new( void *                 shmem,
   client->grpc_client = fd_grpc_client_new( grpc_client_mem, &fd_event_client_grpc_callbacks, client->grpc_metrics, client, buf_max, fd_rng_ulong( rng ) );
   FD_TEST( client->grpc_client );
 
-  memset( &client->metrics, 0, sizeof( client->metrics ) );
+  memset( &client->metrics, 0, sizeof(client->metrics) );
+  memset( client->grpc_metrics, 0, sizeof(fd_grpc_client_metrics_t) );
 
   fd_grpc_client_set_version( client->grpc_client, client->client_version, strlen( client->client_version ) );
   fd_grpc_client_set_authority( client->grpc_client, client->server_fqdn, client->server_fqdn_len, client->server_tcp_port );
