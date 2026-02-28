@@ -2145,6 +2145,7 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( fd_banks_prune_dead_banks( ctx->banks ) ) ) {
+    // FIXME: anything pruned from banks should also be pruned from txncache and accdb
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
