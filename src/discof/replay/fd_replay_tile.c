@@ -460,6 +460,7 @@ struct fd_replay_tile {
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
+  ulong              runtime_stack_seed;
   fd_runtime_stack_t runtime_stack;
 };
 
@@ -558,7 +559,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
 static inline ulong
 generate_epoch_info_msg( ulong                       epoch,
                          fd_epoch_schedule_t const * epoch_schedule,
-                         fd_vote_states_t const *    epoch_stakes,
+                         fd_vote_stakes_t *          vote_stakes,
+                         ushort                      vote_stakes_fork_idx,
                          fd_features_t const *       features,
                          fd_epoch_info_msg_t *       epoch_info_msg,
                          int                         current_epoch ) {
@@ -578,17 +580,26 @@ generate_epoch_info_msg( ulong                       epoch,
   }
 
   /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
-  fd_vote_states_iter_t iter_[1];
   ulong idx = 0UL;
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, epoch_stakes ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, vote_stakes_fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, vote_stakes_fork_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, vote_stakes_fork_idx, iter ) ) {
 
-    ulong stake = current_epoch ? vote_state->stake_t_1 : vote_state->stake_t_2;
+    fd_pubkey_t pubkey;
+    ulong       stake_t_1;
+    ulong       stake_t_2;
+    fd_pubkey_t node_account_t_1;
+    fd_pubkey_t node_account_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, vote_stakes_fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+
+    ulong       stake        = current_epoch ? stake_t_1 : stake_t_2;
+    fd_pubkey_t node_account = current_epoch ? node_account_t_1 : node_account_t_2;
     if( FD_UNLIKELY( !stake ) ) continue;
 
     stake_weights[ idx ].stake = stake;
-    memcpy( stake_weights[ idx ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ idx ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
     idx++;
   }
   epoch_info_msg->staked_cnt = idx;
@@ -608,12 +619,14 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL );
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
-
   fd_features_t const * features = fd_bank_features_query( bank );
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
-  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states, features, epoch_info_msg, current_epoch );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  ulong epoch_info_sz = generate_epoch_info_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_stakes, bank->data->vote_stakes_fork_id, features, epoch_info_msg, current_epoch );
+  fd_bank_vote_stakes_end_locking_modify( bank );
+
   ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
@@ -621,7 +634,6 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
   fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
 
-  fd_bank_vote_states_end_locking_query( bank );
 }
 
 /**********************************************************************/
@@ -1097,34 +1109,32 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_refresh( root_delegations, ctx->accdb, &xid );
 
-  /* We want to clear out any stale vote states that may have been
-    included in the snapshot manifest.  If an agave snapshot is created
-    shortly after a vote state is removed from the stakes cache (Agave
-    equivalent of vote states), then the vote state will be included in
-    the snapshot manifest. */
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  ushort fork_idx = bank->data->vote_stakes_fork_id;
 
-    fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-    fd_vote_states_iter_t iter_[1];
+  ulong stale_accs = 0UL;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+    fd_pubkey_t pubkey;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL );
 
-    ulong stale_vote_acc_cnt = 0UL;
-    for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-        !fd_vote_states_iter_done( iter );
-        fd_vote_states_iter_next( iter ) ) {
-      fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
-      fd_accdb_ro_t ro[1];
-      if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, &vote_state->vote_account ) ) ) {
-        ctx->runtime_stack.vote_accounts.stale_accs[ stale_vote_acc_cnt++ ] = vote_state->vote_account;
-        FD_BASE58_ENCODE_32_BYTES( vote_state->vote_account.uc, acc_cstr );
-        FD_LOG_DEBUG(( "vote account %s from manifest is stale", acc_cstr ));
-      } else {
-        fd_accdb_close_ro( ctx->accdb, ro );
-      }
+    fd_accdb_ro_t acc[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, acc, &xid, &pubkey ) ) ) {
+      ctx->runtime_stack.vote_accounts.stale_accs[stale_accs++] = pubkey;
+      continue;
     }
+    fd_accdb_close_ro( ctx->accdb, acc );
+  }
 
-    for( ulong i=0UL; i<stale_vote_acc_cnt; i++ ) {
-      fd_vote_states_remove( vote_states, &ctx->runtime_stack.vote_accounts.stale_accs[ i ] );
-    }
-    fd_bank_vote_states_end_locking_modify( bank );
+  for( ulong i=0UL; i<stale_accs; i++ ) {
+    fd_vote_stakes_purge_root_key( vote_stakes, &ctx->runtime_stack.vote_accounts.stale_accs[i] );
+  }
+
+  fd_bank_vote_stakes_end_locking_modify( bank );
+
+
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -1152,7 +1162,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
     snapshot_slot = 0UL;
   }
-
 }
 
 static inline int
@@ -1596,7 +1605,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                          ctx->banks,
                          fd_banks_bank_query( bank, ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
-                         ctx->runtime_stack.stakes.vote_credits,
+                         &ctx->runtime_stack,
                          msg==FD_SSMSG_MANIFEST_INCREMENTAL );
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
@@ -2667,6 +2676,10 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_rng_secure( &ctx->initial_block_id, sizeof(fd_hash_t) ) ) ) {
     FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
+
+  if( FD_UNLIKELY( !fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) ) ) ) {
+    FD_LOG_CRIT(( "fd_rng_secure failed" ));
+  }
 }
 
 static void
@@ -2693,6 +2706,8 @@ unprivileged_init( fd_topo_t *      topo,
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
   }
 # endif
+
+  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( ctx->runtime_stack.stakes.vote_map_mem, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, ctx->runtime_stack_seed ) ) );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 

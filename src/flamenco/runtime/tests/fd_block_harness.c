@@ -33,39 +33,13 @@ typedef struct {
 /* Fixed leader schedule hash seed (consistent with solfuzz-agave) */
 #define LEADER_SCHEDULE_HASH_SEED 0xDEADFACEUL
 
-/* Stripped down version of fd_refresh_vote_accounts that simply
-   refreshes the stake delegation amount for each of the vote accounts
-   using the stake delegations cache. */
-static void
-fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
-                                        fd_stake_delegations_t * stake_delegations ) {
-
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t * node = fd_stake_delegations_iter_ele( iter );
-
-    fd_pubkey_t * voter_pubkey = &node->vote_account;
-    ulong         stake        = node->stake;
-
-    /* Find the voter in the vote accounts cache and update their
-       delegation amount */
-    fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, voter_pubkey );
-    if( !vote_state ) continue;
-
-    vote_state->stake_t_1 += stake;
-    vote_state->stake_t_2 += stake;
-  }
-}
-
 /* Registers a single vote account into the current votes cache.  The
    entry is derived from the current present account state.  This
    function also registers a vote timestamp for the vote account. */
 static void
 fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
                                         fd_funk_txn_xid_t const * xid,
-                                        fd_vote_states_t *        vote_states,
+                                        fd_vote_stakes_t *        vote_stakes,
                                         fd_pubkey_t *             pubkey ) {
   fd_accdb_ro_t ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
@@ -76,23 +50,12 @@ fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
     fd_accdb_close_ro( accdb, ro );
     return;
   }
-
-  fd_vote_states_update_from_account(
-      vote_states,
-      fd_accdb_ref_address( ro ),
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
-  fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, fd_accdb_ref_address( ro ) );
-  vote_state->stake_t_1 = 0UL;
-  vote_state->stake_t_2 = 0UL;
-  vote_state->node_account_t_1 = vote_state->node_account;
-  vote_state->node_account_t_2 = vote_state->node_account;
-
+  fd_vote_stakes_insert_root_key( vote_stakes, pubkey );
   fd_accdb_close_ro( accdb, ro );
 }
 
 static void
-fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_states,
+fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_stakes,
                                            fd_exec_test_vote_account_t * vote_accounts,
                                            pb_size_t                     vote_accounts_cnt,
                                            fd_runtime_stack_t *          runtime_stack,
@@ -102,13 +65,11 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_st
     ulong                       stake         = vote_accounts[i].stake;
     fd_pubkey_t                 vote_address  = {0};
 
+    fd_pubkey_t node_account = fd_vsv_get_node_account( vote_account->data->bytes );
+
+    fd_vote_stakes_insert_root_update( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, is_t_1 );
+
     fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
-    fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &vote_address );
-    if( is_t_1 ) {
-      vote_state->stake_t_1 = stake;
-    } else {
-      vote_state->stake_t_2 = stake;
-    }
 
     if( !is_t_1 ) continue;
 
@@ -125,7 +86,6 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_st
     if( FD_UNLIKELY( vsv==NULL ) ) {
       FD_LOG_CRIT(( "unable to decode vote state versioned" ));
     }
-
 
     fd_vote_epoch_credits_t * epoch_credits = NULL;
     switch( vsv->discriminant ) {
@@ -145,17 +105,20 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_states_t *            vote_st
         __builtin_unreachable();
     }
 
-    fd_vote_state_credits_t * vote_credits = &runtime_stack->stakes.vote_credits[ vote_state->idx ];
-    vote_credits->credits_cnt = 0UL;
-    for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
-         !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
-         iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
-      fd_vote_epoch_credits_t const * credit_ele = deq_fd_vote_epoch_credits_t_iter_ele_const( epoch_credits, iter );
-      vote_credits->epoch[ vote_credits->credits_cnt ]        = (ushort)credit_ele->epoch;
-      vote_credits->credits[ vote_credits->credits_cnt ]      = credit_ele->credits;
-      vote_credits->prev_credits[ vote_credits->credits_cnt ] = credit_ele->prev_credits;
-      vote_credits->credits_cnt++;
-    }
+    (void)epoch_credits;
+    (void)runtime_stack;
+    /* FIXME: Block fixtures during epoch boundary will not work. */
+    // fd_vote_state_credits_t * vote_credits = &runtime_stack->stakes.vote_ele[ vote_state->idx ].vote_credits;
+    // vote_credits->credits_cnt = 0UL;
+    // for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+    //      !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+    //      iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+    //   fd_vote_epoch_credits_t const * credit_ele = deq_fd_vote_epoch_credits_t_iter_ele_const( epoch_credits, iter );
+    //   vote_credits->epoch[ vote_credits->credits_cnt ]        = (ushort)credit_ele->epoch;
+    //   vote_credits->credits[ vote_credits->credits_cnt ]      = credit_ele->credits;
+    //   vote_credits->prev_credits[ vote_credits->credits_cnt ] = credit_ele->prev_credits;
+    //   vote_credits->credits_cnt++;
+    // }
   }
 }
 
@@ -293,8 +256,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   fd_stake_delegations_init( stake_delegations );
 
-  /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
+
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], i );
 
@@ -304,7 +268,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_solfuzz_block_register_vote_account(
         accdb,
         xid,
-        vote_states,
+        vote_stakes,
         &pubkey );
 
     /* Update the stake delegations cache for epoch T */
@@ -327,7 +291,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Update vote cache for epoch T-1 */
   fd_solfuzz_block_update_prev_epoch_stakes(
-      vote_states,
+      vote_stakes,
       test_ctx->epoch_ctx.vote_accounts_t_1,
       test_ctx->epoch_ctx.vote_accounts_t_1_count,
       runtime_stack,
@@ -335,17 +299,15 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Update vote cache for epoch T-2 */
   fd_solfuzz_block_update_prev_epoch_stakes(
-      vote_states,
+      vote_stakes,
       test_ctx->epoch_ctx.vote_accounts_t_2,
       test_ctx->epoch_ctx.vote_accounts_t_2_count,
       runtime_stack,
       0 );
 
-  /* Refresh vote accounts to calculate stake delegations */
-  fd_solfuzz_block_refresh_vote_accounts(
-      vote_states,
-      stake_delegations );
-  fd_bank_vote_states_end_locking_modify( bank );
+  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, 2048UL, 999 ) ) );
+
+  fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( bank, runtime_stack );

@@ -5,7 +5,7 @@
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_delegations.h"
-#include "../stakes/fd_vote_states.h"
+#include "../stakes/fd_vote_stakes.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
 #include "sysvar/fd_sysvar_cache.h"
@@ -269,12 +269,6 @@ struct fd_bank_epoch_leaders {
 };
 typedef struct fd_bank_epoch_leaders fd_bank_epoch_leaders_t;
 
-struct fd_bank_vote_states {
-  ulong next;
-  uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
-};
-typedef struct fd_bank_vote_states fd_bank_vote_states_t;
-
 struct fd_bank_cost_tracker {
   ulong next;
   uchar data[FD_COST_TRACKER_FOOTPRINT] __attribute__((aligned(FD_COST_TRACKER_ALIGN)));
@@ -283,10 +277,6 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
 #define POOL_NAME fd_bank_epoch_leaders_pool
 #define POOL_T    fd_bank_epoch_leaders_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_vote_states_pool
-#define POOL_T    fd_bank_vote_states_t
 #include "../../util/tmpl/fd_pool.c"
 
 #define POOL_NAME fd_bank_cost_tracker_pool
@@ -340,6 +330,8 @@ struct fd_bank_data {
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
 
+  ushort vote_stakes_fork_id; /* fork id used by the vote stakes */
+
   /* Timestamps written and read only by replay */
 
   long first_fec_set_received_nanos;
@@ -366,12 +358,10 @@ struct fd_bank_data {
   ulong cost_tracker_pool_idx;
   ulong cost_tracker_pool_offset;
 
+  ulong vote_stakes_offset;
+
   int   stake_delegations_delta_dirty;
   uchar stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-
-  int   vote_states_dirty;
-  ulong vote_states_pool_idx;
-  ulong vote_states_pool_offset;
 
   int   epoch_leaders_dirty;
   ulong epoch_leaders_pool_idx;
@@ -396,7 +386,8 @@ struct fd_banks_locks {
      pools (e.g. acquires and releases).  These locks are currently just
      write locks and have no readers. */
   fd_rwlock_t epoch_leaders_pool_lock;
-  fd_rwlock_t vote_states_pool_lock;
+
+  fd_rwlock_t vote_stakes_lock;
 
   /* These locks are per bank and are used to atomically update their
      corresponding fields in each bank.  The locks are indexed by the
@@ -404,8 +395,6 @@ struct fd_banks_locks {
   fd_rwlock_t lthash_lock[ FD_BANKS_MAX_BANKS ];
   fd_rwlock_t cost_tracker_lock[ FD_BANKS_MAX_BANKS ];
   fd_rwlock_t stake_delegations_delta_lock[ FD_BANKS_MAX_BANKS ];
-  fd_rwlock_t vote_states_lock[ FD_BANKS_MAX_BANKS ];
-
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
 
@@ -429,20 +418,6 @@ fd_bank_get_epoch_leaders_pool( fd_bank_data_t * bank ) {
   return fd_bank_epoch_leaders_pool_join( (uchar *)bank + bank->epoch_leaders_pool_offset );
 }
 
-static inline void
-fd_bank_set_vote_states_pool( fd_bank_data_t * bank, fd_bank_vote_states_t * vote_states_pool ) {
-  void * vote_states_pool_mem = fd_bank_vote_states_pool_leave( vote_states_pool );
-  if( FD_UNLIKELY( !vote_states_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave vote states pool" ));
-  }
-  bank->vote_states_pool_offset = (ulong)vote_states_pool_mem - (ulong)bank;
-}
-
-static inline fd_bank_vote_states_t *
-fd_bank_get_vote_states_pool( fd_bank_data_t * bank ) {
-  return fd_bank_vote_states_pool_join( (uchar *)bank + bank->vote_states_pool_offset );
-}
-
 /* Do the same setup for the cost tracker pool. */
 
 static inline void
@@ -457,6 +432,22 @@ fd_bank_set_cost_tracker_pool( fd_bank_data_t * bank, fd_bank_cost_tracker_t * c
 static inline fd_bank_cost_tracker_t *
 fd_bank_get_cost_tracker_pool( fd_bank_data_t * bank ) {
   return fd_bank_cost_tracker_pool_join( (uchar *)bank + bank->cost_tracker_pool_offset );
+}
+
+static inline void
+fd_bank_set_vote_stakes( fd_bank_data_t * bank, fd_vote_stakes_t * vote_stakes ) {
+  bank->vote_stakes_offset = (ulong)vote_stakes - (ulong)bank;
+}
+
+static inline fd_vote_stakes_t *
+fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank ) {
+  fd_rwlock_write( &bank->locks->vote_stakes_lock );
+  return fd_type_pun( (uchar *)bank->data + bank->data->vote_stakes_offset );
+}
+
+static inline void
+fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->locks->vote_stakes_lock );
 }
 
 /* fd_bank_t is the alignment for the bank state. */
@@ -506,7 +497,8 @@ struct fd_banks_data {
   ulong pool_offset;     /* offset of pool from banks */
 
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
-  ulong vote_states_pool_offset_;
+
+  ulong vote_stakes_pool_offset;
 
   ulong stake_rewards_offset;
 
@@ -534,7 +526,6 @@ struct fd_banks_data {
   /* Layout all CoW pools. */
 
   ulong epoch_leaders_pool_offset;
-  ulong vote_states_pool_offset;
 };
 typedef struct fd_banks_data fd_banks_data_t;
 
@@ -558,18 +549,6 @@ fd_bank_epoch_leaders_query( fd_bank_t const * bank );
 
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank );
-
-fd_vote_states_t const *
-fd_bank_vote_states_locking_query( fd_bank_t * bank );
-
-void
-fd_bank_vote_states_end_locking_query( fd_bank_t * bank );
-
-fd_vote_states_t *
-fd_bank_vote_states_locking_modify( fd_bank_t * bank );
-
-void
-fd_bank_vote_states_end_locking_modify( fd_bank_t * bank );
 
 fd_cost_tracker_t *
 fd_bank_cost_tracker_locking_modify( fd_bank_t * bank );
@@ -709,20 +688,6 @@ fd_banks_set_epoch_leaders_pool( fd_banks_data_t * banks_data, fd_bank_epoch_lea
   banks_data->epoch_leaders_pool_offset = (ulong)epoch_leaders_pool_mem - (ulong)banks_data;
 }
 
-static inline fd_bank_vote_states_t *
-fd_banks_get_vote_states_pool( fd_banks_data_t * banks_data ) {
-  return fd_bank_vote_states_pool_join( (uchar *)banks_data + banks_data->vote_states_pool_offset );
-}
-
-static inline void
-fd_banks_set_vote_states_pool( fd_banks_data_t * banks_data, fd_bank_vote_states_t * vote_states_pool ) {
-  void * vote_states_pool_mem = fd_bank_vote_states_pool_leave( vote_states_pool );
-  if( FD_UNLIKELY( !vote_states_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave vote states pool" ));
-  }
-  banks_data->vote_states_pool_offset = (ulong)vote_states_pool_mem - (ulong)banks_data;
-}
-
 static inline fd_bank_cost_tracker_t *
 fd_banks_get_cost_tracker_pool( fd_banks_data_t * banks_data ) {
   return fd_bank_cost_tracker_pool_join( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
@@ -748,6 +713,16 @@ static inline void
 fd_bank_set_stake_rewards( fd_bank_data_t *     bank,
                            fd_stake_rewards_t * stake_rewards ) {
   bank->stake_rewards_offset = (ulong)stake_rewards - (ulong)bank;
+}
+
+static inline fd_vote_stakes_t *
+fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_pool_offset );
+}
+
+static inline void
+fd_banks_set_vote_stakes( fd_banks_data_t * banks_data, fd_vote_stakes_t * vote_stakes ) {
+  banks_data->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)banks_data;
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */
@@ -988,11 +963,19 @@ fd_banks_get_frontier( fd_banks_t * banks,
                        ulong *      frontier_indices_out,
                        ulong *      frontier_cnt_out );
 
-/* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */
+/* fd_banks_is_full returns 1 if the banks are full, 0 otherwise.  Banks
+   can be full in two cases:
+   1. All banks have been allocated
+   2. There are too many active forks
+      a. There are too many cost tracker elements.  This happens from
+         wide forking across blocks.
+      b. Too many forks have crossed the epoch boundary.  */
 
 static inline int
 fd_banks_is_full( fd_banks_t * banks ) {
-  return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL;
+  return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL ||
+         fd_bank_cost_tracker_pool_free( fd_banks_get_cost_tracker_pool( banks->data ) )==0UL ||
+         fd_bank_epoch_leaders_pool_free( fd_banks_get_epoch_leaders_pool( banks->data ) )==0UL;
 }
 
 FD_PROTOTYPES_END

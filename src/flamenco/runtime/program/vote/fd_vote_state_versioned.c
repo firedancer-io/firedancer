@@ -797,3 +797,31 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
 
   return 0;
 }
+
+fd_vote_block_timestamp_t
+fd_vsv_get_vote_block_timestamp( uchar const * data,
+                                 ulong         data_len ) {
+
+  /* TODO: A smarter/safer xray should be used here instead of the
+     fd_types xray functions + an offset. */
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = data,
+    .dataend = data + data_len,
+  };
+
+  FD_TEST( data_len>=16UL );
+
+  /* The vote block timestamp are always the last 16 bytes of the vote
+     account data. */
+
+  fd_vote_state_versioned_seek_end( &ctx );
+  uchar * data_ptr = (uchar *)ctx.data;
+  return *(fd_vote_block_timestamp_t *)(data_ptr-16UL);
+}
+
+fd_pubkey_t
+fd_vsv_get_node_account( uchar const * data ) {
+  fd_pubkey_t pubkey;
+  memcpy( &pubkey, data + sizeof(uint), sizeof(fd_pubkey_t) );
+  return pubkey;
+}

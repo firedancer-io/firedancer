@@ -862,16 +862,6 @@ main( int argc, char ** argv ) {
   /* Again, there are no free epoch leader pool elements. */
   FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11->data ) ) == 2UL );
 
-  fd_vote_states_t const * votes_const = fd_bank_vote_states_locking_query( bank11 );
-  FD_TEST( votes_const );
-  fd_bank_vote_states_end_locking_query( bank11 );
-
-  fd_vote_states_t * votes = fd_bank_vote_states_locking_modify( bank11 );
-  votes->magic = 102UL;
-  fd_bank_vote_states_end_locking_modify( bank11 );
-
-  FD_TEST( fd_bank_vote_states_pool_free( fd_bank_get_vote_states_pool( bank11->data ) ) == 14UL );
-
   /* Now there should be 3 forks:
      1. 7 (1234) -> 8
      2. 7 (1234) -> 9 -> 11
@@ -887,10 +877,6 @@ main( int argc, char ** argv ) {
   FD_TEST( !!fd_banks_bank_query( bank_query, banks, bank10->data->idx ) );
 
   /* Verify that the CoW fields are properly set for bank11 */
-
-  votes_const = fd_bank_vote_states_locking_query( bank11 );
-  FD_TEST( votes->magic == 102UL );
-  fd_bank_vote_states_end_locking_query( bank11 );
 
   /* Clear bank11, we need to make sure that the pool indices are
      cleared and properly released.

@@ -117,8 +117,8 @@ fd_stake_rewards_align( void ) {
 
 ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
-                            ulong max_fork_width,
-                            ulong expected_stake_accs ) {
+                            ulong expected_stake_accs,
+                            ulong max_fork_width) {
   ulong map_chain_cnt = index_map_chain_cnt_est( expected_stake_accs );
 
   ulong l = FD_LAYOUT_INIT;

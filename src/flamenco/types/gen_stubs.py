@@ -142,6 +142,7 @@ class TypeNode:
         if json is not None:
             self.name = json["name"]
             self.produce_global = bool(json["global"]) if "global" in json else None
+            self.produce_seek_end = bool(json["seek_end"]) if "seek_end" in json else False
         elif 'name' in kwargs:
             self.name = kwargs['name']
         else:
@@ -2425,6 +2426,8 @@ class StructType(TypeNode):
             print(f'}}', file=header)
         else:
             print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+            if self.produce_seek_end:
+                print(f'int {n}_seek_end( fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         if self.produce_global and not self.isFlat():
             print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
@@ -2509,6 +2512,14 @@ class StructType(TypeNode):
                     f.emitDecodeInner()
                 if self.normalizer is not None:
                     print(f'  {self.normalizer}( self );', file=body)
+                print(f'}}', file=body)
+
+            if self.produce_seek_end:
+                print(f'int {n}_seek_end( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+                print(f'  ulong total_sz;', file=body)
+                print(f'  int err = {n}_decode_footprint_inner( ctx, &total_sz );', file=body)
+                print(f'  if( ctx->data>ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
+                print(f'  return err;', file=body)
                 print(f'}}', file=body)
 
             print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -2708,6 +2719,8 @@ class EnumType(TypeNode):
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'static inline ulong {n}_align( void ) {{ return {n.upper()}_ALIGN; }}', file=header)
         print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+        if self.produce_seek_end:
+            print(f'int {n}_seek_end( fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         if self.produce_global and not self.isFlat():
             print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
@@ -2771,6 +2784,14 @@ class EnumType(TypeNode):
         print(f'  ctx->data = start_data;', file=body)
         print(f'  return err;', file=body)
         print("}", file=body)
+
+        if self.produce_seek_end:
+            print(f'int {n}_seek_end( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print(f'  ulong total_sz;', file=body)
+            print(f'  int err = {n}_decode_footprint_inner( ctx, &total_sz );', file=body)
+            print(f'  if( ctx->data>ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
+            print(f'  return err;', file=body)
+            print("}", file=body)
 
         if not self.isFixedSize():
             print(f'static void {n}_inner_decode_inner( {n}_inner_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)

@@ -34,4 +34,4 @@ fd_vote_tracker_query_sig( fd_vote_tracker_t *    vote_tracker,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_stakes_fd_vote_states_h */
+#endif /* HEADER_fd_src_discof_replay_fd_vote_tracker_h */
