@@ -448,10 +448,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
   ctx->runtime->acc_pool                 = ctx->acc_pool;
+  memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = &ctx->log_collector;
-  ctx->runtime->log.enable_log_collector = 0;
   ctx->runtime->log.dumping_mem          = ctx->dumping_mem;
-  ctx->runtime->log.enable_vm_tracing    = 0;
   ctx->runtime->log.tracing_mem          = &ctx->tracing_mem[0][0];
   ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
   ctx->runtime->log.dump_proto_ctx       = ctx->dump_proto_ctx;

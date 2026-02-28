@@ -166,6 +166,7 @@ test_env_create( test_env_t * env,
   FD_TEST( env->runtime );
 
   fd_log_collector_init( env->log_collector, 0 );
+  memset( &env->runtime->log, 0, sizeof(env->runtime->log) );
   env->runtime->log.log_collector = env->log_collector;
 
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( env->sha ) );
