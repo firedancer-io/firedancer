@@ -137,8 +137,8 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
 void *
 fd_stake_rewards_new( void * shmem,
                       ulong  max_stake_accounts,
-                      ulong  expected_stake_accs,
                       ulong  max_fork_width,
+                      ulong  expected_stake_accs,
                       ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
