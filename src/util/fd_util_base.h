@@ -82,7 +82,11 @@
    use of them in implementations. */
 
 #ifndef FD_HAS_INT128
+#if defined(CBMC)
+#define FD_HAS_INT128 1
+#elif
 #define FD_HAS_INT128 0
+#endif
 #endif
 
 /* FD_HAS_DOUBLE:  If the build target supports reasonably efficient
