@@ -73,16 +73,16 @@ fd_stake_rewards_align( void );
 
 ulong
 fd_stake_rewards_footprint( ulong max_stake_accounts,
-                            ulong expected_stake_accs,
-                            ulong max_fork_width );
+                            ulong max_fork_width,
+                            ulong expected_stake_accs );
 
 /* fd_stake_rewards_new creates a new stake rewards structure. */
 
 void *
 fd_stake_rewards_new( void * shmem,
                       ulong  max_stake_accounts,
-                      ulong  expected_stake_accs,
                       ulong  max_fork_width,
+                      ulong  expected_stake_accs,
                       ulong  seed );
 
 /* fd_stake_rewards_join joins the caller to the stake rewards
