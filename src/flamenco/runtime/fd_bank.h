@@ -963,11 +963,19 @@ fd_banks_get_frontier( fd_banks_t * banks,
                        ulong *      frontier_indices_out,
                        ulong *      frontier_cnt_out );
 
-/* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */
+/* fd_banks_is_full returns 1 if the banks are full, 0 otherwise.  Banks
+   can be full in two cases:
+   1. All banks have been allocated
+   2. There are too many active forks
+      a. There are too many cost tracker elements.  This happens from
+         wide forking across blocks.
+      b. Too many forks have crossed the epoch boundary.  */
 
 static inline int
 fd_banks_is_full( fd_banks_t * banks ) {
-  return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL;
+  return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL ||
+         fd_bank_cost_tracker_pool_free( fd_banks_get_cost_tracker_pool( banks->data ) )==0UL ||
+         fd_bank_epoch_leaders_pool_free( fd_banks_get_epoch_leaders_pool( banks->data ) )==0UL;
 }
 
 FD_PROTOTYPES_END
