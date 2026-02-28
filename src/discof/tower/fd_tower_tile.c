@@ -511,6 +511,8 @@ query_acct_stake_from_bank( fd_tower_voters_t *  tower_voters_deque,
     fd_pubkey_t pubkey;
     ulong       stake_t_2;
     fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
+
+    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
     fd_tower_voters_push_tail( tower_voters_deque, (fd_tower_voters_t){ .addr = pubkey, .stake = stake_t_2 } );
     prev_voter_idx = fd_tower_stakes_vtr_insert( tower_stakes, slot, &pubkey, stake_t_2, prev_voter_idx );
     total_stake += stake_t_2;

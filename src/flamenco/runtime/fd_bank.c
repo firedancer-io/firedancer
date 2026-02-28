@@ -270,7 +270,7 @@ fd_banks_new( void * shmem,
   }
 
   fd_banks_set_stake_rewards( banks_data, stake_rewards );
-  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS, max_fork_width, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, seed ) );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, max_fork_width, seed ) );
   if( FD_UNLIKELY( !vote_stakes ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes" ));
     return NULL;

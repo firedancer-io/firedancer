@@ -116,8 +116,8 @@ fd_vote_stakes_align( void );
 
 ulong
 fd_vote_stakes_footprint( ulong max_vote_accounts,
-                          ulong max_fork_width,
-                          ulong expected_vote_accounts );
+                          ulong expected_vote_accounts,
+                          ulong max_fork_width );
 
 
 /* fd_vote_stakes_new creates a new fd_vote_stakes_t object given a
