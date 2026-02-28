@@ -378,6 +378,7 @@ test_env_create( test_env_t * env,
   env->runtime->acc_pool     = env->acc_pool;
 
   fd_log_collector_init( env->log_collector, 0 );
+  memset( &env->runtime->log, 0, sizeof(env->runtime->log) );
   env->runtime->log.log_collector = env->log_collector;
 
   /* Features: legacy mode (no direct_mapping, no stricter_abi) */

@@ -198,13 +198,8 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   env->runtime->status_cache             = NULL;
   env->runtime->acc_pool                 = acc_pool;
   fd_log_collector_init( env->log_collector, 0 );
+  memset( &env->runtime->log, 0, sizeof(env->runtime->log) );
   env->runtime->log.log_collector        = env->log_collector;
-  env->runtime->log.enable_log_collector = 0;
-  env->runtime->log.dumping_mem          = NULL;
-  env->runtime->log.enable_vm_tracing    = 0;
-  env->runtime->log.tracing_mem          = NULL;
-  env->runtime->log.capture_ctx          = NULL;
-  env->runtime->log.txn_dump_ctx         = NULL;
 
   return env;
 }

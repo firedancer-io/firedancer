@@ -637,12 +637,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = txncache;
   ctx->runtime->acc_pool                 = acc_pool;
+  memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;
-  ctx->runtime->log.enable_log_collector = 0;
-  ctx->runtime->log.capture_ctx          = NULL;
-  ctx->runtime->log.dumping_mem          = NULL;
-  ctx->runtime->log.tracing_mem          = NULL;
-  ctx->runtime->log.txn_dump_ctx         = NULL;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
@@ -655,7 +651,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
   if( FD_UNLIKELY( !ctx->busy_fseq ) ) FD_LOG_ERR(( "execle tile %lu has no busy flag", tile->kind_id ));
 
-  memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
+  memset( &ctx->metrics,          0, sizeof( ctx->metrics )          );
+  memset( &ctx->runtime->metrics, 0, sizeof( ctx->runtime->metrics ) );
 
   ctx->pack_in_mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0UL ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
