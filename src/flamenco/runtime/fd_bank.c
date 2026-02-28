@@ -1158,7 +1158,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_rwlock_unwrite( &banks->locks->stake_delegations_delta_lock[ bank->data->idx ] );
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
-  fd_vote_stakes_new( vote_stakes, max_vote_accounts, banks->data->max_fork_width, 2048UL, 999UL );
+  fd_vote_stakes_new( vote_stakes, max_vote_accounts, 2048UL, banks->data->max_fork_width, 999UL );
 
   fd_rwlock_unread( &banks->locks->banks_lock );
 }
