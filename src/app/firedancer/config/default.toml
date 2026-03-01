@@ -1068,17 +1068,23 @@ telemetry = true
         # This option moves the management of napi including
         # when to poll as well as the poll budget, into userspace
         # if in "prefbusy" mode. The fallback is "softirq" mode,
-        # which relies much more on linux to manage napi, through
+        # which relies significantly more on linux to manage napi, through
         # wakeups, softirqs and under higher network load, a seperate
         # ksoftirqd thread which linux creates and manages.
+        #
+        # Please note that even in SKB mode or copy mode, "prefbusy"
+        # poll mode should work and be effective.
         #
         # "prefbusy" mode is the recommended choice of mode,
         # as this will also automatically fallback to "softirq"
         # mode if preferred busy polling is not available or
         # the right choice for whatever reason (e.g. on an older
-        # kernel). A warning will be emitted if this fallback is made
-        # alongside suggestions of why this might have happened.
-        poll_mode = "prefbusy"
+        # kernel). A warning will be emitted if this fallback is made.
+        #
+        # On Intel's 100Gbps NIC ice driver it is reccommended to use
+        # "softirq" mode due to it not being able to support "prefbusy"
+        # mode, however on Mellanox's mlx5 it's well supported.
+        poll_mode = "softirq"
 
         # AF_XDP socket configuration options which will eventually
         # be moved to being fixed constants prior to the merge of
