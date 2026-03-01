@@ -468,6 +468,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->last_wallclock = fd_log_wallclock();
   ctx->last_tickcount = fd_tickcount();
 
+  memset( ctx->my_contact_info, 0, sizeof(fd_gossip_contact_info_t) );
   ctx->my_contact_info->shred_version = tile->gossip.shred_version;
 
   ctx->my_contact_info->outset = (ulong)FD_NANOSEC_TO_MICRO( tile->gossip.boot_timestamp_nanos );
