@@ -1,0 +1,61 @@
+{
+  "name": "Firedancer Development",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+  
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": true,
+      "upgradePackages": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {
+      "version": "latest"
+    }
+  },
+
+  "onCreateCommand": {
+    "update-apt": "sudo apt-get update",
+    "install-deps": "sudo apt-get install -y curl diffutils build-essential pkgconf zstd gzip cmake libclang-dev libudev-dev protobuf-compiler autoconf automake autopoint bison flex gcc-multilib gettext llvm lcov libgmp-dev perl git",
+    "setup-submodules": "git submodule update --init --recursive"
+  },
+
+  "postCreateCommand": "./deps.sh +dev",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "vadimcn.vscode-lldb"
+      ],
+      "settings": {
+        "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+        "C_Cpp.default.cStandard": "c17",
+        "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "files.eol": "\n",
+        "files.trimTrailingWhitespace": true,
+        "C_Cpp.clang_format_fallbackStyle": "none",
+        "[c]": {
+          "editor.defaultFormatter": "ms-vscode.cpptools",
+          "editor.formatOnSave": false
+        }
+      }
+    }
+  },
+
+  "remoteUser": "vscode",
+  
+  "mounts": [
+    "source=${localWorkspaceFolder}/.git,target=${containerWorkspaceFolder}/.git,type=bind,consistency=cached"
+  ],
+
+  "containerEnv": {
+    "MACHINE": "native"
+  }
+}
