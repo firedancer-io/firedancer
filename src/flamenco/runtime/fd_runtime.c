@@ -1397,8 +1397,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
 
-  txn_out->details.exec_start_timestamp = fd_tickcount();
-
   /* Execute the transaction if eligible to do so. */
   if( FD_LIKELY( txn_out->err.is_committable ) ) {
     if( FD_LIKELY( !txn_out->err.is_fees_only ) ) {
