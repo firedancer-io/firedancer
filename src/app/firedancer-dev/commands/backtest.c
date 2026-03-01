@@ -515,7 +515,7 @@ backtest_topo( config_t * config ) {
     if( !strcmp( tile->name, "replay" ) ) {
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {
-        strncpy( tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(tile->replay.enable_features[i]) );
+        fd_cstr_ncpy( tile->replay.enable_features[i], config->tiles.replay.enable_features[i], sizeof(tile->replay.enable_features[i]) );
       }
     }
   }

@@ -426,7 +426,7 @@ privileged_init( fd_topo_t *      topo,
                        tile->genesi.genesis_path ));
         } else {
           char basename[ PATH_MAX ];
-          strncpy( basename, tile->genesi.genesis_path, PATH_MAX );
+          fd_cstr_ncpy( basename, tile->genesi.genesis_path, PATH_MAX );
           char * last_slash = strrchr( basename, '/' );
           if( FD_LIKELY( last_slash ) ) *last_slash = '\0';
 

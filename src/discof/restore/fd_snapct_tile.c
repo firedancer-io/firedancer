@@ -1428,14 +1428,14 @@ privileged_init( fd_topo_t *      topo,
     ctx->local_in.full_snapshot_zstd        = full_is_zstd;
     ctx->local_in.incremental_snapshot_zstd = incremental_is_zstd;
 
-    strncpy( ctx->local_in.full_snapshot_path, full_path, PATH_MAX );
+    fd_cstr_ncpy( ctx->local_in.full_snapshot_path, full_path, PATH_MAX );
     struct stat full_stat;
     if( FD_UNLIKELY( -1==stat( ctx->local_in.full_snapshot_path, &full_stat ) ) ) FD_LOG_ERR(( "stat() failed `%s` (%i-%s)", full_path, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( !S_ISREG( full_stat.st_mode ) ) ) FD_LOG_ERR(( "full snapshot path `%s` is not a regular file", full_path ));
     ctx->local_in.full_snapshot_size = (ulong)full_stat.st_size;
 
     if( FD_LIKELY( incremental_slot!=ULONG_MAX ) ) {
-      strncpy( ctx->local_in.incremental_snapshot_path, incremental_path, PATH_MAX );
+      fd_cstr_ncpy( ctx->local_in.incremental_snapshot_path, incremental_path, PATH_MAX );
       struct stat incremental_stat;
       if( FD_UNLIKELY( -1==stat( ctx->local_in.incremental_snapshot_path, &incremental_stat ) ) ) FD_LOG_ERR(( "stat() failed `%s` (%i-%s)", incremental_path, errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( !S_ISREG( incremental_stat.st_mode ) ) ) FD_LOG_ERR(( "incremental snapshot path `%s` is not a regular file", incremental_path ));

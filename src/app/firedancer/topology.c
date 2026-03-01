@@ -1420,8 +1420,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "event" ) ) ) {
 
-    strncpy( tile->event.identity_key_path, config->paths.identity_key, sizeof(tile->event.identity_key_path) );
-    strncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
+    fd_cstr_ncpy( tile->event.identity_key_path, config->paths.identity_key, sizeof(tile->event.identity_key_path) );
+    fd_cstr_ncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
 
@@ -1449,7 +1449,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->genesi.validate_genesis_hash = config->firedancer.development.genesis.validate_genesis_hash;
     tile->genesi.allow_download = config->firedancer.snapshots.genesis_download;
-    strncpy( tile->genesi.genesis_path, config->paths.genesis, sizeof(tile->genesi.genesis_path) );
+    fd_cstr_ncpy( tile->genesi.genesis_path, config->paths.genesis, sizeof(tile->genesi.genesis_path) );
     tile->genesi.expected_shred_version = config->consensus.expected_shred_version;
     tile->genesi.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     fd_memcpy( tile->genesi.entrypoints, config->gossip.resolved_entrypoints, tile->genesi.entrypoints_cnt * sizeof(fd_ip4_port_t) );
@@ -1466,7 +1466,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 
-    strncpy( tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(tile->gossvf.identity_key_path) );
+    fd_cstr_ncpy( tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(tile->gossvf.identity_key_path) );
     tile->gossvf.tcache_depth          = 1<<22UL; /* TODO: user defined option */
     tile->gossvf.shred_version         = 0U;
     tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
@@ -1483,7 +1483,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else {
       tile->gossip.ip_addr = config->net.ip_addr;
     }
-    strncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
+    fd_cstr_ncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
     tile->gossip.shred_version       = config->consensus.expected_shred_version;
     tile->gossip.max_entries         = config->tiles.gossip.max_entries;
     tile->gossip.boot_timestamp_nanos = config->boot_timestamp_nanos;
@@ -1625,7 +1625,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
         break;
       }
     }
-    strncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
+    fd_cstr_ncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
@@ -1635,9 +1635,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     FD_TEST( (tile->replay.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX ))!=ULONG_MAX );
 
-    strncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
+    fd_cstr_ncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
     tile->replay.ip_addr = config->net.ip_addr;
-    strncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
+    fd_cstr_ncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
 
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
@@ -1652,15 +1652,15 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.max_live_slots    = config->firedancer.runtime.max_live_slots;
     tile->replay.write_delay_slots = config->firedancer.accounts.write_delay_slots;
 
-    strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
+    fd_cstr_ncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
 
     tile->replay.larger_max_cost_per_block = config->development.bench.larger_max_cost_per_block;
 
     /* not specified by [tiles.replay] */
 
     tile->replay.capture_start_slot = config->capture.capture_start_slot;
-    strncpy( tile->replay.solcap_capture, config->capture.solcap_capture, sizeof(tile->replay.solcap_capture) );
-    strncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
+    fd_cstr_ncpy( tile->replay.solcap_capture, config->capture.solcap_capture, sizeof(tile->replay.solcap_capture) );
+    fd_cstr_ncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
     tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
@@ -1670,7 +1670,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->replay.bundle.enabled = 1;
       PARSE_PUBKEY( replay, tip_distribution_program_addr );
       PARSE_PUBKEY( replay, tip_payment_program_addr      );
-      strncpy( tile->replay.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->replay.bundle.vote_account_path) );
+      fd_cstr_ncpy( tile->replay.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->replay.bundle.vote_account_path) );
     } else {
       fd_memset( &tile->replay.bundle, '\0', sizeof(tile->replay.bundle) );
     }
@@ -1684,10 +1684,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execrp.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
     tile->execrp.capture_start_slot = config->capture.capture_start_slot;
-    strncpy( tile->execrp.solcap_capture, config->capture.solcap_capture, sizeof(tile->execrp.solcap_capture) );
-    strncpy( tile->execrp.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->execrp.dump_proto_dir) );
-    strncpy( tile->execrp.dump_syscall_name_filter, config->capture.dump_syscall_name_filter, sizeof(tile->execrp.dump_syscall_name_filter) );
-    strncpy( tile->execrp.dump_instr_program_id_filter, config->capture.dump_instr_program_id_filter, sizeof(tile->execrp.dump_instr_program_id_filter) );
+    fd_cstr_ncpy( tile->execrp.solcap_capture, config->capture.solcap_capture, sizeof(tile->execrp.solcap_capture) );
+    fd_cstr_ncpy( tile->execrp.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->execrp.dump_proto_dir) );
+    fd_cstr_ncpy( tile->execrp.dump_syscall_name_filter, config->capture.dump_syscall_name_filter, sizeof(tile->execrp.dump_syscall_name_filter) );
+    fd_cstr_ncpy( tile->execrp.dump_instr_program_id_filter, config->capture.dump_instr_program_id_filter, sizeof(tile->execrp.dump_instr_program_id_filter) );
     tile->execrp.dump_instr_to_pb = config->capture.dump_instr_to_pb;
     tile->execrp.dump_txn_to_pb = config->capture.dump_txn_to_pb;
     tile->execrp.dump_txn_as_fixture = config->capture.dump_txn_as_fixture;
@@ -1696,21 +1696,21 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     tile->tower.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
-      strncpy( tile->tower.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->tower.authorized_voter_paths[ i ]) );
+      fd_cstr_ncpy( tile->tower.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->tower.authorized_voter_paths[ i ]) );
     }
 
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->tower.accdb_max_depth    = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
-    strncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
-    strncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
-    strncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );
+    fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
+    fd_cstr_ncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
+    fd_cstr_ncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "txsend" ) ) ) {
 
     tile->txsend.txsend_src_port = config->tiles.txsend.txsend_src_port;
     tile->txsend.ip_addr = config->net.ip_addr;
-    strncpy( tile->txsend.identity_key_path, config->paths.identity_key, sizeof(tile->txsend.identity_key_path) );
+    fd_cstr_ncpy( tile->txsend.identity_key_path, config->paths.identity_key, sizeof(tile->txsend.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
 
@@ -1752,8 +1752,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       PARSE_PUBKEY( pack, tip_payment_program_addr      );
       PARSE_PUBKEY( pack, tip_distribution_authority    );
       tile->pack.bundle.commission_bps = config->tiles.bundle.commission_bps;
-      strncpy( tile->pack.bundle.identity_key_path, config->paths.identity_key, sizeof(tile->pack.bundle.identity_key_path) );
-      strncpy( tile->pack.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pack.bundle.vote_account_path) );
+      fd_cstr_ncpy( tile->pack.bundle.identity_key_path, config->paths.identity_key, sizeof(tile->pack.bundle.identity_key_path) );
+      fd_cstr_ncpy( tile->pack.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pack.bundle.vote_account_path) );
     } else {
       fd_memset( &tile->pack.bundle, '\0', sizeof(tile->pack.bundle) );
     }
@@ -1766,13 +1766,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->execle.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
-    strncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
+    fd_cstr_ncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );
 
     tile->poh.execle_cnt = config->firedancer.layout.execle_tile_count;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
 
-    strncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
+    fd_cstr_ncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
 
     tile->shred.depth                         = config->topo.links[ tile->out_link_id[ 0 ] ].depth;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
@@ -1794,11 +1794,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
 
-    strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
+    fd_cstr_ncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
 
     tile->sign.authorized_voter_paths_cnt = config->firedancer.paths.authorized_voter_paths_cnt;
     for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
-      strncpy( tile->sign.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->sign.authorized_voter_paths[ i ]) );
+      fd_cstr_ncpy( tile->sign.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->sign.authorized_voter_paths[ i ]) );
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
@@ -1811,9 +1811,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
     tile->gui.listen_port = config->tiles.gui.gui_listen_port;
     tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
-    strncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
-    strncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
-    strncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
+    fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
+    fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
+    fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
     tile->gui.max_http_connections      = config->tiles.gui.max_http_connections;
     tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
     tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;
@@ -1834,12 +1834,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rpc.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->rpc.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
-    strncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
+    fd_cstr_ncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                           !strcmp( tile->name, "arch_w" ) ) ) {
 
-    strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );
+    fd_cstr_ncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
@@ -1849,12 +1849,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* Validate arguments based on the ingest mode */
     if( !strcmp( config->tiles.archiver.ingest_mode, "rocksdb" ) ) {
-      strncpy( tile->backtest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
+      fd_cstr_ncpy( tile->backtest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
       if( FD_UNLIKELY( 0==strlen( tile->backtest.rocksdb_path ) ) ) {
         FD_LOG_ERR(( "`archiver.rocksdb_path` not specified in toml" ));
       }
     } else if( !strcmp( config->tiles.archiver.ingest_mode, "shredcap" ) ) {
-      strncpy( tile->backtest.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
+      fd_cstr_ncpy( tile->backtest.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
       if( FD_UNLIKELY( 0==strlen( tile->backtest.shredcap_path ) ) ) {
         FD_LOG_ERR(( "`archiver.shredcap_path` not specified in toml" ));
       }
@@ -1865,18 +1865,18 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
 
     tile->shredcap.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
-    strncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(tile->shredcap.folder_path) );
+    fd_cstr_ncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(tile->shredcap.folder_path) );
     tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
     tile->shredcap.enable_publish_stake_weights = 0; /* this is not part of the config */
-    strncpy( tile->shredcap.manifest_path, "", PATH_MAX ); /* this is not part of the config */
+    fd_cstr_ncpy( tile->shredcap.manifest_path, "", PATH_MAX ); /* this is not part of the config */
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
-    strncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
+    fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
     tile->bundle.url_len = strnlen( tile->bundle.url, 255 );
-    strncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, 256 );
+    fd_cstr_ncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, 256 );
     tile->bundle.sni_len = strnlen( tile->bundle.sni, 255 );
-    strncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
-    strncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
+    fd_cstr_ncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
+    fd_cstr_ncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
     tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
     tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
     tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
@@ -1912,7 +1912,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "solcap" ) ) ) {
 
     tile->solcap.capture_start_slot = config->capture.capture_start_slot;
-    strncpy( tile->solcap.solcap_capture, config->capture.solcap_capture, sizeof(tile->solcap.solcap_capture) );
+    fd_cstr_ncpy( tile->solcap.solcap_capture, config->capture.solcap_capture, sizeof(tile->solcap.solcap_capture) );
     tile->solcap.recent_only = config->capture.recent_only;
     tile->solcap.recent_slots_per_file = config->capture.recent_slots_per_file;
 

@@ -816,7 +816,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_TEST( ULONG_MAX==fd_fseq_query( ctx->manifest_wmark ) );
   }
 
-  strncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );
+  fd_cstr_ncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );
   ctx->manifest_load_done = 0;
   ctx->manifest_spad_mem  = manifest_spad_mem;
   ctx->manifest_spad      = fd_spad_join( fd_spad_new( ctx->manifest_spad_mem, manifest_spad_max_alloc_footprint() ) );

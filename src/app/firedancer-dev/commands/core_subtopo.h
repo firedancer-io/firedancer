@@ -47,7 +47,7 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
   fd_topob_wksp( topo, "sign" );
   for( ulong i=0UL; i<sign_tile_cnt; i++ ) {
     fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
-    strncpy( sign_tile->sign.identity_key_path, config->paths.identity_key, sizeof(sign_tile->sign.identity_key_path) );
+    fd_cstr_ncpy( sign_tile->sign.identity_key_path, config->paths.identity_key, sizeof(sign_tile->sign.identity_key_path) );
   }
 }
 

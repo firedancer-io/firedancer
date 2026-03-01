@@ -69,7 +69,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
 
   fd_topob_wksp( topo, "gossip" );
   fd_topo_tile_t * gossip_tile = fd_topob_tile( topo, "gossip", "gossip", "metric_in", 0UL, 0, 1, 0 );
-  strncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
+  fd_cstr_ncpy( gossip_tile->gossip.identity_key_path, config->paths.identity_key, sizeof(gossip_tile->gossip.identity_key_path) );
   gossip_tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
   for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
     gossip_tile->gossip.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
@@ -88,7 +88,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   fd_topob_wksp( topo, "gossvf" );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
     fd_topo_tile_t * gossvf_tile = fd_topob_tile( topo, "gossvf", "gossvf", "metric_in", 0UL, 0, 1, 0 );
-    strncpy( gossvf_tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(gossvf_tile->gossvf.identity_key_path) );
+    fd_cstr_ncpy( gossvf_tile->gossvf.identity_key_path, config->paths.identity_key, sizeof(gossvf_tile->gossvf.identity_key_path) );
     gossvf_tile->gossvf.tcache_depth = 1UL<<22UL;
     gossvf_tile->gossvf.shred_version = config->consensus.expected_shred_version;
     gossvf_tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
