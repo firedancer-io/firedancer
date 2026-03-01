@@ -519,12 +519,11 @@ dynamic_port_range = "8900-9000"
     # `--expected-genesis-hash` argument.
     expected_genesis_hash = ""
 
-    # If nonzero, after processing the ledger, and the next slot is the
-    # provided value, wait until a supermajority of stake is visible on
+    # If less than UINT32_MAX, after processing the ledger, and the next slot
+    # is the provided value, wait until a supermajority of stake is visible on
     # gossip before starting proof of history.  This option is passed to
-    # the Agave client with the `--wait-for-supermajority`
-    # argument.
-    wait_for_supermajority_at_slot = 0
+    # the Agave client with the `--wait-for-supermajority` argument.
+    wait_for_supermajority_at_slot = 4294967295 # UINT32_MAX
 
     # If there is a hard fork, it might be required to provide an
     # expected bank hash to ensure the correct fork is being selected.
