@@ -2,6 +2,7 @@
 #include "fd_ssarchive.h"
 
 #include "../../../waltz/http/picohttpparser.h"
+#include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
 
 #include <unistd.h>
@@ -165,6 +166,8 @@ fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
   if( FD_UNLIKELY( !set1_host_res ) ) {
     FD_LOG_ERR(( "SSL_set1_host failed (%d)", set1_host_res ));
   }
+
+  FD_TEST( fd_openssl_ssl_set_fd( ssresolve->ssl, ssresolve->sockfd ) );
 }
 #endif
 
@@ -237,7 +240,7 @@ fd_ssresolve_send_request( fd_ssresolve_t * ssresolve ) {
     FD_LOG_ERR(( "cannot use HTTPS without OpenSSL" ));
 #endif
   } else {
-    sent = sendto( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, 0, NULL, 0 );
+    sent = sendto( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, MSG_NOSIGNAL, NULL, 0 );
     if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
     else if( FD_UNLIKELY( -1==sent ) )             return FD_SSRESOLVE_ADVANCE_ERROR;
   }
@@ -381,7 +384,6 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
 static int
 ssresolve_connect_ssl( fd_ssresolve_t * ssresolve ) {
   FD_TEST( ssresolve->ssl );
-  SSL_set_fd( ssresolve->ssl, ssresolve->sockfd );
   int ssl_err = SSL_connect( ssresolve->ssl );
   if( FD_UNLIKELY( ssl_err!=1 ) ) {
     int ssl_err_code = SSL_get_error( ssresolve->ssl, ssl_err );

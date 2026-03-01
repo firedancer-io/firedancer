@@ -4,6 +4,7 @@
 
 #include "../../../waltz/http/picohttpparser.h"
 #include "../../../waltz/openssl/fd_openssl_tile.h"
+#include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
 #include "../../../flamenco/types/fd_types_custom.h"
 
@@ -189,6 +190,9 @@ fd_sshttp_init( fd_sshttp_t * http,
   }
 
   if( FD_LIKELY( is_https ) ) {
+#if FD_HAS_OPENSSL
+    FD_TEST( fd_openssl_ssl_set_fd( http->ssl, http->sockfd ) );
+#endif
     http->state    = FD_SSHTTP_STATE_CONNECT;
     http->deadline = now + FD_SSHTTP_DEADLINE_NANOS;
   } else {
@@ -208,7 +212,6 @@ http_connect_ssl( fd_sshttp_t * http,
   }
 
   FD_TEST( http->ssl );
-  SSL_set_fd( http->ssl, http->sockfd );
   int ssl_err = SSL_connect( http->ssl );
   if( FD_UNLIKELY( ssl_err!=1 ) ) {
     int ssl_err_code = SSL_get_error( http->ssl, ssl_err );
@@ -325,7 +328,7 @@ http_send( fd_sshttp_t * http,
   if( FD_LIKELY( http->is_https ) ) return http_send_ssl( http, buf, bufsz );
 #endif
 
-  long sent = sendto( http->sockfd, buf, bufsz, 0, NULL, 0 );
+  long sent = sendto( http->sockfd, buf, bufsz, MSG_NOSIGNAL, NULL, 0 );
   if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==sent ) ) {
     FD_LOG_WARNING(( "sendto() failed (%d-%s)", errno, fd_io_strerror( errno ) ));

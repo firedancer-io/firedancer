@@ -10,6 +10,7 @@
 #include "../fd_txn_m.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
+#include "../../waltz/openssl/fd_openssl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/nanopb/pb_decode.h"
 #include "../../util/net/fd_ip4.h"
@@ -155,9 +156,9 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 
 # if FD_HAS_OPENSSL
   if( ctx->is_ssl ) {
-    BIO * bio = BIO_new_socket( ctx->tcp_sock, BIO_NOCLOSE );
+    BIO * bio = fd_openssl_bio_new_socket( ctx->tcp_sock, BIO_NOCLOSE );
     if( FD_UNLIKELY( !bio ) ) {
-      FD_LOG_ERR(( "BIO_new_socket failed" ));
+      FD_LOG_ERR(( "fd_openssl_bio_new_socket failed" ));
     }
 
     SSL * ssl = SSL_new( ctx->ssl_ctx );

@@ -10,11 +10,11 @@ uint logfile_fd, uint dir_fd, uint out_full_fd, uint out_inc_fd, uint ping_fd
 # arg 0 is the file descriptor to write to.  The boot process ensures
 # that descriptor 2 is always STDERR.  Other files that can be
 # written to include the out descriptors for the full and incremental
-# snapshots.  OpenSSL also calls write on the underlying socket
-# descriptor.  We will restrict this being called on the snapshot
-# directory file descriptor and the ping file descriptor.
-write: (not (or (eq (arg 0) dir_fd)
-                (eq (arg 0) ping_fd)))
+# snapshots.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd)
+           (eq (arg 0) out_full_fd)
+           (eq (arg 0) out_inc_fd))
 
 # When retrying a snapshot, any written content into the full or
 # incremental output snapshot files must be reset before another
@@ -80,8 +80,9 @@ close: (not (or (eq (arg 0) 2)
 # to download snapshots and resolve snapshots from
 ppoll
 
-# snapshot: we need to be send http requests to endpoints for snapshot
-# downloading
+# snapshot: send HTTP requests to endpoints for snapshot downloading.
+# OpenSSL also uses sendto to write to the socket during the lifetime
+# of an HTTPS connection.
 #
 # arg 0 is the file descriptor that we would like to send a request to.
 # We will restrict this being called on any of the snapshot file
