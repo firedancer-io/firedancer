@@ -464,6 +464,9 @@ fd_config_fill( fd_config_t * config,
   }                                                    \
 } while(0)
 
+#define FD_REPAIR_MAX_SHRED_LINK_CNT (16U)
+#define FD_REPAIR_MAX_SIGN_LINK_CNT  (16U)
+
 static void
 fd_config_validatef( fd_configf_t const * config ) {
   CFG_HAS_NON_ZERO( layout.sign_tile_count );
@@ -543,6 +546,15 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO ( layout.quic_tile_count );
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
+  if( FD_UNLIKELY( config->is_firedancer ) ) {
+    /* repair tile has fixed-size arrays for these links */
+    if( FD_UNLIKELY( config->layout.shred_tile_count > FD_REPAIR_MAX_SHRED_LINK_CNT ) ) {
+      FD_LOG_ERR(( "`layout.shred_tile_count` must be <= %u", FD_REPAIR_MAX_SHRED_LINK_CNT ));
+    }
+    if( FD_UNLIKELY( config->firedancer.layout.sign_tile_count > (FD_REPAIR_MAX_SIGN_LINK_CNT + 1U) ) ) {
+      FD_LOG_ERR(( "`firedancer.layout.sign_tile_count` must be <= %u", FD_REPAIR_MAX_SIGN_LINK_CNT + 1U ));
+    }
+  }
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
@@ -609,6 +621,8 @@ fd_config_validate( fd_config_t const * config ) {
 #undef CFG_HAS_NON_EMPTY
 #undef CFG_HAS_NON_ZERO
 #undef CFG_HAS_POW2
+#undef FD_REPAIR_MAX_SHRED_LINK_CNT
+#undef FD_REPAIR_MAX_SIGN_LINK_CNT
 
 void
 fd_config_load( int           is_firedancer,
