@@ -72,7 +72,7 @@ telemetry = true
     # /home/fire/.firedancer/fd1
     #  +-- identity.json
     #  +-- vote-account.json
-    #  +-- genesis.bin
+    #  +-- mainnet-genesis.bin (or testnet-, devnet-, local-)
     #  +-- snapshots
     #      +-- snapshot-368327930-E5ZsnTCNX7WToyrP4ZQYJj7pPii6Ssa7UnNcV7HZ3iAf.tar.zst
     #      +-- incremental-snapshot-368327930-368400391-8ybYYVq7Ecui9TLj13SvzXjTX7JiGP65f4KrtNRCPajW.tar.zst
@@ -147,11 +147,10 @@ telemetry = true
     # below.
     snapshots = ""
 
-    # Absolute path where to store the `genesis.bin` file for the chain.
-    # If no path is provided, it defaults to the `genesis.bin` path
-    # within the base directory above.  The `genesis.bin` file contains
-    # the exact parameters used to create the genesis block of the
-    # chain.
+    # Absolute path where to store the genesis file for the chain.
+    # If no path is provided, it defaults to `{network}-genesis.bin`
+    # within the base directory above.  The genesis file contains the
+    # exact parameters used to create the genesis block of the chain.
     #
     # The genesis file must be known so that the validator can verify
     # the genesis hash matches the expected genesis hash specified in
