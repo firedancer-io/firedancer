@@ -507,6 +507,8 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
                        fd_pubkey_t const                 * from,
                        fd_gossip_duplicate_shred_t const * chunk ) {
 
+  if( FD_UNLIKELY( fd_pubkey_eq( from, &pubkey_null ) ) ) return FD_EQVOC_ERR_SER; /* from_map sentinel */
+
   verified_t * verified = verified_map_ele_query( eqvoc->verified_map, &chunk->slot, NULL, eqvoc->verified_pool );
   if( FD_UNLIKELY( verified && verified->err > FD_EQVOC_SUCCESS ) ) return FD_EQVOC_SUCCESS; /* already verified equivocation for this verified */
 
@@ -559,6 +561,9 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
 
   ulong              shred1_sz = fd_ulong_load_8( proof->buf );
   fd_shred_t const * shred1    = (fd_shred_t const *)fd_type_pun_const( proof->buf + sizeof(ulong) );
+
+  if( FD_UNLIKELY( shred1_sz < FD_SHRED_MIN_SZ || shred1_sz > FD_SHRED_MAX_SZ ) ) return FD_EQVOC_ERR_SER;
+
   ulong              shred2_sz = fd_ulong_load_8( proof->buf + sizeof(ulong) + shred1_sz );
   fd_shred_t const * shred2    = (fd_shred_t const *)fd_type_pun_const( proof->buf + sizeof(ulong) + shred1_sz + sizeof(ulong) );
 
