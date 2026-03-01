@@ -704,6 +704,36 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
   FD_TEST( *metrics_alloc_fail_cnt == alloc_fail_cnt );
 }
 
+/* Regression test for integer underflow in ACK handler */
+
+static __attribute__ ((noinline)) void
+test_quic_ack_largest_ack_zero( fd_quic_sandbox_t * sandbox,
+                                fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_conn_t *  conn  = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  for( uint j = 0; j < 5; j++ ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock  += (long)10e6;
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
+    fd_quic_service( quic, sandbox->wallclock );
+  }
+  FD_TEST( conn->pkt_number[2] == 5UL );
+
+  ulong retx_before = quic->metrics.pkt_retransmissions_cnt[ fd_quic_enc_level_appdata_id ];
+  uchar ack_frame[] = { 0x02, 0x00, 0x00, 0x00, 0x00 };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, ack_frame, sizeof(ack_frame) );
+  FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+  /* No retransmissions triggered (regression test) */
+  ulong retx_after = quic->metrics.pkt_retransmissions_cnt[ fd_quic_enc_level_appdata_id ];
+  FD_TEST( retx_after == retx_before );
+}
+
 static void
 test_quic_rtt_sample( void ) {
   fd_quic_t quic = {0};
@@ -826,6 +856,7 @@ main( int     argc,
   test_quic_parse_path_challenge();
   test_quic_conn_free                    ( sandbox, rng );
   test_quic_pktmeta_pktnum_skip          ( sandbox, rng );
+  test_quic_ack_largest_ack_zero         ( sandbox, rng );
   test_quic_rtt_sample();
 
   /* Wind down */

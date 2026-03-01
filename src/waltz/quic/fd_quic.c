@@ -4791,8 +4791,8 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
      We unfortunately can't just use 'largest_ack-3' because 1) largest_ack'd
      may have been previously acknowledged and 2) we may have skipped pkt_nums.
    */
-  ulong skip_ceil;
-  {
+  ulong skip_ceil = 0UL;
+  if( FD_LIKELY( largest_ack > 0UL ) ) {
     #define FD_QUIC_K_PACKET_THRESHOLD 3
     fd_quic_pkt_meta_tracker_t * tracker  = &conn->pkt_meta_tracker;
     fd_quic_pkt_meta_t         * pool     = tracker->pool;
