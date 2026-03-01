@@ -205,6 +205,12 @@ struct fd_config_net {
   struct {
     char xdp_mode[ 8 ];
     int  xdp_zero_copy;
+    
+    char  poll_mode[ 16 ]; /* "prefbusy" or "softirq" */
+    uint  busy_poll_usecs;
+    ulong gro_flush_timeout_nanos;
+    uint  lwr_prefbusy_poll_timeout_micros;
+    uint  upr_prefbusy_poll_timeout_micros;
 
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
