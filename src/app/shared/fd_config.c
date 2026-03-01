@@ -349,7 +349,7 @@ fd_config_fill( fd_config_t * config,
     replace( config->paths.genesis, "{name}", config->name );
   } else if( FD_LIKELY( config->is_firedancer ) ) {
     char const * genesis_hash = config->consensus.expected_genesis_hash;
-    if( FD_LIKELY( genesis_hash && strcmp( genesis_hash, "" ) ) ) {
+    if( FD_LIKELY( genesis_hash && genesis_hash[0] != '\0' ) ) {
       FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis-%s.bin", config->paths.base, genesis_hash ) );
     } else {
       FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis-local.bin", config->paths.base ) );
