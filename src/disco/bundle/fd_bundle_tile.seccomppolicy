@@ -17,8 +17,6 @@ read
 recvmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
              (eq (arg 2) 0))
 
-# bundle: Write to TCP connection (HTTPS)
-#
 # logging: all log messages are written to a file and/or pipe
 #
 # 'WARNING' and above are written to the STDERR pipe, while all
@@ -26,7 +24,8 @@ recvmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
 # that descriptor 2 is always STDERR.
-write
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
 
 # OpenSSL: SSLKEYLOGFILE
 writev: (and (eq (arg 0) keylog_fd)
@@ -39,6 +38,8 @@ sendmsg: (or (eq (arg 2) "MSG_NOSIGNAL|MSG_DONTWAIT")
              (eq (arg 2) "MSG_FASTOPEN|MSG_NOSIGNAL")
              (eq (arg 2) "MSG_NOSIGNAL"))
 
+# bundle: Write to TCP connection (HTTPS)
+#
 # resolv: Send DNS queries via UDP or TCP
 sendto: (eq (arg 3) "MSG_NOSIGNAL")
 
