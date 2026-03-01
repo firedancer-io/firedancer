@@ -29,8 +29,8 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
   ulong off = 0UL;
   uchar signer_cnt = data[off];
   if( signer_cnt!=1 && signer_cnt!=2 ) return 0;
-  if( signer_cnt==1 && sz<=139 ) return 0;
-  if( signer_cnt==2 && sz<=171 ) return 0;
+  if( signer_cnt==1 && sz<=140 ) return 0;
+  if( signer_cnt==2 && sz<=172 ) return 0;
   /* The authority's public key will be the first listed account in the
      transaction message. */
 
