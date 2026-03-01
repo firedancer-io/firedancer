@@ -191,6 +191,12 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
                            ulong                 txnhash_offset,
                            uchar const *         blockhash );
 
+/* fd_txncache_cancel_fork is called to prune away an unfinalized leaf
+   fork.  Takes a write lock. */
+void
+fd_txncache_cancel_fork( fd_txncache_t *       tc,
+                         fd_txncache_fork_id_t fork_id );
+
 /* fd_txncache_advance_root is called when the root slot of the chain
    has advanced, in which case old message hashes (referencing
    blockhashes that could no longer be valid) can be removed from the
