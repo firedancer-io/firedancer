@@ -46,9 +46,10 @@ snapshot_load_topo( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "funk" );
+  fd_topob_wksp( topo, "funk_locks" );
   setup_topo_funk( topo,
       config->firedancer.accounts.max_accounts,
-      config->firedancer.runtime.max_live_slots,
+      config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots,
       config->firedancer.accounts.in_memory_only
           ? config->firedancer.accounts.file_size_gib
           : config->firedancer.accounts.max_unrooted_account_size_gib );
