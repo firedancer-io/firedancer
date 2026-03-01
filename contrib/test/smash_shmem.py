@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Overwrite every file under a shared-memory directory with random bytes."""
+"""Overwrite every file under a shared-memory directory with random or zero bytes."""
 
 from __future__ import annotations
 
@@ -35,13 +35,13 @@ def _find_mount(filepath: str, mounts: list[tuple[str, str]]) -> tuple[str, str]
     return best
 
 
-def smash(path: str, dry_run: bool = False) -> None:
+def smash(path: str, dry_run: bool = False, zero: bool = False) -> None:
     if not os.path.isdir(path):
         print(f"error: {path} does not exist or is not a directory", file=sys.stderr)
         sys.exit(1)
 
     mounts = _read_mounts()
-    noise = os.urandom(CHUNK)
+    fill = b"\x00" * CHUNK if zero else os.urandom(CHUNK)
 
     for dirpath, _, filenames in os.walk(path):
         for name in filenames:
@@ -72,7 +72,7 @@ def smash(path: str, dry_run: bool = False) -> None:
                         offset = 0
                         while offset < size:
                             n = min(CHUNK, size - offset)
-                            mm[offset:offset + n] = noise[:n]
+                            mm[offset:offset + n] = fill[:n]
                             offset += n
                 print(f"smashed {filepath} ({size} bytes)")
             except OSError as e:
@@ -81,7 +81,7 @@ def smash(path: str, dry_run: bool = False) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Overwrite every file in a directory tree with random bytes "
+        description="Overwrite every file in a directory tree with random or zero bytes "
         "without changing file sizes."
     )
     parser.add_argument(
@@ -94,9 +94,14 @@ def main() -> None:
         action="store_true",
         help="print files that would be smashed without writing",
     )
+    parser.add_argument(
+        "--zero",
+        action="store_true",
+        help="fill with zeros instead of random bytes",
+    )
     args = parser.parse_args()
     try:
-        smash(args.shmem_path, dry_run=args.dry_run)
+        smash(args.shmem_path, dry_run=args.dry_run, zero=args.zero)
     except KeyboardInterrupt:
         sys.exit(1)
 
