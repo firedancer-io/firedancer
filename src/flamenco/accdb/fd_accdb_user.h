@@ -14,7 +14,7 @@
    fd_accdb_user_t and fd_accdb_admin_t.  The main contributor to this
    footprint is fd_accdb_lineage_t.  We add 2048 onto that to
    accommodate various vinyl pointers and etc. */
-#define FD_ACCDB_IMPL_FOOTPRINT (FD_ACCDB_LINEAGE_FOOTPRINT+2048UL)
+#define FD_ACCDB_IMPL_FOOTPRINT (FD_ACCDB_LINEAGE_FOOTPRINT+2048UL+(32UL*128UL*1024UL))
 
 /* fd_accdb_user_vt_t specifies the interface (vtable) for the account
    DB client. */

@@ -1,6 +1,7 @@
 #include "fd_accdb_impl_v2.h"
 #include "fd_accdb_funk.h"
 #include "fd_vinyl_req_pool.h"
+#include "fd_vinyl_specread.h"
 #include <stdatomic.h>
 
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v2_t)<=alignof(fd_accdb_user_t), layout );
@@ -301,7 +302,47 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
     }
   }
 
-  /* For the accounts that were not found in funk, open vinyl records */
+  /* Speculative cache accesses (vinyl tile bypass)  */
+
+  if( FD_LIKELY( v2->vinyl_line ) ) {
+    for( ulong i=0UL; i<cnt; i++ ) {
+      if( ro0[ i ].ref->accdb_type!=FD_ACCDB_TYPE_NONE ) continue;
+
+      void const * addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
+      fd_vinyl_key_t vkey[1];
+      fd_vinyl_key_init( vkey, addr_i, 32UL );
+      ulong slot = fd_accdb_specrd_free_first( v2->specread_free );
+      if( FD_UNLIKELY( slot>=FD_ACCDB_SPECRD_BUF_CNT ) ) break; /* all 32 slots in use */
+
+      ulong           val_sz;
+      fd_vinyl_info_t info;
+      int err = fd_vinyl_specread(
+          v2->vinyl_meta,
+          v2->vinyl_line,
+          v2->vinyl_line_cnt,
+          data_wksp,
+          vkey,
+          v2->specread_buf[ slot ],
+          FD_ACCDB_SPECRD_BUF_MAX,
+          &val_sz, &info );
+
+      if( FD_LIKELY( err==FD_VINYL_SUCCESS ) ) {
+        fd_accdb_specrd_free_remove( v2->specread_free, slot );
+        v2->base.ro_active++;
+        ro0[ i ] = (fd_accdb_ro_t){0};
+        memcpy( ro0[ i ].ref->address, addr_i, 32UL );
+        ro0[ i ].ref->accdb_type = FD_ACCDB_TYPE_V2S;
+        ro0[ i ].ref->ref_type   = FD_ACCDB_REF_RO;
+        ro0[ i ].ref->user_data  = (ulong)slot;
+        ro0[ i ].meta            = (fd_account_meta_t const *)v2->specread_buf[ slot ];
+        continue;
+      }
+
+      /* fall through to rq/cq below */
+    }
+  }
+
+  /* Fallback path: Vinyl request round trip */
 
   ulong batch_idx = fd_vinyl_req_pool_acquire( req_pool );
   /* req_pool_release called before returning */
@@ -314,7 +355,7 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
 
   ulong req_cnt = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( ro0[i].ref->accdb_type!=FD_ACCDB_TYPE_NONE ) continue;
+    if( ro0[ i ].ref->accdb_type!=FD_ACCDB_TYPE_NONE ) continue;
     /* At this point, addr0[i] not found in funk, load from vinyl */
     void const * addr_i = (void const *)( (ulong)addr0 + i*32UL );
 
@@ -323,8 +364,8 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
     req_val_gaddr0[ req_cnt ] = 0UL;
     req_cnt++;
   }
-  if( !req_cnt ) {
-    /* All records were found in funk, bail early */
+  if( FD_LIKELY( !req_cnt ) ) {
+    /* No need for DB request, all records were found */
     fd_vinyl_req_pool_release( req_pool, batch_idx );
     return;
   }
@@ -667,6 +708,12 @@ fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
   ulong req_cnt      = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_accdb_ref_t * ref = &ref0[ i ];
+    if( ref->accdb_type==FD_ACCDB_TYPE_V2S ) {
+      fd_accdb_specrd_free_insert( v2->specread_free, ref->user_data );
+      ro_close_cnt++;
+      memset( ref, 0, sizeof(fd_accdb_ref_t) );
+      continue;
+    }
     if( ref->accdb_type!=FD_ACCDB_TYPE_V2 ) continue;
     ref->ref_type==FD_ACCDB_REF_RO ? ro_close_cnt++ : rw_close_cnt++;
     req_err0      [ req_cnt ] = 0;
@@ -674,6 +721,7 @@ fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
     memset( ref, 0, sizeof(fd_accdb_ref_t) );
     req_cnt++;
   }
+
   if( req_cnt ) {
     if( FD_UNLIKELY( ro_close_cnt > accdb->base.ro_active ) ) {
       FD_LOG_CRIT(( "attempted to close more accdb_ro (%lu) than are open (%lu)",
@@ -724,10 +772,10 @@ fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
         FD_LOG_CRIT(( "vinyl tile RELEASE request failed: %i-%s", req_err, fd_vinyl_strerror( req_err ) ));
       }
     }
-
-    accdb->base.ro_active -= ro_close_cnt;
-    accdb->base.rw_active -= rw_close_cnt;
   }
+
+  accdb->base.ro_active -= ro_close_cnt;
+  accdb->base.rw_active -= rw_close_cnt;
 
   fd_vinyl_req_pool_release( req_pool, batch_idx );
 }
@@ -782,21 +830,16 @@ fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
                        void *            vinyl_req_pool,
                        ulong             vinyl_link_id,
                        ulong             max_depth ) {
-  if( FD_UNLIKELY( !accdb_ ) ) {
-    FD_LOG_WARNING(( "NULL ljoin" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !shfunk ) ) {
-    FD_LOG_WARNING(( "NULL shfunk" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !vinyl_data ) ) {
-    FD_LOG_WARNING(( "NULL vinyl_data" ));
-    return NULL;
-  }
+  if( FD_UNLIKELY( !accdb_         ) ) { FD_LOG_WARNING(( "NULL ljoin"          )); return NULL; }
+  if( FD_UNLIKELY( !shfunk         ) ) { FD_LOG_WARNING(( "NULL shfunk"         )); return NULL; }
+  if( FD_UNLIKELY( !vinyl_rq       ) ) { FD_LOG_WARNING(( "NULL vinyl_rq"       )); return NULL; }
+  if( FD_UNLIKELY( !vinyl_data     ) ) { FD_LOG_WARNING(( "NULL vinyl_data"     )); return NULL; }
+  if( FD_UNLIKELY( !vinyl_req_pool ) ) { FD_LOG_WARNING(( "NULL vinyl_req_pool" )); return NULL; }
+  if( FD_UNLIKELY( !max_depth      ) ) { FD_LOG_WARNING(( "zero max_depth"      )); return NULL; }
 
   fd_accdb_user_v2_t * accdb = fd_type_pun( accdb_ );
   memset( accdb, 0, sizeof(fd_accdb_user_v2_t) );
+  fd_accdb_specrd_free_full( accdb->specread_free );
 
   if( FD_UNLIKELY( !fd_funk_join( accdb->funk, shfunk, shlocks ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
@@ -817,9 +860,33 @@ fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
   accdb->vinyl_data_wksp    = vinyl_data;
   accdb->vinyl_req_wksp     = fd_wksp_containing( req_pool );
   accdb->vinyl_req_pool     = req_pool;
+  accdb->vinyl_line         = NULL;
+  accdb->vinyl_line_cnt     = 0UL;
   accdb->base.accdb_type    = FD_ACCDB_TYPE_V2;
   accdb->base.vt            = &fd_accdb_user_v2_vt;
   return accdb_;
+}
+
+void
+fd_accdb_user_v2_init_cache( fd_accdb_user_t * ljoin,
+                             void *            vinyl_shmeta,
+                             void *            vinyl_shele,
+                             void *            vinyl_shline,
+                             ulong             vinyl_line_cnt ) {
+  if( FD_UNLIKELY( !ljoin          ) ) FD_LOG_ERR(( "NULL ljoin"          ));
+  if( FD_UNLIKELY( !vinyl_shmeta   ) ) FD_LOG_ERR(( "NULL vinyl_shmeta"   ));
+  if( FD_UNLIKELY( !vinyl_shele    ) ) FD_LOG_ERR(( "NULL vinyl_shele"    ));
+  if( FD_UNLIKELY( !vinyl_shline   ) ) FD_LOG_ERR(( "NULL vinyl_shline"   ));
+  if( FD_UNLIKELY( !vinyl_line_cnt ) ) FD_LOG_ERR(( "zero vinyl_line_cnt" ));
+
+  if( FD_UNLIKELY( ljoin->base.accdb_type!=FD_ACCDB_TYPE_V2 ) ) {
+    FD_LOG_ERR(( "expected an accdb_user_v2 object" ));
+  }
+  fd_accdb_user_v2_t * accdb = fd_type_pun( ljoin );
+
+  fd_vinyl_meta_join( accdb->vinyl_meta, vinyl_shmeta, vinyl_shele );
+  accdb->vinyl_line     = (fd_vinyl_line_t const *)vinyl_shline;
+  accdb->vinyl_line_cnt = vinyl_line_cnt;
 }
 
 void
