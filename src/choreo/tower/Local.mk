@@ -10,4 +10,5 @@ $(call make-unit-test,test_tower_serdes,test_tower_serdes,fd_choreo fd_flamenco 
 $(call run-unit-test,test_tower)
 $(call run-unit-test,test_tower_blocks)
 $(call run-unit-test,test_tower_serdes)
+$(call make-fuzz-test,fuzz_tower_serdes,fuzz_tower_serdes,fd_choreo fd_flamenco fd_tango fd_ballet fd_util,$(SECP256K1_LIBS))
 endif
