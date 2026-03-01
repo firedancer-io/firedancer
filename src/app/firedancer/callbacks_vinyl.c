@@ -114,6 +114,35 @@ fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data = {
   .new       = vinyl_data_new,
 };
 
+/* vinyl_line: shared line cache array */
+
+static ulong
+vinyl_line_align( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return alignof(fd_vinyl_line_t);
+}
+
+static ulong
+vinyl_line_footprint( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  return VAL("line_max") * sizeof(fd_vinyl_line_t);
+}
+
+static void
+vinyl_line_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  /* initialized by user */
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_vinyl_line = {
+  .name      = "vinyl_line",
+  .footprint = vinyl_line_footprint,
+  .align     = vinyl_line_align,
+  .new       = vinyl_line_new,
+};
+
 /* vinyl_req_pool: request allocator */
 
 static ulong

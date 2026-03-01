@@ -160,7 +160,6 @@ struct fd_accdb_tile_layout {
   ulong footprint;
   ulong io_off;
   ulong io_uring_shmem_off;
-  ulong vinyl_line_off;
 };
 
 typedef struct fd_accdb_tile_layout fd_accdb_tile_layout_t;
@@ -189,8 +188,6 @@ fd_accdb_tile_layout( fd_accdb_tile_layout_t * layout,
     FD_LOG_CRIT(( "invalid tile->accdb.io_type %d", tile->accdb.io_type ));
   }
 
-  layout->vinyl_line_off = (ulong)FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(fd_vinyl_line_t), sizeof(fd_vinyl_line_t)*tile->accdb.line_max );
   layout->footprint = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 }
 
@@ -281,11 +278,6 @@ vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-  ulong line_footprint;
-  if( FD_UNLIKELY( !tile->accdb.line_max || __builtin_umull_overflow( tile->accdb.line_max, sizeof(fd_vinyl_line_t), &line_footprint ) ) ) {
-    FD_LOG_ERR(( "invalid vinyl_line_max %lu", tile->accdb.line_max ));
-  }
-
   fd_vinyl_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ulong ctx_laddr = (ulong)ctx;
 
@@ -303,12 +295,12 @@ privileged_init( fd_topo_t *      topo,
     ctx->ioring_shmem = (void *)( ctx_laddr + layout->io_uring_shmem_off );
   }
 
-  fd_vinyl_line_t * _line = (void *)( ctx_laddr + layout->vinyl_line_off );
+  fd_vinyl_line_t * _line = fd_topo_obj_laddr( topo, tile->accdb.line_obj_id );
 
   vinyl->cnc            = NULL;
   vinyl->io             = NULL;
-  vinyl->line           = (fd_vinyl_line_t *)_line;
-  vinyl->line_footprint = line_footprint;
+  vinyl->line           = _line;
+  vinyl->line_footprint = topo->objs[ tile->accdb.line_obj_id ].footprint;
 
   /* FIXME use O_DIRECT? */
   FD_LOG_INFO(( "opening vinyl database file %s", tile->accdb.bstream_path ));

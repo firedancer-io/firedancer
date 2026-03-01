@@ -648,6 +648,7 @@ struct fd_topo_tile {
     struct {
       ulong meta_map_obj_id;
       ulong meta_pool_obj_id;
+      ulong line_obj_id;
       ulong line_max;
       ulong data_obj_id;
       char  bstream_path[ PATH_MAX ];
