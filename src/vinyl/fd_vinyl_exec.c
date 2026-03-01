@@ -634,6 +634,15 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
         memset( val + val_sz, 0, fd_vinyl_data_szc_obj_footprint( (ulong)obj->szc )
                                  - (sizeof(fd_vinyl_data_obj_t) + sizeof(fd_vinyl_bstream_phdr_t) + val_sz) );
 
+        /* Publish val_gaddr and bump version so cross-tile speculative
+           readers can see the data */
+
+        ulong io_ctl = line[ line_idx ].ctl;
+        fd_vinyl_line_publish( &line[ line_idx ],
+            fd_vinyl_data_gaddr( val, data_laddr0 ),
+            fd_vinyl_line_ctl( fd_vinyl_line_ctl_ver( io_ctl ) + 1UL,
+                               fd_vinyl_line_ctl_ref( io_ctl ) ) );
+
         FD_COMPILER_MFENCE();
         *rd_err = (schar)FD_VINYL_SUCCESS;
         FD_COMPILER_MFENCE();

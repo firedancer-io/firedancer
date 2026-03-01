@@ -112,7 +112,8 @@
               FD_CRIT( !memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
             }
 
-            line[ line_idx ].ctl = fd_vinyl_line_ctl( ver, ref+1L ); /* don't bump ver */
+            fd_vinyl_line_publish( &line[ line_idx ], line[ line_idx ].val_gaddr,
+                fd_vinyl_line_ctl( ver, ref+1L ) ); /* don't bump ver */
 
             req_val_gaddr[ batch_idx ] = fd_vinyl_data_gaddr( fd_vinyl_data_obj_val( obj ), data_laddr0 );
 
@@ -185,7 +186,8 @@
 
         //line[ line_idx ].obj_gaddr = ... already init;
         //line[ line_idx ].ele_idx   = ... already init;
-          line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1UL, -1L ); /* bump ver */
+          fd_vinyl_line_publish( &line[ line_idx ], 0UL,
+              fd_vinyl_line_ctl( ver+1UL, -1L ) ); /* bump ver */
 
           fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
@@ -242,7 +244,8 @@
         ulong ver = fd_vinyl_line_ctl_ver( line_ctl );
 
         line[ line_idx ].ele_idx = ele_idx; ele0[ ele_idx ].line_idx = line_idx;
-        line[ line_idx ].ctl     = fd_vinyl_line_ctl( ver+1UL, req_flag_modify ? -1L : 1L );
+        fd_vinyl_line_publish( &line[ line_idx ], 0UL,
+            fd_vinyl_line_ctl( ver+1UL, req_flag_modify ? -1L : 1L ) );
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
@@ -338,7 +341,7 @@
 
       ulong ver = fd_vinyl_line_ctl_ver( line_ctl );
 
-      line[ line_idx ].ctl = fd_vinyl_line_ctl( ver+1UL, -1L );
+      fd_vinyl_line_publish( &line[ line_idx ], 0UL, fd_vinyl_line_ctl( ver+1UL, -1L ) );
 
       fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 

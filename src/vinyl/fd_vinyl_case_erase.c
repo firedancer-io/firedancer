@@ -62,7 +62,7 @@
 
         line[ line_idx ].obj_gaddr = 0UL;
         line[ line_idx ].ele_idx   = ULONG_MAX; //ele0[ ele_idx ].line_idx = ULONG_MAX; /* Technically not necessary given below */
-        line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1UL, 0L ); /* bump version */
+        fd_vinyl_line_publish( &line[ line_idx ], 0UL, fd_vinyl_line_ctl( ver+1UL, 0L ) ); /* bump version */
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, FD_VINYL_LINE_EVICT_PRIO_LRU );
 

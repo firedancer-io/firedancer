@@ -55,7 +55,7 @@
 
       line[ line_idx ].obj_gaddr = 0UL;
       line[ line_idx ].ele_idx   = ULONG_MAX;
-      line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1UL, 0UL );
+      fd_vinyl_line_publish( &line[ line_idx ], 0UL, fd_vinyl_line_ctl( ver+1UL, 0UL ) );
       /* evict prio updated above */
 
       ele0[ ele_idx ].line_idx = ULONG_MAX;

@@ -124,7 +124,8 @@
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
-        line[ line_idx ].ctl = fd_vinyl_line_ctl( ver, ref-1L ); /* don't bump ver */
+        fd_vinyl_line_publish( &line[ line_idx ], line[ line_idx ].val_gaddr,
+            fd_vinyl_line_ctl( ver, ref-1L ) ); /* don't bump ver */
 
         DONE( FD_VINYL_SUCCESS );
       }
@@ -211,7 +212,9 @@
 
         line[ line_idx ].obj_gaddr = fd_vinyl_data_gaddr( obj, data_laddr0 ); obj->line_idx = line_idx; obj->rd_active = (short)0;
       //line[ line_idx ].ele_idx   ... already init
-        line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1L, 0L ); /* bump ver */
+        fd_vinyl_line_publish( &line[ line_idx ],
+            fd_vinyl_data_gaddr( fd_vinyl_data_obj_val( obj ), data_laddr0 ),
+            fd_vinyl_line_ctl( ver+1L, 0L ) ); /* bump ver */
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
@@ -277,7 +280,9 @@
 
         }
 
-        line[ line_idx ].ctl = fd_vinyl_line_ctl( ver-1UL, 0L ); /* revert ver */
+        fd_vinyl_line_publish( &line[ line_idx ],
+            fd_vinyl_data_gaddr( fd_vinyl_data_obj_val( fd_vinyl_data_laddr( line[ line_idx ].obj_gaddr, data_laddr0 ) ), data_laddr0 ),
+            fd_vinyl_line_ctl( ver-1UL, 0L ) ); /* revert ver */
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
@@ -306,7 +311,7 @@
 
       line[ line_idx ].obj_gaddr = 0UL;
       line[ line_idx ].ele_idx   = ULONG_MAX;                        ele0[ ele_idx ].line_idx = ULONG_MAX;
-      line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1UL, 0L ); /* bump ver */
+      fd_vinyl_line_publish( &line[ line_idx ], 0UL, fd_vinyl_line_ctl( ver+1UL, 0L ) ); /* bump ver */
 
       fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, FD_VINYL_LINE_EVICT_PRIO_LRU );
 

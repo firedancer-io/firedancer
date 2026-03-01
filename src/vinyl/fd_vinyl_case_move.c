@@ -108,7 +108,7 @@
 
         phdr_src = fd_vinyl_data_obj_phdr( obj_src );
 
-        line[ line_idx_src ].ctl = fd_vinyl_line_ctl( ver_src+1UL, 0L );
+        fd_vinyl_line_publish( &line[ line_idx_src ], 0UL, fd_vinyl_line_ctl( ver_src+1UL, 0L ) );
 
       } else {
 
@@ -177,7 +177,9 @@
 
         line[ line_idx_src ].obj_gaddr = fd_vinyl_data_gaddr( obj_src, data_laddr0 ); obj_src->line_idx = line_idx_src; obj_src->rd_active = (short)0;
         line[ line_idx_src ].ele_idx   = ele_idx_src; ele0[ ele_idx_src ].line_idx = line_idx_src;
-        line[ line_idx_src ].ctl       = fd_vinyl_line_ctl( ver_src+1UL, 0L );
+        fd_vinyl_line_publish( &line[ line_idx_src ],
+            fd_vinyl_data_gaddr( fd_vinyl_data_obj_val( obj_src ), data_laddr0 ),
+            fd_vinyl_line_ctl( ver_src+1UL, 0L ) );
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx_src, FD_VINYL_LINE_EVICT_PRIO_LRU );
 
@@ -224,7 +226,7 @@
 
           line[ line_idx_dst ].obj_gaddr = 0UL;
           line[ line_idx_dst ].ele_idx   = ULONG_MAX; // ele0[ ele_idx_dst ].line_idx = ULONG_MAX; /* Technically not necessary given below */
-          line[ line_idx_dst ].ctl       = fd_vinyl_line_ctl( ver_dst+1UL, 0L );
+          fd_vinyl_line_publish( &line[ line_idx_dst ], 0UL, fd_vinyl_line_ctl( ver_dst+1UL, 0L ) );
 
           fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx_dst, FD_VINYL_LINE_EVICT_PRIO_LRU );
         }

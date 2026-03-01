@@ -101,6 +101,7 @@ static FD_FOR_ALL_BEGIN( fd_vinyl_recover_line_task, 1L ) {
 
   for( ulong line_idx=line0; line_idx<line1; line_idx++ ) {
     line[ line_idx ].obj_gaddr      = 0UL;
+    line[ line_idx ].val_gaddr      = 0UL;
     line[ line_idx ].ele_idx        = ULONG_MAX;
     line[ line_idx ].ctl            = fd_vinyl_line_ctl( 0UL, 0L);
     line[ line_idx ].line_idx_older = (uint)fd_ulong_if( line_idx!=0UL,          line_idx-1UL, line_cnt-1UL );

@@ -120,7 +120,7 @@
       ulong ver = fd_vinyl_line_ctl_ver( line_ctl );
 
       line[ line_idx ].ele_idx = ele_idx; ele0[ ele_idx ].line_idx = line_idx;
-      line[ line_idx ].ctl     = fd_vinyl_line_ctl( ver+1UL, 0L );
+      fd_vinyl_line_publish( &line[ line_idx ], 0UL, fd_vinyl_line_ctl( ver+1UL, 0L ) );
 
       fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 

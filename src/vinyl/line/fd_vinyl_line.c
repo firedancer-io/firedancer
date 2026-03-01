@@ -81,7 +81,7 @@ fd_vinyl_line_evict_lru( uint *                _line_idx_lru,
       }
 
       ulong ver = fd_vinyl_line_ctl_ver( line_ctl );
-      line[ line_idx ].ctl = fd_vinyl_line_ctl( ver+1UL, 0L ); /* bump ver */
+      fd_vinyl_line_publish( &line[ line_idx ], 0UL, fd_vinyl_line_ctl( ver+1UL, 0L ) ); /* bump ver */
 
       break;
     }

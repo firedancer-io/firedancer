@@ -83,11 +83,13 @@
      acquired-for-read ref times. */
 
 struct __attribute__((aligned(32))) fd_vinyl_line {
-  ulong obj_gaddr;      /* location in the data cache of the data_obj storing val, 0 if not caching a pair */
-  ulong ele_idx;        /* map element storing key and the pair metadata (app and key), in [0,map_cnt) */
   ulong ctl;            /* packs the line version and line reference count */
+  ulong ele_idx;        /* map element storing key and the pair metadata (app and key), in [0,map_cnt) */
+  ulong obj_gaddr;      /* location in the data cache of the data_obj storing val, 0 if not caching a pair */
+  ulong val_gaddr;      /* location in the data cache of val, 0 if data is not ready to read */
   uint  line_idx_older; /* older line in eviction sequence, in [0,line_cnt) */
   uint  line_idx_newer; /* newer line in eviction sequence, in [0,line_cnt) */
+  uchar _pad[24];       /* pad to 64 bytes for cache line alignment */
 };
 
 typedef struct fd_vinyl_line fd_vinyl_line_t;
@@ -110,6 +112,16 @@ fd_vinyl_line_ctl( ulong ver,
 
 FD_FN_CONST static inline ulong fd_vinyl_line_ctl_ver( ulong ctl ) { return ctl>>32; }
 FD_FN_CONST static inline long  fd_vinyl_line_ctl_ref( ulong ctl ) { return ((long)(ctl & ((1UL<<32)-1UL)))-1L; }
+
+static inline void
+fd_vinyl_line_publish( fd_vinyl_line_t * l,
+                       ulong             val_gaddr,
+                       ulong             ctl ) {
+  l->val_gaddr = val_gaddr;
+  FD_COMPILER_MFENCE();
+  l->ctl = ctl;
+  FD_COMPILER_MFENCE();
+}
 
 /* fd_vinyl_line_evict_prio changes the eviction priority of line
    line_idx to evict_prio.  Cannot fail from the caller's perspective
