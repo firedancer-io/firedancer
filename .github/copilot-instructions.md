@@ -40,9 +40,14 @@ Use `ifndef` include guards, not `#pragma once`:
 ```
 
 ### Macros
-- Enclose arguments in braces
-- Enclose macro bodies in `do/while(0)` scopes
+- Enclose arguments in parentheses (to ensure proper operator precedence)
+- Enclose macro bodies in `do/while(0)` scopes (use braces `{}` for statement blocks)
 - Only evaluate macro arguments once
+
+Example:
+```c
+#define wwl_abs(x) _mm512_abs_epi64( (x) )  /* good - parentheses around argument */
+```
 
 ### Error Handling
 - Annotate uncommon error paths with `FD_UNLIKELY`

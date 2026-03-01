@@ -16,7 +16,15 @@
 
   "onCreateCommand": {
     "update-apt": "sudo apt-get update",
-    "install-deps": "sudo apt-get install -y curl diffutils build-essential pkgconf zstd gzip cmake libclang-dev libudev-dev protobuf-compiler autoconf automake autopoint bison flex gcc-multilib gettext llvm lcov libgmp-dev perl git",
+    "install-deps": [
+      "sudo", "apt-get", "install", "-y",
+      "curl", "diffutils", "build-essential", "pkgconf",
+      "zstd", "gzip", "cmake", "libclang-dev",
+      "libudev-dev", "protobuf-compiler", "autoconf",
+      "automake", "autopoint", "bison", "flex",
+      "gcc-multilib", "gettext", "llvm", "lcov",
+      "libgmp-dev", "perl", "git"
+    ],
     "setup-submodules": "git submodule update --init --recursive"
   },
 
