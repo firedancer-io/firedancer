@@ -23,22 +23,25 @@ de_short_u16( ushort * dst, uchar const * src ) {
 }
 
 static ulong
-de_var_int( ulong * dst, uchar const * src ) {
+de_var_int( ulong *       dst,
+            uchar const * src,
+            ulong         src_sz ) {
   *dst = 0;
   ulong off = 0;
   ulong bit = 0;
   while( FD_LIKELY( bit < 64 ) ) {
+    if( FD_UNLIKELY( off >= src_sz ) ) return 0;
     uchar byte = *(uchar const *)(src+off);
     off       += 1;
     *dst      |= (byte & 0x7FUL) << bit;
     if( FD_LIKELY( (byte & 0x80U) == 0U ) ) {
-      if( FD_UNLIKELY( (*dst>>bit) != byte                ) ) FD_LOG_CRIT(( "de_varint" ));
-      if( FD_UNLIKELY( byte==0U && (bit!=0U || *dst!=0UL) ) ) FD_LOG_CRIT(( "de_varint" ));
+      if( FD_UNLIKELY( (*dst>>bit) != byte                ) ) return 0;
+      if( FD_UNLIKELY( byte==0U && (bit!=0U || *dst!=0UL) ) ) return 0;
       return off;
     }
     bit += 7;
   }
-  FD_LOG_CRIT(( "de_varint" ));
+  return 0;
 }
 
 static ulong
@@ -81,7 +84,9 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
   off += de_short_u16( &serde->lockouts_cnt, buf+off );
   if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
   for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
-    off += de_var_int( &serde->lockouts[i].offset, buf+off );
+    ulong varint_sz = de_var_int( &serde->lockouts[i].offset, buf+off, buf_sz-off );
+    if( FD_UNLIKELY( !varint_sz ) ) return -1;
+    off += varint_sz;
     DE( uchar, lockouts[i].confirmation_count );
   }
   DE( fd_hash_t, hash             );
