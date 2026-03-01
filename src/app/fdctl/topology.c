@@ -444,12 +444,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( tile->quic.key_log_path ), config->tiles.quic.ssl_key_log_file, sizeof(tile->quic.key_log_path) ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
-    strncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
+    fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
     tile->bundle.url_len = strnlen( tile->bundle.url, 255 );
-    strncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, 256 );
+    fd_cstr_ncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, 256 );
     tile->bundle.sni_len = strnlen( tile->bundle.sni, 255 );
-    strncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
-    strncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
+    fd_cstr_ncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
+    fd_cstr_ncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
     tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
     tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
     tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
@@ -479,15 +479,15 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       PARSE_PUBKEY( pack, tip_payment_program_addr      );
       PARSE_PUBKEY( pack, tip_distribution_authority    );
       tile->pack.bundle.commission_bps = config->tiles.bundle.commission_bps;
-      strncpy( tile->pack.bundle.identity_key_path, config->paths.identity_key, sizeof(tile->pack.bundle.identity_key_path) );
-      strncpy( tile->pack.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pack.bundle.vote_account_path) );
+      fd_cstr_ncpy( tile->pack.bundle.identity_key_path, config->paths.identity_key, sizeof(tile->pack.bundle.identity_key_path) );
+      fd_cstr_ncpy( tile->pack.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pack.bundle.vote_account_path) );
     } else {
       fd_memset( &tile->pack.bundle, '\0', sizeof(tile->pack.bundle) );
     }
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "pohh" ) ) ) {
-    strncpy( tile->pohh.identity_key_path, config->paths.identity_key, sizeof(tile->pohh.identity_key_path) );
+    fd_cstr_ncpy( tile->pohh.identity_key_path, config->paths.identity_key, sizeof(tile->pohh.identity_key_path) );
 
     tile->pohh.plugins_enabled = plugins_enabled;
     tile->pohh.execle_cnt = config->frankendancer.layout.bank_tile_count;
@@ -497,14 +497,14 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->pohh.bundle.enabled = 1;
       PARSE_PUBKEY( pohh, tip_distribution_program_addr );
       PARSE_PUBKEY( pohh, tip_payment_program_addr      );
-      strncpy( tile->pohh.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pohh.bundle.vote_account_path) );
+      fd_cstr_ncpy( tile->pohh.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->pohh.bundle.vote_account_path) );
 #undef PARSE_PUBKEY
     } else {
       fd_memset( &tile->pohh.bundle, '\0', sizeof(tile->pohh.bundle) );
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
-    strncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
+    fd_cstr_ncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
 
     tile->shred.depth                         = config->topo.links[ tile->out_link_id[ 0 ] ].depth;
     tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
@@ -528,7 +528,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->store.disable_blockstore_from_slot = config->development.bench.disable_blockstore_from_slot;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
-    strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
+    fd_cstr_ncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
 
     /* Frankendancer does not use authorized voters in the sign tile. */
     tile->sign.authorized_voter_paths_cnt = 0UL;
@@ -545,9 +545,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "failed to parse gui listen address `%s`", config->tiles.gui.gui_listen_address ));
     tile->gui.listen_port = config->tiles.gui.gui_listen_port;
     tile->gui.is_voting = strcmp( config->paths.vote_account, "" );
-    strncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
-    strncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
-    strncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
+    fd_cstr_ncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
+    fd_cstr_ncpy( tile->gui.identity_key_path, config->paths.identity_key, sizeof(tile->gui.identity_key_path) );
+    fd_cstr_ncpy( tile->gui.vote_key_path, config->paths.vote_account, sizeof(tile->gui.vote_key_path) );
     tile->gui.max_http_connections      = config->tiles.gui.max_http_connections;
     tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
     tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;

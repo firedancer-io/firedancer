@@ -267,7 +267,7 @@ fd_quic_config_from_env( int  *             pargc,
   cfg->retry = fd_env_strip_cmdline_contains( pargc, pargv, "--quic-retry" );
 
   if( keylog_file ) {
-    strncpy( cfg->keylog_file, keylog_file, FD_QUIC_PATH_LEN );
+    fd_cstr_ncpy( cfg->keylog_file, keylog_file, sizeof(cfg->keylog_file) );
   } else {
     cfg->keylog_file[0]='\0';
   }

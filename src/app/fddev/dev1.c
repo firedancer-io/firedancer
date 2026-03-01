@@ -5,7 +5,6 @@
 #include "../shared_dev/commands/dev.h"
 
 #include <errno.h>
-#include <stdio.h>
 #include <unistd.h>
 #include <sched.h>
 #include <sys/wait.h>
@@ -56,7 +55,7 @@ dev1_cmd_args( int *    pargc,
   char * usage = "usage: dev1 <tile>";
   if( FD_UNLIKELY( *pargc < 1 ) ) FD_LOG_ERR(( "%s", usage ));
 
-  strncpy( args->dev1.tile_name, *pargv[ 0 ], sizeof( args->dev1.tile_name ) - 1 );
+  fd_cstr_ncpy( args->dev1.tile_name, *pargv[ 0 ], sizeof( args->dev1.tile_name ) );
 
   (*pargc)--;
   (*pargv)++;

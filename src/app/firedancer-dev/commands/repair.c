@@ -651,7 +651,7 @@ repair_cmd_fn_catchup( args_t *   args,
       /* This is not part of the config, and it must be set manually
          on purpose as a safety mechanism. */
       tile->shredcap.enable_publish_stake_weights = 1;
-      strncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
+      fd_cstr_ncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
     }
     if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.end_slot = args->repair.end_slot;
@@ -794,7 +794,7 @@ repair_cmd_fn_eqvoc( args_t *   args,
       /* This is not part of the config, and it must be set manually
           on purpose as a safety mechanism. */
       tile->shredcap.enable_publish_stake_weights = 1;
-      strncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
+      fd_cstr_ncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
     }
     if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.end_slot = args->repair.end_slot;
