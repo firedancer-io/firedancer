@@ -94,7 +94,7 @@ after_credit( fd_pktgen_tile_ctx_t * ctx,
 
 #define STEM_CALLBACK_AFTER_CREDIT after_credit
 
-#define STEM_LAZY ((ulong)1e9) /* max possible */
+#define STEM_LAZY ((ulong)384e3) /* 384us, same as shred tile */
 
 #include "../../../../disco/stem/fd_stem.c"
 
