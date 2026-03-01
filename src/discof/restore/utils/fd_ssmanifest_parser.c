@@ -1361,14 +1361,14 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
   switch( parser->state ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:
-      if( FD_UNLIKELY( manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission>10000 ) ) {
+      if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission>10000 ) ) {
         FD_LOG_WARNING(( "invalid commission %u", manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission ));
         return -1;
       }
       break;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:
-      if( FD_UNLIKELY( (manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission & 0xFF) >100 ) ) {
+      if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && (manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission & 0xFF) >100 ) ) {
         FD_LOG_WARNING(( "invalid commission %u", manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission ));
         return -1;
       }
@@ -1689,10 +1689,10 @@ state_process( fd_ssmanifest_parser_t * parser,
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
     parser->manifest->vote_accounts[ parser->idx1 ].commission /= 100;
   }
-  if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
+  if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
     parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission /= 100;
   }
-  if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
+  if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
     parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission /= 100;
   }
 
@@ -1703,9 +1703,13 @@ state_process( fd_ssmanifest_parser_t * parser,
                 || parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION) ) {
     parser->manifest->vote_accounts[ parser->idx1 ].commission &= 0xFF;
   }
-  if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION
-                || parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION
-                || parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION ) ) {
+  if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX &&
+      (  parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION
+      || parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION
+      || parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION
+      || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION
+      || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION
+      || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION ) ) ) {
     parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission &= 0xFF;
   }
 
