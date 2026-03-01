@@ -44,8 +44,8 @@
 
       if( FD_LIKELY( !req_flag_by_key ) ) { /* Release by val_gaddr */
 
-        void * _obj = (void *)( req_val_gaddr[ batch_idx ]
-                              + data_laddr0 - sizeof(fd_vinyl_bstream_phdr_t) - sizeof(fd_vinyl_data_obj_t) );
+        void * _obj = (uchar *)fd_vinyl_data_laddr( req_val_gaddr[ batch_idx ], data_laddr0 )
+                               - sizeof(fd_vinyl_bstream_phdr_t) - sizeof(fd_vinyl_data_obj_t);
 
         if( FD_UNLIKELY( !fd_vinyl_data_is_valid_obj( _obj, vol, vol_cnt ) ) ) DONE( FD_VINYL_ERR_INVAL );
         obj = (fd_vinyl_data_obj_t *)_obj;
@@ -53,7 +53,7 @@
         if( FD_UNLIKELY( obj->rd_active ) ) DONE( FD_VINYL_ERR_INVAL );
 
         line_idx = obj->line_idx;
-        if( FD_UNLIKELY( line_idx>=line_cnt ) || FD_UNLIKELY( obj!=line[ line_idx ].obj ) ) DONE( FD_VINYL_ERR_INVAL );
+        if( FD_UNLIKELY( line_idx>=line_cnt ) || FD_UNLIKELY( fd_vinyl_data_gaddr( obj, data_laddr0 )!=line[ line_idx ].obj_gaddr ) ) DONE( FD_VINYL_ERR_INVAL );
 
         ele_idx = line[ line_idx ].ele_idx;
         if( FD_UNLIKELY( ele_idx>=ele_max ) || FD_UNLIKELY( ele0[ ele_idx ].line_idx!=line_idx ) ) DONE( FD_VINYL_ERR_INVAL );
@@ -87,7 +87,7 @@
 
         FD_CRIT( ele_idx==line[ line_idx ].ele_idx, "corruption detected" );
 
-        obj = line[ line_idx ].obj;
+        obj = fd_vinyl_data_laddr( line[ line_idx ].obj_gaddr, data_laddr0 );
 
         FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
         FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
@@ -209,9 +209,9 @@
            bstream before.  Since we are changing shared fields of meta
            element ele_idx, we need to use prepare / publish semantics. */
 
-        line[ line_idx ].obj     = obj;             obj->line_idx = line_idx; obj->rd_active = (short)0;
-      //line[ line_idx ].ele_idx ... already init
-        line[ line_idx ].ctl     = fd_vinyl_line_ctl( ver+1L, 0L ); /* bump ver */
+        line[ line_idx ].obj_gaddr = fd_vinyl_data_gaddr( obj, data_laddr0 ); obj->line_idx = line_idx; obj->rd_active = (short)0;
+      //line[ line_idx ].ele_idx   ... already init
+        line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1L, 0L ); /* bump ver */
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
@@ -273,7 +273,7 @@
 
           fd_vinyl_data_free( data, obj );
 
-          line[ line_idx ].obj = obj_before; obj_before->line_idx = line_idx; obj_before->rd_active = (short)0;
+          line[ line_idx ].obj_gaddr = fd_vinyl_data_gaddr( obj_before, data_laddr0 ); obj_before->line_idx = line_idx; obj_before->rd_active = (short)0;
 
         }
 
@@ -304,9 +304,9 @@
 
       fd_vinyl_data_free( data, obj );
 
-      line[ line_idx ].obj     = NULL;
-      line[ line_idx ].ele_idx = ULONG_MAX;                        ele0[ ele_idx ].line_idx = ULONG_MAX;
-      line[ line_idx ].ctl     = fd_vinyl_line_ctl( ver+1UL, 0L ); /* bump ver */
+      line[ line_idx ].obj_gaddr = 0UL;
+      line[ line_idx ].ele_idx   = ULONG_MAX;                        ele0[ ele_idx ].line_idx = ULONG_MAX;
+      line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1UL, 0L ); /* bump ver */
 
       fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, FD_VINYL_LINE_EVICT_PRIO_LRU );
 

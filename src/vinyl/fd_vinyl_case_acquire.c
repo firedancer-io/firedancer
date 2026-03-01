@@ -76,7 +76,7 @@
 
           FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
-          fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
+          fd_vinyl_data_obj_t * obj = fd_vinyl_data_laddr( line[ line_idx ].obj_gaddr, data_laddr0 );
 
           FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
           FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
@@ -114,7 +114,7 @@
 
             line[ line_idx ].ctl = fd_vinyl_line_ctl( ver, ref+1L ); /* don't bump ver */
 
-            req_val_gaddr[ batch_idx ] = (ulong)fd_vinyl_data_obj_val( obj ) - data_laddr0;
+            req_val_gaddr[ batch_idx ] = fd_vinyl_data_gaddr( fd_vinyl_data_obj_val( obj ), data_laddr0 );
 
             DONE( FD_VINYL_SUCCESS );
 
@@ -173,7 +173,7 @@
             phdr = phdr_new;
             obj  = obj_new;
 
-            line[ line_idx ].obj = obj; obj->line_idx = line_idx; obj->rd_active = (short)0;
+            line[ line_idx ].obj_gaddr = fd_vinyl_data_gaddr( obj, data_laddr0 ); obj->line_idx = line_idx; obj->rd_active = (short)0;
           }
 
           /* Zero out any remaining space in the pair. */
@@ -183,9 +183,9 @@
 
           /* Finish up acquiring for modify */
 
-        //line[ line_idx ].obj     = ... already init;
-        //line[ line_idx ].ele_idx = ... already init;
-          line[ line_idx ].ctl     = fd_vinyl_line_ctl( ver+1UL, -1L ); /* bump ver */
+        //line[ line_idx ].obj_gaddr = ... already init;
+        //line[ line_idx ].ele_idx   = ... already init;
+          line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1UL, -1L ); /* bump ver */
 
           fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
@@ -195,7 +195,7 @@
 
         //ele0[ ele_idx ] = ... already init
 
-          req_val_gaddr[ batch_idx ] = (ulong)fd_vinyl_data_obj_val( obj ) - data_laddr0;
+          req_val_gaddr[ batch_idx ] = fd_vinyl_data_gaddr( fd_vinyl_data_obj_val( obj ), data_laddr0 );
 
           DONE( FD_VINYL_SUCCESS );
 
@@ -258,11 +258,11 @@
         fd_vinyl_data_obj_t * obj = fd_vinyl_data_alloc( data, szc );
         if( FD_UNLIKELY( !obj ) ) FD_LOG_CRIT(( "increase data cache size" ));
 
-        line[ line_idx ].obj = obj; obj->line_idx = line_idx;
+        line[ line_idx ].obj_gaddr = fd_vinyl_data_gaddr( obj, data_laddr0 ); obj->line_idx = line_idx;
 
         void * val = fd_vinyl_data_obj_val( obj );
 
-        req_val_gaddr[ batch_idx ] = (ulong)val - data_laddr0;
+        req_val_gaddr[ batch_idx ] = fd_vinyl_data_gaddr( val, data_laddr0 );
 
         /* If we need to do I/O, start reading encoded pair data and
            defer the data integrity and decoding to later (and then in
@@ -350,7 +350,7 @@
       fd_vinyl_data_obj_t * obj = fd_vinyl_data_alloc( data, szc );
       if( FD_UNLIKELY( !obj ) ) FD_LOG_CRIT(( "increase data cache size" ));
 
-      line[ line_idx ].obj = obj; obj->line_idx = line_idx; obj->rd_active = (short)0;
+      line[ line_idx ].obj_gaddr = fd_vinyl_data_gaddr( obj, data_laddr0 ); obj->line_idx = line_idx; obj->rd_active = (short)0;
 
       /* Allocate a meta element to hold metadata for this pair and
          connect it to this line.  Since we are inserting at meta
@@ -382,7 +382,7 @@
 
       memset( val, 0, fd_vinyl_data_szc_obj_footprint( szc ) - sizeof(fd_vinyl_data_obj_t) - sizeof(fd_vinyl_bstream_phdr_t) );
 
-      req_val_gaddr[ batch_idx ] = (ulong)val - data_laddr0;
+      req_val_gaddr[ batch_idx ] = fd_vinyl_data_gaddr( val, data_laddr0 );
 
       DONE( FD_VINYL_SUCCESS );
 

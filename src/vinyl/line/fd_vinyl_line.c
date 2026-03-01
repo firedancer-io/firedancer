@@ -61,14 +61,16 @@ fd_vinyl_line_evict_lru( uint *                _line_idx_lru,
 
     if( FD_LIKELY( !fd_vinyl_line_ctl_ref( line_ctl ) ) ) {
 
-      fd_vinyl_data_obj_t * obj     = line[ line_idx ].obj;
-      ulong                 ele_idx = line[ line_idx ].ele_idx;
+      ulong obj_gaddr = line[ line_idx ].obj_gaddr;
+      ulong ele_idx   = line[ line_idx ].ele_idx;
 
-      if( FD_LIKELY( obj ) ) {
+      if( FD_LIKELY( obj_gaddr ) ) {
+        fd_wksp_t * data_wksp = (fd_wksp_t *)fd_vinyl_data_laddr0( data );
+        fd_vinyl_data_obj_t * obj = fd_vinyl_data_laddr( obj_gaddr, data_wksp );
         FD_CRIT( obj->line_idx==line_idx, "corruption detected" );
         FD_CRIT( !obj->rd_active,         "corruption detected" );
         fd_vinyl_data_free( data, obj );
-        line[ line_idx ].obj = NULL;
+        line[ line_idx ].obj_gaddr = 0UL;
       }
 
       if( FD_LIKELY( ele_idx<ele_max ) ) {

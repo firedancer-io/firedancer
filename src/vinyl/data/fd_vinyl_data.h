@@ -400,6 +400,9 @@ FD_FN_PURE static inline void * fd_vinyl_data_laddr0  ( fd_vinyl_data_t const * 
 FD_FN_PURE static inline void * fd_vinyl_data_shmem   ( fd_vinyl_data_t const * data ) { return (void *)data->shmem;  }
 FD_FN_PURE static inline ulong  fd_vinyl_data_shmem_sz( fd_vinyl_data_t const * data ) { return data->shmem_sz;       }
 
+FD_FN_PURE static inline void * fd_vinyl_data_laddr   ( ulong gaddr,  void * laddr0 ) { return (void *)( (ulong)laddr0 + gaddr ); }
+FD_FN_PURE static inline ulong  fd_vinyl_data_gaddr   ( void * laddr, void * laddr0 ) { return (ulong)laddr - (ulong)laddr0;      }
+
 /* fd_vinyl_data_is_valid_obj returns 1 if laddr appears to point to
    a valid data object and 0 if not.  vol points to data volume 0 in the
    local address space and vol_cnt is the number of data volumes. */

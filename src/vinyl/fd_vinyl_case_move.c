@@ -101,7 +101,7 @@
 
         FD_CRIT( line[ line_idx_src ].ele_idx==ele_idx_src, "corruption detected" );
 
-        obj_src = line[ line_idx_src ].obj;
+        obj_src = fd_vinyl_data_laddr( line[ line_idx_src ].obj_gaddr, data_laddr0 );
 
         FD_ALERT( fd_vinyl_data_is_valid_obj( obj_src, vol, vol_cnt ), "corruption detected" );
         FD_CRIT ( obj_src->line_idx==line_idx_src,                     "corruption detected" );
@@ -175,9 +175,9 @@
 
         ulong ver_src = fd_vinyl_line_ctl_ver( line_ctl_src );
 
-        line[ line_idx_src ].obj     = obj_src; obj_src->line_idx = line_idx_src; obj_src->rd_active = (short)0;
-        line[ line_idx_src ].ele_idx = ele_idx_src; ele0[ ele_idx_src ].line_idx = line_idx_src;
-        line[ line_idx_src ].ctl     = fd_vinyl_line_ctl( ver_src+1UL, 0L );
+        line[ line_idx_src ].obj_gaddr = fd_vinyl_data_gaddr( obj_src, data_laddr0 ); obj_src->line_idx = line_idx_src; obj_src->rd_active = (short)0;
+        line[ line_idx_src ].ele_idx   = ele_idx_src; ele0[ ele_idx_src ].line_idx = line_idx_src;
+        line[ line_idx_src ].ctl       = fd_vinyl_line_ctl( ver_src+1UL, 0L );
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx_src, FD_VINYL_LINE_EVICT_PRIO_LRU );
 
@@ -211,7 +211,7 @@
 
           FD_CRIT( line[ line_idx_dst ].ele_idx==ele_idx_dst, "corruption detected" );
 
-          fd_vinyl_data_obj_t * obj_dst = line[ line_idx_dst ].obj;
+          fd_vinyl_data_obj_t * obj_dst = fd_vinyl_data_laddr( line[ line_idx_dst ].obj_gaddr, data_laddr0 );
 
           FD_ALERT( fd_vinyl_data_is_valid_obj( obj_dst, vol, vol_cnt ), "corruption detected" );
           FD_CRIT ( obj_dst->line_idx==line_idx_dst,                     "corruption detected" );
@@ -222,9 +222,9 @@
 
           fd_vinyl_data_free( data, obj_dst );
 
-          line[ line_idx_dst ].obj     = NULL;
-          line[ line_idx_dst ].ele_idx = ULONG_MAX; // ele0[ ele_idx_dst ].line_idx = ULONG_MAX; /* Technically not necessary given below */
-          line[ line_idx_dst ].ctl     = fd_vinyl_line_ctl( ver_dst+1UL, 0L );
+          line[ line_idx_dst ].obj_gaddr = 0UL;
+          line[ line_idx_dst ].ele_idx   = ULONG_MAX; // ele0[ ele_idx_dst ].line_idx = ULONG_MAX; /* Technically not necessary given below */
+          line[ line_idx_dst ].ctl       = fd_vinyl_line_ctl( ver_dst+1UL, 0L );
 
           fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx_dst, FD_VINYL_LINE_EVICT_PRIO_LRU );
         }

@@ -165,7 +165,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
               FD_CRIT( line_idx<line_cnt,                 "corruption detected" );
               FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
-              fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
+              fd_vinyl_data_obj_t * obj = fd_vinyl_data_laddr( line[ line_idx ].obj_gaddr, data->laddr0 );
 
               FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
               FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );

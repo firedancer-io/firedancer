@@ -392,7 +392,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_vinyl_line_t * line = vinyl->line;
   for( ulong line_idx=0UL; line_idx<line_cnt; line_idx++ ) {
-    line[ line_idx ].obj            = NULL;
+    line[ line_idx ].obj_gaddr      = 0UL;
     line[ line_idx ].ele_idx        = ULONG_MAX;
     line[ line_idx ].ctl            = fd_vinyl_line_ctl( 0UL, 0L);
     line[ line_idx ].line_idx_older = (uint)fd_ulong_if( line_idx!=0UL,          line_idx-1UL, line_cnt-1UL );
@@ -752,9 +752,9 @@ before_credit( fd_vinyl_tile_t *   ctx,
   ulong *               lock       = meta->lock;
   int                   lock_shift = meta->lock_shift;
 
-  ulong                       data_laddr0 = (ulong)data->laddr0;
-  fd_vinyl_data_vol_t const * vol         =        data->vol;
-  ulong                       vol_cnt     =        data->vol_cnt;
+  void *                      data_laddr0 = data->laddr0;
+  fd_vinyl_data_vol_t const * vol         = data->vol;
+  ulong                       vol_cnt     = data->vol_cnt;
 
   ulong line_cnt  = vinyl->line_cnt;
 
@@ -929,8 +929,8 @@ before_credit( fd_vinyl_tile_t *   ctx,
 
       ulong line_idx = obj->line_idx;
 
-      FD_CRIT( line_idx<line_cnt,                 "corruption detected" );
-      FD_CRIT( line[ line_idx ].obj==obj,         "corruption detected" );
+      FD_CRIT( line_idx<line_cnt, "corruption detected" );
+      FD_CRIT( fd_vinyl_data_laddr( line[ line_idx ].obj_gaddr, data_laddr0 )==obj, "corruption detected" );
 
       ulong ele_idx = line[ line_idx ].ele_idx;
 

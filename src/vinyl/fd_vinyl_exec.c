@@ -89,9 +89,9 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
   /* Unpack data */
 
-  ulong                       data_laddr0 = (ulong)data->laddr0;
-  fd_vinyl_data_vol_t const * vol         =        data->vol;
-  ulong                       vol_cnt     =        data->vol_cnt;
+  void *                      data_laddr0 = data->laddr0;
+  fd_vinyl_data_vol_t const * vol         = data->vol;
+  ulong                       vol_cnt     = data->vol_cnt;
 
   /* Connected clients */
 
@@ -580,8 +580,8 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
         ulong line_idx = obj->line_idx;
 
-        FD_CRIT( line_idx<line_cnt,                 "corruption detected" );
-        FD_CRIT( line[ line_idx ].obj==obj,         "corruption detected" );
+        FD_CRIT( line_idx<line_cnt, "corruption detected" );
+        FD_CRIT( line[ line_idx ].obj_gaddr==fd_vinyl_data_gaddr( obj, data_laddr0 ), "corruption detected" );
 
         ulong ele_idx = line[ line_idx ].ele_idx;
 

@@ -65,8 +65,8 @@
 #define FD_VINYL_LINE_VER_MAX ((1UL<<32)-1UL)
 
 /* A fd_vinyl_line_t stores information the vinyl tile uses to track
-   how a key-val pair has been cached in DRAM.  If the val field is
-   NULL, there is no pair cached in that line and all other fields are
+   how a key-val pair has been cached in DRAM.  If obj_gaddr is 0,
+   there is no pair cached in that line and all other fields are
    ignored.  Practically speaking, the vinyl tile uses this (local)
    structure to tie together the (shared) pair meta map and the (shared)
    data cache region.
@@ -83,11 +83,11 @@
      acquired-for-read ref times. */
 
 struct __attribute__((aligned(32))) fd_vinyl_line {
-  fd_vinyl_data_obj_t * obj;            /* location in the data cache of the data_obj storing val, NULL if not caching a pair */
-  ulong                 ele_idx;        /* map element storing key and the pair metadata (app and key), in [0,map_cnt) */
-  ulong                 ctl;            /* packs the line version and line reference count */
-  uint                  line_idx_older; /* older line in eviction sequence, in [0,line_cnt) */
-  uint                  line_idx_newer; /* newer line in eviction sequence, in [0,line_cnt) */
+  ulong obj_gaddr;      /* location in the data cache of the data_obj storing val, 0 if not caching a pair */
+  ulong ele_idx;        /* map element storing key and the pair metadata (app and key), in [0,map_cnt) */
+  ulong ctl;            /* packs the line version and line reference count */
+  uint  line_idx_older; /* older line in eviction sequence, in [0,line_cnt) */
+  uint  line_idx_newer; /* newer line in eviction sequence, in [0,line_cnt) */
 };
 
 typedef struct fd_vinyl_line fd_vinyl_line_t;

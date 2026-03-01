@@ -79,7 +79,7 @@
       fd_vinyl_data_obj_t * obj = fd_vinyl_data_alloc( data, szc );
       if( FD_UNLIKELY( !obj ) ) FD_LOG_CRIT(( "increase data cache size" ));
 
-      line[ line_idx ].obj = obj; obj->line_idx = line_idx;
+      line[ line_idx ].obj_gaddr = fd_vinyl_data_gaddr( obj, data_laddr0 ); obj->line_idx = line_idx;
 
       /* Start reading encoded pair data and defer the validation and
          decoding to later (and then in whatever order the I/O layer

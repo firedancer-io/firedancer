@@ -33,7 +33,7 @@
       FD_CRIT( line_idx<line_cnt,                 "corruption detected" );
       FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
-      fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
+      fd_vinyl_data_obj_t * obj = fd_vinyl_data_laddr( line[ line_idx ].obj_gaddr, data_laddr0 );
 
       FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
       FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
@@ -53,9 +53,9 @@
          any shared fields of meta element ele_idx so we can do this
          fast. */
 
-      line[ line_idx ].obj     = NULL;
-      line[ line_idx ].ele_idx = ULONG_MAX;
-      line[ line_idx ].ctl     = fd_vinyl_line_ctl( ver+1UL, 0UL );
+      line[ line_idx ].obj_gaddr = 0UL;
+      line[ line_idx ].ele_idx   = ULONG_MAX;
+      line[ line_idx ].ctl       = fd_vinyl_line_ctl( ver+1UL, 0UL );
       /* evict prio updated above */
 
       ele0[ ele_idx ].line_idx = ULONG_MAX;

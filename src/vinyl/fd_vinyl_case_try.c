@@ -68,7 +68,7 @@
 
         FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
 
-        fd_vinyl_data_obj_t * obj = line[ line_idx ].obj;
+        fd_vinyl_data_obj_t * obj = fd_vinyl_data_laddr( line[ line_idx ].obj_gaddr, data_laddr0 );
 
         FD_ALERT( fd_vinyl_data_is_valid_obj( obj, vol, vol_cnt ), "corruption detected" );
         FD_CRIT ( obj->line_idx==line_idx,                         "corruption detected" );
@@ -92,7 +92,7 @@
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx, req_evict_prio );
 
-        req_val_gaddr[ batch_idx ] = (ulong)fd_vinyl_data_obj_val( obj ) - data_laddr0;
+        req_val_gaddr[ batch_idx ] = fd_vinyl_data_gaddr( fd_vinyl_data_obj_val( obj ), data_laddr0 );
 
         DONE( FD_VINYL_SUCCESS, (ver<<32) | line_idx );
 
@@ -132,11 +132,11 @@
       fd_vinyl_data_obj_t * obj = fd_vinyl_data_alloc( data, szc );
       if( FD_UNLIKELY( !obj ) ) FD_LOG_CRIT(( "increase data cache size" ));
 
-      line[ line_idx ].obj = obj; obj->line_idx = line_idx;
+      line[ line_idx ].obj_gaddr = fd_vinyl_data_gaddr( obj, data_laddr0 ); obj->line_idx = line_idx;
 
       void * val = fd_vinyl_data_obj_val( obj );
 
-      req_val_gaddr[ batch_idx ] = (ulong)val - data_laddr0;
+      req_val_gaddr[ batch_idx ] = fd_vinyl_data_gaddr( val, data_laddr0 );
       req_try      [ batch_idx ] = ((ver+1UL)<<32) | line_idx;
 
       /* Start reading encoded pair data and defer validation and
