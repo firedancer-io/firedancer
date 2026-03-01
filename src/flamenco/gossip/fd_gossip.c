@@ -295,6 +295,7 @@ fd_gossip_new( void *                           shmem,
   gossip->my_contact_info.ci->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
   *gossip->my_contact_info.ci->contact_info = *my_contact_info;
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
+  gossip->identity_stake = 0UL;
   refresh_contact_info( gossip, now );
 
   fd_memset( gossip->metrics, 0, sizeof(fd_gossip_metrics_t) );
