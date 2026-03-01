@@ -223,8 +223,10 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-      ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->state        = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full         = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->hash_account = 0;
+      ctx->acc_data_sz  = 0UL;
       fd_lthash_zero( &ctx->running_lthash );
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
         fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
@@ -431,6 +433,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state                        = FD_SNAPSHOT_STATE_IDLE;
   ctx->full                         = 1;
   ctx->hash_account                 = 0;
+  ctx->acc_data_sz                  = 0UL;
+  fd_memset( &ctx->account_hdr, 0, sizeof(ctx->account_hdr) );
 
   ctx->num_hash_tiles               = fd_topo_tile_name_cnt( topo, "snapla" );
 
@@ -438,6 +442,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->num_acks                     = 0UL;
   fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
 
+  fd_lthash_zero( &ctx->hash_accum.expected_lthash );
   fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
   fd_lthash_zero( &ctx->running_lthash );
   fd_lthash_zero( &ctx->recovery.full_lthash );
