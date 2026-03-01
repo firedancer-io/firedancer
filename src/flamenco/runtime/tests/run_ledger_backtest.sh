@@ -345,10 +345,12 @@ if [ "$status" -eq 0 ]; then
   elapsed_time=$(grep "Backtest playback done." $LOG | grep -o "elapsed: [0-9.]*" | grep -o "[0-9.]*")
   echo "Replay time for $LEDGER: $elapsed_time seconds"
 
-  epoch_time_ns=$(grep "fd_process_new_epoch took" "$LOG" | grep -o "fd_process_new_epoch took [0-9]*" | grep -o "[0-9]*")
+  epoch_time_ns=$(grep "fd_process_new_epoch took" "$LOG" | grep -o "fd_process_new_epoch took [0-9]*" | grep -o "[0-9]*" | awk '{s+=$1} END {if(NR>0) printf "%.0f\n", s}')
+  epoch_count=$(grep -c "fd_process_new_epoch took" "$LOG")
   if [ -n "$epoch_time_ns" ]; then
-    epoch_time_sec=$(echo "scale=6; $epoch_time_ns / 1000000000" | bc)
-    echo "Epoch boundary time for $LEDGER: ${epoch_time_sec} seconds"
+    epoch_time_sec=$(printf "%.6f" "$(echo "$epoch_time_ns / 1000000000" | bc -l)")
+    epoch_avg_sec=$(printf "%.6f" "$(echo "$epoch_time_ns / $epoch_count / 1000000000" | bc -l)")
+    echo "Epoch boundary time for $LEDGER: ${epoch_time_sec} seconds (avg ${epoch_avg_sec} seconds over ${epoch_count} epochs)"
   fi
 
   echo_notice "Finished backtest for ledger $LEDGER\n"
