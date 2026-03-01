@@ -394,6 +394,7 @@ count_vote( ctx_t *          ctx,
 
   fd_txn_instr_t const * instr      = &txn->instr[0];
   uchar const *          instr_data = payload + instr->data_off;
+  if( FD_UNLIKELY( instr->data_sz<sizeof(uint) ) ) { ctx->metrics.vote_txn_invalid++; return; }
   uint                   kind       = fd_uint_load_4_fast( instr_data );
   if( FD_UNLIKELY( kind != FD_VOTE_IX_KIND_TOWER_SYNC && kind != FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) { ctx->metrics.vote_txn_ignored++; return; };
 

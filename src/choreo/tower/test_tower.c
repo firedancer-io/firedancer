@@ -276,6 +276,8 @@ void test_tower_serdes( fd_wksp_t * wksp ) {
   FD_TEST( kind == FD_VOTE_IX_KIND_TOWER_SYNC );
   int err = fd_compact_tower_sync_de( &compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
   FD_TEST( err == 0 );
+  FD_TEST( fd_compact_tower_sync_de( &compact_tower_sync_serde, instr_data + sizeof(uint), sizeof(ulong) ) == -1 );
+  FD_TEST( fd_compact_tower_sync_de( &compact_tower_sync_serde, instr_data + sizeof(uint), sizeof(ulong)+1UL ) == -1 );
 
   FD_TEST( compact_tower_sync_serde.root == 1 );
   FD_TEST( compact_tower_sync_serde.lockouts_cnt == 31 );
