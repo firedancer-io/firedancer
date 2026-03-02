@@ -41,7 +41,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_banks_locks = {
 static ulong
 banks_footprint( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width") );
+  return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
 }
 
 static ulong
@@ -55,7 +55,7 @@ banks_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
   int larger_max_cost_per_block = fd_pod_queryf_int( topo->props, 0, "obj.%lu.larger_max_cost_per_block", obj->id );
   ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
-  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), larger_max_cost_per_block, seed ) );
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width"), FD_RUNTIME_MAX_STAKE_ACCOUNTS, FD_RUNTIME_MAX_VOTE_ACCOUNTS, larger_max_cost_per_block, seed ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_banks = {

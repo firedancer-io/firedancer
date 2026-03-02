@@ -60,10 +60,13 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_st
                                            pb_size_t                     vote_accounts_cnt,
                                            fd_runtime_stack_t *          runtime_stack,
                                            uchar                         is_t_1 ) {
+  if( FD_UNLIKELY( !vote_accounts ) ) return;
   for( uint i=0U; i<vote_accounts_cnt; i++ ) {
     fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
     ulong                       stake         = vote_accounts[i].stake;
     fd_pubkey_t                 vote_address  = {0};
+
+    if( FD_UNLIKELY( !vote_account->data ) ) continue;
 
     fd_pubkey_t node_account = fd_vsv_get_node_account( vote_account->data->bytes );
 
@@ -181,7 +184,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_runtime_stack_t * runtime_stack = runner->runtime_stack;
 
-  fd_banks_clear_bank( banks, bank, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
+  /* Must match fd_banks_footprint max_vote_accounts (2048) to avoid buffer overrun
+     when fd_vote_stakes_new reinitializes and epoch boundary inserts from vote_ele_map */
+  fd_banks_clear_bank( banks, bank, 2048UL );
 
   /* Generate unique ID for funk txn */
   fd_funk_txn_xid_t xid[1] = {{ .ul={ 0UL, 0UL } }};
@@ -304,6 +309,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       test_ctx->epoch_ctx.vote_accounts_t_2_count,
       runtime_stack,
       0 );
+
+  /* Finalize root fork.  Required before epoch boundary processing which
+     may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */
+  fd_vote_stakes_fini_root( vote_stakes );
 
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, 2048UL, 999 ) ) );
 

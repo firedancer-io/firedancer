@@ -150,13 +150,10 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
                                    fd_bank_t *               bank ) {
 
-  fd_stake_delegations_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank );
-  if( FD_UNLIKELY( !stake_delegations_delta ) ) {
-    FD_LOG_CRIT(( "unable to retrieve join to stake delegation delta" ));
-  }
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank );
 
   if( meta->lamports==0UL ) {
-    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
+    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
@@ -164,37 +161,36 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
   fd_stake_state_v2_t stake_state;
   int err = fd_stake_get_state( meta, &stake_state );
   if( FD_UNLIKELY( err!=0 ) ) {
-    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
+    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
+    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( fd_stake_state_v2_is_uninitialized( &stake_state ) ) ) {
-    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
+    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
-    fd_stake_delegations_remove( stake_delegations_delta, pubkey );
+    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
-  fd_stake_delegations_update( stake_delegations_delta,
-                               pubkey,
-                               &stake_state.inner.stake.stake.delegation.voter_pubkey,
-                               stake_state.inner.stake.stake.delegation.stake,
-                               stake_state.inner.stake.stake.delegation.activation_epoch,
-                               stake_state.inner.stake.stake.delegation.deactivation_epoch,
-                               stake_state.inner.stake.stake.credits_observed,
-                               stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+  fd_stake_delegations_delta_update( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey,
+                                     &stake_state.inner.stake.stake.delegation.voter_pubkey,
+                                     stake_state.inner.stake.stake.delegation.stake,
+                                     stake_state.inner.stake.stake.delegation.activation_epoch,
+                                     stake_state.inner.stake.stake.delegation.deactivation_epoch,
+                                     stake_state.inner.stake.stake.credits_observed,
+                                     stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
 }

@@ -64,7 +64,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_bank_t *              bank,
                    fd_runtime_stack_t *     runtime_stack,
                    int                      is_incremental ) {
-
   /* Slot */
 
   fd_bank_slot_set( bank, manifest->slot );
