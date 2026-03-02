@@ -405,7 +405,10 @@ fd_stake_delegations_delta_update( fd_stake_delegations_delta_t * stake_delegati
    delegation entry for the given fork.  The function will not actually
    remove or free any resources corresponding to the stake account.  The
    reason a tombstone is stored is because each fork corresponds to a
-   set of stake delegation deltas for a given slot. */
+   set of stake delegation deltas for a given slot.  This function may
+   insert a 'duplicate' entry for the same stake account but it will be
+   resolved by the time the delta is applied to a base stake delegations
+   object. */
 
 void
 fd_stake_delegations_delta_remove( fd_stake_delegations_delta_t * stake_delegations,
