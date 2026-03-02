@@ -588,7 +588,7 @@ get_authority( ctx_t *       ctx,
       FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", vsv->discriminant ));
   }
 
-  FD_CRIT( !auth_vtr_addr, "unable to find authorized voter, likely corrupt vote account state" );
+  FD_CRIT( auth_vtr_addr, "unable to find authorized voter, likely corrupt vote account state" );
 
   if( fd_pubkey_eq( auth_vtr_addr, ctx->identity_key ) ) {
     *authority_idx_out = ULONG_MAX;

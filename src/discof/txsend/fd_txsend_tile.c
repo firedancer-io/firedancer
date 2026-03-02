@@ -464,7 +464,7 @@ handle_vote_msg( fd_txsend_tile_ctx_t * ctx,
   for( ulong i=0UL; i<FD_TXSEND_TARGET_LEADER_CNT; i++ ) {
     ulong target_slot = poh_slot + i*FD_EPOCH_SLOTS_PER_ROTATION;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
-    FD_CRIT( !leader, "leader not found for slot %lu" );
+    FD_CRIT( leader, "leader not found" );
     leader_send( ctx, leader, signed_vote_txn, vote_txn_sz );
   }
 
