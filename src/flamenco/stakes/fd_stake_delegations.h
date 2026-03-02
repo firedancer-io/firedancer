@@ -337,13 +337,15 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
    fd_stake_delegation_t objects.  It is used to store stake delegations
    for all live slots. */
 
+#define FD_STAKE_DELEGATIONS_DELTA_FORK_MAX (4096UL)
+
 struct fd_stake_delegations_delta {
   ulong magic;
   ulong pool_offset_;
   ulong map_offset_;
   ulong fork_pool_offset_;
 
-  ulong dlist_offsets_[4096]; /* TODO:FIXME: magic number */
+  ulong dlist_offsets_[FD_STAKE_DELEGATIONS_DELTA_FORK_MAX];
 
   ulong max_stake_accounts_;
 };

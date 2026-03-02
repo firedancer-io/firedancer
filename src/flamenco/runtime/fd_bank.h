@@ -390,12 +390,13 @@ struct fd_banks_locks {
 
   fd_rwlock_t vote_stakes_lock;
 
+  fd_rwlock_t stake_delegations_delta_lock;
+
   /* These locks are per bank and are used to atomically update their
      corresponding fields in each bank.  The locks are indexed by the
      bank index. */
   fd_rwlock_t lthash_lock[ FD_BANKS_MAX_BANKS ];
   fd_rwlock_t cost_tracker_lock[ FD_BANKS_MAX_BANKS ];
-  fd_rwlock_t stake_delegations_delta_lock[ FD_BANKS_MAX_BANKS ];
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
 
@@ -458,13 +459,16 @@ fd_bank_set_stake_delegations_delta( fd_bank_data_t * bank, fd_stake_delegations
 
 static inline fd_stake_delegations_delta_t *
 fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
+  if( FD_UNLIKELY( bank->data->stake_delegations_fork_id==USHORT_MAX ) ) {
+    FD_LOG_CRIT(( "Stake delegations fork id is not allocated" ));
+  }
+  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock );
   return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_delta_offset );
 }
 
 static inline void
 fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
+  fd_rwlock_unwrite( &bank->locks->stake_delegations_delta_lock );
 }
 
 /* fd_bank_t is the alignment for the bank state. */
@@ -504,14 +508,15 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 #include "../../util/tmpl/fd_deque.c"
 
 struct fd_banks_data {
-  ulong magic;           /* ==FD_BANKS_MAGIC */
-  ulong max_total_banks; /* Maximum number of banks */
-  ulong max_fork_width;  /* Maximum fork width executing through
-                                  any given slot. */
-  ulong root_idx;        /* root idx */
-  ulong bank_seq;        /* app-wide bank sequence number */
+  ulong magic;              /* ==FD_BANKS_MAGIC */
+  ulong max_total_banks;    /* Maximum number of banks */
+  ulong max_fork_width;     /* Maximum fork width executing through any given slot. */
+  ulong max_stake_accounts; /* Maximum number of stake accounts */
+  ulong max_vote_accounts;  /* Maximum number of vote accounts */
+  ulong root_idx;           /* root idx */
+  ulong bank_seq;           /* app-wide bank sequence number */
 
-  ulong pool_offset;     /* offset of pool from banks */
+  ulong pool_offset;        /* offset of pool from banks */
 
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
