@@ -82,23 +82,23 @@
            outgoing gossip messages.
        (c) Tower.  The tower tiles uses the identity key to generate
            vote transactions which are sent to the send tile.  These
-           vote transactions are then signed downstream by the Send tile
-           instead of having its own keyguard client. */
+           vote transactions are then signed downstream by the TxSend
+           tile instead of having its own keyguard client. */
 #define FD_SET_IDENTITY_STATE_REPLAY_HALT_REQUESTED    (4UL)
 
 /* State 5: REPLAY_HALTED
      Repair, Gossip, and Tower are no longer sending requests to the
      sign tile.  Replay can keep progressing at this point. However,
-     the tower tile may have an in-flight vote transaction to the Send
+     the tower tile may have an in-flight vote transaction to the TxSend
      tile that corresponds to the old identity key. */
 #define FD_SET_IDENTITY_STATE_REPLAY_HALTED            (5UL)
 
 /* State 6: SEND_FLUSH_REQUESTED
      Once the Tower tile has updated its identity key and stopped
-     sending vote transactions to the Send tile, any in-flight vote
+     sending vote transactions to the TxSend tile, any in-flight vote
      transactions for the old identity key must be flushed to avoid
      being badly signed.  We also know that Tower will send no more
-     vote transactions to the Send tile.
+     vote transactions to the TxSend tile.
 
      The TxSend tile is flushed by telling it the last sequence number
      the Tower tile has produced for an outgoing vote tansaction at the
@@ -114,7 +114,7 @@
 /* State 7: TXSEND_FLUSHED
      The TxSend tile confirms that it has seen and processed all votes
      up to and including the last sequence number produced by the Tower
-     tile at the time it was halted.  The Send tile also switches its
+     tile at the time it was halted.  The TxSend tile also switches its
      own identity key which is used for signing votes and establishing
      a QUIC connection.  The TxSend tile is now no longer receiving any
      new frags from the Net tile. */
