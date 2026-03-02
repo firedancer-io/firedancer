@@ -6,6 +6,23 @@ fd_vinyl_data_szc_all_blocks( ulong szc ) {
   return ((1UL << ((int)fd_vinyl_data_szc_cfg[ szc ].obj_cnt - 1)) << 1) - 1UL;
 }
 
+static inline void
+fd_vinyl_data_lock( int * lock ) {
+  for(;;) {
+    if( FD_LIKELY( !FD_VOLATILE_CONST( *lock ) ) ) {
+      if( FD_LIKELY( !FD_ATOMIC_CAS( lock, 0, 1 ) ) ) break;
+    }
+    FD_SPIN_PAUSE();
+  }
+  FD_COMPILER_MFENCE();
+}
+
+static inline void
+fd_vinyl_data_unlock( int * lock ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *lock ) = 0;
+}
+
 FD_FN_CONST static inline ulong
 fd_vinyl_data_obj_off( void const *                laddr0,
                        fd_vinyl_data_obj_t const * obj ) {
@@ -152,10 +169,11 @@ fd_vinyl_data_fini( fd_vinyl_data_t * data ) {
   return data;
 }
 
-/* Note: the algorithms below is identical to fd_alloc.  But since it
-   is running single threaded and non-persistent, there's less atomic
-   operation and/or address translation shenanigans going on.  See
-   fd_alloc for more in depth discussions. */
+/* Note: the algorithms below are similar to fd_alloc.  Since it is
+   non-persistent, there's less address translation shenanigans going
+   on.  Concurrency is handled via per-sizeclass spinlocks with a
+   strict ascending lock order (szc < parent_szc < vol_lock) to prevent
+   deadlock.  See fd_alloc for more in depth discussions. */
 
 fd_vinyl_data_obj_t *
 fd_vinyl_data_alloc( fd_vinyl_data_t * data,
@@ -164,8 +182,11 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
   FD_CRIT( data,                      "NULL data"     );
   FD_CRIT( szc<FD_VINYL_DATA_SZC_CNT, "bad sizeclass" );
 
-  void *                 laddr0        = data->laddr0;
-  fd_vinyl_data_vol_t *  vol           = data->vol;
+  void *                laddr0 = data->laddr0;
+  fd_vinyl_data_vol_t * vol    = data->vol;
+
+  fd_vinyl_data_lock( &data->superblock[ szc ].lock );
+
   fd_vinyl_data_obj_t ** _active       = &data->superblock[ szc ].active;
   fd_vinyl_data_obj_t ** _inactive_top = &data->superblock[ szc ].inactive_top;
 
@@ -200,8 +221,11 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
       ulong parent_szc = (ulong)fd_vinyl_data_szc_cfg[ szc ].parent_szc;
       if( FD_LIKELY( parent_szc<FD_VINYL_DATA_SZC_CNT ) ) {
 
+        /* Recursive alloc for parent superblock.  Lock ordering is
+           preserved because parent_szc > szc. */
+
         superblock = fd_vinyl_data_alloc( data, parent_szc );
-        if( FD_UNLIKELY( !superblock ) ) return NULL;
+        if( FD_UNLIKELY( !superblock ) ) { fd_vinyl_data_unlock( &data->superblock[ szc ].lock ); return NULL; }
 
         /* superblock->type        init by obj_alloc to ALLOC, reset below */
         /* superblock->szc         init by obj_alloc */
@@ -212,9 +236,17 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
       } else {
 
+        fd_vinyl_data_lock( &data->vol_lock );
+
         ulong vol_idx = data->vol_idx_free;
-        if( FD_UNLIKELY( vol_idx >= data->vol_cnt ) ) return NULL;
+        if( FD_UNLIKELY( vol_idx >= data->vol_cnt ) ) {
+          fd_vinyl_data_unlock( &data->vol_lock );
+          fd_vinyl_data_unlock( &data->superblock[ szc ].lock );
+          return NULL;
+        }
         data->vol_idx_free = vol[ vol_idx ].obj->idx;
+
+        fd_vinyl_data_unlock( &data->vol_lock );
 
         superblock = vol[ vol_idx ].obj;
 
@@ -250,43 +282,20 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
   superblock->free_blocks = free_blocks;
 
   /* If this superblock still has free blocks in it, return it to
-     circulation for future allocation as szc's active superblock,
-     pushing any displaced superblock onto szc's inactive superblock
-     stack.  Other strategies are possible, see fd_alloc for discussion
-     of tradeoffs. */
-
-# if 0
-
-  if( FD_LIKELY( free_blocks ) ) {
-
-    fd_vinyl_data_obj_t * displaced_superblock = *_active;
-    *_active = superblock;
-
-    if( FD_UNLIKELY( displaced_superblock ) ) {
-
-      FD_ALERT( !fd_vinyl_data_superblock_test( data, displaced_superblock, szc ), "corruption detected" );
-
-      displaced_superblock->next_off = fd_vinyl_data_obj_off( laddr0, *_inactive_top );
-      *_inactive_top                 = displaced_superblock;
-
-    }
-
-  }
-
-# else
-
-    /* For a non-concurrent implementation, we know szc has no active
-       superblock active at this point (because their's no concurrent
-       alloc or free that could have set it behind our back).  We don't
-       have to worry about displacing a superblock, simplifying the
-       above. */
+     circulation for future allocation as szc's active superblock.
+     Since we hold lock[szc], we know szc has no active superblock at
+     this point (no concurrent alloc or free can set it behind our back
+     while we hold the lock).  We don't have to worry about displacing
+     a superblock, simplifying this.  Other strategies are possible, see
+     fd_alloc for discussion of tradeoffs. */
 
   fd_vinyl_data_obj_t * tmp[1];
   *(free_blocks ? _active : tmp) = superblock; /* branchless conditional store */
 
-# endif
+  fd_vinyl_data_unlock( &data->superblock[ szc ].lock );
 
-  /* Initialize the allocated object metadata and return. */
+  /* Initialize the allocated object metadata and return.  The object
+     is not yet visible to other threads so no lock is needed here. */
 
   fd_vinyl_data_obj_t * obj = (fd_vinyl_data_obj_t *)( (ulong)superblock + sizeof(fd_vinyl_data_obj_t)
                                                      + idx*fd_vinyl_data_szc_obj_footprint( szc ) );
@@ -325,9 +334,13 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
   if( FD_UNLIKELY( szc>=FD_VINYL_DATA_SZC_CNT ) ) {
     FD_CRIT( idx < data->vol_cnt, "corruption detected" ); /* valid idx for vol */
 
+    fd_vinyl_data_lock( &data->vol_lock );
+
     obj->type          = FD_VINYL_DATA_OBJ_TYPE_FREEVOL; /* Mark as on the free stack */
     obj->idx           = data->vol_idx_free;
     data->vol_idx_free = idx;
+
+    fd_vinyl_data_unlock( &data->vol_lock );
 
     return;
   }
@@ -336,6 +349,8 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
   /* At this point, obj appears to be contained in a superblock at
      position idx.  Mark the object as free in the superblock. */
+
+  fd_vinyl_data_lock( &data->superblock[ szc ].lock );
 
   fd_vinyl_data_obj_t * superblock = (fd_vinyl_data_obj_t *)
     ((ulong)obj - sizeof(fd_vinyl_data_obj_t) - idx*fd_vinyl_data_szc_obj_footprint( szc ));
@@ -359,7 +374,7 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
      superblock onto the szc's inactive superblock stack.
 
      Otherwise, if this free made the superblock totally empty, we check
-     if the szc'c inactive superblock top is also totally empty.  If so,
+     if the szc's inactive superblock top is also totally empty.  If so,
      we pop the inactive stack and free that.
 
      This keeps a small bounded supply empty superblocks around for fast
@@ -399,7 +414,14 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
           data->superblock[ szc ].inactive_top = fd_vinyl_data_obj_ptr( data->laddr0, candidate_superblock->next_off );
 
+          /* Recursive free of the empty superblock.  Its szc is
+             parent_szc > szc, so lock ordering is preserved.  We
+             release our lock first since szc state is consistent. */
+
+          fd_vinyl_data_unlock( &data->superblock[ szc ].lock );
+
           fd_vinyl_data_free( data, candidate_superblock );
+          return;
         }
 
       }
@@ -407,6 +429,8 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
     }
 
   }
+
+  fd_vinyl_data_unlock( &data->superblock[ szc ].lock );
 
 }
 
@@ -453,9 +477,11 @@ fd_vinyl_data_reset( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
 
   FD_FOR_ALL( fd_vinyl_data_reset_task, tpool,t0,t1, 0L,(long)data->vol_cnt, data, level );
 
+  data->vol_lock     = 0;
   data->vol_idx_free = 0UL;
 
   for( ulong szc=0UL; szc<FD_VINYL_DATA_SZC_CNT; szc++ ) {
+    data->superblock[ szc ].lock         = 0;
     data->superblock[ szc ].active       = NULL;
     data->superblock[ szc ].inactive_top = NULL;
   }

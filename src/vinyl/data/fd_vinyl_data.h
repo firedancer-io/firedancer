@@ -7,10 +7,10 @@
    lockfree operated on by multiple threads in other address spaces and
    async direct I/O hardware concurrently.
 
-   Note that, though pairs are cached in a shared memory region, this is
-   not a persistent or concurrent datastructure.  Specifically, only the
-   vinyl tile can allocate or free objects from it and then can do only
-   sequentially.
+   Pairs are cached in a shared memory region.  The allocator is thread
+   safe: multiple threads may concurrently allocate and free objects
+   using per-sizeclass spinlocks with a consistent lock ordering
+   (lock[szc] < lock[parent_szc] < vol_lock) to prevent deadlock.
 
    Notes:
 
@@ -26,10 +26,9 @@
    The algorithms that manage the allocations are virtually identical to
    fd_groove and fd_alloc.  But they have been simplified, customized
    and optimized for this use case (e.g. minimal need for address
-   translation, no need for atomic operations, no need for concurrency
-   group optimizations, no need to layout cache for concurrent access,
-   much more fine grained size classes for minimal data store overheads,
-   etc).  This also does extensive (and compile time configurable)
+   translation, simple spinlock concurrency, much more fine grained
+   size classes for minimal data store overheads, etc).  This also does
+   extensive (and compile time configurable)
    memory data integrity continuously to help catch memory corruption
    (either due to hardware failures, buggy usage or malicious usage).
 
@@ -343,8 +342,10 @@ struct __attribute((aligned(FD_VINYL_DATA_ALIGN))) fd_vinyl_data {
                                             (FD_VINYL_BSTREAM_BLOCK_SZ aligned) */
   fd_vinyl_data_vol_t * vol;             /* Vols, indexed [0,vol_cnt), in raw shared memory region */
   ulong                 vol_cnt;         /* Num vols, in [0,FD_VINYL_DATA_VOL_MAX) */
+  int                   vol_lock;        /* Spinlock protecting vol_idx_free */
   ulong                 vol_idx_free;    /* Idx of first free volume if in [0,vol_cnt), no free volumes o.w. */
   struct {
+    int                   lock;          /* Spinlock protecting this size class */
     fd_vinyl_data_obj_t * active;        /* active superblock for this size class */
     fd_vinyl_data_obj_t * inactive_top;  /* top of the inactive superblock stack for this size class */
   } superblock[ FD_VINYL_DATA_SZC_CNT ];
@@ -436,23 +437,25 @@ fd_vinyl_data_is_valid_obj( void const *                laddr,
 
 /* fd_vinyl_data_alloc acquires an object of sizeclass szc from the data
    cache.  Returns a pointer to the object on success and NULL if there
-   is no space available in the data.  Will FD_LOG_CRIT if anything
-   wonky is detected (bad, memory corruption, etc). */
+   is no space available in the data.  Thread safe.  Will FD_LOG_CRIT
+   if anything wonky is detected (bad, memory corruption, etc). */
 
 fd_vinyl_data_obj_t *
 fd_vinyl_data_alloc( fd_vinyl_data_t * data,
                      ulong             szc );
 
 /* fd_vinyl_data_free releases obj to the data cache.  This cannot fail
-   from the caller's perspective.  Will FD_LOG_CRIT if anything wonky is
-   detected (bad args, memory corruption, etc). */
+   from the caller's perspective.  Thread safe.  Will FD_LOG_CRIT if
+   anything wonky is detected (bad args, memory corruption, etc). */
 
 void
 fd_vinyl_data_free( fd_vinyl_data_t *     data,
                     fd_vinyl_data_obj_t * obj );
 
 /* fd_vinyl_data_reset uses the caller and tpool threads (t0,t1) to free
-   all objects from the data cache.  level zero/non-zero indicates to do
+   all objects from the data cache.  Not thread safe with concurrent
+   alloc/free; caller must ensure exclusive access.  level zero/non-zero
+   indicates to do
    soft/hard reset.  In a hard reset, the shmem region is zero'd before
    formatting it into a set of free data volumes.  This cannot fail from
    the caller's perspective.  Assumes tpool threads (t0,t1) are
@@ -465,7 +468,9 @@ fd_vinyl_data_reset( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
 
 /* fd_vinyl_data_verify returns FD_VINYL_SUCCESS (0) if the given data
    appears to be a valid vinyl data and FD_VINYL_ERR_CORRUPT (negative)
-   otherwise (logs details).  This only verifies the vinyl data's state
+   otherwise (logs details).  Not thread safe with concurrent
+   alloc/free; caller must ensure exclusive access.  This only verifies
+   the vinyl data's state
    and superblock heirarchy are intact.  It does not test any of the
    allocations for correctness (but could given access to the bstream,
    line and/or meta). */
