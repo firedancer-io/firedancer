@@ -97,63 +97,6 @@ fd_event_client_footprint( ulong buf_max ) {
   return FD_LAYOUT_FINI( l, alignof(fd_event_client_t) );
 }
 
-static void
-parse_url( fd_url_t *   url_,
-           char const * url_str,
-           ulong        url_str_len,
-           ushort *     tcp_port ) {
-
-  /* Parse URL */
-
-  int url_err[1];
-  fd_url_t * url = fd_url_parse_cstr( url_, url_str, url_str_len, url_err );
-  if( FD_UNLIKELY( !url ) ) {
-    switch( *url_err ) {
-    scheme_err:
-    case FD_URL_ERR_SCHEME:
-      FD_LOG_ERR(( "Invalid [tiles.event.url] `%.*s`: must start with `http://`", (int)url_str_len, url_str ));
-      break;
-    case FD_URL_ERR_HOST_OVERSZ:
-      FD_LOG_ERR(( "Invalid [tiles.event.url] `%.*s`: domain name is too long", (int)url_str_len, url_str ));
-      break;
-    default:
-      FD_LOG_ERR(( "Invalid [tiles.event.url] `%.*s`", (int)url_str_len, url_str ));
-      break;
-    }
-  }
-
-  /* FIXME the URL scheme path technically shouldn't contain slashes */
-  if( url->scheme_len==7UL && fd_memeq( url->scheme, "http://", 7UL ) ) {
-  } else {
-    goto scheme_err;
-  }
-
-  /* Parse port number */
-
-  *tcp_port = 7878;
-  if( url->port_len ) {
-    if( FD_UNLIKELY( url->port_len > 5 ) ) {
-    invalid_port:
-      FD_LOG_ERR(( "Invalid [tiles.event.url] `%.*s`: invalid port number", (int)url_str_len, url_str ));
-    }
-
-    char port_cstr[6];
-    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( port_cstr ), url->port, url->port_len ) );
-    ulong port_no = fd_cstr_to_ulong( port_cstr );
-    if( FD_UNLIKELY( !port_no || port_no>USHORT_MAX ) ) goto invalid_port;
-
-    *tcp_port = (ushort)port_no;
-  }
-
-  /* Resolve domain */
-
-  if( FD_UNLIKELY( url->host_len > 255 ) ) {
-    FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
-  }
-  char host_cstr[ 256 ];
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( host_cstr ), url->host, url->host_len ) );
-}
-
 void *
 fd_event_client_new( void *                 shmem,
                      fd_keyguard_client_t * keyguard_client,
@@ -182,11 +125,16 @@ fd_event_client_new( void *                 shmem,
   void * grpc_client_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max ) );
 
   fd_url_t url[1];
-  parse_url(
-      url,
-      _url,
-      strlen( _url ),
-      &client->server_tcp_port );
+  _Bool _is_ssl = 0;
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url,
+                                          _url,
+                                          strlen( _url ),
+                                          &client->server_tcp_port,
+                                          &_is_ssl,
+                                          "[tiles.event.url]" ) ) ) {
+    FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
+  }
+  client->server_tcp_port = 7878;
   if( FD_UNLIKELY( url->host_len > 255 ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }

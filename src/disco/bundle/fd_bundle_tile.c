@@ -159,77 +159,18 @@ after_credit( fd_bundle_tile_t *  ctx,
 }
 
 static void
-parse_url( fd_url_t *   url_,
-           char const * url_str,
-           ulong        url_str_len,
-           ushort *     tcp_port,
-           _Bool *      is_ssl ) {
-
-  /* Parse URL */
-
-  int url_err[1];
-  fd_url_t * url = fd_url_parse_cstr( url_, url_str, url_str_len, url_err );
-  if( FD_UNLIKELY( !url ) ) {
-    switch( *url_err ) {
-    scheme_err:
-    case FD_URL_ERR_SCHEME:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: must start with `http://` or `https://`", (int)url_str_len, url_str ));
-      break;
-    case FD_URL_ERR_HOST_OVERSZ:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: domain name is too long", (int)url_str_len, url_str ));
-      break;
-    default:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`", (int)url_str_len, url_str ));
-      break;
-    }
-  }
-
-  /* FIXME the URL scheme path technically shouldn't contain slashes */
-  if( url->scheme_len==8UL && fd_memeq( url->scheme, "https://", 8UL ) ) {
-    *is_ssl = 1;
-  } else if( url->scheme_len==7UL && fd_memeq( url->scheme, "http://", 7UL ) ) {
-    *is_ssl = 0;
-  } else {
-    goto scheme_err;
-  }
-
-  /* Parse port number */
-
-  *tcp_port = 443;
-  if( url->port_len ) {
-    if( FD_UNLIKELY( url->port_len > 5 ) ) {
-    invalid_port:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: invalid port number", (int)url_str_len, url_str ));
-    }
-
-    char port_cstr[6];
-    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( port_cstr ), url->port, url->port_len ) );
-    ulong port_no = fd_cstr_to_ulong( port_cstr );
-    if( FD_UNLIKELY( !port_no || port_no>USHORT_MAX ) ) goto invalid_port;
-
-    *tcp_port = (ushort)port_no;
-  }
-
-  /* Resolve domain */
-
-  if( FD_UNLIKELY( url->host_len > 255 ) ) {
-    FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
-  }
-  char host_cstr[ 256 ];
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( host_cstr ), url->host, url->host_len ) );
-}
-
-static void
 fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
                                fd_topo_tile_t const * tile ) {
   fd_url_t url[1];
   _Bool is_ssl = 0;
-  parse_url(
-      url,
-      tile->bundle.url, tile->bundle.url_len,
-      &ctx->server_tcp_port,
-      &is_ssl
-  );
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url,
+                                          tile->bundle.url,
+                                          tile->bundle.url_len,
+                                          &ctx->server_tcp_port,
+                                          &is_ssl,
+                                          "[tiles.bundle.url]" ) ) ) {
+    FD_LOG_ERR(( "Could not parse [tiles.bundle.url]" ));
+  }
   if( FD_UNLIKELY( url->host_len > 255 ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }
