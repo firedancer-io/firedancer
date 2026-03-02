@@ -67,7 +67,7 @@ after_credit( fd_poh_tile_t *     ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   ctx->idle_cnt++;
-  if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) ) ) {
+  if( FD_LIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt || fd_poh_must_tick( ctx->poh ) || fd_poh_must_publish_skipped_tick( ctx->poh ) ) ) {
     /* We would like to fully drain input links to the best of our
        knowledge, before we spend cycles on hashing.  That is, we would
        like to assert that all input links have stayed empty since the
@@ -82,7 +82,9 @@ after_credit( fd_poh_tile_t *     ctx,
        Except that when we are leader and the hashcnt is right before a
        tick boundary, poh must advance to the tick boundary and produce
        the tick.  Otherwise, a tick will be skipped if a microblock
-       mixin happens. */
+       mixin happens.  Additionally, when there are pending skipped
+       ticks to be published, we should do that before processing any
+       incoming microblocks. */
     fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
     ctx->idle_cnt = 0UL;
   }

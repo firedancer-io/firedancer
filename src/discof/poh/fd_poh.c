@@ -261,6 +261,11 @@ fd_poh_must_tick( fd_poh_t const * poh ) {
   return poh->state==STATE_LEADER && (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL);
 }
 
+int
+fd_poh_must_publish_skipped_tick( fd_poh_t const * poh ) {
+  return poh->state==STATE_LEADER && poh->last_slot<poh->slot;
+}
+
 void
 fd_poh_done_packing( fd_poh_t * poh,
                      ulong      microblocks_in_slot ) {
@@ -339,7 +344,9 @@ fd_poh_advance( fd_poh_t *          poh,
 
   /* If we have skipped ticks pending because we skipped some slots to
      become leader, register them now one at a time. */
-  if( FD_UNLIKELY( poh->state==STATE_LEADER && poh->last_slot<poh->slot ) ) {
+  if( FD_UNLIKELY( fd_poh_must_publish_skipped_tick( poh ) ) ) {
+    FD_TEST( poh->hashcnt==0UL ); /* Current hashcnt stays 0 until the math below is run at least once. */
+    FD_TEST( !(poh->last_hashcnt%poh->hashcnt_per_tick) ); /* While skipped ticks are being published, last_hashcnt marches forward in increments of hashcnt_per_tick. */
     ulong publish_hashcnt = poh->last_hashcnt+poh->hashcnt_per_tick;
     ulong tick_idx = (poh->last_slot*poh->ticks_per_slot+publish_hashcnt/poh->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
 
