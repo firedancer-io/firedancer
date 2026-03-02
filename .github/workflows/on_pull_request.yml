@@ -37,6 +37,7 @@ jobs:
         # compiler,machine,target
       gcc_exceptions: |
         gcc-8.5.0,linux_gcc_zen2,ALL;
+        gcc-12.4.0,linux_gcc_zen2,ALL;
         ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
         ALL,linux_gcc_arm_n1,ALL;
@@ -46,6 +47,7 @@ jobs:
         ALL,linux_gcc_icelake,ALL;
         ALL,linux_gcc_x86_64,ALL
       clang_exceptions: |
+        clang-19.1.7,linux_clang_zen2,ALL;
         ALL,linux_clang_zen3,ALL;
         ALL,linux_clang_zen4,ALL;
         ALL,linux_clang_zen5,ALL;
@@ -58,3 +60,14 @@ jobs:
       machine: linux_gcc_icelake,linux_gcc_x86_64
       build_arm: false
       check_run: true
+  build_checks_3:
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/builds.yml
+    with:
+      cid: 3
+      gcc: gcc-12.4.0
+      clang: clang-19.1.7
+      machine: linux_gcc_zen2,linux_clang_zen2
+      build_arm: false
+      check_run: true
+      no_optimization: true
