@@ -376,11 +376,13 @@ print_histogram_buckets( volatile ulong * metrics,
     char count_buf[ 64 ];
     fmt_count( count_buf, bucket_count );
 
-    /* Create visual bar - scale to max 20 characters */
-    char bar_buf[ 22 ];
+    /* Match visual bar length to the %-18s display column width. */
+    char  bar_buf[ 19 ];
+    ulong bar_max = sizeof( bar_buf ) - 1UL;
     if( bucket_count > 0 && total_count > 0 ) {
-      ulong bar_length = (bucket_count * 22UL) / total_count;
+      ulong bar_length = (bucket_count * bar_max) / total_count;
       if( bar_length == 0 ) bar_length = 1;
+      if( bar_length > bar_max ) bar_length = bar_max;
       for( ulong i = 0; i < bar_length; i++ ) { bar_buf[ i ] = '|'; }
       bar_buf[ bar_length ] = '\0';
     } else {
