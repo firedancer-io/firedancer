@@ -16,7 +16,7 @@ struct fd_topo_cpus {
   ulong         numa_node_cnt;
 
   ulong         cpu_cnt;
-  fd_topo_cpu_t cpu[ 1024 ];
+  fd_topo_cpu_t cpu[ FD_SHMEM_CPU_MAX ];
 };
 
 typedef struct fd_topo_cpus fd_topo_cpus_t;
