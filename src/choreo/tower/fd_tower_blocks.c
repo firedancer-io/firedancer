@@ -156,19 +156,7 @@ fd_tower_blocks_replayed( fd_tower_blocks_t * forks,
 
   fd_tower_leaf_t * existing_leaf;
   if( FD_UNLIKELY( ( existing_leaf = fd_tower_leaves_map_ele_query( forks->tower_leaves_map, &fork->slot, NULL, forks->tower_leaves_pool ) ) ) ) {
-    /* slot already is a leaf - equivocation detected. If the second
-       version of the slot has the same parent as the first version,then
-       everything's fine. We are in a correct state mostly.  In the case
-       of equivocation we explicitly call lockouts_clear and
-       tower_stakes_remove, so that they can get populated again with
-       the new values.
-
-       Now if the second version has a DIFFERENT parent... Technically,
-       the parent might need to be re-added to the leaves and lockouts
-       should be re-generated if it is a leaf. But luckily the parent of
-       the equivocated not duplicate-confirmed version of the slot
-       shouldn't contribute at all to the switch check. TODO: double
-       check this. */
+    /* equivocation */
     return fork;
   }
 
@@ -229,7 +217,9 @@ fd_tower_blocks_lockouts_add( fd_tower_blocks_t * forks, ulong fork_slot, fd_has
     ulong key = fd_lockout_interval_key( fork_slot, interval_end );
 
     if( !fd_lockout_intervals_map_ele_query( forks->lockout_intervals_map, &key, NULL, forks->lockout_intervals_pool ) ) {
-      /* No other pubkey has yet created [fork_slot, interval_end], so we can add this interval to the slot map linkedlist */
+      /* No other pubkey has yet created [fork_slot, interval_end], so we can add this interval to the slot map linkedlist
+         Guaranteed to have space in pool */
+      FD_TEST( fd_lockout_intervals_pool_free( forks->lockout_intervals_pool ) );
       fd_lockout_slots_t * slot = fd_lockout_slots_pool_ele_acquire( forks->lockout_slots_pool );
       /* map multi, multiple keys for the same fork_slot */
       slot->fork_slot = fork_slot;
@@ -237,6 +227,7 @@ fd_tower_blocks_lockouts_add( fd_tower_blocks_t * forks, ulong fork_slot, fd_has
       FD_TEST( fd_lockout_slots_map_ele_insert( forks->lockout_slots_map, slot, forks->lockout_slots_pool ) );
     }
 
+    FD_TEST( fd_lockout_intervals_pool_free( forks->lockout_intervals_pool ) );
     fd_lockout_intervals_t * interval = fd_lockout_intervals_pool_ele_acquire( forks->lockout_intervals_pool );
     interval->key                 = key;
     interval->addr = *vote_account_pubkey;
