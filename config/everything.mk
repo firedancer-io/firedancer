@@ -214,17 +214,6 @@ $(OBJDIR)/unit-test/automatic.txt: $(LOCAL_MKS)
 	$(RM) $@
 	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
 
-# Generate list of automatic integration tests from $(call run-integration-test,...)
-integration-test: $(OBJDIR)/integration-test/automatic.txt
-define _run-integration-test
-RUN_INTEGRATION_TEST+=$(OBJDIR)/integration-test/$(1)
-endef
-$(OBJDIR)/integration-test/automatic.txt: $(LOCAL_MKS)
-	$(MKDIR) "$(OBJDIR)/integration-test"
-	$(RM) $@
-	@$(foreach test,$(RUN_INTEGRATION_TEST),echo $(test)>>$@;)
-	$(TOUCH) "$@"
-
 ifndef FD_HAS_FUZZ
 FUZZ_EXTRA:=$(OBJDIR)/lib/libfd_fuzz_stub.a
 endif
@@ -261,7 +250,6 @@ make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,$(4) $(LDFLAGS_S
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test,$(4) $(LDFLAGS_EXE)))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
 make-integration-test = $(eval $(call _make-exe,$(1),$(2),$(3),integration-test,integration-test,$(4) $(LDFLAGS_EXE)))
-run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
 
 ##############################
