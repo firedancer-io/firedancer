@@ -8,11 +8,9 @@
    - Sandboxing */
 
 #define _GNU_SOURCE
+#include "fd_accdb_tile_private.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../discof/restore/fd_snapct_tile.h"
-#include "../../vinyl/fd_vinyl.h"
-#include "../../vinyl/fd_vinyl_base.h"
 #include "../../vinyl/io/ur/fd_vinyl_io_ur.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
@@ -32,24 +30,6 @@
    This should be larger than the cumulative record size of all unique
    changed accounts in a slot. */
 #define IO_SPAD_MAX (128UL<<20)
-
-#define FD_VINYL_CLIENT_MAX (1024UL)
-#define FD_VINYL_REQ_MAX    (1024UL)
-
-struct fd_vinyl_client {
-  fd_vinyl_rq_t * rq;        /* Channel for requests from this client (could be shared by multiple vinyl instances) */
-  fd_vinyl_cq_t * cq;        /* Channel for completions from this client to this vinyl instance
-                                (could be shared by multiple receivers of completions from this vinyl instance). */
-  ulong           burst_max; /* Max requests receive from this client at a time */
-  ulong           seq;       /* Sequence number of the next request to receive in the rq */
-  ulong           link_id;   /* Identifies requests from this client to this vinyl instance in the rq */
-  ulong           laddr0;    /* A valid non-zero gaddr from this client maps to the vinyl instance's laddr laddr0 + gaddr ... */
-  ulong           laddr1;    /* ... and thus is in (laddr0,laddr1).  A zero gaddr maps to laddr NULL. */
-  ulong           quota_rem; /* Num of remaining acquisitions this client is allowed on this vinyl instance */
-  ulong           quota_max; /* Max quota */
-};
-
-typedef struct fd_vinyl_client fd_vinyl_client_t;
 
 /* MAP_REQ_GADDR maps a request global address req_gaddr to an array of
    cnt T's into the local address space as a T * pointer.  If the result
@@ -74,81 +54,6 @@ fd_vinyl_laddr( ulong req_gaddr,
                               req_laddr0, 0UL );
 }
 
-struct fd_vinyl_tile {
-
-  /* Vinyl objects */
-
-  fd_vinyl_t vinyl[1];
-  void * io_mem;
-
-  /* Tile architecture */
-
-  uint booted : 1;
-  uint shutdown : 1;
-  struct {
-    ulong                  state_expected;
-    ulong volatile const * state;
-    ulong volatile const * pair_cnt;
-    /* When booting from genesis only */
-    struct {
-      ulong                io_seed;
-    } from_genesis;
-  } boot;
-
-  /* I/O */
-
-  int   bstream_fd;
-  ulong bstream_file_sz;
-
-  /* io_uring */
-
-  fd_io_uring_t ring[1];
-  void * ioring_shmem; /* shared between kernel and user */
-
-  /* Clients */
-
-  fd_vinyl_client_t _client[ FD_VINYL_CLIENT_MAX ];
-  ulong             client_cnt;
-  ulong             client_idx;
-
-  /* Received requests */
-
-  fd_vinyl_req_t _req[ FD_VINYL_REQ_MAX ];
-  ulong          req_head;                 /* Requests [0,req_head)         have been processed */
-  ulong          req_tail;                 /* Requests [req_head,req_tail)  are pending */
-                                           /* Requests [req_tail,ULONG_MAX) have not been received */
-  ulong exec_max;
-
-  /* accum_dead_cnt is the number of dead blocks that have been
-     written since the last partition block.
-
-     accum_move_cnt is the number of move blocks that have been
-     written since this last partition block.
-
-     accum_garbage_cnt / sz is the number of items / bytes garbage in
-     the bstream that have accumulated since the last time we compacted
-     the bstream.  We use this to estimate the number of rounds of
-     compaction to do in async handling. */
-
-  ulong accum_dead_cnt;
-  ulong accum_garbage_cnt;
-  ulong accum_garbage_sz;
-
-  /* Run loop state */
-
-  ulong seq_part;
-
-  /* Periodic syncing */
-
-  long sync_next_ns;
-
-  /* Vinyl limit on the number of pairs the meta map will accept.
-     Exceeding this limit will trigger a LOG_ERR. */
-  ulong pair_cnt_limit;
-};
-
-typedef struct fd_vinyl_tile fd_vinyl_tile_t;
-
 /* Vinyl state object */
 
 static ulong
@@ -171,7 +76,7 @@ fd_accdb_tile_layout( fd_accdb_tile_layout_t * layout,
   memset( layout, 0, sizeof(fd_accdb_tile_layout_t) );
 
   FD_SCRATCH_ALLOC_INIT( l, NULL );
-  ulong ctx_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
+  ulong ctx_off = (ulong)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_tile_t), sizeof(fd_accdb_tile_t) );
   FD_TEST( ctx_off==0UL );
 
   switch( tile->accdb.io_type ) {
@@ -216,7 +121,7 @@ populate_allowed_fds( fd_topo_t      const * topo,
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_vinyl_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
+  fd_accdb_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_tile_t), sizeof(fd_accdb_tile_t) );
 
   out_fds[ out_cnt++ ] = ctx->bstream_fd;
 
@@ -232,14 +137,14 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_vinyl_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
+  fd_accdb_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_tile_t), sizeof(fd_accdb_tile_t) );
 
   populate_sock_filter_policy_fd_accdb_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->bstream_fd, (uint)ctx->ring->ioring_fd );
   return sock_filter_policy_fd_accdb_tile_instr_cnt;
 }
 
 static void
-vinyl_io_uring_init( fd_vinyl_tile_t * ctx,
+vinyl_io_uring_init( fd_accdb_tile_t * ctx,
                      uint              uring_depth,
                      int               dev_fd ) {
   fd_io_uring_params_t params[1];
@@ -286,10 +191,10 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "invalid vinyl_line_max %lu", tile->accdb.line_max ));
   }
 
-  fd_vinyl_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  fd_accdb_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ulong ctx_laddr = (ulong)ctx;
 
-  memset( ctx, 0, sizeof(fd_vinyl_tile_t) );
+  memset( ctx, 0, sizeof(fd_accdb_tile_t) );
   ctx->bstream_fd      = -1;
   ctx->ring->ioring_fd = -1;
 
@@ -338,7 +243,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
 
-  fd_vinyl_tile_t * ctx   = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  fd_accdb_tile_t * ctx   = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_vinyl_t *      vinyl = ctx->vinyl;
 
   ctx->sync_next_ns = fd_log_wallclock();
@@ -381,7 +286,6 @@ unprivileged_init( fd_topo_t *      topo,
   vinyl->gc_thresh    = gc_thresh;
   vinyl->gc_eager     = gc_eager;
   vinyl->style        = FD_VINYL_BSTREAM_CTL_STYLE_RAW;
-  vinyl->line_idx_lru = 0U;
   vinyl->pair_cnt     = 0UL;
   vinyl->garbage_sz   = 0UL;
 
@@ -392,12 +296,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_vinyl_line_t * line = vinyl->line;
   for( ulong line_idx=0UL; line_idx<line_cnt; line_idx++ ) {
-    line[ line_idx ].obj            = NULL;
-    line[ line_idx ].ele_idx        = ULONG_MAX;
-    line[ line_idx ].ctl            = fd_vinyl_line_ctl( 0UL, 0L);
-    line[ line_idx ].line_idx_older = (uint)fd_ulong_if( line_idx!=0UL,          line_idx-1UL, line_cnt-1UL );
-    line[ line_idx ].line_idx_newer = (uint)fd_ulong_if( line_idx!=line_cnt-1UL, line_idx+1UL, 0UL          );
+    line[ line_idx ].obj          = NULL;
+    line[ line_idx ].ele_idx      = ULONG_MAX;
+    line[ line_idx ].val_gaddr    = 0UL;
+    line[ line_idx ].specread_ctl = 0U;
+    line[ line_idx ].ctl          = fd_vinyl_line_ctl( 0UL, 0L );
   }
+
+  ctx->clock_hand = 0U;
 
 # undef TEST
 
@@ -527,7 +433,7 @@ unprivileged_init( fd_topo_t *      topo,
 /* during_housekeeping is called periodically (approx every STEM_LAZY ns) */
 
 static void
-during_housekeeping( fd_vinyl_tile_t * ctx ) {
+during_housekeeping( fd_accdb_tile_t * ctx ) {
 
   fd_vinyl_t * vinyl = ctx->vinyl;
 
@@ -655,7 +561,7 @@ during_housekeeping( fd_vinyl_tile_t * ctx ) {
 /* If should_shutdown returns non-zero, the vinyl tile is shut down */
 
 static int
-should_shutdown( fd_vinyl_tile_t * ctx ) {
+should_shutdown( fd_accdb_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->booted ) ) return 0;
   if( FD_LIKELY( !ctx->shutdown ) ) return 0;
 
@@ -699,7 +605,7 @@ should_shutdown( fd_vinyl_tile_t * ctx ) {
 }
 
 static void
-metrics_write( fd_vinyl_tile_t * ctx ) {
+metrics_write( fd_accdb_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->booted ) ) return;
   fd_vinyl_t *    vinyl = ctx->vinyl;
   fd_vinyl_io_t * io    = vinyl->io;
@@ -731,7 +637,7 @@ metrics_write( fd_vinyl_tile_t * ctx ) {
 /* before_credit runs every main loop iteration */
 
 static void
-before_credit( fd_vinyl_tile_t *   ctx,
+before_credit( fd_accdb_tile_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
@@ -744,17 +650,11 @@ before_credit( fd_vinyl_tile_t *   ctx,
   fd_vinyl_line_t * line = vinyl->line;
   fd_vinyl_data_t * data = vinyl->data;
 
-  ulong pair_max = vinyl->pair_max;
-
   fd_vinyl_meta_ele_t * ele0       = meta->ele;
   ulong                 ele_max    = meta->ele_max;
   ulong                 meta_seed  = meta->seed;
-  ulong *               lock       = meta->lock;
-  int                   lock_shift = meta->lock_shift;
 
-  ulong                       data_laddr0 = (ulong)data->laddr0;
-  fd_vinyl_data_vol_t const * vol         =        data->vol;
-  ulong                       vol_cnt     =        data->vol_cnt;
+  ulong data_laddr0 = (ulong)data->laddr0;
 
   ulong line_cnt  = vinyl->line_cnt;
 
@@ -865,37 +765,13 @@ before_credit( fd_vinyl_tile_t *   ctx,
     ulong fail_cnt   = 0UL;
 
     ulong read_cnt   = 0UL;
-    ulong append_cnt = 0UL;
 
-    ulong accum_cache_hit = 0UL;
     switch( req->type ) {
-
-#   include "../../vinyl/fd_vinyl_case_acquire.c"
-#   include "../../vinyl/fd_vinyl_case_release.c"
-#   include "../../vinyl/fd_vinyl_case_erase.c"
+#   include "fd_accdb_case_acquire.c"
     /* FIXME support more request types */
-
     default:
       FD_LOG_CRIT(( "unsupported request type %u", (uint)req->type ));
       comp_err = FD_VINYL_ERR_INVAL;
-      break;
-    }
-
-    FD_MCNT_INC( ACCDB, REQUEST_BATCHES, 1UL );
-    switch( req->type ) {
-    case FD_VINYL_REQ_TYPE_ACQUIRE:
-      FD_MCNT_INC( ACCDB, REQUESTS_ACQUIRE,      batch_cnt       );
-      FD_MCNT_INC( ACCDB, READ_OPS_SHARED_CACHE, accum_cache_hit );
-      break;
-    case FD_VINYL_REQ_TYPE_RELEASE:
-      /* FIXME missing metrics:
-         - ReadBytes(SharedCache)
-         - WriteOps(SharedCache)
-         - WriteBytes(SharedCache) */
-      FD_MCNT_INC( ACCDB, REQUESTS_RELEASE, batch_cnt );
-      break;
-    case FD_VINYL_REQ_TYPE_ERASE:
-      FD_MCNT_INC( ACCDB, REQUESTS_ERASE,   batch_cnt );
       break;
     }
 
@@ -929,8 +805,8 @@ before_credit( fd_vinyl_tile_t *   ctx,
 
       ulong line_idx = obj->line_idx;
 
-      FD_CRIT( line_idx<line_cnt,                 "corruption detected" );
-      FD_CRIT( line[ line_idx ].obj==obj,         "corruption detected" );
+      FD_CRIT( line_idx<line_cnt,         "corruption detected" );
+      FD_CRIT( line[ line_idx ].obj==obj, "corruption detected" );
 
       ulong ele_idx = line[ line_idx ].ele_idx;
 
@@ -952,22 +828,6 @@ before_credit( fd_vinyl_tile_t *   ctx,
         FD_CRIT( obj==cobj,             "corruption detected" );
         FD_CRIT( cpair_val_esz==val_sz, "corruption detected" );
 
-      } else if( cpair_style==FD_VINYL_BSTREAM_CTL_STYLE_LZ4 ) {
-
-        char const * cval    = (char const *)fd_vinyl_data_obj_val( cobj );
-        ulong        cval_sz = fd_vinyl_bstream_ctl_sz( cpair_ctl );
-
-        ulong _val_sz = (ulong)LZ4_decompress_safe( cval, val, (int)cval_sz, (int)val_sz );
-        if( FD_UNLIKELY( _val_sz!=val_sz ) ) FD_LOG_CRIT(( "LZ4_decompress_safe failed" ));
-
-        fd_vinyl_data_free( data, cobj );
-
-        fd_vinyl_bstream_phdr_t * phdr = fd_vinyl_data_obj_phdr( obj );
-
-        phdr->ctl  = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
-        phdr->key  = cphdr->key;
-        phdr->info = cphdr->info;
-
       } else {
         FD_LOG_CRIT(( "corrupt bstream record (seq=%lu cpair_style=%d)", seq, cpair_style ));
       }
@@ -987,27 +847,9 @@ before_credit( fd_vinyl_tile_t *   ctx,
 
     }
 
-    if( FD_UNLIKELY( append_cnt ) ) fd_vinyl_io_commit( io, FD_VINYL_IO_FLAG_BLOCKING );
-
     if( FD_LIKELY( comp_err<=0 ) ) fd_vinyl_cq_send( cq, comp, req_id, link_id, comp_err, batch_cnt, fail_cnt, quota_rem );
 
     client->quota_rem = quota_rem;
-
-    /* Update metrics.  Derive counters from vinyl locals
-
-      append_cnt is incremented in these places:
-      - fd_vinyl_case_erase.c   (fd_vinyl_io_append_dead, with accum_dead_cnt)
-      - fd_vinyl_case_move.c    (fd_vinyl_io_append_move, with accum_move_cnt)
-      - fd_vinyl_case_move.c    (fd_vinyl_io_append(pair))
-      - fd_vinyl_case_release.c (fd_vinyl_io_append_pair_inplace)
-      - fd_vinyl_case_release.c (fd_vinyl_io_append_dead, with accum_dead_cnt)
-
-      We can thus infer the number of pair blocks appended by
-      subtracting accum_* */
-
-    ulong const dead_cnt = accum_dead_cnt - ctx->accum_dead_cnt;
-    FD_MCNT_INC( ACCDB, BLOCKS_PAIR, append_cnt - dead_cnt );
-    FD_MCNT_INC( ACCDB, BLOCKS_DEAD, dead_cnt );
 
   }
 
@@ -1018,7 +860,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
 
 #define STEM_BURST (1UL)
 #define STEM_LAZY  (10000) /* housekeep every 10 us */
-#define STEM_CALLBACK_CONTEXT_TYPE        fd_vinyl_tile_t
+#define STEM_CALLBACK_CONTEXT_TYPE        fd_accdb_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN       fd_vinyl_align()
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping

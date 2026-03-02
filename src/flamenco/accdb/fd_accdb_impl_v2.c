@@ -595,23 +595,7 @@ not_found:
     accdb->base.created_cnt++;
   }
 
-  /* Send "RELEASE" batch (reuse val_gaddr values),
-     and wait for response */
-
-  if( req_cnt ) {
-    ulong req_id = v2->vinyl_req_id++;
-    memset( fd_vinyl_req_batch_comp( req_pool, batch_idx ), 0, sizeof(fd_vinyl_comp_t) );
-    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt );
-
-    while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
-    FD_COMPILER_MFENCE();
-    int comp_err = FD_VOLATILE_CONST( comp->err );
-    if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
-      FD_LOG_CRIT(( "vinyl tile rejected my RELEASE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
-    }
-  }
-
-  fd_vinyl_req_pool_release( req_pool, batch_idx );
+  /* FIXME release records */
 }
 
 void
@@ -641,56 +625,11 @@ void
 fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
                                   fd_accdb_ref_t *  ref0,
                                   ulong             cnt ) {
-  fd_accdb_user_v2_t *  v2        = (fd_accdb_user_v2_t *)accdb;
-  fd_vinyl_rq_t *       rq        = v2->vinyl_rq;        /* "request queue "*/
-  fd_vinyl_req_pool_t * req_pool  = v2->vinyl_req_pool;  /* "request pool" */
-  fd_wksp_t *           req_wksp  = v2->vinyl_req_wksp;  /* shm workspace containing request buffer */
-  fd_wksp_t *           data_wksp = v2->vinyl_data_wksp; /* shm workspace containing vinyl data cache */
-  ulong                 link_id   = v2->vinyl_link_id;   /* vinyl client ID */
+  fd_accdb_user_v2_t * v2 = (fd_accdb_user_v2_t *)accdb;
 
-  if( FD_UNLIKELY( cnt>fd_vinyl_req_batch_key_max( req_pool ) ) ) {
-    FD_LOG_CRIT(( "close_ref_multi cnt %lu exceeds vinyl request batch max %lu",
-                  cnt, fd_vinyl_req_batch_key_max( req_pool ) ));
-  }
+  /* FIXME Release vinyl records */
 
-  /* First, release all references to vinyl records
-     (This is a prefetch friendly / fast loop) */
-
-  ulong batch_idx = fd_vinyl_req_pool_acquire( req_pool );
-  /* req_pool_release called before returning */
-  fd_vinyl_comp_t * comp           = fd_vinyl_req_batch_comp     ( req_pool, batch_idx );
-  schar *           req_err0       = fd_vinyl_req_batch_err      ( req_pool, batch_idx );
-  ulong *           req_val_gaddr0 = fd_vinyl_req_batch_val_gaddr( req_pool, batch_idx );
-
-  ulong ro_close_cnt = 0UL;
-  ulong rw_close_cnt = 0UL;
-  ulong req_cnt      = 0UL;
-  for( ulong i=0UL; i<cnt; i++ ) {
-    fd_accdb_ref_t * ref = &ref0[ i ];
-    if( ref->accdb_type!=FD_ACCDB_TYPE_V2 ) continue;
-    ref->ref_type==FD_ACCDB_REF_RO ? ro_close_cnt++ : rw_close_cnt++;
-    req_err0      [ req_cnt ] = 0;
-    req_val_gaddr0[ req_cnt ] = fd_wksp_gaddr_fast( data_wksp, (void *)ref->meta_laddr );
-    memset( ref, 0, sizeof(fd_accdb_ref_t) );
-    req_cnt++;
-  }
-  if( req_cnt ) {
-    if( FD_UNLIKELY( ro_close_cnt > accdb->base.ro_active ) ) {
-      FD_LOG_CRIT(( "attempted to close more accdb_ro (%lu) than are open (%lu)",
-                    ro_close_cnt, accdb->base.ro_active ));
-    }
-    if( FD_UNLIKELY( rw_close_cnt > accdb->base.rw_active ) ) {
-      FD_LOG_CRIT(( "attempted to close more accdb_rw (%lu) than are open (%lu)",
-                    rw_close_cnt, accdb->base.rw_active ));
-    }
-    ulong req_id = v2->vinyl_req_id++;
-    memset( fd_vinyl_req_batch_comp( req_pool, batch_idx ), 0, sizeof(fd_vinyl_comp_t) );
-    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt );
-  }
-
-  /* While our vinyl request is inflight, release funk records
-     (This does expensive DRAM accesses, which are convenient to do when
-     we are waiting for the database to asynchronously respond) */
+  /* Release funk records */
 
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_accdb_ref_t * ref = &ref0[ i ];
@@ -708,28 +647,6 @@ fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
     }
     memset( ref, 0, sizeof(fd_accdb_ref_t) );
   }
-
-  /* Wait for response from vinyl */
-
-  if( req_cnt ) {
-    while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
-    FD_COMPILER_MFENCE();
-    int comp_err = FD_VOLATILE_CONST( comp->err );
-    if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
-      FD_LOG_CRIT(( "vinyl tile rejected my RELEASE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
-    }
-    for( ulong i=0UL; i<req_cnt; i++ ) {
-      int req_err = req_err0[ i ];
-      if( FD_UNLIKELY( req_err!=FD_VINYL_SUCCESS ) ) {
-        FD_LOG_CRIT(( "vinyl tile RELEASE request failed: %i-%s", req_err, fd_vinyl_strerror( req_err ) ));
-      }
-    }
-
-    accdb->base.ro_active -= ro_close_cnt;
-    accdb->base.rw_active -= rw_close_cnt;
-  }
-
-  fd_vinyl_req_pool_release( req_pool, batch_idx );
 }
 
 ulong

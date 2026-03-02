@@ -64,8 +64,23 @@
 
 #define FD_VINYL_LINE_VER_MAX ((1UL<<32)-1UL)
 
+/* FD_VINYL_LINE_SRC_* define the bit layout of specread_ctl (uint):
+
+     bits [0,24)   specread reference count  (up to ~16M concurrent readers)
+     bit  24       CHANCE flag               (CLOCK second-chance)
+     bit  25       EVICTING flag             (vinyl tile claiming line)
+     bits [26,32)  reserved (zero)
+
+   specread_ctl is accessed atomically by cross-tile speculative readers
+   (LOCK XADD to pin/unpin, LOCK OR to promote) and by the vinyl tile
+   (LOCK CMPXCHG to claim for eviction, LOCK AND to clear chance). */
+
+#define FD_VINYL_LINE_SRC_REF_MASK  (0x00FFFFFFU)
+#define FD_VINYL_LINE_SRC_CHANCE    (0x01000000U)
+#define FD_VINYL_LINE_SRC_EVICTING  (0x02000000U)
+
 /* A fd_vinyl_line_t stores information the vinyl tile uses to track
-   how a key-val pair has been cached in DRAM.  If the val field is
+   how a key-val pair has been cached in DRAM.  If the obj field is
    NULL, there is no pair cached in that line and all other fields are
    ignored.  Practically speaking, the vinyl tile uses this (local)
    structure to tie together the (shared) pair meta map and the (shared)
@@ -80,17 +95,33 @@
 
      ref: -1 - the line is acquired for modify, 0 - the line is not
      acquired for anything (and thus is evictable), >0 - the line is
-     acquired-for-read ref times. */
+     acquired-for-read ref times.
 
-struct __attribute__((aligned(32))) fd_vinyl_line {
-  fd_vinyl_data_obj_t * obj;            /* location in the data cache of the data_obj storing val, NULL if not caching a pair */
-  ulong                 ele_idx;        /* map element storing key and the pair metadata (app and key), in [0,map_cnt) */
+   specread_ctl packs chance, specread reference count, and an evicting
+   flag into a single atomic uint for cross-tile in-place speculative
+   reads (see FD_VINYL_LINE_SRC_* above). */
+
+struct __attribute__((aligned(64))) fd_vinyl_line {
+
+  /* Reader-visible fields (cross-tile speculative readers) */
+
   ulong                 ctl;            /* packs the line version and line reference count */
+  ulong                 ele_idx;        /* map element storing key and the pair metadata (app and key), in [0,ele_max), ULONG_MAX if unassigned */
+  ulong                 val_gaddr;      /* gaddr of val in data wksp, 0 if not ready */
+  uint                  specread_ctl;   /* atomic: packs chance + ref + evicting */
+  uchar                 _pad0[4];
+
+  /* Vinyl-tile-only fields */
+
+  fd_vinyl_data_obj_t * obj;            /* location in the data cache of the data_obj storing val, NULL if not caching a pair */
   uint                  line_idx_older; /* older line in eviction sequence, in [0,line_cnt) */
   uint                  line_idx_newer; /* newer line in eviction sequence, in [0,line_cnt) */
+  uchar                 _pad1[16];
 };
 
 typedef struct fd_vinyl_line fd_vinyl_line_t;
+
+FD_STATIC_ASSERT( sizeof(fd_vinyl_line_t)==64UL, layout );
 
 FD_PROTOTYPES_BEGIN
 

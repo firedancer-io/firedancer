@@ -820,20 +820,6 @@ metric introduced.
 
   <counter name="AccdbCreated" summary="Number of account database records created" />
   <counter name="AccdbReverted" summary="Number of account database records reverted" />
-  <counter name="AccdbRooted" summary="Number of account database entries rooted" />
-  <counter name="AccdbRootedBytes" summary="Number of bytes in account database entries rooted (including overhead)" />
-  <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
-  <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
-
-  <histogram name="RootSlotDurationSeconds" min="0.0005" max="1.0" converter="seconds">
-    <summary>Time in seconds spent updating the rooted account store (one sample per block)</summary>
-  </histogram>
-
-  <histogram name="RootAccountDurationSeconds" min="0.0000001" max="0.1" converter="seconds">
-    <summary>Time in seconds spent updating the rooted account store (one sample per block, normalized by account count)</summary>
-  </histogram>
-
-  <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
 </tile>
 
 <enum name="RepairSentRequestTypes">

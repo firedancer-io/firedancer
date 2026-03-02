@@ -479,18 +479,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( !vinyl_data ) {
     FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
   } else {
-    fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq" );
-    fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
-    FD_TEST( vinyl_rq );
-    FD_TEST( vinyl_req_pool );
     FD_TEST( fd_accdb_admin_v2_init( ctx->accdb_admin,
         fd_topo_obj_laddr( topo, funk_obj_id       ),
-        fd_topo_obj_laddr( topo, funk_locks_obj_id ),
-        fd_topo_obj_laddr( topo, vinyl_rq->id      ),
-        topo->workspaces[ vinyl_data->wksp_id ].wksp,
-        fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
-        vinyl_rq->id,
-        tile->genesi.accdb_max_depth ) );
+        fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
   }
   fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->genesi.accdb_max_depth );
 

@@ -26,78 +26,7 @@ static void
 add_account_vinyl( fd_accdb_user_t * accdb_,
                    uchar const *     key,
                    ulong             lamports ) {
-  fd_accdb_user_v2_t * accdb = (fd_accdb_user_v2_t *)accdb_;
-
-  /* Start write */
-  ulong             batch_idx     = fd_vinyl_req_pool_acquire   ( accdb->vinyl_req_pool );
-  fd_vinyl_key_t *  req_key       = fd_vinyl_req_batch_key      ( accdb->vinyl_req_pool, batch_idx );
-  ulong *           req_val_gaddr = fd_vinyl_req_batch_val_gaddr( accdb->vinyl_req_pool, batch_idx );
-  schar *           req_err       = fd_vinyl_req_batch_err      ( accdb->vinyl_req_pool, batch_idx );
-  fd_vinyl_comp_t * comp          = fd_vinyl_req_batch_comp     ( accdb->vinyl_req_pool, batch_idx );
-  fd_vinyl_key_init( req_key, key, 32UL );
-  ulong val_max  = sizeof(fd_account_meta_t) + 32UL;
-  *req_val_gaddr = val_max;
-  memset( comp, 0, sizeof(fd_vinyl_comp_t) );
-  fd_vinyl_req_send_batch(
-      accdb->vinyl_rq,
-      accdb->vinyl_req_pool,
-      accdb->vinyl_req_wksp,
-      accdb->vinyl_req_id++,
-      accdb->vinyl_link_id,
-      FD_VINYL_REQ_TYPE_ACQUIRE,
-      FD_VINYL_REQ_FLAG_MODIFY | FD_VINYL_REQ_FLAG_CREATE | FD_VINYL_REQ_FLAG_EXCL,
-      batch_idx,
-      1UL /* batch_cnt */
-  );
-  while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
-  FD_COMPILER_MFENCE();
-  int comp_err = FD_VOLATILE_CONST( comp->err );
-  if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
-    FD_LOG_CRIT(( "vinyl tile rejected my ACQUIRE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
-  }
-  int err = FD_VOLATILE_CONST( req_err[0] );
-  if( FD_UNLIKELY( err!=FD_VINYL_SUCCESS ) ) {
-    FD_LOG_CRIT(( "vinyl tile ACQUIRE request failed: %i-%s", err, fd_vinyl_strerror( err ) ));
-  }
-
-  ulong               val_gaddr = FD_VOLATILE_CONST( req_val_gaddr[0] );
-  void *              val       = fd_wksp_laddr_fast( accdb->vinyl_data_wksp, val_gaddr );
-  fd_vinyl_info_t *   info      = fd_vinyl_data_info( val );
-  fd_account_meta_t * meta      = val;
-  uchar *             data      = (uchar *)( meta+1 );
-
-  memset( meta, 0, val_max );
-  meta->lamports = lamports;
-  meta->dlen     = 32U;
-  memcpy( data, key, 32UL );
-  info->val_sz = (uint)val_max;
-
-  /* Finish write */
-  memset( comp, 0, sizeof(fd_vinyl_comp_t) );
-  req_val_gaddr[0] = val_gaddr;
-  fd_vinyl_req_send_batch(
-      accdb->vinyl_rq,
-      accdb->vinyl_req_pool,
-      accdb->vinyl_req_wksp,
-      accdb->vinyl_req_id++,
-      accdb->vinyl_link_id,
-      FD_VINYL_REQ_TYPE_RELEASE,
-      FD_VINYL_REQ_FLAG_MODIFY,
-      batch_idx,
-      1UL /* batch_cnt */
-  );
-  while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
-  FD_COMPILER_MFENCE();
-  comp_err = FD_VOLATILE_CONST( comp->err );
-  if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
-    FD_LOG_CRIT(( "vinyl tile rejected my RELEASE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
-  }
-  err = FD_VOLATILE_CONST( req_err[0] );
-  if( FD_UNLIKELY( err!=FD_VINYL_SUCCESS ) ) {
-    FD_LOG_CRIT(( "vinyl tile RELEASE request failed: %i-%s", err, fd_vinyl_strerror( err ) ));
-  }
-
-  fd_vinyl_req_pool_release( accdb->vinyl_req_pool, batch_idx );
+  /* FIXME direct emplace account into vinyl cache */
 }
 
 static void
