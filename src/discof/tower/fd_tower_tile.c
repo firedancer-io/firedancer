@@ -1219,7 +1219,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
-  ctx->out_seq    = ULONG_MAX;
+  ctx->out_seq    = 0UL;
 }
 
 static ulong

@@ -54,7 +54,6 @@ struct fd_event_tile {
 
   int tile_shutdown_rendered[ FD_TOPO_MAX_TILES ];
 
-  int              halt_reconnect;
   fd_keyswitch_t * keyswitch;
 
   ulong idle_cnt;

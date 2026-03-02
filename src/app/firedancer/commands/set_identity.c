@@ -232,7 +232,7 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_SET_IDENTITY_STATE_LEADER_HALT_REQUESTED: {
       fd_keyswitch_t * replay = find_keyswitch( topo, "replay" );
       if( FD_LIKELY( replay->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        explicit_bzero( replay->bytes, 64UL );
+        fd_memzero_explicit( replay->bytes, 64UL );
         FD_COMPILER_MFENCE();
         *halted_seq = replay->result;
         *state = FD_SET_IDENTITY_STATE_LEADER_HALTED;
@@ -314,7 +314,7 @@ poll_keyswitch( fd_topo_t * topo,
     case FD_SET_IDENTITY_STATE_SEND_FLUSH_REQUESTED: {
       fd_keyswitch_t * txsend = find_keyswitch( topo, "txsend" );
       if( FD_LIKELY( txsend->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
-        explicit_bzero( txsend->bytes, 64UL );
+        fd_memzero_explicit( txsend->bytes, 64UL );
         FD_COMPILER_MFENCE();
         *state = FD_SET_IDENTITY_STATE_SEND_FLUSHED;
       } else {
@@ -334,7 +334,7 @@ poll_keyswitch( fd_topo_t * topo,
       }
 
       FD_COMPILER_MFENCE();
-      explicit_bzero( keypair, 32UL ); /* Private key no longer needed in this process */
+      fd_memzero_explicit( keypair, 32UL ); /* Private key no longer needed in this process */
       FD_COMPILER_MFENCE();
 
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -376,7 +376,7 @@ poll_keyswitch( fd_topo_t * topo,
         } else if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
           if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "sign" ) ) ) {
             FD_COMPILER_MFENCE();
-            explicit_bzero( tile_ks->bytes, 64UL );
+            fd_memzero_explicit( tile_ks->bytes, 64UL );
             FD_COMPILER_MFENCE();
           }
           continue;
@@ -531,6 +531,6 @@ action_t fd_action_set_identity = {
   .args           = set_identity_cmd_args,
   .fn             = set_identity_cmd_fn,
   .require_config = 1,
-  .perm           = NULL,
+  .perm           = set_identity_cmd_perm,
   .description    = "Change the identity of a running validator",
 };

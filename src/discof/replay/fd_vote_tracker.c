@@ -126,6 +126,7 @@ fd_vote_tracker_query_sig( fd_vote_tracker_t *    vote_tracker,
   fd_vote_tracker_ele_t * deq = fd_vote_tracker_deq_get( vote_tracker );
   fd_vote_tracker_map_t * map = fd_vote_tracker_map_get( vote_tracker );
   fd_vote_tracker_ele_t * ele = fd_vote_tracker_map_ele_query( map, vote_sig, NULL, deq );
+  FD_TEST( identity_pubkey_out );
   *identity_pubkey_out = ele ? &ele->identity_pubkey : NULL;
   return ele!=NULL;
 }

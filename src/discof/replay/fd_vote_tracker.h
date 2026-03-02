@@ -13,7 +13,7 @@ FD_PROTOTYPES_BEGIN
    identity.  This is useful for implementing waiting to become a leader
    until the identity vote is seen on the root bank.
 
-   Under the hood, the vote tracker tracker is implemented as a map and
+   Under the hood, the vote tracker is implemented as a map and
    a deque that keeps the most recent votes seen for each identity in a
    first-in-first-out order that can also be queried by signature. */
 
