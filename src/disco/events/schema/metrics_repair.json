@@ -1,0 +1,27 @@
+{
+    "name": "metrics_repair",
+    "id": 1021,
+    "description": "Metrics snapshot for the repair tile",
+    "fields": {
+        "meta":                   { "type": "ref:MetricMeta" },
+        "tile":                   { "type": "ref:MetricTile" },
+        "total_pkt_count":        { "type": "UInt64", "description": "How many network packets we have sent, including reqs, pings, pongs, etc" },
+        "sent_pkt_types":         {
+            "type": "Flatten",
+            "description": "What types of client messages are we sending",
+            "fields": {
+                "sent_pkt_types_needed_window":         { "type": "UInt64", "description": "Need Window" },
+                "sent_pkt_types_needed_highest_window": { "type": "UInt64", "description": "Need Highest Window" },
+                "sent_pkt_types_needed_orphan":         { "type": "UInt64", "description": "Need Orphans" },
+                "sent_pkt_types_pong":                  { "type": "UInt64", "description": "Pong" }
+            }
+        },
+        "repaired_slots":         { "type": "UInt64", "description": "Until which slots have we fully repaired" },
+        "current_slot":           { "type": "UInt64", "description": "Our view of the current cluster slot, max slot received" },
+        "request_peers":          { "type": "UInt64", "description": "How many peers have we requested" },
+        "sign_tile_unavail":      { "type": "UInt64", "description": "How many times no sign tiles were available to send request" },
+        "eager_repair_aggresses": { "type": "UInt64", "description": "How many times we pass eager repair threshold" },
+        "rerequest_queue":        { "type": "UInt64", "description": "How many times we re-request a shred from the inflights queue" },
+        "malformed_ping":         { "type": "UInt64", "description": "How many times we received a malformed ping" }
+    }
+}

@@ -1,0 +1,21 @@
+{
+    "name": "metrics_verify",
+    "id": 1003,
+    "description": "Metrics snapshot for the verify tile",
+    "fields": {
+        "meta":                    { "type": "ref:MetricMeta" },
+        "tile":                    { "type": "ref:MetricTile" },
+        "transaction_result":      {
+            "type": "Flatten",
+            "description": "Count of transaction results through verify tile",
+            "fields": {
+                "transaction_result_success":             { "type": "UInt64", "description": "Transaction verified successfully" },
+                "transaction_result_bundle_peer_failure": { "type": "UInt64", "description": "Peer transaction in the bundle failed" },
+                "transaction_result_parse_failure":       { "type": "UInt64", "description": "Transaction failed to parse" },
+                "transaction_result_dedup_failure":       { "type": "UInt64", "description": "Transaction failed deduplication" },
+                "transaction_result_verify_failure":      { "type": "UInt64", "description": "Transaction failed signature verification" }
+            }
+        },
+        "gossiped_votes_received": { "type": "UInt64", "description": "Count of simple vote transactions received over gossip instead of via the normal TPU path" }
+    }
+}

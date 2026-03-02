@@ -1,0 +1,13 @@
+{
+    "name": "metrics_metric",
+    "id": 1012,
+    "description": "Metrics snapshot for the metric tile",
+    "fields": {
+        "meta":                 { "type": "ref:MetricMeta" },
+        "tile":                 { "type": "ref:MetricTile" },
+        "boot_timestamp_nanos": { "type": "UInt64", "description": "Timestamp when validator was started (nanoseconds since epoch)" },
+        "connection_count":     { "type": "UInt64", "description": "The number of active http connections to the Prometheus endpoint" },
+        "bytes_written":        { "type": "UInt64", "description": "The total number of bytes written to all responses on the Prometheus endpoint" },
+        "bytes_read":           { "type": "UInt64", "description": "The total number of bytes read from all requests to the Prometheus endpoint" }
+    }
+}

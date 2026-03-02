@@ -1,0 +1,34 @@
+{
+    "name": "metrics_resolf",
+    "id": 1030,
+    "description": "Metrics snapshot for the resolf tile",
+    "fields": {
+        "meta":                            { "type": "ref:MetricMeta" },
+        "tile":                            { "type": "ref:MetricTile" },
+        "no_bank_drop":                    { "type": "UInt64", "description": "Count of transactions dropped because the bank was not available" },
+        "stash_operation":                 {
+            "type": "Flatten",
+            "description": "Count of operations that happened on the transaction stash",
+            "fields": {
+                "stash_operation_inserted":  { "type": "UInt64", "description": "A transaction with an unknown blockhash was added to the stash" },
+                "stash_operation_overrun":   { "type": "UInt64", "description": "A transaction with an unknown blockhash was dropped because the stash was full" },
+                "stash_operation_published": { "type": "UInt64", "description": "A transaction with an unknown blockhash was published as the blockhash became known" },
+                "stash_operation_removed":   { "type": "UInt64", "description": "A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories" }
+            }
+        },
+        "lut_resolved":                    {
+            "type": "Flatten",
+            "description": "Count of address lookup tables resolved",
+            "fields": {
+                "lut_resolved_invalid_lookup_index":  { "type": "UInt64", "description": "The transaction referenced an index in a LUT that didn't exist" },
+                "lut_resolved_account_uninitialized": { "type": "UInt64", "description": "The account referenced as a LUT hasn't been initialized" },
+                "lut_resolved_invalid_account_data":  { "type": "UInt64", "description": "The account referenced as a LUT couldn't be parsed" },
+                "lut_resolved_invalid_account_owner": { "type": "UInt64", "description": "The account referenced as a LUT wasn't owned by the ALUT program ID" },
+                "lut_resolved_account_not_found":     { "type": "UInt64", "description": "The account referenced as a LUT couldn't be found" },
+                "lut_resolved_success":               { "type": "UInt64", "description": "Resolved successfully" }
+            }
+        },
+        "blockhash_expired":               { "type": "UInt64", "description": "Count of transactions that failed to resolve because the blockhash was expired" },
+        "transaction_bundle_peer_failure": { "type": "UInt64", "description": "Count of transactions that failed to resolve because a peer transaction in the bundle failed" }
+    }
+}

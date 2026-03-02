@@ -1,0 +1,27 @@
+{
+    "name": "metrics_sock",
+    "id": 1020,
+    "description": "Metrics snapshot for the sock tile",
+    "fields": {
+        "meta":              { "type": "ref:MetricMeta" },
+        "tile":              { "type": "ref:MetricTile" },
+        "syscalls_sendmmsg": {
+            "type": "Flatten",
+            "description": "Number of sendmmsg syscalls dispatched",
+            "fields": {
+                "syscalls_sendmmsg_no_error": { "type": "UInt64", "description": "No error" },
+                "syscalls_sendmmsg_slow":     { "type": "UInt64", "description": "ENOBUFS, EAGAIN error" },
+                "syscalls_sendmmsg_perm":     { "type": "UInt64", "description": "EPERM error (blocked by netfilter)" },
+                "syscalls_sendmmsg_unreach":  { "type": "UInt64", "description": "ENETUNREACH, EHOSTUNREACH error" },
+                "syscalls_sendmmsg_down":     { "type": "UInt64", "description": "ENONET, ENETDOWN, EHOSTDOWN error" },
+                "syscalls_sendmmsg_other":    { "type": "UInt64", "description": "Unrecognized error code" }
+            }
+        },
+        "syscalls_recvmmsg": { "type": "UInt64", "description": "Number of recvmsg syscalls dispatched" },
+        "rx_pkt_cnt":        { "type": "UInt64", "description": "Number of packets received" },
+        "tx_pkt_cnt":        { "type": "UInt64", "description": "Number of packets sent" },
+        "tx_drop_cnt":       { "type": "UInt64", "description": "Number of packets failed to send" },
+        "tx_bytes_total":    { "type": "UInt64", "description": "Total number of bytes transmitted (including Ethernet header)" },
+        "rx_bytes_total":    { "type": "UInt64", "description": "Total number of bytes received (including Ethernet header)" }
+    }
+}

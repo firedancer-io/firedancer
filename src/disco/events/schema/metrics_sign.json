@@ -1,0 +1,9 @@
+{
+    "name": "metrics_sign",
+    "id": 1011,
+    "description": "Metrics snapshot for the sign tile",
+    "fields": {
+        "meta": { "type": "ref:MetricMeta" },
+        "tile": { "type": "ref:MetricTile" }
+    }
+}

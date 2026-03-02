@@ -1,0 +1,24 @@
+{
+    "name": "metrics_snapct",
+    "id": 1023,
+    "description": "Metrics snapshot for the snapct tile",
+    "fields": {
+        "meta":                         { "type": "ref:MetricMeta" },
+        "tile":                         { "type": "ref:MetricTile" },
+        "state":                        { "type": "UInt64", "description": "State of the tile" },
+        "full_num_retries":             { "type": "UInt64", "description": "Number of times we aborted and retried full snapshot download because the peer was too slow" },
+        "incremental_num_retries":      { "type": "UInt64", "description": "Number of times we aborted and retried incremental snapshot download because the peer was too slow" },
+        "full_bytes_read":              { "type": "UInt64", "description": "Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" },
+        "full_bytes_written":           { "type": "UInt64", "description": "Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" },
+        "full_bytes_total":             { "type": "UInt64", "description": "Total size of the full snapshot file. Might change if snapshot load is aborted and restarted" },
+        "full_download_retries":        { "type": "UInt64", "description": "Number of times we retried the full snapshot download because the peer was too slow" },
+        "incremental_bytes_read":       { "type": "UInt64", "description": "Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" },
+        "incremental_bytes_written":    { "type": "UInt64", "description": "Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" },
+        "incremental_bytes_total":      { "type": "UInt64", "description": "Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" },
+        "incremental_download_retries": { "type": "UInt64", "description": "Number of times we retried the incremental snapshot download because the peer was too slow" },
+        "predicted_slot":               { "type": "UInt64", "description": "The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" },
+        "gossip_fresh_count":           { "type": "UInt64", "description": "Number of fresh gossip peers seen when collecting gossip peers. " },
+        "gossip_total_count":           { "type": "UInt64", "description": "Number of total gossip peers seen when collecting gossip peers. " },
+        "ssl_alloc_errors":             { "type": "UInt64", "description": "Number of SSL allocation errors encountered. " }
+    }
+}

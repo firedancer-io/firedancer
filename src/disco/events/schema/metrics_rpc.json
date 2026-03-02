@@ -1,0 +1,9 @@
+{
+    "name": "metrics_rpc",
+    "id": 1044,
+    "description": "Metrics snapshot for the rpc tile",
+    "fields": {
+        "meta": { "type": "ref:MetricMeta" },
+        "tile": { "type": "ref:MetricTile" }
+    }
+}

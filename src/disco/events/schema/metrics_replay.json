@@ -1,0 +1,33 @@
+{
+    "name": "metrics_replay",
+    "id": 1017,
+    "description": "Metrics snapshot for the replay tile",
+    "fields": {
+        "meta":                 { "type": "ref:MetricMeta" },
+        "tile":                 { "type": "ref:MetricTile" },
+        "root_slot":            { "type": "UInt64", "description": "The slot at which our node has most recently rooted" },
+        "root_distance":        { "type": "UInt64", "description": "The distance in slots between our current root and the current reset slot" },
+        "leader_slot":          { "type": "UInt64", "description": "The slot at which we are currently leader, or 0 if none" },
+        "next_leader_slot":     { "type": "UInt64", "description": "The slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" },
+        "reset_slot":           { "type": "UInt64", "description": "The slot at which we last reset the replay stage, or 0 if unknown" },
+        "max_live_banks":       { "type": "UInt64", "description": "The maximum number of banks we can have alive" },
+        "live_banks":           { "type": "UInt64", "description": "The number of banks we currently have alive" },
+        "reasm_free":           { "type": "UInt64", "description": "The number of free FEC sets in the reassembly queue" },
+        "reasm_latest_slot":    { "type": "UInt64", "description": "Slot of the latest FEC set in the reassembly queue that can be replayed" },
+        "reasm_latest_fec_idx": { "type": "UInt64", "description": "FEC set index of the latest FEC set in the reassembly queue that can be replayed" },
+        "slots_total":          { "type": "UInt64", "description": "Count of slots replayed successfully" },
+        "transactions_total":   { "type": "UInt64", "description": "Count of transactions processed overall on the current fork" },
+        "sched_full":           { "type": "UInt64", "description": "Times where sched is full and a FEC set can't be processed" },
+        "reasm_empty":          { "type": "UInt64", "description": "Times where reasm is empty and a FEC set can't be processed" },
+        "leader_bid_wait":      { "type": "UInt64", "description": "Times where replay is blocked by the PoH tile not sending an end of leader message" },
+        "banks_full":           { "type": "UInt64", "description": "Times where banks are full and a FEC set can't be processed" },
+        "storage_root_behind":  { "type": "UInt64", "description": "Times where the storage root is behind the consensus root and can't be advanced" },
+        "progcache_rooted":     { "type": "UInt64", "description": "Number of program cache entries rooted" },
+        "progcache_gc_root":    { "type": "UInt64", "description": "Number of program cache entries garbage collected while rooting" },
+        "accdb_created":        { "type": "UInt64", "description": "Number of account database records created" },
+        "accdb_reverted":       { "type": "UInt64", "description": "Number of account database records reverted" },
+        "accdb_rooted":         { "type": "UInt64", "description": "Number of account database entries rooted" },
+        "accdb_gc_root":        { "type": "UInt64", "description": "Number of account database entries garbage collected" },
+        "accdb_reclaimed":      { "type": "UInt64", "description": "Number of account database entries reclaimed (deletion rooted)" }
+    }
+}
