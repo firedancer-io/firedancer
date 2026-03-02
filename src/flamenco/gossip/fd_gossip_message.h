@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_message_h
 
 #include "../../util/fd_util_base.h"
+#include "../../util/cstr/fd_cstr.h"
 #include "fd_gossip_value.h"
 
 #include <stddef.h>
@@ -429,5 +430,35 @@ fd_gossip_pull_request_init( uchar *       payload,
                              ulong **      out_bloom_keys,
                              ulong **      out_bloom_bits,
                              ulong **      out_bits_set );
+
+/* fd_gossip_version_cstr converts gossip version fields to a null
+   terminated c-string.  Returns 1 on success and 0 on failure (e.g.
+   small out_sz)
+
+   The 16-bit minor field has a special encoding to support semver
+   prerelease notation.
+    - High 2 bits: prerelease channel (0=stable, 1=rc, 2=beta, 3=alpha)
+    - Low 14 bits: actual minor version number
+
+    Note that due to Frankendancer's existing unique versioning hack,
+    future Frankendancer releases will all be stable (i.e.
+    prerelease_bits==0) and based on stable Agave versions.  This is a
+    permissible compromise given Frankendancer is approaching EOL. */
+static inline int
+fd_gossip_version_cstr( ushort major,
+                 ushort minor,
+                 ushort patch,
+                 char * out,
+                 ulong  out_sz ) {
+  ushort prerelease_bits = (minor >> 14U) & 0x3U;
+  ushort minor_actual = minor & 0x3FFFU;
+
+  if( FD_UNLIKELY( prerelease_bits ) ) {
+    const char * names[] = { "", "rc", "beta", "alpha" };
+    return fd_cstr_printf_check( out, out_sz, NULL, "%hu.%hu.0-%s.%u", major, minor_actual, names[ prerelease_bits ], patch );
+  } else {
+    return fd_cstr_printf_check( out, out_sz, NULL, "%hu.%hu.%hu", major, minor_actual, patch );
+  }
+}
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_message_h */

@@ -1152,8 +1152,8 @@ fd_gui_printf_peer( fd_gui_t *    gui,
     } else {
       jsonp_open_object( gui->http, "gossip" );
 
-        char version[ 32 ];
-        FD_TEST( fd_cstr_printf( version, sizeof( version ), NULL, "%u.%u.%u", gui->gossip.peers[ gossip_idx ].version.major, gui->gossip.peers[ gossip_idx ].version.minor, gui->gossip.peers[ gossip_idx ].version.patch ) );
+        char version[ 64UL ];
+        FD_TEST( fd_gossip_version_cstr( gui->gossip.peers[ gossip_idx ].version.major, gui->gossip.peers[ gossip_idx ].version.minor, gui->gossip.peers[ gossip_idx ].version.patch, version, sizeof( version ) ) );
         jsonp_string( gui->http, "version", version );
         jsonp_null( gui->http, "client_id" ); /* TODO: Frankendancer support */
         jsonp_ulong( gui->http, "feature_set", gui->gossip.peers[ gossip_idx ].version.feature_set );
@@ -1230,8 +1230,8 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
 
     jsonp_open_object( peers->http, "gossip" );
 
-      char version[ 32 ];
-      FD_TEST( fd_cstr_printf( version, sizeof( version ), NULL, "%u.%u.%u", peer->contact_info.version.major, peer->contact_info.version.minor, peer->contact_info.version.patch ) );
+      char version[ 64UL ];
+      FD_TEST( fd_gossip_version_cstr( peer->contact_info.version.major, peer->contact_info.version.minor, peer->contact_info.version.patch, version, sizeof( version ) ) );
       jsonp_string( peers->http, "version", version );
       jsonp_ulong( peers->http, "client_id", peer->contact_info.version.client );
       jsonp_ulong( peers->http, "feature_set", peer->contact_info.version.feature_set );
