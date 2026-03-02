@@ -3,6 +3,7 @@
 #include "../../../disco/genesis/fd_genesis_cluster.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../flamenco/runtime/fd_runtime_stack.h"
+#include "../../../flamenco/runtime/fd_runtime.h"
 #include "fd_ssmsg.h"
 
 void
@@ -64,7 +65,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_bank_t *              bank,
                    fd_runtime_stack_t *     runtime_stack,
                    int                      is_incremental ) {
-
+  FD_LOG_WARNING(( "fd_ssload_recover" ));
   /* Slot */
 
   fd_bank_slot_set( bank, manifest->slot );
@@ -277,4 +278,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_vote_stakes_end_locking_modify( bank );
 
   bank->data->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
+
+  FD_LOG_WARNING(( "fd_ssload_recover: updating leaders" ));
+  fd_runtime_update_leaders( bank, runtime_stack );
 }

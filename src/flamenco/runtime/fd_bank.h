@@ -457,13 +457,13 @@ fd_bank_set_stake_delegations_delta( fd_bank_data_t * bank, fd_stake_delegations
 }
 
 static inline fd_stake_delegations_delta_t *
-fd_bank_stake_delegations_delta_locking_modify2( fd_bank_t * bank ) {
+fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_write( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
   return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_delta_offset );
 }
 
 static inline void
-fd_bank_stake_delegations_delta_end_locking_modify2( fd_bank_t * bank ) {
+fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
 }
 

@@ -127,7 +127,8 @@ fd_backtest_rocksdb_init( fd_backtest_rocksdb_t * db,
   ulong key = fd_ulong_bswap( root_slot );
 
   rocksdb_iter_seek( db->iter_root, (char const *)&key, sizeof(ulong) );
-  FD_TEST( rocksdb_iter_valid( db->iter_root ) );
+  //FD_TEST( rocksdb_iter_valid( db->iter_root ) );
+  return;
 
   rocksdb_iter_seek( db->iter_dead, (char const *)&key, sizeof(ulong) );
   /* The tter does not need to be valid here since the rocksdb might

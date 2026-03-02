@@ -20,16 +20,6 @@
    is backed by a memory pool. Callers are allowed to insert, replace,
    and remove entries from the map.
 
-   fd_stakes_delegations_t can also exist in two modes: with and without
-   tombstones. The mode is determined by the leave_tombstones flag
-   passed to fd_stake_delegations_new. If tombstones are enabled, then
-   calling fd_stake_delegations_remove will not remove the entry from
-   the map, but rather set the is_tombstone flag to true. This is
-   useful for delta updates where we want to keep the entry in the map
-   for future reference. In practice, this struct is used in both modes
-   by the bank. The stake delegations corresponding to each slot are
-   stored in a delta struct which is used to update the main cache.
-
    There are some important invariants wrt fd_stake_delegations_t:
    1. After execution has started, there will be no invalid stake
       accounts in the stake delegations struct.
@@ -60,32 +50,6 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary. */
 
-/* The max number of stake accounts that can be modified in a single
-   slot from transactions can be conservatively bounded based on bounds
-   set by the cost tracker: the max writable account CUs per slot.  This
-   bound is set at 12M CUs and each writable account costs 300 CUs.
-   Very loosely this would give us 12M/300 = 40000 stake accounts per
-   slot.  A tighter bound can be found by considering the fee payer must
-   be writable as well and can not be a stake account.  We can have 64
-   unique writable accounts per transaction.  So the best utilization of
-   transactions are ones where 63/64 stake accounts are writable.  This
-   gives us 40000 * 63/64 = 39375 stake accounts per slot. */
-
-#define MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS (FD_MAX_WRITABLE_ACCOUNT_UNITS/FD_PACK_COST_PER_WRITABLE_ACCT * (FD_RUNTIME_WRITABLE_ACCOUNTS_MAX - 1UL)/FD_RUNTIME_WRITABLE_ACCOUNTS_MAX)
-FD_STATIC_ASSERT( MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS==39375UL, "Incorrect MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS" );
-
-/* The static footprint of fd_stake_delegations_t when it is a delta
-   is determined by the max total number of stake accounts that can get
-   changed in a single slot. Stake accounts can get modified in two ways:
-   1. Through transactions. This bound is calculated using CU bounds set
-      by the cost tracker as described above.
-   2. Through epoch rewards. This is a protocol-level bound is defined
-      in fd_rewards_base.h and is the max number of stake accounts that
-      can reside in a single reward partition. */
-
-#define FD_STAKE_DELEGATIONS_MAX_PER_SLOT (MAX_STAKE_ACCOUNTS_IN_SLOT_FROM_TXNS + STAKE_ACCOUNT_STORES_PER_BLOCK)
-FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_MAX_PER_SLOT==43471UL, "Incorrect FD_STAKE_DELEGATIONS_MAX_PER_SLOT" );
-
 /* The static footprint of the vote states assumes that there are
    FD_RUNTIME_MAX_STAKE_ACCOUNTS. It also assumes worst case alignment
    for each struct. fd_stake_delegations_t is laid out as first the
@@ -109,23 +73,6 @@ FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_MAX_PER_SLOT==43471UL, "Incorrect FD_STAK
   /* count to be equivalent to chain_cnt_est. */                                               \
   FD_STAKE_DELEGATIONS_ALIGN + 128UL /* MAP_ALIGN */ + (FD_STAKE_DELEGATIONS_CHAIN_CNT_EST * sizeof(ulong))
 
-/* We need a footprint for the max amount of stake delegations that
-   can be added in a single slot.  Based on the above calculation we can
-   have roughly ~43k stake delegations in a single slot in the worst
-   case.  This leaves us with roughly 4.3MB per slot. */
-
-#define FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST (32768UL)
-#define FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT                                                       \
-  /* First, layout the struct with alignment */                                                    \
-  sizeof(fd_stake_delegations_t) + alignof(fd_stake_delegations_t) +                               \
-  /* Now layout the pool's data footprint */                                                       \
-  FD_STAKE_DELEGATIONS_ALIGN + sizeof(fd_stake_delegation_t) * FD_STAKE_DELEGATIONS_MAX_PER_SLOT + \
-  /* Now layout the pool's meta footprint */                                                       \
-  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* POOL_ALIGN */ +                                            \
-  /* Now layout the map.  We must make assumptions about the chain */                              \
-  /* count to be equivalent to chain_cnt_est. */                                                   \
-  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* MAP_ALIGN */ + (FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST * sizeof(ulong))
-
 #define FD_STAKE_DELEGATIONS_ALIGN (128UL)
 
 /* The warmup cooldown rate can only be one of two values: 0.25 or 0.09.
@@ -135,6 +82,31 @@ FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_MAX_PER_SLOT==43471UL, "Incorrect FD_STAK
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 (1)
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025      (0.25)
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009      (0.09)
+
+/* TODO: The memory footprint of stake delegations can be further
+   reduced by maintaining a global index of stake account pubkeys:
+   stake_index: pool<pubkey, refcnt>.
+
+   There will also be a global index of vote account pubkeys which is
+   also refcnted:
+   vote_index: pool<pubkey, refcnt>.
+
+   Assuming 200M stake and vote accounts, this would require:
+   200M * (32 bytes for pubkey + 4 bytes for map/pool ptr + 4 bytes for refcnt) = 8GB per index.
+   So with our pubkey and stake index, we would need 16GB.
+
+   Now each fd_stake_delegation_t can just reference the pool index of
+   the stake and vote account.  With this, now each
+   fd_stake_delegation_t can be stored in 40 bytes instead of 128 bytes.
+
+   We need memory to store the frontier set, root set, and the deltas.
+   Assume in total we have 200M accounts * 3 sets = 600M elements total.
+
+   So with 40 bytes per element we would need 24GB of memory to store
+   all of the elements.  This brings our total footprint to 40GB to
+   handle ~200M stake accounts.  If the vote account index is shared
+   with the one from fd_vote_stakes_t, the footprint can be further
+   reduced by 8GB to 32GB. */
 
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
@@ -176,6 +148,17 @@ FD_PROTOTYPES_BEGIN
 static inline double
 fd_stake_delegations_warmup_cooldown_rate_to_double( uchar warmup_cooldown_rate ) {
   return warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009;
+}
+
+static inline uchar
+fd_stake_delegations_warmup_cooldown_rate_enum( double warmup_cooldown_rate ) {
+  /* TODO: Replace with fd_double_eq */
+  if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 ) ) {
+    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025;
+  } else if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 ) ) {
+    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
+  }
+  FD_LOG_CRIT(( "Invalid warmup cooldown rate %f", warmup_cooldown_rate ));
 }
 
 /* fd_stake_delegations_align returns the alignment of the stake
@@ -350,16 +333,9 @@ fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
 int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
 
-static inline uchar
-fd_stake_delegations_warmup_cooldown_rate_enum( double warmup_cooldown_rate ) {
-  /* TODO: Replace with fd_double_eq */
-  if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 ) ) {
-    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025;
-  } else if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 ) ) {
-    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
-  }
-  FD_LOG_CRIT(( "Invalid warmup cooldown rate %f", warmup_cooldown_rate ));
-}
+/* fd_stake_delegations_delta is a shared pool over all live slots for
+   fd_stake_delegation_t objects.  It is used to store stake delegations
+   for all live slots. */
 
 struct fd_stake_delegations_delta {
   ulong magic;
@@ -374,24 +350,24 @@ struct fd_stake_delegations_delta {
 typedef struct fd_stake_delegations_delta fd_stake_delegations_delta_t;
 
 /* fd_stake_delegations_align returns the alignment of the stake
-   delegations struct. */
+   delegations delta struct. */
 
 ulong
 fd_stake_delegations_delta_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
-   delegations struct for a given amount of max stake accounts. */
+   delegations delta struct for a given amount of max stake accounts,
+   expected stake accounts, and max live slots. */
 
 ulong
 fd_stake_delegations_delta_footprint( ulong max_stake_accounts,
                                       ulong expected_stake_accounts,
                                       ulong max_live_slots );
 
-/* fd_stake_delegations_new creates a new stake delegations struct
-   with a given amount of max stake accounts. It formats a memory region
-   which is sized based off of the number of stake accounts. The struct
-   can optionally be configured to leave tombstones in the map. This is
-   useful if fd_stake_delegations is being used as a delta. */
+/* fd_stake_delegations_new creates a new stake delegations delta struct
+   with a given amount of max stake accounts.  It formats a memory
+   region which is sized based off of the number of stake accounts and
+   max live slots the structure will support. */
 
 void *
 fd_stake_delegations_delta_new( void * mem,
@@ -400,27 +376,26 @@ fd_stake_delegations_delta_new( void * mem,
                                 ulong  max_live_slots,
                                 ulong  seed );
 
-/* fd_stake_delegations_join joins a stake delegations struct from a
-   memory region. There can be multiple valid joins for a given memory
-   region but the caller is responsible for accessing memory in a
+/* fd_stake_delegations_join joins a stake delegations delta struct from
+   a memory region.  There can be multiple valid joins for a given
+   memory region but the caller is responsible for accessing memory in a
    thread-safe manner. */
 
 fd_stake_delegations_delta_t *
 fd_stake_delegations_delta_join( void * mem );
 
-/* fd_stake_delegations_new_fork resets the state of a valid join of a
-   stake delegations struct. */
+/* fd_stake_delegations_new_fork allocates a new fork index for the
+   stake delegations delta.  The fork index is returned to the caller. */
 
 ushort
 fd_stake_delegations_delta_new_fork( fd_stake_delegations_delta_t * stake_delegations );
 
-/* fd_stake_delegations_update will either insert a new stake delegation
-   if the pubkey doesn't exist yet, or it will update the stake
-   delegation for the pubkey if already in the map, overriding any
-   previous data. fd_stake_delegations_t must be a valid local join.
+/* fd_stake_delegations_delta_update will either insert a new stake
+   delegation for the fork.  If an entry already exists in the fork, a
+   new one will be inserted without removing the old one.
 
-   NOTE: This function CAN be called while iterating over the map, but
-   ONLY for keys which already exist in the map. */
+   TODO: Add a per fork map so multiple entries aren't needed for the
+   same stake account. */
 
 void
 fd_stake_delegations_delta_update( fd_stake_delegations_delta_t * stake_delegations,
@@ -433,24 +408,35 @@ fd_stake_delegations_delta_update( fd_stake_delegations_delta_t * stake_delegati
                                    ulong                          credits_observed,
                                    double                         warmup_cooldown_rate );
 
-/* fd_stake_delegations_remove removes a stake delegation corresponding
-   to a stake account's pubkey if one exists. Nothing happens if the
-   key doesn't exist in the stake delegations. fd_stake_delegations_t
-   must be a valid local join.
-
-   NOTE: If the leave_tombstones flag is set, then the entry is not
-   removed from the map, but rather set to a tombstone. If the
-   delegation does not exist in the map, then a tombstone is actually
-   inserted into the struct. */
+/* fd_stake_delegations_delta_remove inserts a tombstone stake
+   delegation entry for the given fork.  The function will not actually
+   remove or free any resources corresponding to the stake account.  The
+   reason a tombstone is stored is because each fork corresponds to a
+   set of stake delegation deltas for a given slot. */
 
 void
 fd_stake_delegations_delta_remove( fd_stake_delegations_delta_t * stake_delegations,
                                    ushort                         fork_idx,
                                    fd_pubkey_t const *            stake_account );
 
+/* fd_stake_delegations_delta_evict_fork removes/frees all stake
+   delegation entries for a given fork.  After this function is called
+   it is no longer safe to have any references to the fork index (until
+   it is reused via a call to fd_stake_delegations_delta_new_fork).  The
+   caller is responsible for making sure references to this fork index
+   are not being held. */
+
 void
 fd_stake_delegations_delta_evict_fork( fd_stake_delegations_delta_t * stake_delegations,
                                        ushort                         fork_idx );
+
+/* fd_stake_delegations_delta_iter_{init,done,next,ele} are used to
+   iterate over the stake delegation deltas for a given fork.  It is not
+   safe to interleave any other iteration or modification of the stake
+   delegations delta while iterating.
+
+   Under the hood, the iterator is just a wrapper over the iterator
+   described in fd_dlist.c. */
 
 ulong
 fd_stake_delegations_delta_iter_init( fd_stake_delegations_delta_t * stake_delegations,
