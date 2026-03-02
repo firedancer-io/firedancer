@@ -454,21 +454,11 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
   return fd_stake_delegation_map_iter_done( iter->iter, iter->map, iter->pool );
 }
 
-#define POOL_NAME  stake_delegation_pool
+#define POOL_NAME  stake_delegation_delta_pool
 #define POOL_T     fd_stake_delegation_t
 #define POOL_NEXT  next_
 #define POOL_IDX_T uint
 #include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME               stake_delegation_map
-#define MAP_KEY_T              fd_pubkey_t
-#define MAP_ELE_T              fd_stake_delegation_t
-#define MAP_KEY                stake_account
-#define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
-#define MAP_KEY_HASH(key,seed) (fd_funk_rec_key_hash1( key->uc, seed ))
-#define MAP_NEXT               next_
-#define MAP_IDX_T              uint
-#include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME             fork_dlist
 #define DLIST_ELE_T            fd_stake_delegation_t
@@ -511,15 +501,12 @@ fd_stake_delegations_delta_align( void ) {
 
 ulong
 fd_stake_delegations_delta_footprint( ulong max_stake_accounts,
-                                      ulong expected_stake_accounts,
                                       ulong max_live_slots ) {
-  ulong map_chain_cnt = stake_delegation_map_chain_cnt_est( expected_stake_accounts );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_stake_delegations_delta_align(), sizeof(fd_stake_delegations_delta_t) );
-  l = FD_LAYOUT_APPEND( l, stake_delegation_pool_align(),      stake_delegation_pool_footprint( max_stake_accounts ) );
-  l = FD_LAYOUT_APPEND( l, stake_delegation_map_align(),       stake_delegation_map_footprint( map_chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, pool_align(),                       pool_footprint( max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_stake_delegations_delta_align(),  sizeof(fd_stake_delegations_delta_t) );
+  l = FD_LAYOUT_APPEND( l, stake_delegation_delta_pool_align(), stake_delegation_delta_pool_footprint( max_stake_accounts ) );
+  l = FD_LAYOUT_APPEND( l, pool_align(),                        pool_footprint( max_live_slots ) );
   for( ushort i=0; i<max_live_slots; i++ ) {
     l = FD_LAYOUT_APPEND( l, fork_dlist_align(), fork_dlist_footprint() );
   }
@@ -530,16 +517,17 @@ fd_stake_delegations_delta_footprint( ulong max_stake_accounts,
 void *
 fd_stake_delegations_delta_new( void * mem,
                                 ulong  max_stake_accounts,
-                                ulong  expected_stake_accounts,
-                                ulong  max_live_slots,
-                                ulong  seed ) {
-  ulong map_chain_cnt = stake_delegation_map_chain_cnt_est( expected_stake_accounts );
+                                ulong  max_live_slots ) {
+
+  if( FD_UNLIKELY( max_live_slots>FD_STAKE_DELEGATIONS_DELTA_FORK_MAX )) {
+    FD_LOG_WARNING(( "max_live_slots is too large" ));
+    return NULL;
+  }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_stake_delegations_delta_t * stake_delegations_delta = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(), sizeof(fd_stake_delegations_delta_t) );
-  void *                         index_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, stake_delegation_pool_align(),      stake_delegation_pool_footprint( max_stake_accounts ) );
-  void *                         index_map_mem           = FD_SCRATCH_ALLOC_APPEND( l, stake_delegation_map_align(),       stake_delegation_map_footprint( map_chain_cnt ) );
-  void *                         pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),                       pool_footprint( max_live_slots ) );
+  fd_stake_delegations_delta_t * stake_delegations_delta = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(),  sizeof(fd_stake_delegations_delta_t) );
+  void *                         index_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, stake_delegation_delta_pool_align(), stake_delegation_delta_pool_footprint( max_stake_accounts ) );
+  void *                         pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),                        pool_footprint( max_live_slots ) );
   for( ushort i=0; i<max_live_slots; i++ ) {
     void * fork_dlist_mem = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(), fork_dlist_footprint() );
     fork_dlist_t * fork_dlist = fork_dlist_join( fork_dlist_new( fork_dlist_mem ) );
@@ -550,19 +538,12 @@ fd_stake_delegations_delta_new( void * mem,
     stake_delegations_delta->dlist_offsets_[ i ] = (ulong)fork_dlist - (ulong)mem;
   }
 
-  fd_stake_delegation_t * stake_delegation_pool = stake_delegation_pool_join( stake_delegation_pool_new( index_pool_mem, max_stake_accounts ) );
+  fd_stake_delegation_t * stake_delegation_pool = stake_delegation_delta_pool_join( stake_delegation_delta_pool_new( index_pool_mem, max_stake_accounts ) );
   if( FD_UNLIKELY( !stake_delegation_pool ) ) {
     FD_LOG_WARNING(( "Failed to create stake delegation pool" ));
     return NULL;
   }
   stake_delegations_delta->pool_offset_ = (ulong)stake_delegation_pool - (ulong)mem;
-
-  stake_delegation_map_t * stake_delegation_map = stake_delegation_map_join( stake_delegation_map_new( index_map_mem, map_chain_cnt, seed ) );
-  if( FD_UNLIKELY( !stake_delegation_map ) ) {
-    FD_LOG_WARNING(( "Failed to create stake delegation map" ));
-    return NULL;
-  }
-  stake_delegations_delta->map_offset_ = (ulong)stake_delegation_map - (ulong)mem;
 
   pool_t * fork_pool = pool_join( pool_new( pool_mem, max_live_slots ) );
   if( FD_UNLIKELY( !fork_pool ) ) {
@@ -606,13 +587,13 @@ fd_stake_delegations_delta_update( fd_stake_delegations_delta_t * stake_delegati
                                    ulong                          credits_observed,
                                    double                         warmup_cooldown_rate ) {
   fd_stake_delegation_t * stake_delegation_pool = get_stake_delegation_pool( stake_delegations );
-  if( FD_UNLIKELY( !stake_delegation_pool_free( stake_delegation_pool ) ) ) {
+  if( FD_UNLIKELY( !stake_delegation_delta_pool_free( stake_delegation_pool ) ) ) {
     FD_LOG_CRIT(( "no free stake delegations in pool" ));
   }
 
   fork_dlist_t * fork_dlist = get_fork_dlist( stake_delegations, fork_idx );
 
-  fd_stake_delegation_t * stake_delegation = stake_delegation_pool_ele_acquire( stake_delegation_pool );
+  fd_stake_delegation_t * stake_delegation = stake_delegation_delta_pool_ele_acquire( stake_delegation_pool );
   if( FD_UNLIKELY( !stake_delegation ) ) {
     FD_LOG_CRIT(( "Failed to acquire stake delegation" ));
   }
@@ -634,11 +615,11 @@ fd_stake_delegations_delta_remove( fd_stake_delegations_delta_t * stake_delegati
                                    ushort                         fork_idx,
                                    fd_pubkey_t const *            stake_account ) {
   fd_stake_delegation_t * stake_delegation_pool = get_stake_delegation_pool( stake_delegations );
-  if( FD_UNLIKELY( !stake_delegation_pool_free( stake_delegation_pool ) ) ) {
+  if( FD_UNLIKELY( !stake_delegation_delta_pool_free( stake_delegation_pool ) ) ) {
     FD_LOG_CRIT(( "no free stake delegations in pool" ));
   }
 
-  fd_stake_delegation_t * stake_delegation = stake_delegation_pool_ele_acquire( stake_delegation_pool );
+  fd_stake_delegation_t * stake_delegation = stake_delegation_delta_pool_ele_acquire( stake_delegation_pool );
   if( FD_UNLIKELY( !stake_delegation ) ) {
     FD_LOG_CRIT(( "Failed to acquire stake delegation" ));
   }
@@ -656,9 +637,6 @@ fd_stake_delegations_delta_evict_fork( fd_stake_delegations_delta_t * stake_dele
   if( fork_idx==USHORT_MAX ) return;
 
   fd_stake_delegation_t * stake_delegation_pool = get_stake_delegation_pool( stake_delegations );
-  if( FD_UNLIKELY( !stake_delegation_pool_free( stake_delegation_pool ) ) ) {
-    FD_LOG_CRIT(( "no free stake delegations in pool" ));
-  }
 
   fork_dlist_t * fork_dlist = get_fork_dlist( stake_delegations, fork_idx );
 
@@ -667,7 +645,7 @@ fd_stake_delegations_delta_evict_fork( fd_stake_delegations_delta_t * stake_dele
        iter = fork_dlist_iter_fwd_next( iter, fork_dlist, stake_delegation_pool ) ) {
     fd_stake_delegation_t * stake_delegation = fork_dlist_iter_ele( iter, fork_dlist, stake_delegation_pool );
 
-    stake_delegation_pool_ele_release( stake_delegation_pool, stake_delegation );
+    stake_delegation_delta_pool_ele_release( stake_delegation_pool, stake_delegation );
   }
   fork_dlist_remove_all( fork_dlist, stake_delegation_pool );
 

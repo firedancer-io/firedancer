@@ -169,7 +169,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( max_stake_accounts, max_stake_accounts, max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, max_fork_width ) );
-  l = FD_LAYOUT_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( max_stake_accounts, max_stake_accounts, max_total_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( max_stake_accounts, max_total_banks ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
 
@@ -204,7 +204,7 @@ fd_banks_new( void * shmem,
   void *            cost_tracker_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   void *            stake_rewards_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( max_stake_accounts, max_stake_accounts, max_fork_width ) );
   void *            vote_stakes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, max_fork_width ) );
-  void *            stake_delegations_delta_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( max_stake_accounts, max_stake_accounts, max_total_banks ) );
+  void *            stake_delegations_delta_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( max_stake_accounts, max_total_banks ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width, max_stake_accounts, max_vote_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
@@ -283,7 +283,7 @@ fd_banks_new( void * shmem,
   }
   fd_banks_set_vote_stakes( banks_data, vote_stakes );
 
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_stake_delegations_delta_join( fd_stake_delegations_delta_new( stake_delegations_delta_mem, max_stake_accounts, max_stake_accounts, max_total_banks, seed ) );
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_stake_delegations_delta_join( fd_stake_delegations_delta_new( stake_delegations_delta_mem, max_stake_accounts, max_total_banks ) );
   if( FD_UNLIKELY( !stake_delegations_delta ) ) {
     FD_LOG_WARNING(( "Failed to create stake delegations delta" ));
     return NULL;
@@ -366,8 +366,8 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   void * epoch_leaders_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( banks_data->max_fork_width ) );
   void * cost_tracker_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
   void * stake_rewards_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_stake_accounts, banks_data->max_fork_width ) );
-  void * vote_stakes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( banks_data->max_vote_accounts, banks_data->max_vote_accounts, banks_data->max_fork_width ) );
-  void * stake_delegations_delta_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( banks_data->max_stake_accounts, banks_data->max_stake_accounts, banks_data->max_fork_width ) );
+  void * vote_stakes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( banks_data->max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS , banks_data->max_fork_width ) );
+  void * stake_delegations_delta_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks ) );
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
 
@@ -621,15 +621,15 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t *                   banks,
   /* First, gather all of the pool indicies that we want to apply deltas
      for in reverse order starting from the new root. We want to exclude
      the old root since its delta has been applied previously. */
-  ushort pool_indicies[ banks->data->max_total_banks ];
-  ulong  pool_indicies_len = 0UL;
+  ushort pool_indices[ banks->data->max_total_banks ];
+  ulong  pool_indices_len = 0UL;
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
 
   fd_bank_data_t * curr_bank = fd_banks_pool_ele( bank_pool, bank->data->idx );
   while( !!curr_bank ) {
     if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
-      pool_indicies[pool_indicies_len++] = curr_bank->stake_delegations_fork_id;
+      pool_indices[pool_indices_len++] = curr_bank->stake_delegations_fork_id;
     }
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
   }
@@ -637,8 +637,8 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t *                   banks,
   /* We have populated all of the indicies that we need to apply deltas
      from in reverse order. */
 
-  for( ulong i=pool_indicies_len; i>0; i-- ) {
-    ushort idx = pool_indicies[i-1UL];
+  for( ulong i=pool_indices_len; i>0; i-- ) {
+    ushort idx = pool_indices[i-1UL];
     fd_banks_stake_delegations_apply_delta( stake_delegations_base,
                                             stake_delegations_delta,
                                             idx );

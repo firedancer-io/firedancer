@@ -229,14 +229,9 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
                              double                   warmup_cooldown_rate );
 
 /* fd_stake_delegations_remove removes a stake delegation corresponding
-   to a stake account's pubkey if one exists. Nothing happens if the
-   key doesn't exist in the stake delegations. fd_stake_delegations_t
-   must be a valid local join.
-
-   NOTE: If the leave_tombstones flag is set, then the entry is not
-   removed from the map, but rather set to a tombstone. If the
-   delegation does not exist in the map, then a tombstone is actually
-   inserted into the struct. */
+   to a stake account's pubkey if one exists.  Nothing happens if the
+   key doesn't exist in the stake delegations.  fd_stake_delegations_t
+   must be a valid local join. */
 
 void
 fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
@@ -342,7 +337,6 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
 struct fd_stake_delegations_delta {
   ulong magic;
   ulong pool_offset_;
-  ulong map_offset_;
   ulong fork_pool_offset_;
 
   ulong dlist_offsets_[FD_STAKE_DELEGATIONS_DELTA_FORK_MAX];
@@ -363,7 +357,6 @@ fd_stake_delegations_delta_align( void );
 
 ulong
 fd_stake_delegations_delta_footprint( ulong max_stake_accounts,
-                                      ulong expected_stake_accounts,
                                       ulong max_live_slots );
 
 /* fd_stake_delegations_new creates a new stake delegations delta struct
@@ -374,9 +367,7 @@ fd_stake_delegations_delta_footprint( ulong max_stake_accounts,
 void *
 fd_stake_delegations_delta_new( void * mem,
                                 ulong  max_stake_accounts,
-                                ulong  expected_stake_accounts,
-                                ulong  max_live_slots,
-                                ulong  seed );
+                                ulong  max_live_slots );
 
 /* fd_stake_delegations_join joins a stake delegations delta struct from
    a memory region.  There can be multiple valid joins for a given
