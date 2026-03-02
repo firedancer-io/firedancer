@@ -5,13 +5,13 @@
 
 #include "../stakes/fd_stake_delegations.h"
 
-struct fd_prev_epoch_inflation_rewards {
-  ulong  validator_rewards;
-  double prev_epoch_duration_in_years;
+// https://github.com/anza-xyz/agave/blob/3eb0a7b7bcf5a5f2346b9a39b92c6896fe8fe668/runtime/src/bank.rs#L972
+struct fd_epoch_inflation_rewards {
+  ulong  validator_rewards_lamports;
   double validator_rate;
   double foundation_rate;
 };
-typedef struct fd_prev_epoch_inflation_rewards fd_prev_epoch_inflation_rewards_t;
+typedef struct fd_epoch_inflation_rewards fd_epoch_inflation_rewards_t;
 
 struct fd_partitioned_rewards_calculation {
   uint128 validator_points;
@@ -19,7 +19,6 @@ struct fd_partitioned_rewards_calculation {
   ulong   validator_rewards;
   double  validator_rate;
   double  foundation_rate;
-  double  prev_epoch_duration_in_years;
   ulong   capitalization;
 };
 typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
