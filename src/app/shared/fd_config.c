@@ -348,15 +348,12 @@ fd_config_fill( fd_config_t * config,
     replace( config->paths.genesis, "{user}", config->user );
     replace( config->paths.genesis, "{name}", config->name );
   } else if( FD_LIKELY( config->is_firedancer ) ) {
-    ulong genesis_cluster = fd_genesis_cluster_identify( config->consensus.expected_genesis_hash );
-    char const * prefix;
-    switch( genesis_cluster ) {
-      case FD_CLUSTER_MAINNET_BETA: prefix = "mainnet";  break;
-      case FD_CLUSTER_TESTNET:      prefix = "testnet";  break;
-      case FD_CLUSTER_DEVNET:       prefix = "devnet";   break;
-      default:                      prefix = "local";    break;
+    char const * genesis_hash = config->consensus.expected_genesis_hash;
+    if( FD_LIKELY( genesis_hash && genesis_hash[0] != '\0' ) ) {
+      FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis-%s.bin", config->paths.base, genesis_hash ) );
+    } else {
+      FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis-local.bin", config->paths.base ) );
     }
-    FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/%s-genesis.bin", config->paths.base, prefix ) );
   } else {
     FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis.bin", config->paths.base ) );
   }

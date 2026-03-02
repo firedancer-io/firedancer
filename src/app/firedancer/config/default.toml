@@ -72,7 +72,7 @@ telemetry = true
     # /home/fire/.firedancer/fd1
     #  +-- identity.json
     #  +-- vote-account.json
-    #  +-- mainnet-genesis.bin (or testnet-, devnet-, local-)
+    #  +-- genesis-[hash].bin
     #  +-- snapshots
     #      +-- snapshot-368327930-E5ZsnTCNX7WToyrP4ZQYJj7pPii6Ssa7UnNcV7HZ3iAf.tar.zst
     #      +-- incremental-snapshot-368327930-368400391-8ybYYVq7Ecui9TLj13SvzXjTX7JiGP65f4KrtNRCPajW.tar.zst
