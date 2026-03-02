@@ -48,6 +48,26 @@ cbmc_main(void) {
   uchar * data = malloc( size );
   __CPROVER_assume( data != NULL );
 
+  ulong payload_mask = fd_keyguard_payload_match( data, size, sign_type );
+  int   match_cnt    = fd_ulong_popcnt( payload_mask );
+  int is_ambiguous = match_cnt != 1;
+
+ /* We know that gossip, gossip prune, and repair messages are
+    ambiguous, so allow mismatches here. */
+  int is_gossip_repair =
+    0==( payload_mask &
+        (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
+            FD_KEYGUARD_PAYLOAD_REPAIR |
+            FD_KEYGUARD_PAYLOAD_PRUNE  ) ) );
+  /* Also allow ambiguities between shred and gossip ping messages
+     until shred sign type is fixed... */
+  int is_shred_ping =
+    0==( payload_mask &
+        (~( FD_KEYGUARD_PAYLOAD_SHRED |
+            FD_KEYGUARD_PAYLOAD_PING  ) ) );
+
+  __CPROVER_assert( payload_mask==0UL || !(is_ambiguous && !is_gossip_repair && !is_shred_ping), "ambiguity" );
+
   fd_keyguard_authority_t authority;
   int res = fd_keyguard_payload_authorize( &authority, data, size, role, sign_type );
   __CPROVER_assert( res==0 || res==1, "authorize proof" );

@@ -138,21 +138,54 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
   /* Check if signatures exceed txn size limit */
   ulong sig_sz;
   if( __builtin_umull_overflow( sig_cnt, 64UL, &sig_sz ) ) return 0;
-  if( sig_sz > (FD_TXN_MTU-txn_msg_min_sz) ) return 0;
+  if( sig_sz > (FD_TXN_MTU-1UL-sz) ) return 0;
 
-  /* Skip other fields */
+  /* Skip other fields, we know they are in bounds because of the
+     msg_min_sz check above. */
   //uint ro_signed_cnt   = *cursor;
   cursor++;
   //uint ro_unsigned_cnt = *cursor;
   cursor++;
 
-  if( cursor + 3 > end ) return 0;
-  ulong addr_cnt_sz = fd_cu16_dec_sz( cursor, 3UL );
+  /* acct_addr_cnt is next.  */
+  ulong addr_cnt_sz   = fd_cu16_dec_sz( cursor, 3UL );
   if( !addr_cnt_sz ) return 0;
-  ulong addr_cnt    = fd_cu16_dec_fixed( cursor, addr_cnt_sz );
+  ulong acct_addr_cnt = fd_cu16_dec_fixed( cursor, addr_cnt_sz );
   cursor += addr_cnt_sz;
+  if( sig_cnt>acct_addr_cnt ) return 0; /* implies acct_addr_cnt >= 1 */
 
-  if( sig_cnt>addr_cnt ) return 0;
+  ulong acct_addr_sz = 0UL;
+  if( __builtin_umull_overflow( acct_addr_cnt, 32UL, &acct_addr_sz ) ) return 0;
+  /* Make sure we have enough space for that many addresses, the recent
+     blockhash (32 bytes), and the instruction count (>=1 byte). */
+  if( end-cursor < acct_addr_sz+33UL ) return 0;
+
+  /* To prevent ambiguity with PruneData requests, we need to make sure
+     the 8 bytes located at offset 32 into data are not 1UL (little
+     endian).  4-7 bytes of that overlap with the signer pubkey, and we
+     refuse to boot if any of the pubkeys we would sign with end in 0U
+     or 1U (little endian uints).
+
+               ------------------------------------------
+     PruneData |  identity  32B      | prune cnt 8B | ...
+               ------------------------------------------
+               -----------------------------------
+     TXN       | hdrs 4-7B |  fee payer  32B | ...
+               -----------------------------------
+
+     Zooming in to the prune cnt-fee payer overlap:
+
+                   31    32    33    34    35    36    37    38    39
+     PD   ...identity |  1     0     0     0     0     0     0     0  |
+     TXN cases
+     hdrs==4B     fee payer                   |   ...
+     hdrs==5B           fee payer                   |   ...
+     hdrs==6B                 fee payer                   |   ...
+     hdrs==7B                       fee payer                   |   ...
+     */
+  /* Enforce a restriction that's enforced on boot */
+  uint end_of_fee_payer = FD_LOAD( uint, cursor+32UL-4UL );
+  if( end_of_fee_payer==0U | end_of_fee_payer==1U ) return 0;
 
   return 1;
 }
@@ -186,6 +219,7 @@ fd_keyguard_payload_matches_prune_data( uchar const * data,
   if( sz < static_sz ) return 0;
 
   ulong prune_cnt = FD_LOAD( ulong, data+32UL );
+  if( prune_cnt!= 1UL ) return 0;
   ulong expected_sz;
   if( __builtin_umull_overflow( prune_cnt,   32UL,      &expected_sz ) ) return 0;
   if( __builtin_uaddl_overflow( expected_sz, static_sz, &expected_sz ) ) return 0;
