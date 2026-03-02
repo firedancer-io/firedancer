@@ -98,7 +98,7 @@ local tpu_simple_vote = ProtoField.uint32("fd_tpu.flags.simple_vote", "Simple Vo
 local tpu_bundle = ProtoField.uint32("fd_tpu.flags.bundle", "Bundle", base.DEC, yesno_types, 0x2)
 local tpu_initializer = ProtoField.uint32("fd_tpu.flags.initializer_bundle", "Initializer Bundle", base.DEC, yesno_types, 0x4)
 local tpu_sanitized = ProtoField.uint32("fd_tpu.flags.sanitized", "Sanitize Success", base.DEC, yesno_types, 0x8)
-local tpu_executed = ProtoField.uint32("fd_tpu.flags.excuted", "Execute Success", base.DEC, yesno_types, 0x10)
+local tpu_executed = ProtoField.uint32("fd_tpu.flags.executed", "Execute Success", base.DEC, yesno_types, 0x10)
 local tpu_nonce = ProtoField.uint32("fd_tpu.flags.is_nonce", "Durable Nonce", base.DEC, yesno_types, 0x20)
 local tpu_status   = ProtoField.uint32("fd_tpu.flags.status", "Status", base.DEC, status_codes, 0xFF000000)
 
