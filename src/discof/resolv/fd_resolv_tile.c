@@ -406,7 +406,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
       case REPLAY_SIG_SLOT_COMPLETED: {
         fd_replay_slot_completed_t const * msg = &ctx->_completed_slot_msg;
 
-        /* Equivocating slot with same blockhash, ignore.  See fd_txncache.h on how this is possible. */
+        /* Equivocating slot with same blockhash, ignore.  See fd_txncache.h on how this is possible.
+           TODO make sure matches how agave handles it */
         if( FD_UNLIKELY( map_query( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc, NULL ) ) ) {
           FD_LOG_WARNING(( "slot with same blockhash, ignoring: %lu", msg->slot ));
           return;

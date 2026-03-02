@@ -148,8 +148,14 @@ fd_tower_blocks_replayed( fd_tower_blocks_t * forks,
   fork->replayed          = 1;
   fork->replayed_block_id = *block_id;
 
+  fd_tower_leaf_t * parent;
+  if( ( parent = fd_tower_leaves_map_ele_remove( forks->tower_leaves_map, &fork->parent_slot, NULL, forks->tower_leaves_pool ) ) ) {
+    fd_tower_leaves_dlist_ele_remove( forks->tower_leaves_dlist, parent, forks->tower_leaves_pool );
+    fd_tower_leaves_pool_ele_release( forks->tower_leaves_pool,  parent );
+  }
+
   fd_tower_leaf_t * existing_leaf;
-  if( FD_UNLIKELY( existing_leaf = fd_tower_leaves_map_ele_query( forks->tower_leaves_map, &fork->slot, NULL, forks->tower_leaves_pool ) ) ) {
+  if( FD_UNLIKELY( ( existing_leaf = fd_tower_leaves_map_ele_query( forks->tower_leaves_map, &fork->slot, NULL, forks->tower_leaves_pool ) ) ) ) {
     /* slot already is a leaf - equivocation detected. If the second
        version of the slot has the same parent as the first version,then
        everything's fine. We are in a correct state mostly.  In the case
@@ -166,11 +172,6 @@ fd_tower_blocks_replayed( fd_tower_blocks_t * forks,
     return fork;
   }
 
-  fd_tower_leaf_t * parent;
-  if( ( parent = fd_tower_leaves_map_ele_remove( forks->tower_leaves_map, &fork->parent_slot, NULL, forks->tower_leaves_pool ) ) ) {
-    fd_tower_leaves_dlist_ele_remove( forks->tower_leaves_dlist, parent, forks->tower_leaves_pool );
-    fd_tower_leaves_pool_ele_release( forks->tower_leaves_pool,  parent );
-  }
   fd_tower_leaf_t * leaf = fd_tower_leaves_pool_ele_acquire( forks->tower_leaves_pool );
   leaf->slot = fork->slot;
   fd_tower_leaves_map_ele_insert( forks->tower_leaves_map, leaf, forks->tower_leaves_pool );
