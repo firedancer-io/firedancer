@@ -16,9 +16,14 @@
 } while(0)
 
 static ulong
-de_short_u16( ushort * dst, uchar const * src ) {
+de_short_u16( ushort *      dst,
+              uchar const * src,
+              ulong         src_sz ) {
+  if( FD_UNLIKELY( src_sz<1UL ) ) return 0;
   if     ( FD_LIKELY( !(0x80U & src[0]) ) ) { *dst = (ushort)src[0];                                                                           return 1; }
+  if( FD_UNLIKELY( src_sz<2UL ) ) return 0;
   else if( FD_LIKELY( !(0x80U & src[1]) ) ) { *dst = (ushort)((ulong)(src[0]&0x7FUL) + (((ulong)src[1])<<7));                                  return 2; }
+  if( FD_UNLIKELY( src_sz<3UL ) ) return 0;
   else                                      { *dst = (ushort)((ulong)(src[0]&0x7FUL) + (((ulong)(src[1]&0x7FUL))<<7) + (((ulong)src[2])<<14)); return 3; }
 }
 
@@ -81,12 +86,15 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           ulong                           buf_sz ) {
   ulong off = 0;
   DE( ulong, root );
-  off += de_short_u16( &serde->lockouts_cnt, buf+off );
+  ulong n;
+  n = de_short_u16( &serde->lockouts_cnt, buf+off, buf_sz-off );
+  if( FD_UNLIKELY( !n ) ) return -1;
+  off += n;
   if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
   for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
-    ulong varint_sz = de_var_int( &serde->lockouts[i].offset, buf+off, buf_sz-off );
-    if( FD_UNLIKELY( !varint_sz ) ) return -1;
-    off += varint_sz;
+    n = de_var_int( &serde->lockouts[i].offset, buf+off, buf_sz-off );
+    if( FD_UNLIKELY( !n ) ) return -1;
+    off += n;
     DE( uchar, lockouts[i].confirmation_count );
   }
   DE( fd_hash_t, hash             );

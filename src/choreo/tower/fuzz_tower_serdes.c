@@ -13,11 +13,10 @@
 int
 LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
-  /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
   atexit( fd_halt );
-  fd_log_level_core_set(3); /* crash on warning log */
+  fd_log_level_core_set(3);
   return 0;
 }
 
@@ -36,7 +35,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   FD_FUZZ_MUST_BE_COVERED;
 
-  uchar buf[1024];
+  uchar buf[4096];
   ulong out_sz = 0;
 
   int ser_err = fd_compact_tower_sync_ser( serde, buf, sizeof(buf), &out_sz );
