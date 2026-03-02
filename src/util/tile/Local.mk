@@ -6,7 +6,7 @@ $(call run-unit-test,test_cpuset)
 ifdef FD_HAS_CXX
 $(call add-objs,fd_tile_threads_cxx,fd_util)
 else
-$(call add-objs,fd_tile_threads,fd_util)
+$(call add-objs,fd_tile_threads_c,fd_util)
 endif
 else
 $(call add-objs,fd_tile_nothreads,fd_util)
