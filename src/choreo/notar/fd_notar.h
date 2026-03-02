@@ -15,12 +15,31 @@
    further ahead slots can be cluster confirmed before they are
    replayed.
 
-   On the similarities and differences between fd_ghost vs fd_notar:
+   On the similarities and differences between fd_ghost / fd_tower vs.
+   fd_notar:
 
-   The reason both fd_ghost and fd_notar exist even though they do
-   seemingly similar things (tracking vote stake on blocks) is because
-   Solana implements the rules quite differently.
+   The reason both fd_ghost / fd_tower and fd_notar exist even though
+   they do seemingly similar things (tracking vote stake on blocks) is
+   because Solana implements the rules quite differently.
 
+   At a high-level, fd_ghost / fd_tower is based on vote accounts vs.
+   fd_notar which is based on vote _transactions_.  Everything in
+   fd_ghost / fd_tower is dependent on the vote account's state after
+   the vote txns have been replayed.  So we only have stake information
+   in fd_ghost / fd_tower for a block, if that block has been replayed.
+
+   On the other hand, fd_notar processes vote transactions as they come
+   in from gossip and TPU, so it does not have this same requirement
+   that the block has been replayed.  This is important, because block
+   transmission is unreliable, and notar provides a fallback mechanism
+   for detecting votes for blocks we don't have.  fd_notar still ingests
+   replay votes as well, so it is guaranteed to be a superset of the
+   votes tracked by fd_ghost / fd_tower, though note this assumption is
+   contingent on feature "Deprecate legacy vote instructions" because
+   notar only counts TowerSync ixs and ignores any other deprecated vote
+   instructions.
+
+   There are also differences in how votes are counted between the two.
    In fd_ghost, we use the GHOST rule to recursively sum the stake of
    the subtree (a slot and all its descendants).  The LMD rule counts a
    validator's stake to at most one fork.  When the validator switches

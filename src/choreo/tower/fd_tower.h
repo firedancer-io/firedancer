@@ -3,23 +3,23 @@
 
 /* fd_tower presents an API for Solana's TowerBFT algorithm.
 
-   What is TowerBFT? TowerBFT is an algorithm for converging a
+   What is TowerBFT?  TowerBFT is an algorithm for converging a
    supermajority of stake in the validator cluster on the same fork.
 
         /-- 3-- 4 (A)
    1-- 2
         \-- 5     (B)
 
-   Above is a diagram of a fork. The leader for slot 5 decided to build
-   off slot 2, rather than slot 4. This can happen for various reasons,
-   for example network propagation delay. We now have two possible forks
-   labeled A and B. The consensus algorithm has to pick one of them.
+   Above is a diagram of a fork.  The leader for slot 5 decided to build
+   off slot 2, rather than slot 4.  This can happen for various reasons,
+   for example network propagation delay.  We now have two possible forks
+   labeled A and B.  The consensus algorithm has to pick one of them.
 
-   So, how does the consensus algorithm pick? As detailed in fd_ghost.h,
-   we pick the fork based on the most stake from votes, called the
-   "heaviest". Validators vote for blocks during replay, and
+   So, how does the consensus algorithm pick?  As detailed in
+   fd_ghost.h, we pick the fork based on the most stake from votes,
+   called the "heaviest".  Validators vote for blocks during replay, and
    simultaneously use other validator’s votes to determine which block
-   to vote for. This encourages convergence, because as one fork gathers
+   to vote for.  This encourages convergence, because as one fork gathers
    more votes, more and more votes pile-on, solidifying its position as
    the heaviest fork.
 
@@ -29,28 +29,29 @@
 
    However, network propagation delay of votes can lead us to think one
    fork is heaviest, before observing new votes that indicate another
-   fork is heavier. So our consensus algorithm also needs to support
+   fork is heavier.  So our consensus algorithm also needs to support
    switching.
 
          /-- 3-- 4 (10%)
    1-- 2
          \-- 5     (15%)
 
-   At the same time we don’t want excessive switching. The more often
+   At the same time we don’t want excessive switching.  The more often
    validators switch, the more difficult it will be to achieve that
    pile-on effect I just described.
 
    Note that to switch forks, you need to rollback a given slot and its
-   descendants on that fork. In the example above, to switch to 1, 2, 5,
-   we need to rollback 3 and 4. The consensus algorithm makes it more
-   costly the further you want to rollback a fork. Here, I’ve added a
+   descendants on that fork.  In the example above, to switch to 1, 2, 5,
+   we need to rollback 3 and 4.  The consensus algorithm makes it more
+   costly the further you want to rollback a fork.  Here, I’ve added a
    column lockout, which doubles for every additional slot you want to
    rollback.
 
    Eventually you have traversed far enough down a fork, that the
    lockout is so great it is infeasible to imagine it ever rolling back
-   in practice. So you can make that fork permanent or “commit” it. Once
-   all validators do this, the blockchain now just has a single fork.
+   in practice.  So you can make that fork permanent or “commit” it.
+   Once all validators do this, the blockchain now just has a single
+   fork.
 
    Armed with some intuition, let’s now begin defining some terminology.
    Here is a diagram of a validator's "vote tower":
@@ -62,26 +63,26 @@
    2    | 3
    1    | 4
 
-   It is a stack structure in which each element is a vote. The vote
+   It is a stack structure in which each element is a vote.  The vote
    slot column indicates which slots the validator has voted for,
    ordered from most to least recent.
 
    The confirmation count column indicates how many consecutive votes on
-   the same fork have been pushed on top of that vote. You are
+   the same fork have been pushed on top of that vote.  You are
    confirming your own votes for a fork every time you vote on top of
    the same fork.
 
    Two related concepts to confirmation count are lockout and expiration
-   slot. Lockout equals 2 to the power of confirmation count. Every time
-   we “confirm” a vote by voting on top of it, we double the lockout.
-   The expiration slot is the sum of vote slot and lockout, so it also
-   increases when lockouts double. It represents which slot the vote
-   will expire. When a vote expires, it is popped from the top of the
-   tower. An important Tower rule is that a validator cannot vote for a
-   different fork from a given vote slot, until reaching the expiration
-   slot for that vote slot. To summarize, the further a validator wants
-   to rollback their fork (or vote slots) the longer the validator needs
-   to wait without voting (in slot time).
+   slot.  Lockout equals 2 to the power of confirmation count.  Every
+   time we “confirm” a vote by voting on top of it, we double the
+   lockout. The expiration slot is the sum of vote slot and lockout, so
+   it also increases when lockouts double.  It represents which slot the
+   vote will expire.  When a vote expires, it is popped from the top of
+   the tower.  An important Tower rule is that a validator cannot vote
+   for a different fork from a given vote slot, until reaching the
+   expiration slot for that vote slot.  To summarize, the further a
+   validator wants to rollback their fork (or vote slots) the longer the
+   validator needs to wait without voting (in slot time).
 
    Here is the same tower, fully-expanded to include all the fields:
 
@@ -93,15 +94,15 @@
    1    | 4    | 16      | 17
 
    Based on this tower, the validator is locked out from voting for any
-   slot <= 6 that is on a different fork than slot 4. I’d like to
+   slot <= 6 that is on a different fork than slot 4.  I’d like to
    emphasize that the expiration is with respect to the vote slot, and
-   is _not_ related to the Proof-of-History slot or what the
-   quote-unquote current slot is. So even if the current slot is now 7,
-   the validator can’t go back and vote for slot 5, if slot 5 were on a
-   different fork than 4. The earliest valid vote slot this validator
-   could submit for a different fork from 4 would be slot 7 or later.
+   is _not_ related to the Proof-of-History slot or what the "current
+   slot" is.  So even if the current slot is now 7, the validator can’t
+   go back and vote for slot 5, if slot 5 were on a different fork than
+   4.  The earliest valid vote slot this validator could submit for a
+   different fork from 4 would be slot 7 or later.
 
-   Next let’s look at how the tower makes state transitions. Here we
+   Next let’s look at how the tower makes state transitions.  Here we
    have the previous example tower, with a before-and-after view with
    respect to a vote for slot 9:
 
@@ -119,10 +120,10 @@
             1    | 4
 
    As you can see, we added a vote for slot 9 to the top of the tower.
-   But we also removed the votes for slot 4 and slot 3. What happened?
-   This is an example of vote expiry in action. When we voted for slot
+   But we also removed the votes for slot 4 and slot 3.  What happened?
+   This is an example of vote expiry in action.  When we voted for slot
    9, this exceeded the expirations of vote slots 4 and 3, which were 6
-   and 7 respectively. This action of voting triggered the popping of
+   and 7 respectively.  This action of voting triggered the popping of
    the expired votes from the top of the tower.
 
    Next, we add a vote for slot 10:
@@ -141,16 +142,16 @@
              1    | 4
 
    The next vote for slot 10 doesn’t involve expirations, so we just add
-   it to the top of the tower. Also, here is an important property of
-   lockouts. Note that the lockout for vote slot 9 doubled (ie. the
+   it to the top of the tower.  Also, here is an important property of
+   lockouts.  Note that the lockout for vote slot 9 doubled (ie. the
    confirmation count increased by 1) but the lockouts of vote slots 2
    and 1 remained unchanged.
 
    The reason for this is confirmation counts only increase when they
-   are consecutive in the vote tower. Because 4 and 3 were expired
+   are consecutive in the vote tower.  Because 4 and 3 were expired
    previously by the vote for 9, that consecutive property was broken.
    In this case, the vote for slot 10 is only consecutive with slot 9,
-   but not 2 and 1. Specifically, there is a gap in the before-tower at
+   but not 2 and 1.  Specifically, there is a gap in the before-tower at
    confirmation count 2.
 
    In the after-tower, all the votes are again consecutive (confirmation
@@ -159,14 +160,14 @@
    expirations.
 
    One other thing I’d like to point out about this vote for slot 10.
-   Even though 10 >= the expiration slot of vote slot 2, which is
-   10, voting for 11 did not expire the vote for 2. This is because
-   expiration happens top-down and contiguously. Because vote slot 9 was
-   not expired, we do not proceed with expiring 2.
+   Even though 10 >= the expiration slot of vote slot 2, which is 10,
+   voting for 11 did not expire the vote for 2.  This is because
+   expiration happens top-down and contiguously.  Because vote slot 9
+   was not expired, we do not proceed with expiring 2.
 
    In the Tower rules, once a vote reaches a conf count of 32, it is
-   considered rooted and it is popped from the bottom of the tower. Here
-   is an example where 1 got rooted and popped from the bottom:
+   considered rooted and it is popped from the bottom of the tower.
+   Here is an example where 1 got rooted and popped from the bottom:
 
    (before)  slot | conf
             -----------
@@ -182,34 +183,35 @@
 
    So the tower is really a double-ended queue rather than a stack.
 
-   Rooting has implications beyond the Tower. It's what we use to prune
-   our state. Every time tower makes a new root slot, we prune any old
-   state that does not originate from that new root slot. Our blockstore
-   will discard blocks below that root, our forks structure will discard
-   stale banks, funk (which is our accounts database) will discard stale
-   transactions (which in turn track modifications to accounts), and
-   ghost (which is our fork select tree) will discard stale nodes
-   tracking stake percentages. We call this operation publishing.
+   Rooting has implications beyond the Tower.  It's what we use to prune
+   our state.  Every time tower makes a new root slot, we prune any old
+   state that does not originate from that new root slot.  Our
+   blockstore will discard blocks below that root, our forks structure
+   will discard stale banks, funk (which is our accounts database) will
+   discard stale transactions (which in turn track modifications to
+   accounts), and ghost (which is our fork select tree) will discard
+   stale nodes tracking stake percentages.  We call this operation
+   publishing.
 
-   Note that the vote slots are not necessarily consecutive. Here I
+   Note that the vote slots are not necessarily consecutive.  Here I
    elided the votes sandwiched between the newest and oldest votes for
    brevity.
 
-   Next, let’s go over three additional tower checks. These three checks
-   further reinforce the consensus algorithm we established with
+   Next, let’s go over three additional tower checks.  These three
+   checks further reinforce the consensus algorithm we established with
    intuition, in this case getting a supermajority (ie. 2/3) of stake to
    converge on a fork.
 
-   The first is the threshold check. The threshold check makes sure at
+   The first is the threshold check.  The threshold check makes sure at
    least 2/3 of stake has voted for the same fork as the vote at depth 8
-   in our tower. Essentially, this guards our tower from getting too out
-   of sync with the rest of the cluster. If we get too out of sync we
-   can’t vote for a long time, because we had to rollback a vote we had
-   already confirmed many times and had a large lockout. This might
+   in our tower.  Essentially, this guards our tower from getting too
+   out of sync with the rest of the cluster.  If we get too out of sync
+   we can’t vote for a long time, because we had to rollback a vote we
+   had already confirmed many times and had a large lockout.  This might
    otherwise happen as the result of a network partition where we can
    only communicate with a subset of stake.
 
-   Next is the lockout check. We went in detail on this earlier when
+   Next is the lockout check.  We went in detail on this earlier when
    going through the lockout and expiration slot, and as before, the
    rule is we can only vote on a slot for a different fork from a
    previous vote, after that vote’s expiration slot.
@@ -242,32 +244,32 @@
   2    | 3
   1    | 4
 
-  Here the new Slot 9 descends from 5, and exceeds vote slot 4’s
+  Here the new Slot 9 descends from 5 and exceeds vote slot 4’s
   expiration slot of 6 unlike 5.
 
   After your lockout expires, the tower rules allow you to vote for
   descendants of the fork slot you wanted to switch to in the first
-  place (here, 9 descending from 5). So we eventually switch to the fork
-  we wanted, by voting for 9 and expiring 3 and 4.
+  place (here, 9 descending from 5).  So we eventually switch to the
+  fork we wanted, by voting for 9 and expiring 3 and 4.
 
   Importantly, notice that the fork slots and vote slots are not exactly
-  1-to-1. While conceptually our tower is voting for the fork 1, 2, 5,
-  9, the vote for 5 is only implied. Our tower votes themselves still
+  1-to-1.  While conceptually our tower is voting for the fork 1, 2, 5,
+  9, the vote for 5 is only implied.  Our tower votes themselves still
   can’t include 5 due to lockout.
 
-  Finally, the switch check. The switch check is used to safeguard
-  optimistic confirmation. Optimistic confirmation is when a slot gets
-  2/3 of stake-weighted votes. This is then treated as a signal that the
-  slot will eventually get rooted. However, to actually guarantee this
+  Finally, the switch check.  The switch check is used to safeguard
+  optimistic confirmation.  Optimistic confirmation is when a slot gets
+  2/3 of stake-weighted votes.  This is then treated as a signal that the
+  slot will eventually get rooted.  However, to actually guarantee this
   we need a rule that prevents validators from arbitrarily switching
-  forks (even when their vote lockout has expired). This rule is the
+  forks (even when their vote lockout has expired).  This rule is the
   switch check.
 
-  The switch check is additional to the lockout check. Before switching
+  The switch check is additional to the lockout check.  Before switching
   forks, we need to make sure at least 38% of stake has voted for a
-  different fork than our own. Different fork is defined by finding the
+  different fork than our own.  Different fork is defined by finding the
   greatest common ancestor of our last voted fork slot and the slot we
-  want to switch to. Any forks descending from the greatest common
+  want to switch to.  Any forks descending from the greatest common
   ancestor (which I will subsequently call the GCA) that are not our
   own fork are counted towards the switch check stake.
 
@@ -278,7 +280,7 @@
   1-- 2  -- 6
         \-- 5-- 9
 
-  First, we find the GCA of 4 and 9 which is 2. Then we look at all the
+  First, we find the GCA of 4 and 9 which is 2.  Then we look at all the
   descendants of the GCA that do not share a fork with us, and make sure
   their stake sums to more than 38%.
 
@@ -286,22 +288,22 @@
   proof, even though it is on a different fork from 4. This is because
   it’s on the same fork relative to the GCA.
 
-  So that covers the checks. Next, there are two additional important
-  concepts: "reset slot" and "vote slot". The reset slot is the slot you
-  reset PoH to when it's your turn to be leader. Because you are
+  So that covers the checks.  Next, there are two additional important
+  concepts: "reset slot" and "vote slot".  The reset slot is the slot you
+  reset PoH to when it's your turn to be leader.  Because you are
   responsible for producing a block, you need to decide which fork to
-  build your block on. For example, if there are two competing slots 3
-  and 4, you would decide whether to build 3 <- 5 or 4 <- 5. In general
+  build your block on.  For example, if there are two competing slots 3
+  and 4, you would decide whether to build 3 <- 5 or 4 <- 5.  In general
   the reset slot is the same fork as the vote slot, but not always.
-  There is an important reason for this. Recall this fork graph from
+  There is an important reason for this.  Recall this fork graph from
   earlier:
 
         /-- 3-- 4 (10%)
    1-- 2
         \-- 5-- 6 (9%)
 
-  In this diagram, 4 is the winner of fork choice. All future leaders
-  now want to reset to slot 4. Naively, this makes sense because you
+  In this diagram, 4 is the winner of fork choice.  All future leaders
+  now want to reset to slot 4.  Naively, this makes sense because you
   maximize the chance of your block finalizing (and earning the rewards)
   if you greedily (in the algorithmic, and perhaps also literal sense)
   pick what's currently the heaviest.
@@ -313,9 +315,9 @@
 
   All these validators that voted for 5 are now constrained by the
   switch check (38% of stake), and none of them can actually switch
-  their vote to 4 (which only has 10%). But they're all continuing to
+  their vote to 4 (which only has 10%).  But they're all continuing to
   build blocks on top of fork 4, which importantly implies that votes
-  for 5 will not be able to propagate. This is because the validators
+  for 5 will not be able to propagate.  This is because the validators
   that can't switch continue to refresh their votes for 5, but those
   votes never "land" because no one is building blocks on top of fork
   5 anymore (everyone is building on 4 because that's currently the
@@ -324,98 +326,45 @@
   Therefore, it is important to reset to the same fork as your last vote
   slot, which is usually also the heaviest fork, but not always.
 
-  Note that with both the vote slot and reset slot, the tower uses ghost
-  to determine the last vote slot's ancestry. So what happens if the
-  last vote slot isn't in the ghost? There are two separate cases in
-  which this can happen that tower needs to handle:
+  Now let’s switch gears from theory back to practice.  How does the
+  literal mechanism of voting actually work?
 
-  1. Our last vote slot > ghost root slot, but is not a descendant of
-     the ghost root. This can happen if we get stuck on a minority fork
-     with a long lockout. In the worst case, lockout duration is
-     2^{threshold_check_depth} ie. 2^8 = 256 slots. In other words, we
-     voted for and confirmed a minority fork 8 times in a row. We assume
-     we won't vote past 8 times for the minority fork, because the
-     threshold check would have stopped us (recall the threshold check
-     requires 2/3 of stake to be on the same fork at depth 8 before we
-     can keep voting for that fork).
+  Validators don't send individual votes.  Rather, they send their
+  entire updated tower to the cluster every time. Essentially, the
+  validator is continuously syncing their local tower with the cluster.
+  That tower state is then stored inside a vote account, like any other
+  state on Solana.
 
-     While waiting for those 256 slots of lockout to expire, it is
-     possible that in the meantime a supermajority (ie. >2/3) of the
-     cluster actually roots another fork that is not ours. During
-     regular execution, we would not publish ghost until we have an
-     updated tower root. So as long as the validator stays running while
-     it is locked out from the supermajority fork, it keeps track of its
-     vote slot's ancestry.
-
-     If the validator were to stop running while locked out though (eg.
-     operator needed to restart the box), the validator attempts to
-     repair the ancestry of its last vote slot.
-
-     In the worst case, if we cannot repair that ancestry, then we do
-     not vote until replay reaches the expiration slot of that last vote
-     slot. We can assume the votes > depth 8 in the tower do not violate
-     lockout, because again the threshold check would have guarded it.
-
-     TODO CURRENTLY THIS IS UNHANDLED. WHAT THE VALIDATOR DOES IF IT
-     HAS LOST THE GHOST ANCESTRY IS IT WILL ERROR OUT.
-
-  2. Our last vote slot < ghost root slot.  In this case we simply
-     cannot determine whether our last vote slot is on the same fork as
-     our ghost root slot because we no longer have ancestry information
-     before the ghost root slot. This can happen if the validator is not
-     running for a long time, then started up again. It will have to use
-     the snapshot slot for the beginning of the ghost ancestry, which
-     could be well past the last vote slot in the tower.
-
-     In this case, before the validator votes again, it makes sure that
-     the last vote's confirmation count >= THRESHOLD_CHECK_DEPTH (stated
-     differently, it makes sure the next time it votes it will expire at
-     least the first THRESHOLD_CHECK_DEPTH votes in the tower), and then
-     it assumes that the last vote slot is on the same fork as the ghost
-     root slot.
-
-     TODO VERIFY AGAVE BEHAVIOR IS THE SAME.
-
-  Now let’s switch gears from theory back to practice. What does it mean
-  to send a vote?
-
-  As a validator, you aren’t sending individual tower votes. Rather, you
-  are sending your entire updated tower to the cluster every time.
-  Essentially, the validator is continuously syncing their local tower
-  with the cluster. That tower state is then stored inside a vote
-  account, like any other state on Solana.
-
-  On the flip side, we also must stay in sync the other way from cluster
-  to local. If we have previously voted, we need to make sure our tower
-  matches up with what the cluster has last seen. We know the most
-  recent tower is in the last vote we sent, so we durably store every
-  tower (by checkpointing it to disk) whenever we send a vote. In case
-  this tower is out-of-date Conveniently Funk, our accounts database,
-  stores all the vote accounts including our own, so on bootstrap we
-  simply load in our vote account state itself to to initialize our own
-  local view of the tower.
+  On the flip side, validators also must stay in sync the other way from
+  cluster to local.  If a validator has previously voted, then they have
+  an on-chain vote account containing the cluster's latest view of the
+  tower (as of a given replay slot).  If this on-chain tower is
+  incompatible with the local one, they must be reconciled
+  (fd_tower_reconcile - also note the etymology for the "TowerSync" vote
+  instruction).
 
   Finally, a note on the difference between the Vote Program and
-  TowerBFT. The Vote Program runs during transaction (block) execution.
+  TowerBFT.  The Vote Program runs during transaction (block) execution.
   It checks that certain invariants about the tower inside a vote
   transaction are upheld (recall a validator sends their entire tower as
   part of a "vote"): otherwise, it fails the transaction. For example,
   it checks that every vote contains a tower in which the vote slots are
-  strictly monotonically increasing. As a consequence, only valid towers
-  are committed to the ledger. Another important detail of the Vote
-  Program is that it only has a view of the current fork on which it is
-  executing. Specifically, it can't observe what state is on other
-  forks, like what a validator's tower looks like on fork A vs. fork B.
+  strictly monotonically increasing.  As a consequence, only valid
+  towers are committed to the ledger.  Another important detail of the
+  Vote Program is that it only has a view of the current fork on which
+  it is executing.  Specifically, it can't observe what state is on
+  other forks, like what a validator's tower looks like on fork A vs.
+  fork B.
 
   The TowerBFT rules, on the other hand, run after transaction
-  execution. Also unlike the Vote Program, the TowerBFT rules do not
+  execution.  Also unlike the Vote Program, the TowerBFT rules do not
   take the vote transactions as inputs: rather the inputs are the towers
-  that have already been written to the ledger by the Vote Program. As
+  that have already been written to the ledger by the Vote Program.  As
   described above, the Vote Program validates every tower, and in this
   way, the TowerBFT rules leverage the validation already done by the
-  Vote Program to (mostly) assume each tower is valid. Every validator
+  Vote Program to (mostly) assume each tower is valid.  Every validator
   runs TowerBFT to update their own tower with votes based on the
-  algorithm documented above. Importantly, TowerBFT has a view of all
+  algorithm documented above.  Importantly, TowerBFT has a view of all
   forks, and the validator makes a voting decision based on all forks.
 */
 
@@ -491,9 +440,9 @@ typedef struct fd_tower_out fd_tower_out_t;
 
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
-                         fd_tower_voters_t  * accts,
+                         fd_tower_voters_t * accts,
                          fd_tower_stakes_t * tower_stakes,
-                         fd_tower_blocks_t        * forks,
+                         fd_tower_blocks_t * forks,
                          fd_ghost_t        * ghost,
                          fd_notar_t        * notar );
 
@@ -519,6 +468,7 @@ fd_tower_from_vote_acc( fd_tower_t  * tower,
    Assumes tower points to a static array of length FD_TOWER_VOTE_MAX.
 
    Returns the number of copied elements. */
+
 ulong
 fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_MAX ],
                                  uchar const *      vote_acc );
