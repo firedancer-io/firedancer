@@ -158,7 +158,6 @@ struct fd_stake_delegations {
   ulong map_offset_;
   ulong pool_offset_;
   ulong max_stake_accounts_;
-  int   leave_tombstones_;
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
@@ -200,8 +199,7 @@ fd_stake_delegations_footprint( ulong max_stake_accounts );
 void *
 fd_stake_delegations_new( void * mem,
                           ulong  seed,
-                          ulong  max_stake_accounts,
-                          int    leave_tombstones );
+                          ulong  max_stake_accounts );
 
 /* fd_stake_delegations_join joins a stake delegations struct from a
    memory region. There can be multiple valid joins for a given memory

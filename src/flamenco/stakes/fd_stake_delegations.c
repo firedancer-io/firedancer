@@ -52,8 +52,7 @@ fd_stake_delegations_footprint( ulong max_stake_accounts ) {
 void *
 fd_stake_delegations_new( void * mem,
                           ulong  seed,
-                          ulong  max_stake_accounts,
-                          int    leave_tombstones ) {
+                          ulong  max_stake_accounts ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -95,7 +94,6 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->pool_offset_        = (ulong)pool_mem - (ulong)mem;
   stake_delegations->map_offset_         = (ulong)map_mem - (ulong)mem;
   stake_delegations->max_stake_accounts_ = max_stake_accounts;
-  stake_delegations->leave_tombstones_   = leave_tombstones;
 
   for( uint i=0U; i<max_stake_accounts; i++ ) {
     fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, i );
@@ -298,47 +296,28 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
       UINT_MAX,
       stake_delegation_pool );
 
-  if( stake_delegations->leave_tombstones_==1 ) {
-    /* If we are configured to leave tombstones, we need to either
-       update the entry's is_tombstone flag or insert a new entry. */
-
-    fd_stake_delegation_t * stake_delegation = NULL;
-    if( delegation_idx!=UINT_MAX ) {
-      /* The delegation was found, update the is_tombstone flag. */
-      stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, delegation_idx );
-    } else {
-      /* Otherwise, acquire an element from the pool and add it into the
-         map. */
-      stake_delegation = fd_stake_delegation_pool_ele_acquire( stake_delegation_pool );
-      stake_delegation->stake_account = *stake_account;
-      fd_stake_delegation_map_ele_insert( stake_delegation_map, stake_delegation, stake_delegation_pool );
-    }
-    stake_delegation->is_tombstone = 1;
-
-  } else {
-    /* If we are not configured to leave tombstones, we need to remove
-       the entry from the map and release it from the pool. */
-    if( FD_UNLIKELY( delegation_idx==UINT_MAX ) ) {
-      /* The delegation was not found, nothing to do. */
-      return;
-    }
-
-    /* To be safe, we should set the next_ pointer to the null idx. */
-
-    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, delegation_idx );
-    if( FD_UNLIKELY( !stake_delegation ) ) {
-      FD_LOG_CRIT(( "unable to retrieve stake delegation" ));
-    }
-
-    ulong idx = fd_stake_delegation_map_idx_remove( stake_delegation_map, stake_account, UINT_MAX, stake_delegation_pool );
-    if( FD_UNLIKELY( idx==UINT_MAX ) ) {
-      FD_LOG_CRIT(( "unable to remove stake delegation" ));
-    }
-
-    stake_delegation->next_ = UINT_MAX;
-
-    fd_stake_delegation_pool_idx_release( stake_delegation_pool, delegation_idx );
+  /* If we are not configured to leave tombstones, we need to remove
+     the entry from the map and release it from the pool. */
+  if( FD_UNLIKELY( delegation_idx==UINT_MAX ) ) {
+    /* The delegation was not found, nothing to do. */
+    return;
   }
+
+  /* To be safe, we should set the next_ pointer to the null idx. */
+
+  fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, delegation_idx );
+  if( FD_UNLIKELY( !stake_delegation ) ) {
+    FD_LOG_CRIT(( "unable to retrieve stake delegation" ));
+  }
+
+  ulong idx = fd_stake_delegation_map_idx_remove( stake_delegation_map, stake_account, UINT_MAX, stake_delegation_pool );
+  if( FD_UNLIKELY( idx==UINT_MAX ) ) {
+    FD_LOG_CRIT(( "unable to remove stake delegation" ));
+  }
+
+  stake_delegation->next_ = UINT_MAX;
+
+  fd_stake_delegation_pool_idx_release( stake_delegation_pool, delegation_idx );
 }
 
 void

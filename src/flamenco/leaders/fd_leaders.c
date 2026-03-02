@@ -119,6 +119,7 @@ fd_epoch_leaders_new( void  *                  shmem,
   void * _wsample = fd_wsample_new_init( wsample_mem, rng, pub_cnt, 0, FD_WSAMPLE_HINT_POWERLAW_NOREMOVE );
   for( ulong i=0UL; i<pub_cnt; i++ ) _wsample = fd_wsample_new_add( _wsample, stakes[i].stake );
   fd_wsample_t * wsample = fd_wsample_join( fd_wsample_new_fini( _wsample, excluded_stake ) );
+  FD_TEST( wsample );
 
   /* Generate samples.  We need uints, so we can't use sample_many.  Map
      any FD_WSAMPLE_INDETERMINATE values to pub_cnt. */
