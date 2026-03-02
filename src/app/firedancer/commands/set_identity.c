@@ -80,8 +80,6 @@
        (b) Gossip.  The gossip tile sends out ContactInfo messages with
            our identity key, and also uses the identity key to sign
            outgoing gossip messages.
-           FIXME: Gossip keyswitch transition is buggy and may need to
-           be coordinated with gossvf.
        (c) Tower.  The tower tiles uses the identity key to generate
            vote transactions which are sent to the send tile.  These
            vote transactions are then signed downstream by the Send tile
@@ -102,22 +100,25 @@
      being badly signed.  We also know that Tower will send no more
      vote transactions to the Send tile.
 
-     The Send tile is flushed by telling it the last sequence number the
-     Tower tile has produced for an outgoing vote tansaction at the time
-     it was halted.  Once the Send tile has processed all vote
+     The TxSend tile is flushed by telling it the last sequence number
+     the Tower tile has produced for an outgoing vote tansaction at the
+     time it was halted.  Once the TxSend tile has processed all vote
      transactions up to and including that sequence number, it will
-     switch it's own identity key.  There is a guarantee that the Send
+     switch it's own identity key.  There is a guarantee that the TxSend
      tile will not request to sign any vote transactions until it is
-     unhalted. */
-#define FD_SET_IDENTITY_STATE_SEND_FLUSH_REQUESTED     (6UL)
+     unhalted.  At this point, the TxSend tile will stop receving any
+     new frags from the Net tile.  The reason for this is to avoid any
+     QUIC callbacks that invoke key signing. */
+#define FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED   (6UL)
 
-/* State 7: SEND_FLUSHED
-     The Send tile confirms that it has seen and processed all votes
+/* State 7: TXSEND_FLUSHED
+     The TxSend tile confirms that it has seen and processed all votes
      up to and including the last sequence number produced by the Tower
      tile at the time it was halted.  The Send tile also switches its
      own identity key which is used for signing votes and establishing
-     a QUIC connection. */
-#define FD_SET_IDENTITY_STATE_SEND_FLUSHED             (7UL)
+     a QUIC connection.  The TxSend tile is now no longer receiving any
+     new frags from the Net tile. */
+#define FD_SET_IDENTITY_STATE_TXSEND_FLUSHED           (7UL)
 
 /* State 8: ALL_SWITCH_REQUESTED
      The client now requests that all other tiles which consume the
@@ -308,21 +309,21 @@ poll_keyswitch( fd_topo_t * topo,
       txsend->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
 
-      *state = FD_SET_IDENTITY_STATE_SEND_FLUSH_REQUESTED;
+      *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED;
       break;
     }
-    case FD_SET_IDENTITY_STATE_SEND_FLUSH_REQUESTED: {
+    case FD_SET_IDENTITY_STATE_TXSEND_FLUSH_REQUESTED: {
       fd_keyswitch_t * txsend = find_keyswitch( topo, "txsend" );
       if( FD_LIKELY( txsend->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         fd_memzero_explicit( txsend->bytes, 64UL );
         FD_COMPILER_MFENCE();
-        *state = FD_SET_IDENTITY_STATE_SEND_FLUSHED;
+        *state = FD_SET_IDENTITY_STATE_TXSEND_FLUSHED;
       } else {
         FD_SPIN_PAUSE();
       }
       break;
     }
-    case FD_SET_IDENTITY_STATE_SEND_FLUSHED: {
+    case FD_SET_IDENTITY_STATE_TXSEND_FLUSHED: {
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         fd_topo_tile_t * tile = &topo->tiles[ i ];
         if( strcmp( tile->name, "sign" ) ) continue;
@@ -399,7 +400,8 @@ poll_keyswitch( fd_topo_t * topo,
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) ) {
+            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, "txsend" ) ) {
           continue;
         }
 
@@ -420,7 +422,8 @@ poll_keyswitch( fd_topo_t * topo,
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( strcmp( tile->name, "repair" ) &&
             strcmp( tile->name, "gossip" ) &&
-            strcmp( tile->name, "tower" ) ) {
+            strcmp( tile->name, "tower" ) &&
+            strcmp( tile->name, "txsend" ) ) {
           continue;
         }
 

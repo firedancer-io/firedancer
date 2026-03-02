@@ -103,7 +103,6 @@ struct fd_txsend_tile_ctx {
 
   fd_keyguard_client_t keyguard_client  [ 1 ];
 
-  ulong tower_in_expect_seq;
 
   fd_keyswitch_t * keyswitch;
 
@@ -130,6 +129,10 @@ struct fd_txsend_tile_ctx {
 
   /* Leader schedule tracking */
   fd_multi_epoch_leaders_t * mleaders;
+
+  /* Set identity state transition */
+  ulong tower_in_expect_seq;
+  int   halt_net_frags;
 
   /* QUIC handles */
   fd_quic_t * quic;

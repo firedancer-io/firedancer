@@ -197,17 +197,25 @@ during_housekeeping( fd_txsend_tile_ctx_t * ctx ) {
     ctx->recal_next = fd_clock_default_recal( ctx->clock );
   }
 
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting" ));
+    ctx->halt_net_frags = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: switching identity" ));
     ulong seq_must_complete = ctx->keyswitch->param;
     if( FD_UNLIKELY( fd_seq_lt( ctx->tower_in_expect_seq, seq_must_complete ) ) ) {
-      /* See fd_keyswitch.h, we need to flush any in-flight votes from
+      /* See fd_keyswitch.h, we need to flush any in-flight shreds from
          the leader pipeline before switching key. */
       FD_LOG_WARNING(( "Flushing in-flight unpublished votes from tower, must reach seq %lu, currently at %lu ...", seq_must_complete, ctx->tower_in_expect_seq ));
       return;
     }
 
-    /* It's not needed to reconnect existing connections. */
+    /* Halt net frags to avoid potential quic callback in after_frag */
+    ctx->halt_net_frags = 1;
+
     fd_quic_set_identity_public_key( ctx->quic, ctx->keyswitch->bytes );
 
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
@@ -513,8 +521,8 @@ handle_vote_msg( fd_txsend_tile_ctx_t * ctx,
 
 static inline void
 before_credit( fd_txsend_tile_ctx_t * ctx,
-               fd_stem_context_t  * stem,
-               int *                charge_busy ) {
+               fd_stem_context_t  *   stem,
+               int *                  charge_busy ) {
   ctx->stem = stem;
 
   ctx->now = fd_clock_now( ctx->clock );
@@ -534,6 +542,10 @@ before_frag( fd_txsend_tile_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_links[in_idx].kind==IN_KIND_TOWER ) ) {
     ctx->tower_in_expect_seq = seq+1UL;
+  }
+
+  if( FD_UNLIKELY( ctx->halt_net_frags && ctx->in_links[in_idx].kind==IN_KIND_NET ) ) {
+    return -1;
   }
 
   return 0;
@@ -730,6 +742,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->keyswitch );
 
   ctx->tower_in_expect_seq = 0UL;
+  ctx->halt_net_frags = 0;
 
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
