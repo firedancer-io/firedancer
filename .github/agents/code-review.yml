@@ -1,0 +1,9 @@
+name: Code Review Agent
+description: Automated code review agent for pull requests
+model: claude-opus-4.6
+triggers:
+  - pull_request
+capabilities:
+  - code_analysis
+  - security_review
+  - style_checking
