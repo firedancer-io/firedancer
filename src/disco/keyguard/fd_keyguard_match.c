@@ -154,6 +154,23 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
 
   if( sig_cnt>addr_cnt ) return 0;
 
+  /* Verify that the remaining bytes can fit addr_cnt pubkeys and a
+     recent blockhash. */
+  ulong instr_off = addr_cnt * FD_PUBKEY_FOOTPRINT + FD_HASH_FOOTPRINT;
+  if( cursor + instr_off > end ) return 0;
+  cursor += instr_off;
+
+  /* Instruction count must be a valid compact_u16 and >= 1. */
+  if( cursor + 3UL > end ) return 0;
+  ulong instr_cnt_sz = fd_cu16_dec_sz( cursor, 3UL );
+  if( !instr_cnt_sz ) return 0;
+  ulong instr_cnt = fd_cu16_dec_fixed( cursor, instr_cnt_sz );
+  if( !instr_cnt ) return 0;
+
+  /* Each instruction is at least 3 bytes (program_id_index,
+     compact_u16 acct_idx_cnt, compact_u16 data_len) */
+  if( cursor + instr_cnt * 3UL + instr_cnt_sz > end ) return 0;
+
   return 1;
 }
 
