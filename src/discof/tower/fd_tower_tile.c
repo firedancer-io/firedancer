@@ -1272,6 +1272,19 @@ during_housekeeping( ctx_t * ctx ) {
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 
+  /* FIXME: Currently, the tower tile doesn't support running off of a
+     tower file.  When support for a tower file is added, we need to
+     swap the file that is running and sync it to the local state of
+     the tower.  Because a tower file is not supported, if another
+     validator was running with the identity that was switched to, then
+     it is possible that the original validator and the fallback (this
+     node), may have tower files which are out of sync.  This could lead
+     to consensus violations such as double voting or duplicate
+     confirmations.  Currently it is unsafe for a validator operator to
+     switch identities without a 512 slot delay: the reason for this
+     delay is to account for the worst case number of slots a vote
+     account can be locked out for. */
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting signing" ));
     FD_CRIT( ctx->halt_signing, "state machine corruption" );
@@ -1280,10 +1293,6 @@ during_housekeeping( ctx_t * ctx ) {
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    /* TODO: Currently, the tower tile doesn't support running off of a
-       tower file.  When support for a tower file is added, we need to
-       swap the file that is running and sync it to the local state of
-       the tower.  */
     FD_LOG_DEBUG(( "keyswitch: halting signing" ));
     memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
