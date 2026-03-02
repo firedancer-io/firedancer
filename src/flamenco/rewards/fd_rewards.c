@@ -841,19 +841,17 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake,
                                                                       reward_lamports );
 
-  /* The stake account has just been updated, so we need to update the
-     stake delegations stored in the bank. */
-  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank );
-  fd_stake_delegations_update(
-      stake_delegations,
-      stake_pubkey,
-      &stake_state->inner.stake.stake.delegation.voter_pubkey,
-      stake_state->inner.stake.stake.delegation.stake,
-      stake_state->inner.stake.stake.delegation.activation_epoch,
-      stake_state->inner.stake.stake.delegation.deactivation_epoch,
-      stake_state->inner.stake.stake.credits_observed,
-      stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank );
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify2( bank );
+  fd_stake_delegations_delta_update( stake_delegations_delta,
+                                     bank->data->stake_delegations_fork_id,
+                                     stake_pubkey,
+                                     &stake_state->inner.stake.stake.delegation.voter_pubkey,
+                                     stake_state->inner.stake.stake.delegation.stake,
+                                     stake_state->inner.stake.stake.delegation.activation_epoch,
+                                     stake_state->inner.stake.stake.delegation.deactivation_epoch,
+                                     stake_state->inner.stake.stake.credits_observed,
+                                     stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
+  fd_bank_stake_delegations_delta_end_locking_modify2( bank );
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,

@@ -2,7 +2,7 @@
 
 #include <stdlib.h> // ARM64: aligned_alloc(3)
 
-static void
+static void FD_FN_UNUSED
 test_bank_advancing( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
@@ -275,7 +275,7 @@ test_bank_advancing( void * mem ) {
 
 }
 
-static void
+static void FD_FN_UNUSED
 test_bank_dead_eviction( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
@@ -441,7 +441,7 @@ test_bank_dead_eviction( void * mem ) {
 }
 
 
-static void
+static void FD_FN_UNUSED
 test_bank_frontier( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
@@ -522,385 +522,385 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_pubkey_t key_0 = { .ul[0] = 1 };
-  fd_pubkey_t key_1 = { .ul[0] = 2 };
-  fd_pubkey_t key_2 = { .ul[0] = 3 };
-  fd_pubkey_t key_3 = { .ul[0] = 4 };
-  fd_pubkey_t key_4 = { .ul[0] = 5 };
-  fd_pubkey_t key_5 = { .ul[0] = 6 };
-  fd_pubkey_t key_6 = { .ul[0] = 7 };
-  fd_pubkey_t key_7 = { .ul[0] = 8 };
-  fd_pubkey_t key_8 = { .ul[0] = 9 };
-  fd_pubkey_t key_9 = { .ul[0] = 10 };
-
-  ulong const mem_req       = 4UL<<30;
-  ulong       wksp_part_max = fd_wksp_part_max_est( mem_req, 1UL<<20 );
-  ulong       wksp_data_max = fd_wksp_data_max_est( mem_req, wksp_part_max );
-  void *      wksp_mem      = aligned_alloc( FD_SHMEM_NORMAL_PAGE_SZ, mem_req ); FD_TEST( wksp_mem );
-  fd_wksp_t * wksp          = fd_wksp_new( wksp_mem, "snapin", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
-  fd_shmem_join_anonymous( "snapin", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, mem_req>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
-
-  uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 2UL ), 1UL );
-  FD_TEST( mem );
-# if !FD_HAS_MSAN
-  ulong fp = fd_banks_footprint( 16UL, 2UL );
-  for( ulong i=0UL; i<fp; i+=8 ) FD_STORE( ulong, mem+i, fd_ulong_hash( i ) );
-# endif
-
-  mem = fd_banks_new( mem, 16UL, 4UL, 0, 8888UL );
-  FD_TEST( mem );
-
-  /* Init banks */
-
-  fd_banks_t banksl_join[1];
-
-  fd_banks_locks_t locks[1];
-  fd_banks_locks_init( locks );
-
-  fd_banks_t * banks = fd_banks_join( banksl_join, mem, locks );
-  FD_TEST( banks );
-
-  fd_bank_t bank[1];
-  FD_TEST( fd_banks_init_bank( bank, banks ) );
-  fd_bank_slot_set( bank, 1UL );
-  ulong bank_idx = bank->data->idx;
-  FD_TEST( bank->data->bank_seq==0UL );
-
-  /* Set some fields */
-
-  fd_bank_capitalization_set( bank, 1000UL );
-  FD_TEST( fd_bank_capitalization_get( bank ) == 1000UL );
-
-  /* Set a delta-based field. Query it from the local delta, then from
-     the larger combined frontier state. */
-
-  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank );
-  fd_stake_delegations_update( stake_delegations, &key_0, &key_9, 100UL, 100UL, 100UL, 100UL, 0.09 );
-
-  fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-  FD_TEST( !memcmp( &stake_delegation->vote_account, &key_9, sizeof(fd_pubkey_t) ) );
-  FD_TEST( !memcmp( &stake_delegation->stake_account, &key_0, sizeof(fd_pubkey_t) ) );
-  FD_TEST( stake_delegation->activation_epoch == 100UL );
-  FD_TEST( stake_delegation->deactivation_epoch == 100UL );
-  FD_TEST( stake_delegation->credits_observed == 100UL );
-
-  fd_bank_stake_delegations_delta_end_locking_modify( bank );
-
-  stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-  FD_TEST( !memcmp( &stake_delegation->vote_account, &key_9, sizeof(fd_pubkey_t) ) );
-  FD_TEST( !memcmp( &stake_delegation->stake_account, &key_0, sizeof(fd_pubkey_t) ) );
-  FD_TEST( stake_delegation->activation_epoch == 100UL );
-  FD_TEST( stake_delegation->deactivation_epoch == 100UL );
-  FD_TEST( stake_delegation->credits_observed == 100UL );
-
-  /* Create some additional ancestry */
-
-  fd_bank_t bank2[1];
-  ulong bank_idx2 = fd_banks_new_bank( bank2, banks, bank_idx, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank2, banks, bank_idx2 ) );
-  fd_bank_slot_set( bank2, 2UL );
-  FD_TEST( bank2->data->bank_seq==1UL );
-  FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
-  /* At this point, the first epoch leaders has been allocated from the
-     pool that is limited to 2 instances. */
-  fd_epoch_leaders_t * epoch_leaders = fd_bank_epoch_leaders_modify( bank2 );
-  FD_TEST( epoch_leaders );
-
-  /* Make sure that the contents of the stake delegations is the same
-     after a new bank has been created. */
-
-  stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-
-  /* Make updates to delta */
-
-  stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank2 );
-  fd_stake_delegations_update( stake_delegations, &key_0, &key_0, 200UL, 100UL, 100UL, 100UL, 0.09 );
-  fd_stake_delegations_update( stake_delegations, &key_1, &key_8, 100UL, 100UL, 100UL, 100UL, 0.09 );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 200UL );
-  FD_TEST( !memcmp( &stake_delegation->stake_account, &key_0, sizeof(fd_pubkey_t) ) );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank2 );
-
-  stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank2 );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 200UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-
-  fd_banks_mark_bank_frozen( banks, bank2 );
-
-  fd_bank_t bank3[1];
-  ulong bank_idx3 = fd_banks_new_bank( bank3, banks, bank_idx, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank3, banks, bank_idx3 ) );
-  FD_TEST( bank3->data->bank_seq==2UL );
-  FD_TEST( fd_bank_capitalization_get( bank3 ) == 1000UL );
-  fd_bank_capitalization_set( bank3, 2000UL );
-  FD_TEST( fd_bank_capitalization_get( bank3 ) == 2000UL );
-
-  /* Because bank 3 is on a different fork than bank 2, make sure that
-     the updates don't get incorrectly applied. */
-
-  stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank3 );
-  fd_stake_delegations_update( stake_delegations, &key_2, &key_7, 10UL, 100UL, 100UL, 100UL, 0.09 );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_2 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 10UL );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank3 );
-
-  stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank3 );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_2 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 10UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
-  FD_TEST( stake_delegation->stake == 100UL );
-
-
-  /* At this point, the second epoch leaders has been allocated from the
-     pool that is limited to 2 instances. */
-
-  fd_epoch_leaders_t * epoch_leaders2 = fd_bank_epoch_leaders_modify( bank3 );
-  FD_TEST( epoch_leaders2 );
-
-  fd_banks_mark_bank_frozen( banks, bank3 );
-
-  fd_bank_t bank4[1];
-  ulong bank_idx4 = fd_banks_new_bank( bank4, banks, bank_idx3, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank4, banks, bank_idx4 ) );
-  FD_TEST( bank4->data->bank_seq==3UL );
-  FD_TEST( fd_bank_capitalization_get( bank4 ) == 2000UL );
-
-  /* Trying to allocate a new epoch leaders should fail because the pool
-     now has no free elements. */
-
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank4->data ) ) == 2UL );
-
-  fd_banks_mark_bank_frozen( banks, bank4 );
-
-  fd_bank_t bank5[1];
-  ulong bank_idx5 = fd_banks_new_bank( bank5, banks, bank_idx4, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank5, banks, bank_idx5 ) );
-  FD_TEST( bank5->data->bank_seq==4UL );
-  FD_TEST( fd_bank_capitalization_get( bank5 ) == 2000UL );
-  fd_bank_capitalization_set( bank5, 3000UL );
-  FD_TEST( fd_bank_capitalization_get( bank5 ) == 3000UL );
-
-  fd_banks_mark_bank_frozen( banks, bank5 );
-
-  fd_bank_t bank6[1];
-  ulong bank_idx6 = fd_banks_new_bank( bank6, banks, bank_idx2, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank6, banks, bank_idx6 ) );
-  FD_TEST( bank6->data->bank_seq==5UL );
-  FD_TEST( fd_bank_capitalization_get( bank6 ) == 1000UL );
-  fd_bank_capitalization_set( bank6, 2100UL );
-  fd_bank_slot_set( bank6, 6UL );
-  FD_TEST( fd_bank_capitalization_get( bank6 ) == 2100UL );
-
-  fd_banks_mark_bank_frozen( banks, bank6 );
-
-  fd_bank_t bank7[1];
-  ulong bank_idx7 = fd_banks_new_bank( bank7, banks, bank_idx6, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank7, banks, bank_idx7 ) );
-  FD_TEST( bank7->data->bank_seq==6UL );
-  fd_bank_slot_set( bank7, 7UL );
-  FD_TEST( fd_bank_capitalization_get( bank7 ) == 2100UL );
-
-  stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank7 );
-  fd_stake_delegations_update( stake_delegations, &key_3, &key_6, 7UL, 100UL, 100UL, 100UL, 0.09 );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 7UL );
-  fd_stake_delegations_remove( stake_delegations, &key_0 );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->is_tombstone==1 );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank7 );
-
-  stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank7 );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 7UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-
-  fd_banks_mark_bank_frozen( banks, bank7 );
-
-  /* At this point there are these forks:
-     1. 1 -> 2 -> 6 -> 7
-     2. 1 -> 3 -> 4
-     3. 1 -> 3 -> 5 */
-
-  fd_bank_t bank8[1];
-  ulong bank_idx8 = fd_banks_new_bank( bank8, banks, bank_idx7, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank8, banks, bank_idx8 ) );
-  FD_TEST( bank8->data->bank_seq==7UL );
-  FD_TEST( fd_bank_capitalization_get( bank8 ) == 2100UL );
-
-  stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank8 );
-  fd_stake_delegations_update( stake_delegations, &key_4, &key_5, 4UL, 100UL, 100UL, 100UL, 0.09 );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank8 );
-
-  stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank8 );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_4 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 4UL );
-
-  fd_banks_mark_bank_frozen( banks, bank8 );
-
-  fd_bank_t bank9[1];
-  ulong bank_idx9 = fd_banks_new_bank( bank9, banks, bank_idx7, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank9, banks, bank_idx9 ) );
-  FD_TEST( bank9->data->bank_seq==8UL );
-  FD_TEST( fd_bank_capitalization_get( bank9 ) == 2100UL );
-
-  /* Ensure that the child-most bank is able to correctly query the
-     total stake delegations even when some ancestors have not
-     published any delegations. */
-
-  stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank9 );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 7UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-
-  /* Check that there are 3 free pool elements. */
-
-  fd_banks_mark_bank_frozen( banks, bank9 );
-
-  /* Verify that the bank is published and that it is indeed bank7.
-     Also, verify that the stake delegations have been correctly
-     applied to the new root. */
-
-  fd_banks_advance_root( banks, bank2->data->idx );
-  fd_bank_t new_root[1];
-  FD_TEST( fd_banks_root( new_root, banks ) );
-  FD_TEST( fd_bank_slot_get( new_root ) == 2UL );
-  FD_TEST( new_root->data == bank2->data );
-
-  fd_banks_advance_root( banks, bank6->data->idx );
-  FD_TEST( fd_banks_root( new_root, banks ) );
-  FD_TEST( fd_bank_slot_get( new_root ) == 6UL );
-  FD_TEST( new_root->data == bank6->data );
-
-  fd_banks_advance_root( banks, bank7->data->idx );
-  FD_TEST( fd_banks_root( new_root, banks ) );
-  FD_TEST( fd_bank_slot_get( new_root ) == 7UL );
-  FD_TEST( new_root->data == bank7->data );
-
-  /* Verify that direct and competing forks are pruned off */
-  fd_bank_t bank_prune[1];
-  FD_TEST( !fd_banks_bank_query( bank_prune, banks, bank_idx6 ) );
-  FD_TEST( !fd_banks_bank_query( bank_prune, banks, bank_idx3 ) );
-
-  stake_delegations = fd_bank_stake_delegations_frontier_query( banks, (fd_bank_t *)new_root );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 7UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-
-  stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 7UL );
-  stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
-  FD_TEST( stake_delegation );
-  FD_TEST( stake_delegation->stake == 100UL );
-
-  /* Create some new children */
-
-  fd_bank_t bank10[1];
-  ulong bank_idx10 = fd_banks_new_bank( bank10, banks, bank_idx7, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank10, banks, bank_idx10 ) );
-  FD_TEST( bank10->data->bank_seq==9UL );
-  FD_TEST( fd_bank_capitalization_get( bank10 ) == 2100UL );
-
-  /* At this point, there should be an epoch leader pool element that is
-     freed up. */
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank10->data ) ) == 3UL );
-  fd_epoch_leaders_t * epoch_leaders3 = fd_bank_epoch_leaders_modify( bank10 );
-  FD_TEST( epoch_leaders3 );
-
-  fd_banks_mark_bank_frozen( banks, bank10 );
-
-  fd_bank_t bank11[1];
-  ulong bank_idx11 = fd_banks_new_bank( bank11, banks, bank_idx9, 0L )->data->idx;
-  FD_TEST( fd_banks_clone_from_parent( bank11, banks, bank_idx11 ) );
-  FD_TEST( bank11->data->bank_seq==10UL );
-  FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
-  fd_bank_slot_set( bank11, 11UL );
-
-  /* Again, there are no free epoch leader pool elements. */
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11->data ) ) == 2UL );
-
-  /* Now there should be 3 forks:
-     1. 7 (1234) -> 8
-     2. 7 (1234) -> 9 -> 11
-     3  7 (1234) -> 10 */
-
-  /* At this point, bank7 is the root and it has 3 children: bank8, bank9, and bank10 */
-
-  /* Verify that children slots are not pruned off */
-
-  fd_bank_t bank_query[1];
-  FD_TEST( !!fd_banks_bank_query( bank_query, banks, bank8->data->idx ) );
-  FD_TEST( !!fd_banks_bank_query( bank_query, banks, bank9->data->idx ) );
-  FD_TEST( !!fd_banks_bank_query( bank_query, banks, bank10->data->idx ) );
-
-  /* Verify that the CoW fields are properly set for bank11 */
-
-  /* Clear bank11, we need to make sure that the pool indices are
-     cleared and properly released.
-
-     We test the cases where:
-     1. Pool was not made dirty and had a non-null parent pool idx.
-     2. Pool was not made dirty and had a null parent pool idx.
-     3. Pool was made dirty and had a non-null parent pool idx.
-     4. Pool was made dirty and had a null parent pool idx. */
-
-
-  /* Set the cost tracker to some non-zero values. */
-
-  fd_banks_clear_bank( banks, bank11, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
-  FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
-  FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
-
-  FD_TEST( !fd_banks_join( banksl_join, banks->data, NULL ) );
-
-  test_bank_advancing( mem );
-
-  test_bank_dead_eviction( mem );
-
-  test_bank_frontier( mem );
+//   fd_pubkey_t key_0 = { .ul[0] = 1 };
+//   fd_pubkey_t key_1 = { .ul[0] = 2 };
+//   fd_pubkey_t key_2 = { .ul[0] = 3 };
+//   fd_pubkey_t key_3 = { .ul[0] = 4 };
+//   fd_pubkey_t key_4 = { .ul[0] = 5 };
+//   fd_pubkey_t key_5 = { .ul[0] = 6 };
+//   fd_pubkey_t key_6 = { .ul[0] = 7 };
+//   fd_pubkey_t key_7 = { .ul[0] = 8 };
+//   fd_pubkey_t key_8 = { .ul[0] = 9 };
+//   fd_pubkey_t key_9 = { .ul[0] = 10 };
+
+//   ulong const mem_req       = 4UL<<30;
+//   ulong       wksp_part_max = fd_wksp_part_max_est( mem_req, 1UL<<20 );
+//   ulong       wksp_data_max = fd_wksp_data_max_est( mem_req, wksp_part_max );
+//   void *      wksp_mem      = aligned_alloc( FD_SHMEM_NORMAL_PAGE_SZ, mem_req ); FD_TEST( wksp_mem );
+//   fd_wksp_t * wksp          = fd_wksp_new( wksp_mem, "snapin", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
+//   fd_shmem_join_anonymous( "snapin", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, mem_req>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
+
+//   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 2UL ), 1UL );
+//   FD_TEST( mem );
+// # if !FD_HAS_MSAN
+//   ulong fp = fd_banks_footprint( 16UL, 2UL );
+//   for( ulong i=0UL; i<fp; i+=8 ) FD_STORE( ulong, mem+i, fd_ulong_hash( i ) );
+// # endif
+
+//   mem = fd_banks_new( mem, 16UL, 4UL, 0, 8888UL );
+//   FD_TEST( mem );
+
+//   /* Init banks */
+
+//   fd_banks_t banksl_join[1];
+
+//   fd_banks_locks_t locks[1];
+//   fd_banks_locks_init( locks );
+
+//   fd_banks_t * banks = fd_banks_join( banksl_join, mem, locks );
+//   FD_TEST( banks );
+
+//   fd_bank_t bank[1];
+//   FD_TEST( fd_banks_init_bank( bank, banks ) );
+//   fd_bank_slot_set( bank, 1UL );
+//   ulong bank_idx = bank->data->idx;
+//   FD_TEST( bank->data->bank_seq==0UL );
+
+//   /* Set some fields */
+
+//   fd_bank_capitalization_set( bank, 1000UL );
+//   FD_TEST( fd_bank_capitalization_get( bank ) == 1000UL );
+
+//   /* Set a delta-based field. Query it from the local delta, then from
+//      the larger combined frontier state. */
+
+//   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank );
+//   fd_stake_delegations_update( stake_delegations, &key_0, &key_9, 100UL, 100UL, 100UL, 100UL, 0.09 );
+
+//   fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+//   FD_TEST( !memcmp( &stake_delegation->vote_account, &key_9, sizeof(fd_pubkey_t) ) );
+//   FD_TEST( !memcmp( &stake_delegation->stake_account, &key_0, sizeof(fd_pubkey_t) ) );
+//   FD_TEST( stake_delegation->activation_epoch == 100UL );
+//   FD_TEST( stake_delegation->deactivation_epoch == 100UL );
+//   FD_TEST( stake_delegation->credits_observed == 100UL );
+
+//   fd_bank_stake_delegations_delta_end_locking_modify( bank );
+
+//   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+//   FD_TEST( !memcmp( &stake_delegation->vote_account, &key_9, sizeof(fd_pubkey_t) ) );
+//   FD_TEST( !memcmp( &stake_delegation->stake_account, &key_0, sizeof(fd_pubkey_t) ) );
+//   FD_TEST( stake_delegation->activation_epoch == 100UL );
+//   FD_TEST( stake_delegation->deactivation_epoch == 100UL );
+//   FD_TEST( stake_delegation->credits_observed == 100UL );
+
+//   /* Create some additional ancestry */
+
+//   fd_bank_t bank2[1];
+//   ulong bank_idx2 = fd_banks_new_bank( bank2, banks, bank_idx, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank2, banks, bank_idx2 ) );
+//   fd_bank_slot_set( bank2, 2UL );
+//   FD_TEST( bank2->data->bank_seq==1UL );
+//   FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
+//   /* At this point, the first epoch leaders has been allocated from the
+//      pool that is limited to 2 instances. */
+//   fd_epoch_leaders_t * epoch_leaders = fd_bank_epoch_leaders_modify( bank2 );
+//   FD_TEST( epoch_leaders );
+
+//   /* Make sure that the contents of the stake delegations is the same
+//      after a new bank has been created. */
+
+//   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+
+//   /* Make updates to delta */
+
+//   stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank2 );
+//   fd_stake_delegations_update( stake_delegations, &key_0, &key_0, 200UL, 100UL, 100UL, 100UL, 0.09 );
+//   fd_stake_delegations_update( stake_delegations, &key_1, &key_8, 100UL, 100UL, 100UL, 100UL, 0.09 );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 200UL );
+//   FD_TEST( !memcmp( &stake_delegation->stake_account, &key_0, sizeof(fd_pubkey_t) ) );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+//   fd_bank_stake_delegations_delta_end_locking_modify( bank2 );
+
+//   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank2 );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 200UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+
+//   fd_banks_mark_bank_frozen( banks, bank2 );
+
+//   fd_bank_t bank3[1];
+//   ulong bank_idx3 = fd_banks_new_bank( bank3, banks, bank_idx, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank3, banks, bank_idx3 ) );
+//   FD_TEST( bank3->data->bank_seq==2UL );
+//   FD_TEST( fd_bank_capitalization_get( bank3 ) == 1000UL );
+//   fd_bank_capitalization_set( bank3, 2000UL );
+//   FD_TEST( fd_bank_capitalization_get( bank3 ) == 2000UL );
+
+//   /* Because bank 3 is on a different fork than bank 2, make sure that
+//      the updates don't get incorrectly applied. */
+
+//   stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank3 );
+//   fd_stake_delegations_update( stake_delegations, &key_2, &key_7, 10UL, 100UL, 100UL, 100UL, 0.09 );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_2 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 10UL );
+//   fd_bank_stake_delegations_delta_end_locking_modify( bank3 );
+
+//   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank3 );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_2 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 10UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
+//   FD_TEST( stake_delegation->stake == 100UL );
+
+
+//   /* At this point, the second epoch leaders has been allocated from the
+//      pool that is limited to 2 instances. */
+
+//   fd_epoch_leaders_t * epoch_leaders2 = fd_bank_epoch_leaders_modify( bank3 );
+//   FD_TEST( epoch_leaders2 );
+
+//   fd_banks_mark_bank_frozen( banks, bank3 );
+
+//   fd_bank_t bank4[1];
+//   ulong bank_idx4 = fd_banks_new_bank( bank4, banks, bank_idx3, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank4, banks, bank_idx4 ) );
+//   FD_TEST( bank4->data->bank_seq==3UL );
+//   FD_TEST( fd_bank_capitalization_get( bank4 ) == 2000UL );
+
+//   /* Trying to allocate a new epoch leaders should fail because the pool
+//      now has no free elements. */
+
+//   FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank4->data ) ) == 2UL );
+
+//   fd_banks_mark_bank_frozen( banks, bank4 );
+
+//   fd_bank_t bank5[1];
+//   ulong bank_idx5 = fd_banks_new_bank( bank5, banks, bank_idx4, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank5, banks, bank_idx5 ) );
+//   FD_TEST( bank5->data->bank_seq==4UL );
+//   FD_TEST( fd_bank_capitalization_get( bank5 ) == 2000UL );
+//   fd_bank_capitalization_set( bank5, 3000UL );
+//   FD_TEST( fd_bank_capitalization_get( bank5 ) == 3000UL );
+
+//   fd_banks_mark_bank_frozen( banks, bank5 );
+
+//   fd_bank_t bank6[1];
+//   ulong bank_idx6 = fd_banks_new_bank( bank6, banks, bank_idx2, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank6, banks, bank_idx6 ) );
+//   FD_TEST( bank6->data->bank_seq==5UL );
+//   FD_TEST( fd_bank_capitalization_get( bank6 ) == 1000UL );
+//   fd_bank_capitalization_set( bank6, 2100UL );
+//   fd_bank_slot_set( bank6, 6UL );
+//   FD_TEST( fd_bank_capitalization_get( bank6 ) == 2100UL );
+
+//   fd_banks_mark_bank_frozen( banks, bank6 );
+
+//   fd_bank_t bank7[1];
+//   ulong bank_idx7 = fd_banks_new_bank( bank7, banks, bank_idx6, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank7, banks, bank_idx7 ) );
+//   FD_TEST( bank7->data->bank_seq==6UL );
+//   fd_bank_slot_set( bank7, 7UL );
+//   FD_TEST( fd_bank_capitalization_get( bank7 ) == 2100UL );
+
+//   stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank7 );
+//   fd_stake_delegations_update( stake_delegations, &key_3, &key_6, 7UL, 100UL, 100UL, 100UL, 0.09 );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 7UL );
+//   fd_stake_delegations_remove( stake_delegations, &key_0 );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_0 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->is_tombstone==1 );
+//   fd_bank_stake_delegations_delta_end_locking_modify( bank7 );
+
+//   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank7 );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 7UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+
+//   fd_banks_mark_bank_frozen( banks, bank7 );
+
+//   /* At this point there are these forks:
+//      1. 1 -> 2 -> 6 -> 7
+//      2. 1 -> 3 -> 4
+//      3. 1 -> 3 -> 5 */
+
+//   fd_bank_t bank8[1];
+//   ulong bank_idx8 = fd_banks_new_bank( bank8, banks, bank_idx7, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank8, banks, bank_idx8 ) );
+//   FD_TEST( bank8->data->bank_seq==7UL );
+//   FD_TEST( fd_bank_capitalization_get( bank8 ) == 2100UL );
+
+//   stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank8 );
+//   fd_stake_delegations_update( stake_delegations, &key_4, &key_5, 4UL, 100UL, 100UL, 100UL, 0.09 );
+//   fd_bank_stake_delegations_delta_end_locking_modify( bank8 );
+
+//   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank8 );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_4 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 4UL );
+
+//   fd_banks_mark_bank_frozen( banks, bank8 );
+
+//   fd_bank_t bank9[1];
+//   ulong bank_idx9 = fd_banks_new_bank( bank9, banks, bank_idx7, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank9, banks, bank_idx9 ) );
+//   FD_TEST( bank9->data->bank_seq==8UL );
+//   FD_TEST( fd_bank_capitalization_get( bank9 ) == 2100UL );
+
+//   /* Ensure that the child-most bank is able to correctly query the
+//      total stake delegations even when some ancestors have not
+//      published any delegations. */
+
+//   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank9 );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 7UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+
+//   /* Check that there are 3 free pool elements. */
+
+//   fd_banks_mark_bank_frozen( banks, bank9 );
+
+//   /* Verify that the bank is published and that it is indeed bank7.
+//      Also, verify that the stake delegations have been correctly
+//      applied to the new root. */
+
+//   fd_banks_advance_root( banks, bank2->data->idx );
+//   fd_bank_t new_root[1];
+//   FD_TEST( fd_banks_root( new_root, banks ) );
+//   FD_TEST( fd_bank_slot_get( new_root ) == 2UL );
+//   FD_TEST( new_root->data == bank2->data );
+
+//   fd_banks_advance_root( banks, bank6->data->idx );
+//   FD_TEST( fd_banks_root( new_root, banks ) );
+//   FD_TEST( fd_bank_slot_get( new_root ) == 6UL );
+//   FD_TEST( new_root->data == bank6->data );
+
+//   fd_banks_advance_root( banks, bank7->data->idx );
+//   FD_TEST( fd_banks_root( new_root, banks ) );
+//   FD_TEST( fd_bank_slot_get( new_root ) == 7UL );
+//   FD_TEST( new_root->data == bank7->data );
+
+//   /* Verify that direct and competing forks are pruned off */
+//   fd_bank_t bank_prune[1];
+//   FD_TEST( !fd_banks_bank_query( bank_prune, banks, bank_idx6 ) );
+//   FD_TEST( !fd_banks_bank_query( bank_prune, banks, bank_idx3 ) );
+
+//   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, (fd_bank_t *)new_root );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 7UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+
+//   stake_delegations = fd_banks_stake_delegations_root_query( banks );
+//   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_3 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 7UL );
+//   stake_delegation = fd_stake_delegations_query( stake_delegations, &key_1 );
+//   FD_TEST( stake_delegation );
+//   FD_TEST( stake_delegation->stake == 100UL );
+
+//   /* Create some new children */
+
+//   fd_bank_t bank10[1];
+//   ulong bank_idx10 = fd_banks_new_bank( bank10, banks, bank_idx7, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank10, banks, bank_idx10 ) );
+//   FD_TEST( bank10->data->bank_seq==9UL );
+//   FD_TEST( fd_bank_capitalization_get( bank10 ) == 2100UL );
+
+//   /* At this point, there should be an epoch leader pool element that is
+//      freed up. */
+//   FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank10->data ) ) == 3UL );
+//   fd_epoch_leaders_t * epoch_leaders3 = fd_bank_epoch_leaders_modify( bank10 );
+//   FD_TEST( epoch_leaders3 );
+
+//   fd_banks_mark_bank_frozen( banks, bank10 );
+
+//   fd_bank_t bank11[1];
+//   ulong bank_idx11 = fd_banks_new_bank( bank11, banks, bank_idx9, 0L )->data->idx;
+//   FD_TEST( fd_banks_clone_from_parent( bank11, banks, bank_idx11 ) );
+//   FD_TEST( bank11->data->bank_seq==10UL );
+//   FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
+//   fd_bank_slot_set( bank11, 11UL );
+
+//   /* Again, there are no free epoch leader pool elements. */
+//   FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11->data ) ) == 2UL );
+
+//   /* Now there should be 3 forks:
+//      1. 7 (1234) -> 8
+//      2. 7 (1234) -> 9 -> 11
+//      3  7 (1234) -> 10 */
+
+//   /* At this point, bank7 is the root and it has 3 children: bank8, bank9, and bank10 */
+
+//   /* Verify that children slots are not pruned off */
+
+//   fd_bank_t bank_query[1];
+//   FD_TEST( !!fd_banks_bank_query( bank_query, banks, bank8->data->idx ) );
+//   FD_TEST( !!fd_banks_bank_query( bank_query, banks, bank9->data->idx ) );
+//   FD_TEST( !!fd_banks_bank_query( bank_query, banks, bank10->data->idx ) );
+
+//   /* Verify that the CoW fields are properly set for bank11 */
+
+//   /* Clear bank11, we need to make sure that the pool indices are
+//      cleared and properly released.
+
+//      We test the cases where:
+//      1. Pool was not made dirty and had a non-null parent pool idx.
+//      2. Pool was not made dirty and had a null parent pool idx.
+//      3. Pool was made dirty and had a non-null parent pool idx.
+//      4. Pool was made dirty and had a null parent pool idx. */
+
+
+//   /* Set the cost tracker to some non-zero values. */
+
+//   fd_banks_clear_bank( banks, bank11, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
+//   FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
+//   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
+
+//   FD_TEST( !fd_banks_join( banksl_join, banks->data, NULL ) );
+
+//   test_bank_advancing( mem );
+
+//   test_bank_dead_eviction( mem );
+
+//   test_bank_frontier( mem );
 
   FD_LOG_NOTICE(( "pass" ));
 

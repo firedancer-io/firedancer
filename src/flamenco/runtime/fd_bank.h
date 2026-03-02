@@ -321,16 +321,18 @@ struct fd_bank_data {
   ulong parent_idx;  /* index of the parent in the node pool */
   ulong child_idx;   /* index of the left-child in the node pool */
   ulong sibling_idx; /* index of the right-sibling in the node pool */
-  ulong flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
+  ulong flags;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
 
-  ulong refcnt; /* (r) reference count on the bank, see replay for more details */
-
-  uchar stake_rewards_fork_id;
+  ulong refcnt; /* reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
 
   ushort vote_stakes_fork_id; /* fork id used by the vote stakes */
+
+  uchar stake_rewards_fork_id; /* fork id used by stake rewards */
+
+  ushort stake_delegations_fork_id; /* fork id used by stake delegations deltas */
 
   /* Timestamps written and read only by replay */
 
@@ -360,8 +362,7 @@ struct fd_bank_data {
 
   ulong vote_stakes_offset;
 
-  int   stake_delegations_delta_dirty;
-  uchar stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+  ulong stake_delegations_delta_offset;
 
   int   epoch_leaders_dirty;
   ulong epoch_leaders_pool_idx;
@@ -450,6 +451,22 @@ fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->locks->vote_stakes_lock );
 }
 
+static inline void
+fd_bank_set_stake_delegations_delta( fd_bank_data_t * bank, fd_stake_delegations_delta_t * stake_delegations_delta ) {
+  bank->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)bank;
+}
+
+static inline fd_stake_delegations_delta_t *
+fd_bank_stake_delegations_delta_locking_modify2( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
+  return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_delta_offset );
+}
+
+static inline void
+fd_bank_stake_delegations_delta_end_locking_modify2( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
+}
+
 /* fd_bank_t is the alignment for the bank state. */
 
 ulong
@@ -499,6 +516,8 @@ struct fd_banks_data {
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
   ulong vote_stakes_pool_offset;
+
+  ulong stake_delegations_delta_offset;
 
   ulong stake_rewards_offset;
 
@@ -597,32 +616,6 @@ FD_BANKS_ITER(X)
    4. fd_bank_stake_delegations_delta_locking_end_query( bank ) will
       release a read lock on the object.
 */
-
-static inline fd_stake_delegations_t *
-fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
-  if( !bank->data->stake_delegations_delta_dirty ) {
-    bank->data->stake_delegations_delta_dirty = 1;
-    fd_stake_delegations_init( fd_type_pun( bank->data->stake_delegations_delta ) );
-  }
-  return fd_type_pun( bank->data->stake_delegations_delta );
-}
-
-static inline void
-fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
-}
-
-static inline fd_stake_delegations_t *
-fd_bank_stake_delegations_delta_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
-  return bank->data->stake_delegations_delta_dirty ? fd_stake_delegations_join( bank->data->stake_delegations_delta ) : NULL;
-}
-
-static inline void
-fd_bank_stake_delegations_delta_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->locks->stake_delegations_delta_lock[ bank->data->idx ] );
-}
 
 /* fd_bank_stake_delegations_frontier_query() will return a pointer to
    the full stake delegations for the current frontier. The caller is
@@ -723,6 +716,16 @@ fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
 static inline void
 fd_banks_set_vote_stakes( fd_banks_data_t * banks_data, fd_vote_stakes_t * vote_stakes ) {
   banks_data->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)banks_data;
+}
+
+static inline fd_stake_delegations_delta_t *
+fd_banks_get_stake_delegations_delta( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
+}
+
+static inline void
+fd_banks_set_stake_delegations_delta( fd_banks_data_t * banks_data, fd_stake_delegations_delta_t * stake_delegations_delta ) {
+  banks_data->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)banks_data;
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */

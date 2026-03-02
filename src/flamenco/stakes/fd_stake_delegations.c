@@ -18,18 +18,6 @@
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-
-static inline uchar
-fd_stake_delegations_warmup_cooldown_rate_enum( double warmup_cooldown_rate ) {
-  /* TODO: Replace with fd_double_eq */
-  if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 ) ) {
-    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025;
-  } else if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 ) ) {
-    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
-  }
-  FD_LOG_CRIT(( "Invalid warmup cooldown rate %f", warmup_cooldown_rate ));
-}
-
 static inline fd_stake_delegation_t *
 fd_stake_delegations_get_pool( fd_stake_delegations_t const * stake_delegations ) {
   return fd_stake_delegation_pool_join( (uchar *)stake_delegations + stake_delegations->pool_offset_ );

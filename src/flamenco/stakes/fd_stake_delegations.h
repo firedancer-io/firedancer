@@ -147,6 +147,9 @@ struct fd_stake_delegation {
   uchar       is_tombstone;
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
   uint        idx;
+
+  uint        prev;
+  uint        next;
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -348,6 +351,127 @@ fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
 
 int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
+
+static inline uchar
+fd_stake_delegations_warmup_cooldown_rate_enum( double warmup_cooldown_rate ) {
+  /* TODO: Replace with fd_double_eq */
+  if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 ) ) {
+    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025;
+  } else if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 ) ) {
+    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
+  }
+  FD_LOG_CRIT(( "Invalid warmup cooldown rate %f", warmup_cooldown_rate ));
+}
+
+struct fd_stake_delegations_delta {
+  ulong magic;
+  ulong pool_offset_;
+  ulong map_offset_;
+  ulong fork_pool_offset_;
+
+  ulong dlist_offsets_[4096]; /* TODO:FIXME: magic number */
+
+  ulong max_stake_accounts_;
+};
+typedef struct fd_stake_delegations_delta fd_stake_delegations_delta_t;
+
+/* fd_stake_delegations_align returns the alignment of the stake
+   delegations struct. */
+
+ulong
+fd_stake_delegations_delta_align( void );
+
+/* fd_stake_delegations_footprint returns the footprint of the stake
+   delegations struct for a given amount of max stake accounts. */
+
+ulong
+fd_stake_delegations_delta_footprint( ulong max_stake_accounts,
+                                      ulong expected_stake_accounts,
+                                      ulong max_live_slots );
+
+/* fd_stake_delegations_new creates a new stake delegations struct
+   with a given amount of max stake accounts. It formats a memory region
+   which is sized based off of the number of stake accounts. The struct
+   can optionally be configured to leave tombstones in the map. This is
+   useful if fd_stake_delegations is being used as a delta. */
+
+void *
+fd_stake_delegations_delta_new( void * mem,
+                                ulong  max_stake_accounts,
+                                ulong  expected_stake_accounts,
+                                ulong  max_live_slots,
+                                ulong  seed );
+
+/* fd_stake_delegations_join joins a stake delegations struct from a
+   memory region. There can be multiple valid joins for a given memory
+   region but the caller is responsible for accessing memory in a
+   thread-safe manner. */
+
+fd_stake_delegations_delta_t *
+fd_stake_delegations_delta_join( void * mem );
+
+/* fd_stake_delegations_new_fork resets the state of a valid join of a
+   stake delegations struct. */
+
+ushort
+fd_stake_delegations_delta_new_fork( fd_stake_delegations_delta_t * stake_delegations );
+
+/* fd_stake_delegations_update will either insert a new stake delegation
+   if the pubkey doesn't exist yet, or it will update the stake
+   delegation for the pubkey if already in the map, overriding any
+   previous data. fd_stake_delegations_t must be a valid local join.
+
+   NOTE: This function CAN be called while iterating over the map, but
+   ONLY for keys which already exist in the map. */
+
+void
+fd_stake_delegations_delta_update( fd_stake_delegations_delta_t * stake_delegations,
+                                   ushort                         fork_idx,
+                                   fd_pubkey_t const *            stake_account,
+                                   fd_pubkey_t const *            vote_account,
+                                   ulong                          stake,
+                                   ulong                          activation_epoch,
+                                   ulong                          deactivation_epoch,
+                                   ulong                          credits_observed,
+                                   double                         warmup_cooldown_rate );
+
+/* fd_stake_delegations_remove removes a stake delegation corresponding
+   to a stake account's pubkey if one exists. Nothing happens if the
+   key doesn't exist in the stake delegations. fd_stake_delegations_t
+   must be a valid local join.
+
+   NOTE: If the leave_tombstones flag is set, then the entry is not
+   removed from the map, but rather set to a tombstone. If the
+   delegation does not exist in the map, then a tombstone is actually
+   inserted into the struct. */
+
+void
+fd_stake_delegations_delta_remove( fd_stake_delegations_delta_t * stake_delegations,
+                                   ushort                         fork_idx,
+                                   fd_pubkey_t const *            stake_account );
+
+void
+fd_stake_delegations_delta_evict_fork( fd_stake_delegations_delta_t * stake_delegations,
+                                       ushort                         fork_idx );
+
+ulong
+fd_stake_delegations_delta_iter_init( fd_stake_delegations_delta_t * stake_delegations,
+                                      ushort                         fork_idx );
+
+int
+fd_stake_delegations_delta_iter_done( fd_stake_delegations_delta_t * stake_delegations,
+                                      ushort                         fork_idx,
+                                      ulong                          iter );
+
+ulong
+fd_stake_delegations_delta_iter_next( fd_stake_delegations_delta_t * stake_delegations,
+                                      ushort                         fork_idx,
+                                      ulong                          iter );
+
+fd_stake_delegation_t *
+fd_stake_delegations_delta_iter_ele( fd_stake_delegations_delta_t * stake_delegations,
+                                     ushort                        fork_idx,
+                                     ulong                         iter );
 
 FD_PROTOTYPES_END
 
