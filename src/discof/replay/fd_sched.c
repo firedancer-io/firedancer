@@ -296,6 +296,9 @@ FD_WARN_UNUSED static int
 maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block );
 
 static void
+free_done_mblks( fd_sched_t * sched, fd_sched_block_t * block );
+
+static void
 try_activate_block( fd_sched_t * sched );
 
 static void
@@ -1296,6 +1299,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
          transition for empty blocks or slow blocks. */
       FD_TEST( !block->block_end_done );
       block->block_end_done = 1;
+      free_done_mblks( sched, block );
       sched->print_buf_sz = 0UL;
       print_block_metrics( sched, block );
       FD_LOG_DEBUG(( "block %lu:%lu replayed fully: %s", block->slot, bank_idx, sched->print_buf ));
@@ -1815,22 +1819,6 @@ verify_ticks_final( fd_sched_t * sched, fd_sched_block_t * block ) {
   return verify_ticks_eager( block );
 }
 
-static void
-free_done_mblks( fd_sched_t * sched, fd_sched_block_t * block ) {
-  uint idx = block->mblk_head_idx;
-  while( idx!=UINT_MAX && idx!=block->mblk_tail_idx ) {
-    fd_sched_mblk_t * m = sched->mblk_pool+idx;
-    if( !m->done ) break;
-    uint next_idx = m->next;
-    m->next = sched->mblk_pool_free_head;
-    sched->mblk_pool_free_head = idx;
-    sched->mblk_pool_free_cnt++;
-    block->mblk_freed_cnt++;
-    idx = next_idx;
-  }
-  block->mblk_head_idx = idx;
-}
-
 #define CHECK( cond )  do {             \
   if( FD_UNLIKELY( !(cond) ) ) {        \
     return FD_SCHED_AGAIN_LATER;        \
@@ -2220,6 +2208,23 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   }
 
   return rv;
+}
+
+/* FIXME unify mblk descriptor and in-progress mblk descriptor */
+static void
+free_done_mblks( fd_sched_t * sched, fd_sched_block_t * block ) {
+  uint idx = block->mblk_head_idx;
+  while( idx!=UINT_MAX && idx!=block->mblk_tail_idx ) {
+    fd_sched_mblk_t * m = sched->mblk_pool+idx;
+    if( !m->done ) break;
+    uint next_idx = m->next;
+    m->next = sched->mblk_pool_free_head;
+    sched->mblk_pool_free_head = idx;
+    sched->mblk_pool_free_cnt++;
+    block->mblk_freed_cnt++;
+    idx = next_idx;
+  }
+  block->mblk_head_idx = idx;
 }
 
 static void
