@@ -43,7 +43,7 @@ jobs:
           ls "${{ matrix.artifact_dir }}/lib"
 
       - name: Zip and upload to GitHub Artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         id: artifact-zip-m1
         with:
           path: ${{ matrix.artifact_dir }}
