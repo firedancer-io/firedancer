@@ -111,7 +111,7 @@ poll_keyswitch( fd_topo_t * topo,
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
       }
-      explicit_bzero( keypair, 32UL );
+      fd_memzero_explicit( keypair, 32UL );
       *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED;
       FD_LOG_INFO(( "Requesting all sign tiles to update authorized voter key set..." ));
       break;
@@ -125,11 +125,11 @@ poll_keyswitch( fd_topo_t * topo,
           all_updated = 0;
           break;
         } else if( FD_UNLIKELY( tile_ks->state==FD_KEYSWITCH_STATE_FAILED ) ) {
-          explicit_bzero( tile_ks->bytes, 64UL );
+          fd_memzero_explicit( tile_ks->bytes, 64UL );
           *has_error  = 1;
           break;
         } else {
-          explicit_bzero( tile_ks->bytes, 64UL );
+          fd_memzero_explicit( tile_ks->bytes, 64UL );
         }
       }
 
