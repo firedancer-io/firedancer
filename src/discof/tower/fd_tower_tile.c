@@ -544,7 +544,7 @@ get_authority( ctx_t *       ctx,
   uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) vote_state_versioned[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
   fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( vote_state_versioned, &decode_ctx );
-  FD_CRIT( !vsv, "unable to decode vote state versioned" );
+  FD_CRIT( vsv, "unable to decode vote state versioned" );
 
   fd_pubkey_t const * auth_vtr_addr = NULL;
   switch( vsv->discriminant ) {
