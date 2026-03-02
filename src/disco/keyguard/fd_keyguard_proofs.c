@@ -39,41 +39,40 @@ fd_log_private_0( char const * fmt, ... ) {
 }
 
 /* Formally shows how, given any input (within the size constraint),
-   fd_keyguard_payload_match() will not match two payload types,
-   with the exception of known ambiguity of [gossip,prune,repair] and
-   [shred,ping]. */
+  fd_keyguard_payload_match() will not match two payload types,
+  with the exception of known ambiguity of [gossip,repair] and
+  [shred,ping]. */
 void
-match(void) {
+match( void ) {
   uchar data[ FD_KEYGUARD_SIGN_REQ_MTU ];
   ulong sz;
 
   __CPROVER_assume( sz >= 0 && sz <= FD_KEYGUARD_SIGN_REQ_MTU );
 
   int sign_type;
-  ulong mask = fd_keyguard_payload_match( data, sz, sign_type );
+  ulong payload_mask = fd_keyguard_payload_match( data, sz, sign_type );
 
-  int matches = fd_ulong_popcnt( mask );
+  int matches = fd_ulong_popcnt( payload_mask );
 
   /* Matches the special casing done in fd_keyguard_payload_authorize() */
   int is_gossip_repair =
-      0==( mask &
-          (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
-              FD_KEYGUARD_PAYLOAD_REPAIR |
-              FD_KEYGUARD_PAYLOAD_PRUNE  ) ) );
+    0==( payload_mask &
+        (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
+            FD_KEYGUARD_PAYLOAD_REPAIR ) ) );
   int is_shred_ping =
-      0==( mask &
-          (~( FD_KEYGUARD_PAYLOAD_SHRED |
-              FD_KEYGUARD_PAYLOAD_PING  ) ) );
+    0==( payload_mask &
+        (~( FD_KEYGUARD_PAYLOAD_SHRED |
+            FD_KEYGUARD_PAYLOAD_PING  ) ) );
 
-  if     ( is_gossip_repair ) __CPROVER_assert( matches <= 3, "gossip conflict");
+  if     ( is_gossip_repair ) __CPROVER_assert( matches <= 2, "gossip conflict");
   else if( is_shred_ping    ) __CPROVER_assert( matches <= 2, "shred conflict");
   else                        __CPROVER_assert( matches <= 1, "no conflicts" );
 }
 
 /* Shows how given any input of any size, fd_keyguard_payload_authorize() will
-   have defined behaviour and return a sane result. */
+  have defined behaviour and return a sane result. */
 void
-authorize(void) {
+authorize( void ) {
   ulong size;
   int sign_type;
   int role;
@@ -87,7 +86,7 @@ authorize(void) {
 
 
 void
-cbmc_main(void) {
-    match();
-    authorize();
+cbmc_main( void ) {
+  match();
+  authorize();
 }

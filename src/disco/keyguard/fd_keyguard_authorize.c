@@ -311,8 +311,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   int is_gossip_repair =
     0==( payload_mask &
         (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
-            FD_KEYGUARD_PAYLOAD_REPAIR |
-            FD_KEYGUARD_PAYLOAD_PRUNE  ) ) );
+            FD_KEYGUARD_PAYLOAD_REPAIR ) ) );
   /* Also allow ambiguities between shred and gossip ping messages
      until shred sign type is fixed... */
   int is_shred_ping =
