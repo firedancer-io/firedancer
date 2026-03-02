@@ -327,7 +327,7 @@ STEM_(run1)( ulong                        in_cnt,
   /* out frag stream init */
 
   cr_avail     = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  min_cr_avail = 0UL;
+  min_cr_avail = fd_ulong_if( cons_cnt>0UL, 0UL, ULONG_MAX );
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
@@ -365,7 +365,7 @@ STEM_(run1)( ulong                        in_cnt,
     cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
   }
 
-  if( FD_UNLIKELY( burst>cr_max ) ) FD_LOG_ERR(( "one or more out links have insufficient depth for STEM_BURST %lu. cr_max is %lu", burst, cr_max ));
+  if( FD_UNLIKELY( cons_cnt>0UL && burst>cr_max ) ) FD_LOG_ERR(( "one or more out links have insufficient depth for STEM_BURST %lu. cr_max is %lu", burst, cr_max ));
 
   /* housekeeping init */
 
