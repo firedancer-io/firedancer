@@ -663,12 +663,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   } else {
     /* This is not the first shred in the set */
-    /* First, check to make sure this is not a duplicate */
-    int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
 
-    if( FD_UNLIKELY( shred_dup ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
-
-    /* Ensure that all the shreds in the FEC set have consistent
+    /* First ensure that all the shreds in the FEC set have consistent
        variants.  They all must have the same tree_depth and the same
        chained/not chained, resigned/not resigned bits. */
     if( FD_UNLIKELY( variant!=fd_uchar_if( is_data_shred, ctx->data_variant, ctx->parity_variant ) ) ) {
@@ -678,6 +674,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
     int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
     if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+
+    /* Check to make sure this is not a duplicate */
+    int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
+    if( FD_UNLIKELY( shred_dup ) ) return FD_FEC_RESOLVER_SHRED_DUPLICATE;
   }
 
   /* At this point, the shred has passed Merkle validation and is new.

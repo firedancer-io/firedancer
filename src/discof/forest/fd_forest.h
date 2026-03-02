@@ -8,6 +8,16 @@
    received in its entirety by requesting repairs for missing shreds for
    the block.
 
+   Note forest needs to track the strict subset of shreds that are known
+   by fec_resolver, store, and reasm.  If any of these structures have
+   evicted shreds, forest needs to clear out the corresponding FEC sets
+   from forest to be re-requested. It's okay if shreds are evicted from
+   reasm and we re-request for them and they pass through fec_resolver
+   again. Although we could be creating duplicate ctxs, thats fine!  We
+   might later on get an evict notice for the second incomplete ctx but
+   that's okay too!!! just have a bunch of useless messages that
+   eventually will get ignored when we publish past it!!!!
+
    Like other fork-aware structures, forest maintains a tree that
    records the ancestry of slots.  It also maintains a frontier, which
    models the leaves of the tree ie. the oldest (in ancestry) blocks
