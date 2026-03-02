@@ -4,6 +4,7 @@
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../util/fd_util.h"
 #include "fd_txncache_shmem.h"
+#include "fd_txncache_private.h"
 
 FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 
@@ -139,7 +140,7 @@ test_purge_stale( uchar * scratch0,
 
   fd_txncache_fork_id_t prev = root;
 
-  ulong const txns_per_page        = 16384UL;
+  ulong const txns_per_page        = FD_TXNCACHE_TXNS_PER_PAGE;
   ulong const stale_rounds         = 130UL;
   ulong const stale_txns_per_round = 126UL;
   ulong const total_stale          = stale_rounds*stale_txns_per_round; /* 16380 */
@@ -233,7 +234,7 @@ test_purge_stale_frees_pages( uchar * scratch0,
 
   fd_txncache_fork_id_t prev = root;
 
-  ulong const txns_per_page        = 16384UL;
+  ulong const txns_per_page        = FD_TXNCACHE_TXNS_PER_PAGE;
   ulong const pages_per_blockhash  = 3UL;
   ulong const total_capacity       = txns_per_page*pages_per_blockhash; /* 49152 */
   ulong const stale_rounds         = 130UL;

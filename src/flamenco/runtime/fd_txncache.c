@@ -346,6 +346,22 @@ remove_children( fd_txncache_t *      tc,
 }
 
 void
+fd_txncache_cancel_fork( fd_txncache_t *       tc,
+                         fd_txncache_fork_id_t fork_id ) {
+  fd_rwlock_write( tc->shmem->lock );
+  blockcache_t * fork = &tc->blockcache_pool[ fork_id.val ];
+  FD_TEST( fork->shmem->child_id.val==USHORT_MAX );
+  FD_TEST( fork->shmem->parent_id.val!=USHORT_MAX );
+  remove_blockcache( tc, fork );
+  ushort * fork_id_p = &(tc->blockcache_pool[ fork->shmem->parent_id.val ].shmem->child_id.val);
+  while( *fork_id_p!=fork_id.val ) {
+    fork_id_p = &(tc->blockcache_pool[ *fork_id_p ].shmem->sibling_id.val);
+  }
+  *fork_id_p = fork->shmem->sibling_id.val;
+  fd_rwlock_unwrite( tc->shmem->lock );
+}
+
+void
 fd_txncache_advance_root( fd_txncache_t *       tc,
                           fd_txncache_fork_id_t fork_id ) {
   fd_rwlock_write( tc->shmem->lock );
@@ -483,6 +499,12 @@ purge_stale( fd_txncache_t * tc ) {
   FD_TEST( root_shmem );
   blockcache_t * root = &tc->blockcache_pool[ blockcache_pool_idx( tc->blockcache_shmem_pool, root_shmem ) ];
   ushort free_before = tc->shmem->txnpages_free_cnt;
+  /* One might think that an optimization here is to stop the descent on
+     the latest rooted blockcache.  There could be no pruned minority
+     forks from that point on.  As a result, there could be no stale
+     transactions in any blockcache descending from that.
+     Unfortunately, frontier eviction means that any blockcache in the
+     fork tree can have stale transactions. */
   purge_stale_on_fork( tc, root );
   FD_LOG_NOTICE(( "purge_stale: txnpages_free %hu -> %hu", free_before, tc->shmem->txnpages_free_cnt ));
 }
