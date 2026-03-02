@@ -518,6 +518,16 @@ fd_stake_delegations_delta_new( void * mem,
                                 ulong  max_stake_accounts,
                                 ulong  max_live_slots ) {
 
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_stake_delegations_delta_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
   if( FD_UNLIKELY( max_live_slots>FD_STAKE_DELEGATIONS_DELTA_FORK_MAX )) {
     FD_LOG_WARNING(( "max_live_slots is too large" ));
     return NULL;
@@ -552,7 +562,7 @@ fd_stake_delegations_delta_new( void * mem,
   stake_delegations_delta->fork_pool_offset_ = (ulong)fork_pool - (ulong)mem;
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( stake_delegations_delta->magic ) = FD_STAKE_DELEGATIONS_MAGIC;
+  FD_VOLATILE( stake_delegations_delta->magic ) = FD_STAKE_DELEGATIONS_DELTA_MAGIC;
   FD_COMPILER_MFENCE();
 
   return mem;
@@ -560,7 +570,24 @@ fd_stake_delegations_delta_new( void * mem,
 
 fd_stake_delegations_delta_t *
 fd_stake_delegations_delta_join( void * mem ) {
-  return mem;
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_stake_delegations_delta_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_stake_delegations_delta_t * stake_delegations_delta = (fd_stake_delegations_delta_t *)mem;
+
+  if( FD_UNLIKELY( stake_delegations_delta->magic != FD_STAKE_DELEGATIONS_DELTA_MAGIC ) ) {
+    FD_LOG_WARNING(( "Invalid stake delegations delta magic" ));
+    return NULL;
+  }
+
+  return stake_delegations_delta;
 }
 
 ushort

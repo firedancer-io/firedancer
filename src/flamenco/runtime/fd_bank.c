@@ -283,6 +283,8 @@ fd_banks_new( void * shmem,
   }
   fd_banks_set_vote_stakes( banks_data, vote_stakes );
 
+  /* TODO: differeniate the max stake accounts param for the base stake
+     delegations and the stake delegations delta structs. */
   fd_stake_delegations_delta_t * stake_delegations_delta = fd_stake_delegations_delta_join( fd_stake_delegations_delta_new( stake_delegations_delta_mem, max_stake_accounts, max_total_banks ) );
   if( FD_UNLIKELY( !stake_delegations_delta ) ) {
     FD_LOG_WARNING(( "Failed to create stake delegations delta" ));

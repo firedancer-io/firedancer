@@ -334,6 +334,8 @@ fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
 
 #define FD_STAKE_DELEGATIONS_DELTA_FORK_MAX (4096UL)
 
+#define FD_STAKE_DELEGATIONS_DELTA_MAGIC (0xF17EDA2CE757A3ED) /* FIREDANCER STAKE D */
+
 struct fd_stake_delegations_delta {
   ulong magic;
   ulong pool_offset_;
