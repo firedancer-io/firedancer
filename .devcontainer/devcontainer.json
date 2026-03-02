@@ -37,7 +37,7 @@
         "ms-vscode.cmake-tools",
         "GitHub.copilot",
         "GitHub.copilot-chat",
-        "vadimcn.vscode-lldb"
+        "llvm-vs-code-extensions.lldb-dap"
       ],
       "settings": {
         "editor.tabSize": 2,
