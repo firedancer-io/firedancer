@@ -415,6 +415,12 @@ after_frag( fd_resolv_ctx_t *   ctx,
         memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->block_hash.uc, 32UL );
         ctx->blockhash_ring_idx++;
 
+        /* Equivocating slot with same blockhash, ignore.  See fd_txncache.h on how this is possible. */
+        if( FD_UNLIKELY( map_query( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc, NULL ) ) ) {
+          FD_LOG_WARNING(( "slot with same blockhash, ignoring: %lu", msg->slot ));
+          return;
+        }
+
         blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc );
         blockhash->slot = msg->slot;
 
