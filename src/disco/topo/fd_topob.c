@@ -504,12 +504,12 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     : (available_physical>=tiles_to_assign);  /* Firedancer */
 
   ulong cpu_idx = 0UL;
-  while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
 
   for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       if( !strcmp( tile->name, ORDERED[ i ] ) ) {
+        while( cpu_idx<FD_TILE_MAX && cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
         if( FD_UNLIKELY( cpu_idx>=cpus->cpu_cnt ) ) {
           FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
         } else {
@@ -540,11 +540,9 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
               cpu_assigned[ sibling ] = 1;
             }
             tile->cpu_idx = cpu_ordering[ try_assign ];
-            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
           } else {
             cpu_assigned[ cpu_ordering[ cpu_idx ] ] = 1;
             tile->cpu_idx = cpu_ordering[ cpu_idx ];
-            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
           }
         }
       }
