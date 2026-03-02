@@ -1039,7 +1039,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   }
 
   /* Increment the reference count on the consensus root bank to account
-     for the number of exec tiles that are waiting on it. */
+     for the number of resolv tiles that are waiting on it. */
   bank->data->refcnt += ctx->resolv_tile_cnt;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
 
