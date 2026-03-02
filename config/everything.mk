@@ -1,4 +1,4 @@
-.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
+.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean
 
@@ -19,7 +19,7 @@ CPPFLAGS+=$(EXTRA_CPPFLAGS)
 AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend
 
 # Dry rules that should set up dependency targets, but not generate them
-DRY_RULES:=check show-deps
+DRY_RULES:=check show-deps proof
 
 all: info bin include lib unit-test fuzz-test
 
@@ -263,6 +263,21 @@ run-unit-test  = $(eval $(call _run-unit-test,$(1)))
 make-integration-test = $(eval $(call _make-exe,$(1),$(2),$(3),integration-test,integration-test,$(4) $(LDFLAGS_EXE)))
 run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
+
+##############################
+# Usage: $(call make-proof,name,source_file)
+
+define _make-proof
+
+.PHONY: $(1)
+$(1):
+	$(CBMC) $(MKPATH)$(2) --c17 -DCBMC --function cbmc_main
+
+proof: $(1)
+
+endef
+
+make-proof = $(eval $(call _make-proof,$(1),$(2)))
 
 ##############################
 ## GENERIC RULES

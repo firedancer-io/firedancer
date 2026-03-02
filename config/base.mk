@@ -25,6 +25,7 @@ FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
 DATE:=date
 CAT:=cat
+CBMC?=cbmc
 
 # Default compiler configuration, if not already set
 CC?=gcc

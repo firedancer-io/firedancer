@@ -1,0 +1,23 @@
+name: CBMC Proofs
+on:
+  pull_request:
+
+jobs:
+  check-cbmc:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup CBMC
+        run: |
+          wget https://github.com/diffblue/cbmc/releases/download/cbmc-6.8.0/ubuntu-24.04-cbmc-6.8.0-Linux.deb
+          sudo dpkg -i ubuntu-24.04-cbmc-6.8.0-Linux.deb
+
+      - name: Check Proofs
+        run: |
+          cbmc --version
+          make -j proof
