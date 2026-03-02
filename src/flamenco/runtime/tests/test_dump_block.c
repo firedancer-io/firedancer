@@ -98,7 +98,7 @@ test_ctx_setup( void ) {
   FD_TEST( fd_accdb_user_v1_init ( test_ctx->accdb,       shfunk, shlocks, TEST_FUNK_TXN_MAX ) );
 
   /* Allocate memory for banks */
-  ulong  banks_footprint = fd_banks_footprint( TEST_BANK_MAX, TEST_FORK_MAX );
+  ulong  banks_footprint = fd_banks_footprint( TEST_BANK_MAX, TEST_FORK_MAX, 2048UL, 2048UL );
   void * banks_mem       = fd_wksp_alloc_laddr( test_ctx->wksp, fd_banks_align(), banks_footprint, wksp_tag );
   FD_TEST( banks_mem );
 
@@ -106,7 +106,7 @@ test_ctx_setup( void ) {
   FD_TEST( banks_locks_mem );
 
   /* Initialize banks */
-  FD_TEST( fd_banks_join( test_ctx->banks, fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 0, 8888UL ), banks_locks_mem ) );
+  FD_TEST( fd_banks_join( test_ctx->banks, fd_banks_new( banks_mem, TEST_BANK_MAX, TEST_FORK_MAX, 2048UL, 2048UL, 0, 8888UL ), banks_locks_mem ) );
 
   /* Initialize stake delegations at the root level */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );

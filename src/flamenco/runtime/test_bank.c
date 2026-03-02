@@ -7,7 +7,7 @@ test_bank_advancing( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
   fd_banks_t banksl_join[1];
-  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), locks );
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 2048UL, 2048UL, 0, 8888UL ), locks );
   /* Create the following fork tree with refcnts:
 
          P(0)
@@ -280,7 +280,7 @@ test_bank_dead_eviction( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
   fd_banks_t banksl_join[1];
-  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 0, 8888UL ), locks );
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 4UL, 2048UL, 2048UL, 0, 8888UL ), locks );
   fd_bank_data_t * bank_data_pool = fd_banks_get_bank_pool( banks->data );
 
   fd_bank_t bank_P[1];
@@ -446,7 +446,7 @@ test_bank_frontier( void * mem ) {
   fd_banks_locks_t locks[1];
   fd_banks_locks_init( locks );
   fd_banks_t banksl_join[1];
-  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 8UL, 0, 8888UL ), locks );
+  fd_banks_t * banks = fd_banks_join( banksl_join, fd_banks_new( mem, 16UL, 8UL, 2048UL, 2048UL, 0, 8888UL ), locks );
 
   /*     A
         / \

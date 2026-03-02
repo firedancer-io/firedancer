@@ -81,15 +81,12 @@ fd_stake_delegations_delta_new( void * mem,
                                 ulong  seed ) {
   ulong map_chain_cnt = stake_delegation_map_chain_cnt_est( expected_stake_accounts );
 
-  FD_LOG_WARNING(("MEM: %p", mem));
-
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_stake_delegations_delta_t * stake_delegations_delta = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(), sizeof(fd_stake_delegations_delta_t) );
   void *                         index_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, stake_delegation_pool_align(),      stake_delegation_pool_footprint( max_stake_accounts ) );
   void *                         index_map_mem           = FD_SCRATCH_ALLOC_APPEND( l, stake_delegation_map_align(),       stake_delegation_map_footprint( map_chain_cnt ) );
   void *                         pool_mem                = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),                       pool_footprint( max_live_slots ) );
   for( ushort i=0; i<max_live_slots; i++ ) {
-    FD_LOG_WARNING(("ASDF"));
     void * fork_dlist_mem = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(), fork_dlist_footprint() );
     fork_dlist_t * fork_dlist = fork_dlist_join( fork_dlist_new( fork_dlist_mem ) );
     if( FD_UNLIKELY( !fork_dlist ) ) {

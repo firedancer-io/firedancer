@@ -767,7 +767,9 @@ fd_banks_align( void );
 
 ulong
 fd_banks_footprint( ulong max_total_banks,
-                    ulong max_fork_width );
+                    ulong max_fork_width,
+                    ulong max_stake_accounts,
+                    ulong max_vote_accounts );
 
 
 /* fd_banks_locks_init() initializes the locks for the fd_banks_t
@@ -786,6 +788,8 @@ void *
 fd_banks_new( void * mem,
               ulong  max_total_banks,
               ulong  max_fork_width,
+              ulong  max_stake_accounts,
+              ulong  max_vote_accounts,
               int    larger_max_cost_per_block,
               ulong  seed );
 
