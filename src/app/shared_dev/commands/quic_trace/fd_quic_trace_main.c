@@ -212,8 +212,8 @@ quic_trace_cmd_fn( args_t *   args,
 
   fd_quic_trace_tile_ctx_remote = fd_topo_obj_laddr( topo, target_tile->tile_obj_id );
   ulong quic_raddr              = (ulong)tile_member( fd_quic_trace_tile_ctx_remote, quic, trace_send );
-  ulong tile_align              = fd_ulong_if( trace_send, alignof(fd_txsend_tile_ctx_t), alignof(fd_quic_ctx_t) );
-  ulong tile_ctx_sz             = fd_ulong_if( trace_send, sizeof(fd_txsend_tile_ctx_t), sizeof(fd_quic_ctx_t) );
+  ulong tile_align              = fd_ulong_if( trace_send, alignof(fd_txsend_tile_t), alignof(fd_quic_ctx_t) );
+  ulong tile_ctx_sz             = fd_ulong_if( trace_send, sizeof(fd_txsend_tile_t), sizeof(fd_quic_ctx_t) );
   fd_quic_trace_tile_ctx_raddr  = quic_raddr - fd_ulong_align_up( tile_ctx_sz, fd_ulong_max( tile_align, fd_quic_align() ) );
 
   FD_LOG_INFO(("quic_raddr %p", (void *)quic_raddr));
