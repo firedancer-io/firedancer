@@ -38,6 +38,10 @@ fd_log_private_0( char const * fmt, ... ) {
   return "";
 }
 
+/* Formally shows how, given any input (within the size constraint),
+   fd_keyguard_payload_match() will not match two payload types,
+   with the exception of known ambiguity of [gossip,prune,repair] and
+   [shred,ping]. */
 void
 match(void) {
   uchar data[ FD_KEYGUARD_SIGN_REQ_MTU ];
@@ -50,12 +54,12 @@ match(void) {
 
   int matches = fd_ulong_popcnt( mask );
 
+  /* Matches the special casing done in fd_keyguard_payload_authorize() */
   int is_gossip_repair =
       0==( mask &
           (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
               FD_KEYGUARD_PAYLOAD_REPAIR |
               FD_KEYGUARD_PAYLOAD_PRUNE  ) ) );
-
   int is_shred_ping =
       0==( mask &
           (~( FD_KEYGUARD_PAYLOAD_SHRED |
@@ -66,6 +70,8 @@ match(void) {
   else                        __CPROVER_assert( matches <= 1, "no conflicts" );
 }
 
+/* Shows how given any input of any size, fd_keyguard_payload_authorize() will
+   have defined behaviour and return a sane result. */
 void
 authorize(void) {
   ulong size;
