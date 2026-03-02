@@ -244,9 +244,11 @@ fd_keyguard_authorize_gossip_prune( fd_keyguard_authority_t const * authority,
                                     ulong                           sz,
                                     int                             sign_type ) {
   if( FD_UNLIKELY( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0;
-  /* Prune messages always begin with the node's pubkey */
-  if( sz<40UL ) return 0;
-  if( 0!=memcmp( authority->identity_pubkey, data, 32 ) ) return 0;
+  /* Prune messages always start with the prefix followed by the pubkey. */
+  if( sz<66UL ) return 0;
+  if( FD_LOAD( ulong, data )!=18UL ) return 0;
+  if( 0!=memcmp( data+8UL, "\xffSOLANA_PRUNE_DATA",     18 ) ) return 0;
+  if( 0!=memcmp( authority->identity_pubkey, data+26UL, 32 ) ) return 0;
   return 1;
 }
 
