@@ -1100,13 +1100,15 @@ main( int     argc,
   ulong stem_mcache_depth[2]      = { pack_bank_link.depth,  pack_poh_link.depth  };
   ulong stem_cr_avil[2]           = { ULONG_MAX,             ULONG_MAX            };
   ulong stem_seq[2]               = { 0,                     0                    };
+  int   out_reliable[2]           = { FD_TOPOB_RELIABLE,     FD_TOPOB_RELIABLE    };
   fd_frag_meta_t * stem_mcache[2] = { pack_bank_link.mcache, pack_poh_link.mcache };
   fd_stem_context_t stem = {
     .min_cr_avail = &stem_min_cr_avail,
     .cr_avail     = stem_cr_avil,
     .depths       = stem_mcache_depth,
     .mcaches      = stem_mcache,
-    .seqs         = stem_seq
+    .seqs         = stem_seq,
+    .out_reliable = out_reliable
   };
 
   /* Populate txn_scratch */

@@ -228,6 +228,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* cr_avail */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(int),               out_cnt*sizeof(int)                  ); /* out_reliable */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
@@ -261,6 +262,7 @@ STEM_(run1)( ulong                        in_cnt,
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
+  int *          out_reliable; /* out_reliable[out_idx] is 1 if out_idx has at least one reliable consumer, else 0 */
 
   /* out flow control state */
   ulong *        cr_avail;     /* number of flow control credits available to publish downstream across all outs */
@@ -329,8 +331,9 @@ STEM_(run1)( ulong                        in_cnt,
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  out_reliable = (int *)FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   out_cnt*sizeof(int)   );
 
-  ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
+  ulong cr_max = fd_ulong_if( !out_cnt || !cons_cnt, 128UL, ULONG_MAX );
 
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
 
@@ -340,6 +343,7 @@ STEM_(run1)( ulong                        in_cnt,
     out_seq[ out_idx ] = 0UL;
 
     cr_avail[ out_idx ] = out_depth[ out_idx ];
+    out_reliable[ out_idx ] = 0;
   }
 
   cons_fseq = (ulong const **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong const *), cons_cnt*sizeof(ulong const *) );
@@ -357,6 +361,7 @@ STEM_(run1)( ulong                        in_cnt,
     cons_slow[ cons_idx ] = _cons_slow[ cons_idx ];
     cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
 
+    out_reliable[ cons_out[ cons_idx ] ] = 1;
     cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
   }
 
@@ -516,6 +521,7 @@ STEM_(run1)( ulong                        in_cnt,
       .cr_avail            = cr_avail,
       .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+      .out_reliable        = out_reliable,
     };
 #endif
 
