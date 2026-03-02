@@ -369,22 +369,6 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
-  /* More backtest->replay links in topo                                */
-  /**********************************************************************/
-
-  /* The tower tile is replaced by the backtest tile for the tower to
-     replay link.  The backtest tile simply sends monotonically
-     increasing rooted slot numbers to the replay tile, once after each
-     "replayed a full slot" notification received from the replay tile.
-     This allows the replay tile to advance its watermark, and publish
-     various data structures.  This is an oversimplified barebones mock
-     of the tower tile. */
-  fd_topob_wksp( topo, "tower_out" );
-  fd_topob_link( topo, "tower_out", "tower_out", 1024UL, sizeof(fd_tower_slot_done_t), 1UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "backt", 0UL, "tower_out", 0UL );
-
-  /**********************************************************************/
   /* Setup replay->stake/send/poh links in topo w/o consumers         */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_epoch"    );
@@ -430,6 +414,19 @@ backtest_topo( config_t * config ) {
 
   FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "execrp_replay", i );
   FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "execrp_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  /* Tower */
+
+  fd_topob_wksp( topo, "tower_out" );
+  /**/                 fd_topob_tile( topo, "tower",   "tower",   "metric_in",  cpu_idx++, 0,        0 );
+  /**/                 fd_topob_link( topo, "tower_out",     "tower_out",     16384,                                    sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
+
+  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+
+  /**/                 fd_topob_tile_in (   topo, "backt",   0UL,          "metric_in", "dedup_resolv",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_execrp", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_out(   topo, "tower",   0UL,                       "tower_out",     0UL                                                );
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
