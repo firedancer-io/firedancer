@@ -56,22 +56,26 @@ Example:
 
 ## Build System
 
-### Building
+### Building and Testing
 ```bash
-# Initial setup
-git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
-cd firedancer
-./deps.sh +dev
-make -j
+# Build (no output implies success)
+make -j 2>&1 | grep error:
 
-# Development
-make -j run  # Runs fddev dev command
+# Build with Clang
+make CC=clang
+
+# Build libFuzzer harnesses
+make BUILDDIR=clang-fuzz CC=clang EXTRAS=fuzz
+
+# Build with fuzzing and ASan
+make BUILDDIR=clang-fuzz-asan CC=clang EXTRAS="fuzz asan"
+
+# Run unit tests
+build/native/gcc/unit-test/<test_name>
+
+# Run binaries directly
+build/native/gcc/bin/<bin_name>
 ```
-
-### Machine and Extras
-- `MACHINE` variable controls target platform (default: `native`)
-- `EXTRAS` variable enables optional features (e.g., `EXTRAS="debug"`)
-- Configuration files in `config/machine/` and `config/extra/`
 
 ## Development
 
@@ -84,38 +88,25 @@ make -j run  # Runs fddev dev command
   - `.s`: Assembly files
   - (none): Shell scripts
 
-### Portability
-- Code should compile in any LP64 environment
-- Use `FD_HAS_{...}` switches for platform-specific features
-- Target x86_64 with AVX2/FMA for production builds
-- Be mindful of seccomp sandbox restrictions on syscalls
-
 ### Security
 - Most code should be covered by fuzz tests
 - Use `fd_io` over `stdio.h` for streaming file I/O
 - Handle `EINTR` correctly in I/O operations
 - Firedancer runs with strict seccomp profiles limiting syscalls
+- Note: glibc often uses different syscall names than libc wrappers would imply; always lean on existing seccomp profiles that can be assumed to work
 
 ## Testing
 
-### Test Vectors
 - Conformance tests against Agave validator in CI
 - Test vectors in separate repository: https://github.com/firedancer-io/test-vectors
 - To add new test vectors:
   1. PR to test-vectors repository with fixtures
   2. Update `contrib/test/test-vectors-fixtures/test-vectors-commit-sha.txt` with commit SHA
-
-### Running Tests
-- Unit tests are built alongside code
-- Use `make -j` to build and test
+- Run unit tests: `build/native/gcc/unit-test/<test_name>`
 
 ## Documentation
 
-### Function Documentation
-- Documentation before function prototype in comment block
-- Mention function name near beginning of comment
-- Public API functions must be documented
-- Don't repeat documentation in implementation
+Function documentation goes before the function prototype in a comment block, mentioning the function name near the beginning. Public API functions must be documented. Don't repeat documentation in implementation.
 
 Example:
 ```c
@@ -146,11 +137,10 @@ fd_rng_seq_set( fd_rng_t * rng,
 2. **Security**: Strict sandboxing, minimal syscalls, extensive fuzzing
 3. **Independence**: No dependencies on Agave code (for full Firedancer build)
 4. **Readability**: Consistent style, vertical alignment, clear documentation
-5. **Portability**: LP64 compatibility, platform-specific features gated by `FD_HAS_*`
 
 ## Additional Resources
 
 - Contributing Guide: `CONTRIBUTING.md`
 - Security Policy: `SECURITY.md`
-- Documentation: https://docs.firedancer.io/
+- Documentation: `book/` directory (source for docs.firedancer.io)
 - Code organization: `doc/organization.txt`

@@ -19,9 +19,9 @@
     "install-deps": [
       "sudo", "apt-get", "install", "-y",
       "curl", "diffutils", "build-essential", "pkgconf",
-      "zstd", "gzip", "cmake", "libclang-dev",
-      "libudev-dev", "protobuf-compiler", "autoconf",
-      "automake", "autopoint", "bison", "flex",
+      "zstd", "gzip", "cmake", "clang", "clangd",
+      "libclang-dev", "libudev-dev", "protobuf-compiler",
+      "autoconf", "automake", "autopoint", "bison", "flex",
       "gcc-multilib", "gettext", "llvm", "lcov",
       "libgmp-dev", "perl", "git"
     ],
@@ -33,24 +33,18 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-vscode.cpptools",
-        "ms-vscode.cpptools-extension-pack",
+        "llvm-vs-code-extensions.vscode-clangd",
         "ms-vscode.cmake-tools",
         "GitHub.copilot",
         "GitHub.copilot-chat",
         "vadimcn.vscode-lldb"
       ],
       "settings": {
-        "C_Cpp.default.compilerPath": "/usr/bin/gcc",
-        "C_Cpp.default.cStandard": "c17",
-        "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
         "editor.tabSize": 2,
         "editor.insertSpaces": true,
         "files.eol": "\n",
         "files.trimTrailingWhitespace": true,
-        "C_Cpp.clang_format_fallbackStyle": "none",
         "[c]": {
-          "editor.defaultFormatter": "ms-vscode.cpptools",
           "editor.formatOnSave": false
         }
       }
@@ -61,9 +55,5 @@
   
   "mounts": [
     "source=${localWorkspaceFolder}/.git,target=${containerWorkspaceFolder}/.git,type=bind,consistency=cached"
-  ],
-
-  "containerEnv": {
-    "MACHINE": "native"
-  }
+  ]
 }
