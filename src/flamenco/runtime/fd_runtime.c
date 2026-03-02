@@ -386,7 +386,6 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
 
     ulong       old_stake_t_1;
     fd_pubkey_t old_account_t_1;
-    fd_memset( &old_account_t_1, 0, sizeof(fd_pubkey_t) );  /* safe default when query returns not found */
     int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &old_account_t_1, NULL );
 
     ulong new_stake_t_2 = found ? old_stake_t_1 : 0UL;
