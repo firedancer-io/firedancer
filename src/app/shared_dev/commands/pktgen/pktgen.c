@@ -61,7 +61,7 @@ pktgen_topo( config_t * config ) {
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.pktgen.fake_dst_ip, &pktgen_tile->pktgen.fake_dst_ip ) ) ) {
     FD_LOG_ERR(( "Invalid [development.pktgen.fake_dst_ip]" ));
   }
-  fd_topob_link( topo, "pktgen_out", "pktgen", 2048UL, FD_NET_MTU, 1UL );
+  fd_topob_link( topo, "pktgen_out", "pktgen", 32768UL, FD_NET_MTU, 1UL );
   fd_topob_tile_out( topo, "pktgen", 0UL, "pktgen_out", 0UL );
   fd_topob_tile_in( topo, "net", 0UL, "metric_in", "pktgen_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
