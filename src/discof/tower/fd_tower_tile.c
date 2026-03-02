@@ -864,7 +864,7 @@ done_vote_iter:
   msg->vote_slot             = out.vote_slot;
   msg->reset_slot            = out.reset_slot;
   msg->reset_block_id        = out.reset_block_id;
-  msg->root_slot             = ULONG_MAX;
+  msg->root_slot             = out.root_slot;
   msg->root_block_id         = out.root_block_id;
   msg->replay_bank_idx       = slot_completed->bank_idx;
   msg->vote_acct_bal         = our_vote_acct_bal;
