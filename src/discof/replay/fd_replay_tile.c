@@ -1447,7 +1447,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
   fd_reasm_evicted_t evicted[1];
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, evicted ); /* FIXME manifest block_id */
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, 0, evicted ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1583,7 +1583,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_root_advanced( ctx, stem );
 
     fd_reasm_evicted_t evicted[1];
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, evicted ); /* FIXME manifest block_id */
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, 0, evicted ); /* FIXME manifest block_id */
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -1831,10 +1831,14 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
 
   fd_bank_t parent_bank[1];
-  FD_TEST( fd_banks_bank_query( parent_bank, ctx->banks, reasm_fec->parent_bank_idx ) );
+  fd_bank_t * tester =  fd_banks_bank_query( parent_bank, ctx->banks, reasm_fec->parent_bank_idx );
+  if( !tester ) {
+    FD_LOG_CRIT(( "invariant violation: parent bank idx %lu does not exist for FEC set (slot=%lu, fec_set_idx=%u)", reasm_fec->parent_bank_idx, reasm_fec->slot, reasm_fec->fec_set_idx ));
+  }
   reasm_fec->parent_bank_seq = parent_bank->data->bank_seq;
 
   if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
+    FD_LOG_NOTICE(("provisioning new bank for slot %lu", reasm_fec->slot ));
     /* If the first FEC set for a slot is observed, provision a new bank
        if you are not the leader.  Remove any stale block id map entry
        and update the block id entry. */
@@ -1867,8 +1871,10 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
     reasm_fec->bank_seq = reasm_fec->parent_bank_seq;
 
+    FD_TEST( reasm_fec->bank_idx!=ULONG_MAX );
+
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    if( FD_UNLIKELY( block_id_ele->latest_fec_idx>reasm_fec->fec_set_idx ) ) {
+    if( FD_UNLIKELY( block_id_ele->latest_fec_idx>=reasm_fec->fec_set_idx ) ) {
       FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is at least as old as the latest FEC set (slot=%lu, fec_set_idx=%u)", reasm_fec->slot, reasm_fec->fec_set_idx, block_id_ele->slot, block_id_ele->latest_fec_idx ));
       return;
     }
@@ -1980,6 +1986,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
+  FD_LOG_NOTICE(("delivering FEC set for slot %lu fec_set_idx %u", reasm_fec->slot, reasm_fec->fec_set_idx ));
   /* Standard case, the parent FEC has a valid corresponding bank. */
   fd_bank_t parent_fec_bank[1];
   if( FD_LIKELY( fd_banks_bank_query( parent_fec_bank, ctx->banks, parent->bank_idx ) &&
@@ -2000,14 +2007,17 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   for( fd_reasm_fec_t * curr = reasm_fec;; ) {
     curr = fd_reasm_parent( ctx->reasm, curr );
-    if( FD_UNLIKELY( !curr ) ) return; /* If can't connect, drop the FEC. */
+    if( FD_UNLIKELY( !curr ) ) {
+      FD_LOG_WARNING(( "can't connect FEC, dropping it" ));
+      return; /* If can't connect, drop the FEC. */
+    }
     if( FD_LIKELY( !curr->slot_complete ) ) continue;
-
-    FD_TEST( path_cnt<=FD_BANKS_MAX_BANKS );
-    path[ path_cnt++ ] = curr;
 
     fd_bank_t curr_bank[1];
     if( FD_LIKELY( fd_banks_bank_query( curr_bank, ctx->banks, curr->bank_idx ) && curr_bank->data->bank_seq==curr->bank_seq ) ) break;
+
+    FD_TEST( path_cnt<=FD_BANKS_MAX_BANKS );
+    path[ path_cnt++ ] = curr;
   }
 
   for( ulong i=path_cnt; i>0UL; i-- ) {
@@ -2022,11 +2032,12 @@ process_fec_set( fd_replay_tile_t *  ctx,
     /* Gather all FECs for this slot; */
     fd_reasm_fec_t * curr = leaf;
     for(;;) {
-      slot_fecs[ curr->fec_set_idx ] = curr;
+      slot_fecs[ curr->fec_set_idx/32 ] = curr;
       if( curr->fec_set_idx==0U ) break;
       curr = fd_reasm_parent( ctx->reasm, curr );
       FD_TEST( curr );
     }
+    FD_LOG_NOTICE(( "back-inserting FEC sets for slot %lu from fec_set_idx %u to fec_set_idx %u", leaf->slot, leaf->fec_set_idx, curr->fec_set_idx ));
 
     for( ulong j=0UL; j<=leaf->fec_set_idx/32; j++ ) {
       insert_fec_set( ctx, stem, slot_fecs[ j ] );
@@ -2402,7 +2413,8 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 static void
 process_fec_complete( fd_replay_tile_t *  ctx,
                       fd_stem_context_t * stem,
-                      uchar const *       shred_buf ) {
+                      uchar const *       shred_buf,
+                      ulong               tspub ) {
   fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
 
   fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
@@ -2418,7 +2430,7 @@ process_fec_complete( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
   fd_reasm_evicted_t evicted = { .slot = ULONG_MAX };
-  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, &evicted );
+  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, tspub, &evicted );
 
   if( FD_UNLIKELY( evicted.slot != ULONG_MAX ) ) {
     fd_memcpy( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ), &evicted, sizeof(fd_reasm_evicted_t) );
@@ -2586,7 +2598,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       /* TODO: This message/sz should be defined. */
       if( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC ) {
         /* If receive a FEC complete message. */
-        process_fec_complete( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        process_fec_complete( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), tspub );
       }
       break;
     }

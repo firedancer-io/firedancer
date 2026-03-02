@@ -714,7 +714,7 @@ check_confirmed( ctx_t           * ctx,
        recompletes, this function will trigger again and we will dump the
        second to last incorrect FEC. */
 
-    fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, 31UL );
+    fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, 31UL, 0 );
   }
 }
 
@@ -722,7 +722,8 @@ static inline void
 after_fec( ctx_t      * ctx,
            fd_shred_t * shred,
            fd_hash_t  * mr,
-           fd_hash_t  * cmr ) {
+           fd_hash_t  * cmr,
+           ulong        tspub ) {
 
   /* When this is a FEC completes msg, it is implied that all the
      other shreds in the FEC set can also be inserted.  Shred inserts
@@ -737,7 +738,8 @@ after_fec( ctx_t      * ctx,
   ulong evicted  = ULONG_MAX;
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
   if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return;
-  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
+  if( FD_LIKELY( ele && tspub > ele->fec_clear_timestamps[shred->fec_set_idx / 32] ) ) fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
+  else return;
 
   /* metrics for completed slots */
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
@@ -801,7 +803,7 @@ after_evict( ctx_t * ctx,
   uint  spilled_fec_set_idx = fd_disco_shred_out_shred_sig_fec_set_idx( sig );
   uint  spilled_max_idx     = fd_disco_shred_out_shred_sig_shred_idx  ( sig );
 
-  fd_forest_fec_clear( ctx->forest, spilled_slot, spilled_fec_set_idx, spilled_max_idx );
+  fd_forest_fec_clear( ctx->forest, spilled_slot, spilled_fec_set_idx, spilled_max_idx, 0 );
 }
 
 static void
@@ -922,7 +924,7 @@ after_frag( ctx_t *             ctx,
     }
 
     if( FD_UNLIKELY( fec_completes ) ) {
-      after_fec( ctx, shred, mr, cmr );
+      after_fec( ctx, shred, mr, cmr, tspub );
     } else {
       after_shred( ctx, sig, shred, nonce, mr, cmr );
     }
@@ -944,7 +946,7 @@ after_frag( ctx_t *             ctx,
 
   if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
     fd_reasm_evicted_t const * msg = fd_type_pun_const( ctx->buffer );
-    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, 31 );
+    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, 31, msg->fec_tspub );
   }
 
    /* Should never reach here since before_frag should have filtered out any unexpected frags. */

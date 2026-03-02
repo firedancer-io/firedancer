@@ -180,6 +180,8 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   int    confirmed;     /* whether this FEC has been confirmed */
   int    popped;        /* whether this FEC has been previously delivered by fd_reasm_pop */
 
+  ulong  tspub;         /* tspub of the FEC set, used if evicted */
+
   /* Data (set by caller) */
 
   ulong bank_dead;
@@ -194,6 +196,7 @@ struct fd_reasm_evicted {
   fd_hash_t mr;
   ulong     slot;
   uint      fec_set_idx;
+  ulong     fec_tspub;
 };
 typedef struct fd_reasm_evicted fd_reasm_evicted_t;
 
@@ -325,6 +328,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               slot_complete,
                  int               leader,
                  fd_store_t         * opt_store,
+                   ulong             tspub,
                  fd_reasm_evicted_t * evicted );
 
 /* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry

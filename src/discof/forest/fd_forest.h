@@ -169,6 +169,11 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
     fd_hash_t mr;
     fd_hash_t cmr;
   } merkle_roots[ FD_FEC_BLK_MAX ]; /* */
+
+  ulong fec_clear_timestamps[ FD_FEC_BLK_MAX ]; /* timestamp of when we last cleared this FEC set */
+
+   /* The following fields are only valid if the slot is confirmed.  They
+      are used for chain verification and tracking the confirmed block id. */
   fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
                                on confirmation, and don't know the index of the last fec set until we repair the slot
                                hash_null if not confirmed. */
@@ -782,7 +787,7 @@ fd_forest_fec_insert( fd_forest_t * forest,
   Except 2) breaks a bit with in specific leader slot cases. See
   fd_forest_fec_clear for more details. */
 void
-fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx );
+fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx, ulong tspub );
 
 /* fd_forest_fec_chain_verify verifies the chain of merkle roots for a given block.
    Returns a pointer to the first slot that does not confirm, or NULL if the chain is valid. */

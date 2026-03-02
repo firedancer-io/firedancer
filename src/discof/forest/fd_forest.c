@@ -897,6 +897,7 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted ) 
   memset( blk->merkle_roots, 0, sizeof( blk->merkle_roots ) ); /* expensive*/
   blk->confirmed_bid = empty_mr;
 
+  memset( blk->fec_clear_timestamps, 0, sizeof( blk->fec_clear_timestamps ) );
   blk->est_buffered_tick_recv = 0;
 
   /* Metrics tracking */
@@ -1083,6 +1084,8 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest: fd_forest_data_shred_insert: ele %lu is not in the forest. data_shred_insert should be preceded by blk_insert", slot ));
 # endif
 
+  FD_LOG_INFO(( "fd_forest_data_shred_insert: inserting shred idx %u for slot %lu fec set %u", shred_idx, slot, fec_set_idx ));
+
   /* Pre-filtering on merkle root.
      If we have knowledge of the confirmed merkle root, we can reject
      shreds that don't match it.  Else, we'll accept any and all shreds,
@@ -1146,6 +1149,8 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 # if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest_fec_insert: ele %lu is not in the forest. fec_insert should be preceded by blk_insert", slot ));
 # endif
+
+  FD_LOG_INFO(( "fd_forest_fec_insert: inserting fec for slot %lu fec set %u, slot_complete %d", slot, fec_set_idx, slot_complete ));
 
   uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
   if( FD_UNLIKELY( merkle_recvd( ele, fec_idx )
@@ -1262,7 +1267,7 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
 }
 
 void
-fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx ) {
+fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx, ulong tspub ) {
   VER_INC;
 
   if( FD_UNLIKELY( slot <= fd_forest_root_slot( forest ) ) ) return;
@@ -1302,7 +1307,8 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
        notion of when we completed the slot.  consumed is also updated
        mainly for metrics.  For now we leave it alone. */
   }
-  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared fec_set_idx %u to %u, slot %lu", fec_set_idx, fec_set_idx+max_shred_idx, slot ));
+  ele->fec_clear_timestamps[fec_idx] = tspub;
+  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared slot %lu fec set %u to %u ", slot, fec_set_idx, fec_set_idx+max_shred_idx ));
 }
 
 fd_forest_blk_t const *
@@ -1825,6 +1831,10 @@ fd_forest_print( fd_forest_t const * forest ) {
   fd_forest_frontier_print( forest );
   fd_forest_orphaned_print( forest );
   printf("\n");
+
+  ulong slot = 392093772;
+  fd_forest_blk_t const * ele = fd_forest_ancestry_ele_query_const( fd_forest_ancestry_const( forest ), &slot, NULL, fd_forest_pool_const( forest ) );
+  FD_LOG_NOTICE((" slot %lu, buffered_idx %u, complete_idx %u", ele->slot, ele->buffered_idx, ele->complete_idx ));
   fflush(stdout);
 }
 
