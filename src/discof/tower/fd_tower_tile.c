@@ -686,10 +686,21 @@ replay_slot_completed( ctx_t *                      ctx,
 
   fd_tower_blk_t *                tower_block = fd_tower_blocks_query ( ctx->tower_blocks, slot_completed->slot ); /* non-NULL if second replay of equivocating slot */
   if( FD_LIKELY( !tower_block ) ) tower_block = fd_tower_blocks_insert( ctx->tower_blocks, slot_completed->slot, slot_completed->parent_slot );
-  tower_block->parent_slot       = slot_completed->parent_slot;
+  else {
+    /* If the previous equivocating version had a different parent then
+       the new version, then we need to make that parent a tower leaf
+       again. */
+    if( tower_block->parent_slot != slot_completed->parent_slot ) {
+      fd_tower_leaf_t * leaf = fd_tower_leaves_pool_ele_acquire( ctx->tower_blocks->tower_leaves_pool );
+      leaf->slot = tower_block->parent_slot;
+      fd_tower_leaves_map_ele_insert( ctx->tower_blocks->tower_leaves_map, leaf, ctx->tower_blocks->tower_leaves_pool );
+      fd_tower_leaves_dlist_ele_push_tail( ctx->tower_blocks->tower_leaves_dlist, leaf, ctx->tower_blocks->tower_leaves_pool );
+    }
+    /* update the parent slot. Crucial to do this before tower_blocks_replayed*/
+    tower_block->parent_slot = slot_completed->parent_slot;
+  }
   fd_tower_blocks_replayed( ctx->tower_blocks, tower_block, slot_completed->bank_idx, &slot_completed->block_id );
-  tower_block->bank_idx          = slot_completed->bank_idx;
-  fd_tower_blocks_lockouts_clear( ctx->tower_blocks, slot_completed->parent_slot );
+  tower_block->bank_idx = slot_completed->bank_idx;
 
   /* Insert into tower_stakes and tower_voters. */
 
@@ -822,6 +833,7 @@ done_vote_iter:
       if( FD_LIKELY( fork ) )   fd_tower_blocks_remove( ctx->tower_blocks, slot );
       fd_tower_stakes_blk_t * slot_stakes = fd_tower_stakes_blk_query( ctx->tower_stakes->blk_map, slot, NULL );
       if( FD_LIKELY( slot_stakes ) )        fd_tower_stakes_blk_prune( ctx->tower_stakes, slot_stakes );
+      fd_tower_blocks_lockouts_clear( ctx->tower_blocks, slot );
     }
 
     /* ghost */
@@ -852,7 +864,7 @@ done_vote_iter:
   msg->vote_slot             = out.vote_slot;
   msg->reset_slot            = out.reset_slot;
   msg->reset_block_id        = out.reset_block_id;
-  msg->root_slot             = out.root_slot;
+  msg->root_slot             = ULONG_MAX;
   msg->root_block_id         = out.root_block_id;
   msg->replay_bank_idx       = slot_completed->bank_idx;
   msg->vote_acct_bal         = our_vote_acct_bal;

@@ -188,7 +188,7 @@ fd_tower_blocks_footprint( ulong slot_max, ulong voter_max ) {
     FD_LAYOUT_INIT,
       alignof(fd_tower_blocks_t),               sizeof(fd_tower_blocks_t)                              ),
       /* Fork structures */
-      fd_tower_blk_align(),            fd_tower_blk_footprint        ( lg_slot_max ) ),
+      fd_tower_blk_align(),              fd_tower_blk_footprint          ( lg_slot_max ) ),
       fd_tower_leaves_map_align(),       fd_tower_leaves_map_footprint      ( slot_max ) ),
       fd_tower_leaves_dlist_align(),     fd_tower_leaves_dlist_footprint    (          ) ),
       fd_tower_leaves_pool_align(),      fd_tower_leaves_pool_footprint     ( slot_max ) ),
