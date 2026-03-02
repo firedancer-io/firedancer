@@ -34,6 +34,7 @@ struct fd_snapls_tile {
   ulong pending_ctrl_sig;
   ulong num_acks;
   uchar acks[ 1 + FD_SNAPSHOT_MAX_SNAPLA_TILES ];
+  int   pending_ack_init;
 
   struct {
     fd_lthash_value_t expected_lthash;
@@ -221,8 +222,21 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
+      ulong num_acks = ctx->num_acks;
+      forward_msg = recv_acks( ctx, in_idx, sig ); /* returns 0 or 1 */
+      /* The first data frag may be received before snapls has been
+         able to process the ack from every hash tile.  This requires
+         snapls to initialize and transition into processing state
+         once, but forward the message after processing all acks. */
+      if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) {
+        /* Processing state is only allowed with a pending ack on init.
+           Once the message is forwarded, init is completed. */
+        FD_TEST( ctx->pending_ack_init );
+        ctx->pending_ack_init = !forward_msg;
+        break;
+      }
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
+      FD_TEST( !num_acks );
       ctx->state        = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full         = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->hash_account = 0;
@@ -238,6 +252,7 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
            recovery value. */
         ctx->hash_accum.calculated_lthash = ctx->recovery.full_lthash;
       }
+      ctx->pending_ack_init = !forward_msg;
       break;
     }
 
@@ -441,6 +456,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_ctrl_sig             = 0UL;
   ctx->num_acks                     = 0UL;
   fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
+  ctx->pending_ack_init             = 0;
 
   fd_lthash_zero( &ctx->hash_accum.expected_lthash );
   fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
