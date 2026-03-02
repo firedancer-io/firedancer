@@ -72,17 +72,13 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
     FD_LOG_CRIT(( "Failed to read stake history sysvar" ));
   }
 
-  if( stake_history->fd_stake_history_offset == 0 ) {
-    stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
-  } else {
-    stake_history->fd_stake_history_offset--;
-  }
+  stake_history->fd_stake_history_offset = (stake_history->fd_stake_history_offset - 1) & (stake_history->fd_stake_history_size - 1);
+
 
   if( stake_history->fd_stake_history_len < stake_history->fd_stake_history_size ) {
     stake_history->fd_stake_history_len++;
   }
 
-  // This should be done with a bit mask
   ulong idx = stake_history->fd_stake_history_offset;
 
   stake_history->fd_stake_history[ idx ].epoch              = pair->epoch;
