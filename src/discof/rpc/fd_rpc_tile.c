@@ -173,6 +173,9 @@ typedef struct fd_rpc_out fd_rpc_out_t;
 struct bank_info {
   ulong slot; /* default ULONG_MAX */
   ulong bank_idx;
+  ulong epoch;
+  ulong slot_in_epoch;
+  ulong slots_per_epoch;
 
   ulong transaction_count;
   uchar block_hash[ 32 ];
@@ -416,6 +419,9 @@ returnable_frag( fd_rpc_tile_t *     ctx,
 
         bank_info_t * bank = &ctx->banks[ slot_completed->bank_idx ];
         bank->slot = slot_completed->slot;
+        bank->epoch = slot_completed->epoch;
+        bank->slot_in_epoch = slot_completed->slot_in_epoch;
+        bank->slots_per_epoch = slot_completed->slots_per_epoch;
         bank->transaction_count = slot_completed->transaction_count;
         bank->block_height = slot_completed->block_height;
         fd_memcpy( bank->block_hash, slot_completed->block_hash.uc, 32 );
@@ -1154,7 +1160,30 @@ getClusterNodes( fd_rpc_tile_t * ctx,
   return STAGE_JSON( ctx );
 }
 
-UNIMPLEMENTED(getEpochInfo) // TODO: Used by solana-exporter
+static fd_http_server_response_t
+getEpochInfo( fd_rpc_tile_t * ctx,
+              cJSON const *   id,
+              cJSON const *   params ) {
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
+
+  ulong bank_idx = ULONG_MAX;
+  cJSON const * config = cJSON_GetArrayItem( params, 0 );
+  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct RpcContextConfig",
+                                              1, /* has_commitment */
+                                              0, /* has_encoding */
+                                              0, /* has_data_slice */
+                                              1, /* has_min_context_slot */
+                                              &bank_idx,
+                                              NULL,
+                                              NULL,
+                                              NULL,
+                                              &response );
+  if( FD_UNLIKELY( !config_valid ) ) return response;
+
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}\n", ctx->banks[ bank_idx ].slot, ctx->banks[ bank_idx ].block_height, ctx->banks[ bank_idx ].epoch, ctx->banks[ bank_idx ].slot_in_epoch, ctx->banks[ bank_idx ].slots_per_epoch, ctx->banks[ bank_idx ].transaction_count, cJSON_PrintUnformatted( id ) );
+}
+
 UNIMPLEMENTED(getEpochSchedule)
 UNIMPLEMENTED(getFeeForMessage)
 UNIMPLEMENTED(getFirstAvailableBlock) // TODO: Used by solana-exporter

@@ -728,6 +728,23 @@ GET_CLUSTER_NODES = [
     },
 ]
 
+GET_EPOCH_INFO = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getEpochInfo",
+        },
+        "description": f"getEpochInfo success",
+        "exclude_paths": [
+            "root['msg']['result']['absoluteSlot']",
+            "root['msg']['result']['blockHeight']",
+            "root['msg']['result']['slotIndex']",
+            "root['msg']['result']['transactionCount']",
+        ],
+    },
+]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process some data")
     parser.add_argument(
@@ -755,6 +772,7 @@ if __name__ == "__main__":
         *GET_SLOT,
         *GET_TRANSACTION_COUNT,
         *GET_CLUSTER_NODES,
+        *GET_EPOCH_INFO,
     ]
 
     run_test_suite(tester, test_suite, args.only_first)
