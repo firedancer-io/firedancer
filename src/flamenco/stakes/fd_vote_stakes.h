@@ -169,6 +169,7 @@ void
 fd_vote_stakes_insert_root_update( fd_vote_stakes_t *  vote_stakes,
                                    fd_pubkey_t const * vote_acc,
                                    fd_pubkey_t const * node_acc,
+                                   uchar               commission,
                                    ulong               stake,
                                    int                 is_t_1 );
 
@@ -204,6 +205,8 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
                        fd_pubkey_t *      pubkey,
                        ulong              stake_t_1,
                        ulong              stake_t_2,
+                       uchar              commission_t_1,
+                       uchar              commission_t_2,
                        fd_pubkey_t *      node_account_t_1,
                        fd_pubkey_t *      node_account_t_2 );
 
@@ -219,6 +222,8 @@ fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
                       fd_pubkey_t const * pubkey,
                       ulong *             stake_t_1_out_opt,
                       ulong *             stake_t_2_out_opt,
+                      uchar *             commission_t_1_out_opt,
+                      uchar *             commission_t_2_out_opt,
                       fd_pubkey_t *       node_account_t_1_out_opt,
                       fd_pubkey_t *       node_account_t_2_out_opt );
 

@@ -296,6 +296,8 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
                                     &stake_t_1,
                                     NULL,
                                     NULL,
+                                    NULL,
+                                    NULL,
                                     NULL );
   *_ret = found ? stake_t_1 : 0UL;
   fd_bank_vote_stakes_end_locking_modify( vm->instr_ctx->bank );

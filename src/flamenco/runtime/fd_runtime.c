@@ -385,17 +385,31 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
     if( FD_UNLIKELY( vote_ele->invalid ) ) continue;
 
     ulong       old_stake_t_1;
+    uchar       old_commission_t_1;
     fd_pubkey_t old_account_t_1;
-    int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &old_account_t_1, NULL );
+    int found = fd_vote_stakes_query( vote_stakes,
+                                      parent_idx,
+                                      &vote_ele->pubkey,
+                                      &old_stake_t_1,
+                                      NULL,
+                                      &old_commission_t_1,
+                                      NULL,
+                                      &old_account_t_1,
+                                      NULL );
 
     ulong new_stake_t_2 = found ? old_stake_t_1 : 0UL;
-    ulong new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
+    ulong new_stake_t_1 = vote_ele->stake;
+
+    uchar new_commission_t_2 = found ? old_commission_t_1 : UCHAR_MAX;
+    uchar new_commission_t_1 = vote_ele->commission;
 
     fd_vote_stakes_insert( vote_stakes,
                            child_idx,
                            &vote_ele->pubkey,
                            new_stake_t_1,
                            new_stake_t_2,
+                           new_commission_t_1,
+                           new_commission_t_2,
                            &vote_ele->node_account,
                            &old_account_t_1 );
   }
@@ -1665,8 +1679,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
       fd_pubkey_t node_account = fd_vsv_get_node_account( account->data );
 
-      fd_vote_stakes_insert_root_update( vote_stakes, &account->pubkey, &node_account, stake, 1 );
-      fd_vote_stakes_insert_root_update( vote_stakes, &account->pubkey, &node_account, stake, 0 );
+      fd_vote_stakes_insert_root_update( vote_stakes, &account->pubkey, &node_account, vote_ele->commission, stake, 1 );
+      fd_vote_stakes_insert_root_update( vote_stakes, &account->pubkey, &node_account, vote_ele->commission, stake, 0 );
     }
   }
 
