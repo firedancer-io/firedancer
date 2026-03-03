@@ -397,7 +397,8 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                            new_stake_t_1,
                            new_stake_t_2,
                            &vote_ele->node_account,
-                           &old_account_t_1 );
+                           &old_account_t_1,
+                           fd_bank_epoch_get( bank ) );
   }
   fd_bank_vote_stakes_end_locking_modify( bank );
 }
@@ -1569,7 +1570,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
          inserted into the vote states. Even after the vote account is
          inserted, we still don't know the total amount of stake that is
          delegated to the vote account. This must be calculated later. */
-      fd_vote_stakes_insert_root_key( vote_stakes, &account->pubkey );
+      fd_vote_stakes_insert_root_key( vote_stakes, &account->pubkey, 0UL );
     } else if( !memcmp( account->meta.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
          stake delegations cache. We should only add stake accounts that

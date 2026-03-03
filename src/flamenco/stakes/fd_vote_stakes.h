@@ -89,6 +89,10 @@
    when a root is being advanced, all entries from the deque are removed
    and each removed fork's entries are released.
 
+   The memory footprint of what is actually described above is larger
+   because each key of the index needs to be a compound of
+   the pubkey, stake_t_1, node_account_t_1, and epoch.
+
    As an important note, the vote stakes object can be used globally
    across different threads, but it is not safe to access concurrently.
    The caller is responsible for ensuring that reads and writes are
@@ -163,7 +167,8 @@ fd_vote_stakes_join( void * shmem );
 
 void
 fd_vote_stakes_insert_root_key( fd_vote_stakes_t *  vote_stakes,
-                                fd_pubkey_t * const pubkey );
+                                fd_pubkey_t * const pubkey,
+                                ulong               epoch );
 
 void
 fd_vote_stakes_insert_root_update( fd_vote_stakes_t *  vote_stakes,
@@ -205,7 +210,8 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
                        ulong              stake_t_1,
                        ulong              stake_t_2,
                        fd_pubkey_t *      node_account_t_1,
-                       fd_pubkey_t *      node_account_t_2 );
+                       fd_pubkey_t *      node_account_t_2,
+                       ulong              epoch );
 
 
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
