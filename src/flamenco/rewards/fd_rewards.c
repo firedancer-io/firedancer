@@ -261,9 +261,33 @@ fd_vote_commission_split( uchar                   commission,
       (ulong)((uint128)on * (uint128)( 100 - commission_split ) / (uint128)100);
 }
 
+
+static uchar
+get_commission_rate( fd_bank_t *          bank,
+                     fd_runtime_stack_t * runtime_stack,
+                     ulong                vote_state_idx ) {
+  if( !FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+    return runtime_stack->stakes.vote_ele[ vote_state_idx ].commission;
+  }
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+
+  uchar commission_t_2;
+  fd_vote_stakes_query( vote_stakes,
+                        bank->data->vote_stakes_fork_id,
+                        &runtime_stack->stakes.vote_ele[ vote_state_idx ].pubkey,
+                        NULL,
+                        NULL,
+                        NULL,
+                        &commission_t_2,
+                        NULL,
+                        NULL );
+  return commission_t_2;
+}
+
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
 static int
-redeem_rewards( fd_stake_delegation_t const *   stake,
+redeem_rewards( fd_bank_t *                     bank,
+                fd_stake_delegation_t const *   stake,
                 ulong                           vote_state_idx,
                 ulong                           rewarded_epoch,
                 ulong                           total_rewards,
@@ -311,7 +335,7 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
     return 1;
   }
 
-  uchar commission = runtime_stack->stakes.vote_ele[ vote_state_idx ].commission;
+  uchar commission = get_commission_rate( bank, runtime_stack, vote_state_idx );
   fd_commission_split_t split_result;
   fd_vote_commission_split( commission, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
@@ -528,6 +552,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
        vote and stake rewards for each stake account.  It does not do
        rewards redemption: it is a misnomer. */
     int err = redeem_rewards(
+        bank,
         stake_delegation,
         idx,
         rewarded_epoch,
@@ -543,7 +568,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     calculated_stake_rewards->success = 1;
 
     if( capture_ctx && capture_ctx->capture_solcap ) {
-      uchar commission = runtime_stack->stakes.vote_ele[ idx ].commission;
+      uchar commission = get_commission_rate( bank, runtime_stack, idx );
       fd_capture_link_write_stake_reward_event( capture_ctx,
                                                 fd_bank_slot_get( bank ),
                                                 stake_delegation->stake_account,

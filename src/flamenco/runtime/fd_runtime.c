@@ -398,9 +398,9 @@ fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
                                       NULL );
 
     ulong new_stake_t_2 = found ? old_stake_t_1 : 0UL;
-    ulong new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
+    ulong new_stake_t_1 = vote_ele->stake;
 
-    uchar new_commission_t_2 = found ? old_commission_t_1 : vote_ele->commission;
+    uchar new_commission_t_2 = found ? old_commission_t_1 : UCHAR_MAX;
     uchar new_commission_t_1 = vote_ele->commission;
 
     fd_vote_stakes_insert( vote_stakes,
