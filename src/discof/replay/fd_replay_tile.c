@@ -2028,7 +2028,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
       FD_TEST( curr );
     }
 
-    for( ulong j=0UL; j<=leaf->fec_set_idx; j++ ) {
+    for( ulong j=0UL; j<=leaf->fec_set_idx/32; j++ ) {
       insert_fec_set( ctx, stem, slot_fecs[ j ] );
     }
   }
