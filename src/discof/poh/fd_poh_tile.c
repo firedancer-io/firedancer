@@ -280,8 +280,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* One tick, one microblock, one slot ended */
-#define STEM_BURST (3UL)
+/* One tick, one microblock */
+#define STEM_BURST (2UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
