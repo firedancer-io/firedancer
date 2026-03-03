@@ -86,7 +86,8 @@ fd_crds_metrics( fd_crds_t const * crds );
 void
 fd_crds_advance( fd_crds_t *         crds,
                  long                now,
-                 fd_stem_context_t * stem );
+                 fd_stem_context_t * stem,
+                 int *               charge_busy );
 
 /* fd_crds_len returns the number of entries in the CRDS table. This
    does not include purged entries, which have a separate queue tracking

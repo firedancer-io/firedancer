@@ -853,7 +853,8 @@ fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
 static void
 tx_ping( fd_gossip_t *       gossip,
          fd_stem_context_t * stem,
-         long                now ) {
+         long                now,
+         int *               charge_busy ) {
   uchar out_payload[ sizeof(fd_gossip_ping_t) + 4UL ];
   FD_STORE( uint, out_payload, FD_GOSSIP_MESSAGE_PING );
 
@@ -875,6 +876,7 @@ tx_ping( fd_gossip_t *       gossip,
 
     gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PING ]++;
     gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PING ] += sizeof(out_payload) + 42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
+    if( charge_busy ) *charge_busy = 1;
   }
 }
 
@@ -1038,16 +1040,18 @@ tx_pull_request( fd_gossip_t *       gossip,
 void
 fd_gossip_advance( fd_gossip_t *       gossip,
                    long                now,
-                   fd_stem_context_t * stem ) {
+                   fd_stem_context_t * stem,
+                   int *               charge_busy ) {
   outbound_budget_replenish( gossip, now );
 
   fd_gossip_purged_expire( gossip->purged, now );
-  fd_active_set_advance( gossip->active_set, stem, now );
-  fd_crds_advance( gossip->crds, now, stem );
+  fd_active_set_advance( gossip->active_set, stem, now, charge_busy );
+  fd_crds_advance( gossip->crds, now, stem, charge_busy );
 
-  tx_ping( gossip, stem, now );
+  tx_ping( gossip, stem, now, charge_busy );
   if( FD_UNLIKELY( now>=gossip->timers.next_pull_request ) ) {
     tx_pull_request( gossip, stem, now );
+    if( charge_busy ) *charge_busy = 1;
     /* 1.6ms (625/s).  Agave sends min(1024, ceil(2^mask_bits/8))
        filters every 500ms.  For a typical mainnet table (~65k items,
        mask_bits≈7) that is ~16 filters/500ms = one every 31ms.  We
@@ -1077,6 +1081,7 @@ fd_gossip_advance( fd_gossip_t *       gossip,
     refresh_contact_info( gossip, now );
     fd_active_set_push( gossip->active_set, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     gossip->timers.next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
+    if( charge_busy ) *charge_busy = 1;
   }
 }
 

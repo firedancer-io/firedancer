@@ -328,16 +328,19 @@ rotate_active_set( fd_active_set_t *   active_set,
 void
 fd_active_set_advance( fd_active_set_t *   active_set,
                        fd_stem_context_t * stem,
-                       long                now ) {
+                       long                now,
+                       int *               charge_busy ) {
   while( !push_dlist_is_empty( active_set->push_dlist, active_set->peers ) ) {
     fd_active_set_peer_t * head = push_dlist_ele_peek_head( active_set->push_dlist, active_set->peers );
     if( FD_LIKELY( head->timestamp>=now-1L*1000L*1000L ) ) break;
 
     push_flush( active_set, head, stem, now );
+    if( charge_busy ) *charge_busy = 1;
   }
 
   if( FD_UNLIKELY( now>=active_set->next_rotate_nanos ) ) {
     rotate_active_set( active_set, stem, now );
     active_set->next_rotate_nanos = now+300L*1000L*1000L;
+    if( charge_busy ) *charge_busy = 1;
   }
 }
