@@ -11,6 +11,7 @@ union fdctl_args {
   } run1;
 
   struct {
+    char topo[ 64 ];
     long dt_min;
     long dt_max;
     long duration;
