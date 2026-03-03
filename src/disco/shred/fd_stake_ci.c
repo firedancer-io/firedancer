@@ -112,6 +112,10 @@ ulong
 compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weight,
                                       fd_vote_stake_weight_t const * vote_stake_weight,
                                       ulong                          staked_cnt ) {
+
+  if( FD_UNLIKELY( staked_cnt > MAX_SHRED_DESTS ) )
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
+                 " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));
   /* Copy from input message [(vote, id, stake)] into old format [(id, stake)]. */
   for( ulong i=0UL; i<staked_cnt; i++ ) {
     memcpy( stake_weight[ i ].key.uc, vote_stake_weight[ i ].id_key.uc, sizeof(fd_pubkey_t) );
