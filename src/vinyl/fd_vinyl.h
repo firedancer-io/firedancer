@@ -109,36 +109,6 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong fd_vinyl_align    ( void );
 FD_FN_CONST ulong fd_vinyl_footprint( void );
 
-/* fd_vinyl_init uses the the caller (typically tpool thread t0) and
-   tpool threads (t0,t1) to init the vinyl structure (this structure can
-   be extremely large ... hundreds of gigabytes to terabytes in memory
-   for petabytes or more in persistent storage ... so it is worthwhile
-   to parallelize the initialization).  The bstream's past will be used
-   to recover the vinyl instance to the bstream's seq_present.  The
-   recovery level is given by level (see fd_vinyl_recover below).
-   Assumes tpool threads (t0,t1) are available for dispatch.  These
-   threads will be avaialble for dispatch on return.  Retain no interest
-   in tpool.  If tpool is NULL and/or the set [t0,t1) is empty/invalid,
-   uses a serial algorithm for initialization. */
-
-fd_vinyl_t *
-fd_vinyl_init( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
-               void * lmem,                         /* memory region to hold the vinyl's state */
-               void * shcnc,  ulong cnc_footprint,  /* memory region to use for the tile cnc */
-               void * shmeta, ulong meta_footprint, /* memory region to use for the cached pair metadata state */
-               void * shline, ulong line_footprint, /* memory region to use for the cached pair state */
-               void * shele,  ulong ele_footprint,  /* memory region to use for the cached pair metadata */
-               void * shobj,  ulong obj_footprint,  /* memory region to use for the cached pairs */
-               fd_vinyl_io_t * io,                  /* interface to the underlying bstream */
-               ulong  seed,
-               void * obj_laddr0,
-               ulong  async_min,
-               ulong  async_max,
-               ulong  part_thresh,
-               ulong  gc_thresh,
-               int    gc_eager,
-               int    style );
-
 void *
 fd_vinyl_fini( fd_vinyl_t * vinyl );
 
@@ -203,74 +173,6 @@ FD_FN_PURE static inline ulong fd_vinyl_part_thresh( fd_vinyl_t const * vinyl ) 
 FD_FN_PURE static inline ulong fd_vinyl_gc_thresh  ( fd_vinyl_t const * vinyl ) { return vinyl->gc_thresh;   }
 FD_FN_PURE static inline int   fd_vinyl_gc_eager   ( fd_vinyl_t const * vinyl ) { return vinyl->gc_eager;    }
 FD_FN_PURE static inline int   fd_vinyl_style      ( fd_vinyl_t const * vinyl ) { return vinyl->style;       }
-
-/* fd_vinyl_compact does up to compact_max rounds of compaction to the
-   bstream's past.  This cannot fail from the caller's perspective (will
-   FD_LOG_CRIT if any corruption is detected). */
-/* FIXME: PRIVATE */
-
-void
-fd_vinyl_compact( fd_vinyl_t * vinyl,
-                  ulong        compact_max );
-
-/* fd_vinyl_recover uses the caller (typically tpool thread t0) and
-   tpool threads (t0,t1) to reset the vinyl meta cache, reset the vinyl
-   data cache, reset vinyl cache line eviction priorities and repopulate
-   the vinyl meta data cache from the current state of the bstream's
-   past to the bstream's seq_present.  level zero/non-zero indicates to
-   do a soft/hard reset.  In a soft reset, the data cache region is
-   minimally cleared.  In a hard reset, it is fully cleared.  A hard
-   reset is recommended for most usage but a soft reset can allow faster
-   startup for rapid iteration during development.
-
-   Returns the bstream sequence number of how far recovery got (if this
-   is not seq_present, the recovery was partial and it is theoretically
-   moves in the recovery were not processed atomically).  Logs details
-   of any issues encoutered.
-
-   Assumes the tpool threads (t0,t1) are available for dispatch.
-   Retains no interest in tpool and threads (t0,t1) will be available
-   for dispatch on return. */
-/* FIXME: PRIVATE */
-
-ulong
-fd_vinyl_recover( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
-                  fd_vinyl_t * vinyl );
-
-/* fd_vinyl_exec runs a vinyl tile on the caller. */
-
-void
-fd_vinyl_exec( fd_vinyl_t * vinyl );
-
-int
-fd_vinyl_halt( fd_cnc_t * cnc );
-
-int
-fd_vinyl_sync( fd_cnc_t * cnc );
-
-int
-fd_vinyl_get( fd_cnc_t * cnc,
-              int        opt,
-              ulong *    opt_val );
-
-int
-fd_vinyl_set( fd_cnc_t * cnc,
-              int        opt,
-              ulong      val,
-              ulong *    opt_val );
-
-int
-fd_vinyl_client_join( fd_cnc_t *      cnc,
-                      fd_vinyl_rq_t * rq,
-                      fd_vinyl_cq_t * cq,
-                      fd_wksp_t *     wksp,
-                      ulong           link_id,
-                      ulong           burst_max,
-                      ulong           quota_max );
-
-int
-fd_vinyl_client_leave( fd_cnc_t * cnc,
-                       ulong      link_id );
 
 #define FD_VINYL_CNC_SIGNAL_CSTR_BUF_MAX (21UL)
 

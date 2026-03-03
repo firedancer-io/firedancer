@@ -13,6 +13,7 @@
 
 #include "../../vinyl/cq/fd_vinyl_cq.h"
 #include "../../vinyl/rq/fd_vinyl_rq.h"
+#include "../../vinyl/line/fd_vinyl_line.h"
 #include "fd_accdb_user.h"
 #include "fd_accdb_lineage.h"
 #include "fd_vinyl_req_pool.h"
@@ -47,6 +48,12 @@ struct fd_accdb_user_v2 {
   fd_wksp_t *           vinyl_data_wksp;
   fd_wksp_t *           vinyl_req_wksp;
   fd_vinyl_req_pool_t * vinyl_req_pool;
+  fd_vinyl_line_t *     vinyl_line;       /* vinyl cache line array (shared memory) */
+
+  /* Speculative read (specread) state — populated by init_cache */
+  fd_vinyl_meta_t       vinyl_meta[1];    /* local join of meta map */
+  ulong                 vinyl_line_cnt;   /* number of cache lines */
+  fd_wksp_t *           vinyl_specrd_wksp; /* data workspace for gaddr resolution */
 };
 
 typedef struct fd_accdb_user_v2 fd_accdb_user_v2_t;
@@ -62,8 +69,23 @@ fd_accdb_user_v2_init( fd_accdb_user_t * ljoin,
                        void *            vinyl_rq,
                        void *            vinyl_data,
                        void *            vinyl_req_pool,
+                       void *            vinyl_line,
                        ulong             vinyl_link_id,
                        ulong             max_depth );
+
+/* fd_accdb_user_v2_init_cache enables speculative reads on an
+   already-initialized v2 accdb client.  vinyl_shmeta / vinyl_shele /
+   vinyl_shline point to the shared meta map, element pool, and line
+   array created by the accdb tile.  vinyl_line_cnt is the number of
+   cache lines.  If vinyl_shmeta is NULL, specread is disabled (the
+   client only uses rq/cq). */
+
+void
+fd_accdb_user_v2_init_cache( fd_accdb_user_t * ljoin,
+                              void *            vinyl_shmeta,
+                              void *            vinyl_shele,
+                              void *            vinyl_shline,
+                              ulong             vinyl_line_cnt );
 
 FD_PROTOTYPES_END
 

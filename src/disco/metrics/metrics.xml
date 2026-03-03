@@ -671,6 +671,12 @@ metric introduced.
     <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
     <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not" />
     <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
+    <counter name="AccdbLookupFunk" summary="Number of account lookups resolved from funk (in-memory fork store)" />
+    <counter name="AccdbLookupSpecrd" summary="Number of account lookups resolved from speculative read (vinyl cache)" />
+    <counter name="AccdbLookupAccdb" summary="Number of account lookups sent to accdb tile (vinyl rq/cq)" />
+    <counter name="AccdbDtFunk" converter="seconds" summary="Cumulative time spent in funk (in-memory) account lookups" />
+    <counter name="AccdbDtSpecrd" converter="seconds" summary="Cumulative time spent in speculative read (vinyl cache) account lookups" />
+    <counter name="AccdbDtVinyl" converter="seconds" summary="Cumulative time spent waiting for vinyl rq/cq account lookups" />
 </tile>
 
 <tile name="bank" telemetry="false">
@@ -798,20 +804,13 @@ metric introduced.
 
   <counter name="AccdbCreated" summary="Number of account database records created" />
   <counter name="AccdbReverted" summary="Number of account database records reverted" />
-  <counter name="AccdbRooted" summary="Number of account database entries rooted" />
-  <counter name="AccdbRootedBytes" summary="Number of bytes in account database entries rooted (including overhead)" />
-  <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
-  <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
 
-  <histogram name="RootSlotDurationSeconds" min="0.0005" max="1.0" converter="seconds">
-    <summary>Time in seconds spent updating the rooted account store (one sample per block)</summary>
-  </histogram>
-
-  <histogram name="RootAccountDurationSeconds" min="0.0000001" max="0.1" converter="seconds">
-    <summary>Time in seconds spent updating the rooted account store (one sample per block, normalized by account count)</summary>
-  </histogram>
-
-  <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
+  <counter name="AccdbLookupFunk" summary="Number of account lookups resolved from funk (in-memory fork store)" />
+  <counter name="AccdbLookupSpecrd" summary="Number of account lookups resolved from speculative read (vinyl cache)" />
+  <counter name="AccdbLookupAccdb" summary="Number of account lookups sent to accdb tile (vinyl rq/cq)" />
+  <counter name="AccdbDtFunk" converter="seconds" summary="Cumulative time spent in funk (in-memory) account lookups" />
+  <counter name="AccdbDtSpecrd" converter="seconds" summary="Cumulative time spent in speculative read (vinyl cache) account lookups" />
+  <counter name="AccdbDtVinyl" converter="seconds" summary="Cumulative time spent waiting for vinyl rq/cq account lookups" />
 </tile>
 
 <enum name="RepairSentRequestTypes">
@@ -1170,9 +1169,15 @@ metric introduced.
     <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
     <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
     <counter name="AccdbCreated" summary="Number of account database records created" />
+    <counter name="AccdbLookupFunk" summary="Number of account lookups resolved from funk (in-memory fork store)" />
+    <counter name="AccdbLookupSpecrd" summary="Number of account lookups resolved from speculative read (vinyl cache)" />
+    <counter name="AccdbLookupAccdb" summary="Number of account lookups sent to accdb tile (vinyl rq/cq)" />
+    <counter name="AccdbDtFunk" converter="seconds" summary="Cumulative time spent in funk (in-memory) account lookups" />
+    <counter name="AccdbDtSpecrd" converter="seconds" summary="Cumulative time spent in speculative read (vinyl cache) account lookups" />
+    <counter name="AccdbDtVinyl" converter="seconds" summary="Cumulative time spent waiting for vinyl rq/cq account lookups" />
 
-    <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes" />
-    <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes" />
+    <counter name="TxnRegime" converter="seconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes" />
+    <counter name="VmRegime" converter="seconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes" />
 
     <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
     <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
@@ -1270,12 +1275,6 @@ metric introduced.
     <counter name="BytesRead" summary="The total number of bytes read from the event service" />
 </tile>
 
-<enum name="VinylRequest">
-    <int value="0" name="Acquire" label="Acquire record" />
-    <int value="1" name="Release" label="Release record" />
-    <int value="2" name="Erase" label="Erase record" />
-</enum>
-
 <enum name="VinylBlocks">
     <int value="0" name="Pair" label="Record" />
     <int value="1" name="Dead" label="Record deletion" />
@@ -1308,7 +1307,7 @@ metric introduced.
     <!-- developer metrics -->
     <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
     <counter name="RequestBatches" summary="Number of request batches processed" />
-    <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
+    <counter name="Requests" summary="Number of requests processed" />
     <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
     <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
     <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />

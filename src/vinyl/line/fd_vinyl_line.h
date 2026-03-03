@@ -83,7 +83,10 @@
      acquired-for-read ref times. */
 
 struct __attribute__((aligned(32))) fd_vinyl_line {
-  fd_vinyl_data_obj_t * obj;            /* location in the data cache of the data_obj storing val, NULL if not caching a pair */
+  union {
+    fd_vinyl_data_obj_t * obj;          /* location in the data cache of the data_obj storing val, NULL if not caching a pair */
+    ulong                 obj_gaddr;    /* same, as a global address for cross-address-space use */
+  };
   ulong                 ele_idx;        /* map element storing key and the pair metadata (app and key), in [0,map_cnt) */
   ulong                 ctl;            /* packs the line version and line reference count */
   uint                  line_idx_older; /* older line in eviction sequence, in [0,line_cnt) */
@@ -91,6 +94,8 @@ struct __attribute__((aligned(32))) fd_vinyl_line {
 };
 
 typedef struct fd_vinyl_line fd_vinyl_line_t;
+
+FD_STATIC_ASSERT( sizeof(fd_vinyl_line_t)==32UL, layout );
 
 FD_PROTOTYPES_BEGIN
 

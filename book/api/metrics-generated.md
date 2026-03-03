@@ -610,6 +610,12 @@
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but failed to execute) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not (Transaction did not land) |
 | <span class="metrics-name">execle_&#8203;compute_&#8203;units_&#8203;total</span> | counter | Estimated number of compute units executed since tile start |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;lookup_&#8203;funk</span> | counter | Number of account lookups resolved from funk (in-memory fork store) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;lookup_&#8203;specrd</span> | counter | Number of account lookups resolved from speculative read (vinyl cache) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;lookup_&#8203;accdb</span> | counter | Number of account lookups sent to accdb tile (vinyl rq/cq) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;dt_&#8203;funk</span> | counter | Cumulative time spent in funk (in-memory) account lookups |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;dt_&#8203;specrd</span> | counter | Cumulative time spent in speculative read (vinyl cache) account lookups |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;dt_&#8203;vinyl</span> | counter | Cumulative time spent waiting for vinyl rq/cq account lookups |
 
 </div>
 
@@ -925,15 +931,12 @@
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted_&#8203;bytes</span> | counter | Number of bytes in account database entries rooted (including overhead) |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;account_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block, normalized by account count) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">db</span>"} | counter | Total time in seconds spent rooting accounts (Waiting on database server) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">copy</span>"} | counter | Total time in seconds spent rooting accounts (Copying account data) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;lookup_&#8203;funk</span> | counter | Number of account lookups resolved from funk (in-memory fork store) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;lookup_&#8203;specrd</span> | counter | Number of account lookups resolved from speculative read (vinyl cache) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;lookup_&#8203;accdb</span> | counter | Number of account lookups sent to accdb tile (vinyl rq/cq) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;dt_&#8203;funk</span> | counter | Cumulative time spent in funk (in-memory) account lookups |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;dt_&#8203;specrd</span> | counter | Cumulative time spent in speculative read (vinyl cache) account lookups |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;dt_&#8203;vinyl</span> | counter | Cumulative time spent waiting for vinyl rq/cq account lookups |
 
 </div>
 
@@ -951,6 +954,12 @@
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;lookup_&#8203;funk</span> | counter | Number of account lookups resolved from funk (in-memory fork store) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;lookup_&#8203;specrd</span> | counter | Number of account lookups resolved from speculative read (vinyl cache) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;lookup_&#8203;accdb</span> | counter | Number of account lookups sent to accdb tile (vinyl rq/cq) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;dt_&#8203;funk</span> | counter | Cumulative time spent in funk (in-memory) account lookups |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;dt_&#8203;specrd</span> | counter | Cumulative time spent in speculative read (vinyl cache) account lookups |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;dt_&#8203;vinyl</span> | counter | Cumulative time spent waiting for vinyl rq/cq account lookups |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction execution (includes VM setup/execution)) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction result commit) |
@@ -994,9 +1003,7 @@
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
 | <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">future</span>"} | gauge | Current bstream sequence number (Blocks between future and ancient have not been written (no read, no write)) |
 | <span class="metrics-name">accdb_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
+| <span class="metrics-name">accdb_&#8203;requests</span> | counter | Number of requests processed |
 | <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
 | <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
 | <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |

@@ -28,6 +28,7 @@
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
+#include "../../funk/fd_funk_base.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/accdb/fd_accdb_lineage.h"
@@ -216,8 +217,11 @@ setup_topo_accdb_meta( fd_topo_t *    topo,
   fd_topo_obj_t * meta_pool_obj = fd_topob_obj( topo, "vinyl_meta_e", "accdb_meta" );
   fd_pod_insertf_ulong( topo->props, meta_max, "obj.%lu.cnt", meta_pool_obj->id );
 
+  fd_topo_obj_t * line_obj = fd_topob_obj( topo, "vinyl_line", "accdb_meta" );
+
   fd_pod_insert_ulong( topo->props, "accdb.meta_map",  map_obj->id );
   fd_pod_insert_ulong( topo->props, "accdb.meta_pool", meta_pool_obj->id );
+  fd_pod_insert_ulong( topo->props, "accdb.line",       line_obj->id );
 }
 
 fd_topo_obj_t *
@@ -617,6 +621,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "replay_epoch",  "replay_epoch",  128UL,                                    FD_EPOCH_OUT_MTU,              1UL ); /* TODO: This should be 2 but requires fixing STEM_BURST */
   /**/                 fd_topob_link( topo, "replay_out",    "replay_out",    65536UL,                                  sizeof(fd_replay_message_t),   1UL );
                        fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL,                                  sizeof(fd_execrp_task_msg_t),  1UL );
+  if( !config->firedancer.accounts.in_memory_only ) {
+    fd_topob_wksp( topo, "replay_accdb" );
+    fd_topob_link( topo, "replay_accdb", "replay_accdb", 128UL, sizeof(fd_funk_txn_xid_t), 1UL );
+  }
   if( leader_enabled ) {
     /**/                   fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  65536UL,                                  FD_TPU_PARSED_MTU,             1UL );
     FOR(resolv_tile_cnt)   fd_topob_link( topo, "resolv_pack",   "resolv_pack",   65536UL,                                  FD_TPU_RESOLVED_MTU,           1UL );
@@ -748,32 +756,48 @@ fd_topo_initialize( config_t * config ) {
 
     ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
     ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+    ulong vinyl_line_obj_id = fd_pod_query_ulong( topo->props, "accdb.line",      ULONG_MAX ); FD_TEST( vinyl_line_obj_id!=ULONG_MAX );
 
     fd_topo_obj_t * accdb_map_obj  = &topo->objs[ vinyl_map_obj_id ];
     fd_topo_obj_t * accdb_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
+    fd_topo_obj_t * accdb_line_obj = &topo->objs[ vinyl_line_obj_id ];
 
     fd_topob_wksp( topo, "accdb" );
     fd_topo_tile_t * accdb_tile = fd_topob_tile( topo, "accdb", "accdb", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
     fd_topob_tile_uses( topo, accdb_tile, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, accdb_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, accdb_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "genesi", 0UL ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
+    fd_topob_tile_uses( topo, replay_tile, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, replay_tile, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topo_tile_t * t = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
+      fd_topob_tile_uses( topo, t, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, t, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
     for( ulong i=0UL; i<execle_tile_cnt; i++ ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topo_tile_t * t = &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ];
+      fd_topob_tile_uses( topo, t, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, t, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    fd_topo_tile_t * tower_tile = &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ];
+    fd_topob_tile_uses( topo, tower_tile, accdb_data,     FD_SHMEM_JOIN_MODE_READ_ONLY );
+    fd_topob_tile_uses( topo, tower_tile, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    FOR(resolv_tile_cnt) {
+      fd_topo_tile_t * t = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
+      fd_topob_tile_uses( topo, t, accdb_data,     FD_SHMEM_JOIN_MODE_READ_ONLY );
+      fd_topob_tile_uses( topo, t, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    }
     if( rpc_enabled ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_ONLY );
+      fd_topo_tile_t * t = &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ];
+      fd_topob_tile_uses( topo, t, accdb_data,     FD_SHMEM_JOIN_MODE_READ_ONLY );
+      fd_topob_tile_uses( topo, t, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
 
-    fd_topob_wksp( topo, "accdb_genesi" );
     fd_topob_wksp( topo, "accdb_replay" );
     fd_topob_wksp( topo, "accdb_execrp" );
     if( leader_enabled ) fd_topob_wksp( topo, "accdb_execle" );
@@ -929,6 +953,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_epoch",  0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_execrp", 0UL                                                );
+  if( vinyl_enabled ) {
+    fd_topob_tile_out( topo, "replay", 0UL, "replay_accdb", 0UL );
+    fd_topob_tile_in(  topo, "accdb",  0UL, "metric_in", "replay_accdb", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
   FOR(execrp_tile_cnt) fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "execrp_replay", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if(leader_enabled)  {fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "poh_replay",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );}
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1233,12 +1261,14 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  if( vinyl_enabled )  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb",  0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], funk_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL  ) ], funk_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], funk_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], funk_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], funk_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( vinyl_enabled )  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb",  0UL ) ], funk_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width, config->development.bench.larger_max_cost_per_block );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1387,7 +1417,6 @@ fd_topo_initialize( config_t * config ) {
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
   if( vinyl_enabled ) {
-    fd_topob_vinyl_rq( topo, "genesi", 0UL, "accdb_genesi", "genesi", 4UL, 1024UL, 1024UL );
     fd_topob_vinyl_rq( topo, "replay", 0UL, "accdb_replay", "replay", 4UL, 1024UL, 1024UL );
     for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
       fd_topob_vinyl_rq( topo, "execrp", i, "accdb_execrp", "execrp", 4UL, 1024UL, 1024UL );
@@ -1886,6 +1915,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->accdb.meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "accdb.meta_map",  ULONG_MAX );
     tile->accdb.meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "accdb.meta_pool", ULONG_MAX );
+    tile->accdb.line_obj_id      = fd_pod_query_ulong( config->topo.props, "accdb.line",      ULONG_MAX );
     tile->accdb.line_max         = (config->firedancer.accounts.cache_size_gib << 30) / config->firedancer.accounts.mean_account_footprint;
     tile->accdb.data_obj_id      = fd_pod_query_ulong( config->topo.props, "accdb.data",      ULONG_MAX );
     fd_cstr_ncpy( tile->accdb.bstream_path, config->paths.accounts, sizeof(tile->accdb.bstream_path) );
@@ -1893,6 +1923,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->accdb.io_type = !strcmp(config->firedancer.accounts.io_provider, "io_uring") ?
         FD_VINYL_IO_TYPE_UR : FD_VINYL_IO_TYPE_BD;
     tile->accdb.uring_depth = config->firedancer.accounts.io_uring.queue_depth;
+    tile->accdb.write_delay_slots = config->firedancer.accounts.write_delay_slots;
 
     /* Minimum bound for cache entry count */
     ulong required_cache_entries = 0UL;
@@ -1908,6 +1939,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     if( FD_UNLIKELY( required_cache_entries > tile->accdb.line_max ) ) {
       tile->accdb.line_max = required_cache_entries;
     }
+    fd_pod_insertf_ulong( config->topo.props, tile->accdb.line_max, "obj.%lu.line_cnt", tile->accdb.line_obj_id );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "solcap" ) ) ) {
 

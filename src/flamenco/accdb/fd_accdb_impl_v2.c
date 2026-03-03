@@ -1,6 +1,9 @@
 #include "fd_accdb_impl_v2.h"
 #include "fd_accdb_funk.h"
+#include "fd_accdb_specread.h"
 #include "fd_vinyl_req_pool.h"
+#include "../../vinyl/data/fd_vinyl_data.h"
+#include "../../ballet/base58/fd_base58.h"
 #include <stdatomic.h>
 
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v2_t)<=alignof(fd_accdb_user_t), layout );
@@ -244,11 +247,11 @@ funk_open_ref( fd_accdb_user_v2_t *      accdb,
   /* Traverse chain for candidate */
   fd_funk_rec_t * rec = NULL;
   int err;
-  for(;;) {
+  for( ulong backoff=1UL; ; ) {
     err = funk_rec_acquire( accdb, chain_idx, key, &rec, is_write );
     if( FD_LIKELY( err!=ACQUIRE_FAILED ) ) break;
-    FD_SPIN_PAUSE();
-    /* FIXME backoff */
+    for( ulong i=0UL; i<backoff; i++ ) FD_SPIN_PAUSE();
+    backoff = fd_ulong_min( 2UL*backoff, 32UL );
   }
   if( rec ) {
     memcpy( ref->address, address, 32UL );
@@ -292,17 +295,84 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
 
   fd_accdb_lineage_set_fork( v2->lineage, v2->funk, xid );
   ulong addr_laddr = (ulong)addr0;
+  long t0 = fd_tickcount();
   for( ulong i=0UL; i<cnt; i++ ) {
     void const * addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
     if( funk_open_ref( v2, ro0[i].ref, xid, addr_i, 0 )==ACQUIRE_READ ) {
       v2->base.ro_active++;
+      v2->base.lookup_funk++;
     } else {
       fd_accdb_ro_init_empty( &ro0[i], addr_i );
     }
   }
+  v2->base.dt_funk += fd_tickcount() - t0;
 
-  /* For the accounts that were not found in funk, open vinyl records */
+  /* Speculative cache reads — attempt pin-based direct reads for
+     accounts not found in funk.  On success, the caller gets a
+     zero-copy pointer into the vinyl data cache.
 
+     Holding specread pins across the ACQUIRE spin-wait below can
+     deadlock (root invalidation spin-drains pins while blocking
+     request processing).  Therefore specread is only useful when it
+     can resolve ALL remaining accounts, avoiding the ACQUIRE
+     entirely.  If any specread misses, we unpin everything and fall
+     through to ACQUIRE for the whole batch. */
+
+  t0 = fd_tickcount();
+  if( v2->vinyl_line_cnt ) {
+
+    /* Pin pass — attempt specread for every non-funk account.
+       Track how many we still need so we can detect partial
+       coverage without a second scan. */
+
+    ulong spec_need = 0UL;
+    ulong spec_hit  = 0UL;
+    for( ulong i=0UL; i<cnt; i++ ) {
+      if( ro0[i].ref->accdb_type!=FD_ACCDB_TYPE_NONE ) continue;
+      spec_need++;
+      void const * addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
+      fd_vinyl_key_t vkey[1];
+      fd_vinyl_key_init( vkey, addr_i, 32UL );
+      fd_account_meta_t const * meta;
+      ulong spec_line_idx;
+      int specerr = fd_accdb_specread_pin( v2->vinyl_meta,
+          v2->vinyl_line, v2->vinyl_line_cnt, v2->vinyl_specrd_wksp,
+          vkey, &meta, &spec_line_idx );
+      if( specerr==FD_VINYL_SUCCESS ) {
+        spec_hit++;
+        ro0[i] = (fd_accdb_ro_t){0};
+        memcpy( ro0[i].ref->address, addr_i, 32UL );
+        ro0[i].ref->accdb_type = FD_ACCDB_TYPE_V2S;
+        ro0[i].ref->ref_type   = FD_ACCDB_REF_RO;
+        ro0[i].ref->user_data  = spec_line_idx;
+        ro0[i].meta            = meta;
+      } else if( specerr==FD_VINYL_ERR_KEY ) {
+        fd_accdb_ro_init_empty( &ro0[i], addr_i );
+        ro0[i].ref->user_data2 = 1;
+      }
+    }
+
+    // if( spec_hit<spec_need ) {
+    //   /* Partial coverage — unpin all and let ACQUIRE handle them */
+    //   for( ulong i=0UL; i<cnt; i++ ) {
+    //     if( ro0[i].ref->accdb_type!=FD_ACCDB_TYPE_V2S ) continue;
+    //     fd_accdb_specread_unpin( v2->vinyl_line, ro0[i].ref->user_data );
+    //     ro0[i].ref->accdb_type = FD_ACCDB_TYPE_NONE;
+    //     ro0[i].ref->user_data  = 0UL;
+    //     ro0[i].meta            = NULL;
+    //   }
+    // } else {
+    //   /* Full coverage — commit all specread results */
+      v2->base.ro_active     += spec_hit;
+      v2->base.lookup_specrd += spec_hit;
+    // }
+  }
+  v2->base.dt_specrd += fd_tickcount() - t0;
+
+  /* For the accounts that were not found in funk or specread,
+     open vinyl records via rq/cq */
+
+  t0 = fd_tickcount();
   ulong batch_idx = fd_vinyl_req_pool_acquire( req_pool );
   /* req_pool_release called before returning */
   fd_vinyl_comp_t * comp           = fd_vinyl_req_batch_comp     ( req_pool, batch_idx );
@@ -314,10 +384,12 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
 
   ulong req_cnt = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( ro0[i].ref->accdb_type!=FD_ACCDB_TYPE_NONE ) continue;
-    /* At this point, addr0[i] not found in funk, load from vinyl */
+    if( ro0[i].ref->accdb_type!=FD_ACCDB_TYPE_NONE ||
+        ro0[i].ref->user_data2!=0 ) {
+      continue;
+    }
     void const * addr_i = (void const *)( (ulong)addr0 + i*32UL );
-
+    FD_BASE58_ENCODE_32_BYTES( addr_i, addr_b58 );
     fd_vinyl_key_init( req_key0+req_cnt, addr_i, 32UL );
     req_err0      [ req_cnt ] = 0;
     req_val_gaddr0[ req_cnt ] = 0UL;
@@ -326,8 +398,11 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
   if( !req_cnt ) {
     /* All records were found in funk, bail early */
     fd_vinyl_req_pool_release( req_pool, batch_idx );
+    v2->base.dt_vinyl += fd_tickcount() - t0;
     return;
   }
+
+  v2->base.lookup_accdb += req_cnt;
 
   /* Send read-only "ACQUIRE" batch to vinyl and wait for response */
 
@@ -347,7 +422,10 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
 
   req_cnt = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( ro0[i].ref->accdb_type!=FD_ACCDB_TYPE_NONE ) continue;
+    if( ro0[i].ref->accdb_type!=FD_ACCDB_TYPE_NONE ||
+        ro0[i].ref->user_data2!=0 ) {
+      continue;
+    }
     void const * addr_i = (void const *)( (ulong)addr0 + i*32UL );
 
     int   req_err   = FD_VOLATILE_CONST( req_err0      [ req_cnt ] );
@@ -365,12 +443,15 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
       ro->ref->ref_type   = FD_ACCDB_REF_RO;
       ro->meta            = meta;
     } else if( FD_UNLIKELY( req_err!=FD_VINYL_ERR_KEY ) ) {
-      FD_LOG_CRIT(( "vinyl tile ACQUIRE request failed: %i-%s", req_err, fd_vinyl_strerror( req_err ) ));
+      FD_LOG_CRIT(( "vinyl tile ACQUIRE request failed: %i-%s (idx=%lu cnt=%lu)",
+                    req_err, fd_vinyl_strerror( req_err ),
+                    i, cnt ));
     }
     req_cnt++;
   }
 
   fd_vinyl_req_pool_release( req_pool, batch_idx );
+  v2->base.dt_vinyl += fd_tickcount() - t0;
 
   /* At this point, ownership of vinyl records transitions to caller.
      (Released using close_ro_multi) */
@@ -416,14 +497,94 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
      finishes) */
 
   ulong addr_laddr = (ulong)addr0;
+  long t0 = fd_tickcount();
   for( ulong i=0UL; i<cnt; i++ ) {
     void const * addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
     funk_open_ref( v2, rw0[ i ].ref, xid, addr_i, 1 );
   }
+  v2->base.dt_funk += fd_tickcount() - t0;
 
-  /* For the accounts that were not found in funk, create writable funk
-     records from elements in vinyl. */
+  /* Speculative cache reads — for accounts not found in funk, attempt
+     pin-based direct reads from the vinyl cache.  On success, copy the
+     account into a new writable funk record and unpin immediately.
+     The pin is short-lived (held only for the memcpy) so there is no
+     deadlock risk with root invalidation.  On miss/contention, fall
+     through to the rq/cq ACQUIRE path below. */
 
+  t0 = fd_tickcount();
+  if( v2->vinyl_line_cnt ) {
+    for( ulong i=0UL; i<cnt; i++ ) {
+      if( rw0[i].ref->ref_type!=FD_ACCDB_REF_INVAL ) continue;
+      void const * addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
+      fd_vinyl_key_t vkey[1];
+      fd_vinyl_key_init( vkey, addr_i, 32UL );
+      fd_account_meta_t const * src_meta;
+      ulong spec_line_idx;
+      int specerr = fd_accdb_specread_pin( v2->vinyl_meta,
+          v2->vinyl_line, v2->vinyl_line_cnt, v2->vinyl_specrd_wksp,
+          vkey, &src_meta, &spec_line_idx );
+      if( specerr==FD_VINYL_ERR_KEY ) goto tombstone;
+      if( specerr!=FD_VINYL_SUCCESS ) continue; /* fall through to ACQUIRE */
+
+      uchar const * src_data = (uchar *)( src_meta+1 );
+
+      if( FD_UNLIKELY( src_meta->lamports==0UL ) ) {
+        /* Tombstone — unpin and handle via create-or-skip */
+        fd_accdb_specread_unpin( v2->vinyl_line, spec_line_idx );
+tombstone:
+        if( flag_create ) {
+          fd_accdb_funk_create( v2->funk, &rw0[i], txn, addr_i, data_max0[i] );
+          fd_funk_rec_write_lock_uncontended( v2->funk, (fd_funk_rec_t *)rw0[i].ref->user_data );
+          accdb->base.rw_active++;
+        } else {
+          memset( &rw0[i], 0, sizeof(fd_accdb_ref_t) );
+          /* Mark as handled so it doesn't leak into ACQUIRE batch
+             (ref_type!=INVAL skips batch builder) and promotion loop
+             (user_data2!=0 skips RW branch).  accdb_type remains
+             NONE so the caller sees a not-found result. */
+          rw0[i].ref->ref_type  = FD_ACCDB_REF_RW;
+          rw0[i].ref->user_data2 = ULONG_MAX;
+        }
+        continue;
+      }
+
+      ulong  acc_orig_sz     = src_meta->dlen;
+      ulong  val_sz_min      = sizeof(fd_account_meta_t)+fd_ulong_max( data_max0[i], acc_orig_sz );
+      ulong  acc_sz          = flag_truncate ? 0UL : acc_orig_sz;
+      ulong  val_sz          = sizeof(fd_account_meta_t)+acc_sz;
+      ulong  val_max         = 0UL;
+      void * val             = fd_alloc_malloc_at_least( funk->alloc, 16UL, val_sz_min, &val_max );
+      if( FD_UNLIKELY( !val ) ) {
+        FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", acc_orig_sz ));
+      }
+
+      fd_account_meta_t * dst_meta        = val;
+      uchar *             dst_data        = (uchar *)( dst_meta+1 );
+      ulong               data_max_actual = val_max - sizeof(fd_account_meta_t);
+      if( flag_truncate ) fd_accdb_funk_copy_truncated( dst_meta,           src_meta           );
+      else                fd_accdb_funk_copy_account  ( dst_meta, dst_data, src_meta, src_data );
+
+      /* Unpin immediately — data has been copied to funk */
+      fd_accdb_specread_unpin( v2->vinyl_line, spec_line_idx );
+
+      if( acc_orig_sz<data_max_actual ) {
+        uchar * tail    = dst_data       +acc_orig_sz;
+        ulong   tail_sz = data_max_actual-acc_orig_sz;
+        fd_memset( tail, 0, tail_sz );
+      }
+
+      fd_accdb_funk_prep_create( &rw0[i], funk, txn, addr_i, val, val_sz, val_max );
+      fd_funk_rec_write_lock_uncontended( funk, (fd_funk_rec_t *)rw0[i].ref->user_data );
+      accdb->base.rw_active++;
+      accdb->base.created_cnt++;
+    }
+  }
+  v2->base.dt_specrd += fd_tickcount() - t0;
+
+  /* For the accounts that were not found in funk or specread, create
+     writable funk records from elements in vinyl. */
+
+  t0 = fd_tickcount();
   ulong batch_idx = fd_vinyl_req_pool_acquire( req_pool );
   /* req_pool_release called before returning */
   fd_vinyl_comp_t * comp           = fd_vinyl_req_batch_comp     ( req_pool, batch_idx );
@@ -459,9 +620,11 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
       FD_LOG_CRIT(( "vinyl tile rejected my ACQUIRE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
     }
   }
+  v2->base.dt_vinyl += fd_tickcount() - t0;
 
   /* Promote any found accounts to writable accounts */
 
+  ulong vinyl_cnt = req_cnt;
   req_cnt = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
     void const *    addr_i   = (void const *)( (ulong)addr0 + i*32UL );
@@ -470,6 +633,12 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
     ulong           data_max = data_max0[ i ];
 
     if( rw->ref->ref_type==FD_ACCDB_REF_RW ) {
+
+      /* Entries already created by specread have user_data2 set to
+         the txn pointer (by fd_accdb_funk_prep_create).  Funk
+         write-locked entries from funk_open_ref have user_data2==0. */
+      if( rw->ref->user_data2 ) continue;
+
       /* Mutable record found, modify in-place */
 
       if( FD_UNLIKELY( !flag_create && fd_accdb_ref_lamports( rw->ro )==0UL ) ) {
@@ -553,7 +722,6 @@ not_found:
       } else {
         memset( rw, 0, sizeof(fd_accdb_ref_t) );
       }
-      req_cnt++;
       continue;
     }
 
@@ -595,22 +763,16 @@ not_found:
     accdb->base.created_cnt++;
   }
 
-  /* Send "RELEASE" batch (reuse val_gaddr values),
-     and wait for response */
-
-  if( req_cnt ) {
-    ulong req_id = v2->vinyl_req_id++;
-    memset( fd_vinyl_req_batch_comp( req_pool, batch_idx ), 0, sizeof(fd_vinyl_comp_t) );
-    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt );
-
-    while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
-    FD_COMPILER_MFENCE();
-    int comp_err = FD_VOLATILE_CONST( comp->err );
-    if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
-      FD_LOG_CRIT(( "vinyl tile rejected my RELEASE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
-    }
+  /* Release vinyl records: decrement ref count directly in shared
+     memory.  The data was copied to funk so we no longer need the
+     vinyl cache entries. */
+  for( ulong i=0UL; i<vinyl_cnt; i++ ) {
+    if( req_err0[ i ] ) continue;
+    ulong val_gaddr = req_val_gaddr0[ i ];
+    void * val = fd_wksp_laddr_fast( data_wksp, val_gaddr );
+    fd_vinyl_data_obj_t * obj = fd_vinyl_data_obj( val );
+    FD_ATOMIC_FETCH_AND_SUB( &v2->vinyl_line[ obj->line_idx ].ctl, 1UL );
   }
-
   fd_vinyl_req_pool_release( req_pool, batch_idx );
 }
 
@@ -641,56 +803,28 @@ void
 fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
                                   fd_accdb_ref_t *  ref0,
                                   ulong             cnt ) {
-  fd_accdb_user_v2_t *  v2        = (fd_accdb_user_v2_t *)accdb;
-  fd_vinyl_rq_t *       rq        = v2->vinyl_rq;        /* "request queue "*/
-  fd_vinyl_req_pool_t * req_pool  = v2->vinyl_req_pool;  /* "request pool" */
-  fd_wksp_t *           req_wksp  = v2->vinyl_req_wksp;  /* shm workspace containing request buffer */
-  fd_wksp_t *           data_wksp = v2->vinyl_data_wksp; /* shm workspace containing vinyl data cache */
-  ulong                 link_id   = v2->vinyl_link_id;   /* vinyl client ID */
+  fd_accdb_user_v2_t * v2 = (fd_accdb_user_v2_t *)accdb;
 
-  if( FD_UNLIKELY( cnt>fd_vinyl_req_batch_key_max( req_pool ) ) ) {
-    FD_LOG_CRIT(( "close_ref_multi cnt %lu exceeds vinyl request batch max %lu",
-                  cnt, fd_vinyl_req_batch_key_max( req_pool ) ));
+  /* Release specread pins (V2S) */
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_accdb_ref_t * ref = &ref0[ i ];
+    if( ref->accdb_type!=FD_ACCDB_TYPE_V2S ) continue;
+    fd_accdb_specread_unpin( v2->vinyl_line, ref->user_data );
+    accdb->base.ro_active--;
+    memset( ref, 0, sizeof(fd_accdb_ref_t) );
   }
 
-  /* First, release all references to vinyl records
-     (This is a prefetch friendly / fast loop) */
-
-  ulong batch_idx = fd_vinyl_req_pool_acquire( req_pool );
-  /* req_pool_release called before returning */
-  fd_vinyl_comp_t * comp           = fd_vinyl_req_batch_comp     ( req_pool, batch_idx );
-  schar *           req_err0       = fd_vinyl_req_batch_err      ( req_pool, batch_idx );
-  ulong *           req_val_gaddr0 = fd_vinyl_req_batch_val_gaddr( req_pool, batch_idx );
-
-  ulong ro_close_cnt = 0UL;
-  ulong rw_close_cnt = 0UL;
-  ulong req_cnt      = 0UL;
+  /* Release vinyl records acquired via rq/cq: decrement ref count directly */
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_accdb_ref_t * ref = &ref0[ i ];
     if( ref->accdb_type!=FD_ACCDB_TYPE_V2 ) continue;
-    ref->ref_type==FD_ACCDB_REF_RO ? ro_close_cnt++ : rw_close_cnt++;
-    req_err0      [ req_cnt ] = 0;
-    req_val_gaddr0[ req_cnt ] = fd_wksp_gaddr_fast( data_wksp, (void *)ref->meta_laddr );
+    fd_vinyl_data_obj_t * obj = fd_vinyl_data_obj( (void *)ref->meta_laddr );
+    FD_ATOMIC_FETCH_AND_SUB( &v2->vinyl_line[ obj->line_idx ].ctl, 1UL );
+    accdb->base.ro_active--;
     memset( ref, 0, sizeof(fd_accdb_ref_t) );
-    req_cnt++;
-  }
-  if( req_cnt ) {
-    if( FD_UNLIKELY( ro_close_cnt > accdb->base.ro_active ) ) {
-      FD_LOG_CRIT(( "attempted to close more accdb_ro (%lu) than are open (%lu)",
-                    ro_close_cnt, accdb->base.ro_active ));
-    }
-    if( FD_UNLIKELY( rw_close_cnt > accdb->base.rw_active ) ) {
-      FD_LOG_CRIT(( "attempted to close more accdb_rw (%lu) than are open (%lu)",
-                    rw_close_cnt, accdb->base.rw_active ));
-    }
-    ulong req_id = v2->vinyl_req_id++;
-    memset( fd_vinyl_req_batch_comp( req_pool, batch_idx ), 0, sizeof(fd_vinyl_comp_t) );
-    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt );
   }
 
-  /* While our vinyl request is inflight, release funk records
-     (This does expensive DRAM accesses, which are convenient to do when
-     we are waiting for the database to asynchronously respond) */
+  /* Release funk records */
 
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_accdb_ref_t * ref = &ref0[ i ];
@@ -708,28 +842,6 @@ fd_accdb_user_v2_close_ref_multi( fd_accdb_user_t * accdb,
     }
     memset( ref, 0, sizeof(fd_accdb_ref_t) );
   }
-
-  /* Wait for response from vinyl */
-
-  if( req_cnt ) {
-    while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
-    FD_COMPILER_MFENCE();
-    int comp_err = FD_VOLATILE_CONST( comp->err );
-    if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
-      FD_LOG_CRIT(( "vinyl tile rejected my RELEASE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
-    }
-    for( ulong i=0UL; i<req_cnt; i++ ) {
-      int req_err = req_err0[ i ];
-      if( FD_UNLIKELY( req_err!=FD_VINYL_SUCCESS ) ) {
-        FD_LOG_CRIT(( "vinyl tile RELEASE request failed: %i-%s", req_err, fd_vinyl_strerror( req_err ) ));
-      }
-    }
-
-    accdb->base.ro_active -= ro_close_cnt;
-    accdb->base.rw_active -= rw_close_cnt;
-  }
-
-  fd_vinyl_req_pool_release( req_pool, batch_idx );
 }
 
 ulong
@@ -780,6 +892,7 @@ fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
                        void *            vinyl_rq,
                        void *            vinyl_data,
                        void *            vinyl_req_pool,
+                       void *            vinyl_line,
                        ulong             vinyl_link_id,
                        ulong             max_depth ) {
   if( FD_UNLIKELY( !accdb_ ) ) {
@@ -817,9 +930,31 @@ fd_accdb_user_v2_init( fd_accdb_user_t * accdb_,
   accdb->vinyl_data_wksp    = vinyl_data;
   accdb->vinyl_req_wksp     = fd_wksp_containing( req_pool );
   accdb->vinyl_req_pool     = req_pool;
+  accdb->vinyl_line         = vinyl_line;
   accdb->base.accdb_type    = FD_ACCDB_TYPE_V2;
   accdb->base.vt            = &fd_accdb_user_v2_vt;
   return accdb_;
+}
+
+void
+fd_accdb_user_v2_init_cache( fd_accdb_user_t * accdb_,
+                              void *            vinyl_shmeta,
+                              void *            vinyl_shele,
+                              void *            vinyl_shline,
+                              ulong             vinyl_line_cnt ) {
+  fd_accdb_user_v2_t * v2 = fd_type_pun( accdb_ );
+
+  if( FD_UNLIKELY( !vinyl_shmeta || !vinyl_shele || !vinyl_shline || !vinyl_line_cnt ) ) {
+    /* Specread disabled */
+    v2->vinyl_line_cnt    = 0UL;
+    v2->vinyl_specrd_wksp = NULL;
+    return;
+  }
+
+  FD_TEST( fd_vinyl_meta_join( v2->vinyl_meta, vinyl_shmeta, vinyl_shele ) );
+  v2->vinyl_line       = (fd_vinyl_line_t *)vinyl_shline;
+  v2->vinyl_line_cnt   = vinyl_line_cnt;
+  v2->vinyl_specrd_wksp = v2->vinyl_data_wksp; /* same workspace */
 }
 
 void

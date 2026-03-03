@@ -1524,12 +1524,87 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   txn_out->accounts.rollback_nonce_mem     = writable_accs_mem[ writable_account_cnt+1UL ];
 
   ushort executable_idx = 0U;
-  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i, writable_accs_mem, &writable_accs_idx );
-    fd_account_meta_t * meta = txn_out->accounts.account[ i ].meta;
 
-    if( FD_UNLIKELY( meta && memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_executor_setup_executable_account( runtime, bank, meta, &executable_idx );
+  if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) {
+    /* Fast path: batch fetch all accounts from DB in one call.
+       This amortizes I/O wait time across all accounts rather than
+       issuing individual lookups per account. */
+
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+    ushort acct_cnt = (ushort)txn_out->accounts.cnt;
+
+    fd_accdb_open_ro_multi( runtime->accdb,
+                            txn_out->accounts.account->ro,
+                            &xid,
+                            txn_out->accounts.keys,
+                            acct_cnt );
+
+    for( ushort i=0; i<acct_cnt; i++ ) {
+      fd_pubkey_t *   address  = &txn_out->accounts.keys[ i ];
+      fd_accdb_rw_t * ref_slot = &txn_out->accounts.account[ i ];
+      fd_accdb_rw_t * account  = ref_slot;
+
+      /* For non-existent accounts (zero lamports), close the DB
+         reference and treat as not found. */
+      if( fd_accdb_ref_lamports( account->ro )==0UL ) {
+        fd_accdb_close_ref( runtime->accdb, ref_slot->ref );
+        account = NULL;
+      }
+
+      if( txn_out->accounts.is_writable[ i ] ) {
+        uchar * new_raw_data = writable_accs_mem[ writable_accs_idx ];
+        ulong   dlen         = !!account ? fd_accdb_ref_data_sz( (fd_accdb_ro_t *)account ) : 0UL;
+        writable_accs_idx++;
+
+        if( FD_LIKELY( account ) ) {
+          fd_memcpy( new_raw_data, account->meta, sizeof(fd_account_meta_t)+dlen );
+          fd_accdb_close_ro( runtime->accdb, (fd_accdb_ro_t *)account );
+        } else {
+          fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
+        }
+
+        account = fd_accdb_rw_init_nodb(
+            (fd_accdb_rw_t *)ref_slot,
+            address,
+            (fd_account_meta_t *)new_raw_data,
+            FD_RUNTIME_ACC_SZ_MAX
+        );
+
+      } else {
+        if( FD_UNLIKELY( fd_pubkey_eq( address, &fd_sysvar_instructions_id ) ) ) {
+          if( FD_LIKELY( account ) ) {
+            fd_accdb_close_ro( runtime->accdb, (fd_accdb_ro_t *)account );
+          }
+          fd_account_meta_t * meta = fd_account_meta_init( (void *)runtime->accounts.sysvar_instructions_mem );
+          account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, meta );
+        } else if( FD_LIKELY( account ) ) {
+          /* transfer ownership of DB reference to runtime struct;
+             reference is freed in cancel/commit */
+        } else {
+          account = (fd_accdb_rw_t *)fd_accdb_ro_init_nodb( (fd_accdb_ro_t *)ref_slot, address, &FD_ACCOUNT_META_DEFAULT );
+        }
+      }
+
+      runtime->accounts.starting_lamports[i] = fd_accdb_ref_lamports( account->ro );
+      runtime->accounts.starting_dlen[i]     = fd_accdb_ref_data_sz ( account->ro );
+      runtime->accounts.refcnt[i]            = 0UL;
+
+      fd_account_meta_t * meta = txn_out->accounts.account[ i ].meta;
+      if( FD_UNLIKELY( meta && memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
+        fd_executor_setup_executable_account( runtime, bank, meta, &executable_idx );
+      }
+    }
+
+  } else {
+    /* Bundle path: per-account setup since accounts may reference
+       previous transactions in the bundle. */
+    for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+      fd_executor_setup_txn_account( runtime, bank, txn_in, txn_out, i, writable_accs_mem, &writable_accs_idx );
+      fd_account_meta_t * meta = txn_out->accounts.account[ i ].meta;
+
+      if( FD_UNLIKELY( meta && memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
+        fd_executor_setup_executable_account( runtime, bank, meta, &executable_idx );
+      }
     }
   }
 

@@ -13,6 +13,7 @@ typedef struct fd_accdb_user fd_accdb_user_t;
 #define FD_ACCDB_TYPE_V0   (80U) /* minimal single chain */
 #define FD_ACCDB_TYPE_V1    (1U) /* funk */
 #define FD_ACCDB_TYPE_V2    (2U) /* read-only vinyl + read-write funk */
+#define FD_ACCDB_TYPE_V2S   (3U) /* vinyl speculative read (pinned) */
 
 #define FD_ACCDB_REF_INVAL 0 /* not a valid reference */
 #define FD_ACCDB_REF_RO    1 /* read only */

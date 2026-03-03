@@ -123,6 +123,16 @@ struct fd_accdb_user_base {
   ulong rw_active;
   ulong ro_active;
   ulong created_cnt;
+
+  /* Cache hit tracking for open_ro_multi */
+  ulong lookup_funk;    /* Account found in funk (in-memory fork store) */
+  ulong lookup_specrd;  /* Account found via speculative read (vinyl cache) */
+  ulong lookup_accdb;   /* Account requested from accdb tile (vinyl rq/cq) */
+
+  /* Cumulative tickcount spent in each lookup regime */
+  long dt_funk;     /* Time spent in funk lookups */
+  long dt_specrd;   /* Time spent in specread pin/unpin */
+  long dt_vinyl;    /* Time spent waiting for vinyl rq/cq */
 };
 
 typedef struct fd_accdb_user_base fd_accdb_user_base_t;

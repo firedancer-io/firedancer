@@ -417,6 +417,8 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t epoch_out[1];
 
+  fd_replay_out_link_t accdb_out[1];
+
   /* The gui tile needs to reliably own a reference to the most recent
      completed active bank.  Replay needs to know if the gui as a
      consumer is enabled so it can increment the bank's refcnt before
@@ -548,17 +550,15 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
 
-  FD_MCNT_SET( REPLAY, ACCDB_CREATED,      ctx->accdb->base.created_cnt       );
-  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,     ctx->accdb_admin->base.revert_cnt  );
-  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,       ctx->accdb_admin->base.root_cnt    );
-  FD_MCNT_SET( REPLAY, ACCDB_ROOTED_BYTES, ctx->accdb_admin->base.root_tot_sz );
-  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,      ctx->accdb_admin->base.gc_root_cnt );
-  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED,    ctx->accdb_admin->base.reclaim_cnt );
-  FD_MHIST_COPY( REPLAY, ROOT_SLOT_DURATION_SECONDS,    ctx->metrics.root_slot_dur    );
-  FD_MHIST_COPY( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS, ctx->metrics.root_account_dur );
-  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_DB,   (ulong)ctx->accdb_admin->base.dt_vinyl );
-  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_COPY, (ulong)ctx->accdb_admin->base.dt_copy  );
-  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
+  FD_MCNT_SET( REPLAY, ACCDB_CREATED,      ctx->accdb->base.created_cnt      );
+  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,     ctx->accdb_admin->base.revert_cnt );
+
+  FD_MCNT_SET( REPLAY, ACCDB_LOOKUP_FUNK,   ctx->accdb->base.lookup_funk   );
+  FD_MCNT_SET( REPLAY, ACCDB_LOOKUP_SPECRD, ctx->accdb->base.lookup_specrd );
+  FD_MCNT_SET( REPLAY, ACCDB_LOOKUP_ACCDB,  ctx->accdb->base.lookup_accdb  );
+  FD_MCNT_SET( REPLAY, ACCDB_DT_FUNK,       (ulong)ctx->accdb->base.dt_funk   );
+  FD_MCNT_SET( REPLAY, ACCDB_DT_SPECRD,     (ulong)ctx->accdb->base.dt_specrd );
+  FD_MCNT_SET( REPLAY, ACCDB_DT_VINYL,      (ulong)ctx->accdb->base.dt_vinyl  );
 }
 
 static inline ulong
@@ -1414,6 +1414,8 @@ store_xinsert( fd_store_t      * store,
   } FD_STORE_XLOCK_END;
 }
 
+static void accdb_advance_root( fd_replay_tile_t * ctx, fd_stem_context_t * stem, ulong slot, ulong bank_idx );
+
 static void
 boot_genesis( fd_replay_tile_t *        ctx,
               fd_stem_context_t *       stem,
@@ -1435,7 +1437,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_funk_txn_xid_t target_xid = { .ul = { 0UL, 0UL } };
   fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &target_xid );
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &xid, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, &ctx->runtime_stack );
-  fd_accdb_advance_root( ctx->accdb_admin, &target_xid );
+  accdb_advance_root( ctx, stem, target_xid.ul[0], target_xid.ul[1] );
 
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
   bank->data->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );
@@ -2071,9 +2073,10 @@ accdb_root_op_total( fd_replay_tile_t const * ctx ) {
 }
 
 static void
-accdb_advance_root( fd_replay_tile_t * ctx,
-                    ulong              slot,
-                    ulong              bank_idx ) {
+accdb_advance_root( fd_replay_tile_t *  ctx,
+                    fd_stem_context_t * stem,
+                    ulong               slot,
+                    ulong               bank_idx ) {
   fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = bank_idx };
   FD_LOG_DEBUG(( "advancing root to slot=%lu", slot ));
 
@@ -2085,11 +2088,25 @@ accdb_advance_root( fd_replay_tile_t * ctx,
   fd_histf_sample( ctx->metrics.root_slot_dur,    (ulong)root_accounts_dt );
   fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
 
+  /* Send root request to accdb tile via stem link.
+     sig carries the slot so the accdb tile can peek at the mcache
+     to determine write_delay_slots deferral without consuming. */
+  if( FD_LIKELY( ctx->accdb_out->idx!=ULONG_MAX ) ) {
+    fd_funk_txn_xid_t * msg = fd_chunk_to_laddr( ctx->accdb_out->mem, ctx->accdb_out->chunk );
+    *msg = xid;
+    fd_stem_publish( stem, ctx->accdb_out->idx, slot, ctx->accdb_out->chunk,
+                     sizeof(fd_funk_txn_xid_t), 0UL, 0UL,
+                     fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->accdb_out->chunk = fd_dcache_compact_next( ctx->accdb_out->chunk,
+        sizeof(fd_funk_txn_xid_t), ctx->accdb_out->chunk0, ctx->accdb_out->wmark );
+  }
+
   fd_progcache_txn_advance_root( ctx->progcache_admin, &xid );
 }
 
 static int
-advance_published_root( fd_replay_tile_t * ctx ) {
+advance_published_root( fd_replay_tile_t *  ctx,
+                        fd_stem_context_t * stem ) {
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
@@ -2121,7 +2138,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
   ulong advanceable_root_slot = fd_bank_slot_get( bank );
-  accdb_advance_root( ctx, advanceable_root_slot, bank->data->idx );
+  accdb_advance_root( ctx, stem, advanceable_root_slot, bank->data->idx );
 
   fd_txncache_advance_root( ctx->txncache, bank->data->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
@@ -2178,7 +2195,7 @@ after_credit( fd_replay_tile_t *  ctx,
 
   /* If the published_root is not caught up to the consensus root, then
      we should try to advance the published root. */
-  if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx && advance_published_root( ctx ) ) ) {
+  if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx && advance_published_root( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2819,17 +2836,11 @@ unprivileged_init( fd_topo_t *      topo,
         fd_topo_obj_laddr( topo, funk_obj_id       ),
         fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
   } else {
-    fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq" );
-    fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
     FD_TEST( fd_accdb_admin_v2_init( ctx->accdb_admin,
         fd_topo_obj_laddr( topo, funk_obj_id       ),
-        fd_topo_obj_laddr( topo, funk_locks_obj_id ),
-        fd_topo_obj_laddr( topo, vinyl_rq->id      ),
-        topo->workspaces[ vinyl_data->wksp_id ].wksp,
-        fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
-        vinyl_rq->id,
-        max_depth ) );
+        fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
     fd_accdb_admin_v2_delay_set( ctx->accdb_admin, tile->replay.write_delay_slots );
+    fd_accdb_admin_v2_max_depth_set( ctx->accdb_admin, max_depth );
   }
   fd_accdb_init_from_topo( ctx->accdb, topo, tile, max_depth );
 
@@ -2941,9 +2952,10 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
-  *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
-  *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
-  *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
+  *ctx->epoch_out  = out1( topo, tile, "replay_epoch"  ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
+  *ctx->replay_out = out1( topo, tile, "replay_out"    ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
+  *ctx->exec_out   = out1( topo, tile, "replay_execrp" ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
+  *ctx->accdb_out  = out1( topo, tile, "replay_accdb"  ); /* idx==ULONG_MAX when vinyl disabled */
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
@@ -2988,11 +3000,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WAIT ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics.store_query_work,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WORK ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WORK ) ) );
-
-  fd_histf_join( fd_histf_new( ctx->metrics.root_slot_dur,      FD_MHIST_SECONDS_MIN( REPLAY, ROOT_SLOT_DURATION_SECONDS ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, ROOT_SLOT_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics.root_account_dur,   FD_MHIST_SECONDS_MIN( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ) ) );
 
   /* Ensure precompiles are available, crash fast otherwise */
   fd_precompiles();

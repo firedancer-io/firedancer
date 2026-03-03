@@ -543,7 +543,7 @@ telemetry = true
     # how much memory is reserved for such account changes.
     # If the amount of inflight account changes exceeds this limit, the
     # validator will crash.
-    max_unrooted_account_size_gib = 16
+    max_unrooted_account_size_gib = 64
 
     # Keep frequently accessed accounts in memory to improve
     # performance.
@@ -579,7 +579,7 @@ telemetry = true
     # The expected mean size of recently accessed accounts.
     #
     # This heuristic is used to pack accounts into caches optimally.
-    mean_account_footprint = 256
+    mean_account_footprint = 64
 
     # io_uring specific options
     #

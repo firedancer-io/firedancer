@@ -14,7 +14,7 @@ FD_STATIC_ASSERT( sizeof (fd_vinyl_data_obj_t)==FD_VINYL_BSTREAM_BLOCK_SZ, unit_
 FD_STATIC_ASSERT( FD_VINYL_DATA_VOL_FOOTPRINT==34078592UL, unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_DATA_ALIGN    == 128UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_DATA_FOOTPRINT==5376UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_FOOTPRINT==7936UL, unit_test );
 
 FD_STATIC_ASSERT( alignof(fd_vinyl_data_vol_t)==FD_VINYL_BSTREAM_BLOCK_SZ,   unit_test );
 FD_STATIC_ASSERT( sizeof (fd_vinyl_data_vol_t)==FD_VINYL_DATA_VOL_FOOTPRINT, unit_test );

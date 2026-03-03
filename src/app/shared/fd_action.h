@@ -18,6 +18,7 @@ union fdctl_args {
     int drain_output_fd;
     int with_bench;
     int with_sankey;
+    char topo[ 64 ];
   } monitor;
 
   struct {

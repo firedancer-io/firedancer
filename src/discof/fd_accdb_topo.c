@@ -3,6 +3,7 @@
 #include "../flamenco/accdb/fd_accdb_impl_v2.h"
 #include "../flamenco/progcache/fd_progcache_user.h"
 #include "../util/pod/fd_pod.h"
+#include "../util/pod/fd_pod_format.h"
 
 void
 fd_accdb_init_from_topo( fd_accdb_user_t *      accdb,
@@ -22,14 +23,29 @@ fd_accdb_init_from_topo( fd_accdb_user_t *      accdb,
   } else {
     fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq"    );
     fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
+    fd_topo_obj_t const * vinyl_line     = fd_topo_find_tile_obj( topo, tile, "vinyl_line"  );
     FD_TEST( fd_accdb_user_v2_init( accdb,
         fd_topo_obj_laddr( topo, funk_obj_id  ),
         fd_topo_obj_laddr( topo, locks_obj_id ),
         fd_topo_obj_laddr( topo, vinyl_rq->id ),
         topo->workspaces[ vinyl_data->wksp_id ].wksp,
         fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
+        fd_topo_obj_laddr( topo, vinyl_line->id ),
         vinyl_rq->id,
         max_depth ) );
+
+    /* Enable speculative reads if the tile has access to meta/ele */
+    fd_topo_obj_t const * vinyl_meta = fd_topo_find_tile_obj( topo, tile, "vinyl_meta"   );
+    fd_topo_obj_t const * vinyl_ele  = fd_topo_find_tile_obj( topo, tile, "vinyl_meta_e" );
+    if( vinyl_meta && vinyl_ele && vinyl_line ) {
+      ulong line_cnt = fd_pod_queryf_ulong( topo->props, 0UL,
+          "obj.%lu.line_cnt", vinyl_line->id );
+      fd_accdb_user_v2_init_cache( accdb,
+          fd_topo_obj_laddr( topo, vinyl_meta->id ),
+          fd_topo_obj_laddr( topo, vinyl_ele->id  ),
+          fd_topo_obj_laddr( topo, vinyl_line->id ),
+          line_cnt );
+    }
   }
 }
 

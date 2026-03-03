@@ -85,6 +85,34 @@ fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele = {
   .new       = vinyl_meta_ele_new,
 };
 
+/* vinyl_line: cache line array shared between accdb tile and clients */
+
+static ulong
+vinyl_line_align( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return alignof(fd_vinyl_line_t);
+}
+
+static ulong
+vinyl_line_footprint( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  return sizeof(fd_vinyl_line_t) * VAL("line_cnt");
+}
+
+static void
+vinyl_line_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  fd_memset( fd_topo_obj_laddr( topo, obj->id ), 0, vinyl_line_footprint( topo, obj ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_vinyl_line = {
+  .name      = "vinyl_line",
+  .footprint = vinyl_line_footprint,
+  .align     = vinyl_line_align,
+  .new       = vinyl_line_new,
+};
+
 /* vinyl_data: memory arena for data cache entries */
 
 static ulong

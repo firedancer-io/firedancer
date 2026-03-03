@@ -138,7 +138,13 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, VM_REGIME_INTERPRETER, exec_ticks                            );
 
   fd_accdb_user_t * accdb = ctx->accdb;
-  FD_MCNT_SET( EXECRP, ACCDB_CREATED, accdb->base.created_cnt );
+  FD_MCNT_SET( EXECRP, ACCDB_CREATED,        accdb->base.created_cnt  );
+  FD_MCNT_SET( EXECRP, ACCDB_LOOKUP_FUNK,    accdb->base.lookup_funk   );
+  FD_MCNT_SET( EXECRP, ACCDB_LOOKUP_SPECRD,  accdb->base.lookup_specrd );
+  FD_MCNT_SET( EXECRP, ACCDB_LOOKUP_ACCDB,   accdb->base.lookup_accdb  );
+  FD_MCNT_SET( EXECRP, ACCDB_DT_FUNK,        (ulong)accdb->base.dt_funk   );
+  FD_MCNT_SET( EXECRP, ACCDB_DT_SPECRD,      (ulong)accdb->base.dt_specrd );
+  FD_MCNT_SET( EXECRP, ACCDB_DT_VINYL,       (ulong)accdb->base.dt_vinyl  );
 
   FD_STATIC_ASSERT( sizeof(runtime->metrics.txn_account_save)/sizeof(ulong)==FD_METRICS_ENUM_ACCOUNT_CHANGE_CNT, enum );
   FD_MCNT_ENUM_COPY( EXECRP, TXN_ACCOUNT_CHANGES, runtime->metrics.txn_account_save );

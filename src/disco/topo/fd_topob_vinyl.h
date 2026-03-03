@@ -59,6 +59,16 @@ fd_topob_vinyl_rq( fd_topo_t *  topo,
   fd_topob_tile_uses( topo, client_tile, rq_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, client_tile, cq_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
+  /* Grant read-only access to meta map and element pool for speculative
+     reads (pin-based direct cache access).  If the pod keys are absent,
+     specread is simply not available for this client. */
+  ulong meta_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX );
+  ulong ele_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX );
+  if( meta_obj_id!=ULONG_MAX && ele_obj_id!=ULONG_MAX ) {
+    fd_topob_tile_uses( topo, client_tile, &topo->objs[ meta_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+    fd_topob_tile_uses( topo, client_tile, &topo->objs[ ele_obj_id  ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
+
   FD_TEST( rq_obj->label_idx==req_pool_obj->label_idx ); /* keep rq and req_pool in sync */
   return rq_obj;
 }

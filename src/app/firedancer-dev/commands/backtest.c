@@ -23,6 +23,7 @@
 #include "../../../disco/topo/fd_topob_vinyl.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
+#include "../../../funk/fd_funk_base.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/fd_snapin_tile_private.h"
 #include "../../../discof/restore/fd_snaplv_tile_private.h"
@@ -90,6 +91,11 @@ backtest_topo( config_t * config ) {
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   fd_topob_tile_uses( topo, replay_tile, &topo->objs[ funk_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, &topo->objs[ funk_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( vinyl_enabled ) {
+    fd_topo_tile_t * accdb_tile = &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ];
+    fd_topob_tile_uses( topo, accdb_tile, &topo->objs[ funk_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, &topo->objs[ funk_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
 
   fd_topob_wksp( topo, "progcache" );
   setup_topo_progcache( topo, "progcache",
@@ -349,8 +355,10 @@ backtest_topo( config_t * config ) {
     setup_topo_accdb_meta( topo, &config->firedancer );
     ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
     ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+    ulong vinyl_line_obj_id = fd_pod_query_ulong( topo->props, "accdb.line",      ULONG_MAX ); FD_TEST( vinyl_line_obj_id!=ULONG_MAX );
     fd_topo_obj_t * accdb_map_obj  = &topo->objs[ vinyl_map_obj_id ];
     fd_topo_obj_t * accdb_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
+    fd_topo_obj_t * accdb_line_obj = &topo->objs[ vinyl_line_obj_id ];
 
     fd_topo_obj_t * accdb_data = setup_topo_accdb_cache( topo, &config->firedancer );
 
@@ -359,13 +367,20 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_uses( topo, accdb_tile, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, accdb_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, accdb_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-    fd_topob_tile_uses( topo, replay_tile, accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, replay_tile, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, replay_tile, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_data, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topo_tile_t * t = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
+      fd_topob_tile_uses( topo, t, accdb_data,     FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, t, accdb_line_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
 
     fd_topob_wksp( topo, "accdb_replay" );
+
+    fd_topob_wksp( topo, "replay_accdb" );
+    fd_topob_link( topo, "replay_accdb", "replay_accdb", 128UL, sizeof(fd_funk_txn_xid_t), 1UL );
   }
 
   /**********************************************************************/
@@ -415,6 +430,10 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "replay_execrp" );
   fd_topob_link( topo, "replay_execrp", "replay_execrp", 16384UL, 2240UL, 1UL );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_execrp", 0UL );
+  if( vinyl_enabled ) {
+    fd_topob_tile_out( topo, "replay", 0UL, "replay_accdb", 0UL );
+    fd_topob_tile_in(  topo, "accdb",  0UL, "metric_in", "replay_accdb", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
   for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
     fd_topob_tile_in( topo, "execrp", i, "metric_in", "replay_execrp", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }

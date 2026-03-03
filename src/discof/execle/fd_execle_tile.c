@@ -98,6 +98,14 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_LANDED, ctx->metrics.txn_landed );
 
   FD_MCNT_SET( EXECLE, COMPUTE_UNITS_TOTAL, ctx->runtime->metrics.cu_cum );
+
+  fd_accdb_user_t * accdb = ctx->accdb;
+  FD_MCNT_SET( EXECLE, ACCDB_LOOKUP_FUNK,   accdb->base.lookup_funk   );
+  FD_MCNT_SET( EXECLE, ACCDB_LOOKUP_SPECRD, accdb->base.lookup_specrd );
+  FD_MCNT_SET( EXECLE, ACCDB_LOOKUP_ACCDB,  accdb->base.lookup_accdb  );
+  FD_MCNT_SET( EXECLE, ACCDB_DT_FUNK,       (ulong)accdb->base.dt_funk   );
+  FD_MCNT_SET( EXECLE, ACCDB_DT_SPECRD,     (ulong)accdb->base.dt_specrd );
+  FD_MCNT_SET( EXECLE, ACCDB_DT_VINYL,      (ulong)accdb->base.dt_vinyl  );
 }
 
 static int

@@ -5,6 +5,25 @@
    account database. */
 
 #include "fd_accdb_admin.h"
+#include "fd_accdb_admin_v1.h"
+#include "../../tango/fd_tango_base.h"
+
+struct fd_accdb_admin_v2 {
+  union {
+    fd_accdb_admin_base_t base;
+    fd_accdb_admin_v1_t   v1[1];
+  };
+
+  ulong slot_delay;
+  ulong max_depth;  /* Max fork depth (distance from any tip to root).
+                       attach_child spins if adding a child would exceed this. */
+
+  fd_frag_meta_t * mcache;
+  ulong            depth;
+  ulong            seq;
+};
+
+typedef struct fd_accdb_admin_v2 fd_accdb_admin_v2_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -13,16 +32,15 @@ extern fd_accdb_admin_vt_t const fd_accdb_admin_v2_vt;
 fd_accdb_admin_t *
 fd_accdb_admin_v2_init( fd_accdb_admin_t * admin_,
                         void *             shfunk,
-                        void *             shlocks,
-                        void *             vinyl_rq,
-                        void *             vinyl_data,
-                        void *             vinyl_req_pool,
-                        ulong              vinyl_link_id,
-                        ulong              max_depth );
+                        void *             shlocks );
 
 void
 fd_accdb_admin_v2_delay_set( fd_accdb_admin_t * admin,
                              ulong              slot_delay );
+
+void
+fd_accdb_admin_v2_max_depth_set( fd_accdb_admin_t * admin,
+                                  ulong              max_depth );
 
 void
 fd_accdb_admin_v2_fini( fd_accdb_admin_t * ljoin );

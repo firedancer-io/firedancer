@@ -428,7 +428,8 @@ write_snapshots( config_t const * config,
 
 static uint
 write_accdb( config_t const * config,
-             ulong const *    cur_tile ) {
+             ulong const *    cur_tile,
+             ulong const *    prev_tile ) {
   ulong accdb_tile_idx  = fd_topo_find_tile( &config->topo, "accdb",  0UL );
   ulong snapwm_tile_idx = fd_topo_find_tile( &config->topo, "snapwm", 0UL );
   ulong snapwr_tile_idx = fd_topo_find_tile( &config->topo, "snapwr", 0UL );
@@ -455,11 +456,25 @@ write_accdb( config_t const * config,
   for( ulong i=0UL; i<num_rps_samples; i++ ) rps_sum += rps_samples[ i ];
   char * rps_str = COUNTF( 100.0*(double)rps_sum/(double)num_rps_samples );
 
+  long lookup_funk   = diff_tile( config, "replay", prev_tile, cur_tile, MIDX( COUNTER, REPLAY, ACCDB_LOOKUP_FUNK   ) )
+                      + diff_tile( config, "execrp", prev_tile, cur_tile, MIDX( COUNTER, EXECRP, ACCDB_LOOKUP_FUNK   ) )
+                      + diff_tile( config, "execle", prev_tile, cur_tile, MIDX( COUNTER, EXECLE, ACCDB_LOOKUP_FUNK   ) );
+  lookup_funk = 0;
+  long lookup_specrd = diff_tile( config, "replay", prev_tile, cur_tile, MIDX( COUNTER, REPLAY, ACCDB_LOOKUP_SPECRD ) )
+                      + diff_tile( config, "execrp", prev_tile, cur_tile, MIDX( COUNTER, EXECRP, ACCDB_LOOKUP_SPECRD ) )
+                      + diff_tile( config, "execle", prev_tile, cur_tile, MIDX( COUNTER, EXECLE, ACCDB_LOOKUP_SPECRD ) );
+  long lookup_accdb  = diff_tile( config, "replay", prev_tile, cur_tile, MIDX( COUNTER, REPLAY, ACCDB_LOOKUP_ACCDB  ) )
+                      + diff_tile( config, "execrp", prev_tile, cur_tile, MIDX( COUNTER, EXECRP, ACCDB_LOOKUP_ACCDB  ) )
+                      + diff_tile( config, "execle", prev_tile, cur_tile, MIDX( COUNTER, EXECLE, ACCDB_LOOKUP_ACCDB  ) );
+  long lookup_total  = lookup_funk + lookup_specrd + lookup_accdb;
+  double cache_hit_pct = lookup_total>0L ? 100.0*(double)(lookup_funk+lookup_specrd)/(double)lookup_total : 100.0;
+
   PRINT( "💾 " BOLD GREEN "ACCOUNTS...." RESET UNBOLD
          " " BOLD "DATA"  UNBOLD " %4.1f%% (%.1f GB) "
          " " BOLD "INDEX" UNBOLD " %4.1f%% (%.1fM) "
-         " " BOLD "RPS"   UNBOLD " %s" CLEARLN "\n",
-    data_pct, used_gb, index_pct, (double)acct_cnt/1e6, rps_str );
+         " " BOLD "RPS"   UNBOLD " %s"
+         " " BOLD "CACHE" UNBOLD " %4.1f%%" CLEARLN "\n",
+    data_pct, used_gb, index_pct, (double)acct_cnt/1e6, rps_str, cache_hit_pct );
   return 1;
 }
 
@@ -720,7 +735,7 @@ write_summary( config_t const * config,
     write_snapshots( config, cur_tile, prev_tile );
   }
 
-  lines_printed += write_accdb( config, cur_tile );
+  lines_printed += write_accdb( config, cur_tile, prev_tile );
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
@@ -836,16 +851,9 @@ run( config_t const * config,
       event_bytes_read_samples[ event_bytes_read_samples_idx%(sizeof(event_bytes_read_samples)/sizeof(event_bytes_read_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, BYTES_READ ) );
       event_bytes_read_samples_idx++;
       rps_samples[ rps_samples_idx%(sizeof(rps_samples)/sizeof(rps_samples[0])) ] = (ulong)(
-          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_UNCHANGED_NONEXIST ) ) +
-          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_CREATED            ) ) +
-          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_DELETE             ) ) +
-          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_MODIFY             ) ) +
-          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_UNCHANGED          ) ) +
-          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_CREATED                          ) ) +
-          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_ROOTED                           ) ) +
-          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_REVERTED                         ) ) +
-          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_GC_ROOT                          ) ) +
-          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_RECLAIMED                        ) ) );
+          diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, ACCDB_LOOKUP_ACCDB ) ) +
+          diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, ACCDB_LOOKUP_ACCDB ) ) +
+          diff_tile( config, "execle", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECLE, ACCDB_LOOKUP_ACCDB ) ) );
       rps_samples_idx++;
 
       /* Move cursor to top of dashboard and overwrite in place.
