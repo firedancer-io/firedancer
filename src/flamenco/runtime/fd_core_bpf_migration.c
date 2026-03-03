@@ -461,6 +461,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       rent,
       slot ) ) )
     return;
+  new_target_program_data->addr = target->program_data_address;
 
   ulong old_data_sz;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_account->data_sz, source->data_sz, &old_data_sz ) ) ) return;
