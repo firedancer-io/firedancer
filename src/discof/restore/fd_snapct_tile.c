@@ -112,6 +112,9 @@ struct fd_snapct_tile {
     ulong full_snapshot_size;
     int   full_snapshot_zstd;
 
+    uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ];
+    uchar incremental_snapshot_hash[ FD_HASH_FOOTPRINT ];
+
     ulong incremental_snapshot_slot;
     char  incremental_snapshot_path[ PATH_MAX ];
     ulong incremental_snapshot_size;
@@ -413,8 +416,15 @@ init_load( fd_snapct_tile_t *  ctx,
   fd_ssctrl_init_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
   out->file = file;
   out->zstd = !file || (full ? ctx->local_in.full_snapshot_zstd : ctx->local_in.incremental_snapshot_zstd);
-  if( file ) out->slot = full ? ctx->local_in.full_snapshot_slot : ctx->local_in.incremental_snapshot_slot;
-  else       out->slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
+  if( file ) {
+    out->slot = full ? ctx->local_in.full_snapshot_slot : ctx->local_in.incremental_snapshot_slot;
+    if( full ) fd_memcpy( out->snapshot_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT );
+    else       fd_memcpy( out->snapshot_hash, ctx->local_in.incremental_snapshot_hash, FD_HASH_FOOTPRINT );
+  } else {
+    out->slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
+    if( full ) fd_memcpy( out->snapshot_hash, ctx->peer.full_hash, FD_HASH_FOOTPRINT );
+    else       fd_memcpy( out->snapshot_hash, ctx->peer.incr_hash, FD_HASH_FOOTPRINT );
+  }
 
   if( !file ) {
     out->addr = ctx->peer.addr;
@@ -1400,6 +1410,8 @@ privileged_init( fd_topo_t *      topo,
   int incremental_is_zstd = 0;
   char full_path[ PATH_MAX ] = {0};
   char incremental_path[ PATH_MAX ] = {0};
+  uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ] = {0};
+  uchar incremental_snapshot_hash[ FD_HASH_FOOTPRINT ] = {0};
   if( FD_UNLIKELY( -1==fd_ssarchive_latest_pair( tile->snapct.snapshots_path,
                                                  tile->snapct.incremental_snapshots,
                                                  &full_slot,
@@ -1407,7 +1419,9 @@ privileged_init( fd_topo_t *      topo,
                                                  full_path,
                                                  incremental_path,
                                                  &full_is_zstd,
-                                                 &incremental_is_zstd ) ) ) {
+                                                 &incremental_is_zstd,
+                                                 full_snapshot_hash,
+                                                 incremental_snapshot_hash ) ) ) {
     if( FD_UNLIKELY( !download_enabled( tile ) ) ) {
       FD_LOG_ERR(( "No snapshots found in `%s` and no download sources are enabled. "
                    "Please enable downloading via [snapshots.sources] and restart.", tile->snapct.snapshots_path ));
@@ -1429,6 +1443,7 @@ privileged_init( fd_topo_t *      topo,
     ctx->local_in.incremental_snapshot_zstd = incremental_is_zstd;
 
     fd_cstr_ncpy( ctx->local_in.full_snapshot_path, full_path, PATH_MAX );
+    fd_memcpy( ctx->local_in.full_snapshot_hash, full_snapshot_hash, FD_HASH_FOOTPRINT );
     struct stat full_stat;
     if( FD_UNLIKELY( -1==stat( ctx->local_in.full_snapshot_path, &full_stat ) ) ) FD_LOG_ERR(( "stat() failed `%s` (%i-%s)", full_path, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( !S_ISREG( full_stat.st_mode ) ) ) FD_LOG_ERR(( "full snapshot path `%s` is not a regular file", full_path ));
@@ -1436,6 +1451,7 @@ privileged_init( fd_topo_t *      topo,
 
     if( FD_LIKELY( incremental_slot!=ULONG_MAX ) ) {
       fd_cstr_ncpy( ctx->local_in.incremental_snapshot_path, incremental_path, PATH_MAX );
+      fd_memcpy( ctx->local_in.incremental_snapshot_hash, incremental_snapshot_hash, FD_HASH_FOOTPRINT );
       struct stat incremental_stat;
       if( FD_UNLIKELY( -1==stat( ctx->local_in.incremental_snapshot_path, &incremental_stat ) ) ) FD_LOG_ERR(( "stat() failed `%s` (%i-%s)", incremental_path, errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( !S_ISREG( incremental_stat.st_mode ) ) ) FD_LOG_ERR(( "incremental snapshot path `%s` is not a regular file", incremental_path ));
