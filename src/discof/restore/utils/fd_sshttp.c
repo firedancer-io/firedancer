@@ -48,8 +48,24 @@ fd_sshttp_new( void * shmem ) {
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_sshttp_t * sshttp = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sshttp_t), sizeof(fd_sshttp_t) );
 
-  sshttp->state = FD_SSHTTP_STATE_INIT;
-  sshttp->content_len = 0UL;
+  sshttp->state        = FD_SSHTTP_STATE_INIT;
+  sshttp->next_state   = FD_SSHTTP_STATE_INIT;
+  sshttp->deadline     = 0L;
+  sshttp->empty_recvs  = 0UL;
+  sshttp->hops         = 0;
+  sshttp->location_len = 0UL;
+  sshttp->addr         = (fd_ip4_port_t){ .addr = 0U, .port = 0U };
+  sshttp->hostname     = NULL;
+  sshttp->is_https     = 0;
+  sshttp->sockfd       = -1;
+  sshttp->request_len  = 0UL;
+  sshttp->request_sent = 0UL;
+  sshttp->response_len = 0UL;
+  sshttp->content_len  = 0UL;
+  sshttp->content_read = 0UL;
+  fd_cstr_fini( sshttp->location );
+  fd_cstr_fini( sshttp->request );
+  fd_cstr_fini( sshttp->response );
   fd_cstr_fini( sshttp->snapshot_name );
 
 #if FD_HAS_OPENSSL
@@ -185,7 +201,17 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   if( FD_LIKELY( -1==connect( http->sockfd, fd_type_pun_const( &addr_in ), sizeof(addr_in) ) ) ) {
     if( FD_UNLIKELY( errno!=EINPROGRESS ) ) {
-      if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "connect() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_WARNING(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      http->sockfd = -1;
+#if FD_HAS_OPENSSL
+      if( FD_UNLIKELY( http->ssl ) ) {
+        SSL_free( http->ssl );
+        http->ssl = NULL;
+      }
+#endif
+      http->state = FD_SSHTTP_STATE_INIT;
+      return;
     }
   }
 
@@ -297,8 +323,10 @@ http_send_ssl( fd_sshttp_t * http,
 static int
 setup_redirect( fd_sshttp_t * http,
               long          now ) {
+  int hops = http->hops;
   fd_sshttp_cancel( http );
   fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, now );
+  http->hops = hops;
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
 
@@ -362,6 +390,10 @@ http_recv( fd_sshttp_t * http,
       }
     }
     return FD_SSHTTP_ADVANCE_AGAIN;
+  } else if( FD_UNLIKELY( 0==read ) ) {
+    FD_LOG_WARNING(( "recvfrom() returned EOF" ));
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ERROR;
   } else if( FD_UNLIKELY( -1==read ) ) {
     FD_LOG_WARNING(( "recvfrom() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     fd_sshttp_cancel( http );
@@ -485,8 +517,10 @@ follow_redirect( fd_sshttp_t *        http,
     http->location[ location_len ] = '\0';
   } else {
     if( FD_LIKELY( !fd_sshttp_fuzz ) ) {
+      int hops = http->hops;
       fd_sshttp_cancel( http );
       fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, now );
+      http->hops = hops;
     } else {
       http->state = FD_SSHTTP_STATE_RESP;
       http->response_len = 0UL;
@@ -564,14 +598,33 @@ read_response( fd_sshttp_t * http,
 
   http->state = FD_SSHTTP_STATE_DL;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
-    if( FD_UNLIKELY( *data_len<http->response_len-(ulong)parsed ) ) FD_LOG_ERR(( "data buffer too small %lu %lu %lu", *data_len, http->response_len, (ulong)parsed ));
-    FD_TEST( *data_len>=http->response_len-(ulong)parsed );
-    *data_len = http->response_len - (ulong)parsed;
-    fd_memcpy( data, http->response+parsed, *data_len );
-    http->content_read += *data_len;
+    ulong body_avail = http->response_len - (ulong)parsed;
+    ulong body_room  = http->content_len - http->content_read;
+    ulong body_pending = fd_ulong_min( body_avail, body_room );
+
+    if( FD_UNLIKELY( !*data_len ) ) {
+      if( FD_UNLIKELY( body_pending ) ) memmove( http->response, http->response+parsed, body_pending );
+      http->response_len = body_pending;
+      return FD_SSHTTP_ADVANCE_AGAIN;
+    }
+
+    ulong body_take = fd_ulong_min( *data_len, body_pending );
+    if( FD_UNLIKELY( !body_take ) ) {
+      http->response_len = 0UL;
+      return FD_SSHTTP_ADVANCE_AGAIN;
+    }
+
+    fd_memcpy( data, http->response+parsed, body_take );
+    http->content_read += body_take;
+    *data_len = body_take;
+
+    ulong body_rem = body_pending - body_take;
+    if( FD_UNLIKELY( body_rem ) ) memmove( http->response, http->response+parsed+body_take, body_rem );
+    http->response_len = body_rem;
     return FD_SSHTTP_ADVANCE_DATA;
   } else {
     FD_TEST( http->response_len==(ulong)parsed );
+    http->response_len = 0UL;
     return FD_SSHTTP_ADVANCE_AGAIN;
   }
 }
@@ -595,10 +648,23 @@ read_body( fd_sshttp_t * http,
   }
 
   FD_TEST( http->content_read<http->content_len );
+  if( FD_UNLIKELY( http->response_len ) ) {
+    ulong pending = fd_ulong_min( http->response_len, http->content_len-http->content_read );
+    ulong take    = fd_ulong_min( *data_len, pending );
+
+    if( FD_UNLIKELY( !take ) ) return FD_SSHTTP_ADVANCE_AGAIN;
+
+    fd_memcpy( data, http->response, take );
+    http->content_read += take;
+    http->response_len -= take;
+    if( FD_UNLIKELY( http->response_len ) ) memmove( http->response, http->response+take, http->response_len );
+    *data_len = take;
+    return FD_SSHTTP_ADVANCE_DATA;
+  }
+
+  if( FD_UNLIKELY( !*data_len ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   long read = http_recv( http, data, fd_ulong_min( *data_len, http->content_len-http->content_read ) );
   if( FD_UNLIKELY( read<=0 ) ) return (int)read;
-
-  if( FD_UNLIKELY( !read ) ) return FD_SSHTTP_ADVANCE_AGAIN;
 
   *data_len = (ulong)read;
   http->content_read += (ulong)read;

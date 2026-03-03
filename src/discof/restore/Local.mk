@@ -36,6 +36,7 @@ $(call make-fuzz-test,fuzz_ssmanifest_parser,utils/fuzz_ssmanifest_parser,fd_dis
 $(call make-fuzz-test,fuzz_ssarchive_parser,utils/fuzz_ssarchive_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_slot_delta_parser,utils/fuzz_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_sshttp,utils/fuzz_sshttp,fd_discof fd_waltz fd_flamenco fd_ballet fd_util,$(OPENSSL_LIBS))
+$(call make-fuzz-test,fuzz_sshttp_ir,utils/fuzz_sshttp_ir,fd_discof fd_waltz fd_flamenco fd_ballet fd_util,$(OPENSSL_LIBS))
 
 $(call add-objs,utils/fd_ssresolve,fd_discof)
 $(call add-objs,utils/fd_sshttp,fd_discof)
