@@ -1,6 +1,9 @@
 #include "fd_bank.h"
 #include "fd_runtime_const.h"
 #include "../rewards/fd_stake_rewards.h"
+#include "fd_txncache.h"
+#include "../accdb/fd_accdb_admin.h"
+#include "../progcache/fd_progcache_admin.h"
 
 ulong
 fd_bank_align( void ) {
@@ -1034,7 +1037,10 @@ fd_banks_mark_bank_dead( fd_banks_t * banks,
 }
 
 int
-fd_banks_prune_dead_banks( fd_banks_t * banks ) {
+fd_banks_prune_dead_banks( fd_banks_t *           banks,
+                           fd_txncache_t *        txncache,
+                           fd_accdb_admin_t *     accdb_admin,
+                           fd_progcache_admin_t * progcache_admin ) {
   fd_rwlock_write( &banks->locks->banks_lock );
 
   int any_pruned = 0;
@@ -1053,6 +1059,18 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
     }
 
     FD_LOG_DEBUG(( "pruning dead bank (idx=%lu)", bank->idx ));
+
+    if( txncache && bank->flags&FD_BANK_FLAGS_REPLAYABLE ) {
+      fd_txncache_cancel_fork( txncache, bank->txncache_fork_id );
+
+      fd_bank_t bank_l[1];
+      if( FD_UNLIKELY( !fd_banks_bank_query( bank_l, banks, bank->idx ) ) ) {
+        FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank->idx ));
+      }
+      fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank_l ), bank->idx } };
+      fd_accdb_cancel( accdb_admin, &xid );
+      fd_progcache_txn_cancel( progcache_admin, &xid );
+    }
 
     bank->flags = 0UL;
 

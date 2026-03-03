@@ -12,6 +12,15 @@
 #include "../../ballet/lthash/fd_lthash.h"
 #include "fd_txncache_shmem.h"
 
+struct fd_txncache_private;
+typedef struct fd_txncache_private fd_txncache_t;
+
+struct fd_accdb_admin;
+typedef struct fd_accdb_admin fd_accdb_admin_t;
+
+struct fd_progcache_admin;
+typedef struct fd_progcache_admin fd_progcache_admin_t;
+
 FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
@@ -197,7 +206,7 @@ FD_PROTOTYPES_BEGIN
   fd_banks_mark_bank_dead( banks, dead_bank_idx );
 
   To actually prune away any dead banks, the caller should call:
-  fd_banks_prune_dead_banks( banks )
+  fd_banks_prune_dead_banks( banks, txncache, accdb_admin, progcache_admin )
 
   The locks and data used by an fd_bank_t or an fd_banks_t are stored as
   separate objects.  The locks are stored in an fd_banks_locks_t struct
@@ -934,7 +943,10 @@ fd_banks_mark_bank_dead( fd_banks_t * banks,
    and 0 otherwise. */
 
 int
-fd_banks_prune_dead_banks( fd_banks_t * banks );
+fd_banks_prune_dead_banks( fd_banks_t *           banks,
+                           fd_txncache_t *        txncache,
+                           fd_accdb_admin_t *     accdb_admin,
+                           fd_progcache_admin_t * progcache_admin );
 
 /* fd_banks_mark_bank_frozen marks the current bank as frozen.  This
    should be done when the bank is no longer being updated: it should be
