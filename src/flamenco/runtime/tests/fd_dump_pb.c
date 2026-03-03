@@ -1003,10 +1003,9 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Compute Units */
   instr_context->cu_avail = txn_out->details.compute_budget.compute_meter;
 
-  /* Epoch Context */
-  instr_context->has_epoch_context = true;
-  instr_context->epoch_context.has_features = true;
-  dump_sorted_features( fd_bank_features_query( bank ), &instr_context->epoch_context.features, spad );
+  /* Feature set */
+  instr_context->has_features = true;
+  dump_sorted_features( fd_bank_features_query( bank ), &instr_context->features, spad );
 }
 
 /***** PUBLIC APIs *****/
