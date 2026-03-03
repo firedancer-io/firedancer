@@ -2,6 +2,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../flamenco/gossip/fd_gossip_value.h"
+#include "../../discof/repair/fd_repair.h"
 
 /* fd_keyguard_match fingerprints signing requests and checks them for
    ambiguity.
@@ -179,13 +180,15 @@ FD_FN_PURE static int
 fd_keyguard_payload_matches_prune_data( uchar const * data,
                                         ulong         sz,
                                         int           sign_type ) {
-
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
-  ulong const static_sz = 80UL;
+  ulong const static_sz = 106UL;
   if( sz < static_sz ) return 0;
 
-  ulong prune_cnt = FD_LOAD( ulong, data+32UL );
+  if( FD_LOAD( ulong, data )!=18UL ) return 0;
+  if(  memcmp( data+8UL, "\xffSOLANA_PRUNE_DATA", 18UL ) ) return 0;
+
+  ulong prune_cnt = FD_LOAD( ulong, data+58UL );
   ulong expected_sz;
   if( __builtin_umull_overflow( prune_cnt,   32UL,      &expected_sz ) ) return 0;
   if( __builtin_uaddl_overflow( expected_sz, static_sz, &expected_sz ) ) return 0;
@@ -225,12 +228,11 @@ fd_keyguard_payload_matches_repair( uchar const * data,
      location). */
   if( sz<36UL ) return 0;
 
-  /* There probably won't ever be more than 32 different repair message
-     types. */
-  if( (data[0] <0x20)
-    & (data[1]==0x00)
-    & (data[2]==0x00)
-    & (data[3]==0x00) )
+  /* Ensure that the kind matches a possible repair request. */
+  uint kind = FD_LOAD( uint, data );
+  if( (kind==FD_REPAIR_KIND_SHRED)
+    | (kind==FD_REPAIR_KIND_HIGHEST_SHRED)
+    | (kind==FD_REPAIR_KIND_ORPHAN) )
     return 1;
 
   return 0;

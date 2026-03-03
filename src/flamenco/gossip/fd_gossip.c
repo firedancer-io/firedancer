@@ -627,8 +627,8 @@ rx_pull_response( fd_gossip_t *                     gossip,
 
    The signable data (input to Ed25519 sign) is the PruneData fields
    excluding signature:
-     pubkey[32] + prunes_len[8] + prunes[32] + destination[32] + wallclock[8]
-   This must match fd_keyguard_payload_matches_prune_data (80 + 32 bytes). */
+     prefix[26] + pubkey[32] + prunes_len[8] + prunes[32] + destination[32] + wallclock[8]
+   This must match fd_keyguard_payload_matches_prune_data (106 + 32 bytes). */
 
 static void
 tx_prune( fd_gossip_t *       gossip,
@@ -649,9 +649,11 @@ tx_prune( fd_gossip_t *       gossip,
   ulong wallclock = (ulong)FD_NANOSEC_TO_MILLI( now );
 
   /* Build the signable payload:
-     pubkey[32] + prunes_len[8] + prunes[32] + destination[32] + wallclock[8] */
-  uchar signable[ 32UL + 8UL + 32UL + 32UL + 8UL ];
+     prefix[26] + pubkey[32] + prunes_len[8] + prunes[32] + destination[32] + wallclock[8] */
+  uchar signable[ 26UL + 32UL + 8UL + 32UL + 32UL + 8UL ];
   uchar * p = signable;
+  FD_STORE( ulong, p, 18UL );                    p += 8UL;
+  fd_memcpy( p, "\xffSOLANA_PRUNE_DATA", 18UL ); p += 18UL;
   fd_memcpy( p, gossip->identity_pubkey, 32UL ); p += 32UL;
   FD_STORE( ulong, p, 1UL );                     p += 8UL;
   fd_memcpy( p, origin, 32UL );                  p += 32UL;
