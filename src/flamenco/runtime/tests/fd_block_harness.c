@@ -50,7 +50,7 @@ fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
     fd_accdb_close_ro( accdb, ro );
     return;
   }
-  fd_vote_stakes_insert_root_key( vote_stakes, pubkey );
+  fd_vote_stakes_insert_root_key( vote_stakes, pubkey, 0UL );
   fd_accdb_close_ro( accdb, ro );
 }
 
