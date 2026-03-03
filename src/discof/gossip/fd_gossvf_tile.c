@@ -771,6 +771,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
     if( FD_UNLIKELY( message->pull_request->contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
     if( FD_UNLIKELY( !memcmp( message->pull_request->contact_info->origin, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
+    if( FD_UNLIKELY( message->pull_request->crds_filter->mask_bits>=64U ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_MASK_BITS_IDX;
 
     long clamp_wallclock_lower_nanos = now-15L*1000L*1000L*1000L;
     long clamp_wallclock_upper_nanos = now+15L*1000L*1000L*1000L;
