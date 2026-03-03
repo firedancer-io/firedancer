@@ -396,8 +396,7 @@ fd_ghost_verify( fd_ghost_t * ghost ) {
     return -1;
   }
 
-  fd_ghost_blk_t const      * pool = blk_pool( ghost );
-  ulong                       null = blk_pool_idx_null( pool );
+  fd_ghost_blk_t const * pool = blk_pool( ghost );
 
   /* Check every ele that exists in pool exists in map. */
 
@@ -409,7 +408,7 @@ fd_ghost_verify( fd_ghost_t * ghost ) {
   while( FD_LIKELY( parent ) ) {
     ulong                  weight = 0;
     fd_ghost_blk_t const * child  = blk_pool_ele( blk_pool( ghost ), parent->child );
-    while( FD_LIKELY( child && child->sibling != null ) ) {
+    while( FD_LIKELY( child ) ) {
       weight += child->stake;
       child = blk_pool_ele( blk_pool( ghost ), child->sibling );
     }

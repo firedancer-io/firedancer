@@ -66,7 +66,7 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
   void *       map    = FD_SCRATCH_ALLOC_APPEND( l, fd_store_map_align(),    fd_store_map_footprint ( fec_max ) );
   void *       shpool = FD_SCRATCH_ALLOC_APPEND( l, fd_store_pool_align(),   fd_store_pool_footprint()          );
   void *       shele  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_fec_t), sizeof(fd_store_fec_t)*fec_max     );
-  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_store_align() ) == (ulong)shmem + footprint );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_store_align() )==(ulong)shmem + footprint );
 
   fd_memset( store, 0, sizeof(fd_store_t) );
   store->store_gaddr    = fd_wksp_gaddr_fast( wksp, store  );
