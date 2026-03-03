@@ -271,9 +271,9 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
         forward_msg = 0;
         break;
       } else {
-        FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
-                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
-                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
+        FD_LOG_INFO(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
+                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
+                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
       }
       break;
     }
