@@ -1,4 +1,3 @@
-#include "../../../../util/fd_util.h"
 /* TODO: Layering violation */
 #include "../../../shared_dev/commands/bench/bench.h"
 
@@ -22,6 +21,8 @@
 #include <termios.h>
 #include "generated/monitor_seccomp.h"
 
+extern action_t * ACTIONS[];
+
 void
 monitor_cmd_args( int *    pargc,
                   char *** pargv,
@@ -34,6 +35,12 @@ monitor_cmd_args( int *    pargc,
 
   args->monitor.with_bench     = fd_env_strip_cmdline_contains( pargc, pargv, "--bench" );
   args->monitor.with_sankey    = fd_env_strip_cmdline_contains( pargc, pargv, "--sankey" );
+
+  char const * topo_name = fd_env_strip_cmdline_cstr( pargc, pargv, "--topo", NULL, "" );
+
+  ulong topo_name_len = strlen( topo_name );
+  if( FD_UNLIKELY( topo_name_len > sizeof(args->monitor.topo)-1 ) ) FD_LOG_ERR(( "Unknown --topo %s", topo_name ));
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->monitor.topo ), topo_name, topo_name_len ) );
 
   if( FD_UNLIKELY( args->monitor.dt_min<0L                   ) ) FD_LOG_ERR(( "--dt-min should be positive"          ));
   if( FD_UNLIKELY( args->monitor.dt_max<args->monitor.dt_min ) ) FD_LOG_ERR(( "--dt-max should be at least --dt-min" ));
@@ -498,9 +505,31 @@ signal1( int sig ) {
   exit( 0 ); /* gracefully exit */
 }
 
+static void
+reconstruct_topo( config_t *   config,
+                  char const * topo_name ) {
+  if( !topo_name[0] ) return; /* keep default action topo */
+
+  action_t const * selected = NULL;
+  for( action_t ** a=ACTIONS; *a; a++ ) {
+    action_t const * action = *a;
+    if( 0==strcmp( action->name, topo_name ) ) {
+      selected = action;
+      break;
+    }
+  }
+
+  if( !selected       ) FD_LOG_ERR(( "Unknown --topo %s", topo_name ));
+  if( !selected->topo ) FD_LOG_ERR(( "Cannot recover topology for --topo %s", topo_name ));
+
+  selected->topo( config );
+}
+
 void
 monitor_cmd_fn( args_t *   args,
                 config_t * config ) {
+  reconstruct_topo( config, args->monitor.topo );
+
   if( FD_UNLIKELY( args->monitor.with_bench ) ) {
     add_bench_topo( &config->topo,
                     config->development.bench.affinity,
