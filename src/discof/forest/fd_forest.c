@@ -1075,6 +1075,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           slot_complete,
                              int           ref_tick,
                              int           src,
+                             int           is_dup,
                              fd_hash_t   * mr,
                              fd_hash_t   * cmr ) {
   VER_INC;
@@ -1084,7 +1085,6 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest: fd_forest_data_shred_insert: ele %lu is not in the forest. data_shred_insert should be preceded by blk_insert", slot ));
 # endif
 
-  FD_LOG_INFO(( "fd_forest_data_shred_insert: inserting shred idx %u for slot %lu fec set %u", shred_idx, slot, fec_set_idx ));
 
   /* Pre-filtering on merkle root.
      If we have knowledge of the confirmed merkle root, we can reject
@@ -1129,7 +1129,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   }
   if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
 
-  fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
+  if( FD_LIKELY( !is_dup ) ) fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
   while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) {
     ele->buffered_idx++;
     ele->est_buffered_tick_recv = ref_tick;
@@ -1204,7 +1204,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
      the advance_consumed_frontier call in the below data_shred_insert
      to move forward the consumed frontier.  */
   for( uint idx = fec_set_idx; idx <= last_shred_idx; idx++ ) {
-    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, mr, cmr );
+    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, 0, mr, cmr );
   }
   return ele;
 }
@@ -1832,9 +1832,6 @@ fd_forest_print( fd_forest_t const * forest ) {
   fd_forest_orphaned_print( forest );
   printf("\n");
 
-  ulong slot = 392093772;
-  fd_forest_blk_t const * ele = fd_forest_ancestry_ele_query_const( fd_forest_ancestry_const( forest ), &slot, NULL, fd_forest_pool_const( forest ) );
-  FD_LOG_NOTICE((" slot %lu, buffered_idx %u, complete_idx %u", ele->slot, ele->buffered_idx, ele->complete_idx ));
   fflush(stdout);
 }
 

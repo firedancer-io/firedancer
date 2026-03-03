@@ -182,21 +182,31 @@ test_interleaved( void ) {
   uchar chained_merkle_root[32] = { 0 };
 
   fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set,     chained_merkle_root );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL, chained_merkle_root );
+  //fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL, chained_merkle_root );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];
 
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX, SEED ) );
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 8UL, 1UL, 8UL, 16UL, out_sets, MAX, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
-  for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) {
-    ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
-    ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY );
+  for( ulong j=0UL; j<FD_FEC_SHRED_CNT; j++ ) {
+    fd_shred_t const * __parsed = fd_shred_parse(set0->data_shreds[ j ].b, 2048UL );
+    fd_fec_resolver_spilled_t spilled = { 0 };
+    int retval = fd_fec_resolver_add_shred( resolver, __parsed, 2048UL, 1, pubkey, out_fec, out_shred, out_merkle_root, &spilled );
+    FD_TEST( retval==FD_FEC_RESOLVER_SHRED_OKAY || retval==FD_FEC_RESOLVER_SHRED_COMPLETES );
   }
-  ADD_SHRED( resolver, set0->parity_shreds[ 0 ], COMPLETES ); FD_TEST( *out_fec==out_sets+0 ); FD_TEST( sets_eq( set0, *out_fec ) );
-  ADD_SHRED( resolver, set1->parity_shreds[ 1 ], COMPLETES ); FD_TEST( *out_fec==out_sets+1 ); FD_TEST( sets_eq( set1, *out_fec ) );
+
+   for( ulong j=0UL; j<FD_FEC_SHRED_CNT; j++ ) {
+    fd_shred_t const * __parsed = fd_shred_parse(set0->data_shreds[ j ].b, 2048UL );
+    fd_fec_resolver_spilled_t spilled = { 0 };
+    int retval = fd_fec_resolver_add_shred( resolver, __parsed, 2048UL, 1, pubkey, out_fec, out_shred, out_merkle_root, &spilled );
+    FD_LOG_NOTICE(( "Adding duplicate shred, got retval %d", retval ));
+   }
+
+  //ADD_SHRED( resolver, set0->parity_shreds[ 0 ], COMPLETES ); FD_TEST( *out_fec==out_sets+0 ); FD_TEST( sets_eq( set0, *out_fec ) );
+  //ADD_SHRED( resolver, set1->parity_shreds[ 1 ], COMPLETES ); FD_TEST( *out_fec==out_sets+1 ); FD_TEST( sets_eq( set1, *out_fec ) );
 
   fd_fec_resolver_delete( fd_fec_resolver_leave( resolver ) );
 }

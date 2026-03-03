@@ -654,7 +654,9 @@ after_shred( ctx_t      * ctx,
              fd_shred_t * shred,
              ulong        nonce,
              fd_hash_t *  mr,
-             fd_hash_t *  cmr ) {
+             fd_hash_t *  cmr,
+             int          is_dup,
+             ulong        tspub ) {
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
   int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
@@ -680,7 +682,7 @@ after_shred( ctx_t      * ctx,
     ulong evicted     = ULONG_MAX;
     fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
     if( FD_LIKELY( blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) {
-      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
+      if( tspub > blk->fec_clear_timestamps[shred->fec_set_idx / 32] ) fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, is_dup, mr, cmr );
     }
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
@@ -886,6 +888,8 @@ after_frag( ctx_t *             ctx,
     fd_hash_t  * mr    = (fd_hash_t *)(ctx->buffer + fd_shred_header_sz( shred->variant ));
     fd_hash_t  * cmr   = (fd_hash_t *)(ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) );
     uint         nonce = FD_LOAD(uint, ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) + sizeof(fd_hash_t) ); /* gibberish if not shred msg */
+    int          is_dup = FD_LOAD(int, ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(uint) ); /* gibberish if not shred msg */
+                 is_dup = is_dup == -1; /* FD_FEC_RESOLVER_SHRED_DUPLICATE */
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
       FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
       return;
@@ -926,7 +930,7 @@ after_frag( ctx_t *             ctx,
     if( FD_UNLIKELY( fec_completes ) ) {
       after_fec( ctx, shred, mr, cmr, tspub );
     } else {
-      after_shred( ctx, sig, shred, nonce, mr, cmr );
+      after_shred( ctx, sig, shred, nonce, mr, cmr, is_dup, tspub );
     }
 
     /* update metrics */

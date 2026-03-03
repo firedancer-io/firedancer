@@ -747,6 +747,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           slot_complete,
                              int           ref_tick,
                              int           src,
+                             int           is_dup,
                              fd_hash_t *   mr,
                              fd_hash_t *   cmr );
 
