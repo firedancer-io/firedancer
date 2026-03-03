@@ -174,7 +174,8 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
 void
 fd_gossip_advance( fd_gossip_t *       gossip,
                    long                now,
-                   fd_stem_context_t * stem );
+                   fd_stem_context_t * stem,
+                   int *               charge_busy );
 
 /* fd_gossip_rx handles an incoming packet received on the gossip socket
    from the network.  It is expected that the packet is a UDP packet but

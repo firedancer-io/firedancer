@@ -219,7 +219,7 @@ void
 after_credit( fd_gossip_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in,
-              int *                  charge_busy FD_PARAM_UNUSED ) {
+              int *                  charge_busy ) {
   ctx->stem = stem;
 
   if( FD_UNLIKELY( !ctx->my_contact_info->shred_version ) ) return;
@@ -228,11 +228,12 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     fd_stem_publish( ctx->stem, ctx->gossip_out->idx, FD_GOSSIP_UPDATE_TAG_WFS_DONE, ctx->gossip_out->chunk, 0UL, 0UL, 0UL, 0UL );
     ctx->wfs_state = FD_GOSSIP_WFS_STATE_DONE;
     *opt_poll_in = 0;
+    *charge_busy = 1;
     return;
   }
 
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
-  fd_gossip_advance( ctx->gossip, now, stem );
+  fd_gossip_advance( ctx->gossip, now, stem, charge_busy );
 }
 
 static void
@@ -274,7 +275,7 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
   switch( fd_gossvf_sig_kind( sig ) ) {
     case 0: {
       fd_gossip_rx( ctx->gossip, peer, payload, payload_sz, now, stem );
-      fd_gossip_advance( ctx->gossip, now, stem );
+      fd_gossip_advance( ctx->gossip, now, stem, NULL );
       break;
     }
     case 1: {

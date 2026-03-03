@@ -116,7 +116,8 @@ fd_active_set_push( fd_active_set_t *   active_set,
 void
 fd_active_set_advance( fd_active_set_t *   active_set,
                        fd_stem_context_t * stem,
-                       long                now );
+                       long                now,
+                       int *               charge_busy );
 
 FD_PROTOTYPES_END
 

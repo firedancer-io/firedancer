@@ -612,7 +612,8 @@ crds_acquire( fd_crds_t *         crds,
 static inline void
 expire( fd_crds_t *         crds,
         long                now,
-        fd_stem_context_t * stem ){
+        fd_stem_context_t * stem,
+        int *               charge_busy ){
   static const long SLOT_DURATION_NANOS            = 400L*1000L*1000L;
   static const long STAKED_EXPIRE_DURATION_NANOS   = 432000L*SLOT_DURATION_NANOS;
   static const long UNSTAKED_EXPIRE_DURATION_NANOS = 15L*1000L*1000L*1000L;
@@ -622,6 +623,7 @@ expire( fd_crds_t *         crds,
 
     if( FD_LIKELY( head->expire.wallclock_nanos>now-STAKED_EXPIRE_DURATION_NANOS ) ) break;
     crds_release( crds, head, now, 0, stem );
+    if( charge_busy ) *charge_busy = 1;
   }
 
   long unstaked_expire_duration_nanos = fd_long_if( crds->has_staked_node,
@@ -633,12 +635,14 @@ expire( fd_crds_t *         crds,
 
     if( FD_LIKELY( head->expire.wallclock_nanos>now-unstaked_expire_duration_nanos ) ) break;
     crds_release( crds, head, now, 0, stem );
+    if( charge_busy ) *charge_busy = 1;
   }
 }
 
 static void
 unfresh( fd_crds_t * crds,
-         long        now ) {
+         long        now,
+         int *       charge_busy ) {
   while( !crds_contact_info_fresh_list_is_empty( crds->ci_fresh_dlist, crds->ci_pool ) ) {
     fd_crds_contact_info_entry_t * head = crds_contact_info_fresh_list_ele_peek_head( crds->ci_fresh_dlist, crds->ci_pool );
 
@@ -648,6 +652,7 @@ unfresh( fd_crds_t * crds,
     head->fresh_dlist.in_list = 0;
 
     fd_gossip_wsample_fresh( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, head ), 0 );
+    if( charge_busy ) *charge_busy = 1;
   }
 
   while( !ci_fresh_15s_dlist_is_empty( crds->ci_fresh_15s_dlist, crds->ci_pool ) ) {
@@ -660,15 +665,17 @@ unfresh( fd_crds_t * crds,
     FD_TEST( head->fresh_15s_dlist.in_list );
     head->fresh_15s_dlist.in_list = 0U;
     crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)head->crds_entry->key.pubkey, head->contact_info, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE );
+    if( charge_busy ) *charge_busy = 1;
   }
 }
 
 void
 fd_crds_advance( fd_crds_t *         crds,
                  long                now,
-                 fd_stem_context_t * stem ) {
-  expire( crds, now, stem );
-  unfresh( crds, now );
+                 fd_stem_context_t * stem,
+                 int *               charge_busy ) {
+  expire( crds, now, stem, charge_busy );
+  unfresh( crds, now, charge_busy );
 }
 
 static inline void
