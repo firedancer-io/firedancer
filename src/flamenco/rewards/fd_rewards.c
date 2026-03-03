@@ -498,6 +498,8 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
 
+  fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
+
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -509,7 +511,13 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         continue;
       }
     }
-    fd_calculated_stake_rewards_t * calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation->idx ];
+
+    fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
+    if( stake_delegation->idx>=FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) {
+      calculated_stake_rewards = calculated_stake_rewards_;
+    } else {
+      calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation->idx ];
+    }
     calculated_stake_rewards->success = 0;
 
     fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
@@ -574,11 +582,15 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
 static void
 setup_stake_partitions( fd_bank_t *                    bank,
+                        fd_stake_history_t const *     stake_history,
                         fd_stake_delegations_t const * stake_delegations,
                         fd_runtime_stack_t *           runtime_stack,
                         fd_hash_t const *              parent_blockhash,
                         ulong                          starting_block_height,
-                        uint                           num_partitions ) {
+                        uint                           num_partitions,
+                        ulong                          rewarded_epoch,
+                        ulong                          total_rewards,
+                        uint128                        total_points ) {
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
   uchar fork_idx = fd_stake_rewards_init( stake_rewards, fd_bank_epoch_get( bank ), parent_blockhash, starting_block_height, (uint)num_partitions );
@@ -590,16 +602,65 @@ setup_stake_partitions( fd_bank_t *                    bank,
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
-    fd_calculated_stake_rewards_t * reward = &runtime_stack->stakes.stake_rewards_result[ stake_delegation->idx ];
+    fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
+    fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
 
-    if( FD_UNLIKELY( !reward->success ) ) continue;
+    if( FD_UNLIKELY( stake_delegation->idx>=FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) ) {
+
+      calculated_stake_rewards = calculated_stake_rewards_;
+
+      fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
+      fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+      uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+      if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
+      if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
+
+      int _err[1];
+      ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
+      ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
+      int is_some = fd_new_warmup_cooldown_rate_epoch(
+          fd_bank_epoch_schedule_query( bank ),
+          fd_bank_features_query( bank ),
+          new_warmup_cooldown_rate_epoch,
+          _err );
+      if( FD_UNLIKELY( !is_some ) ) {
+        new_warmup_cooldown_rate_epoch = NULL;
+      }
+
+      fd_calculated_stake_points_t stake_points_result[1];
+      calculate_stake_points_and_credits(
+          stake_history,
+          stake_delegation,
+          runtime_stack,
+          idx,
+          new_warmup_cooldown_rate_epoch,
+          stake_points_result );
+
+      /* redeem_rewards is actually just responsible for calculating the
+         vote and stake rewards for each stake account.  It does not do
+         rewards redemption: it is a misnomer. */
+      int err = redeem_rewards(
+          stake_delegation,
+          idx,
+          rewarded_epoch,
+          total_rewards,
+          total_points,
+          runtime_stack,
+          stake_points_result,
+          calculated_stake_rewards );
+      calculated_stake_rewards->success = err==0;
+    } else {
+      calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation->idx ];
+    }
+
+    if( FD_UNLIKELY( !calculated_stake_rewards->success ) ) continue;
 
     fd_stake_rewards_insert(
       stake_rewards,
       fork_idx,
       &stake_delegation->stake_account,
-      reward->staker_rewards,
-      reward->new_credits_observed
+      calculated_stake_rewards->staker_rewards,
+      calculated_stake_rewards->new_credits_observed
     );
   }
 }
@@ -662,7 +723,17 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                                                 fd_bank_slot_get( bank ),
                                                                                 runtime_stack->stakes.stake_rewards_cnt );
 
-  setup_stake_partitions( bank, stake_delegations, runtime_stack, parent_blockhash, starting_block_height, num_partitions );
+  setup_stake_partitions(
+      bank,
+      stake_history,
+      stake_delegations,
+      runtime_stack,
+      parent_blockhash,
+      starting_block_height,
+      num_partitions,
+      rewarded_epoch,
+      *rewards_out,
+      total_points );
 
   return total_points;
 }
@@ -1089,9 +1160,13 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
 
   setup_stake_partitions(
       bank,
+      stake_history,
       stake_delegations,
       runtime_stack,
       &epoch_rewards_sysvar->parent_blockhash,
       epoch_rewards_sysvar->distribution_starting_block_height,
-      (uint)epoch_rewards_sysvar->num_partitions );
+      (uint)epoch_rewards_sysvar->num_partitions,
+      rewarded_epoch,
+      epoch_rewards_sysvar->total_rewards,
+      epoch_rewards_sysvar->total_points.ud );
 }
