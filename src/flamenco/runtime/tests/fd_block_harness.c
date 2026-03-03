@@ -70,7 +70,8 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_st
 
     fd_pubkey_t node_account = fd_vsv_get_node_account( vote_account->data->bytes );
 
-    fd_vote_stakes_insert_root_update( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, is_t_1 );
+    /* TODO: This uses the wrong commission value. */
+    fd_vote_stakes_insert_root_update( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, UCHAR_MAX, stake, is_t_1 );
 
     fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
 

@@ -250,6 +250,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     fd_vote_stakes_insert_root_update( vote_stakes,
                                        (fd_pubkey_t *)elem->vote,
                                        (fd_pubkey_t *)elem->identity,
+                                       vote_ele->commission,
                                        elem->stake,
                                        1 );
 
@@ -268,6 +269,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     fd_vote_stakes_insert_root_update( vote_stakes,
       (fd_pubkey_t *)elem->vote,
       (fd_pubkey_t *)elem->identity,
+      (uchar)elem->commission,
       elem->stake,
       0 );
   }
