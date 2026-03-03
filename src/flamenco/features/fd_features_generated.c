@@ -1603,11 +1603,10 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, enable_turbine_extended_fanout_experiments)>>3,
-    .id                        = {"\x9c\xfa\x56\x83\x27\xa3\x72\x02\xcc\xb2\x43\x58\x96\x7a\xd0\xb1\x15\x49\x12\xb3\x1e\xb1\x38\xb9\x5c\x09\x00\x03\xc2\x36\xd8\xbe"},
-                                 /* BZn14Liea52wtBwrXUxTv6vojuTTmfc7XGEDTXrvMD7b */
+    .id                        = {"\x0d\x4c\x62\x79\xd8\xcc\xef\x78\x65\x4f\x1e\xcc\x95\x3e\xad\xbb\x36\x1c\x4e\xaf\x0f\x1f\x18\xb6\xa6\xd1\xc1\xfb\x98\x6f\xe1\xa9"},
+                                 /* turbRpTzBzDU6PJmWvRTbcJXXGxUs19CvQamUrRD9bN */
     .name                      = "enable_turbine_extended_fanout_experiments",
-    .cleaned_up                = 0,
-    .hardcode_for_fuzzing = 1 },
+    .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, vote_only_retransmitter_signed_fec_sets)>>3,
     .id                        = {"\x06\x51\x2b\xe1\x3a\x96\x4f\x49\x50\xb7\xac\x06\xb0\x90\x4d\x04\xbb\xbf\x29\xc7\x0c\x01\xf6\x52\x11\x2b\x02\xfa\x13\x90\x98\x76"},
@@ -2029,7 +2028,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_229 0x68b66c984ac5e709UL, .val = &ids[229]
 #define MAP_PERFECT_230 0x28f6b335e2fb2040UL, .val = &ids[230]
 #define MAP_PERFECT_231 0xa841eda250bdcc9cUL, .val = &ids[231]
-#define MAP_PERFECT_232 0x0272a3278356fa9cUL, .val = &ids[232]
+#define MAP_PERFECT_232 0x78efccd879624c0dUL, .val = &ids[232]
 #define MAP_PERFECT_233 0x494f963ae12b5106UL, .val = &ids[233]
 #define MAP_PERFECT_234 0x210aba8db8103506UL, .val = &ids[234]
 #define MAP_PERFECT_235 0xec3a4c069e71cb0eUL, .val = &ids[235]
