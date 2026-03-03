@@ -81,9 +81,12 @@ fd_accdb_v2_attach_child( fd_accdb_admin_t *        admin_,
 }
 
 void
-fd_accdb_v2_cancel( fd_accdb_admin_t *        admin,
+fd_accdb_v2_cancel( fd_accdb_admin_t *        admin_,
                     fd_funk_txn_xid_t const * xid ) {
-  fd_accdb_v1_cancel( admin, xid );
+  fd_accdb_admin_v2_t * admin = downcast( admin_ );
+  admin->base.accdb_type = FD_ACCDB_TYPE_V1;
+  fd_accdb_v1_cancel( admin_, xid );
+  admin->base.accdb_type = FD_ACCDB_TYPE_V2;
 }
 
 static void

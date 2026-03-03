@@ -600,10 +600,10 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   /* If the bank has been marked as dead from the time that it was
      initialized, don't bother copying over any data and return NULL. */
-     if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
-      fd_rwlock_unwrite( &banks->locks->banks_lock );
-      return NULL;
-    }
+  if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
+    fd_rwlock_unwrite( &banks->locks->banks_lock );
+    return NULL;
+  }
 
   /* Then make sure that the parent bank is valid and frozen. */
 
@@ -1137,10 +1137,9 @@ fd_banks_mark_bank_dead( fd_banks_t * banks,
 }
 
 int
-fd_banks_prune_dead_banks( fd_banks_t * banks ) {
+fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
+                              fd_banks_prune_cancel_info_t * cancel ) {
   fd_rwlock_write( &banks->locks->banks_lock );
-
-  int any_pruned = 0;
 
   fd_bank_idx_seq_t * dead_banks_queue = fd_banks_get_dead_banks_deque( banks->data );
   fd_bank_data_t *    bank_pool        = fd_banks_get_bank_pool( banks->data );
@@ -1156,8 +1155,6 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
     }
 
     FD_LOG_DEBUG(( "pruning dead bank (idx=%lu)", bank->idx ));
-
-    bank->flags = 0UL;
 
     /* There are a few cases to consider:
        1. The to-be-pruned bank is the left-most child of the parent.
@@ -1215,12 +1212,23 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
     fd_rwlock_unwrite( &banks->locks->stake_delegations_delta_lock );
 
     bank->stake_rewards_fork_id = UCHAR_MAX;
+
+    int needs_cancel = !!(bank->flags&FD_BANK_FLAGS_REPLAYABLE);
+    if( FD_LIKELY( needs_cancel ) ) {
+      cancel->txncache_fork_id = bank->txncache_fork_id;
+      cancel->slot             = FD_LOAD( ulong, bank->non_cow.slot );
+      cancel->bank_idx         = bank->idx;
+    }
+
+    bank->flags = 0UL;
+
     fd_banks_pool_ele_release( bank_pool, bank );
     fd_banks_dead_pop_head( dead_banks_queue );
-    any_pruned = 1;
+    fd_rwlock_unwrite( &banks->locks->banks_lock );
+    return 1+needs_cancel;
   }
   fd_rwlock_unwrite( &banks->locks->banks_lock );
-  return any_pruned;
+  return 0;
 }
 
 void
