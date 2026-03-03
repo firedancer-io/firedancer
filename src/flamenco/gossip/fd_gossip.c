@@ -832,6 +832,7 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
     }}
   };
   fd_memcpy( value.origin, gossip->identity_pubkey, 32UL );
+  FD_TEST( txn_sz<=sizeof(value.vote->transaction) );
   fd_memcpy( value.vote->transaction, txn, txn_sz );
 
   return fd_gossip_push( gossip, &value, stem, now );
