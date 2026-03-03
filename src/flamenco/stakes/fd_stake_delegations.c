@@ -620,9 +620,6 @@ fd_stake_delegations_delta_update( fd_stake_delegations_delta_t * stake_delegati
   fork_dlist_t * fork_dlist = get_fork_dlist( stake_delegations, fork_idx );
 
   fd_stake_delegation_t * stake_delegation = stake_delegation_delta_pool_ele_acquire( stake_delegation_pool );
-  if( FD_UNLIKELY( !stake_delegation ) ) {
-    FD_LOG_CRIT(( "Failed to acquire stake delegation" ));
-  }
 
   fork_dlist_ele_push_tail( fork_dlist, stake_delegation, stake_delegation_pool );
 
@@ -646,9 +643,6 @@ fd_stake_delegations_delta_remove( fd_stake_delegations_delta_t * stake_delegati
   }
 
   fd_stake_delegation_t * stake_delegation = stake_delegation_delta_pool_ele_acquire( stake_delegation_pool );
-  if( FD_UNLIKELY( !stake_delegation ) ) {
-    FD_LOG_CRIT(( "Failed to acquire stake delegation" ));
-  }
 
   fork_dlist_t * fork_dlist = get_fork_dlist( stake_delegations, fork_idx );
   fork_dlist_ele_push_tail( fork_dlist, stake_delegation, stake_delegation_pool );
