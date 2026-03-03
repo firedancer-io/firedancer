@@ -65,7 +65,8 @@ connect: (not (or (eq (arg 0) 2)
                   (eq (arg 0) out_inc_fd)))
 
 # snapshot: need to close sockets that were opened when calls to connect
-# fail.
+# fail.  The ping file descriptors are also closed and recreated to
+# reliably clean up TCP connection state at the remote end.
 #
 # arg 0 is the file descriptor that we would like to close.  We will
 # restrict this being called on any of the snapshot file descriptors,
@@ -74,9 +75,7 @@ close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) logfile_fd)
                 (eq (arg 0) dir_fd)
                 (eq (arg 0) out_full_fd)
-                (eq (arg 0) out_inc_fd)
-                (and (>= (arg 0) min_ping_fd)
-                     (<= (arg 0) max_ping_fd))))
+                (eq (arg 0) out_inc_fd)))
 
 # snapshot: we need to be able to poll existing connections that we want
 # to download snapshots and resolve snapshots from
@@ -115,19 +114,18 @@ recvfrom: (not (or (eq (arg 0) 2)
 
 # snapshot: we need to be able to configure out socket connection from
 # the peer that we download our snapshot from or resolve slot
-# information from.
+# information from.  The ping file descriptors also need TCP_NODELAY
+# set after being recreated.
 #
 # arg 0 is the file descriptor that corresponds to the socket that we
 # want to connect to.  We know that we don't want to connect to the
-# file descriptors used for logging, stderr, ping or any of the snapshot
-# fds.  The ping file descriptors set this option in privileged_init.
+# file descriptors used for logging, stderr, or any of the snapshot
+# fds.
 setsockopt: (and (not (or (eq (arg 0) 2)
                           (eq (arg 0) logfile_fd)
                           (eq (arg 0) dir_fd)
                           (eq (arg 0) out_full_fd)
-                          (eq (arg 0) out_inc_fd)
-                          (and (>= (arg 0) min_ping_fd)
-                               (<= (arg 0) max_ping_fd))))
+                          (eq (arg 0) out_inc_fd)))
                  (eq (arg 1) IPPROTO_TCP)
                  (eq (arg 2) TCP_NODELAY))
 

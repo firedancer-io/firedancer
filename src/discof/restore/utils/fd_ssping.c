@@ -297,14 +297,20 @@ remove_fdesc_idx( fd_ssping_t * ssping,
   ulong pool_idx = ssping->ping_to_pool[ fdesc_idx ];
 
   int fdesc = ssping->used_fds[ fdesc_idx ].fd;
-  /* Abort the connection attempt or close the connection by connecting
-     to AF_UNSPEC. */
-  struct sockaddr_in addr[1] = {{
-    .sin_family = AF_UNSPEC,
-    .sin_addr   = { .s_addr = 0U },
-    .sin_port   = 0
-  }};
-  if( FD_UNLIKELY( connect( fdesc, addr, sizeof(addr) ) ) ) FD_LOG_ERR(( "connect(AF_UNSPEC) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  /* Close the socket to reliably tear down the TCP connection.  For
+     established connections this sends FIN to the remote end, freeing
+     its connection state.  Then create a fresh nonblocking TCP socket
+     for reuse. */
+  if( FD_UNLIKELY( close( fdesc ) ) )
+    FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+
+  fdesc = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  if( FD_UNLIKELY( fdesc==-1 ) )
+    FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+
+  int tcp_nodelay = 1;
+  if( FD_UNLIKELY( setsockopt( fdesc, SOL_TCP, TCP_NODELAY, &tcp_nodelay, sizeof(int) ) ) )
+    FD_LOG_ERR(( "setsockopt(SOL_TCP,TCP_NODELAY,1) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Mark that the pool element no longer has an associated index. */
   ssping->pool[ pool_idx ].used_fd_idx = ULONG_MAX;
