@@ -1077,7 +1077,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              fd_hash_t   * mr,
                              fd_hash_t   * cmr ) {
   VER_INC;
-  FD_TEST( shred_idx <= FD_SHRED_IDX_MAX );
+  FD_TEST( shred_idx < FD_SHRED_BLK_MAX );
   fd_forest_blk_t * ele = query( forest, slot );
 # if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest: fd_forest_data_shred_insert: ele %lu is not in the forest. data_shred_insert should be preceded by blk_insert", slot ));
@@ -1140,7 +1140,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
 fd_forest_blk_t *
 fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, fd_hash_t * mr, fd_hash_t * cmr ) {
   VER_INC;
-  FD_TEST( last_shred_idx <= FD_SHRED_IDX_MAX );
+  FD_TEST( last_shred_idx < FD_SHRED_BLK_MAX );
 
   fd_forest_blk_t * ele = query( forest, slot );
 # if FD_FOREST_USE_HANDHOLDING
@@ -1206,7 +1206,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 
 fd_forest_blk_t *
 fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) {
-  FD_TEST( shred_idx <= FD_SHRED_IDX_MAX );
+  FD_TEST( shred_idx < FD_SHRED_BLK_MAX );
   fd_forest_blk_t * ele  = query( forest, slot );
   if( FD_UNLIKELY( !ele ) ) {
     return NULL;

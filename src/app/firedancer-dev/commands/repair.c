@@ -1139,10 +1139,10 @@ repair_cmd_fn_peers( args_t *   args,
 
 static const char * HELP =
   "\n\n"
-  "usage: repair [-h] {catchup,forest,waterfall} ...\n"
+  "usage: repair [-h] {catchup,forest,inflight,requests,waterfall,peers,metrics} ...\n"
   "\n"
   "positional arguments:\n"
-  "  {catchup,forest,inflight,requests,waterfall}\n"
+  "  {catchup,forest,inflight,requests,waterfall,peers,metrics}\n"
   "    catchup             runs Firedancer with a reduced topology that only repairs slots until catchup\n"
   "    eqvoc               tests equivocation detection & repair path\n"
   "    forest              prints the repair forest\n"
