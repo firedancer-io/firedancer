@@ -895,7 +895,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return base + tile->gui.max_http_connections + tile->gui.max_websocket_connections;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
