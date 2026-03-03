@@ -269,6 +269,7 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
                 ulong                           total_rewards,
                 uint128                         total_points,
                 fd_runtime_stack_t *            runtime_stack,
+                fd_calculated_stake_points_t *  stake_points_result,
                 fd_calculated_stake_rewards_t * result ) {
 
   /* The firedancer implementation of redeem_rewards inlines a lot of
@@ -276,26 +277,24 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
      In Agave: redeem_rewards calls redeem_stake_rewards which calls
      calculate_stake_rewards. */
 
-  fd_calculated_stake_points_t stake_points_result = runtime_stack->stakes.stake_points_result[ stake->idx ];
-
   // Drive credits_observed forward unconditionally when rewards are disabled
   // or when this is the stake's activation epoch
   if( total_rewards==0UL || stake->activation_epoch==rewarded_epoch ) {
-      stake_points_result.force_credits_update_with_skipped_reward = 1;
+      stake_points_result->force_credits_update_with_skipped_reward = 1;
   }
 
-  if( stake_points_result.force_credits_update_with_skipped_reward ) {
+  if( stake_points_result->force_credits_update_with_skipped_reward ) {
     result->staker_rewards       = 0;
     result->voter_rewards        = 0;
-    result->new_credits_observed = stake_points_result.new_credits_observed;
+    result->new_credits_observed = stake_points_result->new_credits_observed;
     return 0;
   }
-  if( stake_points_result.points.ud==0 || total_points==0 ) {
+  if( stake_points_result->points.ud==0 || total_points==0 ) {
     return 1;
   }
 
   uint128 rewards_u128;
-  if( FD_UNLIKELY( __builtin_mul_overflow( stake_points_result.points.ud, (uint128)(total_rewards), &rewards_u128 ) ) ) {
+  if( FD_UNLIKELY( __builtin_mul_overflow( stake_points_result->points.ud, (uint128)(total_rewards), &rewards_u128 ) ) ) {
     FD_LOG_ERR(( "Rewards intermediate calculation should fit within u128" ));
   }
 
@@ -320,7 +319,7 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
 
   result->staker_rewards       = split_result.staker_portion;
   result->voter_rewards        = split_result.voter_portion;
-  result->new_credits_observed = stake_points_result.new_credits_observed;
+  result->new_credits_observed = stake_points_result->new_credits_observed;
   return 0;
 }
 
@@ -435,15 +434,22 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
 
     if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
 
-    fd_calculated_stake_points_t * stake_point_result = &runtime_stack->stakes.stake_points_result[ stake_delegation->idx ];
+    fd_calculated_stake_points_t   stake_points_result_[1];
+    fd_calculated_stake_points_t * stake_points_result;
+    if( FD_UNLIKELY( stake_delegation->idx>=FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) ) {
+      stake_points_result = stake_points_result_;
+    } else {
+      stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation->idx ];
+    }
+
     calculate_stake_points_and_credits( stake_history,
                                         stake_delegation,
                                         runtime_stack,
                                         idx,
                                         new_warmup_cooldown_rate_epoch,
-                                        stake_point_result );
+                                        stake_points_result );
 
-    total_points += stake_point_result->points.ud;
+    total_points += stake_points_result->points.ud;
   }
 
   return total_points;
@@ -512,7 +518,10 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
     if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
 
-    if( is_recalculation ) {
+
+    fd_calculated_stake_points_t   stake_points_result_[1];
+    fd_calculated_stake_points_t * stake_points_result;
+    if( is_recalculation || FD_UNLIKELY( stake_delegation->idx>=FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) ) {
       /* We have not cached the stake points yet if we are recalculating
          stake rewards so we need to recalculate them. */
       calculate_stake_points_and_credits(
@@ -521,7 +530,10 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
           runtime_stack,
           idx,
           new_warmup_cooldown_rate_epoch,
-          &runtime_stack->stakes.stake_points_result[ stake_delegation->idx ] );
+          stake_points_result_ );
+      stake_points_result = stake_points_result_;
+    } else {
+      stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation->idx ];
     }
 
     /* redeem_rewards is actually just responsible for calculating the
@@ -534,6 +546,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         total_rewards,
         total_points,
         runtime_stack,
+        stake_points_result,
         calculated_stake_rewards );
 
     if( FD_UNLIKELY( err!=0 ) ) {

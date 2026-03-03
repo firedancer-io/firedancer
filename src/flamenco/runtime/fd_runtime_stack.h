@@ -85,7 +85,7 @@ union fd_runtime_stack {
   } bpf_migration;
 
   struct {
-    fd_calculated_stake_points_t stake_points_result[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
+    fd_calculated_stake_points_t stake_points_result[ FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ];
 
     fd_calculated_stake_rewards_t stake_rewards_result[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
 

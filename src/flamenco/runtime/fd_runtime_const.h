@@ -19,6 +19,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (3000000UL) /* 3M stake accounts */
 
+#define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2000000UL)
+
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
 
 /* Maximum amount of writable accounts per transaction

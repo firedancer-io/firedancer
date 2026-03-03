@@ -191,7 +191,7 @@ fd_vote_stakes_insert_root_update( fd_vote_stakes_t *  vote_stakes,
   }
 
   if( is_t_1 ) {
-    ele->stake_t_1        = stake & 0x7FFFFFFFFFFFFFFFUL;  /* mask to 63 bits */
+    ele->stake_t_1        = stake & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
     ele->node_account_t_1 = *node_acc;
   } else {
     ele->stake_t_2        = stake;
