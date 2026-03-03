@@ -21,6 +21,10 @@
 struct fd_sspeer_selector_private;
 typedef struct fd_sspeer_selector_private fd_sspeer_selector_t;
 
+#define FD_SSPING_FD_CNT    (249UL) /* Limit to how many pings can be
+                                       inflight.  Chosen so that it doesn't
+                                       overflow the tile limit. */
+
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 
 struct fd_ssping_private;
@@ -91,10 +95,13 @@ fd_ssping_advance( fd_ssping_t *          ssping,
                    long                   now,
                    fd_sspeer_selector_t * selector);
 
-/* Return the ping socket file descriptor */
-
-int
-fd_ssping_get_sockfd( fd_ssping_t const * ssping );
+/* Write the socket file descriptors that this ping tracker might use to
+   fds[i] for i in [0, fd_cnt).  Returns how many file descriptors were
+   actually written. */
+ulong
+fd_ssping_get_sockfds( fd_ssping_t const * ssping,
+                       int *               fds,
+                       ulong               fd_cnt );
 
 FD_PROTOTYPES_END
 
