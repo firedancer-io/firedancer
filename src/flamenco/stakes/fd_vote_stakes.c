@@ -191,7 +191,7 @@ fd_vote_stakes_insert_root_update( fd_vote_stakes_t *  vote_stakes,
   }
 
   if( is_t_1 ) {
-    ele->stake_t_1        = stake;
+    ele->stake_t_1        = stake & 0x7FFFFFFFFFFFFFFFUL;  /* mask to 63 bits */
     ele->node_account_t_1 = *node_acc;
   } else {
     ele->stake_t_2        = stake;
@@ -357,7 +357,7 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
   stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
   stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
 
-  index_key_t index_key = (index_key_t){ .pubkey = *pubkey, .stake_t_1 = stake_t_1, .node_account_t_1 = *node_account_t_1, .epoch = epoch%2 };
+  index_key_t index_key = (index_key_t){ .pubkey = *pubkey, .stake_t_1 = stake_t_1 & 0x7FFFFFFFFFFFFFFFUL, .node_account_t_1 = *node_account_t_1, .epoch = epoch%2 };
   index_ele_t * index_ele = index_map_ele_query( index_map, &index_key, NULL, index_pool );
   if( FD_LIKELY( index_ele ) ) {
     index_ele->refcnt++;
