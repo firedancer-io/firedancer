@@ -106,11 +106,12 @@ fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
   int rc = fd_vsv_get_state( vote_account->meta, vote_state_mem );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  /* Unlike vote states v4 decoding, vote state v3 decoding will fail
-     if the discriminant is > fd_vote_state_versioned_enum_v3.
-     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L198 */
+  /* Unlike vote states v4 decoding, vote state v3 decoding will only
+     pass for v1_14_11 and v3 vote states.
+     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_state_v3.rs#L157-L164 */
   fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
-  if( FD_UNLIKELY( versioned->discriminant>fd_vote_state_versioned_enum_v3 ) ) {
+  if( FD_UNLIKELY( versioned->discriminant!=fd_vote_state_versioned_enum_v1_14_11 &&
+                   versioned->discriminant!=fd_vote_state_versioned_enum_v3 ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
