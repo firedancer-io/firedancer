@@ -402,9 +402,9 @@ propagated_check( fd_notar_t * notar,
 
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
-                         fd_tower_voters_t  * accts,
-                         fd_tower_stakes_t * tower_stakes,
-                         fd_tower_blocks_t        * forks,
+                         fd_tower_voters_t * voters,
+                         fd_tower_stakes_t * stakes,
+                         fd_tower_blocks_t * blocks,
                          fd_ghost_t        * ghost,
                          fd_notar_t        * notar ) {
 
@@ -419,7 +419,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L933-L935 */
 
   if( FD_UNLIKELY( fd_tower_empty( tower ) ) ) {
-    fd_tower_blk_t * fork = fd_tower_blocks_query( forks, best_blk->slot );
+    fd_tower_blk_t * fork = fd_tower_blocks_query( blocks, best_blk->slot );
     fork->voted           = 1;
     fork->voted_block_id  = best_blk->id;
     return (fd_tower_out_t){
@@ -433,7 +433,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
   }
 
   ulong              prev_vote_slot     = fd_tower_peek_tail_const( tower )->slot;
-  fd_tower_blk_t * prev_vote_fork     = fd_tower_blocks_query( forks, prev_vote_slot );
+  fd_tower_blk_t * prev_vote_fork     = fd_tower_blocks_query( blocks, prev_vote_slot );
 
 
   if( FD_UNLIKELY( !prev_vote_fork->voted ) ) {
@@ -530,7 +530,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1057 */
 
-  else if( FD_LIKELY( best_blk->slot == prev_vote_slot || fd_tower_blocks_is_slot_ancestor( forks, best_blk->slot, prev_vote_slot ) ) ) {
+  else if( FD_LIKELY( best_blk->slot == prev_vote_slot || fd_tower_blocks_is_slot_ancestor( blocks, best_blk->slot, prev_vote_slot ) ) ) {
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SAME_FORK );
     reset_blk = best_blk;
     vote_blk  = best_blk;
@@ -548,7 +548,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L443-L445 */
 
-  else if( FD_LIKELY( switch_check( tower, forks, tower_stakes, best_blk->total_stake, best_blk->slot ) ) ) {
+  else if( FD_LIKELY( switch_check( tower, blocks, stakes, best_blk->total_stake, best_blk->slot ) ) ) {
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
     reset_blk = best_blk;
     vote_blk  = best_blk;
@@ -610,11 +610,11 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
      (vote_blk) for determining whether it meets the stake threshold. */
 
   if( FD_LIKELY( vote_blk ) ) {
-    if     ( FD_UNLIKELY( !lockout_check( tower, forks, vote_blk->slot ) ) ) {
+    if     ( FD_UNLIKELY( !lockout_check( tower, blocks, vote_blk->slot ) ) ) {
       flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_LOCKOUT_FAIL );
       vote_blk = NULL;
     }
-    else if( FD_UNLIKELY( !threshold_check( tower, accts, vote_blk->total_stake, vote_blk->slot ) ) ) {
+    else if( FD_UNLIKELY( !threshold_check( tower, voters, vote_blk->total_stake, vote_blk->slot ) ) ) {
       flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_THRESHOLD_FAIL );
       vote_blk = NULL;
     }
@@ -645,7 +645,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
        can never be NULL because we record tower forks as we replay, and
        we should never be voting on something we haven't replayed. */
 
-    fd_tower_blk_t * fork = fd_tower_blocks_query( forks, vote_blk->slot );
+    fd_tower_blk_t * fork = fd_tower_blocks_query( blocks, vote_blk->slot );
     fork->voted             = 1;
     fork->voted_block_id    = vote_blk->id;
 
@@ -665,7 +665,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
        mismatch and error out. */
 
     if( FD_LIKELY( out.root_slot!=ULONG_MAX ) ) {
-      fd_tower_blk_t * root_fork = fd_tower_blocks_query( forks, out.root_slot );
+      fd_tower_blk_t * root_fork = fd_tower_blocks_query( blocks, out.root_slot );
       out.root_block_id            = *fd_ptr_if( root_fork->confirmed, &root_fork->confirmed_block_id, &root_fork->voted_block_id );
     }
   }

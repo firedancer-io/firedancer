@@ -77,7 +77,7 @@ FD_STATIC_ASSERT( 1<<AUTH_VTR_LG_MAX==32, AUTH_VTR_LG_MAX );
 #define EQVOC_MAX (2)
 
 struct publish {
-  ulong sig;
+  ulong          sig;
   fd_tower_msg_t msg;
 };
 typedef struct publish publish_t;
@@ -234,18 +234,21 @@ confirm_block( fd_tower_tile_t * ctx,
 
   fd_ghost_blk_t * ghost_blk = fd_ghost_query( ctx->ghost, &notar_blk->block_id );
   fd_tower_blk_t * tower_blk = fd_tower_blk_query( ctx->tower_blocks->blk_map, notar_blk->slot, NULL );
-  const int        levels[FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT]  = FD_TOWER_SLOT_CONFIRMED_LEVELS;
-  const double     ratios[FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT]  = { 1.0 / 3, 0.52, 2.0 / 3, 4.0 / 5 };
 
-   /* Check if the block meets the threshold for any of the confirmation levels.  Note that
-      even if a block meets the threshold for a given confirmation level, it might not be
-      eligible for that confirmation level if it is missing votes from voters that are in
-      the current tower's voter set (eg. if we are missing a vote from a voter that has
-      large stake and the block is right around the threshold, then we might not be able
-      to confirm the block until we get that vote).  So we check eligibility for each
-      confirmation level as well, and only publish confirmations for levels that the block
-      is both above the threshold and eligible for. */
-  for( ulong i =0UL; i < FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT; i++ ) {
+  /* Check if the block meets the threshold for any of the confirmation
+     levels.  Note that even if a block meets the threshold for a given
+     confirmation level, it might not be eligible for that confirmation
+     level if it is missing votes from voters that are in the current
+     tower's voter set (eg. if we are missing a vote from a voter that
+     has large stake and the block is right around the threshold, then
+     we might not be able to confirm the block until we get that vote).
+     So we check eligibility for each confirmation level as well, and
+     only publish confirmations for levels that the block is both above
+     the threshold and eligible for. */
+
+  int const    levels[FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT] = FD_TOWER_SLOT_CONFIRMED_LEVELS;
+  double const ratios[FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT] = { 1.0/3, 0.52, 2.0/3, 4.0/5 };
+  for( ulong i = 0UL; i < FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT; i++ ) {
     if( FD_UNLIKELY( (double)notar_blk->stake / (double)total_stake < ratios[i] ) ) return;
 
     /* If ghost and tower are missing, then we know this is a forward
@@ -688,15 +691,19 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   }
 
   /* Handle equivocation */
+
   if( FD_UNLIKELY( fd_tower_blocks_query( ctx->tower_blocks, slot_completed->slot ) ) ) {
-    /* Note it is not possible to receive a replay of an equivocating slot
-       with the same block_id, because banks would never evict a fully
-       replayed slot. */
+
+    /* Note it is not possible to receive a replay of an equivocating
+       slot with the same block_id, because banks would never evict a
+       fully replayed slot. */
+
     FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, block_id );
     FD_LOG_WARNING(( "tower received replay of equivocating slot %lu %s", slot_completed->slot, block_id ));
 
     /* clear out structures from other version of the fork. TODO:
        consider an explicit purge call after the confirmation is sent */
+
     fd_tower_stakes_blk_t * slot_stakes = fd_tower_stakes_blk_query( ctx->tower_stakes->blk_map, slot_completed->slot, NULL );
     if( FD_LIKELY( slot_stakes ) )        fd_tower_stakes_blk_prune( ctx->tower_stakes, slot_stakes );
     fd_tower_blocks_lockouts_clear( ctx->tower_blocks, slot_completed->slot );
@@ -824,12 +831,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 done_vote_iter:
   fd_accdb_ro_pipe_fini( ro_pipe );
 
-  /* fd_notar requires some bookkeeping when there is a new epoch. */
-
-  if( FD_UNLIKELY( ctx->notar->root==ULONG_MAX ) ) {
-    ctx->notar->root = slot_completed->slot;
-  }
-
   /* We replayed an unconfirmed duplicate, warn for now.  Follow-up PR
      will implement eviction and repair of the correct one. */
 
@@ -867,8 +868,8 @@ done_vote_iter:
     FD_TEST( oldr_tower_blk );
     FD_TEST( newr_tower_blk );
     FD_TEST( oldr_tower_blk->epoch==newr_tower_blk->epoch || oldr_tower_blk->epoch+1==newr_tower_blk->epoch  ); /* root can only move forward one epoch */
-    if( FD_UNLIKELY( slot_completed->slot==ctx->init_slot || oldr_tower_blk->epoch+1==newr_tower_blk->epoch ) ) {
-      FD_TEST( newr_tower_blk->epoch==slot_completed->epoch ); /* if the new root's epoch has advanced, it must be in the same epoch as current slot_completed (old root, new root, slot_completed cannot span >2 epochs) */
+    if( FD_UNLIKELY( ctx->notar->root==ULONG_MAX || oldr_tower_blk->epoch+1==newr_tower_blk->epoch ) ) {
+      FD_TEST( newr_tower_blk->epoch==slot_completed->epoch ); /* new root's epoch must be same as current slot_completed */
       reindex_notar( ctx, out.root_slot );
     }
     fd_notar_publish( ctx->notar, out.root_slot );
