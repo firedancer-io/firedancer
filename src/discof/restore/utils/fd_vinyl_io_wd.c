@@ -440,7 +440,7 @@ fd_vinyl_io_wd_init( void *           lmem,
 
   memset( wd, 0, footprint );
 
-  wd->base->type = FD_VINYL_IO_TYPE_BD;
+  wd->base->type = FD_VINYL_IO_TYPE_WD;
 
   /* Base class members.  Note that vinyl_io does not have an actual
      scratch pad (emplaces writes directly into dcache).  Instead,
