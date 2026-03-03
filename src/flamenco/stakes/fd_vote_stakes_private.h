@@ -7,6 +7,8 @@
 
 struct index_key {
   fd_pubkey_t pubkey;
+  fd_pubkey_t node_account_t_1;
+  fd_pubkey_t node_account_t_2;
   ulong       stake_t_1;
   ulong       stake_t_2;
 };
@@ -16,13 +18,14 @@ struct index_ele {
   union {
     struct {
       fd_pubkey_t pubkey;
+      fd_pubkey_t node_account_t_1;
+      fd_pubkey_t node_account_t_2;
       ulong       stake_t_1;
       ulong       stake_t_2;
     };
     index_key_t index_key;
   };
-  fd_pubkey_t node_account_t_1;
-  fd_pubkey_t node_account_t_2;
+  /* Stake related metadata */
   uint        next;
   uint        prev_multi;
   uint        next_multi;

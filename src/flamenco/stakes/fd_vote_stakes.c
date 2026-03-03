@@ -354,7 +354,11 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
   stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
   stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
 
-  index_key_t index_key = (index_key_t){ .pubkey = *pubkey, .stake_t_1 = stake_t_1, .stake_t_2 = stake_t_2 };
+  index_key_t index_key = (index_key_t){ .pubkey           = *pubkey,
+                                         .node_account_t_1 = *node_account_t_1,
+                                         .node_account_t_2 = *node_account_t_2,
+                                         .stake_t_1        = stake_t_1,
+                                         .stake_t_2        = stake_t_2 };
   index_ele_t * index_ele = index_map_ele_query( index_map, &index_key, NULL, index_pool );
   if( FD_LIKELY( index_ele ) ) {
     index_ele->refcnt++;
@@ -362,8 +366,6 @@ fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
     index_ele                   = index_pool_ele_acquire( index_pool );
     index_ele->index_key        = index_key;
     index_ele->refcnt           = 1;
-    index_ele->node_account_t_1 = *node_account_t_1;
-    index_ele->node_account_t_2 = *node_account_t_2;
     FD_TEST( index_map_ele_insert( index_map, index_ele, index_pool ) );
     FD_TEST( index_map_multi_ele_insert( index_map_multi, index_ele, index_pool ) );
   }
