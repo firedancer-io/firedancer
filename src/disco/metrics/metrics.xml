@@ -956,18 +956,19 @@ metric introduced.
     <int value="10" name="DroppedPullRequestWallclock" label="Pull Request (wallclock)" />
     <int value="11" name="DroppedPullRequestSignature" label="Pull Request (signature)" />
     <int value="12" name="DroppedPullRequestShredVersion" label="Pull Request (shred version)" />
+    <int value="13" name="DroppedPullRequestMaskBits" label="Pull Request (mask bits)" />
 
-    <int value="13" name="DroppedPruneDestination" label="Prune (destination)" />
-    <int value="14" name="DroppedPruneWallclock" label="Prune (wallclock)" />
-    <int value="15" name="DroppedPruneSignature" label="Prune (signature)" />
+    <int value="14" name="DroppedPruneDestination" label="Prune (destination)" />
+    <int value="15" name="DroppedPruneWallclock" label="Prune (wallclock)" />
+    <int value="16" name="DroppedPruneSignature" label="Prune (signature)" />
 
-    <int value="16" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
+    <int value="17" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
 
-    <int value="17" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
+    <int value="18" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
 
-    <int value="18" name="DroppedPingSignature" label="Ping (signature)" />
+    <int value="19" name="DroppedPingSignature" label="Ping (signature)" />
 
-    <int value="19" name="DroppedPongSignature" label="Pong (signature)" />
+    <int value="20" name="DroppedPongSignature" label="Pong (signature)" />
 </enum>
 
 <enum name="GossvfCrdsOutcome">
