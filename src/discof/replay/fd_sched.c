@@ -16,7 +16,6 @@
 #define FD_SCHED_MAX_PRINT_BUF_SZ          (2UL<<20)
 
 #define FD_SCHED_MAX_MBLK_PER_SLOT             (MAX_SKIPPED_TICKS)
-#define FD_SCHED_MAX_MBLK_IN_PROGRESS_PER_SLOT (2UL*FD_SCHED_MAX_EXEC_TILE_CNT)
 #define FD_SCHED_MAX_POH_HASHES_PER_TASK       (4096UL) /* This seems to be the sweet spot. */
 
 /* 64 ticks per slot, and a single gigantic microblock containing min
@@ -51,49 +50,27 @@ FD_STATIC_ASSERT( FD_SCHED_MAX_DEPTH<=FD_RDISP_MAX_DEPTH,       limits );
 /* Structs. */
 
 struct fd_sched_mblk {
-  /* The start_txn_idx is the end_txn_idx of the previous mblk.  In
-     theory we should be able to just read this value from the previous
-     mblk in parse order.  However, we free mblks eagerly, including an
-     in-progress mblk's immediate predecessor, so long as the
-     predecessor is done.  This is to preserve the property that the
-     mblk pool is simply an OOO scheduling window not tied to
-     max_live_slots sizing requirements, similar to the txn pool.  So,
-     we stash the txn_idx here for later use, when the predecessor may
-     have already been recycled.  An alternative is to eagerly free
-     mblks up to the last two. */
   ulong start_txn_idx; /* inclusive parse idx */
   ulong end_txn_idx;   /* non-inclusive parse idx */
-  ulong hashcnt; /* number of hashes to do, excluding the final mixin */
+  ulong curr_txn_idx;  /* next txn to mixin, parse idx */
+  ulong hashcnt;       /* number of pure hashes, excluding final mixin */
+  ulong curr_hashcnt;
   fd_hash_t end_hash[ 1 ];
+  fd_hash_t curr_hash[ 1 ];
+  uint curr_sig_cnt;
   uint next;
-  uint prev;
-  int  done;
+  int is_tick;
 };
 typedef struct fd_sched_mblk fd_sched_mblk_t;
 
-struct fd_sched_mblk_in_progress {
-  ulong curr_txn_idx; /* next up to be added into bmtree, parse idx */
-  ulong curr_hashcnt;
-  fd_hash_t curr_hash[ 1 ];
-  uint curr_sig_cnt;
-  uint mblk_idx; /* pointer back to the original mblk descriptor */
-  uint next; /* slist */
-  int  is_tick;
-};
-typedef struct fd_sched_mblk_in_progress fd_sched_mblk_in_progress_t;
-
-#define SLIST_NAME  mblk_in_progress_slist
-#define SLIST_ELE_T fd_sched_mblk_in_progress_t
+#define SLIST_NAME  mblk_slist
+#define SLIST_ELE_T fd_sched_mblk_t
 #define SLIST_IDX_T uint
 #define SLIST_NEXT  next
 #include "../../util/tmpl/fd_slist.c"
 
 #define SET_NAME txn_bitset
 #define SET_MAX  FD_SCHED_MAX_DEPTH
-#include "../../util/tmpl/fd_set.c"
-
-#define SET_NAME mblk_in_progress_bitset
-#define SET_MAX  FD_SCHED_MAX_MBLK_IN_PROGRESS_PER_SLOT
 #include "../../util/tmpl/fd_set.c"
 
 struct fd_sched_block {
@@ -127,14 +104,11 @@ struct fd_sched_block {
   ulong               txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
 
   /* PoH verify. */
-  fd_hash_t start_hash[ 1 ];
-  uint mblk_head_idx;          /* First mblk in parse order.  Index into pool. */
-  uint mblk_tail_idx;          /* Last mblk in parse order.  Index into pool. */
-  uint mblk_next_unhashed_idx; /* Index into pool. */
-  mblk_in_progress_slist_t mblks_hashing_in_progress[ 1 ]; /* Microblocks progress from the unhashed state into hashing ... */
-  mblk_in_progress_slist_t mblks_mixin_in_progress[ 1 ];   /* ... and then from hashing into the mixin queue.  FIFO. */
-  mblk_in_progress_bitset_t mblk_in_progress_pool_free_bitset[ mblk_in_progress_bitset_word_cnt ];
-  fd_sched_mblk_in_progress_t mblk_in_progress_pool[ FD_SCHED_MAX_MBLK_IN_PROGRESS_PER_SLOT ];
+  fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
+  int          last_mblk_is_tick;
+  mblk_slist_t mblks_unhashed[ 1 ];
+  mblk_slist_t mblks_hashing_in_progress[ 1 ];
+  mblk_slist_t mblks_mixin_in_progress[ 1 ];
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
   fd_bmtree_commit_t * bmtree;
   ulong max_tick_hashcnt;
@@ -273,7 +247,7 @@ static int
 verify_ticks_eager( fd_sched_block_t * block );
 
 static int
-verify_ticks_final( fd_sched_t * sched, fd_sched_block_t * block );
+verify_ticks_final( fd_sched_block_t * block );
 
 static void
 add_block( fd_sched_t * sched,
@@ -296,7 +270,20 @@ FD_WARN_UNUSED static int
 maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block );
 
 static void
-free_done_mblks( fd_sched_t * sched, fd_sched_block_t * block );
+free_mblk( fd_sched_t * sched, fd_sched_block_t * block, uint mblk_idx ) {
+  sched->mblk_pool[ mblk_idx ].next = sched->mblk_pool_free_head;
+  sched->mblk_pool_free_head = mblk_idx;
+  sched->mblk_pool_free_cnt++;
+  block->mblk_freed_cnt++;
+}
+
+static void
+free_mblk_slist( fd_sched_t * sched, fd_sched_block_t * block, mblk_slist_t * list ) {
+  while( !mblk_slist_is_empty( list, sched->mblk_pool ) ) {
+    uint idx = (uint)mblk_slist_idx_pop_head( list, sched->mblk_pool );
+    free_mblk( sched, block, idx );
+  }
+}
 
 static void
 try_activate_block( fd_sched_t * sched );
@@ -635,9 +622,9 @@ fd_sched_new( void * mem,
   fd_sched_block_t * bpool = (fd_sched_block_t *)_bpool;
   for( ulong i=0; i<block_cnt_max; i++ ) {
     bpool[ i ].in_sched = 0;
-    mblk_in_progress_slist_new( bpool[ i ].mblks_hashing_in_progress );
-    mblk_in_progress_slist_new( bpool[ i ].mblks_mixin_in_progress );
-    mblk_in_progress_bitset_new( bpool[ i ].mblk_in_progress_pool_free_bitset );
+    mblk_slist_new( bpool[ i ].mblks_unhashed );
+    mblk_slist_new( bpool[ i ].mblks_hashing_in_progress );
+    mblk_slist_new( bpool[ i ].mblks_mixin_in_progress );
   }
 
   fd_memset( sched->metrics, 0, sizeof(fd_sched_metrics_t) );
@@ -702,9 +689,9 @@ fd_sched_join( void * mem ) {
   sched->block_pool = _bpool;
 
   for( ulong i=0; i<block_cnt_max; i++ ) {
-    mblk_in_progress_slist_join( sched->block_pool[ i ].mblks_hashing_in_progress );
-    mblk_in_progress_slist_join( sched->block_pool[ i ].mblks_mixin_in_progress );
-    mblk_in_progress_bitset_join( sched->block_pool[ i ].mblk_in_progress_pool_free_bitset );
+    mblk_slist_join( sched->block_pool[ i ].mblks_unhashed );
+    mblk_slist_join( sched->block_pool[ i ].mblks_hashing_in_progress );
+    mblk_slist_join( sched->block_pool[ i ].mblks_mixin_in_progress );
   }
 
   txn_bitset_join( sched->exec_done_set );
@@ -1006,6 +993,20 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_TEST( mixin_res==1||mixin_res==2 );
   }
 
+  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
+    /* The last microblock should be a tick.
+
+       Note that this early parse-time detection could cause us to throw
+       a slightly different error from Agave, in the case that there are
+       too few ticks, since the tick count check precedes the trailing
+       entry check in Agave.  That being said, ultimately a
+       TRAILING_ENTRY renders a block invalid, regardless of anything
+       else. */
+    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
+    handle_bad_block( sched, block );
+    return 0;
+  }
+
   /* Check if we need to set the active block. */
   check_or_set_active_block( sched );
 
@@ -1196,12 +1197,13 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 
   if( FD_UNLIKELY( block_should_signal_end( block ) ) ) {
     FD_TEST( block->block_start_signaled );
-    if( FD_UNLIKELY( verify_ticks_final( sched, block ) ) ) {
-      /* Tick verification can't be done at parse time, because we may
-         not know the expected number of hashes yet.  It can't be driven
-         by transaction dispatch/completion, because the block may be
-         empty.  Similary, it can't be driven by PoH hashing, because a
-         bad block may simply not have any microblocks. */
+    if( FD_UNLIKELY( verify_ticks_final( block ) ) ) {
+      /* Tick verification can't be done at parse time (except for
+         TRAILING_ENTRY), because we may not know the expected number of
+         hashes yet.  It can't be driven by transaction dispatch or
+         completion, because the block may be empty.  Similary, it can't
+         be driven by PoH hashing, because a bad block may simply not
+         have any microblocks. */
       handle_bad_block( sched, block );
       out->task_type = FD_SCHED_TT_MARK_DEAD;
       out->mark_dead->bank_idx = bank_idx;
@@ -1299,7 +1301,6 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
          transition for empty blocks or slow blocks. */
       FD_TEST( !block->block_end_done );
       block->block_end_done = 1;
-      free_done_mblks( sched, block );
       sched->print_buf_sz = 0UL;
       print_block_metrics( sched, block );
       FD_LOG_DEBUG(( "block %lu:%lu replayed fully: %s", block->slot, bank_idx, sched->print_buf ));
@@ -1360,26 +1361,24 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       FD_TEST( !fd_ulong_extract_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx ) );
       sched->poh_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx );
       fd_execrp_poh_hash_done_msg_t * msg = fd_type_pun( data );
-      fd_sched_mblk_in_progress_t * mblk = block->mblk_in_progress_pool+msg->mblk_idx;
+      fd_sched_mblk_t * mblk = sched->mblk_pool+msg->mblk_idx;
       mblk->curr_hashcnt += msg->hashcnt;
       memcpy( mblk->curr_hash, msg->hash, sizeof(fd_hash_t) );
-      fd_sched_mblk_t * mblk_desc = sched->mblk_pool+mblk->mblk_idx;
-      ulong hashcnt_todo = mblk_desc->hashcnt-mblk->curr_hashcnt;
+      ulong hashcnt_todo = mblk->hashcnt-mblk->curr_hashcnt;
       if( !hashcnt_todo ) {
         block->poh_hashing_done_cnt++;
         if( FD_LIKELY( !mblk->is_tick ) ) {
           /* This is not a tick.  Enqueue for mixin. */
-          mblk_in_progress_slist_idx_push_tail( block->mblks_mixin_in_progress, msg->mblk_idx, block->mblk_in_progress_pool );
+          mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, msg->mblk_idx, sched->mblk_pool );
         } else {
           /* This is a tick.  No need to mixin.  Check the hash value
              right away. */
           block->poh_hash_cmp_done_cnt++;
-          sched->mblk_pool[ mblk->mblk_idx ].done = 1;
-          mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, msg->mblk_idx );
-          if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk_desc->end_hash, sizeof(fd_hash_t) ) ) ) {
+          free_mblk( sched, block, (uint)msg->mblk_idx );
+          if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
             FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
-            FD_BASE58_ENCODE_32_BYTES( mblk_desc->end_hash->hash, ref_str );
-            FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %u, ours %s, claimed %s, hashcnt %lu, is_tick, slot %lu, parent slot %lu", mblk->mblk_idx, our_str, ref_str, mblk_desc->hashcnt, block->slot, block->parent_slot ));
+            FD_BASE58_ENCODE_32_BYTES( mblk->end_hash->hash, ref_str );
+            FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, is_tick, slot %lu, parent slot %lu", msg->mblk_idx, our_str, ref_str, mblk->hashcnt, block->slot, block->parent_slot ));
             handle_bad_block( sched, block );
             return -1;
           }
@@ -1394,7 +1393,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
           FD_TEST( mixin_res==1||mixin_res==2 );
         }
       } else {
-        mblk_in_progress_slist_idx_push_tail( block->mblks_hashing_in_progress, msg->mblk_idx, block->mblk_in_progress_pool );
+        mblk_slist_idx_push_tail( block->mblks_hashing_in_progress, msg->mblk_idx, sched->mblk_pool );
       }
       if( FD_UNLIKELY( verify_ticks_eager( block ) ) ) {
         handle_bad_block( sched, block );
@@ -1602,7 +1601,20 @@ fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, 
   block->tick_height = tick_height;
   block->max_tick_height = max_tick_height;
   block->hashes_per_tick = hashes_per_tick;
-  memcpy( block->start_hash, start_poh, sizeof(block->start_hash[0]) );
+  #if FD_SCHED_SKIP_POH
+  /* No-op. */
+  #else
+  if( FD_LIKELY( block->mblk_cnt ) ) {
+    /* Fix up the first mblk's curr_hash. */
+    FD_TEST( block->mblk_unhashed_cnt );
+    FD_TEST( !mblk_slist_is_empty( block->mblks_unhashed, sched->mblk_pool ) );
+    FD_TEST( !block->mblk_freed_cnt );
+    fd_sched_mblk_t * first_mblk = sched->mblk_pool + mblk_slist_idx_peek_head( block->mblks_unhashed, sched->mblk_pool );
+    memcpy( first_mblk->curr_hash, start_poh, sizeof(fd_hash_t) );
+  } else {
+    memcpy( block->poh_hash, start_poh, sizeof(fd_hash_t) );
+  }
+  #endif
 }
 
 fd_txn_p_t *
@@ -1630,7 +1642,7 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx ) {
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   FD_TEST( block->fec_eos );
   FD_TEST( block->mblk_cnt );
-  return sched->mblk_pool[ block->mblk_tail_idx ].end_hash;
+  return block->poh_hash;
 }
 
 uint
@@ -1678,18 +1690,15 @@ add_block( fd_sched_t * sched,
   block->mblk_freed_cnt              = 0U;
   block->mblk_tick_cnt               = 0U;
   block->mblk_unhashed_cnt           = 0U;
-  block->mblk_head_idx               = UINT_MAX;
-  block->mblk_tail_idx               = UINT_MAX;
-  block->mblk_next_unhashed_idx      = UINT_MAX;
   block->hashcnt                     = 0UL;
   block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt;
   block->mblk_pool_max_popcnt        = sched->depth - sched->mblk_pool_free_cnt;
   block->block_pool_max_popcnt       = sched->block_pool_popcnt;
 
-  mblk_in_progress_bitset_full( block->mblk_in_progress_pool_free_bitset );
-  mblk_in_progress_slist_remove_all( block->mblks_hashing_in_progress, block->mblk_in_progress_pool );
-  mblk_in_progress_slist_remove_all( block->mblks_mixin_in_progress, block->mblk_in_progress_pool );
-
+  mblk_slist_remove_all( block->mblks_unhashed, sched->mblk_pool );
+  mblk_slist_remove_all( block->mblks_hashing_in_progress, sched->mblk_pool );
+  mblk_slist_remove_all( block->mblks_mixin_in_progress, sched->mblk_pool );
+  block->last_mblk_is_tick = 0;
   block->max_tick_hashcnt  = 0UL;
   block->curr_tick_hashcnt = 0UL;
   block->tick_height       = ULONG_MAX;
@@ -1796,23 +1805,16 @@ verify_ticks_eager( fd_sched_block_t * block ) {
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1057
 
+   The only check we don't do here is TRAILING_ENTRY, which can be done
+   independently when we parse the final FEC set of a block.
+
    Returns 0 on success. */
 static int
-verify_ticks_final( fd_sched_t * sched, fd_sched_block_t * block ) {
+verify_ticks_final( fd_sched_block_t * block ) {
   FD_TEST( block->fec_eos );
 
   if( FD_UNLIKELY( block->mblk_tick_cnt+block->tick_height<block->max_tick_height ) ) {
     FD_LOG_INFO(( "bad block: TOO_FEW_TICKS, slot %lu, parent slot %lu, tick_cnt %u, tick_height %lu, max_tick_height %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_height, block->max_tick_height ));
-    return -1;
-  }
-  /* Number of ticks > 0 implies that number of microblocks > 0, so the
-     subtraction won't underflow. */
-  uint tail_idx = block->mblk_tail_idx;
-  ulong end_txn_idx = sched->mblk_pool[ tail_idx ].end_txn_idx;
-  ulong start_txn_idx = sched->mblk_pool[ tail_idx ].start_txn_idx;
-  if( FD_UNLIKELY( start_txn_idx!=end_txn_idx ) ) {
-    /* The last microblock should be a tick (0 transactions). */
-    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu", block->slot, block->parent_slot ));
     return -1;
   }
 
@@ -1865,19 +1867,8 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       sched->mblk_pool_free_cnt--;
 
       fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-      mblk->next = UINT_MAX;
-      mblk->prev = block->mblk_tail_idx;
-      mblk->done = 0;
-      if( FD_LIKELY( block->mblk_tail_idx!=UINT_MAX ) ) {
-        sched->mblk_pool[ block->mblk_tail_idx ].next = mblk_idx;
-      } else {
-        block->mblk_head_idx = mblk_idx;
-      }
-      block->mblk_tail_idx = mblk_idx;
-      if( block->mblk_next_unhashed_idx==UINT_MAX ) block->mblk_next_unhashed_idx = mblk_idx;
-
-      mblk->start_txn_idx = block->mblk_cnt ? sched->mblk_pool[ mblk->prev ].end_txn_idx : 0UL;
-      mblk->end_txn_idx = mblk->start_txn_idx+hdr->txn_cnt;
+      mblk->start_txn_idx = block->txn_parsed_cnt;
+      mblk->end_txn_idx   = mblk->start_txn_idx+hdr->txn_cnt;
       /* One might think that every microblock needs to have at least
          one hash, otherwise the block should be considered invalid.  A
          vanilla validator certainly produces microblocks that conform
@@ -1902,11 +1893,19 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
 
          We implement the above for consensus. */
       mblk->hashcnt = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement the above. */
+      memcpy( mblk->end_hash, hdr->hash, sizeof(fd_hash_t) );
+      memcpy( mblk->curr_hash, block->poh_hash, sizeof(fd_hash_t) );
+      mblk->curr_txn_idx = mblk->start_txn_idx;
+      mblk->curr_hashcnt = 0UL;
+      mblk->curr_sig_cnt = 0U;
+      mblk->is_tick      = !hdr->txn_cnt;
+
+      /* Update block tracking. */
       block->curr_tick_hashcnt = fd_ulong_sat_add( hdr->hash_cnt, block->curr_tick_hashcnt ); /* For tick_verify, take the number of hashes verbatim. */
       block->hashcnt += mblk->hashcnt+fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL );
-      memcpy( mblk->end_hash, hdr->hash, sizeof(fd_hash_t) );
+      memcpy( block->poh_hash, hdr->hash, sizeof(fd_hash_t) );
+      block->last_mblk_is_tick = mblk->is_tick;
       block->mblk_cnt++;
-      block->mblk_unhashed_cnt++;
       if( FD_UNLIKELY( !hdr->txn_cnt ) ) {
         /* This is a tick microblock. */
         if( FD_UNLIKELY( block->mblk_tick_cnt && block->max_tick_hashcnt!=block->curr_tick_hashcnt ) ) {
@@ -1922,12 +1921,12 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         block->mblk_tick_cnt++;
       }
       #if FD_SCHED_SKIP_POH
-      block->mblk_unhashed_cnt--;
-      block->mblk_next_unhashed_idx = mblk->next;
       block->poh_hashing_done_cnt++;
       block->poh_hash_cmp_done_cnt++;
-      mblk->done = 1;
-      free_done_mblks( sched, block );
+      free_mblk( sched, block, mblk_idx );
+      #else
+      mblk_slist_idx_push_tail( block->mblks_unhashed, mblk_idx, sched->mblk_pool );
+      block->mblk_unhashed_cnt++;
       #endif
       continue;
     }
@@ -2066,51 +2065,24 @@ dispatch_sigverify( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx
 /* Assumes there is a PoH task available for dispatching. */
 static void
 dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int exec_tile_idx, fd_sched_task_t * out ) {
-  fd_sched_mblk_in_progress_t * mblk = NULL;
-  ulong mblk_idx = ULONG_MAX;
-  fd_sched_mblk_t * mblk_desc = NULL;
-  uint mblk_desc_idx = UINT_MAX;
-  if( FD_LIKELY( !mblk_in_progress_slist_is_empty( block->mblks_hashing_in_progress, block->mblk_in_progress_pool ) ) ) {
+  fd_sched_mblk_t * mblk = NULL;
+  uint mblk_idx;
+  if( FD_LIKELY( !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ) ) ) {
     /* There's a PoH task in progress, just continue working on that. */
-    mblk_idx = mblk_in_progress_slist_idx_pop_head( block->mblks_hashing_in_progress, block->mblk_in_progress_pool );
-    FD_TEST( !mblk_in_progress_slist_private_idx_is_null( mblk_idx ) );
-    mblk = block->mblk_in_progress_pool+mblk_idx;
-    mblk_desc_idx = mblk->mblk_idx;
-    mblk_desc = sched->mblk_pool+mblk_desc_idx;
+    mblk_idx = (uint)mblk_slist_idx_pop_head( block->mblks_hashing_in_progress, sched->mblk_pool );
+    mblk = sched->mblk_pool+mblk_idx;
   } else {
     /* No in progress PoH task, so start a new one. */
     FD_TEST( block->mblk_unhashed_cnt );
-    mblk_desc_idx = block->mblk_next_unhashed_idx;
-    mblk_desc = sched->mblk_pool+mblk_desc_idx;
-    block->mblk_next_unhashed_idx = mblk_desc->next;
+    mblk_idx = (uint)mblk_slist_idx_pop_head( block->mblks_unhashed, sched->mblk_pool );
+    mblk = sched->mblk_pool+mblk_idx;
     block->mblk_unhashed_cnt--;
-    mblk_idx = mblk_in_progress_bitset_first( block->mblk_in_progress_pool_free_bitset );
-    FD_TEST( mblk_idx<FD_SCHED_MAX_MBLK_IN_PROGRESS_PER_SLOT );
-    mblk_in_progress_bitset_remove( block->mblk_in_progress_pool_free_bitset, mblk_idx );
-    mblk = block->mblk_in_progress_pool+mblk_idx;
-    ulong start_txn_idx = mblk_desc->start_txn_idx;
-    mblk->curr_txn_idx = start_txn_idx;
-    mblk->curr_hashcnt = 0UL;
-    mblk->curr_sig_cnt = 0U;
-    memcpy( mblk->curr_hash, mblk_desc->prev==UINT_MAX ? block->start_hash : sched->mblk_pool[ mblk_desc->prev ].end_hash, sizeof(fd_hash_t) );
-    mblk->mblk_idx = mblk_desc_idx;
-    mblk->is_tick = start_txn_idx==mblk_desc->end_txn_idx;
-    /* It's safe to free up to the first mblk that is not done yet here.
-       It's not safe to do that in task_done, because the mblk right
-       after the last done mblk may still need to read the end_hash of
-       the previous mblk.  Here we have the natural guarantee that a
-       mblk was just put in progress, and will hence stop the freeing by
-       virtue of being not done yet, and this mblk no longer have a
-       dependency on its predecessor. */
-    free_done_mblks( sched, block );
   }
-  FD_TEST( mblk );
-  FD_TEST( mblk_desc );
   out->task_type = FD_SCHED_TT_POH_HASH;
   out->poh_hash->bank_idx = bank_idx;
   out->poh_hash->mblk_idx = mblk_idx;
   out->poh_hash->exec_idx = (ulong)exec_tile_idx;
-  ulong hashcnt_todo = mblk_desc->hashcnt-mblk->curr_hashcnt;
+  ulong hashcnt_todo = mblk->hashcnt-mblk->curr_hashcnt;
   out->poh_hash->hashcnt  = fd_ulong_min( hashcnt_todo, FD_SCHED_MAX_POH_HASHES_PER_TASK );
   memcpy( out->poh_hash->hash, mblk->curr_hash, sizeof(fd_hash_t) );
   sched->poh_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->poh_ready_bitset[ 0 ], exec_tile_idx );
@@ -2124,23 +2096,22 @@ dispatch_poh( fd_sched_t * sched, fd_sched_block_t * block, ulong bank_idx, int 
    was available, -1 if there is a PoH verify error. */
 FD_WARN_UNUSED static int
 maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
-  if( FD_UNLIKELY( mblk_in_progress_slist_is_empty( block->mblks_mixin_in_progress, block->mblk_in_progress_pool ) ) ) return 0;
+  if( FD_UNLIKELY( mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool ) ) ) return 0;
   FD_TEST( block->poh_hashing_done_cnt-block->poh_hash_cmp_done_cnt>0 );
 
   /* The microblock we would like to do mixin on is at the head of the
      queue. */
-  ulong in_progress_idx = mblk_in_progress_slist_idx_pop_head( block->mblks_mixin_in_progress, block->mblk_in_progress_pool );
-  fd_sched_mblk_in_progress_t * mblk = block->mblk_in_progress_pool+in_progress_idx;
-  fd_sched_mblk_t * mblk_desc = sched->mblk_pool+mblk->mblk_idx;
-  ulong start_txn_idx = mblk_desc->start_txn_idx;
+  ulong mblk_idx = mblk_slist_idx_pop_head( block->mblks_mixin_in_progress, sched->mblk_pool );
+  fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
+  ulong start_txn_idx = mblk->start_txn_idx;
 
-  if( FD_UNLIKELY( mblk_desc->end_txn_idx>block->txn_parsed_cnt ) ) {
+  if( FD_UNLIKELY( mblk->end_txn_idx>block->txn_parsed_cnt ) ) {
     /* Very rarely, we've finished hashing, but not all transactions in
        the microblock have been parsed out.  This can happen if we
        haven't received all the FEC sets for this microblock.  We can't
        yet fully mixin the microblock.  So we'll stick it back into the
        end of the queue. */
-    mblk_in_progress_slist_idx_push_tail( block->mblks_mixin_in_progress, in_progress_idx, block->mblk_in_progress_pool );
+    mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, mblk_idx, sched->mblk_pool );
     /* Invariant: we wouldn't start to mixin unless the microblock is
        fully parsed. */
     FD_TEST( mblk->curr_txn_idx==start_txn_idx );
@@ -2150,15 +2121,14 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
 
     /* At this point, there's at least one more microblock in the mixin
        queue we could try. */
-    in_progress_idx = mblk_in_progress_slist_idx_pop_head( block->mblks_mixin_in_progress, block->mblk_in_progress_pool );
-    mblk = block->mblk_in_progress_pool+in_progress_idx;
-    mblk_desc = sched->mblk_pool+mblk->mblk_idx;
-    start_txn_idx = mblk_desc->start_txn_idx;
+    mblk_idx = mblk_slist_idx_pop_head( block->mblks_mixin_in_progress, sched->mblk_pool );
+    mblk = sched->mblk_pool+mblk_idx;
+    start_txn_idx = mblk->start_txn_idx;
     /* Invariant: at any given point in time, there can be at most one
        microblock that hasn't been fully parsed yet, due to the nature
        of sequential parsing.  So this microblock has to be fully
        parsed. */
-    FD_TEST( mblk_desc->end_txn_idx<=block->txn_parsed_cnt );
+    FD_TEST( mblk->end_txn_idx<=block->txn_parsed_cnt );
   }
 
   /* Now mixin. */
@@ -2185,46 +2155,28 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
 
   mblk->curr_txn_idx++;
   int rv = 2;
-  if( FD_LIKELY( mblk->curr_txn_idx==mblk_desc->end_txn_idx ) ) {
+  if( FD_LIKELY( mblk->curr_txn_idx==mblk->end_txn_idx ) ) {
     /* Ready to compute the final hash for this microblock. */
     block->poh_hash_cmp_done_cnt++;
-    sched->mblk_pool[ mblk->mblk_idx ].done = 1;
-    mblk_in_progress_bitset_insert( block->mblk_in_progress_pool_free_bitset, in_progress_idx );
     uchar * root = fd_bmtree_commit_fini( block->bmtree );
     uchar mixin_buf[ 64 ];
     fd_memcpy( mixin_buf, mblk->curr_hash, 32UL );
     fd_memcpy( mixin_buf+32UL, root, 32UL );
     fd_sha256_hash( mixin_buf, 64UL, mblk->curr_hash );
-    if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk_desc->end_hash, sizeof(fd_hash_t) ) ) ) {
+    free_mblk( sched, block, (uint)mblk_idx );
+    if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
-      FD_BASE58_ENCODE_32_BYTES( mblk_desc->end_hash->hash, ref_str );
-      FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %u, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk->mblk_idx, our_str, ref_str, mblk_desc->hashcnt, start_txn_idx, mblk_desc->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
+      FD_BASE58_ENCODE_32_BYTES( mblk->end_hash->hash, ref_str );
+      FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->hashcnt, start_txn_idx, mblk->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
       return -1;
     }
   } else {
     /* There are more transactions to mixin in this microblock. */
-    mblk_in_progress_slist_idx_push_head( block->mblks_mixin_in_progress, in_progress_idx, block->mblk_in_progress_pool );
+    mblk_slist_idx_push_head( block->mblks_mixin_in_progress, mblk_idx, sched->mblk_pool );
     rv = 1;
   }
 
   return rv;
-}
-
-/* FIXME unify mblk descriptor and in-progress mblk descriptor */
-static void
-free_done_mblks( fd_sched_t * sched, fd_sched_block_t * block ) {
-  uint idx = block->mblk_head_idx;
-  while( idx!=UINT_MAX && idx!=block->mblk_tail_idx ) {
-    fd_sched_mblk_t * m = sched->mblk_pool+idx;
-    if( !m->done ) break;
-    uint next_idx = m->next;
-    m->next = sched->mblk_pool_free_head;
-    sched->mblk_pool_free_head = idx;
-    sched->mblk_pool_free_cnt++;
-    block->mblk_freed_cnt++;
-    idx = next_idx;
-  }
-  block->mblk_head_idx = idx;
 }
 
 static void
@@ -2553,17 +2505,10 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
     }
 
     /* Return remaining mblk descriptors to the shared pool. */
-    uint midx = head->mblk_head_idx;
-    while( midx!=UINT_MAX ) {
-      uint next_idx = sched->mblk_pool[ midx ].next;
-      sched->mblk_pool[ midx ].next = sched->mblk_pool_free_head;
-      sched->mblk_pool_free_head = midx;
-      sched->mblk_pool_free_cnt++;
-      midx = next_idx;
-    }
-    head->mblk_head_idx  = UINT_MAX;
-    head->mblk_tail_idx  = UINT_MAX;
-    head->mblk_cnt       = 0U;
+    free_mblk_slist( sched, head, head->mblks_unhashed );
+    free_mblk_slist( sched, head, head->mblks_hashing_in_progress );
+    free_mblk_slist( sched, head, head->mblks_mixin_in_progress );
+    head->mblk_cnt = 0U;
 
     sched->block_pool_popcnt--;
 
