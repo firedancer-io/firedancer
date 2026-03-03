@@ -510,7 +510,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1021-L1024 */
 
-    int sibling_confirmed = 0!=memcmp( &prev_vote_fork->voted_block_id, &prev_vote_fork->confirmed_block_id, sizeof(fd_hash_t) );
+    int sibling_confirmed = prev_vote_fork->confirmed && 0!=memcmp( &prev_vote_fork->voted_block_id, &prev_vote_fork->confirmed_block_id, sizeof(fd_hash_t) );
     if( FD_LIKELY( sibling_confirmed ) ) {
       flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
       reset_blk = best_blk;
