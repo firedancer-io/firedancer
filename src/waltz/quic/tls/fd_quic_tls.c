@@ -48,7 +48,7 @@ fd_quic_tls_tp_self( void *  handshake,
                      uchar * quic_tp,
                      ulong   quic_tp_bufsz );
 
-/* fd_quic_tls_tp_self is called by fd_tls to inform fd_quic of the
+/* fd_quic_tls_tp_peer is called by fd_tls to inform fd_quic of the
    peer's QUIC transport parameters. */
 
 void
