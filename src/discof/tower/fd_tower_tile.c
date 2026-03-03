@@ -136,6 +136,8 @@ typedef struct {
   fd_stake_ci_t *             stake_ci; /* stake ci from replay_epoch */
 
   /* external joins */
+  fd_keyswitch_t * keyswitch;
+  int              halt_signing;
 
   fd_banks_t      banks[1];
   fd_accdb_user_t accdb[1];
@@ -163,6 +165,7 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+  ulong       out_seq;
 
   /* metrics */
 
@@ -643,6 +646,7 @@ replay_slot_completed( ctx_t *                      ctx,
     msg->bank_idx = slot_completed->bank_idx;
 
     fd_stem_publish( stem, OUT_IDX, FD_TOWER_SIG_SLOT_IGNORED, ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->out_seq   = stem->seqs[ OUT_IDX ];
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), ctx->out_chunk0, ctx->out_wmark );
     return;
   }
@@ -660,6 +664,7 @@ replay_slot_completed( ctx_t *                      ctx,
     msg->bank_idx = slot_completed->bank_idx;
 
     fd_stem_publish( stem, OUT_IDX, FD_TOWER_SIG_SLOT_IGNORED, ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->out_seq   = stem->seqs[ OUT_IDX ];
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_ignored_t), ctx->out_chunk0, ctx->out_wmark );
     return;
   }
@@ -883,6 +888,7 @@ done_vote_iter:
   if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct );
 
   fd_stem_publish( stem, OUT_IDX, FD_TOWER_SIG_SLOT_DONE, ctx->out_chunk, sizeof(fd_tower_slot_done_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->out_seq   = stem->seqs[ OUT_IDX ];
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_done_t), ctx->out_chunk0, ctx->out_wmark );
 
   /* Write out metrics. */
@@ -912,12 +918,13 @@ done_vote_iter:
 static inline void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               opt_poll_in,
               int *               charge_busy ) {
   if( FD_LIKELY( !publishes_empty( ctx->publishes ) ) ) {
     memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), publishes_peek_head( ctx->publishes ), sizeof(fd_tower_msg_t) );
     publishes_pop_head( ctx->publishes ); /* peek->pop to avoid a stack copy */
     fd_stem_publish( stem, OUT_IDX, FD_TOWER_SIG_SLOT_CONFIRMED, ctx->out_chunk, sizeof(fd_tower_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->out_seq   = stem->seqs[ OUT_IDX ];
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_msg_t), ctx->out_chunk0, ctx->out_wmark );
     *opt_poll_in = 0; /* drain the publishes */
     *charge_busy = 1;
@@ -1016,6 +1023,11 @@ returnable_frag( ctx_t *             ctx,
     return 0;
   }
   case IN_KIND_REPLAY: {
+    /* In the case that the tower tile is halting signing, we don't
+       want to process any replay fragments that will cause us to
+       produce a vote txn. */
+    if( FD_UNLIKELY( ctx->halt_signing ) ) return 1;
+
     if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk ) );
       /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank_utils.rs#L53
@@ -1042,6 +1054,7 @@ returnable_frag( ctx_t *             ctx,
         record_eqvoc_metric( ctx, err );
         ctx->metrics.proof_constructed++;
         fd_stem_publish( stem, OUT_IDX, FD_TOWER_SIG_SLOT_DUPLICATE, ctx->out_chunk, sizeof(fd_tower_slot_duplicate_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->out_seq = stem->seqs[ OUT_IDX ];
       }
     }
     return 0;
@@ -1163,6 +1176,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->publishes );
   FD_TEST( ctx->stake_ci );
 
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+  ctx->halt_signing = 0;
+
   ctx->init_slot = ULONG_MAX;
   ctx->root_slot = ULONG_MAX;
 
@@ -1202,6 +1219,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+  ctx->out_seq    = 0UL;
 }
 
 static ulong
@@ -1252,6 +1270,34 @@ during_housekeeping( ctx_t * ctx ) {
     auth_vtr->paths_idx = ctx->auth_vtr_cnt;
     ctx->auth_vtr_cnt++;
     fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  /* FIXME: Currently, the tower tile doesn't support running off of a
+     tower file.  When support for a tower file is added, we need to
+     swap the file that is running and sync it to the local state of
+     the tower.  Because a tower file is not supported, if another
+     validator was running with the identity that was switched to, then
+     it is possible that the original validator and the fallback (this
+     node), may have tower files which are out of sync.  This could lead
+     to consensus violations such as double voting or duplicate
+     confirmations.  Currently it is unsafe for a validator operator to
+     switch identities without a 512 slot delay: the reason for this
+     delay is to account for the worst case number of slots a vote
+     account can be locked out for. */
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting signing" ));
+    FD_CRIT( ctx->halt_signing, "state machine corruption" );
+    ctx->halt_signing = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: halting signing" ));
+    memcpy( ctx->identity_key, ctx->keyswitch->bytes, 32UL );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    ctx->halt_signing = 1;
+    ctx->keyswitch->result  = ctx->out_seq;
   }
 }
 

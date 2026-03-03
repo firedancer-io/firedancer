@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
-#include "../fd_config.h"
-#include "../fd_action.h"
+#include "../../shared/fd_config.h"
+#include "../../shared/fd_action.h"
 
 #include "../../platform/fd_cap_chk.h"
 #include "../../../disco/topo/fd_topo.h"
@@ -122,7 +122,7 @@
 #define FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED  (8UL)
 
 void
-set_identity_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
+set_identityh_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
                        fd_cap_chk_t *   chk,
                        config_t const * config FD_PARAM_UNUSED ) {
   /* 5 huge pages for the key storage area */
@@ -321,7 +321,7 @@ poll_keyswitch( fd_topo_t * topo,
 }
 
 void
-set_identity_cmd_args( int *    pargc,
+set_identityh_cmd_args( int *    pargc,
                        char *** pargv,
                        args_t * args) {
   args->set_identity.require_tower = fd_env_strip_cmdline_contains( pargc, pargv, "--require-tower" );
@@ -344,7 +344,7 @@ set_identity_cmd_args( int *    pargc,
   return;
 
 err:
-  FD_LOG_ERR(( "Usage: fdctl set-identity <keypair> [--require-tower]" ));
+  FD_LOG_ERR(( "Usage: fdctl set-identity <keypair> [--require-tower] [--force]" ));
 }
 
 static void FD_FN_SENSITIVE
@@ -382,15 +382,15 @@ set_identity( args_t *   args,
 }
 
 void
-set_identity_cmd_fn( args_t *   args,
+set_identityh_cmd_fn( args_t *   args,
                      config_t * config ) {
   set_identity( args, config );
 }
 
-action_t fd_action_set_identity = {
+action_t fd_action_set_identityh = {
   .name           = "set-identity",
-  .args           = set_identity_cmd_args,
-  .fn             = set_identity_cmd_fn,
+  .args           = set_identityh_cmd_args,
+  .fn             = set_identityh_cmd_fn,
   .require_config = 1,
   .perm           = NULL,
   .description    = "Change the identity of a running validator",
