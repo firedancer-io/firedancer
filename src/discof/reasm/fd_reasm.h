@@ -52,6 +52,11 @@
 #define FD_REASM_ERR_UNIQUE (-1) /* key uniqueness conflict */
 #define FD_REASM_ERR_MERKLE (-2) /* chained merkle root conflict */
 
+#define FD_REASM_EVICT_FAIL     (-1) /* eviction failed, caller should not insert new FEC */
+#define FD_REASM_EVICT_ORPHAN   ( 0) /* eviction succeeded, caller can insert new FEC */
+#define FD_REASM_EVICT_ANCESTOR ( 1) /* eviction succeeded, caller can insert new FEC, but replay should evict corresponding bank  */
+#define FD_REASM_EVICT_UNNEEDED ( 2) /* no eviction required to insert FEC */
+
 /* fd_reasm is represented as a forest (multi-tree) structure.  Each
    node in the forest corresponds to a FEC set.
 
@@ -192,13 +197,15 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 
-struct fd_reasm_evicted {
+struct evicted {
   fd_hash_t mr;
   ulong     slot;
   uint      fec_set_idx;
   ulong     fec_tspub;
+  ulong     bank_idx;
 };
-typedef struct fd_reasm_evicted fd_reasm_evicted_t;
+typedef struct evicted evicted_t;
+typedef struct evicted fd_reasm_evicted_t; /* duplicate typedef for convenience */
 
 FD_PROTOTYPES_BEGIN
 
@@ -327,9 +334,24 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               data_complete,
                  int               slot_complete,
                  int               leader,
-                 fd_store_t         * opt_store,
-                   ulong             tspub,
-                 fd_reasm_evicted_t * evicted );
+                 fd_store_t      * opt_store,
+                 ulong             tspub,
+                 int             * evict_rv );
+
+int
+fd_reasm_clear_leaf( fd_reasm_t     * reasm,
+                     fd_reasm_fec_t * head,
+                     int              clear_chain,
+                     fd_store_t     * opt_store );
+
+fd_reasm_evicted_t *
+fd_reasm_evicted_peek_head( fd_reasm_t * reasm );
+
+int
+fd_reasm_evicted_empty( fd_reasm_t * reasm );
+
+fd_reasm_evicted_t
+fd_reasm_evicted_pop_head( fd_reasm_t * reasm );
 
 /* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
    beginning from this FEC then becomes the canonical chain of FEC sets

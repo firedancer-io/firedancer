@@ -63,7 +63,11 @@ typedef struct xid xid_t;
 #define MAP_MEMOIZE      0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-typedef struct fd_reasm_evicted fd_reasm_evicted_t; /* forward decl, full definition in fd_reasm.h */
+typedef struct evicted evicted_t; /* forward decl, full definition in fd_reasm.h */
+
+#define DEQUE_NAME         evicted
+#define DEQUE_T            evicted_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_reasm {
   ulong                slot0;       /* special initialization slot. chains first FEC */
@@ -78,6 +82,7 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   ulong *              bfs;         /* internal queue of pool idxs for BFS */
   ulong *              out;         /* delivery queue of pool idxs to output */
   xid_t *              xid;         /* map of (slot, fec_set_idx)->mr */
+  evicted_t *          evicted;     /* dlist of evicted FEC sets  */
 };
 
 static inline fd_reasm_fec_t *

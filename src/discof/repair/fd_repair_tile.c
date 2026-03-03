@@ -683,6 +683,7 @@ after_shred( ctx_t      * ctx,
     fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
     if( FD_LIKELY( blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) {
       if( tspub > blk->fec_clear_timestamps[shred->fec_set_idx / 32] ) fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, is_dup, mr, cmr );
+      else FD_LOG_INFO(("skipped insert of data shred slot %lu fec set %u, idx %u because timestamp", shred->slot, shred->fec_set_idx, shred->idx ));
     }
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
@@ -741,7 +742,10 @@ after_fec( ctx_t      * ctx,
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
   if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return;
   if( FD_LIKELY( ele && tspub > ele->fec_clear_timestamps[shred->fec_set_idx / 32] ) ) fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
-  else return;
+  else {
+    FD_LOG_INFO(("skipped insert of fec MSG slot %lu fec set %u because timestamp", shred->slot, shred->fec_set_idx ));
+    return;
+  }
 
   /* metrics for completed slots */
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {

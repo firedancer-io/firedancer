@@ -1446,7 +1446,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
-  fd_reasm_evicted_t evicted[1];
+  int evicted[1];
   fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, 0, evicted ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
@@ -1582,7 +1582,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_evicted_t evicted[1];
+    int evicted[1];
     fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, 0, evicted ); /* FIXME manifest block_id */
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
@@ -2175,6 +2175,19 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* if reasm evicted queue has entries, publish them to repair so
+     repair can re-request for it */
+
+  if( FD_UNLIKELY( !fd_reasm_evicted_empty( ctx->reasm ) ) ) {
+    fd_reasm_evicted_t evicted_fec = fd_reasm_evicted_pop_head( ctx->reasm );
+    fd_memcpy( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ), &evicted_fec, sizeof(fd_reasm_evicted_t) );
+    fd_stem_publish( stem, ctx->repair_out->idx, 0, ctx->repair_out->chunk,  sizeof(fd_reasm_evicted_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_reasm_evicted_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
   int evict_banks = 0;
@@ -2200,6 +2213,10 @@ after_credit( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( ctx->is_leader && frontier_indices[i]==ctx->leader_bank->data->idx ) ) continue;
       mark_bank_dead( ctx, stem, bank->data->idx );
       fd_sched_block_abandon( ctx->sched, bank->data->idx );
+
+      /* evict it from reasm */
+      fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->data->idx ];
+      FD_TEST( fd_reasm_clear_leaf( ctx->reasm, fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr ), 1, ctx->store ) );
     }
   }
 
@@ -2429,13 +2446,13 @@ process_fec_complete( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
-  fd_reasm_evicted_t evicted = { .slot = ULONG_MAX };
-  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, tspub, &evicted );
+  int evict_rv = FD_REASM_EVICT_UNNEEDED;
+  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, tspub, &evict_rv );
 
-  if( FD_UNLIKELY( evicted.slot != ULONG_MAX ) ) {
-    fd_memcpy( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ), &evicted, sizeof(fd_reasm_evicted_t) );
-    fd_stem_publish( stem, ctx->repair_out->idx, 0, ctx->repair_out->chunk,  sizeof(fd_reasm_evicted_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_reasm_evicted_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
+  if( evict_rv == FD_REASM_EVICT_ANCESTOR ) {
+    fd_reasm_evicted_t const * evicted = fd_reasm_evicted_peek_head( ctx->reasm );
+    mark_bank_dead( ctx, stem, evicted->bank_idx );
+    fd_sched_block_abandon( ctx->sched, evicted->bank_idx );
   }
 }
 

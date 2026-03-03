@@ -24,6 +24,7 @@ fd_reasm_footprint( ulong fec_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_reasm_t), sizeof(fd_reasm_t)            ),
       pool_align(),        pool_footprint    ( fec_max ) ),
@@ -34,6 +35,7 @@ fd_reasm_footprint( ulong fec_max ) {
       bfs_align(),         bfs_footprint     ( fec_max ) ),
       out_align(),         out_footprint     ( fec_max ) ),
       xid_align(),         xid_footprint     ( lgf_max ) ),
+      evicted_align(),     evicted_footprint ( max_fec_per_slot ) ), /* worst case we might evict every FEC in a slot */
     fd_reasm_align() );
 }
 
@@ -81,6 +83,7 @@ fd_reasm_new( void * shmem,
   void * bfs      = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),         bfs_footprint     ( fec_max ) );
   void * out      = FD_SCRATCH_ALLOC_APPEND( l, out_align(),         out_footprint     ( fec_max ) );
   void * xid      = FD_SCRATCH_ALLOC_APPEND( l, xid_align(),         xid_footprint     ( lgf_max ) );
+  void * evicted  = FD_SCRATCH_ALLOC_APPEND( l, evicted_align(),     evicted_footprint ( max_fec_per_slot ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_reasm_align() ) == (ulong)shmem + footprint );
 
   reasm->slot0      = ULONG_MAX;
@@ -94,6 +97,7 @@ fd_reasm_new( void * shmem,
   reasm->bfs        = bfs_new     ( bfs,      fec_max       );
   reasm->out        = out_new     ( out,      fec_max       );
   reasm->xid        = xid_new     ( xid,      lgf_max, seed );
+  reasm->evicted    = evicted_new ( evicted,  max_fec_per_slot );
 
   return shmem;
 }
@@ -115,6 +119,7 @@ fd_reasm_join( void * shreasm ) {
   reasm->bfs      = bfs_join     ( reasm->bfs      );
   reasm->out      = out_join     ( reasm->out      );
   reasm->xid      = xid_join     ( reasm->xid      );
+  reasm->evicted  = evicted_join ( reasm->evicted  );
 
   return reasm;
 }
@@ -332,11 +337,13 @@ clear_slot_metadata( fd_reasm_t     * reasm,
   return fec;
 }
 
-static void
-clear_leaf( fd_reasm_t     * reasm,
-            fd_reasm_fec_t * head,
-            fd_store_t     * opt_store,
-            fd_reasm_evicted_t * evicted ) {
+/* returns 0 if an orphan or subtree was cleared, 1 if something in main
+   tree was cleared */
+int
+fd_reasm_clear_leaf( fd_reasm_t     * reasm,
+                     fd_reasm_fec_t * head,
+                     int              clear_chain,
+                     fd_store_t     * opt_store ) {
   /* see fd_forest.c clear_leaf */
 
   fd_reasm_fec_t *    pool     = reasm_pool( reasm );
@@ -345,11 +352,51 @@ clear_leaf( fd_reasm_t     * reasm,
   ancestry_t *        ancestry = reasm->ancestry;
   subtrees_t *        subtrees = reasm->subtrees;
   dlist_t    *        subtreel = reasm->subtreel;
+  int                 is_ancestry = FD_REASM_EVICT_ORPHAN;
 
   FD_TEST( head && head->child == ULONG_MAX ); /* must be a leaf node */
+  if( FD_UNLIKELY( clear_chain ) ) {
+    /* we search up the tree until the bank idx changes. This is usually
+     when we jump to a parent slot, but if an equivocation occured, this
+     could also be the middle of the slot.
 
-  //FD_BASE58_ENCODE_32_BYTES( head->key.key, head_key_b58 );
-  //FD_LOG_NOTICE(( "evicting leaf slot %lu, fec idx %u, fec: %s, bank_idx %lu", head->slot, head->fec_set_idx, head_key_b58, head->bank_idx ));
+     0 ── 32 ──  64 ──  96          (confirmed)
+            └──  64' ── 96' ── 128' (eqvoc)
+
+      Note we only have execute a slot twice (have 2 bank idxs for it)
+      if the slot equivocated, we replayed the wrong version, and then
+      replayed the confirmed version afterwards.
+
+      The state after executing the wrong version first is:
+
+            0  ────  32 ────  64 ────  96 ──── 128
+      (bank_idx=1) (bank_idx=1) .... (all bank_idx=1)
+
+      After receiving and executing the confirmed version, the state looks like
+
+      0 (b=2) ── 32 (b=2) ──  64 (b=2) ──  96 (b=2)        (confirmed)
+                 └──  64' (b=1) ── 96' (b=1) ── 128' (b=1) (eqvoc)
+
+      Here we want to evict only until fec 64'. Or let's say we are
+      getting around to executing the confirmed version, but we haven't
+      executed it yet.
+
+      0 (b=1) ── 32 (b=1) ──  64 (b=ULONG_MAX) ──  96 (b=ULONG_MAX) (confirmed, but not executed yet)
+                   └──  64' (b=1) ── 96' (b=1) ── 128'(b=1)         (eqvoc)
+
+      Now we know we should evict until the max(parent bank idx changes, or parent has > 1 child, or fec set idx == 0) */
+
+    while( FD_LIKELY( head ) ) {
+      fd_reasm_fec_t * parent = fd_reasm_parent( reasm, head );
+      if( FD_UNLIKELY( head->fec_set_idx==0 ) )                         break;
+      if( FD_UNLIKELY( head->sibling != pool_idx_null( pool ) ) )  break; /* if the parent has more than 1 child, we know for sure the parent is a slot boundary, so we can stop here. */
+      /* i think it should be impossible for parent to be null, assert or verify */
+      if( FD_UNLIKELY( parent->bank_idx != head->bank_idx ) )           break; /* also possible none of these have been executed */
+      head = parent;
+    }
+  }
+  FD_BASE58_ENCODE_32_BYTES( head->key.key, head_key_b58 );
+  FD_LOG_NOTICE(( "evicting leaf slot %lu, fec idx %u, fec: %s, bank_idx %lu", head->slot, head->fec_set_idx, head_key_b58, head->bank_idx ));
 
   fd_reasm_fec_t * parent = fd_reasm_parent( reasm, head );
   if( FD_LIKELY( parent ) ) {
@@ -376,17 +423,23 @@ clear_leaf( fd_reasm_t     * reasm,
 
     fd_reasm_fec_t * removed = orphaned_ele_remove( orphaned, &head->key, NULL, pool );
     if( FD_LIKELY  ( removed ) ) {
-      *evicted = (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .fec_tspub = head->tspub };
+      FD_TEST( !clear_chain ); /* if we selected to clear an orphan leaf, clear_chain must be false */
+      evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .fec_tspub = head->tspub, .bank_idx = head->bank_idx } );
       pool_ele_release( pool, clear_slot_metadata( reasm, head, opt_store ) );
     }
 
     if( FD_UNLIKELY( !removed ) ) {
       /* remove from ancestry and frontier */
-                      removed = ancestry_ele_remove( ancestry, &head->key, NULL, pool );
-      if( !removed ) removed = frontier_ele_remove( frontier, &head->key, NULL, pool );
+      FD_TEST( clear_chain );
+      fd_reasm_fec_t * curr = head;
+      while( FD_LIKELY( curr ) ) {
+                       removed = ancestry_ele_remove( ancestry, &curr->key, NULL, pool );
+        if( !removed ) removed = frontier_ele_remove( frontier, &curr->key, NULL, pool );
+        evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = removed->key, .slot = removed->slot, .fec_set_idx = removed->fec_set_idx, .fec_tspub = removed->tspub, .bank_idx = removed->bank_idx } );
 
-      *evicted = (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .fec_tspub = head->tspub };
-      pool_ele_release( pool, clear_slot_metadata( reasm, removed, opt_store ) );
+        curr = fd_reasm_child( reasm, curr );
+        pool_ele_release( pool, clear_slot_metadata( reasm, removed, opt_store ) );
+      }
 
       /* We removed from the main tree, so we might need to insert parent into the frontier.
           Only need to add parent to the frontier if it doesn't have any other children. */
@@ -396,12 +449,13 @@ clear_leaf( fd_reasm_t     * reasm,
         FD_TEST( parent );
         frontier_ele_insert( frontier, parent, pool );
       }
+      is_ancestry = FD_REASM_EVICT_ANCESTOR;
     }
   } else {
     /* remove from subtrees and subtree list */
     subtrees_ele_remove( subtrees, &head->key, NULL, pool );
     dlist_ele_remove   ( subtreel,  head,            pool );
-    *evicted = (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .fec_tspub = head->tspub };
+    evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .fec_tspub = head->tspub, .bank_idx = head->bank_idx } );
     pool_ele_release( pool, clear_slot_metadata( reasm, head, opt_store ) );
   }
 
@@ -411,6 +465,7 @@ clear_leaf( fd_reasm_t     * reasm,
     ulong idx = out_pop_head( reasm->out );
     if( FD_LIKELY( pool_ele( pool, idx )->free==0 ) ) out_push_tail( reasm->out, idx );
   }
+  return is_ancestry;
 }
 
 fd_reasm_fec_t *
@@ -452,9 +507,6 @@ gca( fd_reasm_t     * reasm,
   return NULL;
 }
 
-#define FEC_IGNORE 0
-#define FEC_INSERT 1
-
 #define UPDATE_BEST_CANDIDATE( best_confrmd, best_unconfrmd, ele, filter )                                                    \
   if( FD_UNLIKELY( filter ) ) continue;                                                                                       \
   do {                                                                                                                        \
@@ -467,13 +519,27 @@ gca( fd_reasm_t     * reasm,
     }                                                                                                                         \
   } while(0)
 
+fd_reasm_evicted_t *
+fd_reasm_evicted_peek_head( fd_reasm_t * reasm ) {
+  return evicted_peek_head( reasm->evicted );
+}
+
+int
+fd_reasm_evicted_empty( fd_reasm_t * reasm ) {
+  return evicted_empty( reasm->evicted );
+}
+
+fd_reasm_evicted_t
+fd_reasm_evicted_pop_head( fd_reasm_t * reasm ) {
+  return evicted_pop_head( reasm->evicted );
+}
+
 static int
-fd_reasm_evict( fd_reasm_t      * reasm,
-                fd_store_t      * opt_store,
-                fd_hash_t const * new_root FD_PARAM_UNUSED,
-                fd_hash_t const * parent_root,
-                fd_reasm_evicted_t * evicted,
-                ulong            * evictbank ) {
+evict( fd_reasm_t      * reasm,
+       fd_store_t      * opt_store,
+       fd_hash_t const * new_root FD_PARAM_UNUSED,
+       fd_hash_t const * parent_root,
+       ulong           * evictbank ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
   frontier_t * frontier = reasm->frontier;
   orphaned_t * orphaned = reasm->orphaned;
@@ -481,11 +547,9 @@ fd_reasm_evict( fd_reasm_t      * reasm,
   dlist_t *    subtreel = reasm->subtreel;
 
   /* Generally, best policy for eviction is to evict in the order of:
-    1. Highest unconfirmed orphan leaf       - furthest from root
-    2. Highest unconfirmed leaf in ancestry  - furthest from tip of execution
-    3. Highest confirmed orphan leaf
-    4. Highest confirmed leaf in ancestry    - at this point we would not evict this candidate.
-    See fd_forest_evict for more details. */
+    1. Highest unconfirmed orphan leaf                   - furthest from root
+    2. Highest incomplete, unconfirmed leaf in ancestry  - furthest from tip of execution
+    3. Highest confirmed orphan leaf                     - evictable, since unrelated to banks, but less ideal */
 
     fd_reasm_fec_t * unconfrmd_orphan = NULL; /* 1st best candidate for eviction is the highest unconfirmed orphan. */
     fd_reasm_fec_t * confirmed_orphan = NULL; /* 3rd best candidate for eviction is the highest confirmed orphan.   */
@@ -502,31 +566,29 @@ fd_reasm_evict( fd_reasm_t      * reasm,
       UPDATE_BEST_CANDIDATE( confirmed_orphan, unconfrmd_orphan, ele, ele->child != ULONG_MAX || memcmp( &ele->key, parent_root, sizeof(fd_hash_t) ) == 0 );
     }
 
-    fd_reasm_fec_t * unconfrmd_leaf = NULL; /* 2nd best candidate for eviction is the highest unconfirmed leaf. */
-    fd_reasm_fec_t * confirmed_leaf = NULL; /* 4th best candidate for eviction is the highest confirmed leaf. */
+    fd_reasm_fec_t * unconfrmd_leaf = NULL; /* 2nd best candidate for eviction is the highest unconfirmed, incomplete slot. */
     for( frontier_iter_t iter = frontier_iter_init( frontier, pool );
                                !frontier_iter_done( iter, frontier, pool );
                          iter = frontier_iter_next( iter, frontier, pool ) ) {
       fd_reasm_fec_t * ele = frontier_iter_ele( iter, frontier, pool );
-      UPDATE_BEST_CANDIDATE( confirmed_leaf, unconfrmd_leaf, ele, iter.ele_idx == reasm->root || memcmp( &ele->key, parent_root, sizeof(fd_hash_t) ) == 0 );
+      if( iter.ele_idx == reasm->root || memcmp( &ele->key, parent_root, sizeof(fd_hash_t) ) == 0 ) continue; /* not a candidate */
+      if( ele->confirmed || ele->slot_complete || ele->is_leader ) continue; /* not a candidate */
+      unconfrmd_leaf = fd_ptr_if( !unconfrmd_leaf || ele->slot > unconfrmd_leaf->slot, ele, unconfrmd_leaf );
     }
 
     if( FD_UNLIKELY( unconfrmd_orphan )) {
       *evictbank = unconfrmd_orphan->bank_idx;
-      clear_leaf( reasm, unconfrmd_orphan, opt_store, evicted );
-      return FEC_INSERT;
+      return fd_reasm_clear_leaf( reasm, unconfrmd_orphan, 0, opt_store );
     }
     if( FD_UNLIKELY( unconfrmd_leaf )) {
       *evictbank = unconfrmd_leaf->bank_idx;
-      clear_leaf( reasm, unconfrmd_leaf, opt_store, evicted );
-      return FEC_INSERT;
+      return fd_reasm_clear_leaf( reasm, unconfrmd_leaf, 1, opt_store );
     }
     if( FD_UNLIKELY( confirmed_orphan )) {
       fd_reasm_fec_t * parent = fd_reasm_query( reasm, parent_root );
       if( !parent ) {
         *evictbank = confirmed_orphan->bank_idx;
-        clear_leaf( reasm, confirmed_orphan, opt_store, evicted );
-        return FEC_INSERT;
+        return fd_reasm_clear_leaf( reasm, confirmed_orphan, 1, opt_store );
       }
     /* for any subtree:
         0 ── 1 ── 2 ── 3 (confirmed) ── 4(confirmed) ── 5 ── 6 ──> add 7 here is valid.
@@ -546,16 +608,12 @@ fd_reasm_evict( fd_reasm_t      * reasm,
       fd_reasm_fec_t * latest_confirmed_leaf = latest_confirmed_fec( reasm, subtree_root );
       if( !latest_confirmed_leaf || latest_confirmed_leaf == gca( reasm, latest_confirmed_leaf, parent )) {
         *evictbank = confirmed_orphan->bank_idx;
-        clear_leaf( reasm, confirmed_orphan, opt_store, evicted );
-        return FEC_INSERT; /* is not a useless new fork. */
+        return fd_reasm_clear_leaf( reasm, confirmed_orphan, 1, opt_store );
       }
       /* is a useless new fork. */
-      return FEC_IGNORE;
+      return FD_REASM_EVICT_FAIL;
     }
-    if( FD_UNLIKELY( confirmed_leaf )) {
-      return FEC_IGNORE;
-    }
-    return FEC_IGNORE; /* */
+    return FD_REASM_EVICT_FAIL; /* nothing else could be evicted */
 }
 
 fd_reasm_fec_t *
@@ -571,7 +629,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               is_leader,
                  fd_store_t      * opt_store,
                  ulong             tspub,
-                 fd_reasm_evicted_t * evicted ) {
+                 int             * evict_rv ) {
 
 # if LOGGING
   FD_BASE58_ENCODE_32_BYTES( merkle_root->key,         merkle_root_b58         );
@@ -594,12 +652,11 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   ulong * bfs = reasm->bfs;
   ulong * out = reasm->out;
 
+  *evict_rv = FD_REASM_EVICT_UNNEEDED;
   if( FD_UNLIKELY( !pool_free( pool ) ) ){
     ulong bank_idx_Evicted = 6969;
-    int rv = fd_reasm_evict( reasm, opt_store, merkle_root, chained_merkle_root, evicted, &bank_idx_Evicted );
-    if( rv == FEC_IGNORE ) return NULL;
-    FD_BASE58_ENCODE_32_BYTES( evicted->mr.uc, head_key_b58 );
-    FD_LOG_NOTICE(( "evicting leaf slot %lu fec set %u, fec: %s, bank_idx %lu to insert slot %lu fec set %u", evicted->slot, evicted->fec_set_idx, head_key_b58, bank_idx_Evicted, slot, fec_set_idx ));
+    *evict_rv = evict( reasm, opt_store, merkle_root, chained_merkle_root, &bank_idx_Evicted );
+    if( *evict_rv == FD_REASM_EVICT_FAIL ) return NULL;
   }
   FD_TEST( pool_free( pool ) );
   fd_reasm_fec_t * fec = pool_ele_acquire( pool );
