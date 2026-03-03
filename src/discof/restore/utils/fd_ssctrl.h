@@ -105,6 +105,7 @@ typedef struct fd_ssctrl_init {
   int           zstd;
   ulong         slot; /* slot advertised by the snapshot peer */
   fd_ip4_port_t addr;
+  uchar         snapshot_hash[ FD_HASH_FOOTPRINT ]; /* advertised snapshot hash from snapshot file name */
   char          hostname[ 256UL ];
   char          path[ PATH_MAX ];
   ulong         path_len;

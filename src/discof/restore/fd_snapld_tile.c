@@ -115,6 +115,8 @@ privileged_init( fd_topo_t *      topo,
   int incr_is_zstd = 0;
   char full_path[ PATH_MAX ] = { 0 };
   char incr_path[ PATH_MAX ] = { 0 };
+  uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
+  uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
   ctx->local_full_fd = -1;
   ctx->local_incr_fd = -1;
   /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
@@ -122,9 +124,10 @@ privileged_init( fd_topo_t *      topo,
      needed here during privileged_init. */
   if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
                                                tile->snapld.incremental_snapshots,
-                                               &full_slot,    &incr_slot,
-                                                full_path,     incr_path,
-                                               &full_is_zstd, &incr_is_zstd ) ) ) {
+                                               &full_slot,         &incr_slot,
+                                               full_path,          incr_path,
+                                               &full_is_zstd,      &incr_is_zstd,
+                                               full_snapshot_hash, incr_snapshot_hash ) ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );

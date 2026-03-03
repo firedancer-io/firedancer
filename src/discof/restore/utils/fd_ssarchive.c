@@ -12,6 +12,7 @@ struct fd_ssarchive_entry {
   ulong base_slot;
   int   is_zstd;
   char  path[ PATH_MAX ];
+  uchar hash[ FD_HASH_FOOTPRINT ];
 };
 typedef struct fd_ssarchive_entry fd_ssarchive_entry_t;
 
@@ -87,7 +88,9 @@ fd_ssarchive_latest_pair( char const * directory,
                           char         full_path[ static PATH_MAX ],
                           char         incremental_path[ static PATH_MAX ],
                           int *        full_is_zstd,
-                          int *        incremental_is_zstd ) {
+                          int *        incremental_is_zstd,
+                          uchar        full_hash[ static FD_HASH_FOOTPRINT ],
+                          uchar        incremental_hash[ static FD_HASH_FOOTPRINT ] ) {
   *full_slot = ULONG_MAX;
   *incremental_slot = ULONG_MAX;
 
@@ -126,6 +129,7 @@ fd_ssarchive_latest_pair( char const * directory,
       if( FD_UNLIKELY( !fd_cstr_printf_check( full_snapshots[ full_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
         FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
       }
+      fd_memcpy( full_snapshots[ full_snapshots_cnt ].hash, decoded_hash, FD_HASH_FOOTPRINT );
       full_snapshots_cnt++;
     } else {
       if( FD_UNLIKELY( incremental_snapshots_cnt>=FD_SSARCHIVE_MAX_ENTRIES ) ) {
@@ -138,6 +142,7 @@ fd_ssarchive_latest_pair( char const * directory,
       if( FD_UNLIKELY( !fd_cstr_printf_check( incremental_snapshots[ incremental_snapshots_cnt ].path, PATH_MAX, NULL, "%s/%s", directory, entry->d_name ) ) ) {
         FD_LOG_ERR(( "snapshot path too long `%s/%s`", directory, entry->d_name ));
       }
+      fd_memcpy( incremental_snapshots[ incremental_snapshots_cnt ].hash, decoded_hash, FD_HASH_FOOTPRINT );
       incremental_snapshots_cnt++;
     }
   }
@@ -159,6 +164,8 @@ fd_ssarchive_latest_pair( char const * directory,
       *incremental_slot    = ULONG_MAX;
       *incremental_is_zstd = 0;
       FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+      fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
+      memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
       return 0;
     }
 
@@ -172,6 +179,8 @@ fd_ssarchive_latest_pair( char const * directory,
           *incremental_is_zstd = incremental_snapshots[ i ].is_zstd;
           FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ j ].path ) );
           FD_TEST( fd_cstr_printf_check( incremental_path, PATH_MAX, NULL, "%s", incremental_snapshots[ i ].path ) );
+          fd_memcpy( full_hash, full_snapshots[ j ].hash, FD_HASH_FOOTPRINT );
+          fd_memcpy( incremental_hash, incremental_snapshots[ i ].hash, FD_HASH_FOOTPRINT );
           return 0;
         } else if( FD_LIKELY( full_snapshots[ j ].slot<base_slot ) ) {
             /* full snapshots are sorted in descending order, so if we reach a
@@ -190,6 +199,9 @@ fd_ssarchive_latest_pair( char const * directory,
     *incremental_slot    = ULONG_MAX;
     *incremental_is_zstd = 0;
     FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+    incremental_path[ 0UL ] = '\0';
+    fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
+    memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
     return 0;
 
   } else {
@@ -202,6 +214,9 @@ fd_ssarchive_latest_pair( char const * directory,
     *incremental_slot    = ULONG_MAX;
     *incremental_is_zstd = 0;
     FD_TEST( fd_cstr_printf_check( full_path, PATH_MAX, NULL, "%s", full_snapshots[ 0UL ].path ) );
+    incremental_path[ 0UL ] = '\0';
+    fd_memcpy( full_hash, full_snapshots[ 0UL ].hash, FD_HASH_FOOTPRINT );
+    memset( incremental_hash, 0, FD_HASH_FOOTPRINT );
     return 0;
   }
 }
