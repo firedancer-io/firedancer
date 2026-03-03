@@ -115,7 +115,7 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
   (void)in_idx; (void)seq; (void)sig; (void)sz; (void)ctl; (void)tspub;
   fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr( ctx->genesi_in_mem, chunk );
 
-  if( genesis_meta->bootstrap ) {
+  if( FD_UNLIKELY( genesis_meta->bootstrap ) ) {
     ushort shred_version = compute_shred_version( genesis_meta->genesis_hash.uc, NULL, NULL, 0UL );
     FD_TEST( shred_version );
 
@@ -241,7 +241,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
 #define STEM_LAZY  (50UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_ipecho_tile_ctx_t
