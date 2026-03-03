@@ -479,8 +479,8 @@ returnable_frag( fd_snapld_tile_t *  ctx,
   return 0;
 }
 
-/* Up to one frag from after_credit plus one from returnable_frag */
-#define STEM_BURST 2UL
+/* Up to two frags from after_credit plus one from returnable_frag */
+#define STEM_BURST 3UL
 
 #define STEM_LAZY 1000L
 
