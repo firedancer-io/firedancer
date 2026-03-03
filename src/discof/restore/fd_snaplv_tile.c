@@ -504,9 +504,9 @@ after_credit( fd_snaplv_t *        ctx,
       transition_malformed( ctx, stem );
       return;
     } else {
-      FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
-                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
-                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
+      FD_LOG_INFO(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
+                     FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
+                     FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
       fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->hash_accum.ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
     }
   }
