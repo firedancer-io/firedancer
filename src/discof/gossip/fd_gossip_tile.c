@@ -18,7 +18,7 @@
 #define IN_KIND_TXSEND        (3)
 #define IN_KIND_EPOCH         (4)
 #define IN_KIND_TOWER         (5)
-#define IN_KIND_SNAPIN_MANIF    (6)
+#define IN_KIND_SNAPIN_MANIF  (6)
 
 /* Symbols exported by version.c */
 extern ulong const firedancer_major_version;
@@ -312,9 +312,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
   if( FD_UNLIKELY( sz!=0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].kind, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  if( FD_UNLIKELY( ctx->is_halting_signing ) ) {
-    return 1;
-  }
+  if( FD_UNLIKELY( ctx->is_halting_signing ) ) return -1;
 
   if( FD_UNLIKELY( !ctx->my_contact_info->shred_version && ctx->in[ in_idx ].kind!=IN_KIND_SHRED_VERSION ) ) return 1;
 
