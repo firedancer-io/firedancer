@@ -135,27 +135,24 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       vote_ele               = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
       vote_ele->pubkey       = stake_delegation->vote_account;
       vote_ele->vote_rewards = 0UL;
-      vote_ele->invalid      = 0;
 
       fd_accdb_ro_t vote_ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &vote_ele->pubkey ) ) ) {
-        vote_ele->invalid = 1;
+        continue;
       }
 
       if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
         fd_accdb_close_ro( accdb, vote_ro );
-        vote_ele->invalid = 1;
+        continue;
       }
 
       fd_pubkey_t node_account_t_1;
-      if( FD_LIKELY( !vote_ele->invalid ) ) {
-        get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
-                                     fd_accdb_ref_data_sz( vote_ro ),
-                                     vsv_buf,
-                                     &runtime_stack->stakes.vote_ele[ vote_ele_cnt ],
-                                     &node_account_t_1 );
-        fd_accdb_close_ro( accdb, vote_ro );
-      }
+      get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
+                                   fd_accdb_ref_data_sz( vote_ro ),
+                                   vsv_buf,
+                                   &runtime_stack->stakes.vote_ele[ vote_ele_cnt ],
+                                   &node_account_t_1 );
+      fd_accdb_close_ro( accdb, vote_ro );
 
       fd_vote_rewards_map_ele_insert( vote_ele_map, vote_ele, runtime_stack->stakes.vote_ele );
       vote_ele_cnt++;

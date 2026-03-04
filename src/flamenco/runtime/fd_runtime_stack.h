@@ -31,7 +31,6 @@ struct fd_vote_rewards {
   fd_pubkey_t pubkey;
   uchar       commission;
   ulong       vote_rewards;
-  uchar       invalid;
   uint        next;
   struct {
     ulong  cnt;

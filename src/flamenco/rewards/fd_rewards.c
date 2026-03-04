@@ -374,9 +374,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     }
 
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
-    FD_TEST( idx!=UINT_MAX );
-
-    if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
+    if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
@@ -468,8 +466,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
-    if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
-
 
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
@@ -557,7 +553,6 @@ setup_stake_partitions( fd_bank_t *                    bank,
       fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
       uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
       if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
-      if( FD_UNLIKELY( vote_ele[idx].invalid ) ) continue;
 
       int _err[1];
       ulong   new_warmup_cooldown_rate_epoch_val = 0UL;

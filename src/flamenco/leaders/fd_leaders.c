@@ -107,7 +107,6 @@ fd_epoch_leaders_new( void  *                  shmem,
   void        * wsample_mem = (void        *)fd_type_pun( (void *)laddr );
   fd_pubkey_t * pubkeys     = (fd_pubkey_t *)fd_type_pun( (void *)laddr );
 
-  FD_LOG_WARNING(("PUB CNT: %lu", pub_cnt));
   FD_TEST( laddr+fd_wsample_footprint( pub_cnt, 0 )<=(ulong)wsample_mem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
 
   /* Create and seed ChaCha20Rng */
