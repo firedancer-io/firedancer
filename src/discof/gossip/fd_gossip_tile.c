@@ -338,15 +338,18 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       ctx->wfs_stake.online = 0UL;
       ctx->wfs_stake.total = 0UL;
 
-      FD_TEST( manifest->vote_accounts_len<=FD_RUNTIME_MAX_VOTE_ACCOUNTS );
-      for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
-          if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-          ctx->wfs_stake.total += manifest->vote_accounts[ i ].stake;
+      FD_TEST( manifest->vote_accounts_cnt<=FD_RUNTIME_MAX_VOTE_ACCOUNTS );
+      fd_ssmanifest_vote_accounts_iter_t manifest_vote_accounts[1];
+      fd_ssmanifest_vote_accounts_iter_init( manifest_vote_accounts, manifest, NULL );
+      for( ; fd_ssmanifest_vote_accounts_iter_done( manifest_vote_accounts );
+           fd_ssmanifest_vote_accounts_iter_next( manifest_vote_accounts ) ) {
+        // if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
+        // ctx->wfs_stake.total += manifest->vote_accounts[ i ].stake;
 
-          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = manifest->vote_accounts[ i ].stake;
-          wfs_stakes_unconverted_cnt++;
+        // fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
+        // fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
+        // ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = manifest->vote_accounts[ i ].stake;
+        // wfs_stakes_unconverted_cnt++;
       }
       ctx->wfs_stakes_cnt = compute_id_weights_from_vote_weights( ctx->wfs_stakes, ctx->wfs_stakes_scratch, wfs_stakes_unconverted_cnt );
 

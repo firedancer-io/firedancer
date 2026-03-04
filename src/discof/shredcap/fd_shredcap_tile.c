@@ -222,7 +222,7 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   fd_vote_stake_weight_t * stake_weights  = epoch_info_msg->weights;
 
   epoch_info_msg->epoch             = epoch;
-  epoch_info_msg->staked_cnt        = epoch_stakes->vote_stakes_len;
+  epoch_info_msg->staked_cnt        = epoch_stakes->vote_stakes_cnt;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
   epoch_info_msg->excluded_stake    = 0UL;
@@ -241,14 +241,14 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 
   /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
-  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
-    stake_weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake;
-    memcpy( stake_weights[ i ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ i ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+  for( ulong i=0UL; i<epoch_stakes->vote_stakes_cnt; i++ ) {
+    // stake_weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake;
+    // memcpy( stake_weights[ i ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
+    // memcpy( stake_weights[ i ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
   }
-  sort_vote_weights_by_stake_vote_inplace( stake_weights, epoch_stakes->vote_stakes_len);
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, epoch_stakes->vote_stakes_cnt );
 
-  return fd_epoch_info_msg_sz( epoch_stakes->vote_stakes_len );
+  return fd_epoch_info_msg_sz( epoch_stakes->vote_stakes_cnt );
 }
 
 static void

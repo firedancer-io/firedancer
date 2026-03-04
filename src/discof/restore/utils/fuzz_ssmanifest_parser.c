@@ -1,5 +1,6 @@
 #include "fd_ssmsg.h"
 #include "fd_ssmanifest_parser.h"
+#include "../../../util/fd_util.h"
 
 #if !FD_HAS_HOSTED
 #error "This target requires FD_HAS_HOSTED"

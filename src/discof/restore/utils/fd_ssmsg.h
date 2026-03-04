@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 
-#include "../../../flamenco/types/fd_types.h"
+#include "../../../util/fd_util_base.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
@@ -143,13 +143,14 @@ typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes
 
 struct fd_snapshot_manifest_epoch_stakes {
    /* The epoch for which these vote accounts and stakes are valid for */
-  ulong                              epoch;
+  ulong epoch;
   /* The total amount of active stake at the end of the given epoch.*/
-  ulong                              total_stake;
+  ulong total_stake;
 
   /* The vote accounts and their stakes for a given epoch. */
-  ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  ulong vote_stakes_cnt;
+  ulong vote_stakes_bin_off;
+  ulong vote_stakes_bin_sz;
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -466,11 +467,13 @@ struct fd_snapshot_manifest {
      vote and stake rewards are calculated as a stake-weighted
      percentage of the inflation rewards for the epoch and validator
      uptime, which is measured by vote account vote credits. */
-  ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  ulong vote_accounts_cnt;
+  ulong vote_accounts_bin_off;
+  ulong vote_accounts_bin_sz;
 
-  ulong stake_delegations_len;
-  fd_snapshot_manifest_stake_delegation_t stake_delegations[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
+  ulong stake_delegations_cnt;
+  ulong stake_delegations_bin_off;
+  ulong stake_delegations_bin_sz;
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of the previous epoch. They are
@@ -498,5 +501,60 @@ struct fd_snapshot_manifest {
 };
 
 typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;
+
+struct fd_ssmanifest_vote_stakes_iter {
+  fd_snapshot_manifest_vote_stakes_t ele;
+};
+
+typedef struct fd_ssmanifest_vote_stakes_iter fd_ssmanifest_vote_stakes_iter_t;
+
+struct fd_ssmanifest_vote_accounts_iter {
+  fd_snapshot_manifest_vote_account_t ele;
+};
+
+typedef struct fd_ssmanifest_vote_accounts_iter fd_ssmanifest_vote_accounts_iter_t;
+
+struct fd_ssmanifest_stake_delegations_iter {
+  fd_snapshot_manifest_stake_delegation_t ele;
+};
+
+typedef struct fd_ssmanifest_stake_delegations_iter fd_ssmanifest_stake_delegations_iter_t;
+
+FD_PROTOTYPES_BEGIN
+
+fd_ssmanifest_vote_stakes_iter_t
+fd_ssmanifest_vote_stakes_iter_init( fd_ssmanifest_vote_stakes_iter_t *          iter,
+                                     fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
+                                     uchar const *                               blob );
+
+int
+fd_ssmanifest_vote_stakes_iter_done( fd_ssmanifest_vote_stakes_iter_t * iter );
+
+void
+fd_ssmanifest_vote_stakes_iter_next( fd_ssmanifest_vote_stakes_iter_t * iter );
+
+fd_ssmanifest_vote_accounts_iter_t *
+fd_ssmanifest_vote_accounts_iter_init( fd_ssmanifest_vote_accounts_iter_t * iter,
+                                       fd_snapshot_manifest_t const *       manifest,
+                                       uchar const *                        blob );
+
+int
+fd_ssmanifest_vote_accounts_iter_done( fd_ssmanifest_vote_accounts_iter_t * iter );
+
+void
+fd_ssmanifest_vote_accounts_iter_next( fd_ssmanifest_vote_accounts_iter_t * iter );
+
+fd_ssmanifest_stake_delegations_iter_t *
+fd_ssmanifest_stake_delegations_iter_init( fd_ssmanifest_stake_delegations_iter_t * iter,
+                                           fd_snapshot_manifest_t const *           manifest,
+                                           uchar const *                            blob );
+
+int
+fd_ssmanifest_stake_delegations_iter_done( fd_ssmanifest_stake_delegations_iter_t * iter );
+
+void
+fd_ssmanifest_stake_delegations_iter_next( fd_ssmanifest_stake_delegations_iter_t * iter );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmsg_h */
