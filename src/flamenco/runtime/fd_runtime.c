@@ -1605,7 +1605,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       &new_rate_activation_epoch );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-  fd_vote_stakes_genesis( vote_stakes );
+  fd_vote_stakes_genesis_fini( vote_stakes );
   fd_bank_vote_stakes_end_locking_modify( bank );
 
   fd_bank_epoch_set( bank, 0UL );
