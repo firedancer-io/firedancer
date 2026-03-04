@@ -263,7 +263,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         vote_stakes,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
-        elem->stake );
+        elem->stake,
+        fd_bank_epoch_get( bank ) );
   }
 
   fd_bank_vote_stakes_end_locking_modify( bank );

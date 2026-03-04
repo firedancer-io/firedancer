@@ -71,7 +71,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_st
     if( is_t_1 ) {
       fd_vote_stakes_root_insert_key( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0 );
     } else {
-      fd_vote_stakes_root_update_meta( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake );
+      fd_vote_stakes_root_update_meta( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0 );
     }
 
     fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );

@@ -178,12 +178,31 @@ void
 fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * pubkey,
                                  fd_pubkey_t const * node_account_t_2,
-                                 ulong               stake_t_2 ) {
+                                 ulong               stake_t_2,
+                                 ulong               epoch ) {
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_t *       index_map       = get_index_map( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
+  index_ele_t *       ele             = index_map_multi_ele_query( index_map_multi, pubkey, NULL, index_pool );
+  if( FD_UNLIKELY( !ele ) ) {
+    ele                   = index_pool_ele_acquire( index_pool );
+    ele->pubkey           = *pubkey;
+    ele->refcnt           = 1;
+    ele->stake_t_1        = 0UL;
+    ele->node_account_t_1 = (fd_pubkey_t){0};
+    ele->epoch            = epoch % 2;
 
-  index_ele_t * ele = index_map_multi_ele_query( index_map_multi, pubkey, NULL, index_pool );
-  if( FD_UNLIKELY( !ele ) ) return;
+    FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
+    FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
+
+    stake_t *      stakes_pool = get_stakes_pool( vote_stakes, vote_stakes->root_idx );
+    stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, vote_stakes->root_idx );
+
+    uint      pubkey_idx = (uint)index_pool_idx( index_pool, ele );
+    stake_t * new_stake = stakes_pool_ele_acquire( stakes_pool );
+    new_stake->idx = pubkey_idx;
+    FD_TEST( stakes_map_ele_insert( stakes_map, new_stake, stakes_pool ) );
+  }
 
   ele->node_account_t_2 = *node_account_t_2;
   ele->stake_t_2        = stake_t_2;

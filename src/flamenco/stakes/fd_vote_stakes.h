@@ -153,7 +153,11 @@ fd_vote_stakes_join( void * shmem );
    while the root fork is the only and current fork in use.
 
    If update_meta is called on a key that has not had a corresponding
-   insert_key call, the operation is a no-op. */
+   insert_key call, a key is created into the root fork with a t-1 stake
+   of 0.  This usually means the vote account has been deleted, but it
+   can be possible in the case where the only staker of a vote account
+   has been marked delinqueint in epoch T-1 and needs to be counted
+   towards clock calculation for the rest of the epoch. */
 
 void
 fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
@@ -166,7 +170,8 @@ void
 fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * pubkey,
                                  fd_pubkey_t const * node_account_t_2,
-                                 ulong               stake_t_2 );
+                                 ulong               stake_t_2,
+                                 ulong               epoch );
 
 /* fd_vote_stakes_root_purge_key allows the caller to purge a key from
    the root fork.  This unfortunately has to be decoupled from the other
