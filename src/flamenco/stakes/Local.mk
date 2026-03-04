@@ -9,10 +9,15 @@ $(call make-unit-test,test_stake_delegations,test_stake_delegations,fd_flamenco 
 $(call run-unit-test,test_stake_delegations)
 endif
 
+$(call add-hdrs,fd_top_votes.h)
+$(call add-objs,fd_top_votes,fd_flamenco)
+
 $(call add-hdrs,fd_vote_stakes.h)
 $(call add-objs,fd_vote_stakes,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_vote_stakes,test_vote_stakes,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_vote_stakes)
+$(call make-unit-test,test_top_votes,test_top_votes,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_top_votes)
 endif
