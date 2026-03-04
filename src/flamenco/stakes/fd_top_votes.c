@@ -167,7 +167,7 @@ fd_top_votes_update( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * pubkey,
                      fd_pubkey_t const * node_account,
                      ulong               stake ) {
-/* If the heap is full, then we need to remove the minimum elemnt.
+/* If the heap is full, then we need to remove the minimum element.
    There are a few cases to consider:
    1. There are multiple elements at the bottom of the heap with the
       same stake.  In this case, evict all of them and insert the new
