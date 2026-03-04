@@ -351,7 +351,7 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
     return FD_SSRESOLVE_ADVANCE_AGAIN;
   }
 
-  int is_redirect = (status==301) | (status==302) | (status==303) | (status==304) | (status==307) | (status==308);
+  int is_redirect = (status==301) | (status==302) | (status==303) | (status==307) | (status==308);
   if( FD_UNLIKELY( is_redirect ) ) {
     return fd_ssresolve_parse_redirect( ssresolve, headers, header_cnt, result );
   }
@@ -369,6 +369,8 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
+  /* 200 without a redirect: the server did not provide the actual
+     snapshot filename, so we cannot determine the slot or hash. */
   return FD_SSRESOLVE_ADVANCE_ERROR;
 }
 
