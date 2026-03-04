@@ -1986,7 +1986,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
-  FD_LOG_NOTICE(("delivering FEC set for slot %lu fec_set_idx %u", reasm_fec->slot, reasm_fec->fec_set_idx ));
+  FD_LOG_INFO(("delivering FEC set for slot %lu fec_set_idx %u", reasm_fec->slot, reasm_fec->fec_set_idx ));
   /* Standard case, the parent FEC has a valid corresponding bank. */
   fd_bank_t parent_fec_bank[1];
   if( FD_LIKELY( fd_banks_bank_query( parent_fec_bank, ctx->banks, parent->bank_idx ) &&

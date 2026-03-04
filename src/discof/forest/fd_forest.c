@@ -1308,7 +1308,7 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
        mainly for metrics.  For now we leave it alone. */
   }
   ele->fec_clear_timestamps[fec_idx] = tspub;
-  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared slot %lu fec set %u to %u ", slot, fec_set_idx, fec_set_idx+max_shred_idx ));
+  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared slot %lu fec set %u to %u. tspub: %lu ", slot, fec_set_idx, fec_set_idx+max_shred_idx, tspub ));
 }
 
 fd_forest_blk_t const *

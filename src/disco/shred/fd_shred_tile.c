@@ -994,7 +994,7 @@ after_frag( fd_shred_ctx_t *    ctx,
         FD_STORE(int, fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, rv );
         sz += 4UL;
 
-        ulong tspub = (ulong)fd_tickcount();
+        ulong tspub = (ulong)fd_log_wallclock();
         fd_stem_publish( stem, ctx->shred_out_idx, _sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
         ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
       }
@@ -1106,7 +1106,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + (FD_SHRED_MERKLE_ROOT_SZ*2UL), &is_leader_fec,                                      sizeof(int));
 
       ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int);
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      ulong tspub = (ulong)( fd_log_wallclock() );
       fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
 

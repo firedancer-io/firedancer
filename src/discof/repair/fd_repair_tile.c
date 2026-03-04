@@ -683,7 +683,7 @@ after_shred( ctx_t      * ctx,
     fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
     if( FD_LIKELY( blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) {
       if( tspub > blk->fec_clear_timestamps[shred->fec_set_idx / 32] ) fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, is_dup, mr, cmr );
-      else FD_LOG_INFO(("skipped insert of data shred slot %lu fec set %u, idx %u because timestamp", shred->slot, shred->fec_set_idx, shred->idx ));
+      else FD_LOG_INFO(("skipped insert of data shred slot %lu fec set %u, idx %u because timestamp %lu <= %lu", shred->slot, shred->fec_set_idx, shred->idx, tspub, blk->fec_clear_timestamps[shred->fec_set_idx / 32] ));
     }
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
@@ -819,7 +819,7 @@ after_frag( ctx_t *             ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub  FD_PARAM_UNUSED,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
