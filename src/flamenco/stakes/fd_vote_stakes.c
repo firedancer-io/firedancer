@@ -289,7 +289,7 @@ fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
   }
 
   index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
-  index_ele->stake_t_1 += stake;
+  index_ele->stake_t_1 += (stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
 }
 
 void
