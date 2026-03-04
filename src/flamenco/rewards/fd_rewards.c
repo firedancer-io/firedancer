@@ -106,11 +106,8 @@ get_vote_credits_commission( uchar const *       account_data,
   fd_vote_epoch_credits_t * vote_credits = NULL;
 
   switch( vsv->discriminant ) {
-  case fd_vote_state_versioned_enum_v0_23_5:
-    vote_credits           = vsv->inner.v0_23_5.epoch_credits;
-    vote_ele->commission   = vsv->inner.v0_23_5.commission;
-    vote_ele->node_account = vsv->inner.v0_23_5.node_pubkey;
-    break;
+  case fd_vote_state_versioned_enum_uninitialized:
+    FD_LOG_CRIT(("invariant violation: uninitialized vote state"));
   case fd_vote_state_versioned_enum_v1_14_11:
     vote_credits           = vsv->inner.v1_14_11.epoch_credits;
     vote_ele->commission   = vsv->inner.v1_14_11.commission;

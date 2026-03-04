@@ -155,7 +155,6 @@ fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L40-L98 */
 int
 fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
-                          uchar *                     authorized_voters_mem,
                           uchar *                     landed_votes_mem );
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L966-L1007 */
@@ -170,18 +169,6 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
                                         fd_borrowed_account_t * vote_account,
                                         int                     target_version,
                                         uchar *                 vote_lockout_mem );
-
-/* This function is essentially just a call to get_state, additionally
-   erroring out if the account is a v_0_23_5 account.  Decodes the
-   vote account data and stores the decoded state in vote_state_mem.
-   The caller must provide a buffer at vote_state_mem that is aligned to
-   FD_VOTE_STATE_VERSIONED_ALIGN and has at least
-   FD_VOTE_STATE_VERSIONED_FOOTPRINT bytes of space.  Returns an error
-   if decoding fails or if the account is a v_0_23_5 account.
-   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L195-L246 */
-int
-fd_vsv_deserialize( fd_borrowed_account_t const * vote_account,
-                    uchar *                       vote_state_mem );
 
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L176-L187 */
 int

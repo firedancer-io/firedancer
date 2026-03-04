@@ -253,16 +253,15 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
       - authorized_voters: max capacity of 5
       - epoch_credits: max capacity of 64
 
-   v0_23_5:  4096
-   v1_14_11: 4768
-   v3:       5024
-   v4:       5024
+   v1_14_11: 4496
+   v3:       4752
+   v4:       4752
 
    The authorized_voters min capacity is 5
    (FD_VOTE_AUTHORIZED_VOTERS_MIN) to account for the transient
    push-before-pop in get_and_cache_authorized_voter_for_epoch before
    purge. */
-#define FD_VOTE_STATE_VERSIONED_FOOTPRINT (5024UL)
+#define FD_VOTE_STATE_VERSIONED_FOOTPRINT (4752UL)
 
 /* The footprint of a fd_vote_authorized_voters_t struct is defined as a
    fd_vote_authorized_voters_t followed by a pool and then a treap. */

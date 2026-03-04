@@ -578,13 +578,7 @@ construct_and_measure_footprint( uint disc, uchar * vote_state_buf, ulong vote_s
 
   switch( disc ) {
 
-    case fd_vote_state_versioned_enum_v0_23_5: {
-      fd_vote_state_0_23_5_t * inner = &state->inner.v0_23_5;
-      inner->votes              = lockout_votes;
-      inner->has_root_slot      = 1;
-      inner->root_slot          = 0;
-      inner->prior_voters.idx   = 31;
-      inner->epoch_credits      = epoch_credits;
+    case fd_vote_state_versioned_enum_uninitialized: {
       break;
     }
 
@@ -654,8 +648,8 @@ test_vote_state_versioned_footprint( void ) {
   uchar vote_state_buf[16384] __attribute__((aligned(128)));
 
   ulong footprint_v0 = construct_and_measure_footprint(
-      fd_vote_state_versioned_enum_v0_23_5, vote_state_buf, sizeof(vote_state_buf) );
-  FD_LOG_NOTICE(( "v0_23_5 footprint: %lu", footprint_v0 ));
+      fd_vote_state_versioned_enum_uninitialized, vote_state_buf, sizeof(vote_state_buf) );
+  FD_LOG_NOTICE(( "uninitialized footprint: %lu", footprint_v0 ));
 
   ulong footprint_v1 = construct_and_measure_footprint(
       fd_vote_state_versioned_enum_v1_14_11, vote_state_buf, sizeof(vote_state_buf) );

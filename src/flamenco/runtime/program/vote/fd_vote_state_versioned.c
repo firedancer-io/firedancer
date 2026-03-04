@@ -71,8 +71,6 @@ fd_vsv_get_state( fd_account_meta_t const * meta,
 fd_pubkey_t const *
 fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5:
-      return &self->inner.v0_23_5.authorized_withdrawer;
     case fd_vote_state_versioned_enum_v1_14_11:
       return &self->inner.v1_14_11.authorized_withdrawer;
     case fd_vote_state_versioned_enum_v3:
@@ -144,7 +142,7 @@ int
 fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
   /* Implementation slightly simplified */
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5:
+    case fd_vote_state_versioned_enum_uninitialized:
       return 0;
     case fd_vote_state_versioned_enum_v1_14_11:
       return 0;
@@ -545,53 +543,11 @@ fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
 
 int
 fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
-                          uchar *                     authorized_voters_mem,
                           uchar *                     landed_votes_mem ) {
   switch( self->discriminant ) {
     /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L47-L73 */
-    case fd_vote_state_versioned_enum_v0_23_5: {
-      fd_vote_state_0_23_5_t * state = &self->inner.v0_23_5;
-      // Check if uninitialized (authorized_voter is all zeros)
-      int is_uninitialized = 1;
-      for( ulong i = 0; i < sizeof(fd_pubkey_t); i++ ) {
-        if( state->authorized_voter.uc[i] != 0 ) {
-          is_uninitialized = 0;
-          break;
-        }
-      }
-
-      fd_vote_authorized_voters_t * authorized_voters;
-      if( is_uninitialized ) {
-        // Create empty AuthorizedVoters (default), initialized but with no entries
-        authorized_voters = fd_authorized_voters_new_empty( authorized_voters_mem );
-      } else {
-        authorized_voters = fd_authorized_voters_new(
-            state->authorized_voter_epoch, &state->authorized_voter, authorized_voters_mem );
-      }
-
-      /* Temporary to hold v3 */
-      /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L54-L72 */
-      fd_vote_state_v3_t v3 = {
-        .node_pubkey           = state->node_pubkey,
-        .authorized_withdrawer = state->authorized_withdrawer,
-        .commission            = state->commission,
-        .votes                 = fd_vote_lockout_landed_votes_from_lockouts( state->votes, landed_votes_mem ),
-        .has_root_slot         = state->has_root_slot,
-        .root_slot             = state->root_slot,
-        .authorized_voters     = *authorized_voters,
-        .prior_voters = (fd_vote_prior_voters_t) {
-          .idx      = 31UL,
-          .is_empty = 1,
-        },
-        .epoch_credits  = state->epoch_credits,
-        .last_timestamp = state->last_timestamp,
-      };
-
-      /* Emplace new vote state into target */
-      self->discriminant = fd_vote_state_versioned_enum_v3;
-      self->inner.v3 = v3;
-
-      return FD_EXECUTOR_INSTR_SUCCESS;
+    case fd_vote_state_versioned_enum_uninitialized: {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
     /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L75-L91 */
     case fd_vote_state_versioned_enum_v1_14_11: {
@@ -634,7 +590,7 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
                           uchar *                     landed_votes_mem ) {
   switch( self->discriminant ) {
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L971-L974 */
-    case fd_vote_state_versioned_enum_v0_23_5: {
+    case fd_vote_state_versioned_enum_uninitialized: {
       return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
     }
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L975-L989 */
@@ -731,33 +687,10 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
 }
 
 int
-fd_vsv_deserialize( fd_borrowed_account_t const * vote_account,
-                    uchar *                       vote_state_mem ) {
-  /* To keep error codes conformant, we need to read the discriminant
-     from the account data first because if the discriminant matches
-     0_23_5, an uninitialized account error is thrown.
-
-     TODO: I have submitted a patch in Solana-SDK to coalesce the error
-     codes to simplify this handling. Remove this once merged. */
-  uchar const * data     = fd_borrowed_account_get_data( vote_account );
-  ulong         data_len = fd_borrowed_account_get_data_len( vote_account );
-  if( FD_UNLIKELY( data_len<sizeof(uint) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-  uint discriminant = FD_LOAD( uint, data );
-  if( FD_UNLIKELY( discriminant==fd_vote_state_versioned_enum_v0_23_5 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
-  }
-
-  return fd_vsv_get_state( vote_account->meta, vote_state_mem );
-}
-
-int
 fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5: {
-      return fd_pubkey_check_zero( &self->inner.v0_23_5.authorized_voter );
-    }
+    case fd_vote_state_versioned_enum_uninitialized:
+      return 1;
     case fd_vote_state_versioned_enum_v1_14_11:
       return fd_authorized_voters_is_empty( &self->inner.v1_14_11.authorized_voters );
     case fd_vote_state_versioned_enum_v3:
