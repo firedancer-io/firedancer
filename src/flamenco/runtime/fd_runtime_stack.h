@@ -31,7 +31,6 @@ struct fd_vote_rewards {
   fd_pubkey_t pubkey;
   fd_pubkey_t node_account;
   uchar       commission;
-  ulong       stake;
   ulong       vote_rewards;
   uchar       invalid;
   uint        next;

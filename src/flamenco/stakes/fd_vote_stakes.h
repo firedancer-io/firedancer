@@ -206,6 +206,9 @@ void
 fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
                             ushort             fork_idx );
 
+void
+fd_vote_stakes_genesis( fd_vote_stakes_t * vote_stakes );
+
 /* fd_vote_stakes_new_child creates a new child fork and returns the
    index identifier for the new fork. */
 

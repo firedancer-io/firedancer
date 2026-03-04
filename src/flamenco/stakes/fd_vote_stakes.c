@@ -327,6 +327,20 @@ fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
   }
 }
 
+void
+fd_vote_stakes_genesis( fd_vote_stakes_t * vote_stakes ) {
+  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
+
+  for( index_map_multi_iter_t iter = index_map_multi_iter_init( index_map_multi, index_pool );
+       !index_map_multi_iter_done( iter, index_map_multi, index_pool );
+       iter = index_map_multi_iter_next( iter, index_map_multi, index_pool ) ) {
+    index_ele_t * ele = index_map_multi_iter_ele( iter, index_map_multi, index_pool );
+    ele->node_account_t_2 = ele->node_account_t_1;
+    ele->stake_t_2        = ele->stake_t_1;
+  }
+}
+
 ushort
 fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes ) {
 

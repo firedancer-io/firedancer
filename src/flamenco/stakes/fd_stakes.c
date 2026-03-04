@@ -139,7 +139,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       vote_ele               = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
       vote_ele->pubkey       = stake_delegation->vote_account;
       vote_ele->vote_rewards = 0UL;
-      vote_ele->stake        = 0UL;
       vote_ele->invalid      = 0;
 
       fd_accdb_ro_t vote_ro[1];
@@ -182,7 +181,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                                   &vote_ele->pubkey,
                                   new_entry.effective );
 
-    vote_ele->stake += new_entry.effective;
     total_stake += new_entry.effective;
   }
   fd_bank_total_epoch_stake_set( bank, total_stake );

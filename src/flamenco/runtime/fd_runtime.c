@@ -1508,8 +1508,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     FD_LOG_CRIT(( "Failed to join and new a stake delegations" ));
   }
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-
   ulong capitalization = 0UL;
 
   for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
@@ -1520,13 +1518,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
     uchar const * acc_data = account->data;
 
-    if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      /* This means that there is a vote account which should be
-         inserted into the vote states. Even after the vote account is
-         inserted, we still don't know the total amount of stake that is
-         delegated to the vote account. This must be calculated later. */
-      fd_vote_stakes_insert_root_key( vote_stakes, &account->pubkey, 0UL );
-    } else if( !memcmp( account->meta.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    if( !memcmp( account->meta.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
          stake delegations cache. We should only add stake accounts that
          have a valid non-zero stake. */
@@ -1612,24 +1604,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       stake_history,
       &new_rate_activation_epoch );
 
-  for( ulong i=0UL; i<genesis->account_cnt; i++ ) {
-    fd_genesis_account_t account[1];
-    fd_genesis_account( genesis, genesis_blob, account, i );
-
-    if( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
-      fd_vote_rewards_t *     vote_ele     = fd_vote_rewards_map_ele_query( vote_ele_map, &account->pubkey, NULL, runtime_stack->stakes.vote_ele );
-      ulong                   stake        = vote_ele ? vote_ele->stake : 0UL;
-
-      fd_pubkey_t node_account = fd_vsv_get_node_account( account->data );
-
-      fd_vote_stakes_insert_root_update( vote_stakes, &account->pubkey, &node_account, stake, 1 );
-      fd_vote_stakes_insert_root_update( vote_stakes, &account->pubkey, &node_account, stake, 0 );
-    }
-  }
-
-  fd_vote_stakes_fini_root( vote_stakes );
-
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  fd_vote_stakes_genesis( vote_stakes );
   fd_bank_vote_stakes_end_locking_modify( bank );
 
   fd_bank_epoch_set( bank, 0UL );
