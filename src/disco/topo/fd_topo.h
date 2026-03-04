@@ -378,6 +378,7 @@ struct fd_topo_tile {
       ulong accdb_max_depth;
 
       char identity_key_path[ PATH_MAX ];
+      int  delay_startup;
     } rpc;
 
     struct {

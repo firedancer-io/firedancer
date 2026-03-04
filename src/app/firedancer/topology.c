@@ -1827,6 +1827,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.rpc.rpc_listen_address, &tile->rpc.listen_addr ) ) )
       FD_LOG_ERR(( "failed to parse rpc listen address `%s`", config->tiles.rpc.rpc_listen_address ));
     tile->rpc.listen_port = config->tiles.rpc.rpc_listen_port;
+    tile->rpc.delay_startup = config->tiles.rpc.delay_startup;
     tile->rpc.max_http_connections      = config->tiles.rpc.max_http_connections;
     tile->rpc.max_http_request_length   = config->tiles.rpc.max_http_request_length;
     tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
