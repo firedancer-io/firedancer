@@ -93,10 +93,13 @@ struct fd_sched_block {
   uint                txn_done_cnt; /* A transaction is considered done when all types of tasks associated with it are done. */
   uint                shred_cnt;
   uint                fec_cnt;
-  uint                mblk_cnt;      /* Total number of microblocks, including ticks and non ticks. */
-  uint                mblk_freed_cnt;
-  uint                mblk_tick_cnt; /* Total number of tick microblocks. */
-  uint                mblk_unhashed_cnt; /* mblk_cnt==mblk_unhashed_cnt+len(hashing_in_progress)+len(mixin_in_progress)+poh_hash_cmp_done_cnt */
+  uint                mblk_cnt;          /* Total number of microblocks, including ticks and non ticks.
+                                            mblk_cnt==len(unhashed)+len(hashing_in_progress)+hashing_in_flight_cnt+len(mixin_in_progress)+hash_cmp_done_cnt */
+  uint                mblk_tick_cnt;     /* Total number of tick microblocks. */
+  uint                mblk_freed_cnt;    /* This is ==hash_cmp_done_cnt in most cases, except for aborted
+                                            blocks, where the freed cnt will catch up to mblk_cnt and surpass
+                                            hash_cmp_done_cnt when the block is reaped. */
+  uint                mblk_unhashed_cnt; /* ==len(unhashed) */
   ulong               hashcnt; /* How many hashes this block wants replay to do.  A mixin/record counts as one hash. */
   ulong               txn_pool_max_popcnt;   /* Peak transaction pool occupancy during the time this block was replaying. */
   ulong               mblk_pool_max_popcnt;  /* Peak mblk pool occupancy. */
@@ -106,7 +109,11 @@ struct fd_sched_block {
   /* PoH verify. */
   fd_hash_t    poh_hash[ 1 ]; /* running end_hash of last parsed mblk */
   int          last_mblk_is_tick;
-  mblk_slist_t mblks_unhashed[ 1 ];
+  mblk_slist_t mblks_unhashed[ 1 ]; /* A microblock, once parsed out, is in one of these queues.  It
+                                       generally progresses from unhashed to hashing to mixin.  When a
+                                       microblock is being hashed/in-flight, it'll be transiently out of
+                                       any of the queues.  Once a microblock progresses through all stages
+                                       of work, it'll be immediately freed. */
   mblk_slist_t mblks_hashing_in_progress[ 1 ];
   mblk_slist_t mblks_mixin_in_progress[ 1 ];
   uchar bmtree_mem[ FD_BMTREE_COMMIT_FOOTPRINT(0) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
@@ -748,7 +755,11 @@ fd_sched_is_drained( fd_sched_t * sched ) {
      are reclaimed.  In fact, it is not correct to check whether the
      mblk pool is totally free.  The mblk pool can have outstanding
      elements while sched is unable to make progress, due to partially
-     parsed microblocks pending mixins. */
+     parsed microblocks pending mixins.  Nonetheless, because we mixin
+     even partially parsed microblocks as much as possible, there should
+     be no outstanding transactions.
+
+     FIXME This doesn't check for block finalization tasks. */
   return sched->txn_pool_free_cnt==sched->depth-1;
 }
 
@@ -2100,30 +2111,72 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   FD_TEST( block->poh_hashing_done_cnt-block->poh_hash_cmp_done_cnt>0 );
 
   /* The microblock we would like to do mixin on is at the head of the
-     queue. */
+     queue.  It may have had some mixin, it may have never had any
+     mixin.  In the case of the former, we should continue to mixin the
+     same head microblock until it's done, lest the per-block bmtree
+     gets clobbered when we start a new one. */
   ulong mblk_idx = mblk_slist_idx_pop_head( block->mblks_mixin_in_progress, sched->mblk_pool );
   fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-  ulong start_txn_idx = mblk->start_txn_idx;
 
   if( FD_UNLIKELY( mblk->end_txn_idx>block->txn_parsed_cnt ) ) {
-    /* Very rarely, we've finished hashing, but not all transactions in
-       the microblock have been parsed out.  This can happen if we
-       haven't received all the FEC sets for this microblock.  We can't
-       yet fully mixin the microblock.  So we'll stick it back into the
-       end of the queue. */
+    /* A partially parsed microblock is by definition at the end of the
+       FEC stream.  If such a microblock is in progress, there should be
+       no other microblock in this block so far that hasn't been
+       dispatched, because microblocks are dispatched in parse order. */
+    if( FD_UNLIKELY( block->mblk_unhashed_cnt ) ) {
+      sched->print_buf_sz = 0UL;
+      print_all( sched, block );
+      FD_LOG_CRIT(( "invariant violation end_txn_idx %lu: %s", mblk->end_txn_idx, sched->print_buf ));
+    }
+
+    /* If we've decided to start mixin on a partially parsed microblock,
+       there better be nothing else in-progress.  Otherwise, they might
+       clobber the per-block bmtree for mixin. */
+    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx && (block->poh_hashing_in_flight_cnt||!mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool )) ) ) {
+      sched->print_buf_sz = 0UL;
+      print_all( sched, block );
+      FD_LOG_CRIT(( "invariant violation end_txn_idx %lu start_txn_idx %lu curr_txn_idx %lu: %s", mblk->end_txn_idx, mblk->start_txn_idx, mblk->curr_txn_idx, sched->print_buf ));
+    }
+  }
+
+  /* Very rarely, we've finished hashing, but not all transactions in
+     the microblock have been parsed out.  This can happen if we haven't
+     received all the FEC sets for this microblock.  We can't yet fully
+     mixin the microblock.  So we'll stick it back into the end of the
+     queue, and try to see if there's a fully parsed microblock.
+     Unless, there's truly nothing else to mixin.  Then we would start
+     mixin with the partially parsed microblock.  We do this because the
+     txn pool is meant to be an OOO scheduling window not tied to
+     max_live_slots sizing requirements, so there shouldn't be a way for
+     external input to tie up txn pool entries for longer than
+     necessary. */
+  if( FD_UNLIKELY( mblk->curr_txn_idx>=block->txn_parsed_cnt || /* Nothing more to mixin for this microblock. */
+                   (mblk->end_txn_idx>block->txn_parsed_cnt &&  /* There is something to mixin, but the microblock isn't fully parsed yet ... */
+                    mblk->curr_txn_idx==mblk->start_txn_idx &&  /* ... and we haven't started mixin on it yet ... */
+                    (block->poh_hashing_in_flight_cnt ||        /* ... and another microblock is in-progress and might preempt this microblock and clobber the bmtree, so we shouldn't start the partial microblock just yet. */
+                     !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ))) ) ) {
     mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, mblk_idx, sched->mblk_pool );
-    /* Invariant: we wouldn't start to mixin unless the microblock is
-       fully parsed. */
-    FD_TEST( mblk->curr_txn_idx==start_txn_idx );
 
     /* No other microblock in the mixin queue. */
     if( FD_UNLIKELY( block->poh_hashing_done_cnt-block->poh_hash_cmp_done_cnt==1 ) ) return 0;
 
     /* At this point, there's at least one more microblock in the mixin
-       queue we could try. */
+       queue we could try.  It's a predecessor (in parse order) that
+       finished hashing later than the partially parsed microblock at
+       the head of the mixin queue. */
+
+    /* It should never clobber the bmtree for a microblock that has had some mixin done on it. */
+    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx ) ) {
+      sched->print_buf_sz = 0UL;
+      print_all( sched, block );
+      FD_LOG_CRIT(( "invariant violation curr_txn_idx %lu start_txn_idx %lu: %s", mblk->curr_txn_idx, mblk->start_txn_idx, sched->print_buf ));
+    }
+
     mblk_idx = mblk_slist_idx_pop_head( block->mblks_mixin_in_progress, sched->mblk_pool );
     mblk = sched->mblk_pool+mblk_idx;
-    start_txn_idx = mblk->start_txn_idx;
+
+    /* It should be a fresh microblock for mixin. */
+    FD_TEST( mblk->curr_txn_idx==mblk->start_txn_idx );
     /* Invariant: at any given point in time, there can be at most one
        microblock that hasn't been fully parsed yet, due to the nature
        of sequential parsing.  So this microblock has to be fully
@@ -2131,8 +2184,10 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
     FD_TEST( mblk->end_txn_idx<=block->txn_parsed_cnt );
   }
 
+  FD_TEST( mblk->curr_txn_idx<mblk->end_txn_idx );
+
   /* Now mixin. */
-  if( FD_LIKELY( mblk->curr_txn_idx==start_txn_idx ) ) block->bmtree = fd_bmtree_commit_init( block->bmtree_mem, 32UL, 1UL, 0UL ); /* Optimize for single-transaction microblocks, which are the majority. */
+  if( FD_LIKELY( mblk->curr_txn_idx==mblk->start_txn_idx ) ) block->bmtree = fd_bmtree_commit_init( block->bmtree_mem, 32UL, 1UL, 0UL ); /* Optimize for single-transaction microblocks, which are the majority. */
 
   ulong txn_gidx = block->txn_idx[ mblk->curr_txn_idx ];
   fd_txn_p_t * _txn = sched->txn_pool+txn_gidx;
@@ -2167,7 +2222,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
     if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
       FD_BASE58_ENCODE_32_BYTES( mblk->end_hash->hash, ref_str );
-      FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->hashcnt, start_txn_idx, mblk->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
+      FD_LOG_INFO(( "bad block: poh hash mismatch on mblk %lu, ours %s, claimed %s, hashcnt %lu, txns [%lu,%lu), %u sigs, slot %lu, parent slot %lu", mblk_idx, our_str, ref_str, mblk->hashcnt, mblk->start_txn_idx, mblk->end_txn_idx, mblk->curr_sig_cnt, block->slot, block->parent_slot ));
       return -1;
     }
   } else {
@@ -2467,13 +2522,6 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
       ref_q_push_tail( sched->ref_q, block_to_idx( sched, head ) );
     }
 
-    if( FD_UNLIKELY( !head->block_end_done ) ) {
-      sched->print_buf_sz = 0UL;
-      print_block_metrics( sched, head );
-      if( FD_LIKELY( head->block_start_done ) ) FD_LOG_DEBUG(( "block %lu:%lu replayed partially, pruning without full replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
-      else FD_LOG_DEBUG(( "block %lu:%lu replayed nothing, pruning without any replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
-    }
-
     ulong child_idx = head->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_sched_block_t * child = block_pool_ele( sched, child_idx );
@@ -2508,7 +2556,13 @@ subtree_prune( fd_sched_t * sched, ulong bank_idx, ulong except_idx ) {
     free_mblk_slist( sched, head, head->mblks_unhashed );
     free_mblk_slist( sched, head, head->mblks_hashing_in_progress );
     free_mblk_slist( sched, head, head->mblks_mixin_in_progress );
-    head->mblk_cnt = 0U;
+
+    if( FD_UNLIKELY( !head->block_end_done ) ) {
+      sched->print_buf_sz = 0UL;
+      print_block_metrics( sched, head );
+      if( FD_LIKELY( head->block_start_done ) ) FD_LOG_DEBUG(( "block %lu:%lu replayed partially, pruning without full replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
+      else FD_LOG_DEBUG(( "block %lu:%lu replayed nothing, pruning without any replay: %s", head->slot, block_to_idx( sched, head ), sched->print_buf ));
+    }
 
     sched->block_pool_popcnt--;
 

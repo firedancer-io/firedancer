@@ -1837,7 +1837,9 @@ can_process_fec( fd_replay_tile_t * ctx,
   if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) {
     ctx->metrics.banks_full++;
     /* We only want to evict banks if sched is drained and banks is no
-       longer making progress. */
+       longer making progress.  Otherwise, sched might not release
+       refcnts on the frontier/leaf banks immediately, and the eviction
+       will have to wait for sched to drain anyways. */
     if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) ) ) *evict_banks_out = 1;
     return 0;
   }
