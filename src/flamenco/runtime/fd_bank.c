@@ -658,7 +658,7 @@ fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
 
   /* Now apply all of the updates from the bank and all of its
      ancestors in order to the frontier. */
-  fd_stake_delegations_t * stake_delegations_base = fd_stake_delegations_join( banks->data->stake_delegations_frontier );
+  fd_stake_delegations_t * stake_delegations_base = fd_type_pun( banks->data->stake_delegations_frontier );
   fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( banks->data );
   fd_bank_stake_delegation_apply_deltas( banks, bank, stake_delegations_base, stake_delegations_delta );
 
@@ -669,7 +669,7 @@ fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
 
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks ) {
-  return fd_stake_delegations_join( banks->data->stake_delegations_root );
+  return fd_type_pun( banks->data->stake_delegations_root );
 }
 
 void
