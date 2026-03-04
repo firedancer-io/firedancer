@@ -118,7 +118,8 @@ void
 fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
                    int              sockfd,
-                   int              full ) {
+                   int              full,
+                   char const *     hostname ) {
   ssresolve->addr   = addr;
   ssresolve->sockfd = sockfd;
   ssresolve->full   = full;
@@ -128,6 +129,7 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
   ssresolve->is_https     = 0;
+  ssresolve->hostname     = hostname;
 }
 
 #if FD_HAS_OPENSSL
@@ -373,7 +375,15 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
   }
 
   if( FD_UNLIKELY( status!=200 ) ) {
-    FD_LOG_WARNING(( "unexpected response status %d", status ));
+    char req_path[ 4096UL ];
+    if( FD_LIKELY( ssresolve->is_https ) ) {
+      FD_TEST( fd_cstr_printf_check( req_path, sizeof(req_path), NULL,
+               "https://%s%s", ssresolve->hostname, ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+    } else {
+      FD_TEST( fd_cstr_printf_check( req_path, sizeof(req_path), NULL,
+               "http://%s%s", ssresolve->hostname, ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+    }
+    FD_LOG_WARNING(( "unexpected response code %d accessing %s", status, req_path ));
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 

@@ -281,7 +281,7 @@ peer_connect( fd_http_resolver_t *  resolver,
     FD_LOG_ERR(( "peer %s requires https but firedancer is built without openssl support. Please remove this peer from your validator config.", peer->hostname ));
 #endif
   } else {
-    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1 );
+    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->hostname );
   }
 
   if( FD_LIKELY( resolver->incremental_snapshot_fetch ) ) {
@@ -296,7 +296,7 @@ peer_connect( fd_http_resolver_t *  resolver,
       FD_LOG_ERR(( "peer requires https but firedancer is built without openssl support" ));
 #endif
     } else {
-      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0 );
+      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->hostname );
     }
   } else {
     resolver->fds[ resolver->fds_len ] = (struct pollfd) {
