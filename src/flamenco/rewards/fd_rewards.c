@@ -86,62 +86,6 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
   return (double)num_slots / (double)fd_bank_slots_per_year_get( bank );
 }
 
-
-static void FD_FN_UNUSED
-get_vote_credits_commission( uchar const *       account_data,
-                             ulong               account_data_len,
-                             uchar *             buf,
-                             fd_vote_rewards_t * vote_ele ) {
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = account_data,
-    .dataend = account_data + account_data_len,
-  };
-
-  fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( buf, &ctx );
-  if( FD_UNLIKELY( vsv==NULL ) ) {
-    FD_LOG_CRIT(( "unable to decode vote state versioned" ));
-  }
-
-  fd_vote_epoch_credits_t * vote_credits = NULL;
-
-  switch( vsv->discriminant ) {
-  case fd_vote_state_versioned_enum_v0_23_5:
-    vote_credits           = vsv->inner.v0_23_5.epoch_credits;
-    vote_ele->commission   = vsv->inner.v0_23_5.commission;
-    vote_ele->node_account = vsv->inner.v0_23_5.node_pubkey;
-    break;
-  case fd_vote_state_versioned_enum_v1_14_11:
-    vote_credits           = vsv->inner.v1_14_11.epoch_credits;
-    vote_ele->commission   = vsv->inner.v1_14_11.commission;
-    vote_ele->node_account = vsv->inner.v1_14_11.node_pubkey;
-    break;
-  case fd_vote_state_versioned_enum_v3:
-    vote_credits           = vsv->inner.v3.epoch_credits;
-    vote_ele->commission   = vsv->inner.v3.commission;
-    vote_ele->node_account = vsv->inner.v3.node_pubkey;
-    break;
-  case fd_vote_state_versioned_enum_v4:
-    vote_credits           = vsv->inner.v4.epoch_credits;
-    vote_ele->commission   = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
-    vote_ele->node_account = vsv->inner.v4.node_pubkey;
-    break;
-  default:
-    __builtin_unreachable();
-  }
-
-  vote_ele->epoch_credits.cnt = 0UL;
-  for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
-       !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, iter );
-       iter = deq_fd_vote_epoch_credits_t_iter_next( vote_credits, iter ) ) {
-    fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, iter );
-    vote_ele->epoch_credits.epoch[ vote_ele->epoch_credits.cnt ]        = (ushort)ele->epoch;
-    vote_ele->epoch_credits.credits[ vote_ele->epoch_credits.cnt ]      = ele->credits;
-    vote_ele->epoch_credits.prev_credits[ vote_ele->epoch_credits.cnt ] = ele->prev_credits;
-    vote_ele->epoch_credits.cnt++;
-  }
-}
-
 /* For a given stake and vote_state, calculate how many points were earned (credits * stake) and new value
    for credits_observed were the points paid
 

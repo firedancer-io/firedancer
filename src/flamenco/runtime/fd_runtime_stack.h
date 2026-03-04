@@ -29,7 +29,6 @@ typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 
 struct fd_vote_rewards {
   fd_pubkey_t pubkey;
-  fd_pubkey_t node_account;
   uchar       commission;
   ulong       vote_rewards;
   uchar       invalid;
@@ -96,9 +95,9 @@ union fd_runtime_stack {
 
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
-    fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS_REWARDS ];
 
-    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS_REWARDS ];
     uchar             vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
 
   } stakes;

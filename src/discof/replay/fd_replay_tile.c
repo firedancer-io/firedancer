@@ -1633,6 +1633,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
         FD_LOG_ERR(( "chunk %lu from in %d corrupt, not in range [%lu,%lu]", chunk, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
       fd_bank_t bank[1];
+      /* Re-initialize the vote rewards map.  fd_runtime_stack is a union
+         shared by stakes, clock_ts, bpf_migration, and vote_accounts.  Any
+         prior use of clock_ts (e.g. fd_sysvar_clock_update) or other
+         members overwrites vote_map_mem, so we must re-init before use. */
+      FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( ctx->runtime_stack.stakes.vote_map_mem, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, ctx->runtime_stack_seed ) ) );
       fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                          ctx->banks,
                          fd_banks_bank_query( bank, ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),

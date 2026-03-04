@@ -37,7 +37,8 @@ static void
 get_vote_credits_commission( uchar const *       account_data,
                              ulong               account_data_len,
                              uchar *             buf,
-                             fd_vote_rewards_t * vote_ele ) {
+                             fd_vote_rewards_t * vote_ele,
+                             fd_pubkey_t *       node_account_t_1 ) {
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = account_data,
@@ -53,24 +54,24 @@ get_vote_credits_commission( uchar const *       account_data,
 
   switch( vsv->discriminant ) {
   case fd_vote_state_versioned_enum_v0_23_5:
-    vote_credits           = vsv->inner.v0_23_5.epoch_credits;
-    vote_ele->commission   = vsv->inner.v0_23_5.commission;
-    vote_ele->node_account = vsv->inner.v0_23_5.node_pubkey;
+    vote_credits         = vsv->inner.v0_23_5.epoch_credits;
+    vote_ele->commission = vsv->inner.v0_23_5.commission;
+    *node_account_t_1    = vsv->inner.v0_23_5.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v1_14_11:
-    vote_credits           = vsv->inner.v1_14_11.epoch_credits;
-    vote_ele->commission   = vsv->inner.v1_14_11.commission;
-    vote_ele->node_account = vsv->inner.v1_14_11.node_pubkey;
+    vote_credits         = vsv->inner.v1_14_11.epoch_credits;
+    vote_ele->commission = vsv->inner.v1_14_11.commission;
+    *node_account_t_1    = vsv->inner.v1_14_11.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v3:
-    vote_credits           = vsv->inner.v3.epoch_credits;
-    vote_ele->commission   = vsv->inner.v3.commission;
-    vote_ele->node_account = vsv->inner.v3.node_pubkey;
+    vote_credits         = vsv->inner.v3.epoch_credits;
+    vote_ele->commission = vsv->inner.v3.commission;
+    *node_account_t_1    = vsv->inner.v3.node_pubkey;
     break;
   case fd_vote_state_versioned_enum_v4:
-    vote_credits           = vsv->inner.v4.epoch_credits;
-    vote_ele->commission   = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
-    vote_ele->node_account = vsv->inner.v4.node_pubkey;
+    vote_credits         = vsv->inner.v4.epoch_credits;
+    vote_ele->commission = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
+    *node_account_t_1    = vsv->inner.v4.node_pubkey;
     break;
   default:
     __builtin_unreachable();
@@ -151,11 +152,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         vote_ele->invalid = 1;
       }
 
+      fd_pubkey_t node_account_t_1;
       if( FD_LIKELY( !vote_ele->invalid ) ) {
         get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
                                      fd_accdb_ref_data_sz( vote_ro ),
                                      vsv_buf,
-                                     &runtime_stack->stakes.vote_ele[ vote_ele_cnt ] );
+                                     &runtime_stack->stakes.vote_ele[ vote_ele_cnt ],
+                                     &node_account_t_1 );
         fd_accdb_close_ro( accdb, vote_ro );
       }
 
@@ -163,15 +166,15 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       vote_ele_cnt++;
 
       ulong       old_stake_t_1;
-      fd_pubkey_t old_account_t_1;
-      int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &old_account_t_1, NULL );
+      fd_pubkey_t node_account_t_2;
+      int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &node_account_t_2, NULL );
       ulong stake_t_2 = found ? old_stake_t_1 : 0UL;
 
       fd_vote_stakes_insert_key( vote_stakes,
                                  child_idx,
-                                 &vote_ele->pubkey,
-                                 &vote_ele->node_account,
-                                 &old_account_t_1,
+                                 &stake_delegation->vote_account,
+                                 &node_account_t_1,
+                                 &node_account_t_2,
                                  stake_t_2,
                                  fd_bank_epoch_get( bank ) );
     }
