@@ -9,6 +9,9 @@ $(call make-unit-test,test_stake_delegations,test_stake_delegations,fd_flamenco 
 $(call run-unit-test,test_stake_delegations)
 endif
 
+$(call add-hdrs,fd_top_votes.h)
+$(call add-objs,fd_top_votes,fd_flamenco)
+
 $(call add-hdrs,fd_vote_stakes.h)
 $(call add-objs,fd_vote_stakes,fd_flamenco)
 
