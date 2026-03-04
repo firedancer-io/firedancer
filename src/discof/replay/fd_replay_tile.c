@@ -195,6 +195,11 @@ struct fd_replay_tile {
   fd_genesis_t genesis[1];
   ulong        cluster_type;
 
+  int   has_genesis_timestamp;
+  ulong genesis_timestamp;
+  int   has_expected_genesis_timestamp;
+  ulong expected_genesis_timestamp;
+
 #define FD_REPLAY_HARD_FORKS_MAX (64UL)
   ulong hard_forks_cnt;
   ulong hard_forks[ FD_REPLAY_HARD_FORKS_MAX ];
@@ -1646,6 +1651,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
         ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
         ctx->hard_forks_cnts[ i ] = manifest->hard_forks_cnts[ i ];
       }
+      ctx->has_expected_genesis_timestamp = 1;
+      ctx->expected_genesis_timestamp     = manifest->creation_time_millis;
       break;
     }
     default: {
@@ -2512,6 +2519,18 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
   }
 }
 
+static inline void
+maybe_verify_genesis_timestamp( fd_replay_tile_t * ctx ) {
+  if( FD_LIKELY( !ctx->has_expected_genesis_timestamp || !ctx->has_genesis_timestamp ) ) return;
+  if( FD_LIKELY( ctx->genesis_timestamp==ctx->expected_genesis_timestamp ) ) return;
+
+  FD_LOG_ERR(( "Your genesis.bin file at `%s` has a genesis timestamp of %lu but the snapshot you loaded has a genesis "
+               "timestamp of %lu. This either means that the genesis.bin file you have is for a different cluster than "
+               "the one you are trying to connect to, or you have loaded a snapshot for the wrong cluster. In either "
+               "case, you can delete the problematic file and restart the node to download the correct one automatically.",
+               ctx->genesis_path, ctx->genesis_timestamp, ctx->expected_genesis_timestamp ));
+}
+
 static void
 process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
                                     fd_stem_context_t *               stem,
@@ -2570,6 +2589,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_GENESIS: {
       fd_genesis_meta_t const * meta = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->has_genesis_hash = 1;
+      ctx->has_genesis_timestamp = 1;
+      ctx->genesis_timestamp = meta->creation_time_millis;
       *ctx->genesis_hash = meta->genesis_hash;
       if( FD_LIKELY( meta->bootstrap ) ) {
         boot_genesis( ctx, stem, meta );
@@ -2577,6 +2598,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
 
       maybe_verify_cluster_type( ctx );
       maybe_verify_shred_version( ctx );
+      maybe_verify_genesis_timestamp( ctx );
       break;
     }
     case IN_KIND_IPECHO: {
@@ -2588,6 +2610,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_SNAP: {
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       maybe_verify_shred_version( ctx );
+      maybe_verify_genesis_timestamp( ctx );
       break;
     }
     case IN_KIND_EXECRP: {
@@ -2782,6 +2805,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ipecho_shred_version = 0;
   fd_memcpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
   ctx->has_genesis_hash = 0;
+  ctx->has_genesis_timestamp          = 0;
+  ctx->has_expected_genesis_timestamp = 0;
   ctx->cluster_type = FD_CLUSTER_UNKNOWN;
   ctx->hard_forks_cnt = ULONG_MAX;
 
