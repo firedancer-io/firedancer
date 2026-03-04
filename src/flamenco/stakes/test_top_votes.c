@@ -66,8 +66,8 @@ main( int argc, char * argv[] ) {
     wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
   }
 
-  ulong const vote_accounts_max = 4UL;
-  ulong const footprint         = fd_top_votes_footprint( vote_accounts_max );
+  ushort const vote_accounts_max = 4UL;
+  ulong  const footprint         = fd_top_votes_footprint( vote_accounts_max );
 
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_top_votes_align(), footprint, wksp_tag );
   FD_TEST( mem );
