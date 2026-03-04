@@ -158,6 +158,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
   ele->stake_t_1        = stake_t_1  & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
   ele->node_account_t_1 = *node_account_t_1;
   ele->stake_t_2        = 0UL;
+  ele->node_account_t_2 = (fd_pubkey_t){0};
   ele->epoch            = epoch % 2;
   /* It is fine to leave node account t_2 uninitalized because it will
      only be used if stake_t_2 is non-zero. */
@@ -271,10 +272,6 @@ fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
   stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
   stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
 
-  /* The index may have multiple entries for the same pubkey, so every
-      single matching index entry must be checked to see if the index
-      exists in the given fork's stakes map.  If it does, return the
-      t_2 stake value.*/
   uint ele_idx = (uint)index_map_multi_idx_query_const( index_map_multi, pubkey, UINT_MAX, index_pool );
   FD_TEST( ele_idx!=UINT_MAX );
 
@@ -314,6 +311,10 @@ fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
       index_pool_ele_release( index_pool, index_ele );
       stakes_map_ele_remove( stakes_map, &stake->idx, NULL, stakes_pool );
       stakes_pool_ele_release( stakes_pool, stake );
+
+      stake = stakes_pool_ele_acquire( stakes_pool );
+      stake->idx = stake->idx;
+      FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
     } else {
       /* If the element is new, add it to the index map. */
       index_ele->refcnt = 1;

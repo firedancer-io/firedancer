@@ -62,7 +62,7 @@ typedef struct fd_vote_rewards fd_vote_rewards_t;
    for the runtime.  This object should only be used and owned by the
    replay tile and is used for short-lived allocations for the runtime,
    more specifically, for slot level calculations. */
-union fd_runtime_stack {
+struct fd_runtime_stack {
 
   struct {
     /* Staging memory to sort vote accounts by last vote timestamp for
@@ -94,9 +94,9 @@ union fd_runtime_stack {
 
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
-    fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS_REWARDS ];
+    fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
-    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS_REWARDS ];
+    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
     uchar             vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
 
   } stakes;
@@ -110,6 +110,6 @@ union fd_runtime_stack {
     fd_pubkey_t stale_accs[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   } vote_accounts;
 };
-typedef union fd_runtime_stack fd_runtime_stack_t;
+typedef struct fd_runtime_stack fd_runtime_stack_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h */
