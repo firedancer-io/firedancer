@@ -940,6 +940,14 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
   }
 
   fd_gui_config_parse_validator_info( json, node_info ); /* calls cJSON_delete( json ) */
+
+  /* Some nodes just clear all the fields instead of deleting their
+     on-chain account, we can ignore those entries */
+  if( FD_UNLIKELY( node_info->name[ 0 ]=='\0' && node_info->details[ 0 ]=='\0' && node_info->website[ 0 ]=='\0' && node_info->icon_uri[ 0 ]=='\0' && node_info->keybase_username[ 0 ]=='\0' ) ) {
+    fd_gui_peers_node_info_pool_ele_release( peers->node_info_pool, node_info );
+    return;
+  }
+
   fd_gui_peers_node_info_map_ele_insert( peers->node_info_map, node_info, peers->node_info_pool );
 }
 
