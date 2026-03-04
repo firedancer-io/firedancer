@@ -32,8 +32,6 @@ typedef struct vote_ele vote_ele_t;
 #include "../../util/tmpl/fd_heap.c"
 
 #define POOL_NAME  pool
-
-#define POOL_NAME  pool
 #define POOL_T     vote_ele_t
 #define POOL_IDX_T ushort
 #include "../../util/tmpl/fd_pool.c"
@@ -81,7 +79,7 @@ fd_top_votes_footprint( ulong vote_accounts_max ) {
 
 void *
 fd_top_votes_new( void * mem,
-                  ulong  vote_accounts_max,
+                  ushort vote_accounts_max,
                   ulong  seed ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));

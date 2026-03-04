@@ -43,7 +43,7 @@ fd_top_votes_footprint( ulong vote_accounts_max );
 
 void *
 fd_top_votes_new( void * mem,
-                  ulong  vote_accounts_max,
+                  ushort vote_accounts_max,
                   ulong  seed );
 
 /* fd_top_votes_join joins a fd_top_votes_t structure from a memory
