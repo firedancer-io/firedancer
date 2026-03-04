@@ -87,7 +87,7 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
 }
 
 
-static void
+static void FD_FN_UNUSED
 get_vote_credits_commission( uchar const *       account_data,
                              ulong               account_data_len,
                              uchar *             buf,
@@ -790,35 +790,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                                fd_capture_ctx_t *             capture_ctx,
                                                ulong                          prev_epoch ) {
 
-  uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
-
   fd_vote_rewards_t *     vote_ele_pool = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map  = fd_type_pun( runtime_stack->stakes.vote_map_mem );
-  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
-       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
-       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
-
-    uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
-    fd_vote_rewards_t * ele = &vote_ele_pool[idx];
-
-    fd_accdb_ro_t vote_ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &ele->pubkey ) ) ) {
-      ele->invalid = 1;
-      continue;
-    }
-
-    if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
-      fd_accdb_close_ro( accdb, vote_ro );
-      ele->invalid = 1;
-      continue;
-    }
-
-    get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
-                                 fd_accdb_ref_data_sz( vote_ro ),
-                                 vsv_buf,
-                                 &runtime_stack->stakes.vote_ele[ idx ] );
-    fd_accdb_close_ro( accdb, vote_ro );
-  }
 
   /* First we must compute the stake and vote rewards for the just
      completed epoch.  We store the stake account rewards and vote

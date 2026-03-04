@@ -184,6 +184,28 @@ void
 fd_vote_stakes_purge_root_key( fd_vote_stakes_t *  vote_stakes,
                                fd_pubkey_t const * pubkey );
 
+
+/* fd_vote_stakes_insert_{*} */
+
+void
+fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
+                           ushort              fork_idx,
+                           fd_pubkey_t const * pubkey,
+                           fd_pubkey_t const * node_account_t_1,
+                           fd_pubkey_t const * node_account_t_2,
+                           ulong               stake_t_2,
+                           ulong               epoch );
+
+void
+fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
+                              ushort              fork_idx,
+                              fd_pubkey_t const * pubkey,
+                              ulong               stake );
+
+void
+fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
+                            ushort             fork_idx );
+
 /* fd_vote_stakes_new_child creates a new child fork and returns the
    index identifier for the new fork. */
 

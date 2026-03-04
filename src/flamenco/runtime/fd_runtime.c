@@ -617,6 +617,13 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, xid, capture_ctx, stake_delegations, new_rate_activation_epoch );
 
+  /* We want to cache the stake values for T-1 and T-2 in the forward
+     looking vote states.  This is done as an optimization for tower
+     calculations (T-1 stake) and clock calculation (T-2 stake).
+     We use the current stake to populate the T-1 stake and the T-1
+     stake to populate the T-2 stake. */
+  fd_runtime_refresh_previous_stake_values( bank, runtime_stack );
+
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */
 
@@ -638,13 +645,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
      before that.
      https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank.rs#L2175
   */
-
-  /* We want to cache the stake values for T-1 and T-2 in the forward
-     looking vote states.  This is done as an optimization for tower
-     calculations (T-1 stake) and clock calculation (T-2 stake).
-     We use the current stake to populate the T-1 stake and the T-1
-     stake to populate the T-2 stake. */
-  fd_runtime_refresh_previous_stake_values( bank, runtime_stack );
 
   /* Now that our stakes caches have been updated, we can calculate the
      leader schedule for the upcoming epoch epoch using our new
@@ -1650,6 +1650,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
   fd_refresh_vote_accounts(
       bank,
+      accdb,
+      xid,
       runtime_stack,
       stake_delegations,
       stake_history,
