@@ -359,7 +359,8 @@ static int
 verify_signatures( fd_gossvf_tile_ctx_t * ctx,
                    fd_gossip_message_t *  view,
                    uchar const *          payload,
-                   fd_sha512_t *          sha ) {
+                   fd_sha512_t *          sha,
+                   uchar *                failed ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST: {
       if( FD_UNLIKELY( FD_ED25519_SUCCESS!=verify_crds_value( view->pull_request->contact_info, payload+view->pull_request->contact_info->offset, view->pull_request->contact_info->length, sha ) ) ) {
@@ -378,8 +379,9 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         if( FD_UNLIKELY( ha_dup ) ) {
           ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
           ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ] += view->pull_response->values[ i ].length;
-          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len-1UL ];
           view->pull_response->values_len--;
+          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len ];
+          failed[ i ] = failed[ view->pull_response->values_len ];
           continue;
         }
 
@@ -387,8 +389,9 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
           ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->values[ i ].length;
-          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len-1UL ];
           view->pull_response->values_len--;
+          view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len ];
+          failed[ i ] = failed[ view->pull_response->values_len ];
           continue;
         }
 
@@ -405,8 +408,9 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ]++;
           ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ] += view->push->values[ i ].length;
-          view->push->values[ i ] = view->push->values[ view->push->values_len-1UL ];
           view->push->values_len--;
+          view->push->values[ i ] = view->push->values[ view->push->values_len ];
+          failed[ i ] = failed[ view->push->values_len ];
           continue;
         }
 
@@ -840,7 +844,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   result = verify_addresses( ctx, message, failed, stem );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_signatures( ctx, message, payload, ctx->sha );
+  result = verify_signatures( ctx, message, payload, ctx->sha, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
   check_duplicate_instance( ctx, message );
@@ -882,14 +886,16 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   switch( message->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ] += message->pull_response->values_len;
       for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
+        if( FD_UNLIKELY( failed[ i ] ) ) continue;
+        ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PULL_RESPONSE_IDX ] += message->pull_response->values[ i ].length;
       }
       break;
     case FD_GOSSIP_MESSAGE_PUSH:
-      ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ] += message->push->values_len;
       for( ulong i=0UL; i<message->push->values_len; i++ ) {
+        if( FD_UNLIKELY( failed[ i ] ) ) continue;
+        ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_SUCCESS_PUSH_IDX ] += message->push->values[ i ].length;
       }
       break;
