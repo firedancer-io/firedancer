@@ -69,9 +69,9 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_st
     fd_pubkey_t node_account = fd_vsv_get_node_account( vote_account->data->bytes );
 
     if( is_t_1 ) {
-      fd_vote_stakes_insert_root_key( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0 );
+      fd_vote_stakes_root_insert_key( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0 );
     } else {
-      fd_vote_stakes_update_root_meta( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake );
+      fd_vote_stakes_root_update_meta( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake );
     }
 
     fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );

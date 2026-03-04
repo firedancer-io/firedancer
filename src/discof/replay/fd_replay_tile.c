@@ -1162,7 +1162,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   }
 
   for( ulong i=0UL; i<stale_accs; i++ ) {
-    fd_vote_stakes_purge_root_key( vote_stakes, &ctx->runtime_stack.vote_accounts.stale_accs[i] );
+    fd_vote_stakes_root_purge_key( vote_stakes, &ctx->runtime_stack.vote_accounts.stale_accs[i] );
   }
 
   fd_bank_vote_stakes_end_locking_modify( bank );

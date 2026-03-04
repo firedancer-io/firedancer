@@ -141,23 +141,43 @@ fd_vote_stakes_new( void * shmem,
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem );
 
-/* TODO:FIXME: write some documentation here */
+/* fd_vote_stakes_root_{insert, update, purge}_key are APIs for
+   inserting, updating, and purging keys for the root fork.  These
+   operations are split out in order to support the snapshot loading
+   process.  The set of stakes from the T-1 epoch are inserted into
+   the root fork with a call to fd_vote_stakes_root_insert_key.  The
+   set of stakes from the T-2 epoch are updated with a call to
+   fd_vote_stakes_root_update_meta.  The caller is responsible for
+   ensuring that for a given pubkey, insert_key is called before
+   update_meta.  It is important that these APIs should only be called
+   while the root fork is the only and current fork in use.
+
+   If update_meta is called on a key that has not had a corresponding
+   insert_key call, the operation is a no-op. */
 
 void
-fd_vote_stakes_insert_root_key( fd_vote_stakes_t *  vote_stakes,
+fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account_t_1,
                                 ulong               stake_t_1,
                                 ulong               epoch );
 
 void
-fd_vote_stakes_update_root_meta( fd_vote_stakes_t *  vote_stakes,
+fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * pubkey,
                                  fd_pubkey_t const * node_account_t_2,
                                  ulong               stake_t_2 );
 
+/* fd_vote_stakes_root_purge_key allows the caller to purge a key from
+   the root fork.  This unfortunately has to be decoupled from the other
+   root APIs due to quirks in the Solana protocol.  The elements of the
+   vote stakes are loaded in along with the snapshot manifest: before
+   the actual account data has been loaded.  Some vote stakes keys may
+   be stale however, and can only be removed after the account data has
+   been loaded. */
+
 void
-fd_vote_stakes_purge_root_key( fd_vote_stakes_t *  vote_stakes,
+fd_vote_stakes_root_purge_key( fd_vote_stakes_t *  vote_stakes,
                                fd_pubkey_t const * pubkey );
 
 /* fd_vote_stakes_insert_{key, update, fini} is API for inserting

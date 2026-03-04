@@ -240,7 +240,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
     vote_ele->commission = (uchar)elem->commission;
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
-    fd_vote_stakes_insert_root_key(
+    fd_vote_stakes_root_insert_key(
         vote_stakes,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
@@ -259,7 +259,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
 
-    fd_vote_stakes_update_root_meta(
+    fd_vote_stakes_root_update_meta(
         vote_stakes,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
