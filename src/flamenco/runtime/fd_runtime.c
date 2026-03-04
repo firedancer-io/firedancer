@@ -550,8 +550,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                               fd_capture_ctx_t *        capture_ctx,
                               ulong                     parent_epoch,
                               fd_runtime_stack_t *      runtime_stack ) {
-
-  FD_LOG_NOTICE(( "fd_process_new_epoch start, epoch: %lu, slot: %lu", fd_bank_epoch_get( bank ), fd_bank_slot_get( bank ) ));
   long start = fd_log_wallclock();
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
@@ -608,8 +606,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   fd_runtime_update_leaders( bank, runtime_stack );
 
   long end = fd_log_wallclock();
-  FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
-
+  FD_LOG_NOTICE(( "starting epoch %lu at slot %lu took %.6f seconds", fd_bank_epoch_get( bank ), fd_bank_slot_get( bank ), (double)(end - start) / 1e9 ));
 }
 
 static void
