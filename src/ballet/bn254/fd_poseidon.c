@@ -91,25 +91,20 @@ fd_poseidon_init( fd_poseidon_t * pos,
 fd_poseidon_t *
 fd_poseidon_append( fd_poseidon_t * pos,
                     uchar const *   data,
-                    ulong           sz,
-                    int             enforce_padding ) {
+                    ulong           sz ) {
   if( FD_UNLIKELY( pos==NULL ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( pos->cnt >= FD_POSEIDON_MAX_WIDTH ) ) {
     return NULL;
   }
-  if( FD_UNLIKELY( enforce_padding && sz!=32UL ) ) {
-    return NULL;
-  }
-  /* Empty input and non-field are errors. Short element is extended with 0s. */
-  if( FD_UNLIKELY( sz==0 || sz>32UL ) ) {
+  if( FD_UNLIKELY( sz!=32UL ) ) {
     return NULL;
   }
 
   /* Handle endianness */
   fd_bn254_scalar_t cur[1] = { 0 };
-  fd_memcpy( cur->buf + (32-sz)*(pos->big_endian?1:0), data, sz );
+  fd_memcpy( cur->buf, data, sz );
   if( pos->big_endian ) {
     fd_uint256_bswap( cur, cur );
   }

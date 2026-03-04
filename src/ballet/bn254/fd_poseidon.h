@@ -55,13 +55,12 @@ fd_poseidon_init( fd_poseidon_t * pos,
    the state while this is executing). out==NULL is ok to allow chaining:
      fd_poseidon_append( fd_poseidon_append( ... ) )
    data points to the first of the sz bytes, and will be unmodified while
-   this is running with no interest retained after return (data==NULL is fine if sz==0).
-   data represents a bn254 scalar, i.e. a 256-bit bigint modulo a prime.
-   If data is not exactly 32-byte long (sz!=32), then data is padded with 0s
-   during conversion.
+   this is running with no interest retained after return.
+   data represents a bn254 scalar, i.e. a 256-bit bigint modulo a prime,
+   and must be exactly 32 bytes long.
    Returns out on success, NULL in case of error:
    - if pos==NULL
-   - if data >= modulus (including sz > 32)
+   - if data >= modulus
    - if fd_poseidon_append is called more than 12 times on the same pos
 
    Note: unlike other hash functions, each call to fd_poseidon_append
@@ -73,8 +72,7 @@ fd_poseidon_init( fd_poseidon_t * pos,
 fd_poseidon_t *
 fd_poseidon_append( fd_poseidon_t * pos,
                     uchar const *   data,
-                    ulong           sz,
-                    int             enforce_padding );
+                    ulong           sz );
 
 /* fd_poseidon_fini finishes a Poseidon calculation.
    out is assumed to be valid (i.e. is a current local join to a Poseidon
@@ -100,7 +98,7 @@ fd_poseidon_hash( fd_poseidon_hash_result_t * result,
   fd_poseidon_t pos[1];
   fd_poseidon_init( pos, big_endian );
   for( ulong i=0; i<bytes_len/32; i++ ) {
-    fd_poseidon_append( pos, &bytes[i*32], 32, 1 );
+    fd_poseidon_append( pos, &bytes[i*32], 32 );
   }
   return !fd_poseidon_fini( pos, fd_type_pun(result) );
 }

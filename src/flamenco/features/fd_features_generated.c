@@ -931,7 +931,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\x4c\x62\x81\xbc\x9a\xbb\x74\xd1\x32\xac\x16\x8e\xd0\x61\x9b\xb6\x1f\x0b\xdb\xaa\xa9\xa4\xd9\x55\xc7\xe5\xa1\x8d\xeb\x2b\x73"},
                                  /* turbnbNRp22nwZCmgVVXFSshz7H7V23zMzQgA46YpmQ */
     .name                      = "disable_turbine_fanout_experiments",
-    .cleaned_up                = 1 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, drop_merkle_shreds)>>3,
     .id                        = {"\x69\x08\x18\x1d\x4f\xdb\x4a\x78\x97\x2f\x1b\x4f\x94\xdf\x81\x2b\x60\x4d\x43\xf8\x92\x98\xa4\xdd\x93\xba\x48\xb5\xac\xb8\x3b\xe0"},
@@ -1606,7 +1607,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\x4c\x62\x79\xd8\xcc\xef\x78\x65\x4f\x1e\xcc\x95\x3e\xad\xbb\x36\x1c\x4e\xaf\x0f\x1f\x18\xb6\xa6\xd1\xc1\xfb\x98\x6f\xe1\xa9"},
                                  /* turbRpTzBzDU6PJmWvRTbcJXXGxUs19CvQamUrRD9bN */
     .name                      = "enable_turbine_extended_fanout_experiments",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1 },
 
   { .index                     = offsetof(fd_features_t, vote_only_retransmitter_signed_fec_sets)>>3,
     .id                        = {"\x06\x51\x2b\xe1\x3a\x96\x4f\x49\x50\xb7\xac\x06\xb0\x90\x4d\x04\xbb\xbf\x29\xc7\x0c\x01\xf6\x52\x11\x2b\x02\xfa\x13\x90\x98\x76"},
@@ -1694,7 +1695,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\x3e\xd9\x52\x45\xee\x7b\x8c\x8a\xaf\x88\xa2\x5e\x37\x29\x76\x1d\xa5\xfb\xfa\x47\x48\xfd\xd4\x5a\xff\x2b\xb8\xfa\xd3\x1c\x98"},
                                  /* poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb */
     .name                      = "poseidon_enforce_padding",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, relax_intrabatch_account_locks)>>3,
     .id                        = {"\x34\x2b\x0f\xf3\x77\x8f\xe3\x99\x3b\x5a\xc5\xab\x87\xb5\x93\xeb\xbe\x0c\xcc\xdd\x77\x66\x11\x5d\x6c\xfc\xa1\x1e\x9b\x0e\x0f\xac"},
