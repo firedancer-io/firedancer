@@ -267,6 +267,8 @@ read_conn( fd_ipecho_server_t * server,
     return;
   }
 
+  if( FD_UNLIKELY( conn->request_bytes_read<21UL ) ) return;
+
   if( FD_UNLIKELY( memcmp( conn->request_bytes, "\0\0\0\0", 4UL ) ) ) {
     close_conn( server, conn_idx, CLOSE_BAD_HEADER );
     return;
