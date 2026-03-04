@@ -118,7 +118,8 @@ void
 fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
                    int              sockfd,
-                   int              full ) {
+                   int              full,
+                   char const *     hostname ) {
   ssresolve->addr   = addr;
   ssresolve->sockfd = sockfd;
   ssresolve->full   = full;
@@ -128,6 +129,7 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
   ssresolve->is_https     = 0;
+  ssresolve->hostname     = hostname;
 }
 
 #if FD_HAS_OPENSSL
@@ -173,42 +175,24 @@ fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
 
 static void
 fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
-  if( FD_LIKELY( ssresolve->full ) ) {
-    if( FD_UNLIKELY( ssresolve->is_https ) ) {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
-             "HEAD /snapshot.tar.bz2 HTTP/1.1\r\n"
-             "User-Agent: Firedancer\r\n"
-             "Accept: */*\r\n"
-             "Accept-Encoding: identity\r\n"
-             "Host: %s\r\n\r\n",
-             ssresolve->hostname ) );
-    } else {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
-             "HEAD /snapshot.tar.bz2 HTTP/1.1\r\n"
-             "User-Agent: Firedancer\r\n"
-             "Accept: */*\r\n"
-             "Accept-Encoding: identity\r\n"
-             "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-             FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
-    }
+  char const * path = ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2";
+
+  if( FD_LIKELY( ssresolve->hostname && ssresolve->hostname[ 0 ]!='\0' ) ) {
+    FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
+           "HEAD %s HTTP/1.1\r\n"
+           "User-Agent: Firedancer\r\n"
+           "Accept: */*\r\n"
+           "Accept-Encoding: identity\r\n"
+           "Host: %s\r\n\r\n",
+           path, ssresolve->hostname ) );
   } else {
-    if( FD_UNLIKELY( ssresolve->is_https ) ) {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
-             "HEAD /incremental-snapshot.tar.bz2 HTTP/1.1\r\n"
-             "User-Agent: Firedancer\r\n"
-             "Accept: */*\r\n"
-             "Accept-Encoding: identity\r\n"
-             "Host: %s\r\n\r\n",
-             ssresolve->hostname ) );
-    } else {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
-             "HEAD /incremental-snapshot.tar.bz2 HTTP/1.1\r\n"
-             "User-Agent: Firedancer\r\n"
-             "Accept: */*\r\n"
-             "Accept-Encoding: identity\r\n"
-             "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-             FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
-    }
+    FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
+           "HEAD %s HTTP/1.1\r\n"
+           "User-Agent: Firedancer\r\n"
+           "Accept: */*\r\n"
+           "Accept-Encoding: identity\r\n"
+           "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
+           path, FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
   }
 }
 
@@ -373,7 +357,15 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
   }
 
   if( FD_UNLIKELY( status!=200 ) ) {
-    FD_LOG_WARNING(( "unexpected response status %d", status ));
+    char req_path[ 4096UL ];
+    if( FD_LIKELY( ssresolve->is_https ) ) {
+      FD_TEST( fd_cstr_printf_check( req_path, sizeof(req_path), NULL,
+               "https://%s:%u%s", ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ), ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+    } else {
+      FD_TEST( fd_cstr_printf_check( req_path, sizeof(req_path), NULL,
+               "http://%s:%u%s", ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ), ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+    }
+    FD_LOG_WARNING(( "unexpected response code %d accessing %s", status, req_path ));
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
