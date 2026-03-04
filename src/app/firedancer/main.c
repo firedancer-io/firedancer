@@ -186,6 +186,7 @@ extern action_t fd_action_shred_version;
 extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_set_identity;
+extern action_t fd_action_monitor_gossip;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -202,6 +203,7 @@ action_t * ACTIONS[] = {
   &fd_action_shred_version,
   &fd_action_add_authorized_voter,
   &fd_action_watch,
+  &fd_action_monitor_gossip,
   &fd_action_set_identity,
   NULL,
 };

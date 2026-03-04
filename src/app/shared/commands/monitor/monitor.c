@@ -505,7 +505,7 @@ signal1( int sig ) {
   exit( 0 ); /* gracefully exit */
 }
 
-static void
+void
 reconstruct_topo( config_t *   config,
                   char const * topo_name ) {
   if( !topo_name[0] ) return; /* keep default action topo */

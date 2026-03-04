@@ -42,6 +42,7 @@ $(call add-objs,commands/add_authorized_voter,fd_firedancer)
 $(call add-objs,commands/shred_version,fd_firedancer)
 $(call add-objs,commands/configure/accdb,fd_firedancer)
 $(call add-objs,commands/set_identity,fd_firedancer)
+$(call add-objs,commands/monitor_gossip/monitor_gossip commands/monitor_gossip/gossip_diag,fd_firedancer)
 
 # version
 $(call make-lib,firedancer_version)

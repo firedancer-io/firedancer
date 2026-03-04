@@ -172,6 +172,11 @@ union fdctl_args {
   } gossip;
 
   struct {
+    char topo[ 64 ];
+    int  compact_mode;
+  } monitor_gossip;
+
+  struct {
     char const * pos_arg;
     int          help;
   } tower;
