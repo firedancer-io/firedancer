@@ -67,7 +67,7 @@ get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
     }
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L63-L75 */
     case VOTE_STATE_TARGET_VERSION_V4: {
-      rc = fd_vsv_get_state( vote_account->meta, vote_state_mem );
+      rc = fd_vsv_deserialize( vote_account->meta, vote_state_mem );
       if( FD_UNLIKELY( rc ) ) return rc;
 
       fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;

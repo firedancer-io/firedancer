@@ -68,6 +68,22 @@ fd_vsv_get_state( fd_account_meta_t const * meta,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+int
+fd_vsv_deserialize( fd_account_meta_t const * meta,
+                    uchar *                   vote_state_mem ) {
+  int rc = fd_vsv_get_state( meta, vote_state_mem );
+  if( FD_UNLIKELY( rc ) ) {
+    return rc;
+  }
+
+  fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
+  if( FD_UNLIKELY( versioned->discriminant==fd_vote_state_versioned_enum_uninitialized ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 fd_pubkey_t const *
 fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
   switch( self->discriminant ) {
