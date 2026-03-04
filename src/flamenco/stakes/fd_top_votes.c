@@ -64,7 +64,7 @@ get_map( fd_top_votes_t * top_votes ) {
 
 ulong
 fd_top_votes_align( void ) {
-  return 128UL;
+  return FD_TOP_VOTES_ALIGN;
 }
 
 ulong
