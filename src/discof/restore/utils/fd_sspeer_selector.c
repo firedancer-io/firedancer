@@ -297,7 +297,7 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
     peer_map_ele_insert( selector->map, peer, selector->pool );
     score_treap_ele_insert( selector->score_treap, peer, selector->pool );
   }
-  peer->valid = peer->latency!=ULONG_MAX && peer->full_slot!=ULONG_MAX;
+  peer->valid = peer->full_slot!=ULONG_MAX;
   return peer->score;
 }
 
