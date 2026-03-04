@@ -156,7 +156,7 @@ fd_vote_stakes_join( void * shmem );
    insert_key call, a key is created into the root fork with a t-1 stake
    of 0.  This usually means the vote account has been deleted, but it
    can be possible in the case where the only staker of a vote account
-   has been marked delinqueint in epoch T-1 and needs to be counted
+   has been marked delinquent in epoch T-1 and needs to be counted
    towards clock calculation for the rest of the epoch. */
 
 void
