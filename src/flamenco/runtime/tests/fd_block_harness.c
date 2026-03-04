@@ -39,7 +39,6 @@ typedef struct {
 static void
 fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
                                         fd_funk_txn_xid_t const * xid,
-                                        fd_vote_stakes_t *        vote_stakes,
                                         fd_pubkey_t *             pubkey ) {
   fd_accdb_ro_t ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
@@ -50,7 +49,6 @@ fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
     fd_accdb_close_ro( accdb, ro );
     return;
   }
-  fd_vote_stakes_insert_root_key( vote_stakes, pubkey, 0UL );
   fd_accdb_close_ro( accdb, ro );
 }
 
@@ -70,7 +68,11 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_st
 
     fd_pubkey_t node_account = fd_vsv_get_node_account( vote_account->data->bytes );
 
-    fd_vote_stakes_insert_root_update( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, is_t_1 );
+    if( is_t_1 ) {
+      fd_vote_stakes_root_insert_key( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0 );
+    } else {
+      fd_vote_stakes_root_update_meta( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0 );
+    }
 
     fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
 
@@ -272,7 +274,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_solfuzz_block_register_vote_account(
         accdb,
         xid,
-        vote_stakes,
         &pubkey );
 
     /* Update the stake delegations cache for epoch T */
@@ -308,14 +309,13 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       test_ctx->epoch_ctx.vote_accounts_t_2_count,
       runtime_stack,
       0 );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* Finalize root fork.  Required before epoch boundary processing which
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */
-  fd_vote_stakes_fini_root( vote_stakes );
 
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, 2048UL, 999 ) ) );
 
-  fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( bank, runtime_stack );

@@ -6,6 +6,7 @@
 #include "../runtime/fd_runtime_stack.h"
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_impl_v1.h"
+#include "../accdb/fd_accdb_sync.h"
 
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
@@ -32,6 +33,57 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
   return weights_cnt;
 }
 
+static void
+get_vote_credits_commission( uchar const *       account_data,
+                             ulong               account_data_len,
+                             uchar *             buf,
+                             fd_vote_rewards_t * vote_ele,
+                             fd_pubkey_t *       node_account_t_1 ) {
+
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = account_data,
+    .dataend = account_data + account_data_len,
+  };
+
+  fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( buf, &ctx );
+  if( FD_UNLIKELY( vsv==NULL ) ) {
+    FD_LOG_CRIT(( "unable to decode vote state versioned" ));
+  }
+
+  fd_vote_epoch_credits_t * vote_credits = NULL;
+
+  switch( vsv->discriminant ) {
+  case fd_vote_state_versioned_enum_v1_14_11:
+    vote_credits         = vsv->inner.v1_14_11.epoch_credits;
+    vote_ele->commission = vsv->inner.v1_14_11.commission;
+    *node_account_t_1    = vsv->inner.v1_14_11.node_pubkey;
+    break;
+  case fd_vote_state_versioned_enum_v3:
+    vote_credits         = vsv->inner.v3.epoch_credits;
+    vote_ele->commission = vsv->inner.v3.commission;
+    *node_account_t_1    = vsv->inner.v3.node_pubkey;
+    break;
+  case fd_vote_state_versioned_enum_v4:
+    vote_credits         = vsv->inner.v4.epoch_credits;
+    vote_ele->commission = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
+    *node_account_t_1    = vsv->inner.v4.node_pubkey;
+    break;
+  default:
+    __builtin_unreachable();
+  }
+
+  vote_ele->epoch_credits.cnt = 0UL;
+  for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
+       !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, iter );
+       iter = deq_fd_vote_epoch_credits_t_iter_next( vote_credits, iter ) ) {
+    fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, iter );
+    vote_ele->epoch_credits.epoch[ vote_ele->epoch_credits.cnt ]        = (ushort)ele->epoch;
+    vote_ele->epoch_credits.credits[ vote_ele->epoch_credits.cnt ]      = ele->credits;
+    vote_ele->epoch_credits.prev_credits[ vote_ele->epoch_credits.cnt ] = ele->prev_credits;
+    vote_ele->epoch_credits.cnt++;
+  }
+}
+
 /* We need to update the amount of stake that each vote account has for
    the given epoch.  This can only be done after the stake history
    sysvar has been updated.  We also cache the stakes for each of the
@@ -40,10 +92,22 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L471 */
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
+                          fd_accdb_user_t *              accdb,
+                          fd_funk_txn_xid_t const *      xid,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+
+  ushort parent_idx = bank->data->vote_stakes_fork_id;
+  ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
+
+  bank->data->vote_stakes_fork_id = child_idx;
+
+
+  uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
   fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
   fd_vote_rewards_map_reset( vote_ele_map );
@@ -56,7 +120,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
+
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
+
 
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
         stake_delegation,
@@ -64,20 +130,58 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         history,
         new_rate_activation_epoch );
 
-    fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, &stake_delegation->vote_account, NULL, runtime_stack->stakes.vote_ele );
-    if( FD_UNLIKELY( !vote_ele ) ) {
-      vote_ele               = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
+    if( FD_UNLIKELY( !fd_vote_stakes_query( vote_stakes, child_idx, &stake_delegation->vote_account, NULL, NULL, NULL, NULL ) ) ) {
+      fd_vote_rewards_t * vote_ele    = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
       vote_ele->pubkey       = stake_delegation->vote_account;
       vote_ele->vote_rewards = 0UL;
-      vote_ele->stake        = 0UL;
-      vote_ele->invalid      = 0;
+
+      fd_accdb_ro_t vote_ro[1];
+      if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &vote_ele->pubkey ) ) ) {
+        continue;
+      }
+
+      if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
+        fd_accdb_close_ro( accdb, vote_ro );
+        continue;
+      }
+
+      fd_pubkey_t node_account_t_1;
+      get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
+                                   fd_accdb_ref_data_sz( vote_ro ),
+                                   vsv_buf,
+                                   &runtime_stack->stakes.vote_ele[ vote_ele_cnt ],
+                                   &node_account_t_1 );
+      fd_accdb_close_ro( accdb, vote_ro );
+
       fd_vote_rewards_map_ele_insert( vote_ele_map, vote_ele, runtime_stack->stakes.vote_ele );
       vote_ele_cnt++;
+
+      ulong       old_stake_t_1;
+      fd_pubkey_t node_account_t_2;
+      int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &node_account_t_2, NULL );
+      ulong stake_t_2 = found ? old_stake_t_1 : 0UL;
+
+      fd_vote_stakes_insert_key( vote_stakes,
+                                 child_idx,
+                                 &stake_delegation->vote_account,
+                                 &node_account_t_1,
+                                 &node_account_t_2,
+                                 stake_t_2,
+                                 fd_bank_epoch_get( bank ) );
     }
-    vote_ele->stake += new_entry.effective;
+
+    fd_vote_stakes_insert_update( vote_stakes,
+                                  child_idx,
+                                  &stake_delegation->vote_account,
+                                  new_entry.effective );
+
     total_stake += new_entry.effective;
   }
   fd_bank_total_epoch_stake_set( bank, total_stake );
+
+  fd_vote_stakes_insert_fini( vote_stakes, child_idx );
+
+  fd_bank_vote_stakes_end_locking_modify( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
@@ -138,6 +242,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   fd_bank_epoch_set( bank, fd_bank_epoch_get( bank ) + 1UL );
 
   fd_refresh_vote_accounts( bank,
+                            accdb,
+                            xid,
                             runtime_stack,
                             stake_delegations,
                             stake_history,

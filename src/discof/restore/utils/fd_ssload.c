@@ -226,11 +226,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
 
-  for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
-    fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
-    fd_vote_stakes_insert_root_key( vote_stakes, (fd_pubkey_t *)elem->vote_account_pubkey, fd_bank_epoch_get( bank ) );
-  }
-
   fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
   fd_vote_rewards_map_reset( vote_ele_map );
 
@@ -243,15 +238,14 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
        to recalculate the stake reward partitions. */
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
-    vote_ele->stake      = elem->stake;
-    vote_ele->invalid    = 0;
     vote_ele->commission = (uchar)elem->commission;
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
-    fd_vote_stakes_insert_root_update( vote_stakes,
-                                       (fd_pubkey_t *)elem->vote,
-                                       (fd_pubkey_t *)elem->identity,
-                                       elem->stake,
-                                       1 );
+    fd_vote_stakes_root_insert_key(
+        vote_stakes,
+        (fd_pubkey_t *)elem->vote,
+        (fd_pubkey_t *)elem->identity,
+        elem->stake,
+        fd_bank_epoch_get( bank ) );
 
     vote_ele->epoch_credits.cnt = elem->epoch_credits_history_len;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
@@ -265,14 +259,14 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
 
-    fd_vote_stakes_insert_root_update( vote_stakes,
-      (fd_pubkey_t *)elem->vote,
-      (fd_pubkey_t *)elem->identity,
-      elem->stake,
-      0 );
+    fd_vote_stakes_root_update_meta(
+        vote_stakes,
+        (fd_pubkey_t *)elem->vote,
+        (fd_pubkey_t *)elem->identity,
+        elem->stake,
+        fd_bank_epoch_get( bank ) );
   }
 
-  fd_vote_stakes_fini_root( vote_stakes );
   fd_bank_vote_stakes_end_locking_modify( bank );
 
   bank->data->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };

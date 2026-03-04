@@ -29,11 +29,8 @@ typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 
 struct fd_vote_rewards {
   fd_pubkey_t pubkey;
-  fd_pubkey_t node_account;
   uchar       commission;
-  ulong       stake;
   ulong       vote_rewards;
-  uchar       invalid;
   uint        next;
   struct {
     ulong  cnt;
@@ -65,7 +62,7 @@ typedef struct fd_vote_rewards fd_vote_rewards_t;
    for the runtime.  This object should only be used and owned by the
    replay tile and is used for short-lived allocations for the runtime,
    more specifically, for slot level calculations. */
-union fd_runtime_stack {
+struct fd_runtime_stack {
 
   struct {
     /* Staging memory to sort vote accounts by last vote timestamp for
@@ -85,9 +82,9 @@ union fd_runtime_stack {
   } bpf_migration;
 
   struct {
-    fd_calculated_stake_points_t stake_points_result[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
+    fd_calculated_stake_points_t stake_points_result[ FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ];
 
-    fd_calculated_stake_rewards_t stake_rewards_result[ FD_RUNTIME_MAX_STAKE_ACCOUNTS ];
+    fd_calculated_stake_rewards_t stake_rewards_result[ FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ];
 
     ulong       total_rewards;
     ulong       distributed_rewards;
@@ -113,6 +110,6 @@ union fd_runtime_stack {
     fd_pubkey_t stale_accs[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   } vote_accounts;
 };
-typedef union fd_runtime_stack fd_runtime_stack_t;
+typedef struct fd_runtime_stack fd_runtime_stack_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h */

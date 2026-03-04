@@ -49,6 +49,8 @@ stake_activating_and_deactivating( fd_delegation_t const * delegation,
 
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
+                          fd_accdb_user_t *              accdb,
+                          fd_funk_txn_xid_t const *      xid,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,

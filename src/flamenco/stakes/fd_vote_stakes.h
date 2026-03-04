@@ -141,48 +141,98 @@ fd_vote_stakes_new( void * shmem,
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem );
 
-/* Below are the APIs for inserting elements into the vote stakes object
-   at boot.  It's possible that the insertion of elements happens
-   disjointly.  The caller is able to insert elements in any order and
-   then assign stake/node account values to elements that are already
-   inserted.  After all elements are inserted, fd_vote_stakes_fini_root
-   is called to finalize the root fork.  The caller is responsible for
-   making sure that there are no duplicate keys inserted into
-   fd_vote_stakes_insert_root_key.
+/* fd_vote_stakes_root_{insert, update, purge}_key are APIs for
+   inserting, updating, and purging keys for the root fork.  These
+   operations are split out in order to support the snapshot loading
+   process.  The set of stakes from the T-1 epoch are inserted into
+   the root fork with a call to fd_vote_stakes_root_insert_key.  The
+   set of stakes from the T-2 epoch are updated with a call to
+   fd_vote_stakes_root_update_meta.  The caller is responsible for
+   ensuring that for a given pubkey, insert_key is called before
+   update_meta.  It is important that these APIs should only be called
+   while the root fork is the only and current fork in use.
 
-   The calling pattern is as follows:
-   for each pubkey: fd_vote_stakes_insert_root_key( pubkey )
-   for each t-1 stake pair: fd_vote_stakes_insert_root( is_t_1==1 )
-   for each t-2 stake pair: fd_vote_stakes_insert_root( is_t_1==0 )
-   fd_vote_stakes_fini_root()
-
-   The caller is also able to purge elements from the root fork after
-   fd_vote_stakes_fini_root() has been called via a call to
-   fd_vote_stakes_purge_root_key().  Although, this is quite messy,
-   this has to be decoupled from insertion because elements are inserted
-   before they can be verified (when the snapshot manifest is being
-   loaded).  It's possible to have entries in snapshots which correspond
-   to vote accounts which are no longer in the validator set.  These
-   entries have to be purged to avoid consensus violations. */
+   If update_meta is called on a key that has not had a corresponding
+   insert_key call, a key is created into the root fork with a t-1 stake
+   of 0.  This usually means the vote account has been deleted, but it
+   can be possible in the case where the only staker of a vote account
+   has been marked delinquent in epoch T-1 and needs to be counted
+   towards clock calculation for the rest of the epoch. */
 
 void
-fd_vote_stakes_insert_root_key( fd_vote_stakes_t *  vote_stakes,
-                                fd_pubkey_t * const pubkey,
+fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
+                                fd_pubkey_t const * pubkey,
+                                fd_pubkey_t const * node_account_t_1,
+                                ulong               stake_t_1,
                                 ulong               epoch );
 
 void
-fd_vote_stakes_insert_root_update( fd_vote_stakes_t *  vote_stakes,
-                                   fd_pubkey_t const * vote_acc,
-                                   fd_pubkey_t const * node_acc,
-                                   ulong               stake,
-                                   int                 is_t_1 );
+fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
+                                 fd_pubkey_t const * pubkey,
+                                 fd_pubkey_t const * node_account_t_2,
+                                 ulong               stake_t_2,
+                                 ulong               epoch );
+
+/* fd_vote_stakes_root_purge_key allows the caller to purge a key from
+   the root fork.  This unfortunately has to be decoupled from the other
+   root APIs due to quirks in the Solana protocol.  The elements of the
+   vote stakes are loaded in along with the snapshot manifest: before
+   the actual account data has been loaded.  Some vote stakes keys may
+   be stale however, and can only be removed after the account data has
+   been loaded. */
 
 void
-fd_vote_stakes_fini_root( fd_vote_stakes_t * vote_stakes );
-
-void
-fd_vote_stakes_purge_root_key( fd_vote_stakes_t *  vote_stakes,
+fd_vote_stakes_root_purge_key( fd_vote_stakes_t *  vote_stakes,
                                fd_pubkey_t const * pubkey );
+
+/* fd_vote_stakes_insert_{key, update, fini} is API for inserting
+   entries into a given fork.  It reflects the access pattern during
+   epoch rewards, where the current stake for a vote account is
+   accumulated by iterating over the set of vote accounts.  The caller
+   is responsible for ensuring that fd_vote_stakes_insert_key is only
+   called once for each vote account.  It is unsafe to call any
+   other vote_stakes API between calls to insert_key and insert_fini
+   except other insert_* APIs.
+
+   The calling pattern is as follows:
+
+   for each vote account: call fd_vote_stakes_insert_key() once
+   for each stake delegation: call fd_vote_stakes_insert_update()
+
+   after all entries are inserted, call fd_vote_stakes_insert_fini()
+
+   Under the hood, insert_key inserts an entry into the fork's map and
+   into the index.  Each call to insert_update increments the stake for
+   the given vote account.  insert_fini will either dedup the entry if
+   one already exists, or insert a new map entry.  */
+
+void
+fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
+                           ushort              fork_idx,
+                           fd_pubkey_t const * pubkey,
+                           fd_pubkey_t const * node_account_t_1,
+                           fd_pubkey_t const * node_account_t_2,
+                           ulong               stake_t_2,
+                           ulong               epoch );
+
+void
+fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
+                              ushort              fork_idx,
+                              fd_pubkey_t const * pubkey,
+                              ulong               stake );
+
+void
+fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
+                            ushort             fork_idx );
+
+/* fd_vote_stakes_genesis_fini finalizes the vote stakes on the genesis
+   block.  Any vote stakes that have been inserted will be updated to
+   have identical T-1/T-2 stakes and node accounts.  This function
+   assumes that all vote accounts have already been inserted into the
+   genesis fork. */
+
+void
+fd_vote_stakes_genesis_fini( fd_vote_stakes_t * vote_stakes );
 
 /* fd_vote_stakes_new_child creates a new child fork and returns the
    index identifier for the new fork. */
@@ -198,21 +248,6 @@ fd_vote_stakes_new_child( fd_vote_stakes_t * vote_stakes );
 void
 fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
                              ushort             root_idx );
-
-/* fd_vote_stakes_insert inserts a new vote account along with its
-   stakes into the given fork.  This function assumes that the caller
-   will not insert duplicate accounts twice into the same fork. */
-
-void
-fd_vote_stakes_insert( fd_vote_stakes_t * vote_stakes,
-                       ushort             fork_idx,
-                       fd_pubkey_t *      pubkey,
-                       ulong              stake_t_1,
-                       ulong              stake_t_2,
-                       fd_pubkey_t *      node_account_t_1,
-                       fd_pubkey_t *      node_account_t_2,
-                       ulong              epoch );
-
 
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
    in the given fork.  If the element is found returns 1, otherwise
