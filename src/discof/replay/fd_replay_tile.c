@@ -1377,6 +1377,7 @@ publish_reset( fd_replay_tile_t *  ctx,
   reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   reset->ticks_per_slot   = fd_bank_ticks_per_slot_get( bank );
   reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+  fd_memcpy( reset->completed_block_id, ctx->reset_block_id.uc, sizeof(fd_hash_t) );
   fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
 
   ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
