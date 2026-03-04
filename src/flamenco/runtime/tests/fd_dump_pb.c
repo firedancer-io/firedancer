@@ -313,25 +313,66 @@ dump_sanitized_transaction( fd_accdb_user_t *                      accdb,
 }
 
 static void
-dump_blockhash_queue( fd_blockhashes_t const * queue,
-                      fd_spad_t *              spad,
-                      pb_bytes_array_t **      output_blockhash_queue,
-                      pb_size_t *              output_blockhash_queue_count ) {
-  ulong bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( queue->d.deque ) );
+dump_fee_rate_governor( fd_bank_t *                        bank,
+                        fd_exec_test_fee_rate_governor_t * out ) {
+  fd_fee_rate_governor_t const * frg = fd_bank_fee_rate_governor_query( bank );
+  *out = (fd_exec_test_fee_rate_governor_t){
+    .target_lamports_per_signature = frg->target_lamports_per_signature,
+    .target_signatures_per_slot    = frg->target_signatures_per_slot,
+    .min_lamports_per_signature    = frg->min_lamports_per_signature,
+    .max_lamports_per_signature    = frg->max_lamports_per_signature,
+    .burn_percent                  = frg->burn_percent,
+  };
+}
 
-  // Iterate over all block hashes in the queue and save them in the output
-  pb_size_t cnt = 0U;
-  for( fd_blockhash_deq_iter_t iter=fd_blockhash_deq_iter_init_rev( queue->d.deque );
-       !fd_blockhash_deq_iter_done_rev( queue->d.deque, iter ) && cnt<FD_BLOCKHASHES_MAX;
-       iter=fd_blockhash_deq_iter_prev( queue->d.deque, iter ), cnt++ ) {
-    fd_blockhash_info_t const * ele              = fd_blockhash_deq_iter_ele_const( queue->d.deque, iter );
-    pb_bytes_array_t *          output_blockhash = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_hash_t)) );
-    output_blockhash->size = sizeof(fd_hash_t);
-    fd_memcpy( output_blockhash->bytes, &ele->hash, sizeof(fd_hash_t) );
-    output_blockhash_queue[ bhq_size-cnt-1UL ] = output_blockhash;
+static void
+dump_epoch_schedule( fd_bank_t *                     bank,
+                     fd_exec_test_epoch_schedule_t * out ) {
+  fd_epoch_schedule_t const * es = fd_bank_epoch_schedule_query( bank );
+  *out = (fd_exec_test_epoch_schedule_t){
+    .slots_per_epoch             = es->slots_per_epoch,
+    .leader_schedule_slot_offset = es->leader_schedule_slot_offset,
+    .warmup                      = es->warmup,
+    .first_normal_epoch          = es->first_normal_epoch,
+    .first_normal_slot           = es->first_normal_slot,
+  };
+}
+
+static void
+dump_rent( fd_bank_t *           bank,
+           fd_exec_test_rent_t * out ) {
+  fd_rent_t const * r = fd_bank_rent_query( bank );
+  *out = (fd_exec_test_rent_t){
+    .lamports_per_byte_year = r->lamports_per_uint8_year,
+    .exemption_threshold    = r->exemption_threshold,
+    .burn_percent           = r->burn_percent,
+  };
+}
+
+static void
+dump_blockhash_queue( fd_bank_t *                             bank,
+                      fd_spad_t *                             spad,
+                      fd_exec_test_blockhash_queue_entry_t ** entries_out,
+                      pb_size_t *                             count_out ) {
+  fd_blockhashes_t const * bhq      = fd_bank_block_hash_queue_query( bank );
+  ulong                    bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( bhq->d.deque ) );
+
+  fd_exec_test_blockhash_queue_entry_t * entries = fd_spad_alloc( spad,
+      alignof(fd_exec_test_blockhash_queue_entry_t),
+      bhq_size * sizeof(fd_exec_test_blockhash_queue_entry_t) );
+
+  ulong cnt = 0UL;
+  for( fd_blockhash_deq_iter_t iter=fd_blockhash_deq_iter_init_rev( bhq->d.deque );
+       !fd_blockhash_deq_iter_done_rev( bhq->d.deque, iter ) && cnt<bhq_size;
+       iter=fd_blockhash_deq_iter_prev( bhq->d.deque, iter ), cnt++ ) {
+    fd_blockhash_info_t const * ele   = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
+    fd_exec_test_blockhash_queue_entry_t * entry = &entries[bhq_size-cnt-1UL];
+    fd_memcpy( entry->blockhash, ele->hash.uc, sizeof(fd_hash_t) );
+    entry->lamports_per_signature = ele->fee_calculator.lamports_per_signature;
   }
 
-  *output_blockhash_queue_count = cnt;
+  *entries_out = entries;
+  *count_out   = (pb_size_t)bhq_size;
 }
 
 static void
@@ -342,57 +383,25 @@ dump_txn_bank( fd_bank_t *                  bank,
   fd_exec_test_txn_bank_t * txn_bank = &txn_context->bank;
 
   /* TxnBank -> blockhash_queue */
-  fd_blockhashes_t const * bhq      = fd_bank_block_hash_queue_query( bank );
-  ulong                    bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( bhq->d.deque ) );
-  txn_bank->blockhash_queue         = fd_spad_alloc( spad, alignof(fd_exec_test_blockhash_queue_entry_t), bhq_size * sizeof(fd_exec_test_blockhash_queue_entry_t) );
-  txn_bank->blockhash_queue_count   = (uint)bhq_size;
-
-  ulong cnt = 0UL;
-  for( fd_blockhash_deq_iter_t iter=fd_blockhash_deq_iter_init_rev( bhq->d.deque );
-       !fd_blockhash_deq_iter_done_rev( bhq->d.deque, iter ) && cnt<bhq_size;
-       iter=fd_blockhash_deq_iter_prev( bhq->d.deque, iter ), cnt++ ) {
-    fd_blockhash_info_t const * ele              = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
-    fd_exec_test_blockhash_queue_entry_t * entry = &txn_bank->blockhash_queue[bhq_size-cnt-1UL];
-    fd_memcpy( entry->blockhash, ele->hash.uc, sizeof(fd_hash_t) );
-    entry->lamports_per_signature = ele->fee_calculator.lamports_per_signature;
-  }
+  dump_blockhash_queue( bank, spad, &txn_bank->blockhash_queue, &txn_bank->blockhash_queue_count );
 
   /* TxnBank -> rbh_lamports_per_signature */
   txn_bank->rbh_lamports_per_signature = (uint)fd_bank_rbh_lamports_per_sig_get( bank );
 
   /* TxnBank -> fee_rate_governor */
-  fd_fee_rate_governor_t const * fee_rate_governor = fd_bank_fee_rate_governor_query( bank );
   txn_bank->has_fee_rate_governor = true;
-  txn_bank->fee_rate_governor = (fd_exec_test_fee_rate_governor_t){
-    .target_lamports_per_signature = fee_rate_governor->target_lamports_per_signature,
-    .target_signatures_per_slot    = fee_rate_governor->target_signatures_per_slot,
-    .min_lamports_per_signature    = fee_rate_governor->min_lamports_per_signature,
-    .max_lamports_per_signature    = fee_rate_governor->max_lamports_per_signature,
-    .burn_percent                  = fee_rate_governor->burn_percent,
-  };
+  dump_fee_rate_governor( bank, &txn_bank->fee_rate_governor );
 
   /* TxnBank -> total_epoch_stake */
   txn_bank->total_epoch_stake = fd_bank_total_epoch_stake_get( bank );
 
   /* TxnBank -> epoch_schedule */
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   txn_bank->has_epoch_schedule = true;
-  txn_bank->epoch_schedule = (fd_exec_test_epoch_schedule_t){
-    .slots_per_epoch             = epoch_schedule->slots_per_epoch,
-    .leader_schedule_slot_offset = epoch_schedule->leader_schedule_slot_offset,
-    .warmup                      = epoch_schedule->warmup,
-    .first_normal_epoch          = epoch_schedule->first_normal_epoch,
-    .first_normal_slot           = epoch_schedule->first_normal_slot,
-  };
+  dump_epoch_schedule( bank, &txn_bank->epoch_schedule );
 
   /* TxnBank -> rent */
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
   txn_bank->has_rent = true;
-  txn_bank->rent = (fd_exec_test_rent_t){
-    .lamports_per_byte_year = rent->lamports_per_uint8_year,
-    .exemption_threshold    = rent->exemption_threshold,
-    .burn_percent           = rent->burn_percent,
-  };
+  dump_rent( bank, &txn_bank->rent );
 
   /* TxnBank -> features */
   txn_bank->has_features = true;
@@ -510,105 +519,6 @@ add_lut_accounts_to_dumped_accounts( fd_accdb_user_t *             accdb,
   fd_accdb_close_ro( accdb, lut_account );
 }
 
-/* FIXME: Block dumping currently is not supported and needs to be
-   reworked. */
-// /* create_synthetic_vote_account_from_vote_state creates a synthetic
-//    vote account from a vote state cache element. It fills in default
-//    values for unspecified fields and encodes the vote state into
-//    out_vote_account's data field. */
-// static void
-// create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vote_state,
-//                                                fd_spad_t *                   spad,
-//                                                fd_exec_test_vote_account_t * out_vote_account,
-//                                                int                           is_t_1 ) {
-//   out_vote_account->has_vote_account = true;
-//   fd_memcpy( out_vote_account->vote_account.address, &vote_state->vote_account, sizeof(fd_pubkey_t) );
-//   out_vote_account->vote_account.executable = false;
-//   out_vote_account->vote_account.lamports = 100000UL;
-//   fd_memcpy( out_vote_account->vote_account.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
-//   out_vote_account->stake = is_t_1 ? vote_state->stake_t_1 : vote_state->stake_t_2;
-
-//   /* Construct the vote account data. Fill in missing fields with
-//      arbitrary defaults (since they're not used anyways) */
-//   fd_vote_state_versioned_t vsv = {
-//     .discriminant = fd_vote_state_versioned_enum_v3,
-//     .inner = {
-//       .v3 = {
-//         .node_pubkey           = vote_state->node_account,
-//         .authorized_withdrawer = vote_state->node_account,
-//         .commission            = 0,
-//         .root_slot             = 0UL,
-//         .has_root_slot         = 0,
-//         .last_timestamp        = {
-//           .timestamp           = vote_state->last_vote_timestamp,
-//           .slot                = vote_state->last_vote_slot,
-//         },
-//       }
-//     }
-//   };
-//   fd_vote_state_v3_t * synthetic_vote_state = &vsv.inner.v3;
-
-//   /* Create synthetic landed votes */
-//   synthetic_vote_state->votes = deq_fd_landed_vote_t_join(
-//       deq_fd_landed_vote_t_new(
-//           fd_spad_alloc(
-//               spad,
-//               deq_fd_landed_vote_t_align(),
-//               deq_fd_landed_vote_t_footprint( 32UL ) ),
-//           32UL ) );
-//   for( ulong i=0UL; i<32UL; i++ ) {
-//     fd_landed_vote_t elem = {0};
-//     deq_fd_landed_vote_t_push_tail( synthetic_vote_state->votes, elem );
-//   }
-
-//   /* Populate authoritzed voters */
-//   void * authorized_voters_pool_mem  = fd_spad_alloc(
-//       spad,
-//       fd_vote_authorized_voters_pool_align(),
-//       fd_vote_authorized_voters_pool_footprint( 5UL ) );
-//   void * authorized_voters_treap_mem = fd_spad_alloc(
-//       spad,
-//       fd_vote_authorized_voters_treap_align(),
-//       fd_vote_authorized_voters_treap_footprint( 5UL ) );
-//   synthetic_vote_state->authorized_voters.pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( authorized_voters_pool_mem, 5UL ) );
-//   synthetic_vote_state->authorized_voters.treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( authorized_voters_treap_mem, 5UL ) );
-
-//   /* Encode the synthetic vote state */
-//   ulong encoded_sz                          = fd_vote_state_versioned_size( &vsv );
-//   out_vote_account->vote_account.data       = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( encoded_sz ) );
-//   out_vote_account->vote_account.data->size = (pb_size_t)encoded_sz;
-
-//   fd_bincode_encode_ctx_t encode_ctx = {
-//     .data    = out_vote_account->vote_account.data->bytes,
-//     .dataend = out_vote_account->vote_account.data->bytes+encoded_sz,
-//   };
-//   fd_vote_state_versioned_encode( &vsv, &encode_ctx );
-// }
-
-// static void FD_FN_UNUSED
-// dump_prior_vote_accounts( fd_vote_states_t const *      vote_states,
-//                           fd_dump_account_key_node_t *  dumped_accounts_pool,
-//                           fd_dump_account_key_node_t ** dumped_accounts_root,
-//                           fd_exec_test_vote_account_t * out_vote_accounts,
-//                           pb_size_t *                   out_vote_accounts_count,
-//                           fd_spad_t *                   spad,
-//                           int                           is_t_1 ) {
-
-//   fd_vote_states_iter_t iter_[1];
-//   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-//                                      !fd_vote_states_iter_done( iter );
-//                                       fd_vote_states_iter_next( iter ) ) {
-//     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-//     add_account_to_dumped_accounts( dumped_accounts_pool, dumped_accounts_root, &vote_state->vote_account );
-
-//     create_synthetic_vote_account_from_vote_state(
-//         vote_state,
-//         spad,
-//         &out_vote_accounts[(*out_vote_accounts_count)++],
-//         is_t_1 );
-//   }
-// }
-
 static void
 create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
                                           fd_banks_t *          banks,
@@ -620,7 +530,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      step. */
   fd_bank_t parent_bank[1];
   fd_banks_get_parent( parent_bank, banks, bank );
-  ulong                          current_slot   = fd_bank_slot_get( bank );
   ulong                          parent_slot    = fd_bank_slot_get( parent_bank );
   fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->data->idx } };
   fd_exec_test_block_context_t * block_context  = &dump_ctx->block_context;
@@ -708,6 +617,44 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &pubkey );
   }
+
+  /* BlockBank -> vote_accounts_t_1 and vote_accounts_t_2 */
+  fd_exec_test_prev_vote_account_t * va_t1 = fd_spad_alloc( spad,
+      alignof(fd_exec_test_prev_vote_account_t),
+      vote_account_t_cnt * sizeof(fd_exec_test_prev_vote_account_t) );
+  fd_exec_test_prev_vote_account_t * va_t2 = fd_spad_alloc( spad,
+      alignof(fd_exec_test_prev_vote_account_t),
+      vote_account_t_cnt * sizeof(fd_exec_test_prev_vote_account_t) );
+  pb_size_t va_t1_cnt = 0U;
+  pb_size_t va_t2_cnt = 0U;
+
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+    fd_pubkey_t pubkey;
+    ulong       stake_t_1;
+    ulong       stake_t_2;
+    fd_pubkey_t node_t_1;
+    fd_pubkey_t node_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_t_1, &node_t_2 );
+
+    if( stake_t_1 ) {
+      fd_exec_test_prev_vote_account_t * entry = &va_t1[ va_t1_cnt++ ];
+      fd_memcpy( entry->address,     &pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( entry->node_pubkey, &node_t_1, sizeof(fd_pubkey_t) );
+      entry->stake      = stake_t_1;
+      entry->commission = 0U; /* TODO: dump commission */
+    }
+
+    if( stake_t_2 ) {
+      fd_exec_test_prev_vote_account_t * entry = &va_t2[ va_t2_cnt++ ];
+      fd_memcpy( entry->address,     &pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( entry->node_pubkey, &node_t_2, sizeof(fd_pubkey_t) );
+      entry->stake      = stake_t_2;
+      entry->commission = 0U; /* TODO: dump commission */
+    }
+  }
+
   fd_bank_vote_stakes_end_locking_modify( parent_bank );
 
   /* BlockContext -> acct_states
@@ -732,60 +679,73 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_accdb_close_ro( accdb, ro );
   }
 
-  /* BlockContext -> blockhash_queue */
-  fd_blockhashes_t const * bhq   = fd_bank_block_hash_queue_query( parent_bank );
-  block_context->blockhash_queue = fd_spad_alloc(
-      spad,
-      alignof(pb_bytes_array_t *),
-      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASHES_MAX) * sizeof(pb_bytes_array_t *)) );
-  block_context->blockhash_queue_count = 0U;
-  dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
+  /* BlockContext -> bank */
+  block_context->has_bank = true;
+  fd_exec_test_block_bank_t * block_bank = &block_context->bank;
 
-  /* BlockContext -> SlotContext */
-  block_context->has_slot_ctx                       = true;
-  block_context->slot_ctx.slot                      = current_slot;
-  block_context->slot_ctx.block_height              = fd_bank_block_height_get( bank );
-  block_context->slot_ctx.prev_slot                 = fd_bank_parent_slot_get( bank );
+  /* BlockBank -> blockhash_queue */
+  dump_blockhash_queue( parent_bank, spad, &block_bank->blockhash_queue, &block_bank->blockhash_queue_count );
 
-  // We need to store the POH hash for the current block since we don't
-  // recalculate it in the harnesses.
-  fd_memcpy( block_context->slot_ctx.poh, fd_bank_poh_query( bank ), sizeof(fd_pubkey_t) );
-  fd_memcpy( block_context->slot_ctx.parent_bank_hash, fd_bank_bank_hash_query( parent_bank ), sizeof(fd_pubkey_t) );
+  /* BlockBank -> rbh_lamports_per_signature */
+  block_bank->rbh_lamports_per_signature = (uint)fd_bank_rbh_lamports_per_sig_get( parent_bank );
 
+  /* BlockBank -> fee_rate_governor */
+  block_bank->has_fee_rate_governor = true;
+  dump_fee_rate_governor( parent_bank, &block_bank->fee_rate_governor );
+
+  /* BlockBank -> parent_slot */
+  block_bank->parent_slot = fd_bank_parent_slot_get( bank );
+
+  /* BlockBank -> capitalization */
+  block_bank->capitalization = fd_bank_capitalization_get( parent_bank );
+
+  /* BlockBank -> inflation */
+  block_bank->has_inflation = true;
+  fd_inflation_t const * inflation = fd_bank_inflation_query( parent_bank );
+  block_bank->inflation = (fd_exec_test_inflation_t){
+    .initial         = inflation->initial,
+    .terminal        = inflation->terminal,
+    .taper           = inflation->taper,
+    .foundation      = inflation->foundation,
+    .foundation_term = inflation->foundation_term,
+  };
+
+  /* BlockBank -> block_height */
+  block_bank->block_height = fd_bank_block_height_get( bank );
+
+  /* BlockBank -> poh */
+  fd_memcpy( block_bank->poh, fd_bank_poh_query( bank ), sizeof(fd_hash_t) );
+
+  /* BlockBank -> parent_bank_hash */
+  fd_memcpy( block_bank->parent_bank_hash, fd_bank_bank_hash_query( parent_bank ), sizeof(fd_hash_t) );
+
+  /* BlockBank -> parent_lt_hash */
   fd_lthash_value_t const * parent_lthash = fd_bank_lthash_locking_query( parent_bank );
-  fd_memcpy( block_context->slot_ctx.parent_lthash, parent_lthash, sizeof(fd_lthash_value_t) );
+  fd_memcpy( block_bank->parent_lt_hash, parent_lthash, sizeof(fd_lthash_value_t) );
   fd_bank_lthash_end_locking_query( parent_bank );
 
-  block_context->slot_ctx.prev_epoch_capitalization = fd_bank_capitalization_get( parent_bank );
+  /* BlockBank -> parent_signature_count */
+  block_bank->parent_signature_count = fd_bank_parent_signature_cnt_get( parent_bank );
 
-  /* BlockContext -> SlotContext -> fee_rate_governor */
-  fd_fee_rate_governor_t const * fee_rate_governor = fd_bank_fee_rate_governor_query( parent_bank );
-  block_context->slot_ctx.has_fee_rate_governor     = true;
-  block_context->slot_ctx.fee_rate_governor         = (fd_exec_test_fee_rate_governor_t){
-      .target_lamports_per_signature = fee_rate_governor->target_lamports_per_signature,
-      .target_signatures_per_slot    = fee_rate_governor->target_signatures_per_slot,
-      .min_lamports_per_signature    = fee_rate_governor->min_lamports_per_signature,
-      .max_lamports_per_signature    = fee_rate_governor->max_lamports_per_signature,
-      .burn_percent                  = fee_rate_governor->burn_percent,
-  };
+  /* BlockBank -> epoch_schedule */
+  block_bank->has_epoch_schedule = true;
+  dump_epoch_schedule( parent_bank, &block_bank->epoch_schedule );
 
-  /* BlockContext -> EpochContext */
-  block_context->has_epoch_ctx                        = true;
-  block_context->epoch_ctx.has_features               = true;
-  dump_sorted_features( fd_bank_features_query( parent_bank ), &block_context->epoch_ctx.features, spad );
-  block_context->epoch_ctx.hashes_per_tick            = fd_bank_hashes_per_tick_get( parent_bank );
-  block_context->epoch_ctx.ticks_per_slot             = fd_bank_ticks_per_slot_get( parent_bank );
-  block_context->epoch_ctx.has_inflation              = true;
+  /* BlockBank -> rent */
+  block_bank->has_rent = true;
+  dump_rent( parent_bank, &block_bank->rent );
 
-  fd_inflation_t const * inflation = fd_bank_inflation_query( parent_bank );
-  block_context->epoch_ctx.inflation                  = (fd_exec_test_inflation_t) {
-      .initial         = inflation->initial,
-      .terminal        = inflation->terminal,
-      .taper           = inflation->taper,
-      .foundation      = inflation->foundation,
-      .foundation_term = inflation->foundation_term,
-  };
-  block_context->epoch_ctx.genesis_creation_time      = fd_bank_genesis_creation_time_get( parent_bank );
+  /* BlockBank -> features */
+  block_bank->has_features = true;
+  dump_sorted_features( fd_bank_features_query( parent_bank ), &block_bank->features, spad );
+
+  /* BlockBank -> vote_accounts_t_1 / vote_accounts_t_2 */
+  block_bank->vote_accounts_t_1       = va_t1;
+  block_bank->vote_accounts_t_1_count = va_t1_cnt;
+  block_bank->vote_accounts_t_2       = va_t2;
+  block_bank->vote_accounts_t_2_count = va_t2_cnt;
+
+  /* TODO: dump stake_delegations_t_1 */
 }
 
 static void
