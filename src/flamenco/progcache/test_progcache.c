@@ -12,7 +12,7 @@ FD_IMPORT_BINARY( invalid_program_data,      "src/ballet/sbpf/fixtures/malformed
 
 /* query_rec_exact fetches a funk record at a precise xid:key pair. */
 
-static fd_funk_rec_t const *
+static fd_progcache_rec_t const *
 query_rec_exact( test_env_t *              env,
                  fd_funk_txn_xid_t const * xid,
                  fd_funk_rec_key_t const * key ) {
@@ -20,13 +20,15 @@ query_rec_exact( test_env_t *              env,
   fd_funk_txn_xid_copy( pair->xid, xid );
   fd_funk_rec_key_copy( pair->key, key );
 
-  fd_funk_rec_map_query_t query[1];
-  int query_err = fd_funk_rec_map_query_try( env->progcache->funk->rec_map, pair, NULL, query, 0 );
+  fd_prog_recm_query_t query[1];
+  int query_err = fd_prog_recm_query_try( env->progcache->join->rec.map, pair, NULL, query, 0 );
   if( query_err==FD_MAP_ERR_KEY ) return NULL;
-  if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
+  if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
 
-  return fd_funk_rec_map_query_ele_const( query );
+  return fd_prog_recm_query_ele_const( query );
 }
+
+static fd_funk_txn_xid_t const root_xid = { .ul = { ULONG_MAX, ULONG_MAX } };
 
 /* test_empty: Account database and progcache completely empty.
    Query at root should fail. */
@@ -107,9 +109,9 @@ test_invalid_program( fd_wksp_t * wksp ) {
                        1 );
 
   FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 0 ], &fork_a   ) );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 1 ], &root_xid ) );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -142,9 +144,9 @@ test_valid_program( fd_wksp_t * wksp ) {
                        1 );
 
   FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 0 ], &fork_a   ) );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 1 ], &root_xid ) );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -156,12 +158,12 @@ test_valid_program( fd_wksp_t * wksp ) {
   FD_TEST( rec );
   FD_TEST( rec->executable );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
-  FD_TEST( env->progcache->fork_depth==2UL );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
 
   fd_funk_txn_xid_t fork_b = { .ul = { 64UL, 2UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec );
-  FD_TEST( env->progcache->fork_depth==3UL );
+  FD_TEST( env->progcache->lineage->fork_depth==3UL );
 
   load_env.slot        = 64UL;
   load_env.epoch       =  0UL;
@@ -191,9 +193,9 @@ test_epoch_boundary( fd_wksp_t * wksp ) {
                        1 );
 
   FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 0 ], &fork_a   ) );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 1 ], &root_xid ) );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -405,9 +407,9 @@ test_invalidate_epoch_boundary( fd_wksp_t * wksp ) {
                        1 );
 
   FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 0 ], &fork_a   ) );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 1 ], &root_xid ) );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -476,9 +478,9 @@ test_publish_gc( fd_wksp_t * wksp ) {
   FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec_b );
   FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec_c );
 
-  fd_funk_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key );
-  fd_funk_rec_t const * frec_b = query_rec_exact( env, &fork_b, &key );
-  fd_funk_rec_t const * frec_c = query_rec_exact( env, &fork_c, &key );
+  fd_progcache_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key );
+  fd_progcache_rec_t const * frec_b = query_rec_exact( env, &fork_b, &key );
+  fd_progcache_rec_t const * frec_c = query_rec_exact( env, &fork_c, &key );
   FD_TEST( frec_a ); FD_TEST( frec_b ); FD_TEST( frec_c );
   FD_TEST( frec_a!=frec_b && frec_a!=frec_c && frec_b!=frec_c );
 
@@ -500,11 +502,11 @@ test_publish_gc( fd_wksp_t * wksp ) {
   FD_TEST( query_rec_exact( env, &root,   &key )==frec_c );
 
   /* Verify that only frec_c exists in funk rec map */
-  ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, &frec_c->pair );
+  ulong chain_idx = fd_prog_recm_iter_chain_idx( env->progcache->join->rec.map, &frec_c->pair );
   ulong chain_cnt = 0UL;
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
-       !fd_funk_rec_map_iter_done( iter );
-       iter = fd_funk_rec_map_iter_next( iter ) ) {
+  for( fd_prog_recm_iter_t iter = fd_prog_recm_iter( env->progcache->join->rec.map, chain_idx );
+       !fd_prog_recm_iter_done( iter );
+       iter = fd_prog_recm_iter_next( iter ) ) {
     chain_cnt++;
   }
   FD_TEST( chain_cnt==1UL );
@@ -535,7 +537,7 @@ test_publish_gc2( fd_wksp_t * wksp ) {
   fd_progcache_rec_t const * rec_a = fd_progcache_invalidate( env->progcache, &fork_a, &key, fork_a.ul[0] );
   FD_TEST( rec_a );
 
-  fd_funk_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key ); FD_TEST( frec_a );
+  fd_progcache_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key ); FD_TEST( frec_a );
   fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
   test_env_txn_publish( env, &fork_a );
   FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
@@ -584,11 +586,11 @@ test_publish_gc2( fd_wksp_t * wksp ) {
   /* Verify that only one record remains */
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_xid_key_pair_init( pair, &root, &key );
-  ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, pair );
+  ulong chain_idx = fd_prog_recm_iter_chain_idx( env->progcache->join->rec.map, pair );
   ulong chain_cnt = 0UL;
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
-       !fd_funk_rec_map_iter_done( iter );
-       iter = fd_funk_rec_map_iter_next( iter ) ) {
+  for( fd_prog_recm_iter_t iter = fd_prog_recm_iter( env->progcache->join->rec.map, chain_idx );
+       !fd_prog_recm_iter_done( iter );
+       iter = fd_prog_recm_iter_next( iter ) ) {
     chain_cnt++;
   }
   FD_TEST( chain_cnt==1UL );
@@ -605,8 +607,8 @@ test_publish_trivial( fd_wksp_t * wksp ) {
 
   fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
   fd_funk_txn_xid_t fork_368528500 = { .ul = { 368528500UL, 368528500UL } };
-  fd_progcache_txn_attach_child( env->progcache_admin, &root, &fork_368528500 );
-  fd_progcache_txn_advance_root( env->progcache_admin,        &fork_368528500 );
+  fd_progcache_txn_attach_child( env->progcache->join, &root, &fork_368528500 );
+  fd_progcache_txn_advance_root( env->progcache->join,        &fork_368528500 );
 
   /* FIXME more operations here ... */
 }

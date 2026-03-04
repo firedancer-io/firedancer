@@ -50,11 +50,10 @@
    2. a cache entry is orphaned (updated or invalidated by an epoch
       boundary) */
 
-#include "fd_progcache_rec.h"
+#include "fd_progcache.h"
 #include "fd_prog_load.h"
 #include "../accdb/fd_accdb_base.h"
 #include "../runtime/fd_runtime_const.h"
-#include "../../funk/fd_funk.h"
 
 #define FD_PROGCACHE_DEPTH_MAX (128UL)
 
@@ -77,11 +76,8 @@ typedef struct fd_progcache_metrics fd_progcache_metrics_t;
    declaration-friendly. */
 
 struct fd_progcache {
-  fd_funk_t funk[1];
-
-  /* Current fork cache */
-  fd_funk_txn_xid_t fork[ FD_PROGCACHE_DEPTH_MAX ];
-  ulong             fork_depth;
+  fd_progcache_join_t join[1];
+  fd_accdb_lineage_t  lineage[1];
 
   fd_progcache_metrics_t * metrics;
 
@@ -123,11 +119,10 @@ fd_progcache_delete( void * ljoin ) {
    going to be loaded (typically max account data sz). */
 
 fd_progcache_t *
-fd_progcache_join( fd_progcache_t * ljoin,
-                   void *           shfunk,
-                   void *           shlocks,
-                   uchar *          scratch,
-                   ulong            scratch_sz );
+fd_progcache_join( fd_progcache_t *       ljoin,
+                   fd_progcache_shmem_t * shmem,
+                   uchar *                scratch,
+                   ulong                  scratch_sz );
 
 #define FD_PROGCACHE_SCRATCH_ALIGN     (64UL)
 #define FD_PROGCACHE_SCRATCH_FOOTPRINT FD_RUNTIME_ACC_SZ_MAX
@@ -135,9 +130,8 @@ fd_progcache_join( fd_progcache_t * ljoin,
 /* fd_progcache_leave detaches the caller from a program cache. */
 
 void *
-fd_progcache_leave( fd_progcache_t * cache,
-                    void **          opt_shfunk,
-                    void **          opt_shlocks );
+fd_progcache_leave( fd_progcache_t *        cache,
+                    fd_progcache_shmem_t ** opt_shmem );
 
 /* Record-level operations ********************************************/
 

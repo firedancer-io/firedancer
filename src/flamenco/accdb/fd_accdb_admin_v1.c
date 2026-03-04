@@ -162,7 +162,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
     if( funk->shmem->child_tail_cidx==self_cidx ) funk->shmem->child_tail_cidx = prev_cidx;
   }
 
-  /* Phase 5: Remove transcation from index */
+  /* Phase 5: Remove transaction from index */
 
   fd_funk_txn_map_query_t query[1];
   int remove_err = fd_funk_txn_map_remove( funk->txn_map, &txn->xid, NULL, query, FD_MAP_FLAG_BLOCKING );

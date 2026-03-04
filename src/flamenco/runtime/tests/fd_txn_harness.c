@@ -6,6 +6,7 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
+#include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../fd_system_ids.h"
 
@@ -44,13 +45,13 @@ fd_solfuzz_pb_txn_ctx_get_slot( fd_exec_test_txn_context_t const * test_ctx ) {
 static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_v1_clear( runner->accdb_admin );
-  fd_progcache_clear( runner->progcache_admin );
+  fd_progcache_clear( runner->progcache->join );
 
   /* In order to check for leaks in the workspace, we need to compact the
      allocators. Without doing this, empty superblocks may be retained
      by the fd_alloc instance, which mean we cannot check for leaks. */
   fd_alloc_compact( fd_accdb_user_v1_funk( runner->accdb )->alloc );
-  fd_alloc_compact( runner->progcache_admin->funk->alloc );
+  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Creates transaction execution context for a single test case.
@@ -65,7 +66,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->data->idx } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( runner->progcache->join, &parent_xid, &xid );
 
   /* Initialize bank from input txn bank */
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );

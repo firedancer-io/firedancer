@@ -6,7 +6,6 @@
 
 #include "../../funk/fd_funk_txn.h"
 
-
 #define FD_ACCDB_MAX_DEPTH_MAX (8192UL)
 
 struct fd_accdb_lineage {

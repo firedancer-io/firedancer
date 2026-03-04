@@ -14,7 +14,7 @@ fd_progcache_rec_new( void *                          mem,
 
   /* Format object */
 
-  int   has_calldests = !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version );
+  int has_calldests = !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_progcache_rec_t * rec           = FD_SCRATCH_ALLOC_APPEND( l, fd_progcache_rec_align(),  sizeof(fd_progcache_rec_t) );

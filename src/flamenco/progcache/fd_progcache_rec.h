@@ -1,8 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_progcache_fd_progcache_rec_h
 #define HEADER_fd_src_flamenco_progcache_fd_progcache_rec_h
 
-#include "../fd_flamenco_base.h"
+#include "../../funk/fd_funk_base.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "../fd_flamenco_base.h"
+#include "../fd_rwlock.h"
 
 /* fd_progcache_rec_t is the fixed size header of a program cache entry
    object.  Entries are either non-executable (e.g. programs that failed
@@ -11,10 +13,18 @@
    sized and contain additional structures past this header (rodata/ROM
    segment, control flow metadata, ...). */
 
-struct fd_progcache_rec {
+struct __attribute__((aligned(64))) fd_progcache_rec {
   /* Slot number at which this cache entry was created.
      Matches the XID's slot number for in-preparation transactions. */
   ulong slot;
+
+  fd_funk_xid_key_pair_t pair;      /* Transaction id and record key pair */
+  uint                   map_next;  /* Internal use by map */
+  uint                   next_idx;  /* Record map index of next record in its transaction */
+  uint                   prev_idx;  /* Record map index of previous record in its transaction */
+
+  uint  data_max;    /* size of allocation */
+  ulong data_gaddr;  /* wksp-base relative pointer to data */
 
   uint entry_pc;
   uint text_cnt;
@@ -26,14 +36,17 @@ struct fd_progcache_rec {
   uint calldests_off;  /* offset to sbpf_calldests map */
   uint rodata_off;     /* offset to rodata segment */
 
-  /* SBPF version, SIMD-0161 */
-  uchar sbpf_version;
-
-  uint executable : 1;  /* is this an executable entry? */
-  uint invalidate : 1;  /* if ==1, limits visibility of this entry to this slot */
+  ushort      sbpf_version : 8; /* SBPF version, SIMD-0161 */
+  ushort      executable   : 1; /* is this an executable entry? */
+  ushort      invalidate   : 1; /* if ==1, limits visibility of this entry to this slot */
+  ushort      exists       : 1;
+  fd_rwlock_t lock;
+  uchar       clock;
 };
 
 typedef struct fd_progcache_rec fd_progcache_rec_t;
+
+FD_STATIC_ASSERT( sizeof(fd_progcache_rec_t)==128, layout );
 
 FD_PROTOTYPES_BEGIN
 

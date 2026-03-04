@@ -155,9 +155,9 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
-  fd_accdb_admin_t     accdb_admin[1];
-  fd_accdb_user_t      accdb[1];
-  fd_progcache_admin_t progcache_admin[1];
+  fd_accdb_admin_t    accdb_admin[1];
+  fd_accdb_user_t     accdb[1];
+  fd_progcache_join_t progcache[1];
 
   fd_txncache_t * txncache;
   fd_store_t *    store;
@@ -685,7 +685,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid        = { .ul = { slot, bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( ctx->progcache, &parent_xid, &xid );
 
   /* Update required runtime state and handle potential boundary. */
 
@@ -959,7 +959,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->data->idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( ctx->progcache, &parent_xid, &xid );
 
   fd_bank_execution_fees_set( ctx->leader_bank, 0UL );
   fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
@@ -1113,14 +1113,15 @@ init_funk( fd_replay_tile_t * ctx,
   /* The program cache tracks the account database's fork graph at all
      times.  Perform initial synchronization: pivot from funk 'root' (a
      sentinel XID) to 'last publish' (the bootstrap root slot). */
-  if( FD_UNLIKELY( !ctx->progcache_admin->funk->shmem ) ) {
+  if( FD_UNLIKELY( !ctx->progcache->shmem ) ) {
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
   }
-  fd_progcache_clear( ctx->progcache_admin );
+  fd_progcache_clear( ctx->progcache );
 
   fd_funk_txn_xid_t last_publish = fd_accdb_root_get( ctx->accdb_admin );
-  fd_progcache_txn_attach_child( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), &last_publish );
-  fd_progcache_txn_advance_root( ctx->progcache_admin,                                             &last_publish );
+  fd_funk_txn_xid_t root = { .ul = { ULONG_MAX, ULONG_MAX } };
+  fd_progcache_txn_attach_child( ctx->progcache, &root, &last_publish );
+  fd_progcache_txn_advance_root( ctx->progcache,        &last_publish );
 }
 
 static void
@@ -2085,7 +2086,7 @@ accdb_advance_root( fd_replay_tile_t * ctx,
   fd_histf_sample( ctx->metrics.root_slot_dur,    (ulong)root_accounts_dt );
   fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
 
-  fd_progcache_txn_advance_root( ctx->progcache_admin, &xid );
+  fd_progcache_txn_advance_root( ctx->progcache, &xid );
 }
 
 static int
@@ -2805,11 +2806,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
 
-  ulong progcache_obj_id;       FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
-  ulong progcache_locks_obj_id; FD_TEST( (progcache_locks_obj_id = fd_pod_query_ulong( topo->props, "progcache_locks", ULONG_MAX ) )!=ULONG_MAX );
-  FD_TEST( fd_progcache_admin_join( ctx->progcache_admin,
-      fd_topo_obj_laddr( topo, progcache_obj_id       ),
-      fd_topo_obj_laddr( topo, progcache_locks_obj_id ) ) );
+  ulong progcache_obj_id; FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
+  FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id       ) ) );
 
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
