@@ -218,6 +218,7 @@ typedef struct fd_rpc_cluster_node fd_rpc_cluster_node_t;
 #include "../../util/tmpl/fd_dlist.c"
 
 struct fd_rpc_tile {
+  int delay_startup;
   fd_http_server_t * http;
 
   fd_rpc_cluster_node_dlist_t * cluster_nodes_dlist;
@@ -384,7 +385,8 @@ before_credit( fd_rpc_tile_t *     ctx,
   (void)stem;
 
   long now = fd_tickcount();
-  if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
+  int replay_ready = ctx->confirmed_idx!=ULONG_MAX && ctx->processed_idx!=ULONG_MAX && ctx->finalized_idx!=ULONG_MAX;
+  if( FD_UNLIKELY( (!ctx->delay_startup || replay_ready) && now>=ctx->next_poll_deadline ) ) {
     *charge_busy = fd_http_server_poll( ctx->http, 0 );
     ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL )*128L*1000L);
   }
@@ -1396,7 +1398,6 @@ static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t * ctx,
                     cJSON const *   id,
                     cJSON const *   params ) {
-  /* fd_http_server_listen is not called until after RPC has initialized banks */
   if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX ) ) {
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
@@ -1830,6 +1831,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( alloc );
   cJSON_alloc_install( alloc );
 
+  ctx->delay_startup = tile->rpc.delay_startup;
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 

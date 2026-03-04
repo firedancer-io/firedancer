@@ -254,6 +254,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.rpc.max_http_connections                   );
   CFG_POP      ( ulong,  tiles.rpc.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.rpc.send_buffer_size_mb                    );
+  CFG_POP      ( bool,   tiles.rpc.delay_startup                          );
 
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );

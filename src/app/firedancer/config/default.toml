@@ -1598,6 +1598,13 @@ telemetry = true
         # memory usage.
         send_buffer_size_mb = 1024
 
+        # If delay_startup is true, the RPC tile will wait for snapshots
+        # to load before accepting connections.  This behavior conforms
+        # with Agave's boot sequence, but can be disabled here to allow
+        # RPC to serve a subset of calls even when snapshots are
+        # loading.
+        delay_startup = true
+
     [tiles.archiver]
         enabled = false
 

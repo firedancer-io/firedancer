@@ -478,6 +478,7 @@ struct fd_config {
       ulong  max_http_connections;
       ulong  max_http_request_length;
       ulong  send_buffer_size_mb;
+      int    delay_startup;
     } rpc;
 
     struct {
