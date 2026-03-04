@@ -190,7 +190,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_shmem_private {
      be the root transaction if no transactions have been published.
      Will be the root transaction immediately after construction. */
 
-  ulong txn_max;         /* In [0,FD_FUNK_TXN_IDX_NULL] */
+  ulong txn_max;         /* In [1,FD_FUNK_TXN_IDX_NULL] */
   ulong txn_map_gaddr;   /* Non-zero wksp gaddr with tag wksp_tag
                             seed   ==fd_funk_txn_map_seed   (txn_map)
                             txn_max==fd_funk_txn_map_key_max(txn_map) */

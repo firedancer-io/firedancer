@@ -166,15 +166,13 @@ typedef struct fd_funk_rec fd_funk_rec_t;
 /* Operations */
 /* fd_funk_txn_prepare starts preparation of a transaction.  The
    transaction will be a child of the in-preparation transaction pointed
-   to by parent.  A NULL parent means the transaction should be a child
-   of funk.  xid points to transaction id that should be used for the
-   transaction.  This id must be unique over all in-preparation
-   transactions, the root transaction and the last published
-   transaction.  It is strongly recommended to use globally unique ids
-   when possible.  Returns a pointer in the caller's address space to
-   the in-preparation transaction on success and NULL on failure.  The
-   lifetime of the returned pointer is as described in
-   fd_funk_txn_query.
+   to by parent_xid.  parent_xid must be non-NULL.  To create a child of
+   funk itself, pass the xid of the current last published transaction
+   (i.e. fd_funk_last_publish( funk )) as parent_xid.  xid points to the
+   transaction id that should be used for the transaction.  This id must
+   be unique over all in-preparation transactions, the root transaction
+   and the last published transaction.  It is strongly recommended to
+   use globally unique ids when possible.
 
    At start of preparation, the records in the txn are a virtual clone of the
    records in its parent transaction.  The funk records can be modified
@@ -182,11 +180,12 @@ typedef struct fd_funk_rec fd_funk_rec_t;
    in-preparation transaction can be freely modified when it has
    no children.
 
-   Assumes funk is a current local join.  Reasons for failure include
-   funk is NULL, the funk's transaction map is full, the parent is
-   neither NULL nor points to an in-preparation funk transaction, xid is
-   NULL, the requested xid is in use (i.e. the last published or matches
-   another in-preparation transaction).
+   Assumes funk is a current local join.  Requires funk, parent_xid and
+   xid are non-NULL.  parent_xid must be either the current last
+   published transaction xid or the xid of an in-preparation transaction.
+   Reasons for failure include the funk's transaction map is full, the
+   requested xid is in use (i.e. the last published or matches another
+   in-preparation transaction), or parent_xid is invalid.
 
    This is a reasonably fast O(1) time (theoretical minimum), reasonably
    small O(1) space (theoretical minimum), does no allocation, does no
@@ -196,7 +195,7 @@ typedef struct fd_funk_rec fd_funk_rec_t;
 
 void
 fd_funk_txn_prepare( fd_funk_t *               funk,
-                     fd_funk_txn_xid_t const * parent,
+                     fd_funk_txn_xid_t const * parent_xid,
                      fd_funk_txn_xid_t const * xid );
 
 /* Misc */
