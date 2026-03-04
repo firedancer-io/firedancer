@@ -24,6 +24,14 @@ int
 fd_vsv_get_state( fd_account_meta_t const * meta,
                   uchar *                   vote_state_mem );
 
+/* This is essentially a call to get_state, additionally erroring out
+   if the versioned vote state is the Uninitialized (previously
+   V0.23.5) variant.
+   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/vote_state_versions.rs#L140-L187 */
+int
+fd_vsv_deserialize( fd_account_meta_t const * meta,
+                    uchar *                   vote_state_mem );
+
 /* Returns a const pointer to the authorized withdrawer for the
    appropriate vote state version.*/
 fd_pubkey_t const *
