@@ -406,18 +406,25 @@ poll_advance( fd_http_resolver_t * resolver,
 
     struct pollfd * pfd = &resolver->fds[ i ];
     if( FD_UNLIKELY( pfd->fd==-1 ) ) continue;
-    if( FD_UNLIKELY( pfd->revents & (POLLERR|POLLHUP) ) ) {
-      unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] ), now );
-      continue;
-    }
 
     fd_ssresolve_peer_t * peer = peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] );
     int                   full = i&1UL ? 0 : 1; /* even indices are full, odd indices are incremental */
     fd_ssresolve_t * ssresolve = full ? peer->full_ssresolve : peer->inc_ssresolve;
 
+    /* Process pending I/O before checking for errors.  POLLIN can
+       coexist with POLLHUP when the server sends a response and then
+       closes the connection (common for HTTP HEAD redirects). */
     if( FD_LIKELY( !fd_ssresolve_is_done( ssresolve ) ) ) {
       int res = poll_resolve( resolver, pfd, peer, ssresolve, i, now );
       if( FD_UNLIKELY( res ) ) continue;
+    }
+
+    /* Only react to POLLERR/POLLHUP if the ssresolve hasn't completed
+       yet.  After a redirect is parsed the server often closes the
+       connection, which is harmless. */
+    if( FD_UNLIKELY( (pfd->revents & (POLLERR|POLLHUP)) && !fd_ssresolve_is_done( ssresolve ) ) ) {
+      unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] ), now );
+      continue;
     }
 
     /* Once both the full and incremental snapshots are resolved, we can
