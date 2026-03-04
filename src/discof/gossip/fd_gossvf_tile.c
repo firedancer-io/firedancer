@@ -377,8 +377,10 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
         FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         if( FD_UNLIKELY( ha_dup ) ) {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ] += view->pull_response->values[ i ].length;
+          if( FD_LIKELY( !failed[ i ] ) ) {
+            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
+            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ] += view->pull_response->values[ i ].length;
+          }
           view->pull_response->values_len--;
           view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len ];
           failed[ i ] = failed[ view->pull_response->values_len ];
@@ -387,8 +389,10 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
 
         int err = verify_crds_value( &view->pull_response->values[ i ], payload+view->pull_response->values[ i ].offset, view->pull_response->values[ i ].length, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->values[ i ].length;
+          if( FD_LIKELY( !failed[ i ] ) ) {
+            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
+            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->values[ i ].length;
+          }
           view->pull_response->values_len--;
           view->pull_response->values[ i ] = view->pull_response->values[ view->pull_response->values_len ];
           failed[ i ] = failed[ view->pull_response->values_len ];
@@ -406,8 +410,10 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
       while( i<view->push->values_len ) {
         int err = verify_crds_value( &view->push->values[ i ], payload+view->push->values[ i ].offset, view->push->values[ i ].length, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ] += view->push->values[ i ].length;
+          if( FD_LIKELY( !failed[ i ] ) ) {
+            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ]++;
+            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ] += view->push->values[ i ].length;
+          }
           view->push->values_len--;
           view->push->values[ i ] = view->push->values[ view->push->values_len ];
           failed[ i ] = failed[ view->push->values_len ];
@@ -452,10 +458,11 @@ static void
 filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
                            uint                   tag,
                            fd_gossip_value_t *    values,
-                           ulong *                values_len,
+                           ulong                  values_len,
                            uchar *                failed ) {
-  ulong i = 0UL;
-  while( i<*values_len ) {
+  for( ulong i=0UL; i<values_len; i++ ) {
+    if( FD_UNLIKELY( failed[ i ] ) ) continue;
+
     int keep      = 0;
     int no_origin = 0;
     if( values[ i ].tag==FD_GOSSIP_VALUE_CONTACT_INFO ) {
@@ -486,8 +493,6 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
       }
       failed[ i ] = FD_GOSSIP_FAILED_NO_CONTACT_INFO;
     }
-
-    i++;
   }
 }
 
@@ -501,7 +506,7 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PRUNE:
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH: {
-      filter_shred_version_crds( ctx, view->tag, view->push->values, &view->push->values_len, failed );
+      filter_shred_version_crds( ctx, view->tag, view->push->values, view->push->values_len, failed );
       if( FD_UNLIKELY( !view->push->values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
       } else {
@@ -509,7 +514,7 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
       }
     }
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
-      filter_shred_version_crds( ctx, view->tag, view->pull_response->values, &view->pull_response->values_len, failed );
+      filter_shred_version_crds( ctx, view->tag, view->pull_response->values, view->pull_response->values_len, failed );
       if( FD_UNLIKELY( !view->pull_response->values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
       } else {
@@ -593,7 +598,6 @@ ping_if_unponged( fd_gossvf_tile_ctx_t * ctx,
     char base58[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( origin, NULL, base58 );
     FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( addr.addr ), addr.port, ctx->ping_cnt ));
-    ctx->ping_cnt++;
 #endif
     return 1;
   }
@@ -613,7 +617,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
                   fd_gossip_message_t *  view,
                   uchar *                failed,
                   fd_stem_context_t *    stem ) {
-  ulong * values_len;
+  ulong values_len;
   fd_gossip_value_t * values;
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PING:
@@ -625,24 +629,20 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH:
-      values_len = &view->push->values_len;
+      values_len = view->push->values_len;
       values = view->push->values;
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
-      values_len = &view->pull_response->values_len;
+      values_len = view->pull_response->values_len;
       values = view->pull_response->values;
       break;
     default:
       FD_LOG_ERR(( "unexpected view tag %u", view->tag ));
   }
 
-  ulong i = 0UL;
-  while( i<*values_len ) {
+  for( ulong i=0UL; i<values_len; i++ ) {
     fd_gossip_value_t const * value = &values[ i ];
-    if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      i++;
-      continue;
-    }
+    if( FD_UNLIKELY( failed[ i ] || value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
 
     /* We currently don't handle IPv6, so setting the address to 0 will
        cause it to be always dropped. */
@@ -664,8 +664,6 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
          track the hash in the purged set. */
       failed[ i ] = FD_GOSSIP_FAILED_NO_CONTACT_INFO;
     }
-
-    i++;
   }
 
   return 0;
@@ -708,7 +706,7 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
                     fd_gossip_update_message_t * gossip_update ) {
 #if DEBUG_PEERS
     char base58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( gossip_update->origin_pubkey, NULL, base58 );
+    fd_base58_encode_32( gossip_update->origin, NULL, base58 );
 #endif
 
   switch( gossip_update->tag ) {
@@ -716,7 +714,7 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
       peer_t * peer = peer_map_ele_query( ctx->peer_map, fd_type_pun_const( gossip_update->origin ), NULL, ctx->peers );
       if( FD_LIKELY( peer ) ) {
 #if DEBUG_PEERS
-        FD_LOG_NOTICE(( "updating peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
+        FD_LOG_NOTICE(( "updating peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4 ), fd_ushort_bswap( gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
 #endif
 
         peer->shred_version = gossip_update->contact_info->value->shred_version;
@@ -725,7 +723,7 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
       } else {
 #if DEBUG_PEERS
         ctx->peer_cnt++;
-        FD_LOG_NOTICE(( "adding peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
+        FD_LOG_NOTICE(( "adding peer %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4 ), fd_ushort_bswap( gossip_update->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port ), ctx->peer_cnt ));
 #endif
 
         FD_TEST( peer_pool_free( ctx->peers ) );

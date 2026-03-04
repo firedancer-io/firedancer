@@ -152,12 +152,15 @@ ping_tracker_change( void *        _ctx,
 
   if( FD_UNLIKELY( !memcmp( peer_pubkey, ctx->identity_pubkey, 32UL ) ) ) return;
 
+  if( FD_LIKELY( change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE ) ) {
+    fd_gossip_purged_drain_no_contact_info( ctx->purged, peer_pubkey );
+  }
+
   ulong ci_idx = fd_crds_ci_idx( ctx->crds, peer_pubkey );
   if( FD_UNLIKELY( ci_idx!=ULONG_MAX ) ) {
     switch( change_type ) {
       case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:
         fd_gossip_wsample_active( ctx->wsample, ci_idx, 1 );
-        fd_gossip_purged_drain_no_contact_info( ctx->purged, peer_pubkey );
         break;
       case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE:
         fd_gossip_wsample_active( ctx->wsample, ci_idx, 0 );
@@ -1082,6 +1085,8 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
     /* TODO: Frequency of this? More often if observing? */
     refresh_contact_info( gossip, now );
+    int origin_active = fd_ping_tracker_active( gossip->ping_tracker, gossip->identity_pubkey );
+    fd_crds_insert( gossip->crds, gossip->my_contact_info.ci, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_stake, origin_active, 1, now, stem );
     fd_active_set_push( gossip->active_set, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     gossip->timers.next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */
     if( charge_busy ) *charge_busy = 1;
