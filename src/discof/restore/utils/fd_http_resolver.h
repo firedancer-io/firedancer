@@ -14,6 +14,7 @@ typedef struct fd_http_resolver_private fd_http_resolver_t;
 
 typedef void
 (* fd_http_resolver_on_resolve_fn_t)( void *        _ctx,
+                                      fd_sspeer_key_t const * key,
                                       fd_ip4_port_t addr,
                                       ulong         full_slot,
                                       ulong         incr_slot,
@@ -36,12 +37,13 @@ fd_http_resolver_new( void *                           shmem,
                       void *                           cb_arg );
 
 /* Add a peer to the resolver.  Peers are not de-duplicated and must
-   be unique. */
+   be unique.  The peer will be added to the selector. */
 void
-fd_http_resolver_add( fd_http_resolver_t * resolver,
-                      fd_ip4_port_t        addr,
-                      char const *         hostname,
-                      int                  is_https );
+fd_http_resolver_add( fd_http_resolver_t *   resolver,
+                      fd_ip4_port_t          addr,
+                      char const *           hostname,
+                      int                    is_https,
+                      fd_sspeer_selector_t * selector );
 
 fd_http_resolver_t *
 fd_http_resolver_join( void * shresolve );

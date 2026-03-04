@@ -394,7 +394,7 @@ fd_ssping_advance( fd_ssping_t *          ssping,
     peer->state = PEER_STATE_INVALID;
     peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
     deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
-    fd_sspeer_selector_remove( selector, peer->addr );
+    fd_sspeer_selector_remove_by_addr( selector, peer->addr );
   }
 
   sent = send_pings( ssping, ssping->valid, now );
@@ -415,7 +415,7 @@ fd_ssping_advance( fd_ssping_t *          ssping,
     peer->state = PEER_STATE_INVALID;
     peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
     deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
-    fd_sspeer_selector_remove( selector, peer->addr );
+    fd_sspeer_selector_remove_by_addr( selector, peer->addr );
   }
 
   while( !deadline_list_is_empty( ssping->invalid, ssping->pool ) ) {
