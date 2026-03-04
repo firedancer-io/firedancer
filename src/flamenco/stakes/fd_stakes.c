@@ -130,9 +130,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         history,
         new_rate_activation_epoch );
 
-    fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, &stake_delegation->vote_account, NULL, runtime_stack->stakes.vote_ele );
-    if( FD_UNLIKELY( !vote_ele ) ) {
-      vote_ele               = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
+    if( FD_UNLIKELY( !fd_vote_stakes_query( vote_stakes, child_idx, &stake_delegation->vote_account, NULL, NULL, NULL, NULL ) ) ) {
+      fd_vote_rewards_t * vote_ele    = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
       vote_ele->pubkey       = stake_delegation->vote_account;
       vote_ele->vote_rewards = 0UL;
 
@@ -173,7 +172,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     fd_vote_stakes_insert_update( vote_stakes,
                                   child_idx,
-                                  &vote_ele->pubkey,
+                                  &stake_delegation->vote_account,
                                   new_entry.effective );
 
     total_stake += new_entry.effective;
