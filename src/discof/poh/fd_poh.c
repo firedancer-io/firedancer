@@ -61,7 +61,7 @@ fd_poh_align( void ) {
 
 FD_FN_CONST ulong
 fd_poh_footprint( void ) {
-  return FD_POH_FOOTPRINT;
+  return sizeof(fd_poh_t);
 }
 
 void *
