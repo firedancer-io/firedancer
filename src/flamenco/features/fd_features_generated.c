@@ -1736,7 +1736,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xec\xfa\x3a\xf2\xab\xa3\x21\x89\x19\xf4\xc3\x4c\x05\xdf\x88\xf0\x79\x57\x48\xf1\x3e\x35\x12\x0b\x7b\x56\xaa\xae\x3f\xe9\x98\x58"},
                                  /* Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ */
     .name                      = "vote_state_v4",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, alt_bn128_little_endian)>>3,
     .id                        = {"\x08\xe8\xaa\x0c\xd9\xdd\x0d\x64\x43\xd8\xe2\x10\x78\x48\x9b\x29\x9a\xaa\x18\x6b\x5d\xbd\x70\xca\x27\xd8\x37\x59\x39\x2a\x03\x56"},
