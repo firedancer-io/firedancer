@@ -48,14 +48,15 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Bank manager */
   fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
 
+  /* Restore features */
+  FD_TEST( test_ctx->has_features );
   fd_features_t * features = fd_bank_features_modify( runner->bank );
-  fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
+  fd_exec_test_feature_set_t const * feature_set = &test_ctx->features;
   if( !fd_solfuzz_pb_restore_features( features, feature_set ) ) {
     FD_LOG_ERR(( "invariant violation: unsupported feature ID" ));
   }
 
   /* Blockhash queue init */
-
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( runner->bank ), blockhash_seed );
   fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );

@@ -355,16 +355,6 @@ struct fd_vote_prior_voter {
 typedef struct fd_vote_prior_voter fd_vote_prior_voter_t;
 #define FD_VOTE_PRIOR_VOTER_ALIGN alignof(fd_vote_prior_voter_t)
 
-/* Encoded Size: Fixed (56 bytes) */
-struct fd_vote_prior_voter_0_23_5 {
-  fd_pubkey_t pubkey;
-  ulong epoch_start;
-  ulong epoch_end;
-  ulong slot;
-};
-typedef struct fd_vote_prior_voter_0_23_5 fd_vote_prior_voter_0_23_5_t;
-#define FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN alignof(fd_vote_prior_voter_0_23_5_t)
-
 /* Encoded Size: Fixed (24 bytes) */
 struct fd_vote_epoch_credits {
   ulong epoch;
@@ -393,15 +383,6 @@ typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 #define FD_VOTE_PRIOR_VOTERS_ALIGN alignof(fd_vote_prior_voters_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
-/* Encoded Size: Fixed (1800 bytes) */
-struct fd_vote_prior_voters_0_23_5 {
-  fd_vote_prior_voter_0_23_5_t buf[32];
-  ulong idx;
-};
-typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
-#define FD_VOTE_PRIOR_VOTERS_0_23_5_ALIGN alignof(fd_vote_prior_voters_0_23_5_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L268 */
 /* Encoded Size: Fixed (13 bytes) */
 struct fd_landed_vote {
   uchar latency;
@@ -425,54 +406,6 @@ struct fd_bls_proof_of_possession {
 };
 typedef struct fd_bls_proof_of_possession fd_bls_proof_of_possession_t;
 #define FD_BLS_PROOF_OF_POSSESSION_ALIGN alignof(fd_bls_proof_of_possession_t)
-
-#define DEQUE_NAME deq_fd_vote_lockout_t
-#define DEQUE_T fd_vote_lockout_t
-#include "../../util/tmpl/fd_deque_dynamic.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
-static inline fd_vote_lockout_t *
-deq_fd_vote_lockout_t_join_new( void * * alloc_mem, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_vote_lockout_t_align() );
-  void * deque_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + deq_fd_vote_lockout_t_footprint( max );
-  return deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( deque_mem, max ) );
-}
-
-#define DEQUE_NAME deq_fd_vote_epoch_credits_t
-#define DEQUE_T fd_vote_epoch_credits_t
-#include "../../util/tmpl/fd_deque_dynamic.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
-static inline fd_vote_epoch_credits_t *
-deq_fd_vote_epoch_credits_t_join_new( void * * alloc_mem, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_vote_epoch_credits_t_align() );
-  void * deque_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + deq_fd_vote_epoch_credits_t_footprint( max );
-  return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( deque_mem, max ) );
-}
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6 */
-/* Encoded Size: Dynamic */
-struct fd_vote_state_0_23_5 {
-  fd_pubkey_t node_pubkey;
-  fd_pubkey_t authorized_voter;
-  ulong authorized_voter_epoch;
-  fd_vote_prior_voters_0_23_5_t prior_voters;
-  fd_pubkey_t authorized_withdrawer;
-  uchar commission;
-  fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 32) */
-  ulong root_slot;
-  uchar has_root_slot;
-  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
-  fd_vote_block_timestamp_t last_timestamp;
-};
-typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
-#define FD_VOTE_STATE_0_23_5_ALIGN alignof(fd_vote_state_0_23_5_t)
 
 #define FD_VOTE_AUTHORIZED_VOTERS_MIN 5
 #define POOL_NAME fd_vote_authorized_voters_pool
@@ -509,6 +442,36 @@ struct fd_vote_authorized_voters {
 };
 typedef struct fd_vote_authorized_voters fd_vote_authorized_voters_t;
 #define FD_VOTE_AUTHORIZED_VOTERS_ALIGN alignof(fd_vote_authorized_voters_t)
+
+#define DEQUE_NAME deq_fd_vote_lockout_t
+#define DEQUE_T fd_vote_lockout_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+#undef DEQUE_MAX
+static inline fd_vote_lockout_t *
+deq_fd_vote_lockout_t_join_new( void * * alloc_mem, ulong max ) {
+  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_vote_lockout_t_align() );
+  void * deque_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + deq_fd_vote_lockout_t_footprint( max );
+  return deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( deque_mem, max ) );
+}
+
+#define DEQUE_NAME deq_fd_vote_epoch_credits_t
+#define DEQUE_T fd_vote_epoch_credits_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+#undef DEQUE_NAME
+#undef DEQUE_T
+#undef DEQUE_MAX
+static inline fd_vote_epoch_credits_t *
+deq_fd_vote_epoch_credits_t_join_new( void * * alloc_mem, ulong max ) {
+  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_vote_epoch_credits_t_align() );
+  void * deque_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + deq_fd_vote_epoch_credits_t_footprint( max );
+  return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( deque_mem, max ) );
+}
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
 /* Encoded Size: Dynamic */
@@ -582,7 +545,6 @@ typedef struct fd_vote_state_v4 fd_vote_state_v4_t;
 #define FD_VOTE_STATE_V4_ALIGN alignof(fd_vote_state_v4_t)
 
 union fd_vote_state_versioned_inner {
-  fd_vote_state_0_23_5_t v0_23_5;
   fd_vote_state_1_14_11_t v1_14_11;
   fd_vote_state_v3_t v3;
   fd_vote_state_v4_t v4;
@@ -980,14 +942,13 @@ struct fd_vote_authorize_checked_with_seed_args {
 typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN alignof(fd_vote_authorize_checked_with_seed_args_t)
 
-/* https://github.com/anza-xyz/agave/blob/HEAD/vote-interface/src/instruction.rs#L28-L31 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/instruction.rs#L28-L31 */
 struct fd_commission_kind {
   uint discriminant;
 };
 typedef struct fd_commission_kind fd_commission_kind_t;
 #define FD_COMMISSION_KIND_ALIGN alignof(fd_commission_kind_t)
 
-/* Inner type for VoteInstruction::UpdateCommissionBps */
 /* Encoded Size: Fixed (6 bytes) */
 struct fd_update_commission_bps_args {
   ushort commission_bps;
@@ -996,7 +957,6 @@ struct fd_update_commission_bps_args {
 typedef struct fd_update_commission_bps_args fd_update_commission_bps_args_t;
 #define FD_UPDATE_COMMISSION_BPS_ARGS_ALIGN alignof(fd_update_commission_bps_args_t)
 
-/* Inner type for VoteInstruction::DepositDelegatorRewards */
 /* Encoded Size: Fixed (8 bytes) */
 struct fd_deposit_delegator_rewards_args {
   ulong deposit;
@@ -1845,17 +1805,6 @@ static inline int fd_vote_prior_voter_decode_footprint( fd_bincode_decode_ctx_t 
 }
 void * fd_vote_prior_voter_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-static inline void fd_vote_prior_voter_0_23_5_new( fd_vote_prior_voter_0_23_5_t * self ) { fd_memset( self, 0, sizeof(fd_vote_prior_voter_0_23_5_t) ); }
-int fd_vote_prior_voter_0_23_5_encode( fd_vote_prior_voter_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_vote_prior_voter_0_23_5_size( fd_vote_prior_voter_0_23_5_t const * self ) { (void)self; return 56UL; }
-static inline ulong fd_vote_prior_voter_0_23_5_align( void ) { return FD_VOTE_PRIOR_VOTER_0_23_5_ALIGN; }
-static inline int fd_vote_prior_voter_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_vote_prior_voter_0_23_5_t);
-  if( (ulong)ctx->data + 56UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_vote_prior_voter_0_23_5_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 static inline void fd_vote_epoch_credits_new( fd_vote_epoch_credits_t * self ) { fd_memset( self, 0, sizeof(fd_vote_epoch_credits_t) ); }
 int fd_vote_epoch_credits_encode( fd_vote_epoch_credits_t const * self, fd_bincode_encode_ctx_t * ctx );
 static inline ulong fd_vote_epoch_credits_size( fd_vote_epoch_credits_t const * self ) { (void)self; return 24UL; }
@@ -1884,17 +1833,6 @@ static inline ulong fd_vote_prior_voters_size( fd_vote_prior_voters_t const * se
 static inline ulong fd_vote_prior_voters_align( void ) { return FD_VOTE_PRIOR_VOTERS_ALIGN; }
 int fd_vote_prior_voters_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_vote_prior_voters_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_vote_prior_voters_0_23_5_new( fd_vote_prior_voters_0_23_5_t * self ) { fd_memset( self, 0, sizeof(fd_vote_prior_voters_0_23_5_t) ); }
-int fd_vote_prior_voters_0_23_5_encode( fd_vote_prior_voters_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_vote_prior_voters_0_23_5_size( fd_vote_prior_voters_0_23_5_t const * self ) { (void)self; return 1800UL; }
-static inline ulong fd_vote_prior_voters_0_23_5_align( void ) { return FD_VOTE_PRIOR_VOTERS_0_23_5_ALIGN; }
-static inline int fd_vote_prior_voters_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_vote_prior_voters_0_23_5_t);
-  if( (ulong)ctx->data + 1800UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_vote_prior_voters_0_23_5_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_landed_vote_new( fd_landed_vote_t * self ) { fd_memset( self, 0, sizeof(fd_landed_vote_t) ); }
 int fd_landed_vote_encode( fd_landed_vote_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -1928,13 +1866,6 @@ static inline int fd_bls_proof_of_possession_decode_footprint( fd_bincode_decode
   return 0;
 }
 void * fd_bls_proof_of_possession_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_vote_state_0_23_5_new( fd_vote_state_0_23_5_t * self );
-int fd_vote_state_0_23_5_encode( fd_vote_state_0_23_5_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_vote_state_0_23_5_size( fd_vote_state_0_23_5_t const * self );
-static inline ulong fd_vote_state_0_23_5_align( void ) { return FD_VOTE_STATE_0_23_5_ALIGN; }
-int fd_vote_state_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_vote_state_0_23_5_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_vote_authorized_voters_new( fd_vote_authorized_voters_t * self );
 int fd_vote_authorized_voters_encode( fd_vote_authorized_voters_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -1973,12 +1904,12 @@ int fd_vote_state_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
 int fd_vote_state_versioned_seek_end( fd_bincode_decode_ctx_t * ctx );
 void * fd_vote_state_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-FD_FN_PURE uchar fd_vote_state_versioned_is_v0_23_5( fd_vote_state_versioned_t const * self );
+FD_FN_PURE uchar fd_vote_state_versioned_is_uninitialized( fd_vote_state_versioned_t const * self );
 FD_FN_PURE uchar fd_vote_state_versioned_is_v1_14_11( fd_vote_state_versioned_t const * self );
 FD_FN_PURE uchar fd_vote_state_versioned_is_v3( fd_vote_state_versioned_t const * self );
 FD_FN_PURE uchar fd_vote_state_versioned_is_v4( fd_vote_state_versioned_t const * self );
 enum {
-fd_vote_state_versioned_enum_v0_23_5 = 0,
+fd_vote_state_versioned_enum_uninitialized = 0,
 fd_vote_state_versioned_enum_v1_14_11 = 1,
 fd_vote_state_versioned_enum_v3 = 2,
 fd_vote_state_versioned_enum_v4 = 3,

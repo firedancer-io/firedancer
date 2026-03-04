@@ -50,13 +50,12 @@ get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
                                 int                           target_version,
                                 uchar                         check_initialized,
                                 uchar *                       vote_state_mem,
-                                uchar *                       authorized_voters_mem,
                                 uchar *                       landed_votes_mem ) {
   int rc;
   switch( target_version ) {
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L50-L62 */
     case VOTE_STATE_TARGET_VERSION_V3: {
-      rc = fd_vote_state_v3_deserialize( vote_account, vote_state_mem, authorized_voters_mem, landed_votes_mem );
+      rc = fd_vote_state_v3_deserialize( vote_account, vote_state_mem, landed_votes_mem );
       if( FD_UNLIKELY( rc ) ) return rc;
 
       fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
@@ -68,7 +67,7 @@ get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
     }
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L63-L75 */
     case VOTE_STATE_TARGET_VERSION_V4: {
-      rc = fd_vsv_deserialize( vote_account, vote_state_mem );
+      rc = fd_vsv_get_state( vote_account->meta, vote_state_mem );
       if( FD_UNLIKELY( rc ) ) return rc;
 
       fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
@@ -813,7 +812,6 @@ authorize( fd_exec_instr_ctx_t *         ctx,
       target_version,
       0,
       ctx->runtime->vote_program.authorize.vote_state_mem,
-      ctx->runtime->vote_program.authorize.authorized_voters_mem,
       ctx->runtime->vote_program.authorize.landed_votes_mem
   );
   if( FD_UNLIKELY( rc ) ) return rc;
@@ -949,7 +947,6 @@ update_validator_identity( fd_exec_instr_ctx_t *   ctx,
       target_version,
       0,
       ctx->runtime->vote_program.update_validator_identity.vote_state_mem,
-      ctx->runtime->vote_program.update_validator_identity.authorized_voters_mem,
       ctx->runtime->vote_program.update_validator_identity.landed_votes_mem
   );
   if( FD_UNLIKELY( rc ) ) return rc;
@@ -1018,7 +1015,6 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
       target_version,
       false,
       ctx->runtime->vote_program.update_commission.vote_state_mem,
-      ctx->runtime->vote_program.update_commission.authorized_voters_mem,
       ctx->runtime->vote_program.update_commission.landed_votes_mem
   );
 
@@ -1076,7 +1072,6 @@ withdraw( fd_exec_instr_ctx_t *         ctx,
       target_version,
       0,
       ctx->runtime->vote_program.withdraw.vote_state_mem,
-      ctx->runtime->vote_program.withdraw.authorized_voters_mem,
       ctx->runtime->vote_program.withdraw.landed_votes_mem
   );
   if( FD_UNLIKELY( rc ) ) return rc;
@@ -1353,7 +1348,6 @@ process_vote_with_account( fd_exec_instr_ctx_t *         ctx,
       target_version,
       1,
       ctx->runtime->vote_program.process_vote.vote_state_mem,
-      ctx->runtime->vote_program.process_vote.authorized_voters_mem,
       ctx->runtime->vote_program.process_vote.landed_votes_mem
   );
   if( FD_UNLIKELY( rc ) ) return rc;
@@ -1469,7 +1463,6 @@ process_vote_state_update( fd_exec_instr_ctx_t *         ctx,
       target_version,
       1,
       ctx->runtime->vote_program.process_vote.vote_state_mem,
-      ctx->runtime->vote_program.process_vote.authorized_voters_mem,
       ctx->runtime->vote_program.process_vote.landed_votes_mem
   );
   if( FD_UNLIKELY( rc ) ) return rc;
@@ -1558,7 +1551,6 @@ process_tower_sync( fd_exec_instr_ctx_t *         ctx,
      target_version,
      1,
      ctx->runtime->vote_program.tower_sync.vote_state_mem,
-     ctx->runtime->vote_program.tower_sync.authorized_voters_mem,
      ctx->runtime->vote_program.tower_sync.vote_state_landed_votes_mem
   );
   if( FD_UNLIKELY( rc ) ) return rc;
@@ -2419,9 +2411,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /* TODO: Old code, remove whenever stake program gets cleaned up */
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
-                            uchar *                     authorized_voters_mem,
                             uchar *                     landed_votes_mem ) {
-  fd_vsv_try_convert_to_v3( self, authorized_voters_mem, landed_votes_mem );
+  fd_vsv_try_convert_to_v3( self, landed_votes_mem );
 }
 
 fd_vote_state_versioned_t *

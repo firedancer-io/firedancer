@@ -30,7 +30,6 @@ fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
 int
 fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
                               uchar *                       vote_state_mem,
-                              uchar *                       authorized_voters_mem,
                               uchar *                       landed_votes_mem );
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L828 */

@@ -92,9 +92,8 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_st
 
     fd_vote_epoch_credits_t * epoch_credits = NULL;
     switch( vsv->discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        epoch_credits = vsv->inner.v0_23_5.epoch_credits;
-        break;
+      case fd_vote_state_versioned_enum_uninitialized:
+        FD_LOG_CRIT(("invariant violation: uninitialized vote state"));
       case fd_vote_state_versioned_enum_v1_14_11:
         epoch_credits = vsv->inner.v1_14_11.epoch_credits;
         break;

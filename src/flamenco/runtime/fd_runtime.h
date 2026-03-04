@@ -138,28 +138,24 @@ struct fd_runtime {
   union {
     struct {
       uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar authorized_voters_mem[ FD_AUTHORIZED_VOTERS_FOOTPRINT    ] __attribute__((aligned(FD_AUTHORIZED_VOTERS_ALIGN)));
       uchar landed_votes_mem     [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
       uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
     } authorize;
 
     struct {
       uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar authorized_voters_mem[ FD_AUTHORIZED_VOTERS_FOOTPRINT    ] __attribute__((aligned(FD_AUTHORIZED_VOTERS_ALIGN)));
       uchar landed_votes_mem     [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
       uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
     } update_validator_identity;
 
     struct {
       uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar authorized_voters_mem[ FD_AUTHORIZED_VOTERS_FOOTPRINT    ] __attribute__((aligned(FD_AUTHORIZED_VOTERS_ALIGN)));
       uchar landed_votes_mem     [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
       uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
     } update_commission;
 
     struct {
       uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar authorized_voters_mem[ FD_AUTHORIZED_VOTERS_FOOTPRINT    ] __attribute__((aligned(FD_AUTHORIZED_VOTERS_ALIGN)));
       uchar landed_votes_mem     [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
       uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
     } withdraw;
@@ -172,7 +168,6 @@ struct fd_runtime {
 
     struct {
       uchar vote_state_mem             [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar authorized_voters_mem      [ FD_AUTHORIZED_VOTERS_FOOTPRINT    ] __attribute__((aligned(FD_AUTHORIZED_VOTERS_ALIGN)));
       uchar vote_state_landed_votes_mem[ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
       uchar tower_sync_landed_votes_mem[ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
       uchar vote_lockout_mem           [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
@@ -181,7 +176,6 @@ struct fd_runtime {
     struct {
       /* Deprecated instructions */
       uchar vote_state_mem            [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar authorized_voters_mem     [ FD_AUTHORIZED_VOTERS_FOOTPRINT    ] __attribute__((aligned(FD_AUTHORIZED_VOTERS_ALIGN)));
       uchar landed_votes_mem          [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
       uchar vote_lockout_mem          [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
       uchar compact_vs_lockout_mem    [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
@@ -193,16 +187,13 @@ struct fd_runtime {
   union {
     struct {
       uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar authorized_voters_mem[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(128UL)));
       uchar landed_votes_mem     [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(128UL)));
     } delegate;
     struct {
       uchar delinquent_vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar delinquent_authorized_voters_mem[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(128UL)));
       uchar delinquent_landed_votes_mem     [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(128UL)));
 
       uchar reference_vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar reference_authorized_voters_mem[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(128UL)));
       uchar reference_landed_votes_mem     [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(128UL)));
     } deactivate_delinquent;
   } stake_program;
