@@ -335,6 +335,8 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   if( FD_LIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
     ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
     FD_TEST( ctx->av_keyswitch );
+  } else {
+    ctx->av_keyswitch = NULL;
   }
 
   for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;

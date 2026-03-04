@@ -46,7 +46,8 @@ void
 fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
                    int              sockfd,
-                   int              full );
+                   int              full,
+                   char const *     hostname );
 
 #if FD_HAS_OPENSSL
 void
