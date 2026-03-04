@@ -312,13 +312,9 @@
 #include "../../util/fd_util_base.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
-/* FD_POH_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
-   for a memory region to hold a fd_poh_t.  ALIGN is a positive
-   integer power of 2.  FOOTPRINT is a multiple of align.  These are
-   provided to facilitate compile time declarations. */
-
-#define FD_POH_ALIGN     (128UL)
-#define FD_POH_FOOTPRINT (128UL)
+/* FD_POH_ALIGN is the alignment needed for a memory region to hold a
+   fd_poh_t.  It is a positive integer power of 2. */
+#define FD_POH_ALIGN (128UL)
 
 #define FD_POH_MAGIC (0xF17EDA2CE580A000) /* FIREDANCE POH V0 */
 
