@@ -27,20 +27,6 @@
    } while(0);                                                                        \
 })
 
-/* Retrieves the slot number from the clock sysvar account within the
-   txn context.  Throws FD_LOG_ERR if the clock sysvar is not found
-   or is malformed. */
-static ulong
-fd_solfuzz_pb_txn_ctx_get_slot( fd_exec_test_txn_context_t const * test_ctx ) {
-  for( ulong i=0UL; i<test_ctx->account_shared_data_count; i++ ) {
-    if( !memcmp( &test_ctx->account_shared_data[i].address, &fd_sysvar_clock_id, sizeof(fd_pubkey_t) ) ) {
-      FD_TEST( test_ctx->account_shared_data[i].data->size==sizeof(fd_sol_sysvar_clock_t) );
-      return FD_LOAD( ulong, test_ctx->account_shared_data[i].data->bytes );
-    }
-  }
-  FD_LOG_ERR(( "invariant violation: clock sysvar account not found in txn context" ));
-}
-
 static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_v1_clear( runner->accdb_admin );
@@ -61,7 +47,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_accdb_user_t * accdb = runner->accdb;
 
   /* Set up the funk transaction */
-  ulong             slot = fd_solfuzz_pb_txn_ctx_get_slot( test_ctx );
+  ulong             slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
   fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->data->idx } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, &xid );
@@ -72,20 +58,11 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
 
-  /* Initialize blockhash queue */
-  ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
-  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( runner->bank ), blockhash_seed );
-  for( uint i=0UL; i<txn_bank->blockhash_queue_count; i++ ) {
-    fd_exec_test_blockhash_queue_entry_t const * entry = &txn_bank->blockhash_queue[i];
+  /* Slot*/
+  fd_bank_slot_set( runner->bank, slot );
 
-    fd_hash_t hash                   = FD_LOAD( fd_hash_t, entry->blockhash );
-    ulong     lamports_per_signature = entry->lamports_per_signature;
-
-    fd_blockhash_info_t * blockhash = fd_blockhashes_push_new( blockhashes, &hash );
-    blockhash->fee_calculator = (fd_fee_calculator_t){
-      .lamports_per_signature = lamports_per_signature
-    };
-  }
+  /* Blockhash queue */
+  fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
 
   /* RBH lamports per signature. In the Agave harness this is set inside
      the fee rate governor itself. */
@@ -93,17 +70,9 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Fee rate governor */
   FD_TEST( txn_bank->has_fee_rate_governor );
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( runner->bank );
-  *fee_rate_governor = (fd_fee_rate_governor_t){
-    .target_lamports_per_signature = txn_bank->fee_rate_governor.target_lamports_per_signature,
-    .target_signatures_per_slot    = txn_bank->fee_rate_governor.target_signatures_per_slot,
-    .min_lamports_per_signature    = txn_bank->fee_rate_governor.min_lamports_per_signature,
-    .max_lamports_per_signature    = txn_bank->fee_rate_governor.max_lamports_per_signature,
-    .burn_percent                  = (uchar)txn_bank->fee_rate_governor.burn_percent,
-  };
+  fd_solfuzz_pb_restore_fee_rate_governor( runner->bank, &txn_bank->fee_rate_governor );
 
-  /* Slot and parent slot */
-  fd_bank_slot_set( runner->bank, slot );
+  /* Parent slot */
   fd_bank_parent_slot_set( runner->bank, slot-1UL );
 
   /* Total epoch stake */
@@ -111,34 +80,20 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Epoch schedule */
   FD_TEST( txn_bank->has_epoch_schedule );
-  fd_epoch_schedule_t * epoch_schedule = fd_bank_epoch_schedule_modify( runner->bank );
-  *epoch_schedule = (fd_epoch_schedule_t){
-    .slots_per_epoch             = txn_bank->epoch_schedule.slots_per_epoch,
-    .leader_schedule_slot_offset = txn_bank->epoch_schedule.leader_schedule_slot_offset,
-    .warmup                      = txn_bank->epoch_schedule.warmup,
-    .first_normal_epoch          = txn_bank->epoch_schedule.first_normal_epoch,
-    .first_normal_slot           = txn_bank->epoch_schedule.first_normal_slot
-  };
+  fd_solfuzz_pb_restore_epoch_schedule( runner->bank, &txn_bank->epoch_schedule );
 
   /* Rent */
   FD_TEST( txn_bank->has_rent );
-  fd_rent_t * rent = fd_bank_rent_modify( runner->bank );
-  *rent = (fd_rent_t){
-    .lamports_per_uint8_year = txn_bank->rent.lamports_per_byte_year,
-    .exemption_threshold     = txn_bank->rent.exemption_threshold,
-    .burn_percent            = (uchar)txn_bank->rent.burn_percent
-  };
+  fd_solfuzz_pb_restore_rent( runner->bank, &txn_bank->rent );
 
   /* Features */
   FD_TEST( txn_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &txn_bank->features;
   fd_features_t * features_bm = fd_bank_features_modify( runner->bank );
-  if( !fd_solfuzz_pb_restore_features( features_bm, feature_set ) ) {
-    return NULL;
-  }
+  FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
 
   /* Epoch */
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
+  ulong epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( runner->bank ), slot, NULL );
   fd_bank_epoch_set( runner->bank, epoch );
 
   /* Load account states into funk (note this is different from the account keys):
@@ -149,7 +104,6 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
     fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], i );
   }
-
 
   fd_bank_ticks_per_slot_set( runner->bank, 64 );
   fd_bank_slots_per_year_set( runner->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( runner->bank )) );

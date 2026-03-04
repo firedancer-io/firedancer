@@ -1,9 +1,78 @@
 #include "fd_solfuzz_private.h"
 #include "generated/context.pb.h"
 #include "../fd_runtime.h"
+#include "../fd_bank.h"
+#include "../fd_system_ids.h"
+#include "../sysvar/fd_sysvar_clock.h"
 #include "../../features/fd_features.h"
 #include "../../accdb/fd_accdb_sync.h"
 #include <assert.h>
+
+void
+fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
+                                         fd_exec_test_fee_rate_governor_t const * fee_rate_governor ) {
+  fd_fee_rate_governor_t * frg = fd_bank_fee_rate_governor_modify( bank );
+  *frg = (fd_fee_rate_governor_t){
+    .target_lamports_per_signature = fee_rate_governor->target_lamports_per_signature,
+    .target_signatures_per_slot    = fee_rate_governor->target_signatures_per_slot,
+    .min_lamports_per_signature    = fee_rate_governor->min_lamports_per_signature,
+    .max_lamports_per_signature    = fee_rate_governor->max_lamports_per_signature,
+    .burn_percent                  = (uchar)fee_rate_governor->burn_percent,
+  };
+}
+
+void
+fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank,
+                                      fd_exec_test_epoch_schedule_t const * epoch_schedule ) {
+  fd_epoch_schedule_t * es = fd_bank_epoch_schedule_modify( bank );
+  *es = (fd_epoch_schedule_t){
+    .slots_per_epoch             = epoch_schedule->slots_per_epoch,
+    .leader_schedule_slot_offset = epoch_schedule->leader_schedule_slot_offset,
+    .warmup                      = epoch_schedule->warmup,
+    .first_normal_epoch          = epoch_schedule->first_normal_epoch,
+    .first_normal_slot           = epoch_schedule->first_normal_slot,
+  };
+}
+
+void
+fd_solfuzz_pb_restore_rent( fd_bank_t *                 bank,
+                            fd_exec_test_rent_t const * rent ) {
+  fd_rent_t * r = fd_bank_rent_modify( bank );
+  *r = (fd_rent_t){
+    .lamports_per_uint8_year = rent->lamports_per_byte_year,
+    .exemption_threshold     = rent->exemption_threshold,
+    .burn_percent            = (uchar)rent->burn_percent,
+  };
+}
+
+void
+fd_solfuzz_pb_restore_blockhash_queue( fd_bank_t *                                    bank,
+                                       fd_exec_test_blockhash_queue_entry_t const *   entries,
+                                       ulong                                          entries_cnt ) {
+  ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( bank ), blockhash_seed );
+  for( ulong i=0UL; i<entries_cnt; i++ ) {
+    fd_hash_t hash                   = FD_LOAD( fd_hash_t, entries[i].blockhash );
+    ulong     lamports_per_signature = entries[i].lamports_per_signature;
+
+    fd_blockhash_info_t * blockhash = fd_blockhashes_push_new( blockhashes, &hash );
+    blockhash->fee_calculator = (fd_fee_calculator_t){
+      .lamports_per_signature = lamports_per_signature
+    };
+  }
+}
+
+ulong
+fd_solfuzz_pb_get_slot( fd_exec_test_acct_state_t const * acct_states,
+                        ulong                             acct_states_cnt ) {
+  for( ulong i=0UL; i<acct_states_cnt; i++ ) {
+    if( !memcmp( &acct_states[i].address, &fd_sysvar_clock_id, sizeof(fd_pubkey_t) ) ) {
+      FD_TEST( acct_states[i].data->size==sizeof(fd_sol_sysvar_clock_t) );
+      return FD_LOAD( ulong, acct_states[i].data->bytes );
+    }
+  }
+  FD_LOG_ERR(( "invariant violation: clock sysvar account not found in acct states" ));
+}
 
 int
 fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
