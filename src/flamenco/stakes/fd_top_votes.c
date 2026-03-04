@@ -26,12 +26,12 @@ typedef struct vote_ele vote_ele_t;
 #define HEAP_NAME       heap
 #define HEAP_IDX_T      ushort
 #define HEAP_T          vote_ele_t
-#define HEAP_LT(e0,e1) (((e0)->stake < (e1)->stake) | \
-                        (((e0)->stake==(e1)->stake) & ((e0)->pubkey.ul[0] < (e1)->pubkey.ul[0])) | \
-                        (((e0)->stake==(e1)->stake) & ((e0)->pubkey.ul[1] < (e1)->pubkey.ul[1])) | \
-                        (((e0)->stake==(e1)->stake) & ((e0)->pubkey.ul[2] < (e1)->pubkey.ul[2])) | \
-                        (((e0)->stake==(e1)->stake) & ((e0)->pubkey.ul[3] < (e1)->pubkey.ul[3])) )
+#define HEAP_LT(e0,e1) ( ((e0)->stake < (e1)->stake) | \
+                         ( ((e0)->stake==(e1)->stake) & \
+                           (memcmp( &(e0)->pubkey, &(e1)->pubkey, sizeof(fd_pubkey_t) )<0 ) ) )
 #include "../../util/tmpl/fd_heap.c"
+
+#define POOL_NAME  pool
 
 #define POOL_NAME  pool
 #define POOL_T     vote_ele_t
