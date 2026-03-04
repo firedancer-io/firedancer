@@ -13,10 +13,10 @@ typedef struct bank_hash bank_hash_t;
 struct blk {
   fd_hash_t     block_id;
   uint          hash;
+  int           dead;          /* whether we marked the block as dead during replay  */
   int           forked;        /* whether this block id has hard forked (multiple candidate bank hashes) */
-  int           replayed;      /* whether we've replayed */
-  int           dead;          /* whether we marked the block as dead during replay (must ignore our_bank_hash) */
-  fd_hash_t     our_bank_hash; /* our bank hash for this block_id after replay */
+  int           replayed;      /* whether we've successfully replayed this entire block */
+  fd_hash_t     our_bank_hash; /* our bank hash for this block_id after replay. only valid iff replayed = 1 and dead = 0 */
   bank_hash_t * bank_hashes;
 };
 typedef struct blk blk_t;
@@ -29,7 +29,7 @@ typedef struct blk blk_t;
 #define MAP_KEY_EQUAL_IS_SLOW  1
 #define MAP_KEY_INVAL(k)       MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)   (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key,seed) ((MAP_HASH_T)( (key).ul[1] )) /* FIXME: use seed? */
+#define MAP_KEY_HASH(key,seed) ((MAP_HASH_T)( (key).ul[1]^(seed) ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct vote {
@@ -59,7 +59,7 @@ typedef struct vtr vtr_t;
 #define MAP_KEY_EQUAL_IS_SLOW  1
 #define MAP_KEY_INVAL(k)       MAP_KEY_EQUAL((k),MAP_KEY_NULL)
 #define MAP_KEY_EQUAL(k0,k1)   (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key,seed) ((MAP_HASH_T)( (key).ul[1] )) /* FIXME: use seed? */
+#define MAP_KEY_HASH(key,seed) ((MAP_HASH_T)( (key).ul[1]^seed ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct candidate_key {
@@ -89,7 +89,7 @@ static const candidate_key_t candidate_key_null = { 0 };
 #define MAP_KEY_EQUAL(k0,k1)   (fd_pubkey_eq( &((k0).block_id),  &((k1).block_id )   ) &\
                                 fd_pubkey_eq( &((k0).bank_hash), &((k1).bank_hash) ) )
 #define MAP_KEY_EQUAL_IS_SLOW  1
-#define MAP_KEY_HASH(key,seed) (fd_uint_load_4( (key).block_id.uc ) ^ fd_uint_load_4( (key).bank_hash.uc ) ) /* FIXME: use seed? */
+#define MAP_KEY_HASH(key,seed) (fd_uint_load_4( (key).block_id.uc )^fd_uint_load_4( (key).bank_hash.uc )^(uint)seed )
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_hfork {
