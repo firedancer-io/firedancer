@@ -945,7 +945,7 @@ after_frag( fd_shred_ctx_t *    ctx,
          need to let repair know to clear out it's cached info for that
          fec set and re-repair those shreds. */
       ulong sig_ = fd_disco_shred_out_shred_sig( 0, spilled_fec.slot, spilled_fec.fec_set_idx, FD_FEC_SHRED_CNT-1U );
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+      ulong tspub = (ulong)( fd_tickcount() );
       fd_stem_publish( stem, ctx->shred_out_idx, sig_, ctx->shred_out_chunk, 0, 0, ctx->tsorig, tspub );
     }
 
@@ -994,7 +994,7 @@ after_frag( fd_shred_ctx_t *    ctx,
         FD_STORE(int, fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, rv );
         sz += 4UL;
 
-        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+        ulong tspub = (ulong)fd_tickcount();
         fd_stem_publish( stem, ctx->shred_out_idx, _sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
         ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
       }
