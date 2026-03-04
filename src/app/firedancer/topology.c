@@ -594,7 +594,7 @@ fd_topo_initialize( config_t * config ) {
       }
     } else {
       if( vinyl_enabled ) {
-        FOR(snaplh_tile_cnt) fd_topob_link( topo, "snaplh_lv",  "snaplh_lv",  128UL,                                    sizeof(fd_lthash_value_t),     1UL );
+        FOR(snaplh_tile_cnt) fd_topob_link( topo, "snaplh_lv",  "snaplh_lv",  128UL,                                    sizeof(fd_ssctrl_hash_result_t),     1UL );
         /**/                 fd_topob_link( topo, "snapwm_lv",  "snapwm_lv",  32768UL,                                  FD_SNAPWM_DUP_META_BATCH_SZ,   1UL );
         /**/                 fd_topob_link( topo, "snaplv_lh",  "snaplv_lh",  262144UL,                                 FD_SNAPLV_DUP_META_SZ,         FD_SNAPLV_STEM_BURST ); /* FD_SNAPWM_DUP_META_BATCH_CNT_MAX times the depth of snapwm_lv */
         /**/                 fd_topob_link( topo, "snaplv_ct",  "snaplv_ct",  128UL,                                    0UL,                           1UL );

@@ -310,7 +310,8 @@ fd_snapwm_vinyl_txn_begin( fd_snapwm_tile_t * ctx ) {
 }
 
 FD_FN_UNUSED static void
-streamlined_hash( fd_lthash_adder_t * restrict adder,
+streamlined_hash( fd_snapwm_tile_t *  restrict ctx,
+                  fd_lthash_adder_t * restrict adder,
                   fd_lthash_value_t * restrict running_lthash,
                   uchar const *       restrict _pair ) {
   uchar const * pair = _pair;
@@ -337,6 +338,7 @@ streamlined_hash( fd_lthash_adder_t * restrict adder,
                                        lamports,
                                        executable,
                                        owner );
+  ctx->vinyl.running_capitalization += lamports;
 }
 
 void
@@ -587,8 +589,8 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
         } else {
           fd_snapwm_vinyl_duplicate_accounts_batch_append( ctx, &ele->phdr, ele->seq );
           recovery_seq = ele->seq;
+          ctx->metrics.accounts_replaced++;
         }
-        ctx->metrics.accounts_replaced++;
       } else {
         if( FD_UNLIKELY( ctx->vinyl.pair_cnt++ > ctx->vinyl.pair_cnt_max ) ) {
           FD_LOG_ERR(( "failed to load snapshot: exceeded [accounts.max_accounts] (%lu)", ctx->vinyl.pair_cnt_max ));
@@ -771,6 +773,7 @@ fd_snapwm_vinyl_duplicate_accounts_lthash_init( fd_snapwm_tile_t *  ctx,
                                                 fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
   fd_lthash_zero( &ctx->vinyl.running_lthash );
+  ctx->vinyl.running_capitalization = 0UL;
 
   (void)stem;
   /* There is no fseq check in lthash_init, since append uses internal
@@ -782,7 +785,7 @@ int
 fd_snapwm_vinyl_duplicate_accounts_lthash_append( fd_snapwm_tile_t * ctx,
                                                   uchar *            pair ) {
   if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
-  streamlined_hash( &ctx->vinyl.adder, &ctx->vinyl.running_lthash, pair );
+  streamlined_hash( ctx, &ctx->vinyl.adder, &ctx->vinyl.running_lthash, pair );
   return 1;
 }
 
@@ -795,10 +798,11 @@ fd_snapwm_vinyl_duplicate_accounts_lthash_fini( fd_snapwm_tile_t * ctx,
   handle_hash_out_fseq_check( ctx, stem, FD_SNAPWM_DUP_LTHASH_CREDIT_MIN );
 
   fd_lthash_adder_flush( &ctx->vinyl.adder, &ctx->vinyl.running_lthash );
-  uchar * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-  fd_memcpy( data, &ctx->vinyl.running_lthash, FD_LTHASH_LEN_BYTES );
-  fd_stem_publish( stem, ctx->hash_out.idx, FD_SNAPSHOT_HASH_MSG_RESULT_SUB, ctx->hash_out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
-  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, FD_LTHASH_LEN_BYTES, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  fd_ssctrl_hash_result_t * res = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+  fd_memcpy( res->lthash.bytes, &ctx->vinyl.running_lthash, FD_LTHASH_LEN_BYTES );
+  res->capitalization = ctx->vinyl.running_capitalization;
+  fd_stem_publish( stem, ctx->hash_out.idx, FD_SNAPSHOT_HASH_MSG_RESULT_SUB, ctx->hash_out.chunk, sizeof(fd_ssctrl_hash_result_t), 0UL, 0UL, 0UL );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_ssctrl_hash_result_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
   return 1;
 }
 

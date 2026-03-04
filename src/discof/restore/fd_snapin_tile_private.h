@@ -81,6 +81,13 @@ struct fd_snapin_tile {
   ulong advertised_slot;
   ulong bank_slot;
 
+  ulong capitalization; /* tracks capitalization of all loaded accounts in the current snapshot */
+  ulong manifest_capitalization; /* capitalization according to the current snapshot manifest */
+
+  struct {
+    ulong capitalization;
+  } recovery; /* stores the capitalization value from the last full snapshot */
+
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
 
