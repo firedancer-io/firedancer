@@ -11,6 +11,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -230,6 +231,50 @@ verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L550 */
     if( FD_UNLIKELY( entry->slot>bank_slot ) ) return -1;
   }
+  return 0;
+}
+
+static int
+verify_bank_hash( fd_snapshot_manifest_t const * manifest ) {
+  if( FD_UNLIKELY( manifest->blockhashes_len==0UL ) ) {
+    FD_LOG_WARNING(( "manifest has no blockhashes" ));
+    return -1;
+  }
+
+  if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
+    FD_LOG_WARNING(( "manifest is missing accounts lthash" ));
+    return -1;
+  }
+
+  /* find the last blockhash */
+  ulong max_hash_idx = 0UL;
+  ulong last_bh_idx  = 0UL;
+  for( ulong i=0UL; i<manifest->blockhashes_len; i++ ) {
+    if( FD_LIKELY( manifest->blockhashes[ i ].hash_index > max_hash_idx ) ) {
+      max_hash_idx = manifest->blockhashes[ i ].hash_index;
+      last_bh_idx  = i;
+    }
+  }
+
+  /* fd_lthash_value_t is aligned to 64B but the accounts_lthash in the
+     manifest may not be because its simply a uchar array.  Copy is
+     needed to avoid undefined behavior. */
+  fd_lthash_value_t accounts_lthash[ 1UL ];
+  fd_memcpy( accounts_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
+
+  fd_hash_t const *         parent_bank_hash = (fd_hash_t const *)fd_type_pun_const( manifest->parent_bank_hash );
+  fd_hash_t const *         last_blockhash   = (fd_hash_t const *)fd_type_pun_const( manifest->blockhashes[ last_bh_idx ].hash );
+  fd_hash_t                 computed_bank_hash[ 1UL ];
+  fd_hashes_hash_bank( accounts_lthash, parent_bank_hash, last_blockhash, manifest->signature_count, computed_bank_hash );
+
+  if( FD_UNLIKELY( memcmp( computed_bank_hash, manifest->bank_hash, FD_HASH_FOOTPRINT ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( computed_bank_hash->hash, computed_bank_hash_enc );
+    FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash, manifest_bank_hash_enc );
+    FD_LOG_WARNING(( "bank hash verification failed: computed bank hash %s does not match manifest bank hash %s",
+                     computed_bank_hash_enc, manifest_bank_hash_enc ));
+    return -1;
+  }
+
   return 0;
 }
 
@@ -477,6 +522,13 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   }
 
   ctx->bank_slot = manifest->slot;
+
+  if( FD_UNLIKELY( verify_bank_hash( manifest ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/bank.rs#L4682 */
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
     FD_LOG_WARNING(( "slot deltas verification failed" ));
     transition_malformed( ctx, ctx->stem );
