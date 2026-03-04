@@ -255,6 +255,7 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
   index_ele->pubkey           = *pubkey;
   index_ele->node_account_t_1 = *node_account_t_1;
   index_ele->node_account_t_2 = *node_account_t_2;
+  index_ele->stake_t_1        = 0UL;
   index_ele->stake_t_2        = stake_t_2;
   index_ele->epoch            = epoch % 2;
   FD_TEST( index_map_multi_ele_insert( index_map_multi, index_ele, index_pool ) );
@@ -314,8 +315,8 @@ fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
          the stakes map/pool.  The iteration we are doing is safe,
          because the pool freelist has a lifo policy. */
       index_ele_query->refcnt++;
-      index_map_multi_ele_remove_fast( index_map_multi, index_ele_query, index_pool );
-      index_pool_ele_release( index_pool, index_ele_query );
+      index_map_multi_ele_remove_fast( index_map_multi, index_ele, index_pool );
+      index_pool_ele_release( index_pool, index_ele );
       stakes_map_ele_remove( stakes_map, &stake->idx, NULL, stakes_pool );
       stakes_pool_ele_release( stakes_pool, stake );
     } else {

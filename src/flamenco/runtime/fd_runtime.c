@@ -365,44 +365,6 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 /* Epoch Boundary                                                             */
 /******************************************************************************/
 
-static void
-fd_runtime_refresh_previous_stake_values( fd_bank_t *          bank,
-                                          fd_runtime_stack_t * runtime_stack ) {
-
-  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-
-  ushort parent_idx = bank->data->vote_stakes_fork_id;
-  ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
-
-  bank->data->vote_stakes_fork_id = child_idx;
-
-  for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, runtime_stack->stakes.vote_ele );
-       !fd_vote_rewards_map_iter_done( iter, vote_ele_map, runtime_stack->stakes.vote_ele );
-       iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, runtime_stack->stakes.vote_ele ) ) {
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[fd_vote_rewards_map_iter_idx( iter, vote_ele_map, runtime_stack->stakes.vote_ele )];
-    if( FD_UNLIKELY( vote_ele->invalid ) ) continue;
-
-    ulong       old_stake_t_1;
-    fd_pubkey_t old_account_t_1;
-    int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &old_account_t_1, NULL );
-
-    ulong new_stake_t_2 = found ? old_stake_t_1 : 0UL;
-    ulong new_stake_t_1 = vote_ele ? vote_ele->stake : 0UL;
-
-    fd_vote_stakes_insert( vote_stakes,
-                           child_idx,
-                           &vote_ele->pubkey,
-                           new_stake_t_1,
-                           new_stake_t_2,
-                           &vote_ele->node_account,
-                           &old_account_t_1,
-                           fd_bank_epoch_get( bank ) );
-  }
-  fd_bank_vote_stakes_end_locking_modify( bank );
-}
-
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
 static void
 fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
@@ -616,13 +578,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
      stake delegations for vote accounts. */
 
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, xid, capture_ctx, stake_delegations, new_rate_activation_epoch );
-
-  /* We want to cache the stake values for T-1 and T-2 in the forward
-     looking vote states.  This is done as an optimization for tower
-     calculations (T-1 stake) and clock calculation (T-2 stake).
-     We use the current stake to populate the T-1 stake and the T-1
-     stake to populate the T-2 stake. */
-  fd_runtime_refresh_previous_stake_values( bank, runtime_stack );
 
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */

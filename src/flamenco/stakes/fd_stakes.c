@@ -103,6 +103,14 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
 
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+
+  ushort parent_idx = bank->data->vote_stakes_fork_id;
+  ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
+
+  bank->data->vote_stakes_fork_id = child_idx;
+
+
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
   fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
@@ -154,13 +162,34 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
       fd_vote_rewards_map_ele_insert( vote_ele_map, vote_ele, runtime_stack->stakes.vote_ele );
       vote_ele_cnt++;
+
+      ulong       old_stake_t_1;
+      fd_pubkey_t old_account_t_1;
+      int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &old_account_t_1, NULL );
+      ulong stake_t_2 = found ? old_stake_t_1 : 0UL;
+
+      fd_vote_stakes_insert_key( vote_stakes,
+                                 child_idx,
+                                 &vote_ele->pubkey,
+                                 &vote_ele->node_account,
+                                 &old_account_t_1,
+                                 stake_t_2,
+                                 fd_bank_epoch_get( bank ) );
     }
+
+    fd_vote_stakes_insert_update( vote_stakes,
+                                  child_idx,
+                                  &vote_ele->pubkey,
+                                  new_entry.effective );
+
     vote_ele->stake += new_entry.effective;
     total_stake += new_entry.effective;
   }
   fd_bank_total_epoch_stake_set( bank, total_stake );
 
-  // fd_bank_vote_stakes_end_locking_modify( bank );
+  fd_vote_stakes_insert_fini( vote_stakes, child_idx );
+
+  fd_bank_vote_stakes_end_locking_modify( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
