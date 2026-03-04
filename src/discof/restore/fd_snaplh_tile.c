@@ -1,6 +1,5 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
@@ -82,6 +81,8 @@ struct fd_snaplh_tile {
 
   fd_lthash_value_t   running_lthash;
   fd_lthash_value_t   running_lthash_sub;
+  ulong               running_capitalization_add;
+  ulong               running_capitalization_sub;
 
   struct {
     int               dev_fd;
@@ -173,7 +174,8 @@ static void
 streamlined_hash( fd_snaplh_t *       restrict ctx,
                   fd_lthash_adder_t * restrict adder,
                   fd_lthash_value_t * restrict running_lthash,
-                  uchar const *       restrict _pair ) {
+                  uchar const *       restrict _pair,
+                  int                 is_add ) {
   uchar const * pair = _pair;
   fd_vinyl_bstream_phdr_t const * phdr = (fd_vinyl_bstream_phdr_t const *)pair;
   pair += sizeof(fd_vinyl_bstream_phdr_t);
@@ -198,6 +200,9 @@ streamlined_hash( fd_snaplh_t *       restrict ctx,
                                        lamports,
                                        executable,
                                        owner );
+
+  if( is_add ) ctx->running_capitalization_add += lamports;
+  else         ctx->running_capitalization_sub += lamports;
 
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
   else                         ctx->metrics.incremental.accounts_hashed++;
@@ -251,7 +256,7 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
     FD_SPIN_PAUSE();
   }
 
-  streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
+  streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair, 0 );
 }
 
 FD_FN_UNUSED static inline ulong
@@ -303,7 +308,7 @@ handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
   /* test the bstream pair integrity hashes */
   FD_TEST( !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz ) );
 
-  streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair );
+  streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair, 0 );
 }
 
 /* Process next read completion */
@@ -407,10 +412,19 @@ handle_lthash_completion( fd_snaplh_t * ctx,
     fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
     fd_lthash_adder_flush( ctx->adder_sub, &ctx->running_lthash_sub );
     fd_lthash_sub( &ctx->running_lthash, &ctx->running_lthash_sub );
-    uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
-    fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
-    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
-    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
+    fd_ssctrl_hash_result_t * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
+    fd_memcpy( out->lthash.bytes, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
+    long capitalization_add = fd_long_if( ctx->running_capitalization_add>LONG_MAX, LONG_MAX, (long)ctx->running_capitalization_add );
+    long capitalization_sub = fd_long_if( ctx->running_capitalization_sub>LONG_MAX, LONG_MAX, (long)ctx->running_capitalization_sub );
+    if( FD_UNLIKELY( capitalization_add==LONG_MAX ) ) {
+      FD_LOG_ERR(( "capitalization overflow detected: add=%lu", ctx->running_capitalization_add ));
+    }
+    if( FD_UNLIKELY( capitalization_sub==LONG_MAX ) ) {
+      FD_LOG_ERR(( "capitalization overflow detected: sub=%lu", ctx->running_capitalization_sub ));
+    }
+    out->capitalization = capitalization_add - capitalization_sub;
+    fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, sizeof(fd_ssctrl_hash_result_t), 0UL, 0UL, 0UL );
+    ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, sizeof(fd_ssctrl_hash_result_t), ctx->out.chunk0, ctx->out.wmark );
     ctx->lthash_completion_pending = 0;
   }
 }
@@ -476,7 +490,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
         if( FD_LIKELY( should_hash_account( ctx ) ) ) {
           uchar * pair = ctx->vinyl.pair_mem;
           fd_memcpy( pair, rem, pair_sz );
-          streamlined_hash( ctx, ctx->adder, &ctx->running_lthash, pair );
+          streamlined_hash( ctx, ctx->adder, &ctx->running_lthash, pair, 1 );
         }
         rem    += pair_sz;
         rem_sz -= pair_sz;
@@ -567,6 +581,8 @@ handle_control_frag( fd_snaplh_t * ctx,
       fd_lthash_zero( &ctx->running_lthash_sub );
       fd_lthash_adder_new( ctx->adder );
       fd_lthash_adder_new( ctx->adder_sub );
+      ctx->running_capitalization_add = 0UL;
+      ctx->running_capitalization_sub = 0UL;
       break;
     }
 
@@ -919,6 +935,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->lthash_req_seen         = 0UL;
   fd_lthash_zero( &ctx->running_lthash );
   fd_lthash_zero( &ctx->running_lthash_sub );
+  ctx->running_capitalization_add = 0UL;
+  ctx->running_capitalization_sub = 0UL;
 
   ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
   FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );

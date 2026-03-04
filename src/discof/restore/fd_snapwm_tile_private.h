@@ -24,7 +24,7 @@
 #define FD_SNAPWM_DUP_META_BATCH_SZ       (FD_SNAPWM_DUP_META_BATCH_CNT_MAX*FD_SNAPWM_DUP_META_SZ)
 
 #define FD_SNAPWM_DUP_BATCH_CREDIT_MIN  (1UL)
-#define FD_SNAPWM_DUP_LTHASH_CREDIT_MIN ((FD_LTHASH_LEN_BYTES+(ctx->hash_out.mtu-1))/ctx->hash_out.mtu)
+#define FD_SNAPWM_DUP_LTHASH_CREDIT_MIN ((sizeof(fd_ssctrl_hash_result_t)+(ctx->hash_out.mtu-1))/ctx->hash_out.mtu)
 
 struct fd_snapwm_out_link {
   ulong         idx;
@@ -97,6 +97,7 @@ struct fd_snapwm_tile {
 
     fd_lthash_adder_t adder;
     fd_lthash_value_t running_lthash;
+    ulong running_capitalization; /* stores capitalization of duplicate accounts */
 
     ulong              wr_cnt;
     fd_vinyl_admin_t * admin;
