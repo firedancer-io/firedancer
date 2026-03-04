@@ -52,9 +52,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( test_ctx->has_features );
   fd_features_t * features = fd_bank_features_modify( runner->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->features;
-  if( !fd_solfuzz_pb_restore_features( features, feature_set ) ) {
-    FD_LOG_ERR(( "invariant violation: unsupported feature ID" ));
-  }
+  FD_TEST( fd_solfuzz_pb_restore_features( features, feature_set ) );
 
   /* Blockhash queue init */
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );

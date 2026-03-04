@@ -29,15 +29,15 @@ else
   cd ..
 fi
 
-# Fetch protosol at specified tag/branch
-if [ ! -d protosol ]; then
-    git clone --depth=1 --branch "$PROTO_VERSION" https://github.com/firedancer-io/protosol.git
-else
-    cd protosol
-    git fetch --tags
-    git checkout "$PROTO_VERSION"
-    cd ..
-fi
+# # Fetch protosol at specified tag/branch
+# if [ ! -d protosol ]; then
+#     git clone --depth=1 --branch "$PROTO_VERSION" https://github.com/firedancer-io/protosol.git
+# else
+#     cd protosol
+#     git fetch --tags
+#     git checkout "$PROTO_VERSION"
+#     cd ..
+# fi
 
 rm -rf generated/*
 ./nanopb/generator/nanopb_generator.py -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D generated
