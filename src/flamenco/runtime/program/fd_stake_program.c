@@ -1462,7 +1462,6 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L340
     if( FD_UNLIKELY( !vote_state ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     fd_vote_convert_to_current( vote_state,
-                                ctx->runtime->stake_program.delegate.authorized_voters_mem,
                                 ctx->runtime->stake_program.delegate.landed_votes_mem );
     fd_stake_t stake = new_stake( stake_amount,
                                   vote_pubkey,
@@ -1496,7 +1495,6 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L354
     if( FD_UNLIKELY( !vote_state ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     fd_vote_convert_to_current( vote_state,
-                                ctx->runtime->stake_program.delegate.authorized_voters_mem,
                                 ctx->runtime->stake_program.delegate.landed_votes_mem );
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L349
     rc = redelegate_stake( ctx,
@@ -2441,7 +2439,6 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
   fd_vote_state_versioned_t * delinquent_vote_state_versioned = fd_vote_get_state( delinquent_vote_account.meta, ctx->runtime->stake_program.deactivate_delinquent.delinquent_vote_state_mem );
   if( FD_UNLIKELY( !delinquent_vote_state_versioned ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   fd_vote_convert_to_current( delinquent_vote_state_versioned,
-                              ctx->runtime->stake_program.deactivate_delinquent.delinquent_authorized_voters_mem,
                               ctx->runtime->stake_program.deactivate_delinquent.delinquent_landed_votes_mem );
   fd_vote_state_v3_t delinquent_vote_state = delinquent_vote_state_versioned->inner.v3;
 
@@ -2457,7 +2454,6 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
   fd_vote_state_versioned_t * reference_vote_state_versioned = fd_vote_get_state( reference_vote_account.meta, ctx->runtime->stake_program.deactivate_delinquent.reference_vote_state_mem );
   if( FD_UNLIKELY( !reference_vote_state_versioned ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   fd_vote_convert_to_current( reference_vote_state_versioned,
-                              ctx->runtime->stake_program.deactivate_delinquent.reference_authorized_voters_mem,
                               ctx->runtime->stake_program.deactivate_delinquent.reference_landed_votes_mem );
   fd_vote_state_v3_t reference_vote_state = reference_vote_state_versioned->inner.v3;
 

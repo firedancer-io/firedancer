@@ -487,9 +487,6 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
 
   fd_pubkey_t const * auth_vtr_addr = NULL;
   switch( vsv->discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5:
-      auth_vtr_addr = &vsv->inner.v0_23_5.authorized_voter;
-      break;
     case fd_vote_state_versioned_enum_v1_14_11:
       for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v1_14_11.authorized_voters.treap, vsv->inner.v1_14_11.authorized_voters.pool );
            !fd_vote_authorized_voters_treap_rev_iter_done( iter );

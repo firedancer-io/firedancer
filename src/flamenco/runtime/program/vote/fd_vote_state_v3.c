@@ -97,7 +97,6 @@ fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
 int
 fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
                               uchar *                       vote_state_mem,
-                              uchar *                       authorized_voters_mem,
                               uchar *                       landed_votes_mem ) {
   /* deserialize_into_ptr is essentially a call to get_state +
      try_convert_to_v3. It's written a little more verbosely in Agave
@@ -115,7 +114,7 @@ fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  return fd_vsv_try_convert_to_v3( versioned, authorized_voters_mem, landed_votes_mem );
+  return fd_vsv_try_convert_to_v3( versioned, landed_votes_mem );
 }
 
 int
