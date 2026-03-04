@@ -434,8 +434,9 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   }
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
     fd_reasm_fec_t * orphan_root = pool_ele( pool, bfs_pop_head( bfs ) );
-    overwrite_invalid_cmr( reasm, orphan_root ); /* handle receiving child before parent */
-    if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
+    FD_TEST( orphan_root ); // `overwrite_invalid_cmr` relies on orphan_root being non-null
+    overwrite_invalid_cmr( reasm, orphan_root ); /* case 2: received child before parent */
+    if( FD_LIKELY( 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
       link( reasm, fec, orphan_root );
       subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
       dlist_ele_remove   ( dlist,     orphan_root,            pool );
