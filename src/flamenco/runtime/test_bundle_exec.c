@@ -633,21 +633,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 
-/* Test 5: Account reclaim divergence between bundle and replay mode.
-
-     In replay mode, fd_runtime_commit_txn calls fd_executor_reclaim_account
-     which zeroes owner and dlen for accounts with 0 lamports.  In bundle mode,
-     commit is deferred, so subsequent transactions in the bundle see the
-     un-reclaimed account state via prev_txn_outs.
-
-     Setup: victim_account owned by some_program, with 64 bytes of data and
-     500000 lamports.
-
-     tx0: victim_account is writable, drain lamports to 0 (simulates SBF close).
-     tx1: victim_account is writable, read via prev_txn_outs from tx0.
-
-     Bundle mode assertion: tx1 sees owner=some_program, dlen=64 (NOT reclaimed).
-     After commit: account IS reclaimed (owner zeroed, dlen=0). */
+/* Test 5: Account reclaim divergence between bundle and replay mode. */
 
   FD_LOG_NOTICE(( "Test 5: account reclaim divergence" ));
 
