@@ -1365,7 +1365,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   return fd_execute_instr_end( ctx, instr, instr_exec_result );
 }
 
-void
+static void
 fd_executor_reclaim_account( fd_account_meta_t * meta,
                              ulong               slot ) {
   meta->slot = slot;
@@ -1590,6 +1590,8 @@ fd_executor_txn_check( fd_runtime_t * runtime,
     ulong               starting_dlen     = runtime->accounts.starting_dlen[i];
     fd_account_meta_t * meta              = txn_out->accounts.account[i].meta;
     fd_pubkey_t *       pubkey            = &txn_out->accounts.keys[i];
+
+    if( FD_UNLIKELY( meta->lamports==0UL ) ) fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
 
     fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, meta->lamports );
     fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
