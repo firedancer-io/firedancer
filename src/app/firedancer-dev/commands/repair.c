@@ -124,6 +124,7 @@ repair_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "repair_sign"  );
   fd_topob_wksp( topo, "sign_repair"  );
+  fd_topob_wksp( topo, "repair_shred" );
 
   fd_topob_wksp( topo, "txsend_out"   );
 
@@ -174,7 +175,7 @@ repair_topo( config_t * config ) {
 
   /*                                              topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_id_keyswitch, uses_av_keyswitch */
   FOR(shred_tile_cnt)              fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
-  fd_topo_tile_t * repair_tile =   fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
+  fd_topo_tile_t * repair_tile =   fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
 
   /* Setup a shared wksp object for fec sets. */
 
@@ -286,6 +287,20 @@ repair_topo( config_t * config ) {
     fd_topob_tile_uses( topo, scap_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_out( topo, "scap", 0UL, "replay_epoch", 0UL );
     fd_topob_tile_out( topo, "scap", 0UL, "snapin_manif", 0UL );
+  }
+
+  /* Repair and shred share a secret they use to generate the nonces.
+    It's not super security sensitive, but for good hygiene, we make it
+    an object. */
+  if( 1 /* just restrict the scope for these variables in this big function */ ) {
+    fd_topo_obj_t * rnonce_ss_obj = fd_topob_obj( topo, "rnonce_ss", "repair_shred" );
+    fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
+    fd_topob_tile_uses( topo, repair_tile, rnonce_ss_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
+      fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
+      fd_topob_tile_uses( topo, shred_tile, rnonce_ss_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    }
+    FD_TEST( fd_pod_insertf_ulong( topo->props, rnonce_ss_obj->id, "rnonce_ss" ) );
   }
 
   FD_TEST( fd_link_permit_no_producers( topo, "quic_net"     ) == quic_tile_cnt );
