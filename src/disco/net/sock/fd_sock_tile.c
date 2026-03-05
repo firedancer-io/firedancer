@@ -200,7 +200,7 @@ privileged_init( fd_topo_t *      topo,
     "net_shred",  /* shred_listen_port (turbine) */
     "net_gossvf", /* gossip_listen_port */
     "net_shred",  /* shred_listen_port (repair) */
-    "net_repair", /* repair_serve_listen_port */
+    "net_rserve", /* repair_serve_listen_port */
     "net_txsend"  /* txsend_src_port */
   };
   static uchar const udp_port_protos[] = {
@@ -209,7 +209,7 @@ privileged_init( fd_topo_t *      topo,
     DST_PROTO_SHRED,    /* shred_listen_port (turbine) */
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
     DST_PROTO_REPAIR,   /* shred_listen_port (repair) */
-    DST_PROTO_REPAIR,   /* repair_serve_listen_port */
+    DST_PROTO_RSERVE,   /* repair_serve_listen_port */
     DST_PROTO_SEND      /* send_src_port */
   };
   for( uint candidate_idx=0U; candidate_idx<7; candidate_idx++ ) {
@@ -222,9 +222,6 @@ privileged_init( fd_topo_t *      topo,
     if( tile->sock.net.repair_intake_listen_port &&
        udp_port_candidates[candidate_idx]==tile->sock.net.repair_intake_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID );
-    if( tile->sock.net.repair_serve_listen_port &&
-       udp_port_candidates[candidate_idx]==tile->sock.net.repair_serve_listen_port )
-      FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID+1 );
 
     char const * target_link = udp_port_links[ candidate_idx ];
     ctx->link_rx_map[ sock_idx ] = 0xFF;
@@ -422,7 +419,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     /* default for repair intake is to send to [shreds] to shred tile.
        ping messages should be routed to the repair. */
     if( FD_UNLIKELY( sock_idx==REPAIR_SHRED_SOCKET_ID && frame_sz==REPAIR_PING_SZ ) ) {
-      uchar repair_rx_link = ctx->link_rx_map[ REPAIR_SHRED_SOCKET_ID+1 ];
+      uchar repair_rx_link = ctx->link_rx_map[ REPAIR_SHRED_SOCKET_ID ];
       fd_sock_link_rx_t * repair_link = ctx->link_rx + repair_rx_link;
       uchar * repair_buf = fd_chunk_to_laddr( repair_link->base, repair_link->chunk );
       memcpy( repair_buf, eth_hdr, frame_sz );

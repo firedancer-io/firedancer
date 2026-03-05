@@ -199,6 +199,12 @@ telemetry = true
     # Firedancer instance.
     accounts = ""
 
+    # TODO: explain
+    #
+    # If no path is provided, defaults to the `ledger.db` path within
+    # the base directory above.
+    ledger = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -1470,7 +1476,6 @@ telemetry = true
     # TODO: DOCS
     [tiles.repair]
         repair_intake_listen_port = 8701
-        repair_serve_listen_port = 8702
 
         # Slot max is the maximum number of slots that repair tile can
         # maintain at once.  This is expected to be the largest at
@@ -1478,6 +1483,10 @@ telemetry = true
         # slot, but still maintaining and receiving new turbine slots.
         # Must be power of 2
         slot_max = 4096
+
+    [tiles.rserve]
+        repair_serve_listen_port = 8702
+        max_slots = 2000 # TODO: increase to epoch?
 
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just

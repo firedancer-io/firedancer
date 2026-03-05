@@ -77,11 +77,12 @@
 /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} specify discriminant
    values the protocol uses to distinguish message types. */
 
-#define FD_REPAIR_KIND_PING          (0U)
-#define FD_REPAIR_KIND_PONG          (7U)
-#define FD_REPAIR_KIND_SHRED         (8U)
-#define FD_REPAIR_KIND_HIGHEST_SHRED (9U)
-#define FD_REPAIR_KIND_ORPHAN        (10U)
+#define FD_REPAIR_KIND_PING            (0U)
+#define FD_REPAIR_KIND_PONG            (7U)
+#define FD_REPAIR_KIND_SHRED           (8U)
+#define FD_REPAIR_KIND_HIGHEST_SHRED   (9U)
+#define FD_REPAIR_KIND_ORPHAN          (10U)
+#define FD_REPAIR_KIND_ANCESTOR_HASHES (11U)
 
 /* fd_repair_pong describes the schema of a Pong. */
 
@@ -137,12 +138,13 @@ typedef struct fd_repair_orphan_req fd_repair_orphan_req_t;
 /* fd_repair_msg_t defines the schema of all Repair message types. */
 
 struct __attribute__((packed)) fd_repair_msg {
-  uint kind; /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} */
+  uint kind; /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN,ANCESTOR_HASHES} */
   union {
     fd_repair_pong_t              pong;
     fd_repair_shred_req_t         shred;
     fd_repair_highest_shred_req_t highest_shred;
     fd_repair_orphan_req_t        orphan;
+    /* TODO: ancestor hashes */
   };
 };
 typedef struct fd_repair_msg fd_repair_msg_t;

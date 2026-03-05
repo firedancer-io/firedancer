@@ -153,6 +153,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.snapshots                                  );
     CFG_POP    ( cstr,   paths.genesis                                    );
     CFG_POP    ( cstr,   paths.accounts                                   );
+    CFG_POP    ( cstr,   paths.ledger                                     );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );
@@ -257,8 +258,10 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   tiles.rpc.delay_startup                          );
 
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
-  CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
   CFG_POP      ( ulong,  tiles.repair.slot_max                            );
+
+  CFG_POP      ( ushort, tiles.rserve.repair_serve_listen_port            );
+  CFG_POP      ( ulong,  tiles.rserve.max_slots                           );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
   CFG_POP      ( cstr,   capture.solcap_capture                           );
