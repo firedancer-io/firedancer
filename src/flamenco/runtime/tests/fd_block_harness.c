@@ -274,6 +274,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
 
   fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
+  fd_top_votes_init( top_votes );
 
   /* Update vote cache for epoch T-1 */
   fd_solfuzz_block_update_prev_epoch_stakes(
