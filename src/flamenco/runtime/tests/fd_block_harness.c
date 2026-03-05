@@ -37,7 +37,8 @@ typedef struct {
    entry is derived from the current present account state.  This
    function also registers a vote timestamp for the vote account. */
 static void
-fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
+fd_solfuzz_block_register_vote_account( fd_top_votes_t *          top_votes,
+                                        fd_accdb_user_t *         accdb,
                                         fd_funk_txn_xid_t const * xid,
                                         fd_pubkey_t *             pubkey ) {
   fd_accdb_ro_t ro[1];
@@ -49,16 +50,22 @@ fd_solfuzz_block_register_vote_account( fd_accdb_user_t *         accdb,
     fd_accdb_close_ro( accdb, ro );
     return;
   }
+
+  fd_vote_block_timestamp_t vote_block_timestamp = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
+  fd_top_votes_update( top_votes, pubkey, vote_block_timestamp.slot, vote_block_timestamp.timestamp );
+
   fd_accdb_close_ro( accdb, ro );
 }
 
 static void
-fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_stakes,
+fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *              top_votes,
+                                           fd_vote_stakes_t *            vote_stakes,
                                            fd_exec_test_vote_account_t * vote_accounts,
                                            pb_size_t                     vote_accounts_cnt,
                                            fd_runtime_stack_t *          runtime_stack,
                                            uchar                         is_t_1 ) {
   if( FD_UNLIKELY( !vote_accounts ) ) return;
+
   for( uint i=0U; i<vote_accounts_cnt; i++ ) {
     fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
     ulong                       stake         = vote_accounts[i].stake;
@@ -72,6 +79,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_st
       fd_vote_stakes_root_insert_key( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0 );
     } else {
       fd_vote_stakes_root_update_meta( vote_stakes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0 );
+      fd_top_votes_insert( top_votes, (fd_pubkey_t *)vote_account->address, &node_account, stake, 0, 0 );
     }
 
     fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
@@ -265,6 +273,26 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
 
+  fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
+
+  /* Update vote cache for epoch T-1 */
+  fd_solfuzz_block_update_prev_epoch_stakes(
+      top_votes,
+      vote_stakes,
+      test_ctx->epoch_ctx.vote_accounts_t_1,
+      test_ctx->epoch_ctx.vote_accounts_t_1_count,
+      runtime_stack,
+      1 );
+
+  /* Update vote cache for epoch T-2 */
+  fd_solfuzz_block_update_prev_epoch_stakes(
+      top_votes,
+      vote_stakes,
+      test_ctx->epoch_ctx.vote_accounts_t_2,
+      test_ctx->epoch_ctx.vote_accounts_t_2_count,
+      runtime_stack,
+      0 );
+
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], i );
 
@@ -272,6 +300,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t pubkey;
     memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
     fd_solfuzz_block_register_vote_account(
+        top_votes,
         accdb,
         xid,
         &pubkey );
@@ -294,21 +323,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
      from the parent slot */
   fd_bank_epoch_set( bank, fd_slot_to_epoch( epoch_schedule, parent_slot, NULL ) );
 
-  /* Update vote cache for epoch T-1 */
-  fd_solfuzz_block_update_prev_epoch_stakes(
-      vote_stakes,
-      test_ctx->epoch_ctx.vote_accounts_t_1,
-      test_ctx->epoch_ctx.vote_accounts_t_1_count,
-      runtime_stack,
-      1 );
-
-  /* Update vote cache for epoch T-2 */
-  fd_solfuzz_block_update_prev_epoch_stakes(
-      vote_stakes,
-      test_ctx->epoch_ctx.vote_accounts_t_2,
-      test_ctx->epoch_ctx.vote_accounts_t_2_count,
-      runtime_stack,
-      0 );
   fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* Finalize root fork.  Required before epoch boundary processing which
