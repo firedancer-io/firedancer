@@ -1025,7 +1025,9 @@ fd_executor_setup_txn_account_keys( fd_txn_in_t const * txn_in,
 
   // Set up accounts in the transaction body and perform checks
   for( ulong i = 0UL; i < TXN( txn_in->txn )->acct_addr_cnt; i++ ) {
-    txn_out->accounts.keys[i] = tx_accs[i];
+    txn_out->accounts.keys[i]         = tx_accs[i];
+    txn_out->accounts.stake_update[i] = 0;
+    txn_out->accounts.vote_update[i]  = 0;
   }
 }
 
@@ -1617,6 +1619,9 @@ fd_executor_txn_check( fd_runtime_t * runtime,
         }
       }
     }
+
+    if( fd_pubkey_eq( pubkey, &fd_solana_stake_program_id ) ) txn_out->accounts.stake_update[i] = 1;
+    if( fd_pubkey_eq( pubkey, &fd_solana_vote_program_id ) ) txn_out->accounts.vote_update[i] = 1;
 
     if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
       fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );

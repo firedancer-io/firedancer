@@ -304,9 +304,11 @@ struct fd_txn_out {
        has been set, memory resources must be released. */
     int           is_setup;
     ulong         cnt;
-    fd_pubkey_t   keys       [ MAX_TX_ACCOUNT_LOCKS ];
-    fd_accdb_rw_t account    [ MAX_TX_ACCOUNT_LOCKS ]; /* FIXME use accdb_ref_t here for safety - some accounts are readonly */
-    uchar         is_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_pubkey_t   keys        [ MAX_TX_ACCOUNT_LOCKS ];
+    fd_accdb_rw_t account     [ MAX_TX_ACCOUNT_LOCKS ]; /* FIXME use accdb_ref_t here for safety - some accounts are readonly */
+    uchar         is_writable [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar         stake_update[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar         vote_update [ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still
