@@ -229,6 +229,10 @@ struct fd_runtime {
     ulong cu_cum;
 
   } metrics;
+
+  struct {
+    int enabled;
+  } fuzz;
 };
 typedef struct fd_runtime fd_runtime_t;
 
