@@ -243,6 +243,8 @@ fd_active_set_remove_peer( fd_active_set_t * active_set,
              to_abs instead. */
           if( FD_UNLIKELY( active_set->peers[ to_idx ].txbuild->crds_len ) ) push_dlist_idx_replace( active_set->push_dlist, to_idx, from_idx, active_set->peers );
         }
+        ulong orphan_idx = b*12UL+(entry->nodes_idx+entry->nodes_len-1UL) % 12UL;
+        active_set->peers[ orphan_idx ].txbuild->crds_len = 0UL;
         entry->nodes_len--;
         if( FD_UNLIKELY( !entry->nodes_len ) ) entry->nodes_idx = 0UL;
         return;
