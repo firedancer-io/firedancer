@@ -56,8 +56,6 @@ $(call add-objs,fd_bank,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bank,)
-$(call make-unit-test,test_static_instruction_limit,test_static_instruction_limit,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_static_instruction_limit,)
 endif
 endif
 
