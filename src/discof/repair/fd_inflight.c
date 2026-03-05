@@ -21,6 +21,7 @@ fd_inflights_new( void * shmem,
   table->pool       = fd_inflight_pool_join ( fd_inflight_pool_new ( pool, FD_INFLIGHT_REQ_MAX    ) );
   table->map        = fd_inflight_map_join  ( fd_inflight_map_new  ( map,  chain_cnt, seed ) );
   table->popped_map = fd_inflight_map_join  ( fd_inflight_map_new  ( pmap, chain_cnt, seed ) );
+  table->popped_cnt = 0UL;
   FD_TEST( table->outstanding_dl==fd_inflight_dlist_join( fd_inflight_dlist_new( table->outstanding_dl ) ) );
   FD_TEST( table->popped_dl     ==fd_inflight_dlist_join( fd_inflight_dlist_new( table->popped_dl      ) ) );
 
@@ -57,24 +58,28 @@ fd_inflights_request_insert( fd_inflights_t *    table,
   if( FD_UNLIKELY( !fd_inflight_pool_free( table->pool ) ) ) {
     if( FD_LIKELY( !fd_inflight_dlist_is_empty( table->popped_dl, table->pool ) ) ) {
       fd_inflight_t * evict = fd_inflight_dlist_ele_pop_head( table->popped_dl, table->pool );
+      table->popped_cnt--;
       fd_inflight_map_ele_remove_fast( table->popped_map, evict, table->pool );
       fd_inflight_pool_ele_release   ( table->pool,       evict );
     } else {
       /* (pool free cnt) + (popped_dl cnt) + (outstanding_dl cnt) ==
          INFLIGHT_REQ_MAX, so they can't all be 0. */
       fd_inflight_t * evict = fd_inflight_dlist_ele_pop_head( table->outstanding_dl, table->pool );
-      FD_LOG_WARNING(( "losing outstanding request for slot %lu, shred_idx %lu, nonce %lu", evict->key.slot, evict->key.shred_idx, evict->key.nonce ));
+      FD_LOG_WARNING(( "Evicting outstanding request for slot %lu, shred_idx %lu, nonce %lu", evict->key.slot, evict->key.shred_idx, evict->key.nonce ));
+      /* The above should be impossible.  We could LOG_CRIT, but it's
+         possible we could still make progress if this request comes
+         back to us. */
       fd_inflight_map_ele_remove_fast( table->map,  evict, table->pool );
       fd_inflight_pool_ele_release   ( table->pool, evict );
     }
   }
 
   fd_inflight_t * inflight_req = fd_inflight_pool_ele_acquire( table->pool );
-  inflight_req->key.nonce        = nonce;
-  inflight_req->key.slot         = slot;
-  inflight_req->key.shred_idx    = shred_idx;
-  inflight_req->timestamp_ns     = fd_log_wallclock();
-  inflight_req->pubkey           = *pubkey;
+  inflight_req->key.nonce      = nonce;
+  inflight_req->key.slot       = slot;
+  inflight_req->key.shred_idx  = shred_idx;
+  inflight_req->timestamp_ns   = fd_log_wallclock();
+  inflight_req->pubkey         = *pubkey;
 
   fd_inflight_map_ele_insert     ( table->map,            inflight_req, table->pool );
   fd_inflight_dlist_ele_push_tail( table->outstanding_dl, inflight_req, table->pool );
@@ -112,6 +117,7 @@ fd_inflights_request_remove( fd_inflights_t * table,
       /* Remove the element from the inflight table */
       fd_inflight_dlist_ele_remove( query_list,  inflight_req, table->pool );
       fd_inflight_pool_ele_release( table->pool, inflight_req              );
+      if( FD_UNLIKELY( query_idx == 1 ) ) table->popped_cnt--;
     } else {
       query_idx++;
     }
@@ -131,6 +137,7 @@ fd_inflights_request_pop( fd_inflights_t * table,
   *shred_idx_out = inflight_req->key.shred_idx;
   fd_inflight_map_ele_insert     ( table->popped_map, inflight_req, table->pool );
   fd_inflight_dlist_ele_push_tail( table->popped_dl,  inflight_req, table->pool );
+  table->popped_cnt++;
 }
 
 
