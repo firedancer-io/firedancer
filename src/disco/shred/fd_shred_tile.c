@@ -984,23 +984,19 @@ after_frag( fd_shred_ctx_t *    ctx,
         if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
         ulong _sig = fd_disco_shred_out_shred_sig( fd_disco_netmux_sig_proto(sig)==DST_PROTO_SHRED, shred->slot, shred->fec_set_idx, shred_idx_or_data_cnt );
 
-        /* Copy the shred header into the frag and publish. */
+        /* Copy the shred into the frag and publish. */
 
         ulong sz = fd_shred_header_sz( shred->variant );
-        fd_memcpy( fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ), shred, sz );
+        uchar *    chunk = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+        fd_memcpy( chunk,                                shred,                                                 sz                      );
+        fd_memcpy( chunk+sz,                             &ctx->out_merkle_roots[ 0 ],                           FD_SHRED_MERKLE_ROOT_SZ );
+        fd_memcpy( chunk+sz+(1*FD_SHRED_MERKLE_ROOT_SZ), (uchar *)shred + fd_shred_chain_off( shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+        fd_memcpy( chunk+sz+(2*FD_SHRED_MERKLE_ROOT_SZ), &nonce,                                                sizeof(int)             );
 
-        fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, &ctx->out_merkle_roots[0], FD_SHRED_MERKLE_ROOT_SZ );
-        sz += FD_SHRED_MERKLE_ROOT_SZ;
-
-        fd_memcpy( (uchar *)fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, (uchar *)shred + fd_shred_chain_off( shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
-        sz += FD_SHRED_MERKLE_ROOT_SZ;
-
-        FD_STORE(uint, fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk ) + sz, nonce );
-        sz += 4UL;
-
+        ulong total_sz = sz + (2 * FD_SHRED_MERKLE_ROOT_SZ) + sizeof(int);
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        fd_stem_publish( stem, ctx->shred_out_idx, _sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
-        ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
+        fd_stem_publish( stem, ctx->shred_out_idx, _sig, ctx->shred_out_chunk, total_sz, 0UL, ctx->tsorig, tspub );
+        ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, total_sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
       }
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
@@ -1101,15 +1097,15 @@ after_frag( fd_shred_ctx_t *    ctx,
          link burst value can be lowered to 2. */
 
       int is_leader_fec = ctx->in_kind[ in_idx ]==IN_KIND_POH;
-
       ulong   sig   = fd_disco_shred_out_fec_sig( last->slot, last->fec_set_idx, (uint)FD_FEC_SHRED_CNT, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
-      uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-      memcpy( chunk,                                                         last,                                                FD_SHRED_DATA_HEADER_SZ );
-      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                                 ctx->out_merkle_roots[fset_k].hash,                  FD_SHRED_MERKLE_ROOT_SZ );
-      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ +  FD_SHRED_MERKLE_ROOT_SZ,      (uchar *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
-      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + (FD_SHRED_MERKLE_ROOT_SZ*2UL), &is_leader_fec,                                      sizeof(int));
 
-      ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int);
+      uchar *    chunk = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+      fd_memcpy( chunk,                                                     last,                                                 FD_SHRED_DATA_HEADER_SZ );
+      fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                             ctx->out_merkle_roots[fset_k].hash,                   FD_SHRED_MERKLE_ROOT_SZ );
+      fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(1*FD_SHRED_MERKLE_ROOT_SZ), (uchar *)last + fd_shred_chain_off( last->variant ),  FD_SHRED_MERKLE_ROOT_SZ );
+      fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(2*FD_SHRED_MERKLE_ROOT_SZ), &is_leader_fec,                                       sizeof(int)             );
+
+      ulong sz = FD_SHRED_DATA_HEADER_SZ + (2*FD_SHRED_MERKLE_ROOT_SZ) + sizeof(int);
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
@@ -1240,7 +1236,7 @@ unprivileged_init( fd_topo_t *      topo,
   ulong fec_sets_required_sz   = fec_set_cnt*sizeof(fd_fec_set_t);
 
   void * fec_sets_shmem = NULL;
-  ctx->shred_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_out", ctx->round_robin_id );
+  ctx->shred_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_out",    ctx->round_robin_id );
   ctx->store_out_idx = fd_topo_find_tile_out_link( topo, tile, "shred_store",  ctx->round_robin_id );
   if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
     fd_topo_link_t * shred_out = &topo->links[ tile->out_link_id[ ctx->shred_out_idx ] ];

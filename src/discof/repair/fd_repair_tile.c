@@ -325,7 +325,6 @@ struct ctx {
   int              halt_signing;
 
   fd_ip4_port_t repair_intake_addr;
-  fd_ip4_port_t repair_serve_addr;
 
   fd_forest_t    * forest;
   fd_policy_t    * policy;
@@ -373,7 +372,6 @@ struct ctx {
   ulong snap_out_chunk; /* store second to last chunk for snap_out */
 
   fd_ip4_udp_hdrs_t intake_hdr[1];
-  fd_ip4_udp_hdrs_t serve_hdr [1];
 
   fd_rnonce_ss_t repair_nonce_ss[1];
 
@@ -458,7 +456,6 @@ sign_map_remove( ctx_t * ctx,
 static void
 send_packet( ctx_t             * ctx,
              fd_stem_context_t * stem,
-             int                 is_intake,
              uint                dst_ip_addr,
              ushort              dst_port,
              uint                src_ip_addr,
@@ -468,7 +465,7 @@ send_packet( ctx_t             * ctx,
   ctx->metrics->send_pkt_cnt++;
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_ctx->mem, ctx->net_out_ctx->chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
-  *hdr = *(is_intake ? ctx->intake_hdr : ctx->serve_hdr);
+  *hdr = *ctx->intake_hdr;
 
   fd_ip4_hdr_t * ip4 = hdr->ip4;
   ip4->saddr       = src_ip_addr;
@@ -668,7 +665,7 @@ after_sign( ctx_t             * ctx,
     if( FD_LIKELY( peer && peer->ping ) ) peer->ping--; /* prevent underflow if the peer was removed/readded */
 
     fd_memcpy( pending->msg.pong.sig, ctx->sign_buf, 64UL );
-    send_packet( ctx, stem, 1, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    send_packet( ctx, stem, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     return;
   }
 
@@ -678,8 +675,8 @@ after_sign( ctx_t             * ctx,
 
   /* This is a warmup message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.slot == 0 ) ) {
-    fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
-    if( FD_UNLIKELY( peer ) ) send_packet( ctx, stem, 1, peer->ip4, peer->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
+    if( FD_UNLIKELY( active ) ) send_packet( ctx, stem, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
     else { /* This is a warmup request for a peer that is no longer active.  There's no reason to pick another peer for a warmup rq, so just drop it. */ }
     return;
   }
@@ -710,7 +707,7 @@ after_sign( ctx_t             * ctx,
     fd_inflights_request_insert( ctx->inflights, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
     fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
   }
-  send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  send_packet( ctx, stem, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
 }
 
 static int
@@ -1302,19 +1299,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
-  ctx->repair_serve_addr.port  = fd_ushort_bswap( tile->repair.repair_serve_listen_port  );
 
   /* TODO clean these up */
   ctx->net_id = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->intake_hdr, 0, 0, tile->repair.repair_intake_listen_port );
-  fd_ip4_udp_hdr_init( ctx->serve_hdr,  0, 0, tile->repair.repair_serve_listen_port  );
 
   /* Repair set up */
 
   ctx->turbine_slot0 = ULONG_MAX;
-  FD_LOG_INFO(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
-    FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
-    FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
+  FD_LOG_INFO(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u",
+    FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ) ));
 
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
 
