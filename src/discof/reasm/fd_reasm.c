@@ -389,10 +389,10 @@ fd_reasm_clear_leaf( fd_reasm_t     * reasm,
 
     while( FD_LIKELY( head ) ) {
       fd_reasm_fec_t * parent = fd_reasm_parent( reasm, head );
-      if( FD_UNLIKELY( head->fec_set_idx==0 ) )                         break;
+      if( FD_UNLIKELY( head->fec_set_idx==0 ) )                    break;
       if( FD_UNLIKELY( head->sibling != pool_idx_null( pool ) ) )  break; /* if the parent has more than 1 child, we know for sure the parent is a slot boundary, so we can stop here. */
-      /* i think it should be impossible for parent to be null, assert or verify */
-      if( FD_UNLIKELY( parent->bank_idx != head->bank_idx ) )           break; /* also possible none of these have been executed */
+      /* should be impossible for parent to be null, assert or verify */
+      if( FD_UNLIKELY( parent->bank_idx != head->bank_idx ) )      break; /* also possible none of these have been executed */
       head = parent;
     }
   }
@@ -588,7 +588,7 @@ evict( fd_reasm_t      * reasm,
     if( FD_UNLIKELY( confirmed_orphan )) {
       fd_reasm_fec_t * parent = fd_reasm_query( reasm, parent_root );
       if( !parent ) {
-        return fd_reasm_clear_leaf( reasm, confirmed_orphan, 1, opt_store );
+        return fd_reasm_clear_leaf( reasm, confirmed_orphan, 0, opt_store );
       }
     /* for any subtree:
         0 ── 1 ── 2 ── 3 (confirmed) ── 4(confirmed) ── 5 ── 6 ──> add 7 here is valid.
@@ -607,7 +607,7 @@ evict( fd_reasm_t      * reasm,
 
       fd_reasm_fec_t * latest_confirmed_leaf = latest_confirmed_fec( reasm, subtree_root );
       if( !latest_confirmed_leaf || latest_confirmed_leaf == gca( reasm, latest_confirmed_leaf, parent )) {
-        return fd_reasm_clear_leaf( reasm, confirmed_orphan, 1, opt_store );
+        return fd_reasm_clear_leaf( reasm, confirmed_orphan, 0, opt_store );
       }
       /* is a useless new fork. */
       return FD_REASM_EVICT_FAIL;
@@ -658,7 +658,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     *rv = evict( reasm, opt_store, merkle_root, chained_merkle_root );
     if( *rv == FD_REASM_EVICT_FAIL ) return NULL;
   }
-  
+
   FD_TEST( pool_free( pool ) );
   fd_reasm_fec_t * fec = pool_ele_acquire( pool );
   fec->key             = *merkle_root;
