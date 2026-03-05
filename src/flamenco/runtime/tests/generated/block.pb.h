@@ -14,6 +14,12 @@
 #endif
 
 /* Enum definitions */
+typedef enum fd_exec_test_vote_account_version {
+    FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V1_14_11 = 0,
+    FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V3 = 1,
+    FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4 = 2
+} fd_exec_test_vote_account_version_t;
+
 typedef enum fd_exec_test_warmup_cooldown_rate {
     FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_RATE_025 = 0, /* 0.25 */
     FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_RATE_009 = 1 /* 0.09 */
@@ -48,6 +54,7 @@ typedef struct fd_exec_test_prev_vote_account {
 epoch rewards during the distribution phase. */
     pb_size_t epoch_credits_count;
     struct fd_exec_test_epoch_credit *epoch_credits;
+    fd_exec_test_vote_account_version_t version;
 } fd_exec_test_prev_vote_account_t;
 
 typedef struct fd_exec_test_stake_delegation {
@@ -164,6 +171,10 @@ extern "C" {
 #endif
 
 /* Helper constants for enums */
+#define _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V1_14_11
+#define _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MAX FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4
+#define _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_ARRAYSIZE ((fd_exec_test_vote_account_version_t)(FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4+1))
+
 #define _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_MIN FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_RATE_025
 #define _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_MAX FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_RATE_009
 #define _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_ARRAYSIZE ((fd_exec_test_warmup_cooldown_rate_t)(FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_RATE_009+1))
@@ -171,6 +182,7 @@ extern "C" {
 
 
 
+#define fd_exec_test_prev_vote_account_t_version_ENUMTYPE fd_exec_test_vote_account_version_t
 
 #define fd_exec_test_stake_delegation_t_warmup_cooldown_rate_ENUMTYPE fd_exec_test_warmup_cooldown_rate_t
 
@@ -184,7 +196,7 @@ extern "C" {
 #define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_DEFAULT   {0, 0, 0}
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL}
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
 #define FD_EXEC_TEST_STAKE_DELEGATION_INIT_DEFAULT {{0}, {0}, 0, 0, 0, 0, _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_MIN}
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT     {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT, false, FD_EXEC_TEST_RENT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT}
@@ -194,7 +206,7 @@ extern "C" {
 #define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_ZERO      {0, 0, 0}
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL}
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
 #define FD_EXEC_TEST_STAKE_DELEGATION_INIT_ZERO  {{0}, {0}, 0, 0, 0, 0, _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_MIN}
 #define FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO        {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO, false, FD_EXEC_TEST_RENT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO}
@@ -218,6 +230,7 @@ extern "C" {
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_STAKE_TAG 3
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_COMMISSION_TAG 4
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_EPOCH_CREDITS_TAG 5
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_VERSION_TAG 6
 #define FD_EXEC_TEST_STAKE_DELEGATION_STAKE_ACCOUNT_TAG 1
 #define FD_EXEC_TEST_STAKE_DELEGATION_VOTE_ACCOUNT_TAG 2
 #define FD_EXEC_TEST_STAKE_DELEGATION_STAKE_TAG  3
@@ -290,7 +303,8 @@ X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, address,           1) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, node_pubkey,       2) \
 X(a, STATIC,   SINGULAR, UINT64,   stake,             3) \
 X(a, STATIC,   SINGULAR, UINT32,   commission,        4) \
-X(a, POINTER,  REPEATED, MESSAGE,  epoch_credits,     5)
+X(a, POINTER,  REPEATED, MESSAGE,  epoch_credits,     5) \
+X(a, STATIC,   SINGULAR, UENUM,    version,           6)
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_CALLBACK NULL
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_DEFAULT NULL
 #define fd_exec_test_prev_vote_account_t_epoch_credits_MSGTYPE fd_exec_test_epoch_credit_t
@@ -416,6 +430,7 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_MAX_SIZE FD_EXEC_TEST_BLOCK_EFFECTS_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
+#define org_solana_sealevel_v1_VoteAccountVersion fd_exec_test_VoteAccountVersion
 #define org_solana_sealevel_v1_WarmupCooldownRate fd_exec_test_WarmupCooldownRate
 #define org_solana_sealevel_v1_CostTracker fd_exec_test_CostTracker
 #define org_solana_sealevel_v1_Inflation fd_exec_test_Inflation
@@ -427,6 +442,9 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define org_solana_sealevel_v1_LeaderScheduleEffects fd_exec_test_LeaderScheduleEffects
 #define org_solana_sealevel_v1_BlockEffects fd_exec_test_BlockEffects
 #define org_solana_sealevel_v1_BlockFixture fd_exec_test_BlockFixture
+#define _ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_VERSION_MIN _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN
+#define _ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_VERSION_MAX _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MAX
+#define _ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_VERSION_ARRAYSIZE _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_ARRAYSIZE
 #define _ORG_SOLANA_SEALEVEL_V1_WARMUP_COOLDOWN_RATE_MIN _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_MIN
 #define _ORG_SOLANA_SEALEVEL_V1_WARMUP_COOLDOWN_RATE_MAX _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_MAX
 #define _ORG_SOLANA_SEALEVEL_V1_WARMUP_COOLDOWN_RATE_ARRAYSIZE _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_ARRAYSIZE

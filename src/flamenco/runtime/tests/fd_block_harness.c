@@ -292,9 +292,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     vote_ele->invalid    = 0;
 
     FD_TEST( pva->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
-    for( ulong j=0; j<pva->epoch_credits_count; j++ ) {
-      vote_ele->epoch_credits.epoch       [j] = (ushort)pva->epoch_credits[j].epoch;
-      vote_ele->epoch_credits.credits     [j] = pva->epoch_credits[j].credits;
+    for( ulong j=0UL; j<pva->epoch_credits_count; j++ ) {
+      vote_ele->epoch_credits.epoch[j]        = (ushort)pva->epoch_credits[j].epoch;
+      vote_ele->epoch_credits.credits[j]      = pva->epoch_credits[j].credits;
       vote_ele->epoch_credits.prev_credits[j] = pva->epoch_credits[j].prev_credits;
     }
     vote_ele->epoch_credits.cnt = pva->epoch_credits_count;

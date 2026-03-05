@@ -39,6 +39,8 @@ PB_BIND(FD_EXEC_TEST_BLOCK_FIXTURE, fd_exec_test_block_fixture_t, 2)
 
 
 
+
+
 #ifndef PB_CONVERT_DOUBLE_FLOAT
 /* On some platforms (such as AVR), double is really float.
  * To be able to encode/decode double on these platforms, you need.
