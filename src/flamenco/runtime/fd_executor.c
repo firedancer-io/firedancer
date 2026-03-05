@@ -366,13 +366,6 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_out_t *      txn_out ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
 
-  /* SIMD-0160: enforce static limit on number of instructions.
-     https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L4710-L4716 */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, static_instruction_limit ) &&
-                   TXN( txn_in->txn )->instr_cnt > FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-    return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
-  }
-
   /* SIMD-0406: enforce limit on number of instruction accounts.
 
      TODO: when limit_instruction_accounts is activated everywhere,

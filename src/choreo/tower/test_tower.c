@@ -263,7 +263,7 @@ void test_tower_serdes( fd_wksp_t * wksp ) {
   /* blah blah blah sent over network! now parse it */
 
   uchar txn_mem[FD_TXN_MAX_SZ];
-  ulong parse_result = fd_txn_parse_core( txnp->payload, txnp->payload_sz, txn_mem, NULL, NULL, 1UL );
+  ulong parse_result = fd_txn_parse_core( txnp->payload, txnp->payload_sz, txn_mem, NULL, NULL );
   FD_TEST( parse_result > 0UL );
   fd_txn_t const * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_is_simple_vote_transaction( txn, txnp->payload ) );

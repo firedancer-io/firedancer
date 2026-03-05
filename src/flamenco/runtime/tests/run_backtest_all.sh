@@ -97,12 +97,10 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880 -y 1 -m 2
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842 -y 1 -m 2000000 -e 422969848 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-r2 -y 1 -m 2000000 -e 376969900 -o 5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-simd-339 -y 1 -m 2000000 -e 376969900 -o H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-378539412 -y 5 -m 2000000 -e 378539445
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347 -y 1 -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384395810 -y 3 -m 2000000 -e 384395820 --ingest-dead-slots
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458 -y 1 -m 2000000 -e 385786458
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold -y 1 -m 1000 -e 260 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-static-instruction-limit -y 1 -m 1000 -e 191 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local -y 1 -m 3000 -e 1000 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-386300256 -y 1 -m 2000000 -e 386300289 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258 -y 1 -m 2000000 -e 387596373
