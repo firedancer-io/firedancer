@@ -2,12 +2,17 @@
    instruction. The worst case is FD_INSTR_ACCT_MAX: 1094. Transactions with
    >FD_INSTR_ACCT_MAX instruction accounts are not possible due to the MTU.
 
-   Instructions with FD_INSTR_ACCT_MAX accounts should be correctly
-   represented in the instruction trace to avoid conformance issues,
-   which is what this test checks. */
+   limit_instruction_accounts disabled:
+   - Transactions with >256 instruction and <=FD_INSTR_ACCT_MAX accounts
+     are accepted.
+   - Instructions with >FD_INSTR_ACCT_MAX accounts are rejected.
+
+   limit_instruction_accounts enabled:
+   - Transactions with >255 instruction accounts are rejected */
 
 #include "info/fd_instr_info.h"
 #include "fd_runtime.h"
+#include "fd_runtime_err.h"
 #include "fd_bank.h"
 #include "fd_system_ids.h"
 #include "fd_acc_pool.h"
@@ -18,6 +23,7 @@
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
+#include "../features/fd_features.h"
 #include "../progcache/fd_progcache_admin.h"
 #include "../progcache/fd_progcache_user.h"
 #include "../log_collector/fd_log_collector.h"
@@ -263,6 +269,7 @@ test_500_instr_accts( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
+  fd_bank_features_modify( env->bank )->limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( env, txn_p, txn_out, txn_in, 500 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -279,10 +286,44 @@ test_1094_instr_accts( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
+  fd_bank_features_modify( env->bank )->limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( env, txn_p, txn_out, txn_in, FD_INSTR_ACCT_MAX );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
   verify_trace_accts( env, FD_INSTR_ACCT_MAX );
+  test_env_destroy( env );
+}
+
+/* SIMD-0406: limit_instruction_accounts feature tests.
+   When activated, instructions with >255 accounts should be rejected. */
+static void
+test_limit_instr_accts_at_limit( fd_wksp_t * wksp ) {
+  test_env_t   env[1];
+  fd_txn_p_t   txn_p[1];
+  fd_txn_out_t txn_out[1];
+  fd_txn_in_t  txn_in[1];
+
+  test_env_create( env, wksp );
+  fd_bank_features_modify( env->bank )->limit_instruction_accounts = 0UL;
+  setup_txn( env, txn_p, txn_out, txn_in, 255 );
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
+  FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
+  verify_trace_accts( env, 255 );
+  test_env_destroy( env );
+}
+
+static void
+test_limit_instr_accts_exceeded( fd_wksp_t * wksp ) {
+  test_env_t   env[1];
+  fd_txn_p_t   txn_p[1];
+  fd_txn_out_t txn_out[1];
+  fd_txn_in_t  txn_in[1];
+
+  test_env_create( env, wksp );
+  fd_bank_features_modify( env->bank )->limit_instruction_accounts = 0UL;
+  setup_txn( env, txn_p, txn_out, txn_in, 256 );
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
+  FD_TEST( txn_out->err.txn_err == FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );
   test_env_destroy( env );
 }
 
@@ -293,8 +334,8 @@ main( int argc, char ** argv ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx > fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr( &argc, &argv,  "--page-sz",  NULL, "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 5UL );
+  char const * _page_sz = fd_env_strip_cmdline_cstr( &argc, &argv,  "--page-sz",  NULL, "normal" );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1023308UL );
   ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
@@ -303,8 +344,13 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "test_instr_acct_bounds", 0UL );
   FD_TEST( wksp );
 
+  /* Tests with limit_instruction_accounts disabled */
   test_500_instr_accts( wksp );
   test_1094_instr_accts( wksp );
+
+  /* Tests with limit_instruction_accounts enabled */
+  test_limit_instr_accts_at_limit( wksp );
+  test_limit_instr_accts_exceeded( wksp );
 
   fd_wksp_delete_anonymous( wksp );
 

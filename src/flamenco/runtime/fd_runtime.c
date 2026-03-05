@@ -1165,10 +1165,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
       }
 
-      /* Reclaim any accounts that have 0-lamports, now that any related
-         cache updates have been applied. */
-      fd_executor_reclaim_account( txn_out->accounts.account[i].meta, fd_bank_slot_get( bank ) );
-
       int save_type =
         fd_runtime_save_account( runtime->accdb, &xid, pubkey, account->meta, bank, runtime->log.capture_ctx );
       runtime->metrics.txn_account_save[ save_type ]++;

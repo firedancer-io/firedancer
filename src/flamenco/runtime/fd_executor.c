@@ -373,6 +373,21 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
     return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
   }
 
+  /* SIMD-0406: enforce limit on number of instruction accounts.
+
+     TODO: when limit_instruction_accounts is activated everywhere,
+     remove this and make the transaction parser check stricter.
+
+     https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/runtime-transaction/src/runtime_transaction/sdk_transactions.rs#L93-L99 */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, limit_instruction_accounts ) ) ) {
+    fd_txn_t const * txn = TXN( txn_in->txn );
+    for( ushort i=0; i<txn->instr_cnt; i++ ) {
+      if( FD_UNLIKELY( txn->instr[i].acct_cnt > FD_BPF_INSTR_ACCT_MAX ) ) {
+        return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
+      }
+    }
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L566-L569 */
   err = fd_executor_compute_budget_program_execute_instructions( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1350,7 +1365,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   return fd_execute_instr_end( ctx, instr, instr_exec_result );
 }
 
-void
+static void
 fd_executor_reclaim_account( fd_account_meta_t * meta,
                              ulong               slot ) {
   meta->slot = slot;
@@ -1609,6 +1624,10 @@ fd_executor_txn_check( fd_runtime_t * runtime,
           return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
         }
       }
+    }
+
+    if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
+      fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
     }
   }
 

@@ -51,7 +51,8 @@ create_test_account( fd_accdb_user_t *         user,
                      ulong                     lamports,
                      uint                      dlen,
                      uchar *                   data,
-                     ulong                     slot ) {
+                     ulong                     slot,
+                     fd_pubkey_t const *       owner ) {
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( user, rw, xid, pubkey, dlen, FD_ACCDB_FLAG_CREATE ) );
   fd_accdb_ref_data_set( user, rw, data, dlen );
@@ -62,7 +63,7 @@ create_test_account( fd_accdb_user_t *         user,
   rw->meta->lamports = lamports;
   rw->meta->slot = slot;
   rw->meta->executable = 0;
-  memset( rw->meta->owner, 0UL, 32UL );
+  memcpy( rw->meta->owner, owner->uc, 32UL );
   fd_accdb_close_rw( user, rw );
 }
 
@@ -303,14 +304,15 @@ test_execute_bundles( fd_wksp_t * wksp ) {
 
   process_slot( env, 10UL );
 
+  fd_pubkey_t system = {0};
   fd_pubkey_t pubkey1 = { .ul[0] = 1UL };
-  create_test_account( env->accdb, &env->xid, &pubkey1, 1000000UL, 0UL, NULL, 10UL );
+  create_test_account( env->accdb, &env->xid, &pubkey1, 1000000UL, 0UL, NULL, 10UL, &system );
   fd_pubkey_t pubkey2 = { .ul[0] = 2UL };
   uchar data2[5] = {6, 7, 8, 9, 10};
-  create_test_account( env->accdb, &env->xid, &pubkey2, 1000000UL, 5UL, data2, 10UL );
+  create_test_account( env->accdb, &env->xid, &pubkey2, 1000000UL, 5UL, data2, 10UL, &system );
   fd_pubkey_t pubkey3 = { .ul[0] = 3UL };
   uchar data3[5] = {11, 12, 13, 14, 15};
-  create_test_account( env->accdb, &env->xid, &pubkey3, 1000000UL, 5UL, data3, 10UL );
+  create_test_account( env->accdb, &env->xid, &pubkey3, 1000000UL, 5UL, data3, 10UL, &system );
 
   fd_signature_t signature = {0};
 
@@ -336,6 +338,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
 
   env->txn_in.txn              = &txn_p;
   env->txn_in.bundle.is_bundle = 1;
+
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
@@ -625,6 +628,81 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[3] );
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[4] );
+
+  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
+  FD_TEST( starting_ro_active == env->accdb->base.ro_active );
+  FD_TEST( starting_rw_active == env->accdb->base.rw_active );
+
+/* Test 5: Account reclaim divergence between bundle and replay mode. */
+
+  FD_LOG_NOTICE(( "Test 5: account reclaim divergence" ));
+
+  fd_pubkey_t some_program = { .ul[0] = 0xDEADBEEFUL };
+  fd_pubkey_t victim       = { .ul[0] = 0xCAFEUL };
+  uchar victim_data[64];
+  memset( victim_data, 0xAA, 64UL );
+  create_test_account( env->accdb, &env->xid, &victim, 500000UL, 64UL, victim_data, 10UL, &some_program );
+
+  /* We need victim in the account_keys of the transaction.
+     Use [pubkey1, victim] so victim is index 1. */
+  fd_pubkey_t reclaim_keys[2] = { pubkey1, victim };
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, reclaim_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+  /* tx0: Execute with victim writable, then drain lamports to 0. */
+  env->txn_in.txn              = &txn_p;
+  env->txn_in.bundle.is_bundle = 1;
+  env->txn_in.bundle.prev_txn_cnt = 0;
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+  FD_TEST( env->txn_out[0].err.is_committable );
+  FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( env->txn_out[0].accounts.account[1].meta->lamports == 500000UL );
+  FD_TEST( env->txn_out[0].accounts.account[1].meta->dlen == 64UL );
+  FD_TEST( !memcmp( env->txn_out[0].accounts.account[1].meta->owner, &some_program, 32UL ) );
+
+  /* Simulate SBF program draining the account to 0 lamports. */
+  env->txn_out[0].accounts.account[1].meta->lamports = 0UL;
+
+  /* tx1: Execute with victim writable, reading from prev_txn_outs.
+     In bundle mode, victim should still have owner=some_program and dlen=64
+     because fd_executor_reclaim_account has NOT been called yet. */
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 1;
+  env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+  FD_TEST( env->txn_out[1].err.is_committable );
+  FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+
+  /* KEY ASSERTION: In bundle mode, tx1 should not see the un-relcaimed
+     state from tx0.  The dlen should also not be 64 since from tx1's
+     POV, the account should not exist yet. */
+  FD_TEST( env->txn_out[1].accounts.account[1].meta->lamports == 0UL );
+  FD_TEST( env->txn_out[1].accounts.account[1].meta->dlen != 64UL );
+  FD_TEST( memcmp( env->txn_out[1].accounts.account[1].meta->owner, &some_program, 32UL ) );
+
+  /* Now commit both bundle transactions. commit_txn calls
+     fd_executor_reclaim_account which zeroes owner/dlen for 0-lamport accounts. */
+  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+
+  /* Execute a non-bundle txn to read the account from funk post-commit.
+     Now the account should be reclaimed: owner zeroed, dlen=0. */
+  env->txn_in.txn              = &txn_p;
+  env->txn_in.bundle.is_bundle = 0;
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
+  FD_TEST( env->txn_out[2].err.is_committable );
+  FD_TEST( env->txn_out[2].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+
+  /* After commit+reclaim: owner is zeroed and dlen is 0. */
+  FD_TEST( env->txn_out[2].accounts.account[1].meta->lamports == 0UL );
+  FD_TEST( env->txn_out[2].accounts.account[1].meta->dlen == 0UL );
+  fd_pubkey_t zero_owner = {0};
+  FD_TEST( !memcmp( env->txn_out[2].accounts.account[1].meta->owner, &zero_owner, 32UL ) );
+  FD_LOG_NOTICE(( "Replay mode (post-commit): account reclaimed (owner zeroed, dlen=0) - CONFIRMED" ));
+
+  env->txn_out[2].err.is_committable = 0;
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
 
   FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
