@@ -311,17 +311,17 @@ after_credit( fd_backt_tile_t *   ctx,
 
   int is_leader = 0;
 
-  uchar * out_buf = fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
-  memcpy( out_buf, shred, FD_SHRED_DATA_HEADER_SZ );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ, &mr, sizeof(fd_hash_t) );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t), &cmr, sizeof(fd_hash_t) );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t), &is_leader, sizeof(int) );
-  ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
+  uchar *    chunk = fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+  fd_memcpy( chunk,                                                     shred,      FD_SHRED_DATA_HEADER_SZ );
+  fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                             &mr,        FD_SHRED_MERKLE_ROOT_SZ );
+  fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(1*FD_SHRED_MERKLE_ROOT_SZ), &cmr,       FD_SHRED_MERKLE_ROOT_SZ );
+  fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(2*FD_SHRED_MERKLE_ROOT_SZ), &is_leader, sizeof(int)             );
 
+  ulong sz = FD_SHRED_DATA_HEADER_SZ + (2*FD_SHRED_MERKLE_ROOT_SZ) + sizeof(int);
   ulong sig = fd_disco_shred_out_fec_sig( shred->slot, shred->fec_set_idx, 32, shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
-  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, fec_complete_sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
-  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, fec_complete_sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
 
   if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }

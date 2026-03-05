@@ -2451,11 +2451,10 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 static void
 process_fec_complete( fd_replay_tile_t * ctx,
                       uchar const *      shred_buf ) {
-  fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
-
-  fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
-  fd_hash_t const * chained_merkle_root = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) );
-  int               is_leader_fec       = *(int const *)     fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) );
+  fd_shred_t const * shred               = (fd_shred_t const *)fd_type_pun_const( shred_buf );
+  fd_hash_t const *  merkle_root         = (fd_hash_t const *) fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
+  fd_hash_t const *  chained_merkle_root = (fd_hash_t const *) fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) );
+  int                is_leader_fec       = FD_LOAD( int,       fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) );
 
   int data_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
   int slot_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
