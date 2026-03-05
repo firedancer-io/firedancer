@@ -2448,7 +2448,7 @@ process_fec_complete( fd_replay_tile_t *  ctx,
   int evict_rv = FD_REASM_EVICT_UNNEEDED;
   fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, &evict_rv );
 
-  if( evict_rv == FD_REASM_EVICT_ANCESTOR ) {
+  if( FD_UNLIKELY( evict_rv == FD_REASM_EVICT_ANCESTOR ) ) {
     fd_reasm_evicted_t const * evicted = fd_reasm_evicted_peek_head( ctx->reasm );
     mark_bank_dead( ctx, stem, evicted->bank_idx );
     fd_sched_block_abandon( ctx->sched, evicted->bank_idx );

@@ -897,7 +897,6 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted ) 
   memset( blk->merkle_roots, 0, sizeof( blk->merkle_roots ) ); /* expensive*/
   blk->confirmed_bid = empty_mr;
 
-  memset( blk->fec_clear_timestamps, 0, sizeof( blk->fec_clear_timestamps ) );
   blk->est_buffered_tick_recv = 0;
 
   /* Metrics tracking */
@@ -1267,7 +1266,7 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
 }
 
 void
-fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx, ulong tspub ) {
+fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx ) {
   VER_INC;
 
   if( FD_UNLIKELY( slot <= fd_forest_root_slot( forest ) ) ) return;
@@ -1307,7 +1306,6 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
        notion of when we completed the slot.  consumed is also updated
        mainly for metrics.  For now we leave it alone. */
   }
-  ele->fec_clear_timestamps[fec_idx] = tspub;
   FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared slot %lu fec set %u to %u. tspub: %lu ", slot, fec_set_idx, fec_set_idx+max_shred_idx, tspub ));
 }
 

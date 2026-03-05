@@ -47,9 +47,9 @@
 #define IN_KIND_SHRED   (3)
 #define IN_KIND_SIGN    (4)
 #define IN_KIND_SNAP    (5)
-#define IN_KIND_GOSSIP  (7)
-#define IN_KIND_GENESIS (8)
-#define IN_KIND_REPLAY  (9)
+#define IN_KIND_GOSSIP  (6)
+#define IN_KIND_GENESIS (7)
+#define IN_KIND_REPLAY  (8)
 
 #define MAX_IN_LINKS    (32)
 
@@ -654,8 +654,7 @@ after_shred( ctx_t      * ctx,
              ulong        nonce,
              fd_hash_t *  mr,
              fd_hash_t *  cmr,
-             int          is_dup,
-             ulong        tspub ) {
+             int          is_dup ) {
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
   int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
@@ -681,8 +680,7 @@ after_shred( ctx_t      * ctx,
     ulong evicted     = ULONG_MAX;
     fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
     if( FD_LIKELY( blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) {
-      if( 1 || tspub > blk->fec_clear_timestamps[shred->fec_set_idx / 32] ) fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, is_dup, mr, cmr );
-      else FD_LOG_INFO(("skipped insert of data shred slot %lu fec set %u, idx %u because timestamp %lu <= %lu", shred->slot, shred->fec_set_idx, shred->idx, tspub, blk->fec_clear_timestamps[shred->fec_set_idx / 32] ));
+      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, is_dup, mr, cmr );
     }
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
@@ -716,7 +714,7 @@ check_confirmed( ctx_t           * ctx,
        recompletes, this function will trigger again and we will dump the
        second to last incorrect FEC. */
 
-    fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, 31UL, 0 );
+    fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, 31UL );
   }
 }
 
@@ -724,8 +722,7 @@ static inline void
 after_fec( ctx_t      * ctx,
            fd_shred_t * shred,
            fd_hash_t  * mr,
-           fd_hash_t  * cmr,
-           ulong        tspub FD_PARAM_UNUSED ) {
+           fd_hash_t  * cmr ) {
 
   /* When this is a FEC completes msg, it is implied that all the
      other shreds in the FEC set can also be inserted.  Shred inserts
@@ -808,7 +805,7 @@ after_evict( ctx_t * ctx,
   uint  spilled_fec_set_idx = fd_disco_shred_out_shred_sig_fec_set_idx( sig );
   uint  spilled_max_idx     = fd_disco_shred_out_shred_sig_shred_idx  ( sig );
 
-  fd_forest_fec_clear( ctx->forest, spilled_slot, spilled_fec_set_idx, spilled_max_idx, 0 );
+  fd_forest_fec_clear( ctx->forest, spilled_slot, spilled_fec_set_idx, spilled_max_idx );
 }
 
 static void
@@ -931,14 +928,14 @@ after_frag( ctx_t *             ctx,
     }
 
     if( FD_UNLIKELY( fec_completes ) ) {
-      after_fec( ctx, shred, mr, cmr, tspub );
+      after_fec( ctx, shred, mr, cmr );
 
       /* forward a long to replay */
       memcpy( fd_chunk_to_laddr( ctx->replay_out_ctx->mem, ctx->replay_out_ctx->chunk ), ctx->buffer, sz );
       fd_stem_publish( ctx->stem, ctx->replay_out_ctx->idx, sig, ctx->replay_out_ctx->chunk, sz, 0UL, 0UL, tspub );
       ctx->replay_out_ctx->chunk = fd_dcache_compact_next( ctx->replay_out_ctx->chunk, sz, ctx->replay_out_ctx->chunk0, ctx->replay_out_ctx->wmark );
     } else {
-      after_shred( ctx, sig, shred, nonce, mr, cmr, is_dup, tspub );
+      after_shred( ctx, sig, shred, nonce, mr, cmr, is_dup );
     }
 
     /* update metrics */
@@ -958,7 +955,7 @@ after_frag( ctx_t *             ctx,
 
   if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
     fd_reasm_evicted_t const * msg = fd_type_pun_const( ctx->buffer );
-    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, 31, 0 );
+    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, 31 );
   }
 
   /* Should never reach here since before_frag should have filtered out any unexpected frags. */

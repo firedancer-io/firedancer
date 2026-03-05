@@ -652,7 +652,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
-  /**/                 fd_topob_link( topo, "repair_replay", "repair_replay", shred_depth,                              FD_SHRED_OUT_MTU,              1UL );
+  /**/                 fd_topob_link( topo, "repair_replay", "repair_replay", 32768UL,                                  FD_SHRED_OUT_MTU,              1UL );
   /**/                 fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   /**/                 fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
@@ -1355,23 +1355,24 @@ fd_topo_initialize( config_t * config ) {
    /* The Store fec_max parameter is the max number of FEC sets that can
       be retained by store.
 
-      The base value is from multiplying max_live_slots by the
-      maximum number of FEC sets in a block (currently 32768 but can be
-      reduced to 1024 once FECs are restricted to always be size 32,
-      given the current consensus limit of 32768 shreds per block).
-      This is capacity of reasm.
+      The base value is from multiplying max_live_slots by the maximum
+      number of FEC sets in a block (which is 1024, given the current
+      consensus limit of 32768 shreds per block). This is notably, the
+      total capacity of reasm.
 
-      Store needs to hold depth(shred_out) more FEC sets than reasm.
-      Any FEC inserted to store will also be inserted to reasm,  but
-      store can be up to depth(shred_out) ahead of reasm. If store is
-      exactly depth(shred_out) ahead of reasm, then this means the
-      shred_out link is full and shred is backpressured. No more FEC
-      sets will be inserted to store until reasm inserts the next FEC,
-      at which point it will be over capacity and will select a FEC to
-      evict from itself and from store. */
+      Store needs to hold depth(shred_out) + depth(repair_replay) more
+      FEC sets than reasm. Any FEC inserted to store will also be
+      inserted to reasm,  but store can be up to depth(shred_out) +
+      depth(repair_replay) ahead of reasm. If store is exactly this
+      total depth ahead of reasm, then this means the links must be
+      full and shred is backpressured. No more FEC sets will be inserted
+      to store until reasm inserts the next FEC, at which point it will
+      be over capacity and will select a FEC to evict from itself and
+      from store. */
 
   if( FD_UNLIKELY( !fd_ulong_is_pow2( config->firedancer.runtime.max_live_slots ) ) ) FD_LOG_ERR(( "max_live_slots must be a power of 2" ));
-  ulong store_fec_max = config->firedancer.runtime.max_live_slots * 1024 + (shred_depth * shred_tile_cnt) + 1;
+  fd_topo_link_t * repair_replay_link = &topo->links[ fd_topo_find_link( topo, "repair_replay", 0UL ) ];
+  ulong store_fec_max = config->firedancer.runtime.max_live_slots * 1024 + (shred_depth * shred_tile_cnt) + repair_replay_link->depth + 1;
         store_fec_max = fd_ulong_pow2_up( store_fec_max );
 
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt );
