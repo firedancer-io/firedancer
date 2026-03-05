@@ -987,6 +987,28 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
+  if( FD_UNLIKELY( block->fec_eos && (block->txns_rem||block->mblks_rem) ) ) {
+    /* A malformed block that fails to parse out exactly as many
+       transactions and microblocks as it should. */
+    FD_LOG_INFO(( "bad block: bytes_rem %u, txns_rem %lu, mblks_rem %lu, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->slot, block->parent_slot ));
+    handle_bad_block( sched, block );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
+    /* The last microblock should be a tick.
+
+       Note that this early parse-time detection could cause us to throw
+       a slightly different error from Agave, in the case that there are
+       too few ticks, since the tick count check precedes the trailing
+       entry check in Agave.  That being said, ultimately a
+       TRAILING_ENTRY renders a block invalid, regardless of anything
+       else. */
+    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
+    handle_bad_block( sched, block );
+    return 0;
+  }
+
   /* We just received a FEC set, which may have made all transactions in
      a partially parsed microblock available.  If this were a malformed
      block that ends in a non-tick microblock, there's not going to be a
@@ -1002,20 +1024,6 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       return 0;
     }
     FD_TEST( mixin_res==1||mixin_res==2 );
-  }
-
-  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
-    /* The last microblock should be a tick.
-
-       Note that this early parse-time detection could cause us to throw
-       a slightly different error from Agave, in the case that there are
-       too few ticks, since the tick count check precedes the trailing
-       entry check in Agave.  That being said, ultimately a
-       TRAILING_ENTRY renders a block invalid, regardless of anything
-       else. */
-    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
-    handle_bad_block( sched, block );
-    return 0;
   }
 
   /* Check if we need to set the active block. */
