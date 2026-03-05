@@ -24,7 +24,7 @@ typedef struct fd_top_votes fd_top_votes_t;
 
 #define FD_TOP_VOTES_ALIGN (128UL)
 
-/* FD_TOP_VOTES_MAX_FOOOTPRINT is the footprint of the fd_top_votes_t
+/* FD_TOP_VOTES_MAX_FOOTPRINT is the footprint of the fd_top_votes_t
    structure when the max number of vote accounts is
    FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000). */
 
@@ -66,7 +66,7 @@ void
 fd_top_votes_init( fd_top_votes_t * top_votes );
 
 
-/* fd_top_votes_update inserts a new vote account into the top votes set
+/* fd_top_votes_insert inserts a new vote account into the top votes set
    given a vote account, node account, last vote slot, last vote
    timestamp, and a stake.  The node account, last vote slot, and last
    vote timestamp are just metadata for the structure.  If the vote
@@ -97,7 +97,7 @@ fd_top_votes_update( fd_top_votes_t *    top_votes,
 
 /* fd_top_votes_invalidate invalidates a vote account in the top votes
    set.  This would be done in the case a vote account is withdrawn or
-   becomes invalid.  An account that is invalid, will not be retured by
+   becomes invalid.  An account that is invalid, will not be returned by
    fd_top_votes_query. */
 
 void

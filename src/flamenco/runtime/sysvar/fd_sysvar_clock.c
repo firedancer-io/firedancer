@@ -157,6 +157,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
   ushort             fork_idx    = bank->data->vote_stakes_fork_id;
 
   fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
+  FD_TEST( top_votes );
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
