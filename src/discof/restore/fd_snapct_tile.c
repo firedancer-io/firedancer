@@ -47,10 +47,6 @@ struct fd_snapct_out_link {
 };
 typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 
-#define FD_SNAPCT_GOSSIP_FRESH_DEADLINE_NANOS      (10L*1000L*1000L*1000L) /* gossip contact info is pushed every ~7.5 seconds */
-#define FD_SNAPCT_GOSSIP_SATURATION_CHECK_INTERVAL (      10L*1000L*1000L)
-#define FD_SNAPCT_GOSSIP_SATURATION_THRESHOLD      (0.05)                  /* 5% fresh peers */
-
 #define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT         (90L*1000L*1000L*1000L) /* 1.5 minutes */
 #define FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT        (30L*1000L*1000L*1000L) /* 30 seconds */
 
@@ -58,7 +54,6 @@ struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
   int           allowed;
   fd_ip4_port_t rpc_addr;
-  long          added_nanos;
   ulong         map_next;
 };
 typedef struct gossip_ci_entry gossip_ci_entry_t;
@@ -137,10 +132,8 @@ struct fd_snapct_tile {
   struct {
     gossip_ci_entry_t * ci_table;  /* flat array of all gossip entries, allowed or not */
     gossip_ci_map_t *   ci_map;    /* map from pubkey to only allowed gossip entries */
-    ulong               fresh_cnt;
-    ulong               total_cnt;
+    ulong               allowed_cnt; /* number of allowed entries in ci_map */
     int                 saturated;
-    long                next_saturated_check;
   } gossip;
 
   fd_snapct_out_link_t out_ld;
@@ -195,33 +188,6 @@ should_shutdown( fd_snapct_tile_t * ctx ) {
 }
 
 static void
-during_housekeeping( fd_snapct_tile_t * ctx ) {
-  long now = fd_log_wallclock();
-
-  if( FD_UNLIKELY( !ctx->gossip.saturated && now>ctx->gossip.next_saturated_check ) ) {
-    ctx->gossip.next_saturated_check = now + FD_SNAPCT_GOSSIP_SATURATION_CHECK_INTERVAL;
-
-    ulong fresh_cnt = 0UL;
-    ulong total_cnt = 0UL;
-    for( gossip_ci_map_iter_t iter = gossip_ci_map_iter_init( ctx->gossip.ci_map, ctx->gossip.ci_table );
-         !gossip_ci_map_iter_done( iter, ctx->gossip.ci_map, ctx->gossip.ci_table );
-         iter = gossip_ci_map_iter_next( iter, ctx->gossip.ci_map, ctx->gossip.ci_table ) ) {
-      gossip_ci_entry_t const * ci_entry = gossip_ci_map_iter_ele_const( iter, ctx->gossip.ci_map, ctx->gossip.ci_table );
-      if( FD_UNLIKELY( ci_entry->added_nanos>(now-FD_SNAPCT_GOSSIP_FRESH_DEADLINE_NANOS) ) ) fresh_cnt++;
-      total_cnt++;
-    }
-    ctx->gossip.fresh_cnt = fresh_cnt;
-    ctx->gossip.total_cnt = total_cnt;
-
-    if( total_cnt!=0UL && total_cnt==ctx->config.sources.gossip.allow_list_cnt ) ctx->gossip.saturated = 1;
-    else {
-      double fresh = total_cnt ? (double)fresh_cnt/(double)total_cnt : 1.0;
-      ctx->gossip.saturated = fresh<FD_SNAPCT_GOSSIP_SATURATION_THRESHOLD;
-    }
-  }
-}
-
-static void
 metrics_write( fd_snapct_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_READ,               ctx->metrics.full.bytes_read );
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_WRITTEN,            ctx->metrics.full.bytes_written );
@@ -232,9 +198,6 @@ metrics_write( fd_snapct_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPCT, INCREMENTAL_BYTES_WRITTEN,     ctx->metrics.incremental.bytes_written );
   FD_MGAUGE_SET( SNAPCT, INCREMENTAL_BYTES_TOTAL,       ctx->metrics.incremental.bytes_total );
   FD_MGAUGE_SET( SNAPCT, INCREMENTAL_DOWNLOAD_RETRIES,  ctx->metrics.incremental.num_retries );
-
-  FD_MGAUGE_SET( SNAPCT, GOSSIP_FRESH_COUNT,            ctx->gossip.fresh_cnt );
-  FD_MGAUGE_SET( SNAPCT, GOSSIP_TOTAL_COUNT,            ctx->gossip.total_cnt );
 
   FD_MGAUGE_SET( SNAPCT, PREDICTED_SLOT,                ctx->predicted_incremental.slot );
 
@@ -1053,6 +1016,11 @@ gossip_frag( fd_snapct_tile_t *  ctx,
              ulong               chunk ) {
   FD_TEST( ctx->gossip_enabled );
 
+  if( FD_UNLIKELY( sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED ) ) {
+    ctx->gossip.saturated = 1;
+    return;
+  }
+
   if( !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
          sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
          sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES ) ) return;
@@ -1068,7 +1036,6 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
         entry->pubkey      = *pubkey;
         entry->rpc_addr.l  = 0UL;
-        entry->added_nanos = fd_log_wallclock();
         if( ctx->config.sources.gossip.allow_any ) {
           entry->allowed = 1;
           for( ulong i=0UL; i<ctx->config.sources.gossip.block_list_cnt; i++ ) {
@@ -1087,7 +1054,19 @@ gossip_frag( fd_snapct_tile_t *  ctx,
           }
         }
         FD_TEST(  ULONG_MAX==gossip_ci_map_idx_query_const( ctx->gossip.ci_map, pubkey, ULONG_MAX, ctx->gossip.ci_table ) );
-        if( entry->allowed ) gossip_ci_map_idx_insert( ctx->gossip.ci_map, msg->contact_info->idx, ctx->gossip.ci_table );
+        if( entry->allowed ) {
+          gossip_ci_map_idx_insert( ctx->gossip.ci_map, msg->contact_info->idx, ctx->gossip.ci_table );
+          ctx->gossip.allowed_cnt++;
+          /* Allow-list shortcut: if an explicit allow list is
+             configured and all expected peers have arrived, declare
+             saturation immediately without waiting for the gossip
+             tile's general saturation signal. */
+          if( FD_UNLIKELY( !ctx->config.sources.gossip.allow_any &&
+                           ctx->config.sources.gossip.allow_list_cnt>0UL &&
+                           ctx->gossip.allowed_cnt==ctx->config.sources.gossip.allow_list_cnt ) ) {
+            ctx->gossip.saturated = 1;
+          }
+        }
       }
       if( !entry->allowed ) break;
       /* Maybe update the RPC address of a new or existing allowed gossip peer */
@@ -1121,6 +1100,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       ulong rem_idx = gossip_ci_map_idx_remove( ctx->gossip.ci_map, &entry->pubkey, ULONG_MAX, ctx->gossip.ci_table );
       if( rem_idx==ULONG_MAX ) break;
       FD_TEST( entry->allowed && rem_idx==msg->contact_info_remove->idx );
+      ctx->gossip.allowed_cnt--;
       fd_ip4_port_t addr = entry->rpc_addr;
       if( FD_LIKELY( !!addr.l ) ) {
         int removed = fd_ssping_remove( ctx->ssping, addr );
@@ -1562,10 +1542,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( _ci_table, 0, sizeof(gossip_ci_entry_t) * GOSSIP_PEERS_MAX );
   ctx->gossip.ci_table             = _ci_table;
   ctx->gossip.ci_map               = gossip_ci_map_join( gossip_ci_map_new( _ci_map, gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ), 0UL ) );
-  ctx->gossip.fresh_cnt            = 0UL;
-  ctx->gossip.total_cnt            = 0UL;
+  ctx->gossip.allowed_cnt          = 0UL;
   ctx->gossip.saturated            = !ctx->gossip_enabled;
-  ctx->gossip.next_saturated_check = 0;
 
   if( FD_UNLIKELY( tile->out_cnt<2UL || tile->out_cnt>3UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2-3", tile->out_cnt ));
   ctx->out_ld  = out1( topo, tile, "snapct_ld"   );
@@ -1583,7 +1561,6 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapct_tile_t)
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN     should_shutdown
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
