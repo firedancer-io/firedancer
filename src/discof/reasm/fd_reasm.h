@@ -308,15 +308,17 @@ fd_reasm_fec_t *
 fd_reasm_pop( fd_reasm_t * reasm );
 
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
-   inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
-   make one or more FEC sets available for in-order delivery.  Caller
-   can consume these FEC sets via fd_reasm_pop.
+   inserted fd_reasm_fec_t, NULL if unsuccessful.  Inserting this FEC
+   set may make one or more FEC sets available for in-order delivery.
+   Caller can consume these FEC sets via fd_reasm_pop.
 
    If the reasm is full (fd_reasm_full() returns 1), reasm_insert will
    evict a FEC set by the policy outlined in reasm_evict.  The evicted
-   FEC set will be removed from reasm, and the evicted FEC metadata will
-   be populated in evicted.  If no FEC set was evicted, then evicted
-   data will remain unchanged.
+   FEC set(s) will be removed from reasm, and the evicted FEC metadata
+   will be pushed to the evicted queue.  If no FEC set was evicted, then
+   the evicted queue will remain unchanged.  It is the caller's
+   responsibility to clear the evicted queue before the next
+   fd_reasm_insert or fd_reasm_clear_leaf call.
 
    See top-level documentation for further details on insertion. */
 
@@ -333,6 +335,24 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               leader,
                  fd_store_t      * opt_store,
                  int             * evict_rv );
+
+/* fd_reasm_clear_leaf clears a leaf node or a chain of nodes starting
+   from a leaf node from reasm.  Returns the type of eviction that
+   occurred; only two are possible: FD_REASM_EVICT_ORPHAN (0) or
+   FD_REASM_EVICT_ANCESTOR (1). EVICT_ORPHAN returned means the head
+   node was in an orphan subtree, and EVICT_ANCESTOR returned means the
+   head node was in the main tree.
+
+   The head node is the leaf node in the chain to clear. If clear_chain
+   is false, only head will be cleared.  If clear_chain is true, the
+   chain will be cleared until one of the following conditions is met:
+   we reach fec_set_idx 0, we reach a fec set with an equivocating
+   sibling, or we reach a fec set with a different bank_idx.  The last
+   two cases handle any equivocation that may have occurred.
+
+   The evicted FEC metadata will be pushed to the evicted queue.  It is
+   the caller's responsibility to clear the evicted queue before the
+   next fd_reasm_insert or fd_reasm_clear_leaf call. */
 
 int
 fd_reasm_clear_leaf( fd_reasm_t     * reasm,
