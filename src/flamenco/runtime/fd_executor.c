@@ -1361,11 +1361,10 @@ fd_execute_instr( fd_runtime_t *      runtime,
 static void
 fd_executor_reclaim_account( fd_account_meta_t * meta,
                              ulong               slot ) {
-  meta->slot = slot;
   if( FD_UNLIKELY( meta->lamports==0UL ) ) {
-    meta->dlen = 0UL;
-    memset( meta->owner, 0, sizeof(fd_pubkey_t) );
+    memset( meta, 0, sizeof(fd_account_meta_t) );
   }
+  meta->slot = slot;
 }
 
 static void
