@@ -1629,8 +1629,8 @@ fd_executor_txn_check( fd_runtime_t * runtime,
       }
     }
 
-    if( fd_pubkey_eq( pubkey, &fd_solana_stake_program_id ) ) txn_out->accounts.stake_update[i] = 1;
-    if( fd_pubkey_eq( pubkey, &fd_solana_vote_program_id ) ) txn_out->accounts.vote_update[i] = 1;
+    if     ( !memcmp( meta->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) txn_out->accounts.stake_update[i] = 1;
+    else if( !memcmp( meta->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[i] = 1;
 
     if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
       fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
