@@ -1447,7 +1447,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
   int evicted[1];
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, 0, evicted ); /* FIXME manifest block_id */
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, evicted ); /* FIXME manifest block_id */
   fec->bank_idx              = bank->data->idx;
   fec->bank_seq              = bank->data->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1583,7 +1583,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_root_advanced( ctx, stem );
 
     int evicted[1];
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, 0, evicted ); /* FIXME manifest block_id */
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, evicted ); /* FIXME manifest block_id */
     fec->bank_idx        = bank->data->idx;
     fec->bank_seq        = bank->data->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -2430,8 +2430,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 static void
 process_fec_complete( fd_replay_tile_t *  ctx,
                       fd_stem_context_t * stem,
-                      uchar const *       shred_buf,
-                      ulong               tspub ) {
+                      uchar const *       shred_buf ) {
   fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
 
   fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
@@ -2447,7 +2446,7 @@ process_fec_complete( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
   int evict_rv = FD_REASM_EVICT_UNNEEDED;
-  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, tspub, &evict_rv );
+  fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, &evict_rv );
 
   if( evict_rv == FD_REASM_EVICT_ANCESTOR ) {
     fd_reasm_evicted_t const * evicted = fd_reasm_evicted_peek_head( ctx->reasm );
@@ -2615,7 +2614,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       /* TODO: This message/sz should be defined. */
       if( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC ) {
         /* If receive a FEC complete message. */
-        process_fec_complete( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), tspub );
+        process_fec_complete( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }

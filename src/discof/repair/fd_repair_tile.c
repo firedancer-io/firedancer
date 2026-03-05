@@ -958,10 +958,10 @@ after_frag( ctx_t *             ctx,
 
   if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
     fd_reasm_evicted_t const * msg = fd_type_pun_const( ctx->buffer );
-    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, 31, msg->fec_tspub );
+    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, 31, 0 );
   }
 
-   /* Should never reach here since before_frag should have filtered out any unexpected frags. */
+  /* Should never reach here since before_frag should have filtered out any unexpected frags. */
 }
 
 static inline void

@@ -424,7 +424,7 @@ fd_reasm_clear_leaf( fd_reasm_t     * reasm,
     fd_reasm_fec_t * removed = orphaned_ele_remove( orphaned, &head->key, NULL, pool );
     if( FD_LIKELY  ( removed ) ) {
       FD_TEST( !clear_chain ); /* if we selected to clear an orphan leaf, clear_chain must be false */
-      evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .fec_tspub = head->tspub, .bank_idx = head->bank_idx } );
+      evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .bank_idx = head->bank_idx } );
       pool_ele_release( pool, clear_slot_metadata( reasm, head, opt_store ) );
     }
 
@@ -435,7 +435,7 @@ fd_reasm_clear_leaf( fd_reasm_t     * reasm,
       while( FD_LIKELY( curr ) ) {
                        removed = ancestry_ele_remove( ancestry, &curr->key, NULL, pool );
         if( !removed ) removed = frontier_ele_remove( frontier, &curr->key, NULL, pool );
-        evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = removed->key, .slot = removed->slot, .fec_set_idx = removed->fec_set_idx, .fec_tspub = removed->tspub, .bank_idx = removed->bank_idx } );
+        evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = removed->key, .slot = removed->slot, .fec_set_idx = removed->fec_set_idx, .bank_idx = removed->bank_idx } );
 
         curr = fd_reasm_child( reasm, curr );
         pool_ele_release( pool, clear_slot_metadata( reasm, removed, opt_store ) );
@@ -455,7 +455,7 @@ fd_reasm_clear_leaf( fd_reasm_t     * reasm,
     /* remove from subtrees and subtree list */
     subtrees_ele_remove( subtrees, &head->key, NULL, pool );
     dlist_ele_remove   ( subtreel,  head,            pool );
-    evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .fec_tspub = head->tspub, .bank_idx = head->bank_idx } );
+    evicted_push_tail( reasm->evicted, (fd_reasm_evicted_t){ .mr = head->key, .slot = head->slot, .fec_set_idx = head->fec_set_idx, .bank_idx = head->bank_idx } );
     pool_ele_release( pool, clear_slot_metadata( reasm, head, opt_store ) );
   }
 
@@ -534,6 +534,7 @@ fd_reasm_evicted_pop_head( fd_reasm_t * reasm ) {
   return evicted_pop_head( reasm->evicted );
 }
 
+/* Caller guarantees new_root and parent_root are non-NULL */
 static int
 evict( fd_reasm_t      * reasm,
        fd_store_t      * opt_store,
@@ -571,8 +572,11 @@ evict( fd_reasm_t      * reasm,
                                !frontier_iter_done( iter, frontier, pool );
                          iter = frontier_iter_next( iter, frontier, pool ) ) {
       fd_reasm_fec_t * ele = frontier_iter_ele( iter, frontier, pool );
-      if( iter.ele_idx == reasm->root || memcmp( &ele->key, parent_root, sizeof(fd_hash_t) ) == 0 ) continue; /* not a candidate */
-      if( ele->confirmed || ele->slot_complete || ele->is_leader ) continue; /* not a candidate */
+      if( iter.ele_idx == reasm->root
+          || 0==memcmp( &ele->key, parent_root, sizeof(fd_hash_t) )
+          || ele->confirmed
+          || ele->slot_complete
+          || ele->is_leader ) continue; /* not a candidate */
       unconfrmd_leaf = fd_ptr_if( !unconfrmd_leaf || ele->slot > unconfrmd_leaf->slot, ele, unconfrmd_leaf );
     }
 
@@ -628,7 +632,6 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               slot_complete,
                  int               is_leader,
                  fd_store_t      * opt_store,
-                 ulong             tspub,
                  int             * evict_rv ) {
 
 # if LOGGING
@@ -654,11 +657,13 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   FD_LOG_INFO(( "fd_forest_fec_insert: inserting fec for slot %lu fec set %u, slot_complete %d", slot, fec_set_idx, slot_complete ));
 
-  *evict_rv = FD_REASM_EVICT_UNNEEDED;
+  int evict_rv_ = FD_REASM_EVICT_UNNEEDED;
+  if( FD_LIKELY( evict_rv ) ) *evict_rv = evict_rv_;
   if( FD_UNLIKELY( !pool_free( pool ) ) ){
     ulong bank_idx_Evicted = 6969;
-    *evict_rv = evict( reasm, opt_store, merkle_root, chained_merkle_root, &bank_idx_Evicted );
-    if( *evict_rv == FD_REASM_EVICT_FAIL ) return NULL;
+    evict_rv_ = evict( reasm, opt_store, merkle_root, chained_merkle_root, &bank_idx_Evicted );
+    if( FD_LIKELY( evict_rv ) ) *evict_rv = evict_rv_;
+    if( evict_rv_ == FD_REASM_EVICT_FAIL ) return NULL;
   }
   FD_TEST( pool_free( pool ) );
   fd_reasm_fec_t * fec = pool_ele_acquire( pool );
@@ -683,7 +688,6 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->parent_bank_idx = null;
   fec->bank_seq        = null;
   fec->parent_bank_seq = null;
-  fec->tspub           = tspub;
 
   if( FD_UNLIKELY( !chained_merkle_root ) ) { /* initialize the reasm with the root */
     FD_TEST( reasm->root==pool_idx_null( pool ) );

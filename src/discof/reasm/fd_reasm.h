@@ -185,8 +185,6 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   int    confirmed;     /* whether this FEC has been confirmed */
   int    popped;        /* whether this FEC has been previously delivered by fd_reasm_pop */
 
-  ulong  tspub;         /* tspub of the FEC set, used if evicted */
-
   /* Data (set by caller) */
 
   ulong bank_dead;
@@ -201,7 +199,6 @@ struct evicted {
   fd_hash_t mr;
   ulong     slot;
   uint      fec_set_idx;
-  ulong     fec_tspub;
   ulong     bank_idx;
 };
 typedef struct evicted evicted_t;
@@ -335,7 +332,6 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               slot_complete,
                  int               leader,
                  fd_store_t      * opt_store,
-                 ulong             tspub,
                  int             * evict_rv );
 
 int

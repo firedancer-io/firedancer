@@ -501,15 +501,14 @@ test_evict( fd_wksp_t * wksp ) {
   fd_hash_t mr7[1] = {{{ 7 }}};
   fd_hash_t mr8[1] = {{{ 8 }}};
 
-  fd_reasm_evicted_t evicted[1];
-  evicted->slot = ULONG_MAX;
+  int evicted[1];
                                /*  mr    cmr   slot fec_idx  p_off  data_cnt -  slot_cmpl - - */
   FD_TEST( fd_reasm_insert( reasm, mr0,  NULL, 1,   0,       1,     32,      0, 1,        0, NULL, evicted ) );
   FD_TEST( fd_reasm_insert( reasm, mr1,  mr0,  2,   0,       1,     32,      0, 1,        0, NULL, evicted ) );
   FD_TEST( fd_reasm_insert( reasm, mr2,  mr1,  3,   0,       1,     32,      0, 1,        0, NULL, evicted ) );
   /* fork 4 and 5 off 3*/
   FD_TEST( fd_reasm_insert( reasm, mr3,  mr2,  4,   0,       1,     32,      0, 0,        0, NULL, evicted ) );
-  FD_TEST( fd_reasm_insert( reasm, mr4,  mr2, 5 ,   0 ,      1,   	32,      0, 0 ,       0, NULL, evicted ) );
+  FD_TEST( fd_reasm_insert( reasm, mr4,  mr2,  5,   0,       1,   	32,      0, 0,        0, NULL, evicted ) );
   FD_TEST( fd_reasm_insert( reasm, mr5,  mr4,  5,   32,      1,     32,      0, 1,        0, NULL, evicted ) );
   fd_reasm_fec_t * replay5 = fd_reasm_query( reasm, mr4 );
   replay5->bank_idx = 1;
@@ -522,22 +521,29 @@ test_evict( fd_wksp_t * wksp ) {
 
   /* should be full */
   fd_reasm_print( reasm );
-  FD_TEST( evicted->slot == ULONG_MAX ); /* nothing should have been evicted yet */
+  FD_TEST( *evicted == FD_REASM_EVICT_UNNEEDED ); /* nothing should have been evicted yet */
 
   /* evict and unconfirmed orphan */
   FD_TEST( fd_reasm_insert( reasm, mr6,  mr5,  6,    0,       1,     32,     0, 0,        0, NULL, evicted ) );
   FD_TEST( !fd_reasm_query( reasm, mr9 )); /* evicts unconfirmed orphan */
-  FD_TEST( evicted->slot == 8 && evicted->fec_set_idx == 0 );
+  FD_TEST( *evicted == FD_REASM_EVICT_ORPHAN );
+
+  fd_reasm_evicted_t evicted_fec = fd_reasm_evicted_pop_head( reasm );
+  FD_TEST( evicted_fec.slot == 8 && evicted_fec.fec_set_idx == 0 );
 
   /* evict an unconfirmed leaf */
   FD_TEST( fd_reasm_insert( reasm, mr9,  mr8,  8,    32,       1,     32,     0, 1,        0, NULL, evicted ) );
   FD_TEST( !fd_reasm_query( reasm, mr6 )); /* evicts unconfirmed leaf */
-  FD_TEST( evicted->slot == 6 && evicted->fec_set_idx == 0 );
+  FD_TEST( *evicted == FD_REASM_EVICT_ANCESTOR );
+  evicted_fec = fd_reasm_evicted_pop_head( reasm );
+  FD_TEST( evicted_fec.slot == 6 && evicted_fec.fec_set_idx == 0 );
 
   FD_TEST( fd_reasm_insert( reasm, mr10, mr9,  10,    0,       1,     32,     0, 0,        0, NULL, evicted ) );
-  FD_TEST( !fd_reasm_query( reasm, mr5 ) ); /* evicts only leaf even though bank idx is set */
-  FD_TEST( fd_reasm_query( reasm, mr4 ) );
-  FD_TEST( evicted->slot == 5 && evicted->fec_set_idx == 32 );
+
+  FD_TEST( fd_reasm_query( reasm, mr5 ) ); /* Evicts slot 4, because slot 5 is complete  */
+  FD_TEST( !fd_reasm_query( reasm, mr3 ) );
+  evicted_fec = fd_reasm_evicted_pop_head( reasm );
+  FD_TEST( evicted_fec.slot == 4 && evicted_fec.fec_set_idx == 0 );
 }
 
 int
