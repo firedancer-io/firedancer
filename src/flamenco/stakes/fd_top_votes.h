@@ -95,6 +95,15 @@ fd_top_votes_update( fd_top_votes_t *    top_votes,
                      ulong               last_vote_slot,
                      long                last_vote_timestamp );
 
+/* fd_top_votes_invalidate invalidates a vote account in the top votes
+   set.  This would be done in the case a vote account is withdrawn or
+   becomes invalid.  An account that is invalid, will not be retured by
+   fd_top_votes_query. */
+
+void
+fd_top_votes_invalidate( fd_top_votes_t *    top_votes,
+                         fd_pubkey_t const * pubkey );
+
 /* fd_top_votes_query queries a fd_top_votes_t structure given a
    vote account and returns 1 if the vote account is in the top voters
    set and 0 otherwise.  If the vote account is in the top voters set,

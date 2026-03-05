@@ -18,6 +18,7 @@ struct vote_ele {
   ulong       stake;
   ulong       last_vote_slot;
   long        last_vote_timestamp;
+  uchar       is_valid;
 
   ushort      left;
   ushort      right;
@@ -29,8 +30,8 @@ typedef struct vote_ele vote_ele_t;
 #define HEAP_IDX_T      ushort
 #define HEAP_T          vote_ele_t
 #define HEAP_LT(e0,e1) ( ((e0)->stake < (e1)->stake) | \
-                         ( ((e0)->stake==(e1)->stake) & \
-                           (memcmp( &(e0)->pubkey, &(e1)->pubkey, sizeof(fd_pubkey_t) )<0 ) ) )
+                         (((e0)->stake==(e1)->stake) & \
+                          (memcmp( &(e0)->pubkey, &(e1)->pubkey, sizeof(fd_pubkey_t) )<0 ) ) )
 #include "../../util/tmpl/fd_heap.c"
 
 #define POOL_NAME  pool
@@ -189,7 +190,6 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
   if( FD_UNLIKELY( stake<=top_votes->min_stake_wmark ) ) return;
 
   if( FD_UNLIKELY( heap_ele_cnt( heap )==heap_ele_max( heap ) ) ) {
-
     vote_ele_t * ele = heap_ele_peek_min( heap, pool );
     if( stake<ele->stake ) return;
 
@@ -219,6 +219,7 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
   ele->stake               = stake;
   ele->last_vote_slot      = last_vote_slot;
   ele->last_vote_timestamp = last_vote_timestamp;
+  ele->is_valid            = 1;
   heap_ele_insert( heap, ele, pool );
   map_ele_insert( map, ele, pool );
 }
@@ -236,6 +237,18 @@ fd_top_votes_update( fd_top_votes_t *    top_votes,
   vote_ele_t * ele = pool_ele( pool, idx );
   ele->last_vote_slot      = last_vote_slot;
   ele->last_vote_timestamp = last_vote_timestamp;
+  ele->is_valid            = 1;
+}
+
+void
+fd_top_votes_invalidate( fd_top_votes_t *    top_votes,
+                         fd_pubkey_t const * pubkey ) {
+  vote_ele_t * pool = get_pool( top_votes );
+  map_t *      map  = get_map( top_votes );
+
+  ushort idx = (ushort)map_idx_query_const( map, pubkey, USHORT_MAX, pool );
+  if( FD_UNLIKELY( idx==USHORT_MAX ) ) return;
+  pool_ele( pool, idx )->is_valid = 0;
 }
 
 int
@@ -250,6 +263,7 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
 
   vote_ele_t const * ele = map_ele_query_const( map, pubkey, NULL, pool );
   if( FD_UNLIKELY( !ele ) ) return 0;
+  if( FD_UNLIKELY( !ele->is_valid ) ) return 0;
 
   if( node_account_out_opt )        *node_account_out_opt        = ele->node_account;
   if( stake_out_opt )               *stake_out_opt               = ele->stake;
