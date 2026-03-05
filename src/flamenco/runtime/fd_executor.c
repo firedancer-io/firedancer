@@ -1591,8 +1591,6 @@ fd_executor_txn_check( fd_runtime_t * runtime,
     fd_account_meta_t * meta              = txn_out->accounts.account[i].meta;
     fd_pubkey_t *       pubkey            = &txn_out->accounts.keys[i];
 
-    if( FD_UNLIKELY( meta->lamports==0UL ) ) fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
-
     fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, meta->lamports );
     fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, starting_lamports );
 
@@ -1626,6 +1624,10 @@ fd_executor_txn_check( fd_runtime_t * runtime,
           return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
         }
       }
+    }
+
+    if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
+      fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
     }
   }
 
