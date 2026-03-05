@@ -24,6 +24,8 @@ typedef struct fd_top_votes fd_top_votes_t;
 
 #define FD_TOP_VOTES_ALIGN (128UL)
 
+#define FD_TOP_VOTES_MAX_FOOTPRINT (1000000UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_top_votes_align returns the alignment of the fd_top_votes_t
