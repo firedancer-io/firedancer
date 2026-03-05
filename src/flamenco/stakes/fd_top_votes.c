@@ -16,10 +16,12 @@ struct vote_ele {
   fd_pubkey_t pubkey;
   fd_pubkey_t node_account;
   ulong       stake;
+  ulong       last_vote_slot;
+  long        last_vote_timestamp;
+
   ushort      left;
   ushort      right;
   ushort      next;
-  uchar       has_tie;
 };
 typedef struct vote_ele vote_ele_t;
 
@@ -161,10 +163,12 @@ fd_top_votes_init( fd_top_votes_t * top_votes ) {
 }
 
 void
-fd_top_votes_update( fd_top_votes_t *    top_votes,
+fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * pubkey,
                      fd_pubkey_t const * node_account,
-                     ulong               stake ) {
+                     ulong               stake,
+                     ulong               last_vote_slot,
+                     long                last_vote_timestamp ) {
 /* If the heap is full, then we need to remove the minimum element.
    There are a few cases to consider:
    1. There are multiple elements at the bottom of the heap with the
@@ -209,10 +213,12 @@ fd_top_votes_update( fd_top_votes_t *    top_votes,
     }
   }
 
-  vote_ele_t * ele  = pool_ele_acquire( pool );
-  ele->pubkey       = *pubkey;
-  ele->node_account = *node_account;
-  ele->stake        = stake;
+  vote_ele_t * ele         = pool_ele_acquire( pool );
+  ele->pubkey              = *pubkey;
+  ele->node_account        = *node_account;
+  ele->stake               = stake;
+  ele->last_vote_slot      = last_vote_slot;
+  ele->last_vote_timestamp = last_vote_timestamp;
   heap_ele_insert( heap, ele, pool );
   map_ele_insert( map, ele, pool );
 }
@@ -221,16 +227,18 @@ int
 fd_top_votes_query( fd_top_votes_t *    top_votes,
                     fd_pubkey_t const * pubkey,
                     fd_pubkey_t *       node_account_out_opt,
-                    ulong *             stake_out_opt ) {
+                    ulong *             stake_out_opt,
+                    ulong *             last_vote_slot_out_opt,
+                    long *              last_vote_timestamp_out_opt ) {
   vote_ele_t * pool = get_pool( top_votes );
   map_t *      map  = get_map( top_votes );
 
-
-  vote_ele_t * ele = map_ele_query( map, pubkey, NULL, pool );
+  vote_ele_t const * ele = map_ele_query_const( map, pubkey, NULL, pool );
   if( FD_UNLIKELY( !ele ) ) return 0;
 
-  if( node_account_out_opt ) *node_account_out_opt = ele->node_account;
-  if( stake_out_opt )        *stake_out_opt        = ele->stake;
-
+  if( node_account_out_opt )        *node_account_out_opt        = ele->node_account;
+  if( stake_out_opt )               *stake_out_opt               = ele->stake;
+  if( last_vote_slot_out_opt )      *last_vote_slot_out_opt      = ele->last_vote_slot;
+  if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   return 1;
 }

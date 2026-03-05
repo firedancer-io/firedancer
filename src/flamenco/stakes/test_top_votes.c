@@ -1,4 +1,5 @@
 #include "fd_top_votes.h"
+#include "../runtime/fd_runtime_const.h"
 
 static void
 assert_vote_present( fd_top_votes_t *    top_votes,
@@ -7,15 +8,19 @@ assert_vote_present( fd_top_votes_t *    top_votes,
                      ulong               expected_stake ) {
   fd_pubkey_t node_out = {0};
   ulong       stake_out = 0UL;
-  FD_TEST( fd_top_votes_query( top_votes, vote_pubkey, &node_out, &stake_out ) );
+  ulong       slot_out = 0UL;
+  long        timestamp_out = 0L;
+  FD_TEST( fd_top_votes_query( top_votes, vote_pubkey, &node_out, &stake_out, &slot_out, &timestamp_out ) );
   FD_TEST( !memcmp( &node_out, expected_node, sizeof(fd_pubkey_t) ) );
   FD_TEST( stake_out==expected_stake );
+  FD_TEST( slot_out==expected_stake );
+  FD_TEST( timestamp_out==(long)expected_stake );
 }
 
 static void
 assert_vote_absent( fd_top_votes_t *    top_votes,
                     fd_pubkey_t const * vote_pubkey ) {
-  FD_TEST( !fd_top_votes_query( top_votes, vote_pubkey, NULL, NULL ) );
+  FD_TEST( !fd_top_votes_query( top_votes, vote_pubkey, NULL, NULL, NULL, NULL ) );
 }
 
 int
@@ -72,6 +77,8 @@ main( int argc, char * argv[] ) {
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_top_votes_align(), footprint, wksp_tag );
   FD_TEST( mem );
 
+  FD_TEST( fd_top_votes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) <= FD_TOP_VOTES_MAX_FOOTPRINT );
+
   FD_TEST( !fd_top_votes_new( NULL, vote_accounts_max, 0UL ) );
   fd_top_votes_t * top_votes = fd_top_votes_join( fd_top_votes_new( mem, vote_accounts_max, 1234UL ) );
   FD_TEST( top_votes );
@@ -79,24 +86,24 @@ main( int argc, char * argv[] ) {
   fd_top_votes_init( top_votes );
 
   /* Basic insertion and query */
-  fd_top_votes_update( top_votes, &vote_A, &node_A, 10UL );
-  fd_top_votes_update( top_votes, &vote_B, &node_B, 20UL );
-  fd_top_votes_update( top_votes, &vote_C, &node_C, 30UL );
-  fd_top_votes_update( top_votes, &vote_D, &node_D, 40UL );
+  fd_top_votes_insert( top_votes, &vote_A, &node_A, 10UL, 10UL, 10L );
+  fd_top_votes_insert( top_votes, &vote_B, &node_B, 20UL, 20UL, 20L );
+  fd_top_votes_insert( top_votes, &vote_C, &node_C, 30UL, 30UL, 30L );
+  fd_top_votes_insert( top_votes, &vote_D, &node_D, 40UL, 40UL, 40L );
   assert_vote_present( top_votes, &vote_A, &node_A, 10UL );
   assert_vote_present( top_votes, &vote_B, &node_B, 20UL );
   assert_vote_present( top_votes, &vote_C, &node_C, 30UL );
   assert_vote_present( top_votes, &vote_D, &node_D, 40UL );
   assert_vote_absent( top_votes, &vote_E );
-  FD_TEST( fd_top_votes_query( top_votes, &vote_A, NULL, NULL ) );
+  FD_TEST( fd_top_votes_query( top_votes, &vote_A, NULL, NULL, NULL, NULL ) );
 
   /* When full, lower-than-min stakes are ignored. */
-  fd_top_votes_update( top_votes, &vote_E, &node_E, 5UL );
+  fd_top_votes_insert( top_votes, &vote_E, &node_E, 5UL, 5UL, 5L );
   assert_vote_absent( top_votes, &vote_E );
   assert_vote_present( top_votes, &vote_A, &node_A, 10UL );
 
   /* When full and no min tie exists, only the minimum stake is evicted. */
-  fd_top_votes_update( top_votes, &vote_E, &node_E, 50UL );
+  fd_top_votes_insert( top_votes, &vote_E, &node_E, 50UL, 50UL, 50L );
   assert_vote_absent( top_votes, &vote_A );
   assert_vote_present( top_votes, &vote_B, &node_B, 20UL );
   assert_vote_present( top_votes, &vote_C, &node_C, 30UL );
@@ -105,11 +112,11 @@ main( int argc, char * argv[] ) {
 
   /* Tied minimum entries are all evicted when a higher stake arrives. */
   fd_top_votes_init( top_votes );
-  fd_top_votes_update( top_votes, &vote_A, &node_A, 10UL );
-  fd_top_votes_update( top_votes, &vote_B, &node_B, 10UL );
-  fd_top_votes_update( top_votes, &vote_C, &node_C, 20UL );
-  fd_top_votes_update( top_votes, &vote_D, &node_D, 30UL );
-  fd_top_votes_update( top_votes, &vote_E, &node_E, 40UL );
+  fd_top_votes_insert( top_votes, &vote_A, &node_A, 10UL, 10UL, 10L );
+  fd_top_votes_insert( top_votes, &vote_B, &node_B, 10UL, 10UL, 10L );
+  fd_top_votes_insert( top_votes, &vote_C, &node_C, 20UL, 20UL, 20L );
+  fd_top_votes_insert( top_votes, &vote_D, &node_D, 30UL, 30UL, 30L );
+  fd_top_votes_insert( top_votes, &vote_E, &node_E, 40UL, 40UL, 40L );
   assert_vote_absent( top_votes, &vote_A );
   assert_vote_absent( top_votes, &vote_B );
   assert_vote_present( top_votes, &vote_C, &node_C, 20UL );
@@ -119,11 +126,11 @@ main( int argc, char * argv[] ) {
   /* If a candidate stake ties the minimum when full, all min entries are removed,
      no new entry is inserted, and that stake is permanently watermarked. */
   fd_top_votes_init( top_votes );
-  fd_top_votes_update( top_votes, &vote_A, &node_A, 10UL );
-  fd_top_votes_update( top_votes, &vote_B, &node_B, 10UL );
-  fd_top_votes_update( top_votes, &vote_C, &node_C, 20UL );
-  fd_top_votes_update( top_votes, &vote_D, &node_D, 30UL );
-  fd_top_votes_update( top_votes, &vote_E, &node_E, 10UL );
+  fd_top_votes_insert( top_votes, &vote_A, &node_A, 10UL, 10UL, 10L );
+  fd_top_votes_insert( top_votes, &vote_B, &node_B, 10UL, 10UL, 10L );
+  fd_top_votes_insert( top_votes, &vote_C, &node_C, 20UL, 20UL, 20L );
+  fd_top_votes_insert( top_votes, &vote_D, &node_D, 30UL, 30UL, 30L );
+  fd_top_votes_insert( top_votes, &vote_E, &node_E, 10UL, 10UL, 10L );
   assert_vote_absent( top_votes, &vote_A );
   assert_vote_absent( top_votes, &vote_B );
   assert_vote_absent( top_votes, &vote_E );
@@ -131,33 +138,33 @@ main( int argc, char * argv[] ) {
   assert_vote_present( top_votes, &vote_D, &node_D, 30UL );
 
   /* Watermark behavior: <= watermark is ignored, > watermark is allowed. */
-  fd_top_votes_update( top_votes, &vote_F, &node_F, 10UL );
-  fd_top_votes_update( top_votes, &vote_G, &node_G, 9UL );
+  fd_top_votes_insert( top_votes, &vote_F, &node_F, 10UL, 10UL, 10L );
+  fd_top_votes_insert( top_votes, &vote_G, &node_G, 9UL, 9UL, 9L );
   assert_vote_absent( top_votes, &vote_F );
   assert_vote_absent( top_votes, &vote_G );
 
-  fd_top_votes_update( top_votes, &vote_H, &node_H, 11UL );
+  fd_top_votes_insert( top_votes, &vote_H, &node_H, 11UL, 11UL, 11L );
   assert_vote_present( top_votes, &vote_H, &node_H, 11UL );
 
   /* Watermark should advance if another "tie with current min when full" occurs. */
-  fd_top_votes_update( top_votes, &vote_I, &node_I, 25UL ); /* now full */
-  fd_top_votes_update( top_votes, &vote_J, &node_J, 11UL ); /* ties current min */
+  fd_top_votes_insert( top_votes, &vote_I, &node_I, 25UL, 25UL, 25L ); /* now full */
+  fd_top_votes_insert( top_votes, &vote_J, &node_J, 11UL, 11UL, 11L ); /* ties current min */
   assert_vote_absent( top_votes, &vote_H );
   assert_vote_absent( top_votes, &vote_J );
   assert_vote_present( top_votes, &vote_C, &node_C, 20UL );
   assert_vote_present( top_votes, &vote_D, &node_D, 30UL );
   assert_vote_present( top_votes, &vote_I, &node_I, 25UL );
 
-  fd_top_votes_update( top_votes, &vote_K, &node_K, 11UL );
+  fd_top_votes_insert( top_votes, &vote_K, &node_K, 11UL, 11UL, 11L );
   assert_vote_absent( top_votes, &vote_K );
 
-  fd_top_votes_update( top_votes, &vote_L, &node_L, 12UL );
+  fd_top_votes_insert( top_votes, &vote_L, &node_L, 12UL, 12UL, 12L );
   assert_vote_present( top_votes, &vote_L, &node_L, 12UL );
 
   /* init should reset both membership and watermark. */
   fd_top_votes_init( top_votes );
   assert_vote_absent( top_votes, &vote_C );
-  fd_top_votes_update( top_votes, &vote_M, &node_M, 11UL );
+  fd_top_votes_insert( top_votes, &vote_M, &node_M, 11UL, 11UL, 11L );
   assert_vote_present( top_votes, &vote_M, &node_M, 11UL );
 
   FD_LOG_NOTICE(( "pass" ));

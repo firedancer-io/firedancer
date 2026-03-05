@@ -24,7 +24,11 @@ typedef struct fd_top_votes fd_top_votes_t;
 
 #define FD_TOP_VOTES_ALIGN (128UL)
 
-#define FD_TOP_VOTES_MAX_FOOTPRINT (1000000UL)
+/* FD_TOP_VOTES_MAX_FOOOTPRINT is the footprint of the fd_top_votes_t
+   structure when the max number of vote accounts is
+   FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000). */
+
+#define FD_TOP_VOTES_MAX_FOOTPRINT (194432UL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -62,16 +66,34 @@ void
 fd_top_votes_init( fd_top_votes_t * top_votes );
 
 
-/* fd_top_votes_update updates a fd_top_votes_t structure given a
-   vote account, node account, and a stake.  The node account is just
-   metadata for the structure. */
+/* fd_top_votes_update inserts a new vote account into the top votes set
+   given a vote account, node account, last vote slot, last vote
+   timestamp, and a stake.  The node account, last vote slot, and last
+   vote timestamp are just metadata for the structure.  If the vote
+   account isn't in the top max_vote_accounts in terms of stake, it is
+   ignored and is treated as a no-op.  If the vote account ties the
+   minimum stake and the struct is full, all elements with that stake
+   are removed.  */
+
+void
+fd_top_votes_insert( fd_top_votes_t *    top_votes,
+                     fd_pubkey_t const * pubkey,
+                     fd_pubkey_t const * node_account,
+                     ulong               stake,
+                     ulong               last_vote_slot,
+                     long                last_vote_timestamp );
+
+
+/* fd_top_votes_update updates the last vote timestamp and slot for a
+   given vote account in the top votes set.  If the vote account is not
+   in the top votes set, the update is ignored and is treated as a
+   no-op. */
 
 void
 fd_top_votes_update( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * pubkey,
-                     fd_pubkey_t const * node_account,
-                     ulong               stake );
-
+                     ulong               last_vote_slot,
+                     long                last_vote_timestamp );
 
 /* fd_top_votes_query queries a fd_top_votes_t structure given a
    vote account and returns 1 if the vote account is in the top voters
@@ -82,7 +104,9 @@ int
 fd_top_votes_query( fd_top_votes_t *    top_votes,
                     fd_pubkey_t const * pubkey,
                     fd_pubkey_t *       node_account_out_opt,
-                    ulong *             stake_out_opt );
+                    ulong *             stake_out_opt,
+                    ulong *             last_vote_slot_out_opt,
+                    long *              last_vote_timestamp_out_opt );
 
 FD_PROTOTYPES_END
 

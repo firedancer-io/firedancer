@@ -60,12 +60,7 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
   /* If the dirty flag has not been set yet, we need to allocated a
      new pool element and copy over the data from the parent idx.
      We also need to mark the dirty flag. */
-  ulong child_idx = fd_bank_epoch_leaders_pool_idx( epoch_leaders_pool, child_epoch_leaders );
-  if( bank->data->epoch_leaders_pool_idx!=fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool ) ) {
-    fd_bank_epoch_leaders_t * parent_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->data->epoch_leaders_pool_idx );
-    fd_memcpy( child_epoch_leaders->data, parent_epoch_leaders->data, FD_EPOCH_LEADERS_MAX_FOOTPRINT );
-  }
-  bank->data->epoch_leaders_pool_idx = child_idx;
+  bank->data->epoch_leaders_pool_idx = fd_bank_epoch_leaders_pool_idx( epoch_leaders_pool, child_epoch_leaders );
   bank->data->epoch_leaders_dirty    = 1;
   return fd_type_pun( child_epoch_leaders->data );
 }
@@ -101,7 +96,11 @@ fd_bank_top_votes_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->locks->top_votes_pool_lock );
 
   ulong child_idx = fd_bank_top_votes_pool_idx( top_votes_pool, child_top_votes );
-  fd_top_votes_init( fd_type_pun( child_top_votes->data ) );
+
+  if( bank->data->top_votes_pool_idx!=fd_bank_top_votes_pool_idx_null( top_votes_pool ) ) {
+    fd_bank_top_votes_t * parent_top_votes = fd_bank_top_votes_pool_ele( top_votes_pool, bank->data->top_votes_pool_idx );
+    fd_memcpy( child_top_votes->data, parent_top_votes->data, FD_TOP_VOTES_MAX_FOOTPRINT );
+  }
   bank->data->top_votes_pool_idx = child_idx;
   bank->data->top_votes_dirty    = 1;
   return fd_type_pun( child_top_votes->data );
@@ -306,7 +305,7 @@ fd_banks_new( void * shmem,
   fd_banks_set_top_votes_pool( banks_data, top_votes_pool );
   for( ulong i=0UL; i<max_fork_width; i++ ) {
     fd_bank_top_votes_t * top_votes_ele = fd_bank_top_votes_pool_ele( top_votes_pool, i );
-    fd_top_votes_t * top_votes = fd_top_votes_join( fd_top_votes_new( top_votes_ele->data, 2000UL, seed ) ); /* TODO:FIXME: Magic number*/
+    fd_top_votes_t * top_votes = fd_top_votes_join( fd_top_votes_new( top_votes_ele->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT, seed ) );
     if( FD_UNLIKELY( !top_votes ) ) {
       FD_LOG_WARNING(( "Failed to create top votes" ));
       return NULL;
