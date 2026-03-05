@@ -63,6 +63,8 @@
 #define FD_ACTIVE_KEY_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<20)
+/* Size of retry queue */
+#define FD_RETRY_QUEUE_MAX (128UL)
 
 /* static map from request type to metric array index */
 static uint metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
@@ -183,15 +185,19 @@ typedef struct sign_req sign_req_t;
    have left the queue.  It is possible that we start up and get
    FD_ACTIVE_KEY_MAX peers gossiped to us, and as we are queueing up
    their pings they all drop and another FD_ACTIVE_KEY_MAX new peers
-   gossip to us, causing us to fill up the queue.  Idk overall this
+   gossip to us, causing us to fill up the queue.  Overall this
    scenario is highly unlikely and it's not the end of the world if we
    drop a warmup req or ping  to a peer because the first req to them
    will retrigger it anyway.
 
-   Typical flow is that a pong will get added to the sign_queue during
+   Typical flow is that a pong will get added to the pong_queue during
    an after_frag call.  Then on the following after_credit will get
    popped from the sign_queue and added to sign_map, and then dispatched
-   to the sign tile. */
+   to the sign tile.
+
+   We keep a second queue of the same type to store requests that made
+   it back from sign, but aren't sent because the peer has dropped out
+   of the table. */
 
 struct sign_pending {
   fd_repair_msg_t msg;
@@ -201,8 +207,7 @@ typedef struct sign_pending sign_pending_t;
 
 #define QUEUE_NAME       fd_signs_queue
 #define QUEUE_T          sign_pending_t
-#define QUEUE_MAX        2*FD_ACTIVE_KEY_MAX
-#include "../../util/tmpl/fd_queue.c"
+#include "../../util/tmpl/fd_queue_dynamic.c"
 struct ctx {
   long tsdebug; /* timestamp for debug printing */
 
@@ -254,7 +259,8 @@ struct ctx {
 
   uint             pending_key_next;
   sign_req_t     * signs_map;  /* contains any request currently in the repair->sign or sign->repair dcache */
-  sign_pending_t * sign_queue; /* contains any request waiting to be dispatched to repair->sign */
+  sign_pending_t * pong_queue;  /* contains any pong or initial warmup request waiting to be dispatched to repair->sign. Size is 2*FD_ACTIVE_KEY_MAX */
+  sign_pending_t * retry_queue; /* contains any regular request waiting to be dispatched to repair->sign. Size is FD_RETRY_QUEUE_MAX */
 
   ushort net_id;
   uchar buffer[ MAX_BUFFER_SIZE ]; /* includes Ethernet, IP, UDP headers */
@@ -313,7 +319,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                       );
   l = FD_LAYOUT_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint  ( lg_sign_depth )                        );
-  l = FD_LAYOUT_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                       );
+  l = FD_LAYOUT_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint( 2*FD_ACTIVE_KEY_MAX )                  );
+  l = FD_LAYOUT_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint( FD_RETRY_QUEUE_MAX )                   );
   l = FD_LAYOUT_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                    );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -540,7 +547,7 @@ after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
        as soon as we receive a peer's contact information for the first
        time, effectively prepaying the RTT cost. */
     fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, fd_type_pun_const( msg->origin ), (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
-    fd_signs_queue_push( ctx->sign_queue, (sign_pending_t){ .msg = *init } );
+    fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *init } );
   }
 }
 
@@ -611,7 +618,7 @@ after_sign( ctx_t             * ctx,
     if( FD_LIKELY( new_peer ) ) {
       /* We have a new peer, so we can send the request */
       pending->msg.shred.to = *new_peer;
-      fd_signs_queue_push( ctx->sign_queue, (sign_pending_t){ .msg = pending->msg } );
+      fd_signs_queue_push( ctx->retry_queue, (sign_pending_t){ .msg = pending->msg } );
     }
 
     if( FD_UNLIKELY( !new_peer && is_regular_req ) ) {
@@ -790,7 +797,7 @@ after_net( ctx_t * ctx,
     return;
   }
   fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &res->ping.hash );
-  fd_signs_queue_push( ctx->sign_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr } } );
+  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr } } );
 }
 
 static inline void
@@ -961,9 +968,24 @@ after_credit( ctx_t *             ctx,
     ctx->metrics->sign_tile_unavail++;
     return;
   }
-  if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->sign_queue ) ) ) {
-    sign_pending_t signable = fd_signs_queue_pop( ctx->sign_queue );
+
+  /* If inflights is at capacity, then the only thing we can send is:
+     pongs, initial warmup requests, or resend things that are already
+     inflight.  Any new requests that would cause an inflight to be
+     added to the queue must be deferred. */
+
+  int inflights_full = fd_inflights_outstanding_full( ctx->inflights );
+
+  if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->pong_queue ) ) ) {
+    sign_pending_t signable = fd_signs_queue_pop( ctx->pong_queue );
     fd_repair_send_sign_request( ctx, sign_out, &signable.msg, signable.msg.kind == FD_REPAIR_KIND_PONG ? &signable.pong_data : NULL );
+    *charge_busy = 1;
+    return;
+  }
+
+  if( FD_UNLIKELY( !inflights_full && !fd_signs_queue_empty( ctx->retry_queue ) ) ) {
+    sign_pending_t signable = fd_signs_queue_pop( ctx->retry_queue );
+    fd_repair_send_sign_request( ctx, sign_out, &signable.msg, NULL );
     *charge_busy = 1;
     return;
   }
@@ -990,16 +1012,18 @@ after_credit( ctx_t *             ctx,
     }
   }
 
+  if( FD_UNLIKELY( inflights_full ) ) return; /* no new requests allowed */
+
   fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot, charge_busy );
   if( FD_UNLIKELY( !cout ) ) return;
   fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
 }
 
 static void
-signs_queue_update_identity( ctx_t * ctx ) {
-  ulong queue_cnt = fd_signs_queue_cnt( ctx->sign_queue );
+signs_queue_update_identity( ctx_t * ctx, sign_pending_t * queue ) {
+  ulong queue_cnt = fd_signs_queue_cnt( queue );
   for( ulong i=0UL; i<queue_cnt; i++ ) {
-    sign_pending_t signable = fd_signs_queue_pop( ctx->sign_queue );
+    sign_pending_t signable = fd_signs_queue_pop( queue );
     switch( signable.msg.kind ) {
       case FD_REPAIR_KIND_PONG:
         memcpy( signable.msg.pong.from.uc, ctx->identity_public_key.uc, sizeof(fd_pubkey_t) );
@@ -1017,7 +1041,7 @@ signs_queue_update_identity( ctx_t * ctx ) {
         FD_LOG_CRIT(( "Unhandled repair kind %u", signable.msg.kind ));
         break;
     }
-    fd_signs_queue_push( ctx->sign_queue, signable );
+    fd_signs_queue_push( queue, signable );
   }
 }
 
@@ -1049,7 +1073,8 @@ during_housekeeping( ctx_t * ctx ) {
       ctx->halt_signing = 1;
       memcpy( ctx->identity_public_key.uc, ctx->keyswitch->bytes, 32UL );
       ctx->protocol->identity_key = ctx->identity_public_key;
-      signs_queue_update_identity( ctx );
+      signs_queue_update_identity( ctx, ctx->pong_queue );
+      signs_queue_update_identity( ctx, ctx->retry_queue );
     }
 
     if( fd_signs_map_key_cnt( ctx->signs_map )==0UL ) {
@@ -1101,7 +1126,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
   ctx->inflights    = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                       );
   ctx->signs_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint  ( lg_sign_depth )                        );
-  ctx->sign_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                       );
+  ctx->pong_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint( 2*FD_ACTIVE_KEY_MAX )                  );
+  ctx->retry_queue  = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint( FD_RETRY_QUEUE_MAX )                   );
   ctx->slot_metrics = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                    );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() ) == (ulong)scratch + scratch_footprint( tile ) );
 
@@ -1110,7 +1136,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,   FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
   ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( ctx->inflights, ctx->repair_seed+1234UL                                                     ) );
   ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( ctx->signs_map, lg_sign_depth, 0UL                                                          ) );
-  ctx->sign_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->sign_queue                                                                             ) );
+  ctx->pong_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->pong_queue, 2*FD_ACTIVE_KEY_MAX                                                        ) );
+  ctx->retry_queue  = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->retry_queue, FD_RETRY_QUEUE_MAX                                                        ) );
   ctx->slot_metrics = fd_repair_metrics_join( fd_repair_metrics_new( ctx->slot_metrics                                                                           ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
@@ -1283,10 +1310,9 @@ metrics_write( ctx_t * ctx ) {
 
 #undef DEBUG_LOGGING
 
-/* TODO: This is not correct, but is temporary and will be fixed
-   when fixed FEC 32 goes in, and we can finally get rid of force
-   completes BS. */
-#define STEM_BURST (64UL)
+/* At most one sign request is made in after_credit.  Then at most one
+   message is published in after_frag. */
+#define STEM_BURST (2UL)
 
 /* Sign manual credit management, backpressuring, sign tile count, &
    sign speed effect this lazy value. The main goal of repair's highest

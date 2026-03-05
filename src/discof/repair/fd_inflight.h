@@ -11,7 +11,6 @@
    critical. Repair tile relies on this module to be able to re-request
    any shreds that it has sent, because policy next does not request any
    shred twice.
-   (TODO should this be rolled into policy.h?)
 
    Requests are key-ed by (slot, shred_idx, nonce) as in the current
    strategy (see fd_policy.h).  Since we generate the nonce based on the
@@ -139,6 +138,14 @@ fd_inflights_should_drain( fd_inflights_t * table, long now ) {
   return 0;
 }
 
+/* Returns 1 if the inflight pool is full, and there are no popped
+   requests to evict.  0 otherwise. Implies that the next insert would
+   evict an outstanding request. */
+
+static inline int
+fd_inflights_outstanding_full( fd_inflights_t * table ) {
+  return !fd_inflight_pool_free( table->pool ) && fd_inflight_dlist_is_empty( table->popped_dl, table->pool );
+}
 
 void
 fd_inflights_print( fd_inflight_dlist_t * dlist, fd_inflight_t * pool );
