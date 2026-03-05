@@ -1074,7 +1074,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           slot_complete,
                              int           ref_tick,
                              int           src,
-                             int           is_dup FD_PARAM_UNUSED,
+                             int           is_dup, /* TODO document / rename */
                              fd_hash_t   * mr,
                              fd_hash_t   * cmr ) {
   VER_INC;
@@ -1148,8 +1148,6 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 # if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest_fec_insert: ele %lu is not in the forest. fec_insert should be preceded by blk_insert", slot ));
 # endif
-
-  FD_LOG_INFO(( "fd_forest_fec_insert: inserting fec for slot %lu fec set %u, slot_complete %d", slot, fec_set_idx, slot_complete ));
 
   uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
   if( FD_UNLIKELY( merkle_recvd( ele, fec_idx )

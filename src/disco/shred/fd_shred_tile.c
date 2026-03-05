@@ -934,7 +934,6 @@ after_frag( fd_shred_ctx_t *    ctx,
     long add_shred_timing  = -fd_tickcount();
     int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, from_repair, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec );
     add_shred_timing      +=  fd_tickcount();
-    FD_LOG_INFO(( "fd_fec_resolver_add_shred: inserting shred idx %u for slot %lu fec set %u rv %d", shred->idx, shred->slot, shred->fec_set_idx, rv ));
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
     ctx->metrics->shred_processing_result[ rv + FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ]++;

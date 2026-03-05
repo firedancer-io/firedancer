@@ -539,8 +539,7 @@ static int
 evict( fd_reasm_t      * reasm,
        fd_store_t      * opt_store,
        fd_hash_t const * new_root FD_PARAM_UNUSED,
-       fd_hash_t const * parent_root,
-       ulong           * evictbank ) {
+       fd_hash_t const * parent_root ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
   frontier_t * frontier = reasm->frontier;
   orphaned_t * orphaned = reasm->orphaned;
@@ -581,17 +580,14 @@ evict( fd_reasm_t      * reasm,
     }
 
     if( FD_UNLIKELY( unconfrmd_orphan )) {
-      *evictbank = unconfrmd_orphan->bank_idx;
       return fd_reasm_clear_leaf( reasm, unconfrmd_orphan, 0, opt_store );
     }
     if( FD_UNLIKELY( unconfrmd_leaf )) {
-      *evictbank = unconfrmd_leaf->bank_idx;
       return fd_reasm_clear_leaf( reasm, unconfrmd_leaf, 1, opt_store );
     }
     if( FD_UNLIKELY( confirmed_orphan )) {
       fd_reasm_fec_t * parent = fd_reasm_query( reasm, parent_root );
       if( !parent ) {
-        *evictbank = confirmed_orphan->bank_idx;
         return fd_reasm_clear_leaf( reasm, confirmed_orphan, 1, opt_store );
       }
     /* for any subtree:
@@ -611,7 +607,6 @@ evict( fd_reasm_t      * reasm,
 
       fd_reasm_fec_t * latest_confirmed_leaf = latest_confirmed_fec( reasm, subtree_root );
       if( !latest_confirmed_leaf || latest_confirmed_leaf == gca( reasm, latest_confirmed_leaf, parent )) {
-        *evictbank = confirmed_orphan->bank_idx;
         return fd_reasm_clear_leaf( reasm, confirmed_orphan, 1, opt_store );
       }
       /* is a useless new fork. */
@@ -655,16 +650,15 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   ulong * bfs = reasm->bfs;
   ulong * out = reasm->out;
 
-  FD_LOG_INFO(( "fd_forest_fec_insert: inserting fec for slot %lu fec set %u, slot_complete %d", slot, fec_set_idx, slot_complete ));
+  int   rv_sentinel = 0;
+  int * rv = fd_ptr_if( evict_rv!=NULL, evict_rv, &rv_sentinel );
 
-  int evict_rv_ = FD_REASM_EVICT_UNNEEDED;
-  if( FD_LIKELY( evict_rv ) ) *evict_rv = evict_rv_;
+  *rv = FD_REASM_EVICT_UNNEEDED;
   if( FD_UNLIKELY( !pool_free( pool ) ) ){
-    ulong bank_idx_Evicted = 6969;
-    evict_rv_ = evict( reasm, opt_store, merkle_root, chained_merkle_root, &bank_idx_Evicted );
-    if( FD_LIKELY( evict_rv ) ) *evict_rv = evict_rv_;
-    if( evict_rv_ == FD_REASM_EVICT_FAIL ) return NULL;
+    *rv = evict( reasm, opt_store, merkle_root, chained_merkle_root );
+    if( *rv == FD_REASM_EVICT_FAIL ) return NULL;
   }
+  
   FD_TEST( pool_free( pool ) );
   fd_reasm_fec_t * fec = pool_ele_acquire( pool );
   fec->key             = *merkle_root;
