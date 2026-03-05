@@ -101,12 +101,12 @@ fd_top_votes_update( fd_top_votes_t *    top_votes,
    the node account and stake are returned. */
 
 int
-fd_top_votes_query( fd_top_votes_t *    top_votes,
-                    fd_pubkey_t const * pubkey,
-                    fd_pubkey_t *       node_account_out_opt,
-                    ulong *             stake_out_opt,
-                    ulong *             last_vote_slot_out_opt,
-                    long *              last_vote_timestamp_out_opt );
+fd_top_votes_query( fd_top_votes_t const * top_votes,
+                    fd_pubkey_t const *    pubkey,
+                    fd_pubkey_t *          node_account_out_opt,
+                    ulong *                stake_out_opt,
+                    ulong *                last_vote_slot_out_opt,
+                    long *                 last_vote_timestamp_out_opt );
 
 FD_PROTOTYPES_END
 

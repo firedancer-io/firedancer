@@ -156,6 +156,8 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ushort             fork_idx    = bank->data->vote_stakes_fork_id;
 
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
+
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
@@ -165,21 +167,28 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
-    /* TODO: Replace accdb query with vote account cache lookup. */
-    fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
-      FD_LOG_CRIT(( "failed to open accdb ro for vote account" ));
-    }
-    if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) {
+
+    ulong last_vote_slot;
+    long  last_vote_timestamp;
+    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp );
+    if( !found ) {
+      fd_accdb_ro_t ro[1];
+      if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
+        FD_LOG_CRIT(( "failed to open accdb ro for vote account" ));
+      }
+      if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) {
+        fd_accdb_close_ro( accdb, ro );
+        continue;
+      }
+      fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
       fd_accdb_close_ro( accdb, ro );
-      continue;
+      last_vote_slot      = last_vote.slot;
+      last_vote_timestamp = last_vote.timestamp;
     }
-    fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
-    fd_accdb_close_ro( accdb, ro );
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
     ulong slot_delta;
-    int err = fd_ulong_checked_sub( current_slot, last_vote.slot, &slot_delta );
+    int err = fd_ulong_checked_sub( current_slot, last_vote_slot, &slot_delta );
     if( FD_UNLIKELY( err ) ) {
       /* Don't count vote accounts with a last vote slot that is greater
          than the current slot. */
@@ -198,7 +207,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
        (delta from last vote slot to current slot * slot duration).
        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
     ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
-    long  estimate = last_vote.timestamp + (long)(offset / NS_IN_S);
+    long  estimate = last_vote_timestamp + (long)(offset / NS_IN_S);
 
     /* For each timestamp, accumulate the stake from E-2.  If the entry
        for the timestamp doesn't exist yet, insert it.  Otherwise,

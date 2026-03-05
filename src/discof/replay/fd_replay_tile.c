@@ -32,12 +32,13 @@
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../disco/metrics/fd_metrics.h"
 
+#include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/fd_genesis_parse.h"
-#include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 
 # if FD_HAS_FLATCC
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
@@ -1147,6 +1148,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_refresh( root_delegations, ctx->accdb, &xid );
 
+  fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
+
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ushort fork_idx = bank->data->vote_stakes_fork_id;
 
@@ -1156,14 +1159,24 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
     fd_pubkey_t pubkey;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL );
+    fd_pubkey_t node_account_t_2;
+    ulong       stake_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2 );
 
     fd_accdb_ro_t acc[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, acc, &xid, &pubkey ) ) ) {
       ctx->runtime_stack.vote_accounts.stale_accs[stale_accs++] = pubkey;
       continue;
     }
+    if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc->meta ) ) ) {
+      fd_accdb_close_ro( ctx->accdb, acc );
+      continue;
+    }
+    fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( acc->meta ), acc->meta->dlen );
+
     fd_accdb_close_ro( ctx->accdb, acc );
+
+    fd_top_votes_insert( top_votes, &pubkey, &node_account_t_2, stake_t_2, last_vote.slot, last_vote.timestamp );
   }
 
   for( ulong i=0UL; i<stale_accs; i++ ) {

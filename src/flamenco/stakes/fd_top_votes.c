@@ -48,17 +48,17 @@ typedef struct vote_ele vote_ele_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 static inline vote_ele_t *
-get_pool( fd_top_votes_t * top_votes ) {
+get_pool( fd_top_votes_t const * top_votes ) {
   return (vote_ele_t *)( (ulong)top_votes + top_votes->pool_off );
 }
 
 static inline heap_t *
-get_heap( fd_top_votes_t * top_votes ) {
+get_heap( fd_top_votes_t const * top_votes ) {
   return (heap_t *)( (ulong)top_votes + top_votes->heap_off );
 }
 
 static inline map_t *
-get_map( fd_top_votes_t * top_votes ) {
+get_map( fd_top_votes_t const * top_votes ) {
   return (map_t *)( (ulong)top_votes + top_votes->map_off );
 }
 
@@ -223,13 +223,28 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
   map_ele_insert( map, ele, pool );
 }
 
+void
+fd_top_votes_update( fd_top_votes_t *    top_votes,
+                     fd_pubkey_t const * pubkey,
+                     ulong               last_vote_slot,
+                     long                last_vote_timestamp ) {
+  vote_ele_t * pool = get_pool( top_votes );
+  map_t *      map  = get_map( top_votes );
+
+  ushort idx = (ushort)map_idx_query_const( map, pubkey, USHORT_MAX, pool );
+  if( FD_UNLIKELY( idx==USHORT_MAX ) ) return;
+  vote_ele_t * ele = pool_ele( pool, idx );
+  ele->last_vote_slot      = last_vote_slot;
+  ele->last_vote_timestamp = last_vote_timestamp;
+}
+
 int
-fd_top_votes_query( fd_top_votes_t *    top_votes,
-                    fd_pubkey_t const * pubkey,
-                    fd_pubkey_t *       node_account_out_opt,
-                    ulong *             stake_out_opt,
-                    ulong *             last_vote_slot_out_opt,
-                    long *              last_vote_timestamp_out_opt ) {
+fd_top_votes_query( fd_top_votes_t const * top_votes,
+                    fd_pubkey_t const *    pubkey,
+                    fd_pubkey_t *          node_account_out_opt,
+                    ulong *                stake_out_opt,
+                    ulong *                last_vote_slot_out_opt,
+                    long *                 last_vote_timestamp_out_opt ) {
   vote_ele_t * pool = get_pool( top_votes );
   map_t *      map  = get_map( top_votes );
 
