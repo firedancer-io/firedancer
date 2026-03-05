@@ -97,6 +97,23 @@ main( int argc, char * argv[] ) {
   assert_vote_absent( top_votes, &vote_E );
   FD_TEST( fd_top_votes_query( top_votes, &vote_A, NULL, NULL, NULL, NULL ) );
 
+  /* Iterator returns all valid top vote entries. */
+  ulong iter_stake_sum = 0UL;
+  ulong iter_cnt       = 0UL;
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) top_votes_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, top_votes_iter_mem );
+       !fd_top_votes_iter_done( top_votes, iter );
+       fd_top_votes_iter_next( top_votes, iter ) ) {
+    fd_pubkey_t iter_pubkey;
+    ulong       iter_stake;
+    fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, &iter_stake, NULL, NULL );
+    iter_stake_sum += iter_stake;
+    iter_cnt++;
+    FD_TEST( fd_top_votes_query( top_votes, &iter_pubkey, NULL, NULL, NULL, NULL ) );
+  }
+  FD_TEST( iter_cnt==4UL );
+  FD_TEST( iter_stake_sum==(10UL+20UL+30UL+40UL) );
+
   /* When full, lower-than-min stakes are ignored. */
   fd_top_votes_insert( top_votes, &vote_E, &node_E, 5UL, 5UL, 5L );
   assert_vote_absent( top_votes, &vote_E );
@@ -145,6 +162,22 @@ main( int argc, char * argv[] ) {
 
   fd_top_votes_insert( top_votes, &vote_H, &node_H, 11UL, 11UL, 11L );
   assert_vote_present( top_votes, &vote_H, &node_H, 11UL );
+
+  /* Iterator should skip invalid entries. */
+  fd_top_votes_invalidate( top_votes, &vote_H );
+  FD_TEST( !fd_top_votes_query( top_votes, &vote_H, NULL, NULL, NULL, NULL ) );
+  FD_TEST( fd_top_votes_query( top_votes, &vote_C, NULL, NULL, NULL, NULL ) );
+  FD_TEST( fd_top_votes_query( top_votes, &vote_D, NULL, NULL, NULL, NULL ) );
+  ulong valid_iter_cnt = 0UL;
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, top_votes_iter_mem );
+       !fd_top_votes_iter_done( top_votes, iter );
+       fd_top_votes_iter_next( top_votes, iter ) ) {
+    fd_pubkey_t iter_pubkey;
+    fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, NULL, NULL, NULL );
+    FD_TEST( memcmp( &iter_pubkey, &vote_H, sizeof(fd_pubkey_t) ) );
+    valid_iter_cnt++;
+  }
+  FD_TEST( valid_iter_cnt==2UL );
 
   /* Watermark should advance if another "tie with current min when full" occurs. */
   fd_top_votes_insert( top_votes, &vote_I, &node_I, 25UL, 25UL, 25L ); /* now full */

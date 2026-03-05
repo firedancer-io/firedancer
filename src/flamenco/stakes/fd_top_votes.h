@@ -117,6 +117,48 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
                     ulong *                last_vote_slot_out_opt,
                     long *                 last_vote_timestamp_out_opt );
 
+#define FD_TOP_VOTES_ITER_FOOTPRINT (16UL)
+#define FD_TOP_VOTES_ITER_ALIGN     (8UL)
+struct map_iter_t;
+typedef struct map_iter_t fd_top_votes_iter_t;
+
+/* A caller can iterate through the entries in the top votes set.  The
+   iterator is initialized by a call to fd_top_votes_iter_init.  The
+   caller is responsible for managing the memory for the iterator.
+   It is safe to call fd_top_votes_iter_next if the result of
+   fd_top_votes_iter_done() == 0.  It is safe to call
+   fd_top_votes_iter_ele() to get the current entry if there is a valid
+   initialized iterator.
+
+   Example use:
+   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+   for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
+        !fd_top_votes_iter_done( top_votes, iter );
+        fd_top_votes_iter_next( top_votes, iter ) ) {
+     fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &last_vote_slot, &last_vote_timestamp );
+   } */
+
+fd_top_votes_iter_t *
+fd_top_votes_iter_init( fd_top_votes_t const * top_votes,
+                        uchar                  iter_mem[ static FD_TOP_VOTES_ITER_FOOTPRINT ] );
+
+int
+fd_top_votes_iter_done( fd_top_votes_t const * top_votes,
+                        fd_top_votes_iter_t *  iter );
+
+void
+fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
+                        fd_top_votes_iter_t *  iter );
+
+void
+fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
+                       fd_top_votes_iter_t *  iter,
+                       fd_pubkey_t *          pubkey_out,
+                       fd_pubkey_t *          node_account_out_opt,
+                       ulong *                stake_out_opt,
+                       ulong *                last_vote_slot_out_opt,
+                       long *                 last_vote_timestamp_out_opt );
+
 FD_PROTOTYPES_END
 
 #endif

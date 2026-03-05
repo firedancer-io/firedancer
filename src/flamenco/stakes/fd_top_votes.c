@@ -271,3 +271,57 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
   if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   return 1;
 }
+
+static void
+fd_top_votes_iter_skip_invalid( fd_top_votes_t const * top_votes,
+                                map_iter_t *           iter ) {
+  map_t *      map  = get_map( top_votes );
+  vote_ele_t * pool = get_pool( top_votes );
+  while( !map_iter_done( *iter, map, pool ) ) {
+    vote_ele_t * ele = map_iter_ele( *iter, map, pool );
+    if( FD_LIKELY( ele->is_valid ) ) break;
+    *iter = map_iter_next( *iter, map, pool );
+  }
+}
+
+fd_top_votes_iter_t *
+fd_top_votes_iter_init( fd_top_votes_t const * top_votes,
+                        uchar                  iter_mem[ static FD_TOP_VOTES_ITER_FOOTPRINT ] ) {
+  map_iter_t iter = map_iter_init( get_map( top_votes ), get_pool( top_votes ) );
+  fd_top_votes_iter_skip_invalid( top_votes, &iter );
+  memcpy( iter_mem, &iter, sizeof(map_iter_t) );
+  return (fd_top_votes_iter_t *)iter_mem;
+}
+
+int
+fd_top_votes_iter_done( fd_top_votes_t const * top_votes,
+                        fd_top_votes_iter_t *  iter ) {
+  map_iter_t * map_iter = (map_iter_t *)iter;
+  return map_iter_done( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
+}
+
+void
+fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
+                        fd_top_votes_iter_t *  iter ) {
+  map_iter_t * map_iter = (map_iter_t *)iter;
+  *map_iter = map_iter_next( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
+  fd_top_votes_iter_skip_invalid( top_votes, map_iter );
+}
+
+void
+fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
+                       fd_top_votes_iter_t *  iter,
+                       fd_pubkey_t *          pubkey_out,
+                       fd_pubkey_t *          node_account_out_opt,
+                       ulong *                stake_out_opt,
+                       ulong *                last_vote_slot_out_opt,
+                       long *                 last_vote_timestamp_out_opt ) {
+  map_iter_t * map_iter = (map_iter_t *)iter;
+  vote_ele_t * ele      = map_iter_ele( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
+  *pubkey_out = ele->pubkey;
+
+  if( node_account_out_opt )        *node_account_out_opt        = ele->node_account;
+  if( stake_out_opt )               *stake_out_opt               = ele->stake;
+  if( last_vote_slot_out_opt )      *last_vote_slot_out_opt      = ele->last_vote_slot;
+  if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
+}
