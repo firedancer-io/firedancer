@@ -1074,7 +1074,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           slot_complete,
                              int           ref_tick,
                              int           src,
-                             int           is_dup,
+                             int           is_dup FD_PARAM_UNUSED,
                              fd_hash_t   * mr,
                              fd_hash_t   * cmr ) {
   VER_INC;
@@ -1306,7 +1306,7 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
        notion of when we completed the slot.  consumed is also updated
        mainly for metrics.  For now we leave it alone. */
   }
-  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared slot %lu fec set %u to %u. tspub: %lu ", slot, fec_set_idx, fec_set_idx+max_shred_idx, tspub ));
+  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared slot %lu fec set %u to %u", slot, fec_set_idx, fec_set_idx+max_shred_idx ));
 }
 
 fd_forest_blk_t const *
