@@ -364,8 +364,7 @@ fd_config_fill( fd_config_t * config,
   if(      FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "perf"     ) ) ) config->tiles.pack.schedule_strategy_enum = 0;
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "balanced" ) ) ) config->tiles.pack.schedule_strategy_enum = 1;
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "revenue"  ) ) ) {
-    FD_LOG_WARNING(( "the revenue scheduler is deprecated and will be removed in a future version" ));
-    config->tiles.pack.schedule_strategy_enum = 2;
+    FD_LOG_ERR(( "the revenue scheduler has been removed.  Please update [tiles.pack.schedule_strategy]" ));
   }
   else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
 
