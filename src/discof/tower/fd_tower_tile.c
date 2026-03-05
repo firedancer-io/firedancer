@@ -221,7 +221,7 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( FD_PARAM_UNUSED fd_topo_tile_t const * tile ) {
   ulong slot_max = tile->tower.max_live_slots;
-  ulong fec_max  = slot_max * FD_SHRED_FEC_MAX;
+  ulong fec_max  = slot_max * FD_FEC_BLK_MAX;
   ulong blk_max  = slot_max * 2; /* 2 equivocating blocks per slot */
   ulong pub_max  = slot_max * 4; /* 4 confirmation levels, excluding CONFIRMATION_ROOT */
 
@@ -1103,7 +1103,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   ulong slot_max = tile->tower.max_live_slots;
-  ulong fec_max  = slot_max * FD_SHRED_FEC_MAX;
+  ulong fec_max  = slot_max * FD_FEC_BLK_MAX;
   ulong pub_max  = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
 
   /* Tower processes at most 2 equivocating blocks for a given slot: the

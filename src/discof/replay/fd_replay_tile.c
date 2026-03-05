@@ -481,7 +481,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( 512 ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_vinyl_req_pool_align(),    fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
@@ -2016,15 +2016,15 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 
   for( ulong i=path_cnt; i>0UL; i-- ) {
-    fd_reasm_fec_t * slot_fecs[ FD_SHRED_BLK_MAX/32 ]; /* TODO: replace with fix-32 macro. */
     fd_reasm_fec_t * leaf = path[ i-1 ];
 
     /* If there's not capacity in the sched or banks, return early and
        drop the FEC.  We have inserted as much as we can for now. */
-    if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )<leaf->fec_set_idx ) ) return;
+    if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched ) < (leaf->fec_set_idx/32 + 1) ) ) return;
     if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return;
 
     /* Gather all FECs for this slot; */
+    fd_reasm_fec_t * slot_fecs[ FD_FEC_BLK_MAX ];
     fd_reasm_fec_t * curr = leaf;
     for(;;) {
       slot_fecs[ curr->fec_set_idx/32 ] = curr;
@@ -2717,7 +2717,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
-  void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
+  void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( 512 ) );
   void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   void * vinyl_req_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_req_pool_align(),   fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
@@ -2850,7 +2850,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
 
-  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, tile->replay.fec_max, ctx->reasm_seed ) );
+  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 512, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
 
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );

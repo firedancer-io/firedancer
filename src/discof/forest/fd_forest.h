@@ -140,8 +140,6 @@
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
 
-#define FD_FEC_BLK_MAX (FD_SHRED_BLK_MAX / 32UL) /* 1024 */
-
 /* fd_forest_blk_t implements a left-child, right-sibling n-ary
    tree. Each ele maintains the `pool` index of its left-most child
    (`child_idx`), its immediate-right sibling (`sibling_idx`), and its
