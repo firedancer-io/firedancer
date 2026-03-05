@@ -1831,10 +1831,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
 
   fd_bank_t parent_bank[1];
-  fd_bank_t * tester =  fd_banks_bank_query( parent_bank, ctx->banks, reasm_fec->parent_bank_idx );
-  if( !tester ) {
-    FD_LOG_CRIT(( "invariant violation: parent bank idx %lu does not exist for FEC set (slot=%lu, fec_set_idx=%u)", reasm_fec->parent_bank_idx, reasm_fec->slot, reasm_fec->fec_set_idx ));
-  }
+  FD_TEST( fd_banks_bank_query( parent_bank, ctx->banks, reasm_fec->parent_bank_idx ) );
   reasm_fec->parent_bank_seq = parent_bank->data->bank_seq;
 
   if( FD_UNLIKELY( reasm_fec->fec_set_idx==0U ) ) {
@@ -1986,7 +1983,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
-  FD_LOG_INFO(("delivering FEC set for slot %lu fec_set_idx %u", reasm_fec->slot, reasm_fec->fec_set_idx ));
   /* Standard case, the parent FEC has a valid corresponding bank. */
   fd_bank_t parent_fec_bank[1];
   if( FD_LIKELY( fd_banks_bank_query( parent_fec_bank, ctx->banks, parent->bank_idx ) &&

@@ -30,6 +30,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../tango/fd_tango_base.h"
+#include "../../disco/shred/fd_fec_resolver.h"
 
 #include "../forest/fd_forest.h"
 #include "fd_repair_metrics.h"
@@ -738,10 +739,7 @@ after_fec( ctx_t      * ctx,
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
   if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return;
   if( FD_LIKELY( ele ) ) fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
-  else {
-    //FD_LOG_INFO(("skipped insert of fec MSG slot %lu fec set %u because timestamp", shred->slot, shred->fec_set_idx ));
-    return;
-  }
+  else return;
 
   /* metrics for completed slots */
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
@@ -889,12 +887,11 @@ after_frag( ctx_t *             ctx,
     fd_hash_t  * cmr   = (fd_hash_t *)(ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) );
     uint         nonce = FD_LOAD(uint, ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) + sizeof(fd_hash_t) ); /* gibberish if not shred msg */
     int          is_dup = FD_LOAD(int, ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(uint) ); /* gibberish if not shred msg */
-                 is_dup = is_dup == -1; /* FD_FEC_RESOLVER_SHRED_DUPLICATE */
+                 is_dup = is_dup == FD_FEC_RESOLVER_SHRED_DUPLICATE;
     if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
       FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
       return;
     };
-
 
     if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && ( shred->slot > ctx->turbine_slot0 ) ) ) return;
 #   if LOGGING
@@ -930,7 +927,7 @@ after_frag( ctx_t *             ctx,
     if( FD_UNLIKELY( fec_completes ) ) {
       after_fec( ctx, shred, mr, cmr );
 
-      /* forward a long to replay */
+      /* forward along to replay */
       memcpy( fd_chunk_to_laddr( ctx->replay_out_ctx->mem, ctx->replay_out_ctx->chunk ), ctx->buffer, sz );
       fd_stem_publish( ctx->stem, ctx->replay_out_ctx->idx, sig, ctx->replay_out_ctx->chunk, sz, 0UL, 0UL, tspub );
       ctx->replay_out_ctx->chunk = fd_dcache_compact_next( ctx->replay_out_ctx->chunk, sz, ctx->replay_out_ctx->chunk0, ctx->replay_out_ctx->wmark );
@@ -956,6 +953,7 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
     fd_reasm_evicted_t const * msg = fd_type_pun_const( ctx->buffer );
     fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, 31 );
+    return;
   }
 
   /* Should never reach here since before_frag should have filtered out any unexpected frags. */
