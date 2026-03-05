@@ -307,6 +307,8 @@ struct fd_txn_out {
     fd_pubkey_t   keys        [ MAX_TX_ACCOUNT_LOCKS ];
     fd_accdb_rw_t account     [ MAX_TX_ACCOUNT_LOCKS ]; /* FIXME use accdb_ref_t here for safety - some accounts are readonly */
     uchar         is_writable [ MAX_TX_ACCOUNT_LOCKS ];
+    /* Flags to demarcate if an account is queued up to update the vote
+       or stakes caches in the commit stage of a transaction. */
     uchar         stake_update[ MAX_TX_ACCOUNT_LOCKS ];
     uchar         vote_update [ MAX_TX_ACCOUNT_LOCKS ];
 
