@@ -1302,6 +1302,8 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->accounts.cnt                = 0UL;
   txn_out->accounts.rollback_nonce     = NULL;
   txn_out->accounts.rollback_fee_payer = NULL;
+  memset( txn_out->accounts.stake_update, 0, sizeof(txn_out->accounts.stake_update) );
+  memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
