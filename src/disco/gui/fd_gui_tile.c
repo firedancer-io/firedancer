@@ -238,7 +238,8 @@ before_frag( fd_gui_ctx_t * ctx,
   /* Ignore "done draining banks" signal from pack->poh */
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==ULONG_MAX ) ) return 1;
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT && sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
+                 (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
   return 0;
 }
 

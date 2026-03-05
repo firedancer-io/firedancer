@@ -18,7 +18,7 @@
 #define IN_KIND_TXSEND        (3)
 #define IN_KIND_EPOCH         (4)
 #define IN_KIND_TOWER         (5)
-#define IN_KIND_SNAPIN_MANIF    (6)
+#define IN_KIND_SNAPIN_MANIF  (6)
 
 /* Symbols exported by version.c */
 extern ulong const firedancer_major_version;
@@ -215,6 +215,12 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
 }
 
+/* Minimum quiet period (no new peers discovered) before we declare
+   the gossip peer table saturated.  Pull requests fire every ~1.6ms,
+   so 500ms of silence means ~300 pulls returned no new contact
+   infos — a strong convergence signal. */
+#define FD_GOSSIP_PEER_SAT_QUIET_NS (500L*1000L*1000L)
+
 void
 after_credit( fd_gossip_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
@@ -234,6 +240,27 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
   fd_gossip_advance( ctx->gossip, now, stem, charge_busy );
+
+  /* Peer table saturation detection.  After fd_gossip_advance updates
+     the CRDS, check if the peer count has grown.  If it hasn't grown
+     for FD_GOSSIP_PEER_SAT_QUIET_NS and there is at least one other
+     peer, publish a one-shot PEER_SATURATED notification. */
+  if( FD_LIKELY( !ctx->peer_sat_published ) ) {
+    fd_crds_metrics_t const * crds_metrics = fd_gossip_crds_metrics( ctx->gossip );
+    ulong peer_cnt = crds_metrics->peer_staked_cnt + crds_metrics->peer_unstaked_cnt;
+    if( FD_UNLIKELY( peer_cnt>ctx->peer_sat_hwm ) ) {
+      ctx->peer_sat_hwm       = peer_cnt;
+      ctx->peer_sat_hwm_nanos = now;
+    } else if( FD_UNLIKELY( peer_cnt>1UL && ctx->peer_sat_hwm_nanos!=0L &&
+                            (now-ctx->peer_sat_hwm_nanos)>FD_GOSSIP_PEER_SAT_QUIET_NS ) ) {
+      FD_LOG_NOTICE(( "gossip peer table saturated (%lu peers, quiet for %ld ms)",
+                      peer_cnt, (now-ctx->peer_sat_hwm_nanos)/(1000L*1000L) ));
+      fd_stem_publish( ctx->stem, ctx->gossip_out->idx, FD_GOSSIP_UPDATE_TAG_PEER_SATURATED, ctx->gossip_out->chunk, 0UL, 0UL, 0UL, 0UL );
+      ctx->peer_sat_published = 1;
+      *opt_poll_in = 0;
+      *charge_busy = 1;
+    }
+  }
 }
 
 static void
@@ -419,6 +446,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->wfs_state  = fd_int_if( memcmp( tile->gossip.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ), FD_GOSSIP_WFS_STATE_INIT, FD_GOSSIP_WFS_STATE_DONE );
   memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
+
+  ctx->peer_sat_hwm       = 0UL;
+  ctx->peer_sat_hwm_nanos = 0L;
+  ctx->peer_sat_published = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ulong sign_in_tile_idx = ULONG_MAX;
