@@ -232,9 +232,9 @@ struct fd_sched {
   ulong                 staged_head_bank_idx[ FD_SCHED_MAX_STAGING_LANES ]; /* Head of the linear chain in each staging lane, ignored if bit i is
                                                                                not set in the bitset. */
   ulong                 txn_pool_free_cnt;
-  fd_txn_p_t *          txn_pool;
-  fd_sched_txn_info_t * txn_info_pool;
-  fd_sched_mblk_t *     mblk_pool;
+  fd_txn_p_t *          txn_pool;      /* Just a flat array. */
+  fd_sched_txn_info_t * txn_info_pool; /* Just a flat array. */
+  fd_sched_mblk_t *     mblk_pool;     /* Just a flat array. */
   ulong                 mblk_pool_free_cnt;
   uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
@@ -749,18 +749,9 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
 
 int
 fd_sched_is_drained( fd_sched_t * sched ) {
-  /* We don't bother checking the mblk pool popcnt, because the txn pool
-     alone will answer the question.  All types of tasks will continue
-     to dispatch to the point where all allocated indices in the pool
-     are reclaimed.  In fact, it is not correct to check whether the
-     mblk pool is totally free.  The mblk pool can have outstanding
-     elements while sched is unable to make progress, due to partially
-     parsed microblocks pending mixins.  Nonetheless, because we mixin
-     even partially parsed microblocks as much as possible, there should
-     be no outstanding transactions.
-
-     FIXME This doesn't check for block finalization tasks. */
-  return sched->txn_pool_free_cnt==sched->depth-1;
+  int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
+  int nothing_queued = sched->active_bank_idx==ULONG_MAX;
+  return nothing_inflight && nothing_queued;
 }
 
 FD_WARN_UNUSED int
