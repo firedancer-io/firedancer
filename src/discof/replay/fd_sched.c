@@ -2132,7 +2132,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
     /* If we've decided to start mixin on a partially parsed microblock,
        there better be nothing else in-progress.  Otherwise, they might
        clobber the per-block bmtree for mixin. */
-    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx && (block->poh_hashing_in_flight_cnt||!mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool )) ) ) {
+    if( FD_UNLIKELY( mblk->curr_txn_idx!=mblk->start_txn_idx && (block->poh_hashing_in_flight_cnt||!mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool )||!mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool )) ) ) {
       sched->print_buf_sz = 0UL;
       print_all( sched, block );
       FD_LOG_CRIT(( "invariant violation end_txn_idx %lu start_txn_idx %lu curr_txn_idx %lu: %s", mblk->end_txn_idx, mblk->start_txn_idx, mblk->curr_txn_idx, sched->print_buf ));
@@ -2154,7 +2154,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
                    (mblk->end_txn_idx>block->txn_parsed_cnt &&  /* There is something to mixin, but the microblock isn't fully parsed yet ... */
                     mblk->curr_txn_idx==mblk->start_txn_idx &&  /* ... and we haven't started mixin on it yet ... */
                     (block->poh_hashing_in_flight_cnt ||        /* ... and another microblock is in-progress and might preempt this microblock and clobber the bmtree, so we shouldn't start the partial microblock just yet. */
-                     !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ))) ) ) {
+                     !mblk_slist_is_empty( block->mblks_hashing_in_progress, sched->mblk_pool ) ||
+                     !mblk_slist_is_empty( block->mblks_mixin_in_progress, sched->mblk_pool ))) ) ) {
     mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, mblk_idx, sched->mblk_pool );
 
     /* No other microblock in the mixin queue. */
