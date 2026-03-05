@@ -307,6 +307,9 @@ struct fd_crds_private {
 
   int has_staked_node;
 
+  fd_ip4_port_t entrypoints[ 16UL ];
+  ulong         entrypoints_cnt;
+
   fd_crds_entry_t * pool;
   fd_crds_contact_info_entry_t * ci_pool;
 
@@ -355,6 +358,8 @@ fd_crds_footprint( ulong ele_max ) {
 
 void *
 fd_crds_new( void *                       shmem,
+             fd_ip4_port_t const *        entrypoints,
+             ulong                        entrypoints_cnt,
              fd_gossip_wsample_t *        wsample,
              fd_active_set_t *            active_set, /* TODO: Remove .. circular dep */
              fd_rng_t *                   rng,
@@ -449,6 +454,10 @@ fd_crds_new( void *                       shmem,
 
   crds->wsample = wsample;
   crds->active_set = active_set;
+
+  FD_TEST( entrypoints_cnt<=16UL );
+  for( ulong i=0UL; i<entrypoints_cnt; i++ ) crds->entrypoints[ i ] = entrypoints[ i ];
+  crds->entrypoints_cnt = entrypoints_cnt;
 
   memset( crds->metrics, 0, sizeof(fd_crds_metrics_t) );
 
@@ -796,13 +805,23 @@ crds_compare( fd_crds_entry_t const *   incumbent,
   else return 0;
 }
 
+static int
+is_entrypoint( fd_crds_t *                crds,
+               fd_gossip_socket_t const * socket ) {
+  if( FD_UNLIKELY( socket->is_ipv6 ) ) return 0;
+  for( ulong i=0UL; i<crds->entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( socket->ip4==crds->entrypoints[ i ].addr && socket->port==crds->entrypoints[ i ].port ) ) return 1;
+  }
+  return 0;
+}
+
 long
 fd_crds_insert( fd_crds_t *               crds,
                 fd_gossip_value_t const * value,
                 uchar const *             value_bytes,
                 ulong                     value_bytes_len,
                 ulong                     origin_stake,
-                int                       origin_active,
+                int                       origin_ping_tracked,
                 int                       is_me,
                 long                      now ,
                 fd_stem_context_t *       stem ) {
@@ -827,7 +846,8 @@ fd_crds_insert( fd_crds_t *               crds,
     incumbent = crds_acquire( crds, value->tag==FD_GOSSIP_VALUE_CONTACT_INFO, now, stem );
     incumbent->key = candidate_key;
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      fd_gossip_wsample_add( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake, origin_active && !is_me );
+      int entrypoint = is_entrypoint( crds, &value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ] );
+      fd_gossip_wsample_add( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake, origin_ping_tracked, entrypoint, is_me );
     }
   } else {
     /* Fast duplicate check by signature before computing expensive
@@ -857,7 +877,11 @@ fd_crds_insert( fd_crds_t *               crds,
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
       fd_gossip_wsample_fresh( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), 1 );
-      if( FD_UNLIKELY( incumbent->stake!=origin_stake ) ) fd_gossip_wsample_stake( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake );
+      fd_gossip_wsample_stake( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake );
+      fd_gossip_wsample_ping_tracked( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_ping_tracked );
+      int entrypoint = is_entrypoint( crds, &value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ] );
+      fd_gossip_wsample_is_entrypoint( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), entrypoint );
+      fd_gossip_wsample_is_me( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), is_me );
     }
   }
 

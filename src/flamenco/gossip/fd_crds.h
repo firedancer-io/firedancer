@@ -6,6 +6,7 @@
 #include "fd_gossip_out.h"
 #include "fd_gossip_purged.h"
 
+#include "../../util/net/fd_net_headers.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 
 struct fd_crds_entry_private;
@@ -54,6 +55,8 @@ typedef struct fd_active_set_private fd_active_set_t;
 
 void *
 fd_crds_new( void *                       shmem,
+             fd_ip4_port_t const *        entrypoints,
+             ulong                        entrypoints_cnt,
              fd_gossip_wsample_t *        wsample,
              fd_active_set_t *            active_set, /* TODO: Remove .. circular dep */
              fd_rng_t *                   rng,
@@ -121,7 +124,7 @@ fd_crds_insert( fd_crds_t *               crds,
                 uchar const *             value_bytes,
                 ulong                     value_bytes_len,
                 ulong                     origin_stake,
-                int                       origin_active,
+                int                       origin_ping_tracked,
                 int                       is_me,
                 long                      now,
                 fd_stem_context_t *       stem );
