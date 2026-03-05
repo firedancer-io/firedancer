@@ -11,6 +11,9 @@
 #include "../../../ballet/nanopb/pb_encode.h"
 #include "../../accdb/fd_accdb_sync.h"
 #include "../../progcache/fd_prog_load.h"
+#include "../program/vote/fd_vote_state_versioned.h"
+#include "../sysvar/fd_sysvar_epoch_rewards.h"
+#include "../fd_runtime_stack.h"
 
 #include <stdio.h> /* fopen */
 #include <sys/mman.h> /* mmap */
@@ -523,7 +526,8 @@ static void
 create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
                                           fd_banks_t *          banks,
                                           fd_bank_t *           bank,
-                                          fd_accdb_user_t *     accdb ) {
+                                          fd_accdb_user_t *     accdb,
+                                          fd_runtime_stack_t *  runtime_stack ) {
   /* We should use the bank fields and funk txn from the parent slot in
      order to capture the block context from before the current block
      was executed, since dumping is happening in the block finalize
@@ -636,26 +640,50 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     ulong       stake_t_2;
     fd_pubkey_t node_t_1;
     fd_pubkey_t node_t_2;
+    /* TODO: uchar commission = 0U; */
     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_t_1, &node_t_2 );
 
     if( stake_t_1 ) {
       fd_exec_test_prev_vote_account_t * entry = &va_t1[ va_t1_cnt++ ];
       fd_memcpy( entry->address,     &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( entry->node_pubkey, &node_t_1, sizeof(fd_pubkey_t) );
-      entry->stake      = stake_t_1;
-      entry->commission = 0U; /* TODO: dump commission */
+      entry->stake               = stake_t_1;
+      /* entry->commission          = commission; */
+      entry->epoch_credits_count = 0U;
     }
 
     if( stake_t_2 ) {
       fd_exec_test_prev_vote_account_t * entry = &va_t2[ va_t2_cnt++ ];
       fd_memcpy( entry->address,     &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( entry->node_pubkey, &node_t_2, sizeof(fd_pubkey_t) );
-      entry->stake      = stake_t_2;
-      entry->commission = 0U; /* TODO: dump commission */
+      entry->stake               = stake_t_2;
+      /* entry->commission          = commission; */
+      entry->epoch_credits_count = 0U;
     }
   }
 
   fd_bank_vote_stakes_end_locking_modify( parent_bank );
+
+  /* Dump epoch_credits from runtime_stack->stakes.vote_ele if the
+     vote_ele_map has been populated (happens after epoch boundary
+     reward calculation).  Needed for the harness to correctly
+     recalculate partitioned epoch rewards. */
+  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  for( pb_size_t i=0U; i<va_t1_cnt; i++ ) {
+    fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
+    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
+    if( idx==UINT_MAX ) continue;
+
+    fd_vote_rewards_t * ve  = &runtime_stack->stakes.vote_ele[idx];
+    ulong               cnt = ve->epoch_credits.cnt;
+    va_t1[i].epoch_credits_count = (pb_size_t)cnt;
+    va_t1[i].epoch_credits = fd_spad_alloc( spad, alignof(fd_exec_test_epoch_credit_t), cnt * sizeof(fd_exec_test_epoch_credit_t) );
+    for( ulong j=0; j<cnt; j++ ) {
+      va_t1[i].epoch_credits[j].epoch        = ve->epoch_credits.epoch[j];
+      va_t1[i].epoch_credits[j].credits      = ve->epoch_credits.credits[j];
+      va_t1[i].epoch_credits[j].prev_credits = ve->epoch_credits.prev_credits[j];
+    }
+  }
 
   /* BlockContext -> acct_states
      Iterate over the set and dump all the account keys in one pass. */
@@ -693,11 +721,18 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->has_fee_rate_governor = true;
   dump_fee_rate_governor( parent_bank, &block_bank->fee_rate_governor );
 
+  /* BlockBank -> slot */
+  block_bank->slot = fd_bank_slot_get( bank );
+
   /* BlockBank -> parent_slot */
   block_bank->parent_slot = fd_bank_parent_slot_get( bank );
 
   /* BlockBank -> capitalization */
   block_bank->capitalization = fd_bank_capitalization_get( parent_bank );
+
+  /* BlockBank -> ns_per_slot */
+  fd_w_u128_t ns_per_slot = fd_bank_ns_per_slot_get( bank );
+  memcpy(block_bank->ns_per_slot, &ns_per_slot.ud, sizeof(uint128));
 
   /* BlockBank -> inflation */
   block_bank->has_inflation = true;
@@ -1298,7 +1333,8 @@ fd_dump_block_to_protobuf( fd_block_dump_ctx_t *       dump_block_ctx,
                            fd_banks_t *                banks,
                            fd_bank_t *                 bank,
                            fd_accdb_user_t *           accdb,
-                           fd_dump_proto_ctx_t const * dump_proto_ctx ) {
+                           fd_dump_proto_ctx_t const * dump_proto_ctx,
+                           fd_runtime_stack_t *        runtime_stack ) {
   if( FD_UNLIKELY( dump_block_ctx==NULL ) ) {
     FD_LOG_WARNING(( "Block dumping context may not be NULL when dumping blocks." ));
     return;
@@ -1311,7 +1347,7 @@ FD_SPAD_FRAME_BEGIN( dump_block_ctx->spad ) {
   }
 
   /* Dump the block context */
-  create_block_context_protobuf_from_block( dump_block_ctx, banks, bank, accdb );
+  create_block_context_protobuf_from_block( dump_block_ctx, banks, bank, accdb, runtime_stack );
 
   /* Output to file */
   ulong        out_buf_size = 1UL<<30UL; /* 1 GB */

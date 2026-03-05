@@ -153,7 +153,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_exec_test_block_bank_t const * block_bank = &test_ctx->bank;
 
   /* Slot */
-  ulong slot = fd_solfuzz_pb_get_slot( test_ctx->acct_states, test_ctx->acct_states_count );
+  ulong slot = block_bank->slot;
   fd_bank_slot_set( bank, slot );
 
   /* Blockhash queue */
@@ -220,16 +220,20 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   }
   fd_bank_total_epoch_stake_set( bank, total_epoch_stake );
 
-  /* Using default configuration of 64 ticks per slot, 400ms per slot */
-  /* https://github.com/anza-xyz/solana-sdk/blob/time-utils%40v3.0.0/time-utils/src/lib.rs#L18-L27 */
-  fd_bank_slots_per_year_set( runner->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( runner->bank )) );
-  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ 400000000,0 } } ); // TODO: restore from input
+  /* Using default configuration of 64 ticks per slot
+     https://github.com/anza-xyz/solana-sdk/blob/time-utils%40v3.0.0/time-utils/src/lib.rs#L18-L27 */
+  uint128 ns_per_slot = FD_LOAD(uint128, block_bank->ns_per_slot );
+  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t){ .ud = ns_per_slot } );
   fd_bank_ticks_per_slot_set( bank, 64UL );
+  fd_bank_slots_per_year_set( runner->bank, (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot );
   fd_bank_hashes_per_tick_set( bank, (slot+1UL)*64UL );
 
   /* Load in acccounts, populate stake delegations and vote accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   fd_stake_delegations_init( stake_delegations );
+
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( banks->data );
+  bank->data->stake_delegations_fork_id = fd_stake_delegations_delta_new_fork( stake_delegations_delta );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
@@ -265,6 +269,31 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_vote_stakes_fini_root( vote_stakes );
 
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, 2048UL, 999 ) ) );
+
+  /* Populate vote_ele and vote_ele_map for partitioned epoch rewards.
+     Use epoch_credits from the proto if available (captured at epoch
+     boundary time), otherwise fall back to the vote account in funk. */
+  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
+    fd_exec_test_prev_vote_account_t const * pva         = &block_bank->vote_accounts_t_1[i];
+    fd_pubkey_t                              vote_pubkey = FD_LOAD( fd_pubkey_t, pva->address );
+
+    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+    fd_memcpy( vote_ele->pubkey.uc, &vote_pubkey, sizeof(fd_pubkey_t) );
+    vote_ele->stake      = pva->stake;
+    vote_ele->commission = (uchar)pva->commission;
+    vote_ele->invalid    = 0;
+
+    FD_TEST( pva->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
+    for( ulong j=0; j<pva->epoch_credits_count; j++ ) {
+      vote_ele->epoch_credits.epoch       [j] = (ushort)pva->epoch_credits[j].epoch;
+      vote_ele->epoch_credits.credits     [j] = pva->epoch_credits[j].credits;
+      vote_ele->epoch_credits.prev_credits[j] = pva->epoch_credits[j].prev_credits;
+    }
+    vote_ele->epoch_credits.cnt = pva->epoch_credits_count;
+
+    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
+  }
 
   fd_bank_vote_stakes_end_locking_modify( bank );
 

@@ -12,6 +12,9 @@ PB_BIND(FD_EXEC_TEST_COST_TRACKER, fd_exec_test_cost_tracker_t, AUTO)
 PB_BIND(FD_EXEC_TEST_INFLATION, fd_exec_test_inflation_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_EPOCH_CREDIT, fd_exec_test_epoch_credit_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_PREV_VOTE_ACCOUNT, fd_exec_test_prev_vote_account_t, AUTO)
 
 
