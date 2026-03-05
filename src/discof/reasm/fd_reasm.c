@@ -355,6 +355,7 @@ fd_reasm_clear_leaf( fd_reasm_t     * reasm,
   int                 is_ancestry = FD_REASM_EVICT_ORPHAN;
 
   FD_TEST( head && head->child == ULONG_MAX ); /* must be a leaf node */
+  fd_reasm_fec_t * prehead = head;
   if( FD_UNLIKELY( clear_chain ) ) {
     /* we search up the tree until the bank idx changes. This is usually
      when we jump to a parent slot, but if an equivocation occured, this
@@ -395,8 +396,7 @@ fd_reasm_clear_leaf( fd_reasm_t     * reasm,
       head = parent;
     }
   }
-  FD_BASE58_ENCODE_32_BYTES( head->key.key, head_key_b58 );
-  FD_LOG_NOTICE(( "evicting leaf slot %lu, fec idx %u, fec: %s, bank_idx %lu", head->slot, head->fec_set_idx, head_key_b58, head->bank_idx ));
+  FD_LOG_INFO(( "evicting leaf slot %lu, fec idx %u, down to %u bank_idx %lu", head->slot, head->fec_set_idx, prehead->fec_set_idx, head->bank_idx ));
 
   fd_reasm_fec_t * parent = fd_reasm_parent( reasm, head );
   if( FD_LIKELY( parent ) ) {
@@ -651,6 +651,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   ulong * bfs = reasm->bfs;
   ulong * out = reasm->out;
+
+  FD_LOG_INFO(( "fd_forest_fec_insert: inserting fec for slot %lu fec set %u, slot_complete %d", slot, fec_set_idx, slot_complete ));
 
   *evict_rv = FD_REASM_EVICT_UNNEEDED;
   if( FD_UNLIKELY( !pool_free( pool ) ) ){
@@ -1029,6 +1031,8 @@ fd_reasm_print( fd_reasm_t const * reasm ) {
     fd_reasm_fec_t const * fec = pool_ele_const( pool, iter );
     ancestry_print( reasm, fec, 0, "", NULL, 0 );
   }
+
+  printf( "pool elements: %lu\n", pool_used( pool ) );
   printf( "\n\n" );
   fflush(stdout);
 }

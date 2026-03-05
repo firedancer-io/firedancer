@@ -89,7 +89,7 @@
 #define IN_KIND_RESOLV     ( 4)
 #define IN_KIND_POH        ( 5)
 #define IN_KIND_EXECRP     ( 6)
-#define IN_KIND_SHRED      ( 7)
+#define IN_KIND_REPAIR     ( 7)
 #define IN_KIND_TXSEND     ( 8)
 #define IN_KIND_GUI        ( 9)
 #define IN_KIND_RPC        (10)
@@ -2611,7 +2611,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       }
       break;
     }
-    case IN_KIND_SHRED: {
+    case IN_KIND_REPAIR: {
       /* TODO: This message/sz should be defined. */
       if( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC ) {
         /* If receive a FEC complete message. */
@@ -2917,7 +2917,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
+    else if( !strcmp( link->name, "repair_replay" ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "gui_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;

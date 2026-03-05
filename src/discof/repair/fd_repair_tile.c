@@ -238,8 +238,7 @@ struct ctx {
 
   ulong snap_out_chunk;
 
-  uint      shred_tile_cnt;
-  out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
+  out_ctx_t replay_out_ctx[1];
 
   /* repair_sign links (to sign tiles 1+) - for round-robin distribution */
 
@@ -682,7 +681,7 @@ after_shred( ctx_t      * ctx,
     ulong evicted     = ULONG_MAX;
     fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
     if( FD_LIKELY( blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) {
-      if( tspub > blk->fec_clear_timestamps[shred->fec_set_idx / 32] ) fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, is_dup, mr, cmr );
+      if( 1 || tspub > blk->fec_clear_timestamps[shred->fec_set_idx / 32] ) fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, is_dup, mr, cmr );
       else FD_LOG_INFO(("skipped insert of data shred slot %lu fec set %u, idx %u because timestamp %lu <= %lu", shred->slot, shred->fec_set_idx, shred->idx, tspub, blk->fec_clear_timestamps[shred->fec_set_idx / 32] ));
     }
   } else {
@@ -726,7 +725,7 @@ after_fec( ctx_t      * ctx,
            fd_shred_t * shred,
            fd_hash_t  * mr,
            fd_hash_t  * cmr,
-           ulong        tspub ) {
+           ulong        tspub FD_PARAM_UNUSED ) {
 
   /* When this is a FEC completes msg, it is implied that all the
      other shreds in the FEC set can also be inserted.  Shred inserts
@@ -741,9 +740,9 @@ after_fec( ctx_t      * ctx,
   ulong evicted  = ULONG_MAX;
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
   if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return;
-  if( FD_LIKELY( ele && tspub > ele->fec_clear_timestamps[shred->fec_set_idx / 32] ) ) fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
+  if( FD_LIKELY( ele ) ) fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
   else {
-    FD_LOG_INFO(("skipped insert of fec MSG slot %lu fec set %u because timestamp", shred->slot, shred->fec_set_idx ));
+    //FD_LOG_INFO(("skipped insert of fec MSG slot %lu fec set %u because timestamp", shred->slot, shred->fec_set_idx ));
     return;
   }
 
@@ -933,6 +932,11 @@ after_frag( ctx_t *             ctx,
 
     if( FD_UNLIKELY( fec_completes ) ) {
       after_fec( ctx, shred, mr, cmr, tspub );
+
+      /* forward a long to replay */
+      memcpy( fd_chunk_to_laddr( ctx->replay_out_ctx->mem, ctx->replay_out_ctx->chunk ), ctx->buffer, sz );
+      fd_stem_publish( ctx->stem, ctx->replay_out_ctx->idx, sig, ctx->replay_out_ctx->chunk, sz, 0UL, 0UL, tspub );
+      ctx->replay_out_ctx->chunk = fd_dcache_compact_next( ctx->replay_out_ctx->chunk, sz, ctx->replay_out_ctx->chunk0, ctx->replay_out_ctx->wmark );
     } else {
       after_shred( ctx, sig, shred, nonce, mr, cmr, is_dup, tspub );
     }
@@ -1109,7 +1113,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->net_out_idx       = UINT_MAX;
-  ctx->shred_tile_cnt    = 0;
   ctx->repair_sign_cnt   = 0;
   ctx->sign_rrobin_idx   = 0;
 
@@ -1125,14 +1128,14 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, link->dcache, link->mtu );
       ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-    } else if( 0==strcmp( link->name, "repair_shred" ) ) {
+    } else if( 0==strcmp( link->name, "repair_replay" ) ) {
 
-      out_ctx_t * shred_out = &ctx->shred_out_ctx[ ctx->shred_tile_cnt++ ];
-      shred_out->idx        = out_idx;
-      shred_out->mem        = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      shred_out->chunk0     = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
-      shred_out->wmark      = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
-      shred_out->chunk      = shred_out->chunk0;
+      out_ctx_t * replay_out = ctx->replay_out_ctx;
+      replay_out->idx        = out_idx;
+      replay_out->mem        = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      replay_out->chunk0     = fd_dcache_compact_chunk0( replay_out->mem, link->dcache );
+      replay_out->wmark      = fd_dcache_compact_wmark( replay_out->mem, link->dcache, link->mtu );
+      replay_out->chunk      = replay_out->chunk0;
 
     } else if( 0==strcmp( link->name, "repair_sign" ) ) {
 
@@ -1154,8 +1157,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( ctx->repair_sign_cnt!=sign_repair_idx ) ) {
     FD_LOG_ERR(( "Mismatch between repair_sign output links (%lu) and sign_repair input links (%u)", ctx->repair_sign_cnt, sign_repair_idx ));
   }
-
-  FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
 
 # if DEBUG_LOGGING
   if( fd_signs_map_key_max( ctx->signs_map ) < tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt ) {
