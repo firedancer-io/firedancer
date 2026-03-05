@@ -1074,6 +1074,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           slot_complete,
                              int           ref_tick,
                              int           src,
+                             int           is_dup, /* TODO document / rename */
                              fd_hash_t   * mr,
                              fd_hash_t   * cmr ) {
   VER_INC;
@@ -1082,6 +1083,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
 # if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest: fd_forest_data_shred_insert: ele %lu is not in the forest. data_shred_insert should be preceded by blk_insert", slot ));
 # endif
+
 
   /* Pre-filtering on merkle root.
      If we have knowledge of the confirmed merkle root, we can reject
@@ -1126,7 +1128,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   }
   if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
 
-  fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
+  if( FD_LIKELY( !is_dup ) ) fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
   while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) {
     ele->buffered_idx++;
     ele->est_buffered_tick_recv = ref_tick;
@@ -1199,7 +1201,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
      the advance_consumed_frontier call in the below data_shred_insert
      to move forward the consumed frontier.  */
   for( uint idx = fec_set_idx; idx <= last_shred_idx; idx++ ) {
-    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, mr, cmr );
+    ele = fd_forest_data_shred_insert( forest, slot, parent_slot, idx, fec_set_idx, slot_complete & (idx == last_shred_idx), ref_tick, SHRED_SRC_RECOVERED, 0, mr, cmr );
   }
   return ele;
 }
@@ -1302,7 +1304,7 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
        notion of when we completed the slot.  consumed is also updated
        mainly for metrics.  For now we leave it alone. */
   }
-  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared fec_set_idx %u to %u, slot %lu", fec_set_idx, fec_set_idx+max_shred_idx, slot ));
+  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared slot %lu fec set %u to %u", slot, fec_set_idx, fec_set_idx+max_shred_idx ));
 }
 
 fd_forest_blk_t const *
@@ -1825,6 +1827,7 @@ fd_forest_print( fd_forest_t const * forest ) {
   fd_forest_frontier_print( forest );
   fd_forest_orphaned_print( forest );
   printf("\n");
+
   fflush(stdout);
 }
 

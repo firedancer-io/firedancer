@@ -169,6 +169,9 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
     fd_hash_t mr;
     fd_hash_t cmr;
   } merkle_roots[ FD_FEC_BLK_MAX ]; /* */
+
+   /* The following fields are only valid if the slot is confirmed.  They
+      are used for chain verification and tracking the confirmed block id. */
   fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
                                on confirmation, and don't know the index of the last fec set until we repair the slot
                                hash_null if not confirmed. */
@@ -742,6 +745,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
                              int           slot_complete,
                              int           ref_tick,
                              int           src,
+                             int           is_dup,
                              fd_hash_t *   mr,
                              fd_hash_t *   cmr );
 

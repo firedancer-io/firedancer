@@ -46,8 +46,8 @@
    link.  This is the size of a data shred header + merkle root
    + chained merkle root + nonce/is_leader. */
 
-#define FD_SHRED_OUT_MTU (FD_SHRED_CODE_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ + sizeof(int))
-FD_STATIC_ASSERT( FD_SHRED_OUT_MTU == 157UL , update FD_SHRED_OUT_MTU );
+#define FD_SHRED_OUT_MTU (FD_SHRED_CODE_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ + sizeof(int) + sizeof(int))
+FD_STATIC_ASSERT( FD_SHRED_OUT_MTU == 161UL , update FD_SHRED_OUT_MTU );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */

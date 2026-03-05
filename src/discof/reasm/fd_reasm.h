@@ -52,6 +52,11 @@
 #define FD_REASM_ERR_UNIQUE (-1) /* key uniqueness conflict */
 #define FD_REASM_ERR_MERKLE (-2) /* chained merkle root conflict */
 
+#define FD_REASM_EVICT_FAIL     (-1) /* eviction failed, caller should not insert new FEC */
+#define FD_REASM_EVICT_ORPHAN   ( 0) /* eviction succeeded, caller can insert new FEC */
+#define FD_REASM_EVICT_ANCESTOR ( 1) /* eviction succeeded, caller can insert new FEC, but replay should evict corresponding bank  */
+#define FD_REASM_EVICT_UNNEEDED ( 2) /* no eviction required to insert FEC */
+
 /* fd_reasm is represented as a forest (multi-tree) structure.  Each
    node in the forest corresponds to a FEC set.
 
@@ -190,6 +195,15 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 
+struct evicted {
+  fd_hash_t mr;
+  ulong     slot;
+  uint      fec_set_idx;
+  ulong     bank_idx;
+};
+typedef struct evicted evicted_t;
+typedef struct evicted fd_reasm_evicted_t; /* duplicate typedef for convenience */
+
 FD_PROTOTYPES_BEGIN
 
 /* Constructors */
@@ -294,10 +308,17 @@ fd_reasm_fec_t *
 fd_reasm_pop( fd_reasm_t * reasm );
 
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
-   inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
-   make one or more FEC sets available for in-order delivery.  Caller
-   can consume these FEC sets via fd_reasm_pop.  This function assumes
-   that the reasm is not full (fd_reasm_full() returns 0).
+   inserted fd_reasm_fec_t, NULL if unsuccessful.  Inserting this FEC
+   set may make one or more FEC sets available for in-order delivery.
+   Caller can consume these FEC sets via fd_reasm_pop.
+
+   If the reasm is full (fd_reasm_full() returns 1), reasm_insert will
+   evict a FEC set by the policy outlined in reasm_evict.  The evicted
+   FEC set(s) will be removed from reasm, and the evicted FEC metadata
+   will be pushed to the evicted queue.  If no FEC set was evicted, then
+   the evicted queue will remain unchanged.  It is the caller's
+   responsibility to clear the evicted queue before the next
+   fd_reasm_insert or fd_reasm_clear_leaf call.
 
    See top-level documentation for further details on insertion. */
 
@@ -311,7 +332,42 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  ushort            data_cnt,
                  int               data_complete,
                  int               slot_complete,
-                 int               leader );
+                 int               leader,
+                 fd_store_t      * opt_store,
+                 int             * evict_rv );
+
+/* fd_reasm_clear_leaf clears a leaf node or a chain of nodes starting
+   from a leaf node from reasm.  Returns the type of eviction that
+   occurred; only two are possible: FD_REASM_EVICT_ORPHAN (0) or
+   FD_REASM_EVICT_ANCESTOR (1). EVICT_ORPHAN returned means the head
+   node was in an orphan subtree, and EVICT_ANCESTOR returned means the
+   head node was in the main tree.
+
+   The head node is the leaf node in the chain to clear. If clear_chain
+   is false, only head will be cleared.  If clear_chain is true, the
+   chain will be cleared until one of the following conditions is met:
+   we reach fec_set_idx 0, we reach a fec set with an equivocating
+   sibling, or we reach a fec set with a different bank_idx.  The last
+   two cases handle any equivocation that may have occurred.
+
+   The evicted FEC metadata will be pushed to the evicted queue.  It is
+   the caller's responsibility to clear the evicted queue before the
+   next fd_reasm_insert or fd_reasm_clear_leaf call. */
+
+int
+fd_reasm_clear_leaf( fd_reasm_t     * reasm,
+                     fd_reasm_fec_t * head,
+                     int              clear_chain,
+                     fd_store_t     * opt_store );
+
+fd_reasm_evicted_t *
+fd_reasm_evicted_peek_head( fd_reasm_t * reasm );
+
+int
+fd_reasm_evicted_empty( fd_reasm_t * reasm );
+
+fd_reasm_evicted_t
+fd_reasm_evicted_pop_head( fd_reasm_t * reasm );
 
 /* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
    beginning from this FEC then becomes the canonical chain of FEC sets

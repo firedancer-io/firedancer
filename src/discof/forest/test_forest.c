@@ -21,7 +21,7 @@ fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_
   fd_forest_blk_insert( forest, slot, parent_slot, &evicted );
   fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
   fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
-  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR, &mr, &cmr );
+  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR, 0, &mr, &cmr );
 }
 
 fd_forest_blk_t *
@@ -993,7 +993,7 @@ test_slot_clear( fd_wksp_t * wksp ) {
 
   /* Now pretend we have received the correct FEC for 3, 0 */
   fd_hash_t garbage_mr = (fd_hash_t){ .key = { 67 } };
-  FD_TEST( !fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, 0, &garbage_mr, &garbage_mr ) ); // first get an incorrect shred, should be rejected.
+  FD_TEST( !fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, 0, 0, &garbage_mr, &garbage_mr ) ); // first get an incorrect shred, should be rejected.
   fd_forest_fec_insert( forest, 3,   2,    31,      0,      0,          0, &mr_3_0_, &mr_2_32 );
 
   ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
