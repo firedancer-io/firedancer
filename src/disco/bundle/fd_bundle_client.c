@@ -487,16 +487,15 @@ fd_bundle_tile_publish_bundle_txn(
     return;
   }
 
-  fd_bundle_pending_txn_t entry;
-  fd_memcpy( entry.payload, txn, txn_sz );
-  entry.payload_sz     = (ushort)txn_sz;
-  entry.source_ipv4    = source_ipv4;
-  entry.sig            = 1UL;
-  entry.bundle_seq     = ctx->bundle_seq;
-  entry.bundle_txn_cnt = bundle_txn_cnt;
-  entry.commission     = (uchar)ctx->builder_commission;
-  fd_memcpy( entry.commission_pubkey, ctx->builder_pubkey, 32UL );
-  pending_txn_push_tail( ctx->pending_txns, entry );
+  fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
+  fd_memcpy( entry->payload, txn, txn_sz );
+  entry->payload_sz     = (ushort)txn_sz;
+  entry->source_ipv4    = source_ipv4;
+  entry->sig            = 1UL;
+  entry->bundle_seq     = ctx->bundle_seq;
+  entry->bundle_txn_cnt = bundle_txn_cnt;
+  entry->commission     = (uchar)ctx->builder_commission;
+  fd_memcpy( entry->commission_pubkey, ctx->builder_pubkey, 32UL );
   ctx->metrics.txn_received_cnt++;
 }
 
@@ -514,16 +513,15 @@ fd_bundle_tile_publish_txn(
     return;
   }
 
-  fd_bundle_pending_txn_t entry;
-  fd_memcpy( entry.payload, txn, txn_sz );
-  entry.payload_sz     = (ushort)txn_sz;
-  entry.source_ipv4    = source_ipv4;
-  entry.sig            = 0UL;
-  entry.bundle_seq     = 0UL;
-  entry.bundle_txn_cnt = 1UL;
-  entry.commission     = 0U;
-  memset( entry.commission_pubkey, 0, 32UL );
-  pending_txn_push_tail( ctx->pending_txns, entry );
+  fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
+  fd_memcpy( entry->payload, txn, txn_sz );
+  entry->payload_sz     = (ushort)txn_sz;
+  entry->source_ipv4    = source_ipv4;
+  entry->sig            = 0UL;
+  entry->bundle_seq     = 0UL;
+  entry->bundle_txn_cnt = 1UL;
+  entry->commission     = 0U;
+  memset( entry->commission_pubkey, 0, 32UL );
   ctx->metrics.txn_received_cnt++;
 }
 

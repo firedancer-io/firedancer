@@ -173,28 +173,30 @@ after_credit( fd_bundle_tile_t *  ctx,
     ulong drain_cnt = 0UL;
 
     do {
-      fd_bundle_pending_txn_t txn = pending_txn_pop_head( ctx->pending_txns );
+      fd_bundle_pending_txn_t const * txn = pending_txn_peek_head( ctx->pending_txns );
 
       fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
       *txnm = (fd_txn_m_t) {
         .reference_slot = 0UL,
-        .payload_sz     = txn.payload_sz,
+        .payload_sz     = txn->payload_sz,
         .txn_t_sz       = 0U,
-        .source_ipv4    = txn.source_ipv4,
+        .source_ipv4    = txn->source_ipv4,
         .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
         .block_engine   = {
-          .bundle_id      = txn.bundle_seq,
-          .bundle_txn_cnt = txn.bundle_txn_cnt,
-          .commission     = txn.commission,
+          .bundle_id      = txn->bundle_seq,
+          .bundle_txn_cnt = txn->bundle_txn_cnt,
+          .commission     = txn->commission,
         },
       };
-      fd_memcpy( txnm->block_engine.commission_pubkey, txn.commission_pubkey, 32UL );
-      fd_memcpy( fd_txn_m_payload( txnm ), txn.payload, txn.payload_sz );
+      fd_memcpy( txnm->block_engine.commission_pubkey, txn->commission_pubkey, 32UL );
+      fd_memcpy( fd_txn_m_payload( txnm ), txn->payload, txn->payload_sz );
 
       ulong sz    = fd_txn_m_realized_footprint( txnm, 0, 0 );
       ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
-      fd_stem_publish( stem, ctx->verify_out.idx, txn.sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
+      fd_stem_publish( stem, ctx->verify_out.idx, txn->sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
       ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
+
+      pending_txn_remove_head( ctx->pending_txns );
       drain_cnt++;
     } while( fd_bundle_drain_continue( ctx->pending_txns, drain_sig, drain_seq, drain_cnt, STEM_BURST ) );
 
