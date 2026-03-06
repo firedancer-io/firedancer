@@ -309,6 +309,24 @@ fd_keyguard_payload_matches_event( uchar const * data,
   return 1;
 }
 
+// FD_FN_PURE int
+// fd_keyguard_payload_matches_rserve( uchar const * data,
+//                                     ulong         sz,
+//                                     int           sign_type ) {
+//   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+//   if( sz<34UL ) return 0;
+
+//   /* Ensure that the kind matches a possible repair request. */
+//   uint kind = FD_LOAD( uint, data );
+//   if( (kind==FD_REPAIR_KIND_PING)
+//     | (kind==FD_REPAIR_KIND_SHRED)
+//     | (kind==FD_REPAIR_KIND_HIGHEST_SHRED)
+//     | (kind==FD_REPAIR_KIND_ORPHAN) )
+//     return 1;
+
+//   return 0;
+// }
+
 FD_FN_PURE ulong
 fd_keyguard_payload_match( uchar const * data,
                            ulong         sz,
@@ -324,5 +342,6 @@ fd_keyguard_payload_match( uchar const * data,
   res |= fd_ulong_if( fd_keyguard_payload_matches_pong_msg  ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_PONG,   0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_bundle    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_BUNDLE, 0 );
   res |= fd_ulong_if( fd_keyguard_payload_matches_event     ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_EVENT,  0 );
+  // res |= fd_ulong_if( fd_keyguard_payload_matches_rserve    ( data, sz, sign_type ), FD_KEYGUARD_PAYLOAD_RSERVE, 0 );
   return res;
 }

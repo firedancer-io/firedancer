@@ -253,6 +253,7 @@ struct fd_config {
     char snapshots[ PATH_MAX ];
     char genesis[ PATH_MAX ];
     char accounts[ PATH_MAX ];
+    char shredb[ PATH_MAX ];
   } paths;
 
   struct {
@@ -483,9 +484,14 @@ struct fd_config {
 
     struct {
       ushort repair_intake_listen_port;
-      ushort repair_serve_listen_port;
       ulong  slot_max;
     } repair;
+
+    struct {
+      int    enabled;
+      ushort repair_serve_listen_port;
+      ulong  shred_storage_limit_gib;
+    } rserve;
 
     struct {
       ulong enable_features_cnt;

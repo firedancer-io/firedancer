@@ -535,9 +535,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ]     = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.rserve   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.rserve )   };
 
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
   ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB ]        = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };

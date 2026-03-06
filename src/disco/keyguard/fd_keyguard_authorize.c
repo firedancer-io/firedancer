@@ -5,6 +5,7 @@
 #include "../../flamenco/gossip/fd_gossip_value.h"
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../../waltz/tls/fd_tls.h"
+#include "../../discof/repair/fd_repair.h"
 /* manually include just fd_features_generated.h so we can get
    FD_FEATURE_SET_ID without anything else that we don't need. */
 #define HEADER_fd_src_flamenco_features_fd_features_h
@@ -272,6 +273,25 @@ fd_keyguard_authorize_repair( fd_keyguard_authority_t const * authority,
   return 1;
 }
 
+// static int
+// fd_keyguard_authorize_rserve( fd_keyguard_authority_t const * authority,
+//                               uchar const *                   data,
+//                               ulong                           sz,
+//                               int                             sign_type ) {
+//   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+//   if( sz<34UL ) return 0;
+
+//   uint tag = FD_LOAD( uint, data );
+//   switch( tag ) {
+//     case FD_REPAIR_KIND_PING: {
+//       if( sz!=68UL ) return 0;
+//       return fd_memeq( authority->identity_pubkey, data+sizeof(uint), 32UL );
+//     }
+//     default: /* TODO: add shred/highest/orphan */
+//       return 0;
+//   }
+// }
+
 static int
 fd_keyguard_authorize_tls_cv( fd_keyguard_authority_t const * authority FD_PARAM_UNUSED,
                               uchar const *                   data,
@@ -306,12 +326,13 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   int is_ambiguous = match_cnt != 1;
 
- /* We know that gossip, gossip prune, and repair messages are
-    ambiguous, so allow mismatches here. */
+  /* We know that gossip, repair request, and repair response messages
+     are ambiguous, so allow mismatches here. */
   int is_gossip_repair =
     0==( payload_mask &
         (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
-            FD_KEYGUARD_PAYLOAD_REPAIR ) ) );
+            FD_KEYGUARD_PAYLOAD_REPAIR |
+            FD_KEYGUARD_PAYLOAD_RSERVE ) ) );
   /* Also allow ambiguities between shred and gossip ping messages
      until shred sign type is fixed... */
   int is_shred_ping =
@@ -395,10 +416,20 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   case FD_KEYGUARD_ROLE_BUNDLE_CRANK:
     if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_TXN ) ) {
-      FD_LOG_WARNING(( "unauthorized payload type for event (mask=%#lx)", payload_mask ));
+      FD_LOG_WARNING(( "unauthorized payload type for crank bundle (mask=%#lx)", payload_mask ));
       return 0;
     }
     return fd_keyguard_authorize_bundle_crank_txn( authority, data, sz, sign_type );
+
+  case FD_KEYGUARD_ROLE_RSERVE: {
+    int rserve_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
+                    fd_keyguard_authorize_ping( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !rserve_ok ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for rserve (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    return 1;
+  }
 
   default:
     FD_LOG_WARNING(( "unsupported role=%#x", (uint)role ));
