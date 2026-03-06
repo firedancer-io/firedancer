@@ -1358,7 +1358,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   return fd_execute_instr_end( ctx, instr, instr_exec_result );
 }
 
-static void
+void
 fd_executor_reclaim_account( fd_account_meta_t * meta,
                              ulong               slot ) {
   if( FD_UNLIKELY( meta->lamports==0UL ) ) {
@@ -1616,10 +1616,6 @@ fd_executor_txn_check( fd_runtime_t * runtime,
           return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
         }
       }
-    }
-
-    if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
-      fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
     }
   }
 
