@@ -133,7 +133,7 @@ fd_vote_acc_vote_cnt( uchar const * vote_account_data ) {
   case FD_VOTE_ACC_V4: return fd_ulong_load_8( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) );
   case FD_VOTE_ACC_V3: return voter->v3.votes_cnt;
   case FD_VOTE_ACC_V2: return voter->v2.votes_cnt;
-  default:          FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
+  default: FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
   }
 }
 
@@ -149,7 +149,7 @@ fd_vote_acc_vote_slot( uchar const * vote_account_data ) {
   case FD_VOTE_ACC_V4: return cnt ? v4_off( voter )[cnt-1].slot : ULONG_MAX;
   case FD_VOTE_ACC_V3: return cnt ? voter->v3.votes[cnt-1].slot : ULONG_MAX;
   case FD_VOTE_ACC_V2: return cnt ? voter->v2.votes[cnt-1].slot : ULONG_MAX;
-  default:          FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
+  default: FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
   }
 }
 

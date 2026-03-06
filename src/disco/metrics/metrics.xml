@@ -1185,8 +1185,10 @@ metric introduced.
 
     <!-- Replay slot completed -->
 
-    <counter name="SlotIgnoredCnt" summary="Number of replay_slot_completed frags we ignored due to asynchronous state" />
-    <gauge name="SlotIgnoredGauge" summary="Slot number of most recently ignored replay_slot_completed_frag" />
+    <counter name="SlotIgnoredCnt" summary="Number of replay_slot_completed frags we ignored" />
+    <gauge name="SlotIgnoredGauge" summary="Slot number of most recently ignored replay_slot_completed frag" />
+    <counter name="SlotEqvocedCnt" summary="Number of replay_slot_completed frags we detect as equivocations" />
+    <gauge name="SlotEqvocedGauge" summary="Slot number of most recently equivocating replay_slot_completed frag" />
 
     <!-- Tower slot metadata -->
 

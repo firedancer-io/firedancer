@@ -2,8 +2,6 @@
 #include <string.h>
 
 #include "fd_tower.h"
-#include "fd_tower_blocks.h"
-#include "fd_tower_serdes.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 
@@ -222,37 +220,43 @@ lockout_check( fd_tower_t const * tower,
 
 static int
 switch_check( fd_tower_t const  * tower,
-              fd_tower_blocks_t        * forks,
-              fd_tower_stakes_t * tower_stakes,
+              fd_tower_blocks_t * blocks,
+              fd_tower_leaves_t * leaves,
+              fd_tower_lockos_t * lockos,
+              fd_tower_stakes_t * stakes,
               ulong               total_stake,
               ulong               switch_slot ) {
+
   ulong switch_stake   = 0;
   ulong last_vote_slot = fd_tower_peek_tail_const( tower )->slot;
   ulong root_slot      = fd_tower_peek_head_const( tower )->slot;
-  for ( fd_tower_leaves_dlist_iter_t iter = fd_tower_leaves_dlist_iter_fwd_init( forks->tower_leaves_dlist, forks->tower_leaves_pool );
-                                           !fd_tower_leaves_dlist_iter_done( iter, forks->tower_leaves_dlist, forks->tower_leaves_pool );
-                                     iter = fd_tower_leaves_dlist_iter_fwd_next( iter, forks->tower_leaves_dlist, forks->tower_leaves_pool ) ) {
+  for ( fd_tower_leaves_dlist_iter_t iter = fd_tower_leaves_dlist_iter_fwd_init( leaves->dlist, leaves->pool );
+                                           !fd_tower_leaves_dlist_iter_done( iter, leaves->dlist, leaves->pool );
+                                     iter = fd_tower_leaves_dlist_iter_fwd_next( iter, leaves->dlist, leaves->pool ) ) {
 
     /* Iterate over all the leaves of all forks */
-    fd_tower_leaf_t  * leaf = fd_tower_leaves_dlist_iter_ele( iter, forks->tower_leaves_dlist, forks->tower_leaves_pool );
-    ulong candidate_slot = leaf->slot;
-    ulong lca = fd_tower_blocks_lowest_common_ancestor( forks, candidate_slot, last_vote_slot );
 
-    if( lca != ULONG_MAX && fd_tower_blocks_is_slot_descendant( forks, lca, switch_slot ) ) {
+    fd_tower_leaf_t  * leaf           = fd_tower_leaves_dlist_iter_ele( iter, leaves->dlist, leaves->pool );
+    ulong              candidate_slot = leaf->slot;
+    ulong              lca            = fd_tower_blocks_lowest_common_ancestor( blocks, candidate_slot, last_vote_slot );
+    if( FD_UNLIKELY( lca==ULONG_MAX ) ) continue; /* unlikely but this leaf is an already pruned minority fork */
+
+    if( FD_UNLIKELY( fd_tower_blocks_is_slot_descendant( blocks, lca, switch_slot ) ) ) {
 
       /* This candidate slot may be considered for the switch proof, if
          it passes the following conditions:
 
          https://github.com/anza-xyz/agave/blob/c7b97bc77addacf03b229c51b47c18650d909576/core/src/consensus.rs#L1117
 
-         Now for this candidate slot, look at the lockouts that were created at
-         the time that we processed the bank for this candidate slot. */
+         Now for this candidate slot, look at the lockouts that were
+         created at the time that we processed the bank for this
+         candidate slot. */
 
-      for( fd_lockout_slots_t const * slot = fd_lockout_slots_map_ele_query_const( forks->lockout_slots_map, &candidate_slot, NULL, forks->lockout_slots_pool );
-                                      slot;
-                                      slot = fd_lockout_slots_map_ele_next_const ( slot, NULL, forks->lockout_slots_pool ) ) {
+      for( fd_tower_lockos_slot_t const * slot = fd_tower_lockos_slot_map_ele_query_const( lockos->slot_map, &candidate_slot, NULL, lockos->slot_pool );
+                                          slot;
+                                          slot = fd_tower_lockos_slot_map_ele_next_const ( slot, NULL, lockos->slot_pool ) ) {
         ulong interval_end = slot->interval_end;
-        ulong key = fd_lockout_interval_key( candidate_slot, interval_end );
+        ulong key = fd_tower_lockos_interval_key( candidate_slot, interval_end );
 
         /* Intervals are keyed by the end of the interval. If the end of
            the interval is < the last vote slot, then these vote
@@ -260,34 +264,30 @@ switch_check( fd_tower_t const  * tower,
            voting for the last vote slot, which means we can skip this
            set of intervals. */
 
-        if( interval_end < last_vote_slot ) continue;
+        if( FD_LIKELY( interval_end < last_vote_slot ) ) continue;
 
         /* At this point we can actually query for the intervals by
            end interval to get the vote accounts. */
 
-        for( fd_lockout_intervals_t const * interval = fd_lockout_intervals_map_ele_query_const( forks->lockout_intervals_map, &key, NULL, forks->lockout_intervals_pool );
-                                            interval;
-                                            interval = fd_lockout_intervals_map_ele_next_const( interval, NULL, forks->lockout_intervals_pool ) ) {
-          ulong vote_slot            =  interval->interval_start;
+        for( fd_tower_lockos_interval_t const * interval = fd_tower_lockos_interval_map_ele_query_const( lockos->interval_map, &key, NULL, lockos->interval_pool );
+                                                interval;
+                                                interval = fd_tower_lockos_interval_map_ele_next_const( interval, NULL, lockos->interval_pool ) ) {
+          ulong vote_slot            =  interval->start;
           fd_hash_t const * vote_acc = &interval->addr;
 
-          if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( forks, vote_slot, last_vote_slot ) &&
-                            vote_slot > root_slot ) ) {
-            fd_tower_stakes_vtr_xid_t key = { .addr = *vote_acc, .slot = switch_slot };
-            fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( tower_stakes->vtr_map, &key, NULL, tower_stakes->vtr_pool );
+          if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( blocks, vote_slot, last_vote_slot ) && vote_slot > root_slot ) ) {
+            fd_tower_stakes_vtr_xid_t     key         = { .addr = *vote_acc, .slot = switch_slot };
+            fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( stakes->vtr_map, &key, NULL, stakes->vtr_pool );
             if( FD_UNLIKELY( !voter_stake ) ) {
               FD_BASE58_ENCODE_32_BYTES( vote_acc->key, vote_acc_b58 );
               FD_LOG_CRIT(( "missing voter stake for vote account %s on slot %lu. Is this an error?", vote_acc_b58, switch_slot ));
             }
-            ulong voter_idx = fd_tower_stakes_vtr_pool_idx( tower_stakes->vtr_pool, voter_stake );
-
-            /* Don't count this vote account towards the switch cqheck if it has already been used. */
-            if( FD_UNLIKELY( fd_used_acc_scratch_test( tower_stakes->used_acc_scratch, voter_idx ) ) ) continue;
-
-            fd_used_acc_scratch_insert( tower_stakes->used_acc_scratch, voter_idx );
+            ulong voter_idx = fd_tower_stakes_vtr_pool_idx( stakes->vtr_pool, voter_stake );
+            if( FD_UNLIKELY( fd_used_acc_scratch_test( stakes->used_acc_scratch, voter_idx ) ) ) continue; /* exclude already counted voters */
+            fd_used_acc_scratch_insert( stakes->used_acc_scratch, voter_idx );
             switch_stake += voter_stake->stake;
             if( FD_LIKELY( (double)switch_stake >= (double)total_stake * SWITCH_RATIO ) ) {
-              fd_used_acc_scratch_null( tower_stakes->used_acc_scratch );
+              fd_used_acc_scratch_null( stakes->used_acc_scratch );
               FD_LOG_INFO(( "[%s] switch? 1. last_vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
               return 1;
             }
@@ -296,7 +296,7 @@ switch_check( fd_tower_t const  * tower,
       }
     }
   }
-  fd_used_acc_scratch_null( tower_stakes->used_acc_scratch );
+  fd_used_acc_scratch_null( stakes->used_acc_scratch );
   FD_LOG_INFO(( "[%s] switch? 0. last_vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
   return 0;
 }
@@ -327,10 +327,10 @@ switch_check( fd_tower_t const  * tower,
    long time from counting towards the threshold stake. */
 
 static int
-threshold_check( fd_tower_t       const * tower,
+threshold_check( fd_tower_t const *        tower,
                  fd_tower_voters_t const * accts,
-                 ulong                    total_stake,
-                 ulong                    slot ) {
+                 ulong                     total_stake,
+                 ulong                     slot ) {
 
   uchar __attribute__((aligned(FD_TOWER_ALIGN))) scratch[ FD_TOWER_FOOTPRINT ];
   fd_tower_t * scratch_tower = fd_tower_join( fd_tower_new( scratch ) );
@@ -402,9 +402,11 @@ propagated_check( fd_notar_t * notar,
 
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
-                         fd_tower_voters_t * voters,
-                         fd_tower_stakes_t * stakes,
                          fd_tower_blocks_t * blocks,
+                         fd_tower_leaves_t * leaves,
+                         fd_tower_lockos_t * lockos,
+                         fd_tower_stakes_t * stakes,
+                         fd_tower_voters_t * voters,
                          fd_ghost_t        * ghost,
                          fd_notar_t        * notar ) {
 
@@ -548,7 +550,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L443-L445 */
 
-  else if( FD_LIKELY( switch_check( tower, blocks, stakes, best_blk->total_stake, best_blk->slot ) ) ) {
+  else if( FD_LIKELY( switch_check( tower, blocks, leaves, lockos, stakes, best_blk->total_stake, best_blk->slot ) ) ) {
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
     reset_blk = best_blk;
     vote_blk  = best_blk;
