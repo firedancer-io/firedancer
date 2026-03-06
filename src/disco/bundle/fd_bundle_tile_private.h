@@ -13,10 +13,9 @@
 #include "../../util/hist/fd_histf.h"
 #define FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE (5UL)
 
-/* Pending publish buffer.  gRPC callbacks write transactions directly
-   to the dcache and push small publish metadata here.  after_credit
-   drains one bundle per call by popping metadata and calling
-   fd_stem_publish.
+/* Pending transaction buffer.  gRPC callbacks push decoded transactions
+   here.  after_credit drains one bundle per call by writing to dcache
+   and calling fd_stem_publish.
 
    Sized to match frame_rx capacity so it can never overflow.  Multiple
    gRPC messages can be packed into a single H2 DATA frame, amortizing
@@ -25,17 +24,21 @@
 
 #define FD_BUNDLE_MIN_GRPC_WIRE_SZ (16UL)
 
-struct fd_bundle_pending_pub {
-  ulong chunk;
-  ulong sz;
-  ulong sig;
-  ulong bundle_seq;
+struct fd_bundle_pending_txn {
+  uchar  payload[ FD_TXN_MTU ];
+  ushort payload_sz;
+  uint   source_ipv4;
+  ulong  sig;
+  ulong  bundle_seq;
+  ulong  bundle_txn_cnt;
+  uchar  commission;
+  uchar  commission_pubkey[ 32 ];
 };
 
-typedef struct fd_bundle_pending_pub fd_bundle_pending_pub_t;
+typedef struct fd_bundle_pending_txn fd_bundle_pending_txn_t;
 
-#define DEQUE_NAME pending_pub
-#define DEQUE_T    fd_bundle_pending_pub_t
+#define DEQUE_NAME pending_txn
+#define DEQUE_T    fd_bundle_pending_txn_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 /* Returns true if the drain loop should continue after popping an
@@ -43,14 +46,14 @@ typedef struct fd_bundle_pending_pub fd_bundle_pending_pub_t;
    Packets drain up to burst consecutive entries. */
 
 static inline int
-fd_bundle_drain_continue( fd_bundle_pending_pub_t * pubs,
+fd_bundle_drain_continue( fd_bundle_pending_txn_t * txns,
                           ulong                     drain_sig,
                           ulong                     drain_seq,
                           ulong                     drain_cnt,
                           ulong                     burst ) {
-  if( pending_pub_empty( pubs ) ) return 0;
-  if( drain_sig==1UL ) return pending_pub_peek_head( pubs )->bundle_seq==drain_seq;
-  return drain_cnt<burst && pending_pub_peek_head( pubs )->sig==0UL;
+  if( pending_txn_empty( txns ) ) return 0;
+  if( drain_sig==1UL ) return pending_txn_peek_head( txns )->bundle_seq==drain_seq;
+  return drain_cnt<burst && pending_txn_peek_head( txns )->sig==0UL;
 }
 
 #if FD_HAS_OPENSSL
@@ -63,7 +66,6 @@ struct fd_bundle_out_ctx {
   ulong       chunk0;
   ulong       wmark;
   ulong       chunk;
-  ulong       depth;
 };
 
 typedef struct fd_bundle_out_ctx fd_bundle_out_ctx_t;
@@ -168,7 +170,7 @@ struct fd_bundle_tile {
   fd_stem_context_t *       stem;
   fd_bundle_out_ctx_t       verify_out;
   fd_bundle_out_ctx_t       plugin_out;
-  fd_bundle_pending_pub_t * pending_pubs;
+  fd_bundle_pending_txn_t * pending_txns;
 
   /* App metrics */
   fd_bundle_metrics_t metrics;

@@ -467,8 +467,7 @@ fd_bundle_client_grpc_conn_dead( void * app_ctx,
   ctx->defer_reset = 1;
 }
 
-/* Writes a bundle transaction to the dcache and defers the
-   fd_stem_publish call by pushing metadata to the pending deque. */
+/* Buffers a bundle transaction for deferred publishing by after_credit. */
 
 static void
 fd_bundle_tile_publish_bundle_txn(
@@ -483,41 +482,25 @@ fd_bundle_tile_publish_bundle_txn(
     return;
   }
 
-  if( FD_UNLIKELY( pending_pub_cnt( ctx->pending_pubs )>=ctx->stem->cr_avail[ ctx->verify_out.idx ] ) ) {
+  if( FD_UNLIKELY( pending_txn_full( ctx->pending_txns ) ) ) {
     ctx->metrics.backpressure_drop_cnt++;
     return;
   }
 
-  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
-  *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0U,
-    .source_ipv4    = source_ipv4,
-    .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
-    .block_engine   = {
-      .bundle_id      = ctx->bundle_seq,
-      .bundle_txn_cnt = bundle_txn_cnt,
-      .commission     = (uchar)ctx->builder_commission
-    },
-  };
-  memcpy( txnm->block_engine.commission_pubkey, ctx->builder_pubkey, 32UL );
-  fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
-
-  ulong sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
-  fd_bundle_pending_pub_t pub = {
-    .chunk      = ctx->verify_out.chunk,
-    .sz         = sz,
-    .sig        = 1UL,
-    .bundle_seq = ctx->bundle_seq,
-  };
-  pending_pub_push_tail( ctx->pending_pubs, pub );
-  ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
+  fd_bundle_pending_txn_t entry;
+  fd_memcpy( entry.payload, txn, txn_sz );
+  entry.payload_sz     = (ushort)txn_sz;
+  entry.source_ipv4    = source_ipv4;
+  entry.sig            = 1UL;
+  entry.bundle_seq     = ctx->bundle_seq;
+  entry.bundle_txn_cnt = bundle_txn_cnt;
+  entry.commission     = (uchar)ctx->builder_commission;
+  fd_memcpy( entry.commission_pubkey, ctx->builder_pubkey, 32UL );
+  pending_txn_push_tail( ctx->pending_txns, entry );
   ctx->metrics.txn_received_cnt++;
 }
 
-/* Writes a regular transaction to the dcache and defers the
-   fd_stem_publish call by pushing metadata to the pending deque. */
+/* Buffers a regular transaction for deferred publishing by after_credit. */
 
 static void
 fd_bundle_tile_publish_txn(
@@ -526,36 +509,21 @@ fd_bundle_tile_publish_txn(
     ulong              txn_sz,  /* <=FD_TXN_MTU */
     uint               source_ipv4
 ) {
-  if( FD_UNLIKELY( pending_pub_cnt( ctx->pending_pubs )>=ctx->stem->cr_avail[ ctx->verify_out.idx ] ) ) {
+  if( FD_UNLIKELY( pending_txn_full( ctx->pending_txns ) ) ) {
     ctx->metrics.backpressure_drop_cnt++;
     return;
   }
 
-  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
-  *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0U,
-    .source_ipv4    = source_ipv4,
-    .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
-    .block_engine   = {
-      .bundle_id         = 0UL,
-      .bundle_txn_cnt    = 1UL,
-      .commission        = 0U,
-      .commission_pubkey = {0U}
-    },
-  };
-  fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
-
-  ulong sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
-  fd_bundle_pending_pub_t pub = {
-    .chunk      = ctx->verify_out.chunk,
-    .sz         = sz,
-    .sig        = 0UL,
-    .bundle_seq = 0UL,
-  };
-  pending_pub_push_tail( ctx->pending_pubs, pub );
-  ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
+  fd_bundle_pending_txn_t entry;
+  fd_memcpy( entry.payload, txn, txn_sz );
+  entry.payload_sz     = (ushort)txn_sz;
+  entry.source_ipv4    = source_ipv4;
+  entry.sig            = 0UL;
+  entry.bundle_seq     = 0UL;
+  entry.bundle_txn_cnt = 1UL;
+  entry.commission     = 0U;
+  memset( entry.commission_pubkey, 0, 32UL );
+  pending_txn_push_tail( ctx->pending_txns, entry );
   ctx->metrics.txn_received_cnt++;
 }
 
