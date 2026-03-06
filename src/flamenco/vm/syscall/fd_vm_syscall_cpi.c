@@ -387,7 +387,7 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
   return rc_refcell_vaddr + offsetof(fd_vm_rc_refcell_t, payload);
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L310-L316
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/program-runtime/src/cpi.rs#L500-L506
  */
 FD_FN_CONST static inline
 ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_haddr, ulong acct_info_haddr ) {
@@ -514,7 +514,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
       *((ulong const *)FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) )); \
     ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _vaddr_), alignof(ulong), sizeof(ulong) );
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L184-L195 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/program-runtime/src/cpi.rs#L363-L374 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
     if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && acc_info->data_box_addr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                 \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );                                                                          \
