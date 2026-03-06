@@ -625,7 +625,7 @@ telemetry = true
     # faster transaction execution.
     [runtime.program_cache]
         # The size of the loaded program cache in MiB.
-        heap_size_mib = 2048
+        heap_size_mib = 768
 
         # The mean expected heap utilization of a cache entry.  Controls
         # the size of metadata structures (e.g. cache entry table).  It
