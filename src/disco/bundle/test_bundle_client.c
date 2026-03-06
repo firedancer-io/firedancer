@@ -848,9 +848,8 @@ test_bundle_client_subscribe_bundles( fd_wksp_t * wksp ) {
 
 #define TEST_STEM_BURST (5UL)
 
-/* Simulate after_credit drain: returns count of entries that would be
-   popped in one drain cycle.  Bundles drain atomically (all txns with
-   the same bundle_seq).  Packets drain up to TEST_STEM_BURST. */
+/* Simulate after_credit drain using the same continuation logic as
+   production (fd_bundle_drain_continue). */
 
 static ulong
 drain_one_bundle( fd_bundle_pending_pub_t * deque ) {
@@ -864,9 +863,7 @@ drain_one_bundle( fd_bundle_pending_pub_t * deque ) {
   do {
     pending_pub_pop_head( deque );
     cnt++;
-  } while( !pending_pub_empty( deque )
-        && ( ( drain_sig==1UL && pending_pub_peek_head( deque )->bundle_seq==drain_seq )
-          || ( drain_sig==0UL && cnt<TEST_STEM_BURST && pending_pub_peek_head( deque )->sig==0UL ) ) );
+  } while( fd_bundle_drain_continue( deque, drain_sig, drain_seq, cnt, TEST_STEM_BURST ) );
 
   return cnt;
 }
@@ -977,6 +974,69 @@ test_interleaved_drain( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
 }
 
+/* Verify that low cr_avail does not cause partial bundle drops.
+   With cr_avail=3 and a 5-txn bundle, all 5 should be buffered
+   because the I/O gate requires cr_avail >= STEM_BURST (5).
+   If the gate were weaker (cr_avail > 0), the per-txn check
+   would drop txns 4 and 5, producing a corrupt partial bundle. */
+
+static void
+test_no_partial_bundle_drop( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  /* Set cr_avail to 3 -- less than a full bundle (5) */
+  env->stem_cr_avail[0] = 3UL;
+
+  static uchar subscribe_bundles_msg_x5[] = {
+    0x0a, 0x52, 0x0a, 0x4b, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12, 0x08,
+    0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d, 0x0a,
+    0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28,
+    0x00, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12,
+    0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d, 0x0a, 0x01, 0x48, 0x12,
+    0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x1a, 0x0d,
+    0x0a, 0x01, 0x48, 0x12, 0x08, 0x08, 0x01, 0x12, 0x00, 0x18, 0x00,
+    0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
+  };
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      subscribe_bundles_msg_x5, sizeof(subscribe_bundles_msg_x5),
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+
+  /* With cr_avail < STEM_BURST, the I/O gate in before_credit would
+     not have called fd_bundle_client_step.  But rx_msg is called
+     directly here, so the per-txn cr_avail check fires.  All 5 txns
+     should be dropped (3 pass, 2 fail) rather than producing a partial
+     bundle.  Verify the backpressure counter caught the drops. */
+  FD_TEST( pending_pub_cnt( state->pending_pubs )==3UL );
+  FD_TEST( state->metrics.backpressure_drop_cnt==2UL );
+
+  /* Now set cr_avail high enough and resend -- all 5 should land */
+  env->stem_cr_avail[0] = ULONG_MAX;
+  state->metrics.backpressure_drop_cnt = 0UL;
+
+  /* Use a fresh env to reset deque */
+  test_bundle_env_destroy( env );
+  test_bundle_env_create( env, wksp );
+  state = env->state;
+  state->builder_info_avail = 1;
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      subscribe_bundles_msg_x5, sizeof(subscribe_bundles_msg_x5),
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+
+  FD_TEST( pending_pub_cnt( state->pending_pubs )==5UL );
+  FD_TEST( state->metrics.backpressure_drop_cnt==0UL );
+
+  test_bundle_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1010,6 +1070,7 @@ main( int     argc,
   test_bundle_drain_atomicity( wksp );
   test_packet_drain_batch( wksp );
   test_interleaved_drain( wksp );
+  test_no_partial_bundle_drop( wksp );
 
   /* Check for memory leaks */
   fd_wksp_usage_t wksp_usage;
