@@ -1123,7 +1123,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, link->dcache, link->mtu );
       ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-    } else if( 0==strcmp( link->name, "repair_replay" ) ) {
+    } else if( 0==strcmp( link->name, "repair_out" ) ) {
 
       out_ctx_t * replay_out = ctx->replay_out_ctx;
       replay_out->idx        = out_idx;

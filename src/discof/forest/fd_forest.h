@@ -126,6 +126,7 @@
    to turn on additional runtime checks and logging. */
 
 #include "../../disco/fd_disco_base.h"
+#include "../../disco/shred/fd_fec_set.h"
 
 #ifndef FD_FOREST_USE_HANDHOLDING
 #define FD_FOREST_USE_HANDHOLDING 1
@@ -168,16 +169,17 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
     fd_hash_t cmr;
   } merkle_roots[ FD_FEC_BLK_MAX ]; /* */
 
-   /* The following fields are only valid if the slot is confirmed.  They
-      are used for chain verification and tracking the confirmed block id. */
   fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
-                               on confirmation, and don't know the index of the last fec set until we repair the slot
-                               hash_null if not confirmed. */
+                               on confirmation, and don't know the index of the last fec set until we repair the slot.
+                               hash_null if unknown.  Otherwise populated by the child slot's CMR on confirmation,
+                               or by a confirmation msg from tower.  Has no bearing on if the full slot is correct or not. */
   uint lowest_verified_fec; /* lowest fec index that has been verified so far, inclusive. complete_idx / 32UL,
                                if the last merkle root is verified, 5 if every merkle root after fec set 5*32 is verified */
 
-  uchar confirmed; /* 1 if all the FECs the slot has been confirmed, 0 otherwise */
-  uchar consumed;  /* 1 if the slot has been consumed (i.e., all shreds received, and parents are complete), 0 otherwise */
+  uchar chain_confirmed; /* 1 if all the FECs the slot have been confirmed via fec_chain_verify, 0 otherwise.  Note confirmed_bid
+                            can be populated before this is set to 1. */
+
+  uchar consumed;        /* 1 if the slot has been consumed (i.e., all shreds received, and parents are complete), 0 otherwise */
   /* only consumed slots may be fec_chain_verified */
 
   int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the

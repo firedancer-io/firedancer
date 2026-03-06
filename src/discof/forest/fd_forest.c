@@ -212,7 +212,7 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
   root_ele->sibling          = null;
   root_ele->buffered_idx     = 0;
   root_ele->complete_idx     = 0;
-  root_ele->confirmed        = 1;
+  root_ele->chain_confirmed  = 1;
 
   root_ele->merkle_roots[0].mr = (fd_hash_t){ .key = { 0 } };
 
@@ -607,7 +607,7 @@ latest_confirmed_slot( fd_forest_t * forest, ulong root_idx ) {
 
   while( FD_LIKELY( !fd_forest_deque_empty( queue ) ) ) {
     fd_forest_blk_t * blk = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
-    if( FD_LIKELY( blk->confirmed || memcmp( &blk->confirmed_bid, &empty_mr, sizeof( fd_hash_t ) ) != 0 ) ) {
+    if( FD_LIKELY( blk->chain_confirmed || memcmp( &blk->confirmed_bid, &empty_mr, sizeof( fd_hash_t ) ) != 0 ) ) {
       latest_confirmed = blk;
     }
     fd_forest_blk_t * child = fd_forest_pool_ele( pool, blk->child );
@@ -635,7 +635,7 @@ gca( fd_forest_t * forest, fd_forest_blk_t * blk1, fd_forest_blk_t * blk2 ) {
 #define UPDATE_BEST_CANDIDATE( best_confrmd, best_unconfrmd, ele, filter )                         \
   if( FD_UNLIKELY( filter ) ) continue;                                                            \
   do {                                                                                             \
-    if( FD_UNLIKELY( ele->confirmed ) ) {                                                          \
+    if( FD_UNLIKELY( ele->chain_confirmed ) ) {                                                    \
       if( FD_LIKELY( !best_confrmd ) ) best_confrmd = ele;                                         \
       else                             best_confrmd = fd_ptr_if( best_confrmd->slot < ele->slot, ele, best_confrmd ); \
     } else {                                                                                                          \
@@ -798,7 +798,7 @@ evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot ) {
            fork. Force a root in this case. */
     if( fd_forest_orphaned_ele_query( orphaned, &parent_slot, NULL, pool ) ) return ULONG_MAX;
     ulong new_root = fd_forest_pool_ele( pool, forest->root )->child;
-    if( FD_UNLIKELY( !fd_forest_pool_ele( pool, new_root )->confirmed ) ) return ULONG_MAX;
+    if( FD_UNLIKELY( !fd_forest_pool_ele( pool, new_root )->chain_confirmed ) ) return ULONG_MAX;
 
     FD_LOG_WARNING(( "Forest force rooting on slot %lu", fd_forest_pool_ele( pool, new_root )->slot ));
     ulong evicted_slot = fd_forest_pool_ele( pool, forest->root )->slot;
@@ -880,14 +880,14 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted ) 
   fd_forest_blk_t * blk  = fd_forest_pool_ele_acquire( pool );
   ulong             null = fd_forest_pool_idx_null( pool );
 
-  blk->slot        = slot;
-  blk->parent_slot = parent_slot;
-  blk->next        = null;
-  blk->parent      = null;
-  blk->child       = null;
-  blk->sibling     = null;
-  blk->confirmed   = 0;
-  blk->consumed    = 0;
+  blk->slot            = slot;
+  blk->parent_slot     = parent_slot;
+  blk->next            = null;
+  blk->parent          = null;
+  blk->child           = null;
+  blk->sibling         = null;
+  blk->chain_confirmed = 0;
+  blk->consumed        = 0;
 
   blk->buffered_idx = UINT_MAX;
   blk->complete_idx = UINT_MAX;
@@ -1187,7 +1187,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
     /* check for a child that is confirmed */
     fd_forest_blk_t * child = fd_forest_pool_ele( fd_forest_pool( forest ), ele->child );
     while( FD_UNLIKELY( child ) ) {
-      if( FD_UNLIKELY( child->confirmed ) ) {
+      if( FD_UNLIKELY( child->chain_confirmed ) ) {
         ele->confirmed_bid       = child->merkle_roots[0].cmr;
         ele->lowest_verified_fec = fec_idx + 1; /* populate the block id with the confirmed child's CMR */
         break;
@@ -1236,7 +1236,7 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
   ele->lowest_verified_fec = fec_idx+1;
   ele->confirmed_bid       = *bid; /* confirmed */
 
-  while( FD_UNLIKELY( !ele->confirmed ) ) {
+  while( FD_UNLIKELY( !ele->chain_confirmed ) ) {
     if( FD_UNLIKELY( !fd_hash_eq( expected_mr, &ele->merkle_roots[fec_idx].mr ) ) ) return ele;
 
     /* This FEC merkle is correct, and the chained merkle is correct. */
@@ -1246,7 +1246,7 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
     if( FD_UNLIKELY( fec_idx==0 ) ) {
       /* hop to the parent slot, but first we've made it through this
          slot successfully verifying the chain! mark it confirmed! */
-      ele->confirmed = 1;
+      ele->chain_confirmed = 1;
       ele = fd_forest_pool_ele( fd_forest_pool( forest ), ele->parent );
       if( FD_UNLIKELY( !ele || ele->complete_idx == UINT_MAX || ele->buffered_idx != ele->complete_idx ) ) {
         /* can't verify the chain further */
@@ -1382,9 +1382,9 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     fd_forest_pool_ele_release( pool, head );
   }
 
-  new_root_ele->parent    = null; /* unlink new root from parent */
-  new_root_ele->confirmed = 1;
-  forest->root            = fd_forest_pool_idx( pool, new_root_ele );
+  new_root_ele->parent          = null; /* unlink new root from parent */
+  new_root_ele->chain_confirmed = 1;
+  forest->root                  = fd_forest_pool_idx( pool, new_root_ele );
 
   /* 3. New root is in orphaned. This is the case where maybe the
         expected snapshot slot has jumped far ahead.  Invariants tell

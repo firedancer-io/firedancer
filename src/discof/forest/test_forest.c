@@ -983,8 +983,8 @@ test_slot_clear( fd_wksp_t * wksp ) {
   FD_TEST( ele == fd_forest_query( forest, 3 ) );
   FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 0 );
 
-  FD_TEST( ele->confirmed == 0 );
-  FD_TEST( fd_forest_query( forest, 2 )->confirmed == 0 );
+  FD_TEST( ele->chain_confirmed == 0 );
+  FD_TEST( fd_forest_query( forest, 2 )->chain_confirmed == 0 );
 
 
   /* Now we dump incorrect FEC (3, 0). */
@@ -999,8 +999,8 @@ test_slot_clear( fd_wksp_t * wksp ) {
   ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
   FD_TEST( !ele );
   FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == UINT_MAX );
-  FD_TEST( fd_forest_query( forest, 3 )->confirmed == 1 );
-  FD_TEST( fd_forest_query( forest, 2 )->confirmed == 1 );
+  FD_TEST( fd_forest_query( forest, 3 )->chain_confirmed == 1 );
+  FD_TEST( fd_forest_query( forest, 2 )->chain_confirmed == 1 );
 
   fd_forest_print( forest );
 
