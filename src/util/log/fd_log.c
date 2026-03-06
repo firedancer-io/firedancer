@@ -1186,12 +1186,7 @@ fd_log_private_boot( int  *   pargc,
     char const * cstr = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-colorize", "FD_LOG_COLORIZE", NULL );
     if( cstr ) { colorize = fd_cstr_to_int( cstr ); break; }
 
-    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
-    if( cstr && !strcmp( cstr, "truecolor" ) ) { colorize = 1; break; }
-
-    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-    if( cstr && strstr( cstr, "256color" ) ) { colorize = 1; break; }
-
+    colorize = fd_log_should_colorize();
   } while(0);
   fd_log_colorize_set( colorize );
 
@@ -1625,6 +1620,82 @@ fd_log_private_stack_discover( ulong   stack_sz,
 
   *_stack0 = stack0;
   *_stack1 = stack1;
+}
+
+
+int
+fd_log_should_colorize( void ) {
+  char const * no_color = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "NO_COLOR", NULL );
+  if( FD_UNLIKELY( no_color && no_color[0]!='\0' ) ) return 0;
+
+  if( FD_UNLIKELY( !isatty( STDERR_FILENO ) ) ) return 0;
+
+  char const * term = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
+  if( FD_UNLIKELY( !term || !strcmp( term, "dumb" ) ) ) return 0;
+
+  char const * dirs[] = {
+    fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERMINFO", NULL ),
+    NULL,
+    "/usr/share/terminfo",
+    "/usr/lib/terminfo",
+    "/etc/terminfo",
+  };
+  char homebuf[ PATH_MAX ];
+  char const * home = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "HOME", NULL );
+  if( FD_LIKELY( home ) ) {
+    snprintf( homebuf, sizeof(homebuf), "%s/.terminfo", home );
+    dirs[1] = homebuf;
+  }
+
+  FILE * f = NULL;
+  char path[ PATH_MAX ];
+  for( ulong i=0UL; i<(sizeof(dirs)/sizeof(dirs[0])); i++ ) {
+    if( FD_UNLIKELY( !dirs[i] ) ) continue;
+    snprintf( path, sizeof(path), "%s/%c/%s", dirs[i], term[0], term );
+    f = fopen( path, "rb" );
+    if( f ) break;
+    snprintf( path, sizeof(path), "%s/%02x/%s", dirs[i], (uchar)term[0], term );
+    f = fopen( path, "rb" );
+    if( f ) break;
+  }
+  if( FD_UNLIKELY( !f ) ) return 0;
+
+  ushort hdr[6];
+  if( FD_UNLIKELY( fread( hdr, 2, 6, f )!=6 ) ) goto fail;
+
+  ushort magic    = hdr[0];
+  ushort name_sz  = hdr[1];
+  ushort bool_cnt = hdr[2];
+  ushort num_cnt  = hdr[3];
+
+  uint num_width;
+  if(      magic==0x011A ) num_width = 2;
+  else if( magic==0x021E ) num_width = 4;
+  else goto fail;
+
+  if( FD_UNLIKELY( 13>=num_cnt ) ) goto fail;
+
+  long skip = (long)name_sz + (long)bool_cnt;
+  if( skip%2 ) skip++;
+  skip += 13L * (long)num_width;
+
+  if( FD_UNLIKELY( fseek( f, skip, SEEK_CUR ) ) ) goto fail;
+
+  int colors;
+  if( num_width==2 ) {
+    short v;
+    if( FD_UNLIKELY( fread( &v, 2, 1, f )!=1 ) ) goto fail;
+    colors = v;
+  } else {
+    if( FD_UNLIKELY( fread( &colors, 4, 1, f )!=1 ) ) goto fail;
+  }
+
+  fclose( f );
+  return colors>0;
+
+fail:
+  fclose( f );
+  return 0;
 }
 
 #elif FD_LOG_STYLE==1 /* generic embedded target */
