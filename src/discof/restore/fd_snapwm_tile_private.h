@@ -97,6 +97,7 @@ struct fd_snapwm_tile {
 
     fd_lthash_adder_t adder;
     fd_lthash_value_t running_lthash;
+    ulong running_capitalization; /* stores capitalization of duplicate accounts */
 
     ulong              wr_cnt;
     fd_vinyl_admin_t * admin;

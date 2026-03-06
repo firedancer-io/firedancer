@@ -30,6 +30,7 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
         return early_exit;
       }
       ctx->metrics.accounts_replaced++;
+      ctx->capitalization -= meta->lamports;
       fd_snapin_send_duplicate_account( ctx, meta->lamports, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen, meta->executable, meta->owner, result->account_header.pubkey, 1, &early_exit);
     }
   }
@@ -61,6 +62,8 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   meta->executable = (uchar)result->account_header.executable;
 
   ctx->acc_data = (uchar*)meta + sizeof(fd_account_meta_t);
+
+  ctx->capitalization += result->account_header.lamports;
 
   if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( funk, prepare );
   return early_exit;
@@ -116,6 +119,9 @@ streamlined_insert( fd_snapin_tile_t * ctx,
   /* Write data */
   uchar * acc_data = (uchar *)( meta+1 );
   fd_memcpy( acc_data, frame+0x88UL, data_len );
+
+  /* update capitalization */
+  ctx->capitalization += lamports;
 }
 
 /* process_account_batch is a happy path performance optimization
@@ -228,6 +234,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
       } else if( slot > existing->slot) {
         /* send the to-be-replaced account to the subtracting hash tile */
         ctx->metrics.accounts_replaced++;
+        ctx->capitalization -= existing->lamports;
         fd_snapin_send_duplicate_account( ctx, existing->lamports, (uchar const *)existing + sizeof(fd_account_meta_t), existing->dlen, existing->executable, existing->owner, pubkey, 1, &early_exit );
       } else { /* slot==existing->slot */
         FD_TEST( 0 );

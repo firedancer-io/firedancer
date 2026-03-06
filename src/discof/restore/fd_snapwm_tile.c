@@ -187,7 +187,7 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
          lthash verification is enabled, there is a recovery mechanism
          in place. */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR && ctx->lthash_disabled ) {
-        fd_snapwm_vinyl_txn_begin( ctx );
+        fd_snapwm_vinyl_txn_begin( ctx )  ;
       }
       fd_snapwm_vinyl_wd_init( ctx );
       /* backup bstream seq, independent of whether full or incr. */
@@ -320,6 +320,18 @@ handle_expected_hash_message( fd_snapwm_tile_t *  ctx,
   ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
 }
 
+static inline void
+handle_expected_capitalization_message( fd_snapwm_tile_t *  ctx,
+                                        ulong               chunk,
+                                        ulong               sz,
+                                        fd_stem_context_t * stem ) {
+  fd_ssctrl_capitalization_t const * src = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+  fd_ssctrl_capitalization_t * dst = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+  memcpy( dst, src, sz );
+  fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_EXP_CAPITALIZATION, ctx->hash_out.chunk, sz, 0UL, 0UL, 0UL );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+}
+
 static inline int
 returnable_frag( fd_snapwm_tile_t *  ctx,
                  ulong               in_idx FD_PARAM_UNUSED,
@@ -336,6 +348,7 @@ returnable_frag( fd_snapwm_tile_t *  ctx,
   int ret = 0;
   if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) )                 ret = handle_data_frag( ctx, chunk, sz/*acc_cnt*/, stem );
   else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_EXPECTED ) ) handle_expected_hash_message( ctx, chunk, sz, stem );
+  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_EXP_CAPITALIZATION ) ) handle_expected_capitalization_message( ctx, chunk, sz, stem );
   else                                                         handle_control_frag( ctx, sig, stem );
 
   return ret;
