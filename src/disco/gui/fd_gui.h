@@ -11,6 +11,7 @@
 #include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../flamenco/leaders/fd_leaders.h"
@@ -340,24 +341,6 @@ struct fd_gui_turbine_slot {
 };
 
 typedef struct fd_gui_turbine_slot fd_gui_turbine_slot_t;
-
-struct fd_gui_slot_completed {
-  ulong slot;
-  long  completed_time;
-  ulong parent_slot;
-  uint  max_compute_units;
-  uint  total_txn_cnt;
-  uint  vote_txn_cnt;
-  uint  failed_txn_cnt;
-  uint  nonvote_failed_txn_cnt;
-  ulong transaction_fee;
-  ulong priority_fee;
-  ulong tips;
-  uint  compute_units;
-  uint  shred_cnt;
-};
-
-typedef struct fd_gui_slot_completed fd_gui_slot_completed_t;
 
 struct fd_gui_slot_staged_shred_event {
   long   timestamp;
@@ -923,14 +906,10 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
                             long                         now );
 
 void
-fd_gui_handle_replay_update( fd_gui_t *                gui,
-                             fd_gui_slot_completed_t * slot_completed,
-                             fd_hash_t const *         block_hash,
-                             ulong                     vote_slot,
-                             ulong                     storage_slot,
-                             ulong                     root_slot,
-                             ulong                     identity_balance,
-                             long                      now );
+fd_gui_handle_replay_update( fd_gui_t *                         gui,
+                             fd_replay_slot_completed_t const * slot_completed,
+                             ulong                              vote_slot,
+                             long                               now );
 
 void
 fd_gui_handle_genesis_hash( fd_gui_t *        gui,

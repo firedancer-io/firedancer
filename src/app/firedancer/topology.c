@@ -1299,41 +1299,41 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "gui"        );
     fd_topob_wksp( topo, "gui_replay" );
 
-    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
+    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 )->allow_crash = 1;
 
     /* Read banks */
     /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], banks_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
     /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], banks_locks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
     /* release ownership of banks */
-    /**/                 fd_topob_link( topo, "gui_replay", "gui_replay", 128, 0UL,2UL ); /* burst==2 since a bank and its parent may be sent in one burst */
+    /**/                 fd_topob_link( topo, "gui_replay", "gui_replay", 128, 0UL, 1UL );
 
     /**/                 fd_topob_tile_out( topo, "gui",    0UL,                        "gui_replay", 0UL                                                );
     /**/                 fd_topob_tile_in ( topo, "replay", 0UL,           "metric_in", "gui_replay", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
-    /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
-    FOR(net_tile_cnt)      fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "net_gossvf",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    FOR(shred_tile_cnt)    fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "shred_out",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_epoch", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
+    FOR(net_tile_cnt)      fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "net_gossvf",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "repair_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    FOR(shred_tile_cnt)    fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     if( leader_enabled ) {
-      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_poh",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_execle",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execle_poh",     i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_poh",      0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_execle",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+      FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execle_poh",      i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
-    FOR(execrp_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execrp_replay",  i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(execrp_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "execrp_replay",   i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
     if( FD_LIKELY( snapshots_enabled ) ) {
-    /**/                   fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapct_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                   fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapin_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "snapct_gui",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "snapin_gui",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-    /**/                 fd_topob_tile_in( topo, "gui",     0UL,           "metric_in", "bundle_status", 0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "bundle_status", 0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
   }
 
