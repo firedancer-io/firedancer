@@ -3084,10 +3084,10 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    is a conservative bound. */
 #define STEM_BURST (14UL)
 
-/* TODO: calculate this properly/fix stem to work with larger numbers of links */
-/* 1000 chosen empirically as anything larger slowed down replay times. Need to calculate
-   this properly. */
-#define STEM_LAZY ((long)10e3)
+/* fd_tempo_lazy_default( 16384 ) where 16384 is the minimum out-link
+   depth (i.e. cr_max) but excludes replay_epoch, which is so infrequent
+   credit availability is a non-issue.   */
+#define STEM_LAZY ((long)36865)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_t)
