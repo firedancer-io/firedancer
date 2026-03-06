@@ -13,19 +13,22 @@ fd_eqvoc_footprint( ulong shred_max,
                     ulong from_max ) {
   int   lg_from_max = fd_ulong_find_msb( fd_ulong_pow2_up( from_max ) ) + 1;
   ulong proof_max   = hist_max * from_max;
+  ulong shred_chain_cnt = shred_map_chain_cnt_est( shred_max );
+  ulong hist_chain_cnt  = verified_map_chain_cnt_est( hist_max );
+  ulong proof_chain_cnt  = proof_map_chain_cnt_est( proof_max );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_eqvoc_t),       sizeof(fd_eqvoc_t)                                      );
   l = FD_LAYOUT_APPEND( l, fd_sha512_align(),         fd_sha512_footprint()                                   );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,    FD_BMTREE_COMMIT_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) );
   l = FD_LAYOUT_APPEND( l, shred_pool_align(),        shred_pool_footprint( shred_max )                       );
-  l = FD_LAYOUT_APPEND( l, shred_map_align(),         shred_map_footprint( shred_max )                        );
+  l = FD_LAYOUT_APPEND( l, shred_map_align(),         shred_map_footprint( shred_chain_cnt )                        );
   l = FD_LAYOUT_APPEND( l, shred_deque_align(),       shred_deque_footprint( shred_max )                      );
   l = FD_LAYOUT_APPEND( l, verified_pool_align(),     verified_pool_footprint( hist_max )                     );
-  l = FD_LAYOUT_APPEND( l, verified_map_align(),      verified_map_footprint( hist_max )                      );
+  l = FD_LAYOUT_APPEND( l, verified_map_align(),      verified_map_footprint( hist_chain_cnt )                      );
   l = FD_LAYOUT_APPEND( l, verified_deque_align(),    verified_deque_footprint( hist_max )                    );
   l = FD_LAYOUT_APPEND( l, proof_pool_align(),        proof_pool_footprint( proof_max )                       );
-  l = FD_LAYOUT_APPEND( l, proof_map_align(),         proof_map_footprint( proof_max )                        );
+  l = FD_LAYOUT_APPEND( l, proof_map_align(),         proof_map_footprint( proof_chain_cnt )                        );
   l = FD_LAYOUT_APPEND( l, from_map_align(),          from_map_footprint( lg_from_max )                       );
   for( ulong i = 0UL; i < fd_ulong_pow2( lg_from_max ); i++ ) {
     l = FD_LAYOUT_APPEND( l, proof_deque_align(), proof_deque_footprint( hist_max ) );
@@ -58,19 +61,22 @@ fd_eqvoc_new( void * shmem,
 
   int   lg_from_max = fd_ulong_find_msb( fd_ulong_pow2_up( from_max ) ) + 1;
   ulong proof_max   = hist_max * from_max;
+  ulong shred_chain_cnt = shred_map_chain_cnt_est( shred_max );
+  ulong hist_chain_cnt  = verified_map_chain_cnt_est( hist_max );
+  ulong proof_chain_cnt  = proof_map_chain_cnt_est( proof_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   void * eqvoc_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),    sizeof(fd_eqvoc_t)                                      );
   void * sha512         = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),      fd_sha512_footprint()                                   );
   void * bmtree_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) );
   void * shred_pool     = FD_SCRATCH_ALLOC_APPEND( l, shred_pool_align(),     shred_pool_footprint( shred_max )                       );
-  void * shred_map      = FD_SCRATCH_ALLOC_APPEND( l, shred_map_align(),      shred_map_footprint( shred_max )                        );
+  void * shred_map      = FD_SCRATCH_ALLOC_APPEND( l, shred_map_align(),      shred_map_footprint( shred_chain_cnt )                        );
   void * shred_deque    = FD_SCRATCH_ALLOC_APPEND( l, shred_deque_align(),    shred_deque_footprint( shred_max )                      );
   void * verified_pool  = FD_SCRATCH_ALLOC_APPEND( l, verified_pool_align(),  verified_pool_footprint( hist_max )                     );
-  void * verified_map   = FD_SCRATCH_ALLOC_APPEND( l, verified_map_align(),   verified_map_footprint( hist_max )                      );
+  void * verified_map   = FD_SCRATCH_ALLOC_APPEND( l, verified_map_align(),   verified_map_footprint( hist_chain_cnt )                      );
   void * verified_deque = FD_SCRATCH_ALLOC_APPEND( l, verified_deque_align(), verified_deque_footprint( hist_max )                    );
   void * proof_pool     = FD_SCRATCH_ALLOC_APPEND( l, proof_pool_align(),     proof_pool_footprint( proof_max )                       );
-  void * proof_map      = FD_SCRATCH_ALLOC_APPEND( l, proof_map_align(),      proof_map_footprint( proof_max )                        );
+  void * proof_map      = FD_SCRATCH_ALLOC_APPEND( l, proof_map_align(),      proof_map_footprint( proof_chain_cnt )                        );
   void * from_map       = FD_SCRATCH_ALLOC_APPEND( l, from_map_align(),       from_map_footprint( lg_from_max )                       );
 
   fd_eqvoc_t * eqvoc = (fd_eqvoc_t *)eqvoc_mem;
@@ -81,13 +87,13 @@ fd_eqvoc_new( void * shmem,
   eqvoc->sha512         = fd_sha512_new     ( sha512 );
   eqvoc->bmtree_mem     = bmtree_mem;       /* no new */
   eqvoc->shred_pool     = shred_pool_new    ( shred_pool,     shred_max         );
-  eqvoc->shred_map      = shred_map_new     ( shred_map,      shred_max,   seed );
+  eqvoc->shred_map      = shred_map_new     ( shred_map,      shred_chain_cnt,   seed );
   eqvoc->shred_deque    = shred_deque_new   ( shred_deque,    shred_max         );
   eqvoc->verified_pool  = verified_pool_new ( verified_pool,  hist_max          );
-  eqvoc->verified_map   = verified_map_new  ( verified_map,   hist_max,    seed );
+  eqvoc->verified_map   = verified_map_new  ( verified_map,   hist_chain_cnt,    seed );
   eqvoc->verified_deque = verified_deque_new( verified_deque, hist_max          );
   eqvoc->proof_pool     = proof_pool_new    ( proof_pool,     proof_max         );
-  eqvoc->proof_map      = proof_map_new     ( proof_map,      proof_max,   seed );
+  eqvoc->proof_map      = proof_map_new     ( proof_map,      proof_chain_cnt,   seed );
   eqvoc->from_map       = from_map_new      ( from_map,       lg_from_max, seed );
 
   from_t * join = from_map_join( eqvoc->from_map );
