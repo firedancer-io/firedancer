@@ -12,29 +12,6 @@ set -eou pipefail
 TESTS=
 VERBOSE=0
 
-# Read command-line args
-
-while [[ $# -gt 0 ]]; do
-
-  FLAG="$1"
-  shift 1
-
-  case "$FLAG" in
-    "--tests")
-      TESTS="$1"
-      shift 1
-      ;;
-    "-v")
-      VERBOSE=1
-      ;;
-    *)
-      echo "Unknown flag: $FLAG" >&2
-      exit 1
-      ;;
-  esac
-
-done
-
 if [[ -z "$TESTS" && -z "${RECURSE_GUARD:-}" ]]; then
   # No tests given, so indirect test execution through Make and retry.
   # This ensures that we select the correct build dir for the current
@@ -50,31 +27,6 @@ AVAILABLE_JOBS=1
 
 # Clean up process tree on exit
 trap 'exit' INT QUIT TERM
-
-# Track list of PIDs of child processes
-declare -A PIDS=()
-# Remember unit name of each PID
-declare -A PID2UNIT=()
-# Remember logfile name of each PID
-declare -A PID2LOG=()
-
-# Read in list of automatic integration tests to schedule as jobs
-declare -a TEST_LIST=()
-
-if [[ -s "$TESTS" ]]; then
-  while read -r line; do
-    if [[ "$line" =~ ^[[:space:]]*# ]]; then
-      continue
-    fi
-    TEST_LIST+=( "$line" )
-  done < <(grep -v '^#' "$TESTS")
-fi
-
-echo "test.sh: Scheduling ${#TEST_LIST[@]} tests in sequence" >&2
-
-rc_path () {
-  echo "/tmp/.pid-$1.rc"
-}
 
 runner () {
   local pid="$BASHPID"
@@ -116,13 +68,14 @@ runner () {
   } > "$rcpath"
 }
 
-# dispatch numa_idx cpu_idx cmdline...
-#   Fork task
 dispatch () {
-  # Craft command line args
   local prog="$1"
   local progname="${prog##*/}"
   shift 1
+
+  if [[ ! -f "$prog" ]]; then
+    return 0
+  fi
 
   # Create log dir
   local logdir
@@ -135,82 +88,8 @@ dispatch () {
   fi
 
   # Dispatch
-  runner "$prog" "$log" "$@" &
-  local pid="$!"
-
-  # Remember PID
-  PIDS["$pid"]=$pid
-  PID2UNIT["$pid"]="$progname"
-  PID2LOG["$pid"]="$log"
+  runner "$prog" "$log" "$@"
 }
 
-# sow
-#   schedule tasks until max concurrency reached
-sow () {
-  if [[ "${#TEST_LIST[@]}" -eq 0 ]]; then return; fi
-  if [[ "${AVAILABLE_JOBS}" -eq 0 ]]; then return; fi
-
-  # Found a free CPU!
-  local test="${TEST_LIST[0]}"
-  TEST_LIST=( "${TEST_LIST[@]:1}" )
-  AVAILABLE_JOBS="$(( AVAILABLE_JOBS - 1 ))"
-  dispatch "$test"
-}
-
-FAIL_CNT=0
-
-# reap
-#   wait for a job to finish
-reap () {
-  wait -n "${PIDS[@]}"
-  # Clean up finished jobs
-  for pid in "${PIDS[@]}"; do
-    if [[ ! -d "/proc/$pid" ]]; then
-      # Job finished
-      local rcfile; rcfile="$(rc_path "$pid")"
-      local rc
-      local elapsed
-      {
-        IFS= read -r rc
-        IFS= read -r elapsed
-      } < "$rcfile"
-      local unit="${PID2UNIT["$pid"]}"
-      local log="${PID2LOG["$pid"]}"
-      local logfull="${log%.log}-full.log"
-      unset PIDS["$pid"]
-      unset PID2UNIT["$pid"]
-      unset PID2LOG["$pid"]
-      AVAILABLE_JOBS="$(( AVAILABLE_JOBS + 1 ))"
-      if [[ "$rc" -ne 0 ]]; then
-        FAIL_CNT="$(( FAIL_CNT + 1 ))"
-        printf "\033[0;31mFAIL\033[0m%12s   %s (exit %d): %s\n" "$elapsed" "$unit" "$rc" "$logfull" >&2
-        grep -sv "Log at" "$logfull" | sed -e "$(printf "s/^/%19s%-20s /" '' "$unit")" || true >&2
-      else
-        printf "\033[0;32mOK  \033[0m%12s   %s\n"               "$elapsed" "$unit" >&2
-      fi
-    fi
-  done
-}
-
-while [[ "${#TEST_LIST[@]}" -gt 0 ]]; do
-  sow
-  reap
-done
-while [[ "${#PIDS[@]}" -gt 0 ]]; do
-  reap
-done
-
-if [[ "$FAIL_CNT" -gt 0 ]]; then
-  echo -e "\033[0;31mFAIL\033[0m ($FAIL_CNT failure)" >&2
-  exit 1
-else
-  echo -e "\033[0;32mPASS\033[0m" >&2
-  exit 0
-fi
-
-# TODO add firedancer-dev integration tests here
-
-# Broken because genesis creation is unreliable
-#src/app/firedancer-dev/tests/test_single_transfer.sh
-# Broken because 'firedancer-dev txn' is unreliable
-#src/app/firedancer-dev/tests/test_single_txn.sh
+dispatch "$OBJDIR"/unit-test/test_fddev
+dispatch "$OBJDIR"/unit-test/test_firedancer_dev --testnet

@@ -84,6 +84,7 @@ echo "
 [layout]
     execrp_tile_count = 8
 [accounts]
+    in_memory_only = true
     max_accounts = 150000000
     file_size_gib = 100
 [tiles]

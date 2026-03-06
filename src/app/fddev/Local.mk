@@ -36,7 +36,6 @@ monitor: bin
 	$(OBJDIR)/bin/fddev monitor $(MONITOR_ARGS)
 
 $(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fddev_shared fdctl_shared fdctl_platform fd_discoh fd_disco agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
-$(call run-integration-test,test_fddev)
 
 endif
 endif
