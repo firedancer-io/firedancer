@@ -199,6 +199,21 @@ telemetry = true
     # Firedancer instance.
     accounts = ""
 
+    # File path to the shreds database file.
+    #
+    # The shreds database stores recorded and reconstructed shreds
+    # that the validator has received, so that it is able to serve
+    # incoming repair requests from another validator catching up.
+    #
+    # If no path is provided, defaults to the `shreds.db` path
+    # within the base directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    shredb = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -1487,7 +1502,6 @@ telemetry = true
     # TODO: DOCS
     [tiles.repair]
         repair_intake_listen_port = 8701
-        repair_serve_listen_port = 8702
 
         # Slot max is the maximum number of slots that repair tile can
         # maintain at once.  This is expected to be the largest at
@@ -1495,6 +1509,24 @@ telemetry = true
         # slot, but still maintaining and receiving new turbine slots.
         # Must be power of 2
         slot_max = 4096
+
+    [tiles.rserve]
+        # If the repair server is enabled.
+        enabled = true
+        # The port the repair server listens for repair requests.
+        repair_serve_listen_port = 8702
+        # The maximum size of the shred storage on disk.  Determines the
+        # amount of history that the validator will be able to serve to
+        # peers making repair requests.  Roughly, for mainnet, 1 GiB of
+        # storage corresponds to ~1000 slots, and the default is set to
+        # match Agave's ability to serve around six hours of shreds.
+        #
+        # This is an upper bound on the disk space used, but when first
+        # booted the validator will start with just ~40MiB, and incrementally
+        # grow the storage file on disk up to the limit as needed.  Once the
+        # storage is filled, the oldest shreds will be evicted as new shreds
+        # are added.
+        shred_storage_limit_gib = 50
 
     # The txsend tile is responsible for sending transactions out to
     # the network over QUIC.  In the default configuration, this is just

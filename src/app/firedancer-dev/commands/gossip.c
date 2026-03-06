@@ -34,7 +34,7 @@ gossip_cmd_topo( config_t * config ) {
   config->tiles.quic.quic_transaction_listen_port = 0U;
   config->tiles.quic.regular_transaction_listen_port = 0U;
   config->tiles.repair.repair_intake_listen_port = 0U;
-  config->tiles.repair.repair_serve_listen_port = 0U;
+  config->tiles.rserve.repair_serve_listen_port = 0U;
   config->tiles.txsend.txsend_src_port = 0U;
 
   static ulong tile_to_cpu[ FD_TILE_MAX ] = {0}; /* TODO */
@@ -81,6 +81,7 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   gossip_tile->gossip.max_entries          = config->tiles.gossip.max_entries;
   gossip_tile->gossip.ports.gossip         = config->gossip.port;
   gossip_tile->gossip.ports.repair         = 0;
+  gossip_tile->gossip.ports.rserve         = 0;
   gossip_tile->gossip.ports.tpu            = 0;
   gossip_tile->gossip.ports.tpu_quic       = 0;
   gossip_tile->gossip.ports.tvu            = 0;

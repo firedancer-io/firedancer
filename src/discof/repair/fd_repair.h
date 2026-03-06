@@ -43,12 +43,11 @@
 
    - Orphan( slot )
 
-     This is a request for up to 10 shreds, where each shred is the
-     prior one's ancestor, beginning from but excluding slot.  For
-     example, an orphan request for slot 10 will return a single shred
-     for slots 9, 8, 7, 6, 5, 4, 3, 2 and 1 (assuming no skips).  Also,
-     the responding validator will return the highest shred index it has
-     for every ancestor it knows about.
+     This is a request for up to 11 shreds, where each shred is the
+     prior one's ancestor, beginning from and including slot.  For
+     example, an orphan request for slot 10 will return the highest
+     shred for slots 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 and 0 (assuming
+     no skips).
 
     All 3 repair request types are prefixed with a common header of from
     pubkey, to pubkey, ulong timestamp and uint nonce.  The timestamp is
@@ -77,11 +76,12 @@
 /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} specify discriminant
    values the protocol uses to distinguish message types. */
 
-#define FD_REPAIR_KIND_PING          (0U)
-#define FD_REPAIR_KIND_PONG          (7U)
-#define FD_REPAIR_KIND_SHRED         (8U)
-#define FD_REPAIR_KIND_HIGHEST_SHRED (9U)
-#define FD_REPAIR_KIND_ORPHAN        (10U)
+#define FD_REPAIR_KIND_PING            (0U)
+#define FD_REPAIR_KIND_PONG            (7U)
+#define FD_REPAIR_KIND_SHRED           (8U)
+#define FD_REPAIR_KIND_HIGHEST_SHRED   (9U)
+#define FD_REPAIR_KIND_ORPHAN          (10U)
+#define FD_REPAIR_KIND_ANCESTOR_HASHES (11U)
 
 /* fd_repair_pong describes the schema of a Pong. */
 
@@ -125,8 +125,9 @@ struct __attribute__((packed)) fd_repair_highest_shred_req {
 typedef struct fd_repair_highest_shred_req fd_repair_highest_shred_req_t;
 
 /* fd_repair_orphan requests the ancestors of slot (an "orphaned" slot)
-   from a peer validator.  The peer can respond with shreds for up to 10
-   ancestor slots, where every shred is the last shred for that slot. */
+   from a peer validator.  The peer can respond with shreds for up to 11
+   slots (including the requested slot itself), where every shred is
+   the highest shred for that slot. */
 
 struct __attribute__((packed)) fd_repair_orphan_req {
   REQ_HDR
@@ -134,15 +135,24 @@ struct __attribute__((packed)) fd_repair_orphan_req {
 };
 typedef struct fd_repair_orphan_req fd_repair_orphan_req_t;
 
+/* fd_repair_req_header gives a view into the header of the SHRED,
+   HIGHEST_SHRED, and ORPHAN request types. */
+struct __attribute__((packed)) fd_repair_req_header {
+  REQ_HDR
+};
+typedef struct fd_repair_req_header fd_repair_req_header_t;
+
 /* fd_repair_msg_t defines the schema of all Repair message types. */
 
 struct __attribute__((packed)) fd_repair_msg {
-  uint kind; /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} */
+  uint kind; /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN,ANCESTOR_HASHES} */
   union {
     fd_repair_pong_t              pong;
     fd_repair_shred_req_t         shred;
     fd_repair_highest_shred_req_t highest_shred;
     fd_repair_orphan_req_t        orphan;
+    fd_repair_req_header_t        header;
+    /* TODO: ancestor hashes */
   };
 };
 typedef struct fd_repair_msg fd_repair_msg_t;
