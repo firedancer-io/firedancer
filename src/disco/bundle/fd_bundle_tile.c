@@ -156,7 +156,7 @@ before_credit( fd_bundle_tile_t *  ctx,
     ctx->stem = stem;
   }
 
-  if( FD_LIKELY( pending_pub_empty( ctx->pending_pubs ) && ctx->stem->cr_avail[ ctx->verify_out.idx ]>0UL ) ) {
+  if( FD_LIKELY( pending_pub_empty( ctx->pending_pubs ) && ctx->stem->cr_avail[ ctx->verify_out.idx ]>=STEM_BURST ) ) {
     fd_bundle_client_step( ctx, charge_busy );
   }
 }
