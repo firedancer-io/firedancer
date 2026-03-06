@@ -378,6 +378,8 @@ metric introduced.
     <histogram name="MessageRxDelayNanos" min="100000" max="1000000000">
         <summary>Message receive delay in nanoseconds from bundle server to bundle client</summary>
     </histogram>
+    <gauge name="PendingTransactions" summary="Number of transactions buffered and waiting to be published" />
+    <counter name="TransactionDroppedBackpressure" summary="Transactions dropped because the pending transaction buffer was full (should never happen)" />
 </tile>
 
 <enum name="VerifyTileResult">
@@ -1040,6 +1042,8 @@ metric introduced.
     <gauge name="IncrementalBytesTotal" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
     <gauge name="IncrementalDownloadRetries" summary="Number of times we retried the incremental snapshot download because the peer was too slow" />
     <gauge name="PredictedSlot" summary="The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" />
+    <gauge name="GossipFreshCount" summary="Number of fresh gossip peers seen when collecting gossip peers. " />
+    <gauge name="GossipTotalCount" summary="Number of total gossip peers seen when collecting gossip peers. " />
     <counter name="SslAllocErrors" summary="Number of SSL allocation errors encountered. " />
 </tile>
 
