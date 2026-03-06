@@ -206,11 +206,10 @@ FD_PROTOTYPES_BEGIN
        These configure the behaviors of the logger.
 
        A non-zero colorize indicates stderr log messages should be
-       colorized.  default is disabled unless either
-       COLORTERM==truecolor or TERM==*256color* in the environment.
-       (This can also be enabled / disabled on the fly by the program
-       itself.) Note that the permanent log is _never_ colorized to aid
-       in robust log file message archiving.
+       colorized. See the documentation for fd_log_should_colorize()
+       for more info on how it's decided. (This can also be enabled /
+       disabled on the fly by the program itself.) Note that the permanent
+       log is _never_ colorized to aid in robust log file message archiving.
 
        logfile is the minimal level for which the logger should write
        detailed messages to the permanent log file (if there is one).
