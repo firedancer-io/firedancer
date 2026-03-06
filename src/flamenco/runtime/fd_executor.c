@@ -1467,6 +1467,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
 
   runtime->accounts.starting_lamports[idx] = fd_accdb_ref_lamports( account->ro );
   runtime->accounts.starting_dlen[idx]     = fd_accdb_ref_data_sz ( account->ro );
+  fd_memcpy( runtime->accounts.starting_owner[idx].uc, fd_accdb_ref_owner( account->ro ), sizeof(fd_pubkey_t) );
   runtime->accounts.refcnt[idx]            = 0UL;
 }
 

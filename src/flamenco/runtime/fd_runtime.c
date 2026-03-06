@@ -1155,7 +1155,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
        txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
       }
 
-      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_stake_program_id ) ) {
+      if( fd_pubkey_eq( &runtime->accounts.starting_owner[i], &fd_solana_stake_program_id ) ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
 

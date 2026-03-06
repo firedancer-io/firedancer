@@ -106,6 +106,7 @@ struct fd_runtime {
 
     ulong                     starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Starting lamports for each account */
     ulong                     starting_dlen[ MAX_TX_ACCOUNT_LOCKS ];     /* Starting data length for each account */
+    fd_pubkey_t               starting_owner[ MAX_TX_ACCOUNT_LOCKS ];    /* Starting owner for each account (saved before reclaim may zero it) */
     ulong                     refcnt[ MAX_TX_ACCOUNT_LOCKS ];            /* Reference count for each account */
   } accounts;
 
