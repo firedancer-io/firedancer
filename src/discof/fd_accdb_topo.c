@@ -39,12 +39,9 @@ fd_progcache_init_from_topo( fd_progcache_t *  progcache,
                              uchar *           scratch,
                              ulong             scratch_sz ) {
   ulong funk_obj_id;
-  ulong locks_obj_id;
-  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ))!=ULONG_MAX );
-  FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "progcache_locks", ULONG_MAX ))!=ULONG_MAX );
+  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ))!=ULONG_MAX );
   FD_TEST( fd_progcache_join( progcache,
       fd_topo_obj_laddr( topo, funk_obj_id  ),
-      fd_topo_obj_laddr( topo, locks_obj_id ),
       scratch,
       scratch_sz ) );
 }
