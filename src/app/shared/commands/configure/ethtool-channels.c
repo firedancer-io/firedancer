@@ -54,7 +54,7 @@ get_ports( fd_config_t const * config,
   if( config->is_firedancer ) {
     ADD_PORT( config->gossip.port                              );
     ADD_PORT( config->tiles.repair.repair_intake_listen_port   );
-    ADD_PORT( config->tiles.repair.repair_serve_listen_port    );
+    ADD_PORT( config->tiles.rserve.repair_serve_listen_port    );
     ADD_PORT( config->tiles.txsend.txsend_src_port             );
   }
 #undef ADD_PORT

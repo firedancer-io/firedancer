@@ -222,6 +222,9 @@ typedef struct {
   fd_net_out_ctx_t repair_out[1];
   fd_net_out_ctx_t txsend_out[1];
 
+  fd_net_out_ctx_t rserve_out[1];
+  int rserve_enabled;
+
   /* XDP stats refresh timer */
   long xdp_stats_interval_ticks;
   long next_xdp_stats_refresh;
@@ -994,13 +997,13 @@ net_rx_packet( fd_net_ctx_t * ctx,
     if( FD_UNLIKELY( sz == REPAIR_PING_SZ ) ) out = ctx->repair_out; /* ping-pong */
     else                                      out = ctx->shred_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
-    proto = DST_PROTO_REPAIR;
-    out = ctx->repair_out;
+    if( FD_UNLIKELY( !ctx->rserve_enabled ) ) return;
+    proto = DST_PROTO_RSERVE;
+    out = ctx->rserve_out;
   } else if( FD_UNLIKELY( udp_dstport==ctx->txsend_src_port ) ) {
     proto = DST_PROTO_SEND;
     out = ctx->txsend_out;
   } else {
-
     FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                   "Only the following ports should be configured to forward packets: "
                   "%hu, %hu, %hu, %hu, %hu, %hu (excluding any 0 ports, which can be ignored)."
@@ -1437,6 +1440,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
+  ctx->rserve_enabled = 0;
   for( ulong i = 0; i < tile->out_cnt; i++ ) {
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i  ] ];
     if( strcmp( out_link->name, "net_quic" ) == 0 ) {
@@ -1474,6 +1478,13 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->txsend_out->sync   = fd_mcache_seq_laddr( ctx->txsend_out->mcache );
       ctx->txsend_out->depth  = fd_mcache_depth( ctx->txsend_out->mcache );
       ctx->txsend_out->seq    = fd_mcache_seq_query( ctx->txsend_out->sync );
+    } else if( strcmp( out_link->name, "net_rserve" ) == 0 ) {
+      fd_topo_link_t * rserve_out = out_link;
+      ctx->rserve_out->mcache = rserve_out->mcache;
+      ctx->rserve_out->sync   = fd_mcache_seq_laddr( ctx->rserve_out->mcache );
+      ctx->rserve_out->depth  = fd_mcache_depth( ctx->rserve_out->mcache );
+      ctx->rserve_out->seq    = fd_mcache_seq_query( ctx->rserve_out->sync );
+      ctx->rserve_enabled     = 1;
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }
