@@ -1932,7 +1932,17 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 #define STEM_BURST (1UL)
-#define STEM_LAZY  (50UL)
+
+/* The default STEM_LAZY is based on cr_max, which is the minimum depth
+   across all output links that have at least one reliable consumer.
+   RPC has one tiny output link used to release banks, with a
+   significantly slower line rate than assumed in the formula for the
+   default STEM_LAZY value.
+
+   Instead, lazy just needs to be frequent enough to relinquish credits
+   to upstream producers faster than they are exhausted. 384us is a
+   reasonable default used in many other non-critical tiles. */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_rpc_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_rpc_tile_t)
