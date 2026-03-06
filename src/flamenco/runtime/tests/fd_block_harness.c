@@ -148,12 +148,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_accdb_attach_child( runner->accdb_admin, &parent_xid, xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, xid );
 
-  // /* Restore features */
-  // fd_features_t features = {0};
-  // if( !fd_solfuzz_pb_restore_features( &features, &test_ctx->epoch_ctx.features ) ) {
-  //   return NULL;
-  // }
-  // fd_bank_features_set( bank, features );
+  /* Restore features */
+  fd_features_t features = {0};
+  if( !fd_solfuzz_pb_restore_features( &features, &test_ctx->epoch_ctx.features ) ) {
+    return NULL;
+  }
+  fd_bank_features_set( bank, features );
 
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );
