@@ -153,9 +153,9 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
-  fd_accdb_admin_t     accdb_admin[1];
-  fd_accdb_user_t      accdb[1];
-  fd_progcache_admin_t progcache_admin[1];
+  fd_accdb_admin_t    accdb_admin[1];
+  fd_accdb_user_t     accdb[1];
+  fd_progcache_join_t progcache[1];
 
   fd_txncache_t * txncache;
   fd_store_t *    store;
@@ -465,6 +465,8 @@ struct fd_replay_tile {
 
     fd_histf_t root_slot_dur[1];
     fd_histf_t root_account_dur[1];
+
+    long wksp_sample_ts;
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
@@ -549,9 +551,6 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, BANKS_FULL,          ctx->metrics.banks_full );
   FD_MCNT_SET( REPLAY, STORAGE_ROOT_BEHIND, ctx->metrics.storage_root_behind );
 
-  FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  ctx->progcache_admin->metrics.root_cnt );
-  FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, ctx->progcache_admin->metrics.gc_root_cnt );
-
   FD_MCNT_SET( REPLAY, ACCDB_CREATED,      ctx->accdb->base.created_cnt       );
   FD_MCNT_SET( REPLAY, ACCDB_REVERTED,     ctx->accdb_admin->base.revert_cnt  );
   FD_MCNT_SET( REPLAY, ACCDB_ROOTED,       ctx->accdb_admin->base.root_cnt    );
@@ -563,6 +562,21 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_DB,   (ulong)ctx->accdb_admin->base.dt_vinyl );
   FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_COPY, (ulong)ctx->accdb_admin->base.dt_copy  );
   FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
+
+  fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
+  FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  pcm->root_cnt    );
+  FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, pcm->gc_root_cnt );
+  long now = fd_log_wallclock();
+# define PROGCACHE_WKSP_SAMPLE_INTERVAL 695234851L /* sampling the wksp is expensive, so do it no more frequent than every ~700ms */
+  if( FD_UNLIKELY( !ctx->metrics.wksp_sample_ts ||
+                   now - ctx->metrics.wksp_sample_ts > PROGCACHE_WKSP_SAMPLE_INTERVAL ) ) {
+    fd_progcache_wksp_metrics_update( ctx->progcache );
+    FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTS,          pcm->wksp.free_part_cnt );
+    FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_BYTES,          pcm->wksp.free_sz       );
+    FD_MGAUGE_SET( REPLAY, PROGCACHE_SIZE_BYTES,          pcm->wksp.total_sz      );
+    FD_MGAUGE_SET( REPLAY, PROGCACHE_PART_SIZE_MAX_BYTES, pcm->wksp.free_part_max );
+    ctx->metrics.wksp_sample_ts = now;
+  }
 }
 
 static void
@@ -645,7 +659,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid        = { .ul = { slot, bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( ctx->progcache, &parent_xid, &xid );
 
   /* Update required runtime state and handle potential boundary. */
 
@@ -940,7 +954,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->data->idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( ctx->progcache, &parent_xid, &xid );
 
   fd_bank_execution_fees_set( ctx->leader_bank, 0UL );
   fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
@@ -1098,14 +1112,15 @@ init_funk( fd_replay_tile_t * ctx,
   /* The program cache tracks the account database's fork graph at all
      times.  Perform initial synchronization: pivot from funk 'root' (a
      sentinel XID) to 'last publish' (the bootstrap root slot). */
-  if( FD_UNLIKELY( !ctx->progcache_admin->funk->shmem ) ) {
+  if( FD_UNLIKELY( !ctx->progcache->shmem ) ) {
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
   }
-  fd_progcache_clear( ctx->progcache_admin );
+  fd_progcache_clear( ctx->progcache );
 
   fd_funk_txn_xid_t last_publish = fd_accdb_root_get( ctx->accdb_admin );
-  fd_progcache_txn_attach_child( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), &last_publish );
-  fd_progcache_txn_advance_root( ctx->progcache_admin,                                             &last_publish );
+  fd_funk_txn_xid_t root = { .ul = { ULONG_MAX, ULONG_MAX } };
+  fd_progcache_txn_attach_child( ctx->progcache, &root, &last_publish );
+  fd_progcache_txn_advance_root( ctx->progcache,        &last_publish );
 }
 
 static void
@@ -2085,14 +2100,17 @@ accdb_advance_root( fd_replay_tile_t * ctx,
   FD_LOG_DEBUG(( "advancing root to slot=%lu", slot ));
 
   long rooted_accounts   = -(long)accdb_root_op_total( ctx );
-  long root_accounts_dt  = -fd_tickcount();
+  long t0                = fd_tickcount();
   fd_accdb_advance_root( ctx->accdb_admin, &xid );
   rooted_accounts       += (long)accdb_root_op_total( ctx );
-  root_accounts_dt      += fd_tickcount();
+  long t1                = fd_tickcount();
+  long root_accounts_dt  = t1 - t0;
   fd_histf_sample( ctx->metrics.root_slot_dur,    (ulong)root_accounts_dt );
   fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
 
-  fd_progcache_txn_advance_root( ctx->progcache_admin, &xid );
+  fd_progcache_txn_advance_root( ctx->progcache, &xid );
+  long t2 = fd_tickcount();
+  FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
 }
 
 static int
@@ -2194,7 +2212,7 @@ after_credit( fd_replay_tile_t *  ctx,
     fd_txncache_cancel_fork( ctx->txncache, cancel_info->txncache_fork_id );
     fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_idx } };
     fd_accdb_cancel( ctx->accdb_admin, &xid );
-    fd_progcache_txn_cancel( ctx->progcache_admin, &xid );
+    fd_progcache_txn_cancel( ctx->progcache, &xid );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2885,11 +2903,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
 
-  ulong progcache_obj_id;       FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
-  ulong progcache_locks_obj_id; FD_TEST( (progcache_locks_obj_id = fd_pod_query_ulong( topo->props, "progcache_locks", ULONG_MAX ) )!=ULONG_MAX );
-  FD_TEST( fd_progcache_admin_join( ctx->progcache_admin,
-      fd_topo_obj_laddr( topo, progcache_obj_id       ),
-      fd_topo_obj_laddr( topo, progcache_locks_obj_id ) ) );
+  ulong progcache_obj_id; FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
+  FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id       ) ) );
 
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );

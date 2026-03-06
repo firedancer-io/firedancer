@@ -92,11 +92,6 @@ done:
     FD_LOG_CRIT(( "Account database fork depth exceeded max of %lu", lineage->max_depth ));
   }
 
-  /* FIXME crash if fork depth greater than cache depth */
-  if( lineage->fork_depth < lineage->max_depth ) {
-    fd_funk_txn_xid_set_root( &lineage->fork[ lineage->fork_depth++ ] );
-  }
-
   /* Remember head of fork */
   if( tip ) {
     lineage->tip_txn_idx = (ulong)( tip - funk->txn_pool->ele );

@@ -486,6 +486,11 @@ fd_config_validatef( fd_configf_t const * config ) {
       0!=strcmp( config->accounts.io_provider, "portable" ) ) {
     FD_LOG_ERR(( "unsupported `accounts.io_provider`: \"%s\"", config->accounts.io_provider ));
   }
+
+  CFG_HAS_NON_ZERO( runtime.program_cache.mean_cache_entry_size );
+  CFG_HAS_NON_ZERO( runtime.program_cache.heap_size_mib );
+  if( config->runtime.program_cache.mean_cache_entry_size < 4096 ) { FD_LOG_ERR(( "`%s` must be >= 4096", "runtime.program_cache.mean_cache_entry_size" )); }
+  if( config->runtime.program_cache.heap_size_mib < 32 ) { FD_LOG_ERR(( "`%s` must be >= 32", "runtime.program_cache.heap_size_mib" )); }
 }
 
 static void

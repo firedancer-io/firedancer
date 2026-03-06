@@ -36,6 +36,7 @@ FD_FN_UNUSED static int
 fd_accdb_lineage_has_xid( fd_accdb_lineage_t const * lineage,
                           fd_funk_txn_xid_t const *  rec_xid ) {
   ulong const fork_depth = lineage->fork_depth;
+  if( fd_funk_txn_xid_eq_root( rec_xid ) ) return 1;
   for( ulong i=0UL; i<fork_depth; i++ ) {
     if( fd_funk_txn_xid_eq( &lineage->fork[i], rec_xid ) ) return 1;
   }
