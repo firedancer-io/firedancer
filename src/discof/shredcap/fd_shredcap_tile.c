@@ -222,33 +222,37 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   fd_vote_stake_weight_t * stake_weights  = epoch_info_msg->weights;
 
   epoch_info_msg->epoch             = epoch;
-  epoch_info_msg->staked_cnt        = epoch_stakes->vote_stakes_len;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
-  epoch_info_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
   epoch_info_msg->excluded_stake    = 0UL;
   epoch_info_msg->vote_keyed_lsched = 1UL;
 
   /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
      This code can be removed once the feature is active. */
-  {
-    if(    ( 1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET )
-        || ( 0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET ) ) {
-      epoch_info_msg->vote_keyed_lsched = 0UL;
-    }
+  if( (1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET) ||
+      (0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET) ) {
+    epoch_info_msg->vote_keyed_lsched = 0UL;
   }
 
   /* Set all features as deactivated as we don't have available feature info from manifest. */
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 
-  /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
+  /* Filter zero-stake entries (match replay: wsample and leader schedule reject zero weight). */
+  ulong idx = 0UL;
   for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
-    stake_weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake;
-    memcpy( stake_weights[ i ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ i ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+    ulong stake = epoch_stakes->vote_stakes[ i ].stake;
+    if( FD_UNLIKELY( !stake ) ) continue;
+    stake_weights[ idx ].stake = stake;
+    memcpy( stake_weights[ idx ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+    idx++;
   }
-  sort_vote_weights_by_stake_vote_inplace( stake_weights, epoch_stakes->vote_stakes_len);
+  epoch_info_msg->staked_cnt = idx;
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
 
-  return fd_epoch_info_msg_sz( epoch_stakes->vote_stakes_len );
+  epoch_info_msg->epoch_schedule = *epoch_schedule;
+
+  return fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt );
 }
 
 static void
@@ -851,7 +855,7 @@ unprivileged_init( fd_topo_t *      topo,
   init_file_handlers( ctx, &ctx->bank_hashes_fd, tile->shredcap.bank_hashes_fd, &ctx->bank_hashes_buf, &ctx->bank_hashes_ostream );
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
 #define STEM_LAZY  (50UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_capture_tile_ctx_t
