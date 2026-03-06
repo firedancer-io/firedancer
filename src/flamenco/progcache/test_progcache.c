@@ -12,7 +12,7 @@ FD_IMPORT_BINARY( invalid_program_data,      "src/ballet/sbpf/fixtures/malformed
 
 /* query_rec_exact fetches a funk record at a precise xid:key pair. */
 
-static fd_funk_rec_t const *
+static fd_progcache_rec_t const *
 query_rec_exact( test_env_t *              env,
                  fd_funk_txn_xid_t const * xid,
                  fd_funk_rec_key_t const * key ) {
@@ -20,34 +20,41 @@ query_rec_exact( test_env_t *              env,
   fd_funk_txn_xid_copy( pair->xid, xid );
   fd_funk_rec_key_copy( pair->key, key );
 
-  fd_funk_rec_map_query_t query[1];
-  int query_err = fd_funk_rec_map_query_try( env->progcache->funk->rec_map, pair, NULL, query, 0 );
+  fd_prog_recm_query_t query[1];
+  int query_err = fd_prog_recm_query_try( env->progcache->join->rec.map, pair, NULL, query, 0 );
   if( query_err==FD_MAP_ERR_KEY ) return NULL;
-  if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
+  if( FD_UNLIKELY( query_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
 
-  return fd_funk_rec_map_query_ele_const( query );
+  return fd_prog_recm_query_ele_const( query );
 }
 
-/* test_empty: Account database and progcache completely empty.
-   Query at root should fail. */
+/* test_peek and test_pull wrap fd_progcache_{peek,pull} and
+   immediately release the read lock on the returned record.  This is
+   safe in single-threaded tests where record lifetimes are managed
+   by cancel/publish/destroy. */
 
-static void
-test_empty( fd_wksp_t * wksp ) {
-  test_env_t * env = test_env_create( wksp );
-
-  fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_set_root( xid );
-  fd_funk_rec_key_t key = test_key( 1UL );
-  fd_prog_load_env_t load_env = {
-    .features    = env->features,
-    .slot        = 1UL,
-    .epoch       = 0UL,
-    .epoch_slot0 = 0UL
-  };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, xid, &key, &load_env );
-  FD_TEST( !rec );
-
-  test_env_destroy( env );
+static fd_progcache_rec_t *
+test_peek( fd_progcache_t *          cache,
+           fd_funk_txn_xid_t const * xid,
+           void const *              prog_addr,
+           ulong                     epoch_slot0 ) {
+  fd_progcache_rec_t * rec = fd_progcache_peek( cache, xid, prog_addr, epoch_slot0 );
+  if( rec ) fd_progcache_rec_close( cache, rec );
+  return rec;
 }
+
+static fd_progcache_rec_t *
+test_pull( fd_progcache_t *           cache,
+           fd_accdb_user_t *          accdb,
+           fd_funk_txn_xid_t const *  xid,
+           void const *               prog_addr,
+           fd_prog_load_env_t const * env ) {
+  fd_progcache_rec_t * rec = fd_progcache_pull( cache, accdb, xid, prog_addr, env );
+  fd_progcache_rec_close( cache, rec );
+  return rec;
+}
+
+static fd_funk_txn_xid_t const root_xid = { .ul = { ULONG_MAX, ULONG_MAX } };
 
 /* test_account_does_not_exist: Program account missing, but querying at
    a fork. */
@@ -85,7 +92,7 @@ test_invalid_owner( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  FD_TEST( !fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env ) );
+  FD_TEST( !test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env ) );
 
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
@@ -106,10 +113,10 @@ test_invalid_program( fd_wksp_t * wksp ) {
                        invalid_program_data_sz,
                        1 );
 
-  FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( !test_peek( env->progcache, &fork_a, &key, 0UL ) );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 0 ], &fork_a   ) );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 1 ], &root_xid ) );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -117,10 +124,10 @@ test_invalid_program( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( !rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, load_env.epoch_slot0 )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, load_env.epoch_slot0 )==rec );
 
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
@@ -141,10 +148,10 @@ test_valid_program( fd_wksp_t * wksp ) {
                        valid_program_data_sz,
                        1 );
 
-  FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( !test_peek( env->progcache, &fork_a, &key, 0UL ) );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 0 ], &fork_a   ) );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 1 ], &root_xid ) );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -152,23 +159,23 @@ test_valid_program( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
-  FD_TEST( env->progcache->fork_depth==2UL );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
 
   fd_funk_txn_xid_t fork_b = { .ul = { 64UL, 2UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec );
-  FD_TEST( env->progcache->fork_depth==3UL );
+  FD_TEST( test_peek( env->progcache, &fork_b, &key, 0UL )==rec );
+  FD_TEST( env->progcache->lineage->fork_depth==3UL );
 
   load_env.slot        = 64UL;
   load_env.epoch       =  0UL;
   load_env.epoch_slot0 =  0UL;
-  fd_progcache_rec_t const * rec2 = fd_progcache_pull( env->progcache, env->accdb, &fork_b, &key, &load_env );
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, env->accdb, &fork_b, &key, &load_env );
   FD_TEST( rec==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_b, &key, 0UL )==rec );
 
   test_env_txn_cancel( env, &fork_a ); /* should also cancel fork_b */
   test_env_destroy( env );
@@ -190,10 +197,10 @@ test_epoch_boundary( fd_wksp_t * wksp ) {
                        valid_program_data_sz,
                        1 );
 
-  FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( !test_peek( env->progcache, &fork_a, &key, 0UL ) );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 0 ], &fork_a   ) );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 1 ], &root_xid ) );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -201,21 +208,21 @@ test_epoch_boundary( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
 
   fd_funk_txn_xid_t fork_b = { .ul = { 64UL, 2UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
   load_env.slot        = 64UL;
   load_env.epoch       =  1UL;
   load_env.epoch_slot0 = 64UL;
-  fd_progcache_rec_t const * rec2 = fd_progcache_pull( env->progcache, env->accdb, &fork_b, &key, &load_env );
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, env->accdb, &fork_b, &key, &load_env );
   FD_TEST( rec2 );
   FD_TEST( rec!=rec2 );
   FD_TEST( rec2->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, load_env.epoch_slot0 )==rec2 );
+  FD_TEST( test_peek( env->progcache, &fork_b, &key, load_env.epoch_slot0 )==rec2 );
 
   test_env_txn_cancel( env, &fork_b );
   test_env_txn_cancel( env, &fork_a );
@@ -244,18 +251,18 @@ test_invalidate( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
 
   fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec2 = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_rec_t const * rec2 = test_peek( env->progcache, &fork_b, &key, 0UL );
   FD_TEST( rec2!=rec );
   FD_TEST( !rec2->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
 
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
@@ -273,7 +280,8 @@ test_invalidate_nonexistent( fd_wksp_t * wksp ) {
   test_env_txn_prepare( env, NULL, &fork_a );
 
   fd_funk_rec_key_t key = test_key( 1UL );
-  fd_progcache_rec_t const * rec = fd_progcache_invalidate( env->progcache, &fork_a, &key, fork_a.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_a, &key, fork_a.ul[0] );
+  fd_progcache_rec_t const * rec = test_peek( env->progcache, &fork_a, &key, 0UL );
   FD_TEST( rec );
   FD_TEST( !rec->executable );
 
@@ -304,31 +312,31 @@ test_invalidate_pull( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
 
   /* Create cache invalidation entry */
   fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec2 = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_rec_t const * rec2 = test_peek( env->progcache, &fork_b, &key, 0UL );
   FD_TEST( rec2!=rec );
   FD_TEST( !rec2->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
 
   /* Loading the program should create another cache entry */
   fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 2UL } };
   test_env_txn_prepare( env, &fork_b, &fork_c );
   load_env.slot = 3UL;
-  fd_progcache_rec_t const * rec3 = fd_progcache_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
+  fd_progcache_rec_t const * rec3 = test_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
   FD_TEST( rec3 );
   FD_TEST( rec3!=rec2 && rec3!=rec );
   FD_TEST( rec3->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec3 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec  );
+  FD_TEST( test_peek( env->progcache, &fork_c, &key, 0UL )==rec3 );
+  FD_TEST( test_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec  );
 
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
@@ -359,28 +367,29 @@ test_invalidate_dup( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
 
   /* Create cache invalidation entry */
   fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec2 = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_rec_t const * rec2 = test_peek( env->progcache, &fork_b, &key, 0UL );
   FD_TEST( rec2!=rec );
   FD_TEST( !rec2->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
-  FD_TEST( fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] )==rec2 );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
 
   /* Create cache invalidation entry */
   fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 2UL } };
   test_env_txn_prepare( env, &fork_b, &fork_c );
-  fd_progcache_rec_t const * rec3 = fd_progcache_invalidate( env->progcache, &fork_c, &key, fork_c.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_c, &key, fork_c.ul[0] );
+  fd_progcache_rec_t const * rec3 = test_peek( env->progcache, &fork_c, &key, 0UL );
   FD_TEST( rec3 && rec2!=rec3 );
   FD_TEST( !rec3->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec3 );
+  FD_TEST( test_peek( env->progcache, &fork_c, &key, 0UL )==rec3 );
 
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
@@ -404,10 +413,10 @@ test_invalidate_epoch_boundary( fd_wksp_t * wksp ) {
                        valid_program_data_sz,
                        1 );
 
-  FD_TEST( !fd_progcache_peek( env->progcache, &fork_a, &key, 0UL ) );
-  FD_TEST( env->progcache->fork_depth==2UL );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 0 ], &fork_a ) );
-  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->fork[ 1 ], fd_funk_root( env->progcache->funk ) ) );
+  FD_TEST( !test_peek( env->progcache, &fork_a, &key, 0UL ) );
+  FD_TEST( env->progcache->lineage->fork_depth==2UL );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 0 ], &fork_a   ) );
+  FD_TEST( fd_funk_txn_xid_eq( &env->progcache->lineage->fork[ 1 ], &root_xid ) );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -415,19 +424,19 @@ test_invalidate_epoch_boundary( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->executable );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
 
   fd_funk_txn_xid_t fork_b = { .ul = { 64UL, 2UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
   load_env.slot        = 64UL;
   load_env.epoch       =  1UL;
   load_env.epoch_slot0 = 64UL;
-  fd_progcache_rec_t const * rec2 = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_rec_t const * rec2 = test_peek( env->progcache, &fork_b, &key, load_env.epoch_slot0 );
   FD_TEST( rec2 && rec!=rec2 );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, load_env.epoch_slot0 )==rec2 );
 
   test_env_txn_cancel( env, &fork_b );
   test_env_txn_cancel( env, &fork_a );
@@ -456,29 +465,30 @@ test_publish_gc( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec_a = fd_progcache_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, env->accdb, &fork_a, &key, &load_env );
   FD_TEST( rec_a );
   FD_TEST( rec_a->executable );
 
   fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec_b = fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_b, &key, fork_b.ul[0] );
+  fd_progcache_rec_t const * rec_b = test_peek( env->progcache, &fork_b, &key, 0UL );
   FD_TEST( rec_b );
 
   fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 2UL } };
   test_env_txn_prepare( env, &fork_b, &fork_c );
   load_env.slot = 3UL;
-  fd_progcache_rec_t const * rec_c = fd_progcache_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
+  fd_progcache_rec_t const * rec_c = test_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
   FD_TEST( rec_c );
   FD_TEST( rec_c->executable );
 
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec_a );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_b, &key, 0UL )==rec_b );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec_c );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec_a );
+  FD_TEST( test_peek( env->progcache, &fork_b, &key, 0UL )==rec_b );
+  FD_TEST( test_peek( env->progcache, &fork_c, &key, 0UL )==rec_c );
 
-  fd_funk_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key );
-  fd_funk_rec_t const * frec_b = query_rec_exact( env, &fork_b, &key );
-  fd_funk_rec_t const * frec_c = query_rec_exact( env, &fork_c, &key );
+  fd_progcache_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key );
+  fd_progcache_rec_t const * frec_b = query_rec_exact( env, &fork_b, &key );
+  fd_progcache_rec_t const * frec_c = query_rec_exact( env, &fork_c, &key );
   FD_TEST( frec_a ); FD_TEST( frec_b ); FD_TEST( frec_c );
   FD_TEST( frec_a!=frec_b && frec_a!=frec_c && frec_b!=frec_c );
 
@@ -486,7 +496,7 @@ test_publish_gc( fd_wksp_t * wksp ) {
   test_env_txn_publish( env, &fork_a );
   FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL   );
   FD_TEST( query_rec_exact( env, &root,   &key )==frec_a );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec_a );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec_a );
 
   test_env_txn_publish( env, &fork_b );
   FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
@@ -500,11 +510,11 @@ test_publish_gc( fd_wksp_t * wksp ) {
   FD_TEST( query_rec_exact( env, &root,   &key )==frec_c );
 
   /* Verify that only frec_c exists in funk rec map */
-  ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, &frec_c->pair );
+  ulong chain_idx = fd_prog_recm_iter_chain_idx( env->progcache->join->rec.map, &frec_c->pair );
   ulong chain_cnt = 0UL;
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
-       !fd_funk_rec_map_iter_done( iter );
-       iter = fd_funk_rec_map_iter_next( iter ) ) {
+  for( fd_prog_recm_iter_t iter = fd_prog_recm_iter( env->progcache->join->rec.map, chain_idx );
+       !fd_prog_recm_iter_done( iter );
+       iter = fd_prog_recm_iter_next( iter ) ) {
     chain_cnt++;
   }
   FD_TEST( chain_cnt==1UL );
@@ -532,15 +542,16 @@ test_publish_gc2( fd_wksp_t * wksp ) {
     .epoch_slot0 = 0UL
   };
 
-  fd_progcache_rec_t const * rec_a = fd_progcache_invalidate( env->progcache, &fork_a, &key, fork_a.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_a, &key, fork_a.ul[0] );
+  fd_progcache_rec_t const * rec_a = test_peek( env->progcache, &fork_a, &key, 0UL );
   FD_TEST( rec_a );
 
-  fd_funk_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key ); FD_TEST( frec_a );
+  fd_progcache_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key ); FD_TEST( frec_a );
   fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
   test_env_txn_publish( env, &fork_a );
   FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
   FD_TEST( query_rec_exact( env, &root,   &key )==NULL );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==NULL );
+  FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==NULL );
 
   fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
@@ -553,16 +564,16 @@ test_publish_gc2( fd_wksp_t * wksp ) {
   fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 1UL } };
   test_env_txn_prepare( env, &fork_b, &fork_c );
   load_env.slot = 3UL;
-  fd_progcache_rec_t const * rec_c = fd_progcache_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
+  fd_progcache_rec_t const * rec_c = test_pull( env->progcache, env->accdb, &fork_c, &key, &load_env );
   FD_TEST( rec_c );
   FD_TEST( rec_c->executable );
   test_env_txn_publish( env, &fork_c );
-  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec_c );
+  FD_TEST( test_peek( env->progcache, &fork_c, &key, 0UL )==rec_c );
 
   fd_funk_txn_xid_t fork_d = { .ul = { 4UL, 1UL } };
   test_env_txn_prepare( env, &fork_c, &fork_d );
   load_env.slot = 4UL;
-  fd_progcache_rec_t const * rec_d = fd_progcache_pull( env->progcache, env->accdb, &fork_d, &key, &load_env );
+  fd_progcache_rec_t const * rec_d = test_pull( env->progcache, env->accdb, &fork_d, &key, &load_env );
   FD_TEST( rec_d );
   FD_TEST( rec_d->executable );
   test_env_txn_publish( env, &fork_d );
@@ -570,25 +581,26 @@ test_publish_gc2( fd_wksp_t * wksp ) {
   fd_funk_txn_xid_t fork_e = { .ul = { 5UL, 1UL } };
   test_env_txn_prepare( env, &fork_d, &fork_e );
   load_env.slot = 5UL;
-  fd_progcache_rec_t const * rec_e = fd_progcache_invalidate( env->progcache, &fork_e, &key, fork_e.ul[0] );
+  fd_progcache_invalidate( env->progcache, &fork_e, &key, fork_e.ul[0] );
+  fd_progcache_rec_t const * rec_e = test_peek( env->progcache, &fork_e, &key, 0UL );
   FD_TEST( rec_e );
   test_env_txn_publish( env, &fork_e );
 
   fd_funk_txn_xid_t fork_f = { .ul = { 6UL, 1UL } };
   test_env_txn_prepare( env, &fork_e, &fork_f );
   load_env.slot = 6UL;
-  fd_progcache_rec_t const * rec_f = fd_progcache_pull( env->progcache, env->accdb, &fork_f, &key, &load_env );
+  fd_progcache_rec_t const * rec_f = test_pull( env->progcache, env->accdb, &fork_f, &key, &load_env );
   FD_TEST( rec_f );
   test_env_txn_publish( env, &fork_f );
 
   /* Verify that only one record remains */
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_xid_key_pair_init( pair, &root, &key );
-  ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, pair );
+  ulong chain_idx = fd_prog_recm_iter_chain_idx( env->progcache->join->rec.map, pair );
   ulong chain_cnt = 0UL;
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
-       !fd_funk_rec_map_iter_done( iter );
-       iter = fd_funk_rec_map_iter_next( iter ) ) {
+  for( fd_prog_recm_iter_t iter = fd_prog_recm_iter( env->progcache->join->rec.map, chain_idx );
+       !fd_prog_recm_iter_done( iter );
+       iter = fd_prog_recm_iter_next( iter ) ) {
     chain_cnt++;
   }
   FD_TEST( chain_cnt==1UL );
@@ -605,8 +617,8 @@ test_publish_trivial( fd_wksp_t * wksp ) {
 
   fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
   fd_funk_txn_xid_t fork_368528500 = { .ul = { 368528500UL, 368528500UL } };
-  fd_progcache_txn_attach_child( env->progcache_admin, &root, &fork_368528500 );
-  fd_progcache_txn_advance_root( env->progcache_admin,        &fork_368528500 );
+  fd_progcache_txn_attach_child( env->progcache->join, &root, &fork_368528500 );
+  fd_progcache_txn_advance_root( env->progcache->join,        &fork_368528500 );
 
   /* FIXME more operations here ... */
 }
@@ -647,7 +659,7 @@ test_root_nonroot_prio( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec1 = fd_progcache_pull( env->progcache, env->accdb, &fork_1, &key, &load_env1 );
+  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, env->accdb, &fork_1, &key, &load_env1 );
   FD_TEST( rec1 );
   FD_TEST( rec1->slot==1UL );
 
@@ -657,7 +669,7 @@ test_root_nonroot_prio( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec4 = fd_progcache_pull( env->progcache, env->accdb, &fork_4, &key, &load_env4 );
+  fd_progcache_rec_t const * rec4 = test_pull( env->progcache, env->accdb, &fork_4, &key, &load_env4 );
   FD_TEST( rec4 );
   FD_TEST( rec4->slot==4UL );
 
@@ -704,7 +716,6 @@ main( int     argc,
 
 # define TEST( name ) { #name, name }
   struct test_case cases[] = {
-    TEST( test_empty ),
     TEST( test_account_does_not_exist ),
     TEST( test_invalid_owner ),
     TEST( test_invalid_program ),
