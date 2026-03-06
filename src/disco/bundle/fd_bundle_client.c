@@ -632,6 +632,11 @@ fd_bundle_client_visit_pb_bundle_uuid(
 
   if( FD_UNLIKELY( ctx->bundle_txn_cnt>FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ) ) return true;
 
+  if( FD_UNLIKELY( pending_txn_avail( ctx->pending_txns )<ctx->bundle_txn_cnt ) ) {
+    ctx->metrics.backpressure_drop_cnt += ctx->bundle_txn_cnt;
+    return true;
+  }
+
   ctx->bundle_seq++;
   bundle = (bundle_BundleUuid)bundle_BundleUuid_init_default;
   bundle.bundle.packets = (pb_callback_t) {
