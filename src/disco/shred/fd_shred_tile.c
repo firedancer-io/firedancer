@@ -1076,6 +1076,28 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
 
+      /* Send all of the data shred headers we recovered (weren't received) */
+      for( int i=0; i<32; i++ ) {
+        if( fd_uint_extract_bit( set->data_shred_rcvd, i )==0 ) {
+          fd_shred_t * const missing = &set->data_shreds[ i ].s[0];
+          FD_LOG_DEBUG(( "was missing: index=%u, slot=%lu, shred_idx=%u", missing->idx%32, missing->slot, missing->idx ));
+
+          ulong sig = fd_disco_shred_out_shred_sig( 0, missing->slot, missing->fec_set_idx, missing->idx );
+
+          uint nonce = 0UL; /* unused by the consumers */
+          uchar *    chunk = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+          fd_memcpy( chunk,                                                     missing,                                                   FD_SHRED_DATA_HEADER_SZ );
+          fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                             &ctx->out_merkle_roots[ fset_k ],                          FD_SHRED_MERKLE_ROOT_SZ );
+          fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(1*FD_SHRED_MERKLE_ROOT_SZ), (uchar *)missing + fd_shred_chain_off( missing->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+          fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(2*FD_SHRED_MERKLE_ROOT_SZ), &nonce,                                                    sizeof(int)             );
+
+          ulong sz = FD_SHRED_DATA_HEADER_SZ + (2*FD_SHRED_MERKLE_ROOT_SZ) + sizeof(int);
+          ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+          fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+          ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
+        }
+      }
+
       /* Additionally, publish a frag to notify repair and replay that
          the FEC set is complete.  Note the ordering wrt store shred
          insertion above is intentional: shreds are inserted into the
@@ -1095,20 +1117,21 @@ after_frag( fd_shred_ctx_t *    ctx,
          completed by the singular coding shred, and that also happens
          to evict a FEC set from the curr_map.  When fix-32 arrives, the
          link burst value can be lowered to 2. */
+      {
+        int is_leader_fec = ctx->in_kind[ in_idx ]==IN_KIND_POH;
+        ulong   sig   = fd_disco_shred_out_fec_sig( last->slot, last->fec_set_idx, (uint)FD_FEC_SHRED_CNT, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
 
-      int is_leader_fec = ctx->in_kind[ in_idx ]==IN_KIND_POH;
-      ulong   sig   = fd_disco_shred_out_fec_sig( last->slot, last->fec_set_idx, (uint)FD_FEC_SHRED_CNT, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
+        uchar *    chunk = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+        fd_memcpy( chunk,                                                     last,                                                 FD_SHRED_DATA_HEADER_SZ );
+        fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                             ctx->out_merkle_roots[fset_k].hash,                   FD_SHRED_MERKLE_ROOT_SZ );
+        fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(1*FD_SHRED_MERKLE_ROOT_SZ), (uchar *)last + fd_shred_chain_off( last->variant ),  FD_SHRED_MERKLE_ROOT_SZ );
+        fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(2*FD_SHRED_MERKLE_ROOT_SZ), &is_leader_fec,                                       sizeof(int)             );
 
-      uchar *    chunk = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-      fd_memcpy( chunk,                                                     last,                                                 FD_SHRED_DATA_HEADER_SZ );
-      fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                             ctx->out_merkle_roots[fset_k].hash,                   FD_SHRED_MERKLE_ROOT_SZ );
-      fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(1*FD_SHRED_MERKLE_ROOT_SZ), (uchar *)last + fd_shred_chain_off( last->variant ),  FD_SHRED_MERKLE_ROOT_SZ );
-      fd_memcpy( chunk+FD_SHRED_DATA_HEADER_SZ+(2*FD_SHRED_MERKLE_ROOT_SZ), &is_leader_fec,                                       sizeof(int)             );
-
-      ulong sz = FD_SHRED_DATA_HEADER_SZ + (2*FD_SHRED_MERKLE_ROOT_SZ) + sizeof(int);
-      ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
-      ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
+        ulong sz = FD_SHRED_DATA_HEADER_SZ + (2*FD_SHRED_MERKLE_ROOT_SZ) + sizeof(int);
+        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+        fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+        ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
+      }
 
     } else if( FD_UNLIKELY( ctx->store_out_idx != ULONG_MAX ) ) { /* frankendancer-only */
 
@@ -1521,7 +1544,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
    FD_SHRED_BATCH_FEC_SETS_MAX FEC sets;  (Firedancer) that is
    FD_SHRED_BATCH_FEC_SETS_MAX frags to repair (one per FEC set).
    Therefore, the worst case is IN_KIND_POH for Frankendancer. */
-#define STEM_BURST (FD_SHRED_BATCH_FEC_SETS_MAX)
+#define STEM_BURST (FD_SHRED_BATCH_FEC_SETS_MAX + 40UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

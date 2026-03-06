@@ -58,13 +58,14 @@ match( void ) {
   int is_gossip_repair =
     0==( payload_mask &
         (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
-            FD_KEYGUARD_PAYLOAD_REPAIR ) ) );
+            FD_KEYGUARD_PAYLOAD_REPAIR |
+            FD_KEYGUARD_PAYLOAD_RSERVE ) ) );
   int is_shred_ping =
     0==( payload_mask &
         (~( FD_KEYGUARD_PAYLOAD_SHRED |
             FD_KEYGUARD_PAYLOAD_PING  ) ) );
 
-  if     ( is_gossip_repair ) __CPROVER_assert( matches <= 2, "gossip conflict");
+  if     ( is_gossip_repair ) __CPROVER_assert( matches <= 3, "gossip conflict");
   else if( is_shred_ping    ) __CPROVER_assert( matches <= 2, "shred conflict");
   else                        __CPROVER_assert( matches <= 1, "no conflicts" );
 }

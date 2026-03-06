@@ -409,6 +409,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     "gossvf", /* FIREDANCER only */
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
+    "rserve", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
     "execrp", /* FIREDANCER only */
     "txsend", /* FIREDANCER only */

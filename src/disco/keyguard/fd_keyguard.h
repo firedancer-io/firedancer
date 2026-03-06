@@ -23,31 +23,34 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_BUNDLE       (5)  /* Bundle tile */
 #define FD_KEYGUARD_ROLE_EVENT        (6)  /* Event tile */
 #define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
-#define FD_KEYGUARD_ROLE_CNT          (8)  /* number of known roles */
+#define FD_KEYGUARD_ROLE_RSERVE       (8)  /* Repair server tile */
+#define FD_KEYGUARD_ROLE_CNT          (9)  /* number of known roles */
 
 /* Payload types ******************************************************/
 
-#define FD_KEYGUARD_PAYLOAD_LG_TXN    ( 0)  /* Solana transaction message (e.g. vote) */
-#define FD_KEYGUARD_PAYLOAD_LG_GOSSIP ( 1)  /* Gossip CrdsData */
-#define FD_KEYGUARD_PAYLOAD_LG_PRUNE  ( 2)  /* Gossip PruneData */
-#define FD_KEYGUARD_PAYLOAD_LG_SHRED  ( 3)  /* Solana legacy or merkle shred */
-#define FD_KEYGUARD_PAYLOAD_LG_TLS_CV ( 4)  /* TLS 1.3 certificate verify payload */
-#define FD_KEYGUARD_PAYLOAD_LG_REPAIR ( 6)  /* RepairProtocol */
-#define FD_KEYGUARD_PAYLOAD_LG_PING   ( 7)  /* Gossip ping protocol */
-#define FD_KEYGUARD_PAYLOAD_LG_BUNDLE ( 8)  /* Bundle block producer authentication */
-#define FD_KEYGUARD_PAYLOAD_LG_EVENT  ( 9)  /* Event reporter authentication */
-#define FD_KEYGUARD_PAYLOAD_LG_PONG   (10)  /* Gossip/Repair ping/pong protocol */
+#define FD_KEYGUARD_PAYLOAD_LG_TXN           ( 0)  /* Solana transaction message (e.g. vote) */
+#define FD_KEYGUARD_PAYLOAD_LG_GOSSIP        ( 1)  /* Gossip CrdsData */
+#define FD_KEYGUARD_PAYLOAD_LG_PRUNE         ( 2)  /* Gossip PruneData */
+#define FD_KEYGUARD_PAYLOAD_LG_SHRED         ( 3)  /* Solana legacy or merkle shred */
+#define FD_KEYGUARD_PAYLOAD_LG_TLS_CV        ( 4)  /* TLS 1.3 certificate verify payload */
+#define FD_KEYGUARD_PAYLOAD_LG_REPAIR        ( 6)  /* RepairProtocol */
+#define FD_KEYGUARD_PAYLOAD_LG_GOSSIP_PING   ( 7)  /* Gossip ping protocol */
+#define FD_KEYGUARD_PAYLOAD_LG_BUNDLE        ( 8)  /* Bundle block producer authentication */
+#define FD_KEYGUARD_PAYLOAD_LG_EVENT         ( 9)  /* Event reporter authentication */
+#define FD_KEYGUARD_PAYLOAD_LG_PONG          (10)  /* Gossip/Repair ping/pong protocol */
+#define FD_KEYGUARD_PAYLOAD_LG_REPAIR_PING   (11)  /* Repair ping protocol */
 
-#define FD_KEYGUARD_PAYLOAD_TXN    (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN   )
-#define FD_KEYGUARD_PAYLOAD_GOSSIP (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP)
-#define FD_KEYGUARD_PAYLOAD_PRUNE  (1UL<<FD_KEYGUARD_PAYLOAD_LG_PRUNE )
-#define FD_KEYGUARD_PAYLOAD_SHRED  (1UL<<FD_KEYGUARD_PAYLOAD_LG_SHRED )
-#define FD_KEYGUARD_PAYLOAD_TLS_CV (1UL<<FD_KEYGUARD_PAYLOAD_LG_TLS_CV)
-#define FD_KEYGUARD_PAYLOAD_REPAIR (1UL<<FD_KEYGUARD_PAYLOAD_LG_REPAIR)
-#define FD_KEYGUARD_PAYLOAD_PING   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PING  )
-#define FD_KEYGUARD_PAYLOAD_BUNDLE (1UL<<FD_KEYGUARD_PAYLOAD_LG_BUNDLE)
-#define FD_KEYGUARD_PAYLOAD_EVENT  (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT )
-#define FD_KEYGUARD_PAYLOAD_PONG   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG  )
+#define FD_KEYGUARD_PAYLOAD_TXN      (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN          )
+#define FD_KEYGUARD_PAYLOAD_GOSSIP  (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP       )
+#define FD_KEYGUARD_PAYLOAD_PRUNE   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PRUNE        )
+#define FD_KEYGUARD_PAYLOAD_SHRED   (1UL<<FD_KEYGUARD_PAYLOAD_LG_SHRED        )
+#define FD_KEYGUARD_PAYLOAD_TLS_CV  (1UL<<FD_KEYGUARD_PAYLOAD_LG_TLS_CV       )
+#define FD_KEYGUARD_PAYLOAD_REPAIR  (1UL<<FD_KEYGUARD_PAYLOAD_LG_REPAIR       )
+#define FD_KEYGUARD_PAYLOAD_PING    (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP_PING  )
+#define FD_KEYGUARD_PAYLOAD_BUNDLE  (1UL<<FD_KEYGUARD_PAYLOAD_LG_BUNDLE       )
+#define FD_KEYGUARD_PAYLOAD_EVENT   (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT        )
+#define FD_KEYGUARD_PAYLOAD_PONG    (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG         )
+#define FD_KEYGUARD_PAYLOAD_RSERVE  (1UL<<FD_KEYGUARD_PAYLOAD_LG_REPAIR_PING  )
 
 /* Sign types *********************************************************/
 
