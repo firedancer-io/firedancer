@@ -11,6 +11,32 @@
 #include "../../waltz/fd_rtt_est.h"
 #include "../../util/alloc/fd_alloc.h"
 #include "../../util/hist/fd_histf.h"
+#define FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE (5UL)
+
+/* Pending publish buffer.  gRPC callbacks write transactions directly
+   to the dcache and push small publish metadata here.  after_credit
+   drains one bundle per call by popping metadata and calling
+   fd_stem_publish.
+
+   Sized to match frame_rx capacity so it can never overflow.  Multiple
+   gRPC messages can be packed into a single H2 DATA frame, amortizing
+   the 9-byte H2 header.  The minimum per-transaction wire cost is then
+   5 (gRPC hdr) + 11 (min protobuf for a 1-byte packet) = 16 bytes. */
+
+#define FD_BUNDLE_MIN_GRPC_WIRE_SZ (16UL)
+
+struct fd_bundle_pending_pub {
+  ulong chunk;
+  ulong sz;
+  ulong sig;
+  ulong bundle_seq;
+};
+
+typedef struct fd_bundle_pending_pub fd_bundle_pending_pub_t;
+
+#define DEQUE_NAME pending_pub
+#define DEQUE_T    fd_bundle_pending_pub_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
 
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h> /* SSL_CTX */
@@ -22,6 +48,7 @@ struct fd_bundle_out_ctx {
   ulong       chunk0;
   ulong       wmark;
   ulong       chunk;
+  ulong       depth;
 };
 
 typedef struct fd_bundle_out_ctx fd_bundle_out_ctx_t;
@@ -40,6 +67,7 @@ struct fd_bundle_metrics {
   ulong decode_fail_cnt;
   ulong transport_fail_cnt;
   ulong missing_builder_info_fail_cnt;
+  ulong backpressure_drop_cnt;
 
   fd_histf_t msg_rx_delay[1];
 };
@@ -122,9 +150,10 @@ struct fd_bundle_tile {
   long     backoff_reset;
 
   /* Stem publish */
-  fd_stem_context_t * stem;
-  fd_bundle_out_ctx_t verify_out;
-  fd_bundle_out_ctx_t plugin_out;
+  fd_stem_context_t *       stem;
+  fd_bundle_out_ctx_t       verify_out;
+  fd_bundle_out_ctx_t       plugin_out;
+  fd_bundle_pending_pub_t * pending_pubs;
 
   /* App metrics */
   fd_bundle_metrics_t metrics;

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_bundle_tile_private.h"
 #include "fd_bundle_tile.h"
+#include "../fd_txn_m.h"
 #include "../metrics/fd_metrics.h"
 #include "../topo/fd_topo.h"
 #include "../keyguard/fd_keyload.h"
@@ -26,18 +27,23 @@
 /* Provided by fdctl/firedancer version.c */
 extern char const fdctl_version_string[];
 
+#define STEM_BURST (5UL)
+FD_STATIC_ASSERT( FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE<=STEM_BURST, stem_burst );
+
 FD_FN_CONST static ulong
 scratch_align( void ) {
-  return fd_ulong_max( fd_ulong_max( alignof(fd_bundle_tile_t), fd_grpc_client_align() ), fd_alloc_align() );
+  return fd_ulong_max( fd_ulong_max( fd_ulong_max( alignof(fd_bundle_tile_t), fd_grpc_client_align() ), fd_alloc_align() ), pending_pub_align() );
 }
 
 FD_FN_CONST static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
+  ulong pending_max = tile->bundle.buf_sz / FD_BUNDLE_MIN_GRPC_WIRE_SZ;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
   l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                            );
+  l = FD_LAYOUT_APPEND( l, pending_pub_align(),       pending_pub_footprint( pending_max )            );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -59,6 +65,8 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, ERRORS_PROTOBUF,        ctx->metrics.decode_fail_cnt           );
   FD_MCNT_SET( BUNDLE, ERRORS_TRANSPORT,       ctx->metrics.transport_fail_cnt        );
   FD_MCNT_SET( BUNDLE, ERRORS_NO_FEE_INFO,     ctx->metrics.missing_builder_info_fail_cnt );
+  FD_MGAUGE_SET( BUNDLE, PENDING_TRANSACTIONS, pending_pub_cnt( ctx->pending_pubs )   );
+  FD_MCNT_SET  ( BUNDLE, TRANSACTION_DROPPED_BACKPRESSURE, ctx->metrics.backpressure_drop_cnt );
 #if FD_HAS_OPENSSL
   FD_MCNT_SET( BUNDLE, ERRORS_SSL_ALLOC,       fd_ossl_alloc_errors                 );
 #endif
@@ -141,13 +149,41 @@ fd_bundle_tile_publish_block_engine_update(
 }
 
 static void
+before_credit( fd_bundle_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  if( FD_UNLIKELY( !ctx->stem ) ) {
+    ctx->stem = stem;
+  }
+
+  if( FD_LIKELY( pending_pub_empty( ctx->pending_pubs ) && ctx->stem->cr_avail[ ctx->verify_out.idx ]>0UL ) ) {
+    fd_bundle_client_step( ctx, charge_busy );
+  }
+}
+
+static void
 after_credit( fd_bundle_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-  if( FD_UNLIKELY( !ctx->stem ) ) ctx->stem = stem;
-  fd_bundle_client_step( ctx, charge_busy );
+  if( FD_LIKELY( !pending_pub_empty( ctx->pending_pubs ) ) ) {
+    fd_bundle_pending_pub_t * head = pending_pub_peek_head( ctx->pending_pubs );
+    ulong drain_seq = head->bundle_seq;
+    ulong drain_sig = head->sig;
+    ulong drain_cnt = 0UL;
+
+    do {
+      fd_bundle_pending_pub_t pub = pending_pub_pop_head( ctx->pending_pubs );
+      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
+      fd_stem_publish( stem, ctx->verify_out.idx, pub.sig, pub.chunk, pub.sz, 0UL, 0UL, tspub );
+      drain_cnt++;
+    } while( !pending_pub_empty( ctx->pending_pubs )
+          && ( ( drain_sig==1UL && pending_pub_peek_head( ctx->pending_pubs )->bundle_seq==drain_seq )
+            || ( drain_sig==0UL && drain_cnt<STEM_BURST && pending_pub_peek_head( ctx->pending_pubs )->sig==0UL ) ) );
+
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+  }
 
   if( ctx->plugin_out.mem ) {
     if( FD_UNLIKELY( ctx->bundle_status_recent != ctx->bundle_status_plugin ) ) {
@@ -260,10 +296,13 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  const ulong pending_max = tile->bundle.buf_sz / FD_BUNDLE_MIN_GRPC_WIRE_SZ;
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
   void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
   void *             alloc_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                            );
+  void *             deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, pending_pub_align(),       pending_pub_footprint( pending_max )            );
   ulong              scratch_end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   (void)alloc_mem; /* potentially unused */
 
@@ -278,6 +317,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->grpc_client_mem = grpc_mem;
   ctx->grpc_buf_max    = tile->bundle.buf_sz;
   ctx->tcp_sock        = -1;
+  ctx->pending_pubs    = pending_pub_join( pending_pub_new( deque_mem, pending_max ) );
 
   fd_bundle_auther_init( &ctx->auther );
   uchar const * public_key = fd_keyload_load( tile->bundle.identity_key_path, 1 /* public key only */ );
@@ -331,6 +371,7 @@ bundle_out_link( fd_topo_t const *      topo,
   out.chunk0 = fd_dcache_compact_chunk0( out.mem, link->dcache );
   out.wmark  = fd_dcache_compact_wmark ( out.mem, link->dcache, link->mtu );
   out.chunk  = out.chunk0;
+  out.depth  = fd_mcache_depth( link->mcache );
   return out;
 }
 
@@ -440,7 +481,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (5UL)
 #define STEM_LAZY ((long)10e6)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_bundle_tile_t
@@ -448,6 +488,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING fd_bundle_tile_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 
 #include "../stem/fd_stem.c"
