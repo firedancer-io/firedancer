@@ -61,8 +61,6 @@ struct fd_snaplv_tile {
     int               hash_check_done;
   } hash_accum;
 
-  fd_lthash_value_t   running_lthash;
-
   struct {
     ulong exp_sig;
     ulong ack_cnt;
@@ -332,7 +330,6 @@ handle_control_frag( fd_snaplv_t *       ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      fd_lthash_zero( &ctx->running_lthash );
 
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
         fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
@@ -491,8 +488,6 @@ after_credit( fd_snaplv_t *        ctx,
     ctx->hash_accum.awaiting_results  = 0;
     ctx->hash_accum.received_lthashes = 0UL;
 
-    fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
-
     int test = memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) );
 
     if( FD_UNLIKELY( test ) ) {
@@ -643,7 +638,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->hash_accum.hash_check_done   = 0;
 
   fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
-  fd_lthash_zero( &ctx->running_lthash );
   fd_lthash_zero( &ctx->recovery.full_lthash );
 
   ctx->fail.exp_sig = 0UL;
