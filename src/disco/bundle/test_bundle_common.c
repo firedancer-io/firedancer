@@ -69,7 +69,6 @@ test_bundle_env_create( test_bundle_env_t * env,
     .chunk  = 0UL,
     .wmark  = fd_dcache_compact_wmark( dcache, dcache, FD_TPU_PARSED_MTU ),
     .idx    = 0UL,
-    .depth  = mcache_depth,
   };
 
   state->tcp_sock        = -1;
@@ -80,9 +79,9 @@ test_bundle_env_create( test_bundle_env_t * env,
   h2_conn->flags = 0;
 
   const ulong pending_max  = state->grpc_buf_max / FD_BUNDLE_MIN_GRPC_WIRE_SZ;
-  env->deque_mem      = fd_wksp_alloc_laddr( wksp, pending_pub_align(), pending_pub_footprint( pending_max ), 1UL );
-  state->pending_pubs = pending_pub_join( pending_pub_new( env->deque_mem, pending_max ) );
-  FD_TEST( state->pending_pubs );
+  env->deque_mem      = fd_wksp_alloc_laddr( wksp, pending_txn_align(), pending_txn_footprint( pending_max ), 1UL );
+  state->pending_txns = pending_txn_join( pending_txn_new( env->deque_mem, pending_max ) );
+  FD_TEST( state->pending_txns );
 
   FD_TEST( fd_rng_new( state->rng, 0U, 0UL ) );
   long ka_interval = (long)1e9;
@@ -185,6 +184,6 @@ test_bundle_env_destroy( test_bundle_env_t * env ) {
   fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( env->out_mcache ) ) );
   fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( env->out_dcache ) ) );
   fd_wksp_free_laddr( env->state->grpc_client_mem );
-  fd_wksp_free_laddr( pending_pub_delete( pending_pub_leave( env->state->pending_pubs ) ) );
+  fd_wksp_free_laddr( pending_txn_delete( pending_txn_leave( env->state->pending_txns ) ) );
   fd_memset( env, 0, sizeof(test_bundle_env_t) );
 }
