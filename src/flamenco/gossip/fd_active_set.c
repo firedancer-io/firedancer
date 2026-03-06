@@ -245,7 +245,7 @@ fd_active_set_remove_peer( fd_active_set_t * active_set,
         }
         entry->nodes_len--;
         if( FD_UNLIKELY( !entry->nodes_len ) ) entry->nodes_idx = 0UL;
-        return;
+        break;
       }
     }
   }
