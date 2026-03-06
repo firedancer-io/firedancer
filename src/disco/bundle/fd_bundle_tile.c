@@ -156,7 +156,7 @@ before_credit( fd_bundle_tile_t *  ctx,
     ctx->stem = stem;
   }
 
-  if( FD_LIKELY( pending_pub_empty( ctx->pending_pubs ) && ctx->stem->cr_avail[ ctx->verify_out.idx ]>=STEM_BURST ) ) {
+  if( pending_pub_empty( ctx->pending_pubs ) && ctx->stem->cr_avail[ ctx->verify_out.idx ]>=STEM_BURST ) {
     fd_bundle_client_step( ctx, charge_busy );
   }
 }
@@ -166,7 +166,7 @@ after_credit( fd_bundle_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  if( FD_LIKELY( !pending_pub_empty( ctx->pending_pubs ) ) ) {
+  if( !pending_pub_empty( ctx->pending_pubs ) ) {
     fd_bundle_pending_pub_t * head = pending_pub_peek_head( ctx->pending_pubs );
     ulong drain_seq = head->bundle_seq;
     ulong drain_sig = head->sig;
@@ -177,9 +177,7 @@ after_credit( fd_bundle_tile_t *  ctx,
       ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
       fd_stem_publish( stem, ctx->verify_out.idx, pub.sig, pub.chunk, pub.sz, 0UL, 0UL, tspub );
       drain_cnt++;
-    } while( !pending_pub_empty( ctx->pending_pubs )
-          && ( ( drain_sig==1UL && pending_pub_peek_head( ctx->pending_pubs )->bundle_seq==drain_seq )
-            || ( drain_sig==0UL && drain_cnt<STEM_BURST && pending_pub_peek_head( ctx->pending_pubs )->sig==0UL ) ) );
+    } while( fd_bundle_drain_continue( ctx->pending_pubs, drain_sig, drain_seq, drain_cnt, STEM_BURST ) );
 
     *charge_busy = 1;
     *opt_poll_in = 0;

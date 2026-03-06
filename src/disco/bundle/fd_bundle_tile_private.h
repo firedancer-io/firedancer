@@ -38,6 +38,21 @@ typedef struct fd_bundle_pending_pub fd_bundle_pending_pub_t;
 #define DEQUE_T    fd_bundle_pending_pub_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
+/* Returns true if the drain loop should continue after popping an
+   entry.  Bundles drain atomically (all txns with matching bundle_seq).
+   Packets drain up to burst consecutive entries. */
+
+static inline int
+fd_bundle_drain_continue( fd_bundle_pending_pub_t * pubs,
+                          ulong                     drain_sig,
+                          ulong                     drain_seq,
+                          ulong                     drain_cnt,
+                          ulong                     burst ) {
+  if( pending_pub_empty( pubs ) ) return 0;
+  if( drain_sig==1UL ) return pending_pub_peek_head( pubs )->bundle_seq==drain_seq;
+  return drain_cnt<burst && pending_pub_peek_head( pubs )->sig==0UL;
+}
+
 #if FD_HAS_OPENSSL
 #include <openssl/ssl.h> /* SSL_CTX */
 #endif
