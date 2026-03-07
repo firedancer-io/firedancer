@@ -1,0 +1,187 @@
+{
+    "name": "metrics_gossip",
+    "id": 1018,
+    "description": "Metrics snapshot for the gossip tile",
+    "fields": {
+        "meta":                                  { "type": "ref:MetricMeta" },
+        "tile":                                  { "type": "ref:MetricTile" },
+        "ping_tracker_capacity":                 { "type": "UInt64", "description": "The peer tracking capacity of the ping tracker" },
+        "ping_tracker_count":                    {
+            "type": "Flatten",
+            "description": "The number of peers being tracked for ping/pong",
+            "fields": {
+                "ping_tracker_count_unpinged":         { "type": "UInt64", "description": "Peer is known but has not been pinged yet" },
+                "ping_tracker_count_invalid":          { "type": "UInt64", "description": "Peer was pinged but has not yet responded, or responded with an invalid pong" },
+                "ping_tracker_count_valid":            { "type": "UInt64", "description": "Peer was pinged and is currently valid" },
+                "ping_tracker_count_valid_refreshing": { "type": "UInt64", "description": "Peer was pinged and is currently valid, and is being refreshed with a new ping" }
+            }
+        },
+        "ping_tracker_pong_result":              {
+            "type": "Flatten",
+            "description": "The result of processing a pong response to a ping",
+            "fields": {
+                "ping_tracker_pong_result_staked":     { "type": "UInt64", "description": "Pong ignored as node is staked" },
+                "ping_tracker_pong_result_entrypoint": { "type": "UInt64", "description": "Pong ignored as node is an entrypoint" },
+                "ping_tracker_pong_result_untracked":  { "type": "UInt64", "description": "Pong ignored as node has no outstanding ping" },
+                "ping_tracker_pong_result_address":    { "type": "UInt64", "description": "Pong ignored as responding node doesn't match pinged address" },
+                "ping_tracker_pong_result_token":      { "type": "UInt64", "description": "Pong ignored as token was not valid" },
+                "ping_tracker_pong_result_success":    { "type": "UInt64", "description": "Pong accepted" }
+            }
+        },
+        "ping_tracker_evicted_count":            { "type": "UInt64", "description": "The number of peers evicted from the ping tracker to make space for new peers" },
+        "ping_tracked_count":                    { "type": "UInt64", "description": "The total number of peers ever tracked for ping/pong" },
+        "ping_tracker_stake_changed_count":      { "type": "UInt64", "description": "The number of times a tracked peer was removed from tracking as it became staked" },
+        "ping_tracker_address_changed_count":    { "type": "UInt64", "description": "The number of times a tracked peer was removed from tracking as it's gossip address changed" },
+        "crds_capacity":                         { "type": "UInt64", "description": "The capacity of the data store" },
+        "crds_count":                            {
+            "type": "Flatten",
+            "description": "The number of entries in the data store",
+            "fields": {
+                "crds_count_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_count_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_count_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_count_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_count_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_count_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_count_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_count_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_count_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_count_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_count_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_count_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_count_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_count_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_expired_count":                    { "type": "UInt64", "description": "The number of entries expired from the data store due to age" },
+        "crds_evicted_count":                    { "type": "UInt64", "description": "The number of entries evicted from the data store to make space for new entries" },
+        "crds_peer_capacity":                    { "type": "UInt64", "description": "The capacity for storing peers in the data store" },
+        "crds_peer_staked_count":                { "type": "UInt64", "description": "The number of staked peers in the data store" },
+        "crds_peer_unstaked_count":              { "type": "UInt64", "description": "The number of unstaked peers in the data store" },
+        "crds_peer_total_stake":                 { "type": "UInt64", "description": "The total visible stake in the data store, in lamports" },
+        "crds_peer_evicted_count":               { "type": "UInt64", "description": "The number of peers evicted from the data store to make space for new peers" },
+        "crds_purged_capacity":                  { "type": "UInt64", "description": "The capacity of the list of purged data store entries" },
+        "crds_purged_count":                     { "type": "UInt64", "description": "The number of purged data store entries" },
+        "crds_purged_expired_count":             { "type": "UInt64", "description": "The number of purged entries expired from the purged list due to age" },
+        "crds_purged_evicted_count":             { "type": "UInt64", "description": "The number of purged entries evicted from the data store to make space for new entries" },
+        "contact_info_unrecognized_socket_tags": { "type": "UInt64", "description": "The number of unrecognized socket tags seen in Contact Infos" },
+        "contact_info_ipv6":                     { "type": "UInt64", "description": "The number of IPv6 addresses seen in Contact Infos" },
+        "crds_rx_count":                         {
+            "type": "Flatten",
+            "description": "Outcome of incoming CRDS messages",
+            "fields": {
+                "crds_rx_count_upserted_pull_response":          { "type": "UInt64", "description": "Pull Response (upserted)" },
+                "crds_rx_count_upserted_push":                   { "type": "UInt64", "description": "Push (upserted)" },
+                "crds_rx_count_dropped_pull_response_stale":     { "type": "UInt64", "description": "Pull Response (newer entry already present in table)" },
+                "crds_rx_count_dropped_pull_response_wallclock": { "type": "UInt64", "description": "Pull Response (outside expiry window and no contact info entry)" },
+                "crds_rx_count_dropped_pull_response_duplicate": { "type": "UInt64", "description": "Pull Response (duplicate)" },
+                "crds_rx_count_dropped_push_stale":              { "type": "UInt64", "description": "Push (newer entry already present in table)" },
+                "crds_rx_count_dropped_push_duplicate":          { "type": "UInt64", "description": "Push (duplicate)" }
+            }
+        },
+        "message_tx_count":                      {
+            "type": "Flatten",
+            "description": "Number of gossip messages sent",
+            "fields": {
+                "message_tx_count_pull_request":  { "type": "UInt64", "description": "Pull Request" },
+                "message_tx_count_pull_response": { "type": "UInt64", "description": "Pull Response" },
+                "message_tx_count_push":          { "type": "UInt64", "description": "Push" },
+                "message_tx_count_prune":         { "type": "UInt64", "description": "Prune" },
+                "message_tx_count_ping":          { "type": "UInt64", "description": "Ping" },
+                "message_tx_count_pong":          { "type": "UInt64", "description": "Pong" }
+            }
+        },
+        "message_tx_bytes":                      {
+            "type": "Flatten",
+            "description": "Total wire bytes sent in gossip messages",
+            "fields": {
+                "message_tx_bytes_pull_request":  { "type": "UInt64", "description": "Pull Request" },
+                "message_tx_bytes_pull_response": { "type": "UInt64", "description": "Pull Response" },
+                "message_tx_bytes_push":          { "type": "UInt64", "description": "Push" },
+                "message_tx_bytes_prune":         { "type": "UInt64", "description": "Prune" },
+                "message_tx_bytes_ping":          { "type": "UInt64", "description": "Ping" },
+                "message_tx_bytes_pong":          { "type": "UInt64", "description": "Pong" }
+            }
+        },
+        "crds_tx_push_count":                    {
+            "type": "Flatten",
+            "description": "Number of CRDS values sent in push messages",
+            "fields": {
+                "crds_tx_push_count_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_tx_push_count_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_tx_push_count_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_tx_push_count_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_tx_push_count_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_tx_push_count_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_tx_push_count_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_tx_push_count_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_tx_push_count_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_tx_push_count_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_tx_push_count_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_tx_push_count_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_tx_push_count_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_tx_push_count_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_tx_push_bytes":                    {
+            "type": "Flatten",
+            "description": "Total wire bytes of CRDS sent out in push messages",
+            "fields": {
+                "crds_tx_push_bytes_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_tx_push_bytes_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_tx_push_bytes_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_tx_push_bytes_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_tx_push_bytes_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_tx_push_bytes_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_tx_push_bytes_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_tx_push_bytes_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_tx_push_bytes_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_tx_push_bytes_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_tx_push_bytes_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_tx_push_bytes_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_tx_push_bytes_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_tx_push_bytes_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_tx_pull_response_count":           {
+            "type": "Flatten",
+            "description": "Number of CRDS values sent in pull response messages",
+            "fields": {
+                "crds_tx_pull_response_count_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_tx_pull_response_count_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_tx_pull_response_count_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_tx_pull_response_count_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_tx_pull_response_count_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_tx_pull_response_count_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_tx_pull_response_count_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_tx_pull_response_count_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_tx_pull_response_count_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_tx_pull_response_count_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_tx_pull_response_count_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_tx_pull_response_count_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_tx_pull_response_count_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_tx_pull_response_count_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        },
+        "crds_tx_pull_response_bytes":           {
+            "type": "Flatten",
+            "description": "Total wire bytes of CRDS sent out in pull response messages",
+            "fields": {
+                "crds_tx_pull_response_bytes_contact_info_v1":               { "type": "UInt64", "description": "Contact Info V1" },
+                "crds_tx_pull_response_bytes_vote":                          { "type": "UInt64", "description": "Vote" },
+                "crds_tx_pull_response_bytes_lowest_slot":                   { "type": "UInt64", "description": "Lowest Slot" },
+                "crds_tx_pull_response_bytes_snapshot_hashes":               { "type": "UInt64", "description": "Snapshot Hashes" },
+                "crds_tx_pull_response_bytes_accounts_hashes":               { "type": "UInt64", "description": "Accounts Hashes" },
+                "crds_tx_pull_response_bytes_epoch_slots":                   { "type": "UInt64", "description": "Epoch Slots" },
+                "crds_tx_pull_response_bytes_version_v1":                    { "type": "UInt64", "description": "Version V1" },
+                "crds_tx_pull_response_bytes_version_v2":                    { "type": "UInt64", "description": "Version V2" },
+                "crds_tx_pull_response_bytes_node_instance":                 { "type": "UInt64", "description": "Node Instance" },
+                "crds_tx_pull_response_bytes_duplicate_shred":               { "type": "UInt64", "description": "Duplicate Shred" },
+                "crds_tx_pull_response_bytes_incremental_snapshot_hashes":   { "type": "UInt64", "description": "Incremental Snapshot Hashes" },
+                "crds_tx_pull_response_bytes_contact_info_v2":               { "type": "UInt64", "description": "Contact Info V2" },
+                "crds_tx_pull_response_bytes_restart_last_voted_fork_slots": { "type": "UInt64", "description": "Restart Last Voted Fork Slots" },
+                "crds_tx_pull_response_bytes_restart_heaviest_fork":         { "type": "UInt64", "description": "Restart Heaviest Fork" }
+            }
+        }
+    }
+}
