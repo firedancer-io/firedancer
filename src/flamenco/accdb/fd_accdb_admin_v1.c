@@ -248,7 +248,6 @@ fd_accdb_v1_cancel( fd_accdb_admin_t *        accdb_,
   }
   fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
-  fd_accdb_txn_cancel_next_list( accdb, txn );
   fd_accdb_txn_cancel_tree( accdb, txn );
 }
 
