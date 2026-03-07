@@ -272,6 +272,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
   return 0;
 }
 
+extern FD_TL _Bool fd_wksp_oom_silent;
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -458,6 +460,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
+
+  fd_wksp_oom_silent = 1;
 }
 
 static ulong
