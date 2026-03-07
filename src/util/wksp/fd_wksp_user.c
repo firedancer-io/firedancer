@@ -1,5 +1,7 @@
 #include "fd_wksp_private.h"
 
+FD_TL int fd_wksp_oom_silent = 0;
+
 /* fd_wksp_private_split_before splits a partition (index i2) into two
    smaller partitions and returns the partition index (i1) of the
    partition created by the split.  The created partition will be
@@ -263,7 +265,7 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   ulong i = fd_wksp_private_free_treap_query( footprint, wksp, pinfo );
   if( FD_UNLIKELY( fd_wksp_private_pinfo_idx_is_null( i ) ) ) {
     fd_wksp_private_unlock( wksp );
-    FD_LOG_WARNING(( "no free space available in workspace %s with data size %lu", wksp->name, wksp->data_max ));
+    if( !fd_wksp_oom_silent ) FD_LOG_WARNING(( "no free space available in workspace %s with data size %lu", wksp->name, wksp->data_max ));
     goto fail;
   }
 
