@@ -983,12 +983,105 @@ dynamic_port_range = "8900-9000"
         # "operation not supported".
         xdp_zero_copy = false
 
+        # The poll_mode option determines how Firedancer polls NAPI (Linux's
+        # high perf networking mechanisms). Its possible values are:
+        #
+        #  "softirq" (default)
+        #   Relies significantly more on Linux to manage NAPI through wakeups,
+        #   softirqs, and under higher network load, a separate ksoftirqd
+        #   thread which Linux schedules onto a separate core. If a ksoftirqd
+        #   is scheduled by Linux onto a core corresponding to a different
+        #   tile, the performance of that tile is significantly degraded.
+        #
+        #  "prefbusy"
+        #   Experimental option (due to being new) which gives Firedancer
+        #   significantly more control over how and when NAPI is polled,
+        #   with no IRQs or ksoftirqd threads (and thus significantly
+        #   increased validator determinism) during main runtime.
+        #
+        # MUST READ warnings if choosing "prefbusy" mode:
+        #
+        #  If also choosing Zero Copy mode: Although prefbusy poll mode is
+        #  beneficial for throughput in DRV Copy mode, in DRV ZC mode max
+        #  RX is roughly ~50% reduced with it vs softirq poll mode. Therefore,
+        #  there is choice for validators using ZC between that extra ~50%
+        #  max RX throughput of softirq mode, and the improved validator
+        #  determinism of prefbusy mode. In the future using multiple net
+        #  tiles will work so there is no tradeoff when choosing prefbusy
+        #  mode, since softirq mode already sort of uses 2 cores.
+        #
+        #  Older kernels: If your kernel is too old (< v5.11), Firedancer will 
+        #  automatically fall back to "softirq" mode and emit a warning.
+        #
+        #  Linux 6.13+ driver support: Due to upstream NAPI changes, some 
+        #  drivers (mostly Intel, except igb/igc/e1000) stopped supporting 
+        #  prefbusy from Linux 6.13 onwards. But on Linux 5.11-6.12 of those
+        #  drivers prefbusy works fine. If your driver lacks support, FD
+        #  will use a "hybrid" mode (softirqs + userspace scheduling) which
+        #  still biases RX, but less effectively.
+        #
+        #  SSH minor lag: You may notice a slight expected increase in SSH
+        #  lag (and all non Firedancer traffic). It can be stopped when FD 
+        #  is not running via the '...config fini...' command although this
+        #  is not suggested unless you are permanently switching back over
+        #  to "softirq" poll mode.
+        poll_mode = "softirq"
+
+        # This option sets the NAPI busy poll budget for prefbusy poll mode.
+        # In the case you see your validator dropping TX packets, decrease
+        # this to 32, although this was not necessary during all testing and
+        # is very unlikely to be necessary.
+        #
+        # Understanding required for tuning this option (not recommended):
+        #
+        #  Increasing this budget leads to better RX batching within the
+        #  kernel so fewer context switches per NAPI poll and improved cache
+        #  locality leading to increased max RX throughput. But, increasing
+        #  this budget also decreases the worst case TX throughput since the
+        #  TX budget for prefbusy polling has been chosen by individual NIC
+        #  drivers since Linux 5.18 (often 64 packets). 
+        prefbusy_rx_budget = 64
+
+        # This option sets the 'busy_poll_usecs' AF_XDP socket configuration
+        # if using "prefbusy" poll mode. It decides the maximum amount of
+        # time spent spinning in a NAPI poll before returning back to userspace
+        # if the NAPI budget didn't run out already within the NAPI poll.
+        #
+        #  Very high: leads to increased latency under low network traffic
+        #  conditions, particularly if prefbusy_rx_budget has also been set
+        #  to a high value.
+        #
+        #  Very low: leads to NAPI polls being cut off prematurely under
+        #  high network load conditions.
+        prefbusy_timebudget_micros = 80
+
+        # This is the minimum time between NAPI polls if in prefbusy mode.
+        # 
+        # Tuning it is not necessary but may be useful for slightly increasing
+        # TX in low RX scenarios:
+        #
+        #  This is a protective mechanism against bugs as well as livelocks,
+        #  ensuring even in a low RX but high TX traffic scenario, TX is
+        #  still given enough time to do work. After this min interval, NAPI
+        #  is polled once the RX XSK queue is empty (or stall timeout time
+        #  passes without a poll). To tune using the firedancer-dev/fddev
+        #  pktgen cmd, type start, and increase/decrease this value
+        #  incrementally until TX ok reaches a maximum (do not change more
+        #  than +5 micros or -2 micros from the default of 5).
+        prefbusy_min_interval_micros = 5
+
+        # This is the maximum time between NAPI polls if in prefbusy mode.
+        # This is to call a NAPI poll in the case the normal prefbusy NAPI
+        # poll scheduling has stalled. NAPI polls can often resolve queue
+        # stalls so this increases robustness.
+        prefbusy_stall_timeout_micros = 150
+
         # XDP uses metadata queues shared across the kernel and
         # userspace to relay events about incoming and outgoing packets.
         # This setting defines the number of entries in these metadata
         # queues, which has to be a power of two.
         #
-        # Smaller values use less memory.  Larger values reduce packet
+        # Smaller values use less memory. Larger values reduce packet
         # loss caused by excessive scheduling or inter-CPU latency.
         xdp_rx_queue_size = 32768
         xdp_tx_queue_size = 32768
