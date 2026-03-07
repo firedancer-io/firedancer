@@ -409,34 +409,11 @@ fd_progcache_push( fd_progcache_t * cache,
   return 1;
 }
 
-#if FD_HAS_ATOMIC
-
-static int
-fd_progcache_txn_try_lock( fd_funk_t * funk, fd_funk_txn_t * txn ) {
-  fd_rwlock_t * txn_lock = &funk->txn_lock[ (ulong)( txn - funk->txn_pool->ele ) ];
-  for(;;) {
-    ushort * lock  = &txn_lock->value;
-    ushort   value = FD_VOLATILE_CONST( *lock );
-    if( FD_UNLIKELY( value>=0xFFFE ) ) return 0; /* txn is write-locked */
-    if( FD_LIKELY( FD_ATOMIC_CAS( lock, value, value+1 )==value ) ) {
-      return 1; /* transaction now read-locked */
-    }
-  }
+static void
+fd_progcache_txn_lock( fd_funk_t * funk, fd_funk_txn_t * txn ) {
+  if( !txn ) return;
+  fd_rwlock_write( &funk->txn_lock[ (ulong)( txn - funk->txn_pool->ele ) ] );
 }
-
-#else
-
-static int
-fd_progcache_txn_try_lock( fd_funk_t * funk, fd_funk_txn_t * txn ) {
-  fd_rwlock_t * txn_lock = &funk->txn_lock[ (ulong)( txn - funk->txn_pool->ele ) ];
-  ushort * lock  = &txn_lock->value;
-  ushort   value = FD_VOLATILE_CONST( *lock );
-  if( FD_UNLIKELY( value>=0xFFFE ) ) return 0; /* txn is write-locked */
-  *lock = value + 1;
-  return 1; /* transaction now read-locked */
-}
-
-#endif
 
 static void
 fd_progcache_txn_unlock( fd_funk_t * funk, fd_funk_txn_t * txn ) {
@@ -494,19 +471,9 @@ fd_progcache_lock_best_txn( fd_progcache_t * cache,
         continue;
       }
       if( FD_LIKELY( query_err==FD_MAP_SUCCESS ) ) {
-        /* Attempt to read-lock transaction */
+        /* Read lock transaction */
         fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
-        if( FD_LIKELY( fd_progcache_txn_try_lock( cache->funk, txn ) ) ) {
-          /* Check for unlikely case we acquired a read-lock _after_ the
-             transaction object was destroyed (ABA problem) */
-          fd_funk_txn_xid_t found_xid[1];
-          if( FD_UNLIKELY( !fd_funk_txn_xid_eq( fd_funk_txn_xid_ld_atomic( found_xid, &txn->xid ), xid ) ) ) {
-            fd_progcache_txn_unlock( cache->funk, txn );
-            break;
-          }
-          return txn;
-        }
-        /* currently being rooted */
+        fd_progcache_txn_lock( cache->funk, txn );
       } else if( FD_UNLIKELY( query_err!=FD_MAP_ERR_KEY ) ) {
         FD_LOG_CRIT(( "fd_funk_txn_map_query_try failed (%i-%s)", query_err, fd_map_strerror( query_err ) ));
       }
@@ -748,9 +715,7 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
   /* Select a fork node to create invalidate record in
      Do not create invalidation records at the funk root */
 
-  if( FD_UNLIKELY( !fd_progcache_txn_try_lock( funk, txn ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_invalidate(xid=%lu,...) failed: txn is write-locked", xid->ul[0] ));
-  }
+  fd_progcache_txn_lock( cache->funk, txn );
 
   /* Allocate a funk_rec */
 
