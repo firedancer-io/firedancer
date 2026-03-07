@@ -114,14 +114,22 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_execrp_tile_t * ctx ) {
-  fd_progcache_t * progcache = ctx->progcache;
+  fd_progcache_metrics_t * pm = ctx->progcache->metrics;
 
-  FD_MCNT_SET( EXECRP, PROGCACHE_MISSES,        progcache->metrics->miss_cnt       );
-  FD_MCNT_SET( EXECRP, PROGCACHE_HITS,          progcache->metrics->hit_cnt        );
-  FD_MCNT_SET( EXECRP, PROGCACHE_FILLS,         progcache->metrics->fill_cnt       );
-  FD_MCNT_SET( EXECRP, PROGCACHE_FILL_TOT_SZ,   progcache->metrics->fill_tot_sz    );
-  FD_MCNT_SET( EXECRP, PROGCACHE_INVALIDATIONS, progcache->metrics->invalidate_cnt );
-  FD_MCNT_SET( EXECRP, PROGCACHE_DUP_INSERTS,   progcache->metrics->dup_insert_cnt );
+  FD_MCNT_SET( EXECRP, PROGCACHE_LOOKUPS,                pm->lookup_cnt     );
+  FD_MCNT_SET( EXECRP, PROGCACHE_HITS,                   pm->hit_cnt        );
+  FD_MCNT_SET( EXECRP, PROGCACHE_MISSES,                 pm->miss_cnt       );
+  FD_MCNT_SET( EXECRP, PROGCACHE_INVALIDATIONS,          pm->invalidate_cnt );
+  FD_MCNT_SET( EXECRP, PROGCACHE_OOM_HEAP,               pm->oom_heap_cnt   );
+  FD_MCNT_SET( EXECRP, PROGCACHE_OOM_DESC,               pm->oom_desc_cnt   );
+  FD_MCNT_SET( EXECRP, PROGCACHE_FILLS,                  pm->fill_cnt       );
+  FD_MCNT_SET( EXECRP, PROGCACHE_FILL_BYTES,             pm->fill_tot_sz    );
+  FD_MCNT_SET( EXECRP, PROGCACHE_SPILLS,                 pm->spill_cnt      );
+  FD_MCNT_SET( EXECRP, PROGCACHE_SPILL_BYTES,            pm->spill_tot_sz   );
+  FD_MCNT_SET( EXECRP, PROGCACHE_EVICTIONS,              pm->evict_cnt      );
+  FD_MCNT_SET( EXECRP, PROGCACHE_EVICTION_BYTES,         pm->evict_tot_sz   );
+  FD_MCNT_SET( EXECRP, PROGCACHE_DURATION_TOTAL_SECONDS, pm->cum_pull_ticks );
+  FD_MCNT_SET( EXECRP, PROGCACHE_DURATION_LOAD_SECONDS,  pm->cum_load_ticks );
 
   FD_MCNT_SET( EXECRP, TXN_REGIME_SETUP,  ctx->metrics.txn_setup_cum_ticks   );
   FD_MCNT_SET( EXECRP, TXN_REGIME_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
@@ -271,6 +279,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
   return 0;
 }
+
+extern FD_TL _Bool fd_wksp_oom_silent;
 
 static void
 unprivileged_init( fd_topo_t *      topo,
@@ -458,6 +468,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
+
+  fd_wksp_oom_silent = 1;
 }
 
 static ulong

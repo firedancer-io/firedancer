@@ -13,7 +13,6 @@
 #include "../../capture/fd_solcap_writer.h"
 #include "../../accdb/fd_accdb_admin.h"
 #include "../../accdb/fd_accdb_user.h"
-#include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../fd_bank.h"
 #if FD_HAS_FLATCC
@@ -38,7 +37,6 @@ struct fd_solfuzz_runner {
   fd_acc_pool_t * acc_pool;
 
   fd_progcache_t       progcache[1];
-  fd_progcache_admin_t progcache_admin[1];
 
   fd_accdb_user_t      accdb[1];
   fd_accdb_admin_t     accdb_admin[1];

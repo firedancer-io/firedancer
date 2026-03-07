@@ -1171,6 +1171,13 @@
 #define MAP_CNT_WIDTH (43)
 #endif
 
+/* If MAP_CUSTOM_CHAIN is defined to non-zero, does not generate the
+   chain header struct definition. */
+
+#ifndef MAP_CUSTOM_CHAIN
+#define MAP_CUSTOM_CHAIN 0
+#endif
+
 /* MAP_ALIGN gives the alignment required for the map shared memory.
    Default is 128 for double cache line alignment.  Should be at least
    ulong alignment. */
@@ -1229,10 +1236,12 @@
    chain (i.e. the former makes good use of the padding that would be
    otherwise wasted if overaligning this). */
 
+#if !MAP_CUSTOM_CHAIN
 struct MAP_(shmem_private_chain) {
   ulong     ver_cnt;   /* versioned count, cnt is in [0,ele_max] in lsb, ver in msb, odd: chain locked, even: chain unlocked */
   MAP_IDX_T head_cidx; /* compressed index of the first element on the chain */
 };
+#endif /* MAP_CUSTOM_CHAIN */
 
 typedef struct MAP_(shmem_private_chain) MAP_(shmem_private_chain_t);
 
@@ -2911,6 +2920,7 @@ MAP_(strerror)( int err ) {
 #undef MAP_IMPL_STYLE
 #undef MAP_MAGIC
 #undef MAP_ALIGN
+#undef MAP_CUSTOM_CHAIN
 #undef MAP_CNT_WIDTH
 #undef MAP_KEY_EQ_IS_SLOW
 #undef MAP_MEMO

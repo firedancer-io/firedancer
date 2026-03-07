@@ -919,11 +919,9 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
     fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( instr_ctx->bank ), instr_ctx->bank->data->idx } };
     fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->bank );
-    fd_progcache_rec_t const * cache_entry = fd_progcache_pull( instr_ctx->runtime->progcache,
-                                                                instr_ctx->runtime->accdb,
-                                                                &xid,
-                                                                program_id,
-                                                                load_env );
+    fd_progcache_t * progcache = instr_ctx->runtime->progcache;
+    fd_progcache_rec_t * cache_entry = fd_progcache_pull(
+        progcache, instr_ctx->runtime->accdb, &xid, program_id, load_env );
     if( FD_UNLIKELY( !cache_entry ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -932,6 +930,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     /* The program may be in the cache but could have failed
        verification in the current epoch. */
     if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
+      fd_progcache_rec_close( progcache, cache_entry );
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
@@ -941,6 +940,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L542 */
     rc = fd_bpf_execute( instr_ctx, cache_entry, 0 );
+    fd_progcache_rec_close( progcache, cache_entry );
   }
 
   return rc;

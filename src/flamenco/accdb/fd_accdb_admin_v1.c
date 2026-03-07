@@ -162,7 +162,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
     if( funk->shmem->child_tail_cidx==self_cidx ) funk->shmem->child_tail_cidx = prev_cidx;
   }
 
-  /* Phase 5: Remove transcation from index */
+  /* Phase 5: Remove transaction from index */
 
   fd_funk_txn_map_query_t query[1];
   int remove_err = fd_funk_txn_map_remove( funk->txn_map, &txn->xid, NULL, query, FD_MAP_FLAG_BLOCKING );
@@ -248,7 +248,6 @@ fd_accdb_v1_cancel( fd_accdb_admin_t *        accdb_,
   }
   fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
-  fd_accdb_txn_cancel_next_list( accdb, txn );
   fd_accdb_txn_cancel_tree( accdb, txn );
 }
 
@@ -525,8 +524,6 @@ clear_txn_list( fd_funk_t * funk,
     if( FD_UNLIKELY( free_err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_txn_pool_release failed (%i)", free_err ));
     idx = next_idx;
   }
-  funk->shmem->child_head_cidx = UINT_MAX;
-  funk->shmem->child_tail_cidx = UINT_MAX;
 }
 
 void
@@ -534,6 +531,8 @@ fd_accdb_v1_clear( fd_accdb_admin_t * accdb_ ) {
   fd_accdb_admin_v1_t * accdb = downcast( accdb_ );
   fd_funk_t *           funk  = accdb->funk;
   clear_txn_list( funk, fd_funk_txn_idx( funk->shmem->child_head_cidx ) );
+  funk->shmem->child_head_cidx = UINT_MAX;
+  funk->shmem->child_tail_cidx = UINT_MAX;
   reset_rec_map( funk );
 }
 
