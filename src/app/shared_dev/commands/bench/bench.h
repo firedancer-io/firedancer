@@ -6,7 +6,8 @@
 
 FD_PROTOTYPES_BEGIN
 
-void bench_cmd_fn( args_t * args, config_t * config, int watch );
+void bench_topo( config_t * config );
+void bench_cmd_fn( args_t * args, config_t * config );
 void bench_cmd_args( int * pargc, char *** pargv, args_t * args );
 
 void
@@ -23,7 +24,6 @@ add_bench_topo( fd_topo_t  * topo,
                 uint         send_to_ip_addr,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
-                int          no_quic,
                 int          reserve_agave_cores );
 
 FD_PROTOTYPES_END

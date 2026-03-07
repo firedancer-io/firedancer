@@ -74,7 +74,9 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
       return did_work;
     }
 
-    if( FD_UNLIKELY( fd_log_wallclock()<ctx->rpc_ready_deadline && response->status==FD_RPC_CLIENT_ERR_NETWORK ) ) {
+    if( FD_UNLIKELY( fd_log_wallclock()<ctx->rpc_ready_deadline &&
+                     ( response->status==FD_RPC_CLIENT_ERR_NETWORK ||
+                       response->status==FD_RPC_CLIENT_ERR_MALFORMED ) ) ) {
       /* RPC server not yet responding, give it some more time... */
       ctx->blockhash_state = FD_BENCHO_STATE_WAIT;
       ctx->blockhash_deadline = fd_log_wallclock() + 100L * 1000L * 1000L; /* 100 millis to retry */
