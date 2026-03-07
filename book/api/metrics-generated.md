@@ -431,6 +431,8 @@
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;smoothed</span> | gauge | RTT moving average (nanoseconds) |
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;var</span> | gauge | RTT variance (nanoseconds) |
 | <span class="metrics-name">bundle_&#8203;message_&#8203;rx_&#8203;delay_&#8203;nanos</span> | histogram | Message receive delay in nanoseconds from bundle server to bundle client |
+| <span class="metrics-name">bundle_&#8203;pending_&#8203;transactions</span> | gauge | Number of transactions buffered and waiting to be published |
+| <span class="metrics-name">bundle_&#8203;transaction_&#8203;dropped_&#8203;backpressure</span> | counter | Transactions dropped because the pending transaction buffer was full (should never happen) |
 
 </div>
 
