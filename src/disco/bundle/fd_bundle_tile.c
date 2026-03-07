@@ -38,7 +38,7 @@ scratch_align( void ) {
 FD_FN_CONST static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  ulong pending_max = tile->bundle.buf_sz / FD_BUNDLE_MIN_GRPC_WIRE_SZ;
+  ulong pending_max = tile->bundle.out_depth;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
   l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
@@ -315,7 +315,7 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  const ulong pending_max = tile->bundle.buf_sz / FD_BUNDLE_MIN_GRPC_WIRE_SZ;
+  const ulong pending_max = tile->bundle.out_depth;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );

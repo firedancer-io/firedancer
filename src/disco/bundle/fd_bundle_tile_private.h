@@ -17,12 +17,7 @@
    here.  after_credit drains one bundle per call by writing to dcache
    and calling fd_stem_publish.
 
-   Sized to match frame_rx capacity so it can never overflow.  Multiple
-   gRPC messages can be packed into a single H2 DATA frame, amortizing
-   the 9-byte H2 header.  The minimum per-transaction wire cost is then
-   5 (gRPC hdr) + 11 (min protobuf for a 1-byte packet) = 16 bytes. */
-
-#define FD_BUNDLE_MIN_GRPC_WIRE_SZ (16UL)
+   Sized to match the bundle_verif output link depth. */
 
 struct fd_bundle_pending_txn {
   uchar  payload[ FD_TXN_MTU ];

@@ -78,7 +78,7 @@ test_bundle_env_create( test_bundle_env_t * env,
   fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
   h2_conn->flags = 0;
 
-  const ulong pending_max  = state->grpc_buf_max / FD_BUNDLE_MIN_GRPC_WIRE_SZ;
+  const ulong pending_max  = mcache_depth;
   env->deque_mem      = fd_wksp_alloc_laddr( wksp, pending_txn_align(), pending_txn_footprint( pending_max ), 1UL );
   state->pending_txns = pending_txn_join( pending_txn_new( env->deque_mem, pending_max ) );
   FD_TEST( state->pending_txns );

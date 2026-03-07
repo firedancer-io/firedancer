@@ -451,6 +451,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
     fd_cstr_ncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
     tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
+    tile->bundle.out_depth = config->tiles.verify.receive_buffer_size;
     tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
     tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
     tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
