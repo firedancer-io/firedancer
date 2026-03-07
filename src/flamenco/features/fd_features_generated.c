@@ -1788,6 +1788,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "limit_instruction_accounts",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, validator_admission_ticket)>>3,
+    .id                        = {"\x07\x36\xf6\x93\xcd\x86\x07\x8b\x03\x1c\xc1\x6f\xe8\x9a\x9e\xaf\x04\xa6\x5e\x21\xdd\xe6\xe6\x42\xfc\x5a\x4d\x39\xa9\xc6\xde\xb7"},
+                                 /* VATtb1DepUwdPh5bFVasdtkbeDNsftZSRzr2aKpKWJA */
+    .name                      = "validator_admission_ticket",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2066,6 +2072,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_259 0xa5ce8f931961b80cUL, .val = &ids[259]
 #define MAP_PERFECT_260 0xf55c421c9eccc012UL, .val = &ids[260]
 #define MAP_PERFECT_261 0x73869887e8eb4903UL, .val = &ids[261]
+#define MAP_PERFECT_262 0x8b0786cd93f63607UL, .val = &ids[262]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2338,4 +2345,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_programdata_account_check_migration               )>>3==259UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model                      )>>3==260UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==261UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==262UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
