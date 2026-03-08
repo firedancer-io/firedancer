@@ -9,8 +9,12 @@ $(call add-objs,fd_progcache_admin,fd_flamenco)
 $(call add-hdrs,fd_progcache_user.h)
 $(call add-objs,fd_progcache_user,fd_flamenco)
 
+ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_progcache,test_progcache,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_progcache)
+endif
+endif
 
 ifdef FD_HAS_RACESAN
 $(call make-unit-test,test_progcache_racesan,test_progcache_racesan,fd_flamenco fd_funk fd_ballet fd_util)
