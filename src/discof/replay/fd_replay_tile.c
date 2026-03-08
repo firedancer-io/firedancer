@@ -38,10 +38,7 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
-
-# if FD_HAS_FLATCC
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
-#endif
 
 #include <stdio.h>
 

@@ -18,14 +18,17 @@ $(call run-unit-test,test_vm_interp)
 endif
 endif
 
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util fd_funk)
+$(call run-unit-test,test_vm_base)
+endif
+endif
 
 ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_funk fd_ballet fd_util,$(SECP256K1_LIBS) $(BLST_LIBS))
 $(call run-unit-test,test_vm_instr)
 endif
-
-$(call run-unit-test,test_vm_base)
 
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pointer_chase,test_pointer_chase,fd_util)

@@ -9,7 +9,7 @@
 #if FD_LOG_STYLE==0 /* POSIX style */
 
 #if !defined(FD_HAS_BACKTRACE)
-#if __has_include( <execinfo.h> ) && !FD_HAS_ASAN && !FD_HAS_MSAN
+#if __has_include( <execinfo.h> ) && !FD_HAS_ASAN && !FD_HAS_MSAN && FD_HAS_HOSTED
 #define FD_HAS_BACKTRACE 1
 #else
 #define FD_HAS_BACKTRACE 0

@@ -12,7 +12,11 @@ endif
 
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
+ifdef FD_HAS_ATOMIC
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
+endif
+endif
 
 $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
@@ -22,12 +26,13 @@ ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_txncache_shmem.h fd_txncache.h)
 $(call add-objs,fd_txncache_shmem fd_txncache,fd_flamenco)
 endif
-endif
-
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_cost_tracker,test_cost_tracker,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_cost_tracker,)
+endif
+endif
 
 $(call add-hdrs,fd_compute_budget_details.h)
 $(call add-objs,fd_compute_budget_details,fd_flamenco)
@@ -45,17 +50,18 @@ ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bundle_exec)
-endif
-endif
-
 $(call make-unit-test,test_runtime_alut,test_runtime_alut,fd_flamenco fd_funk fd_ballet fd_util)
+endif
+endif
 
 ifdef FD_HAS_ATOMIC
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)
 ifdef FD_HAS_HOSTED
+ifdef FD_HAS_INT128
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bank,)
+endif
 endif
 endif
 
