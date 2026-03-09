@@ -141,8 +141,8 @@ fd_vote_stakes_new( void * shmem,
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem );
 
-/* fd_vote_stakes_root_{insert, update, purge}_key are APIs for
-   inserting, updating, and purging keys for the root fork.  These
+/* fd_vote_stakes_root_{insert, update}_key are APIs for
+   inserting and updating keys for the root fork.  These
    operations are split out in order to support the snapshot loading
    process.  The set of stakes from the T-1 epoch are inserted into
    the root fork with a call to fd_vote_stakes_root_insert_key.  The
@@ -172,18 +172,6 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * node_account_t_2,
                                  ulong               stake_t_2,
                                  ulong               epoch );
-
-/* fd_vote_stakes_root_purge_key allows the caller to purge a key from
-   the root fork.  This unfortunately has to be decoupled from the other
-   root APIs due to quirks in the Solana protocol.  The elements of the
-   vote stakes are loaded in along with the snapshot manifest: before
-   the actual account data has been loaded.  Some vote stakes keys may
-   be stale however, and can only be removed after the account data has
-   been loaded. */
-
-void
-fd_vote_stakes_root_purge_key( fd_vote_stakes_t *  vote_stakes,
-                               fd_pubkey_t const * pubkey );
 
 /* fd_vote_stakes_insert_{key, update, fini} is API for inserting
    entries into a given fork.  It reflects the access pattern during

@@ -100,15 +100,6 @@ struct fd_runtime_stack {
     uchar             vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
 
   } stakes;
-
-  struct {
-    /* List of vote state pool pubkeys that correspond to vote accounts
-       that are stale entries.  The vote states cache is originally
-       populated from the snapshot manifest and can't check against the
-       accounts database so it may contain stale entries.  These vote
-       accounts must be removed from the vote states cache. */
-    fd_pubkey_t stale_accs[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-  } vote_accounts;
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;
 
