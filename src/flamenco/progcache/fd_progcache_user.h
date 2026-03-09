@@ -52,7 +52,6 @@
 
 #include "fd_progcache.h"
 #include "fd_prog_load.h"
-#include "../accdb/fd_accdb_base.h"
 #include "../runtime/fd_runtime_const.h"
 
 #define FD_PROGCACHE_DEPTH_MAX (8192UL)
@@ -61,7 +60,6 @@ struct fd_progcache_metrics {
   ulong lookup_cnt;
   ulong hit_cnt;
   ulong miss_cnt;
-  ulong invalidate_cnt;
   ulong oom_heap_cnt;
   ulong oom_desc_cnt;
   ulong fill_cnt;
@@ -92,8 +90,6 @@ struct fd_progcache {
 
   uint spill_active;
 };
-
-typedef struct fd_progcache fd_progcache_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -141,7 +137,16 @@ void *
 fd_progcache_leave( fd_progcache_t *        cache,
                     fd_progcache_shmem_t ** opt_shmem );
 
-/* Record-level operations ********************************************/
+/* fd_progcache_revision_slot returns the slot number under which a
+   progcache entry is indexed at.  epoch_slot0 is the first slot number
+   of the epoch.  deploy_slot is the slot at which the program was
+   deployed using the program loader. */
+
+static inline ulong
+fd_progcache_revision_slot( ulong epoch_slot0,
+                            ulong deploy_slot ) {
+  return fd_ulong_max( epoch_slot0, deploy_slot );
+}
 
 /* fd_progcache_peek queries the program cache for an existing cache
    entry.  Does not fill the cache.  Returns a pointer to the entry on
@@ -151,9 +156,9 @@ fd_progcache_leave( fd_progcache_t *        cache,
 
 fd_progcache_rec_t * /* read locked */
 fd_progcache_peek( fd_progcache_t *          cache,
-                   fd_funk_txn_xid_t const * xid,
+                   fd_xid_t const * xid,
                    void const *              prog_addr,
-                   ulong                     epoch_slot0 );
+                   ulong                     revision_slot );
 
 /* fd_progcache_pull loads a program from cache, filling the cache if
    necessary.  The load operation can have a number of outcomes:
@@ -172,27 +177,10 @@ fd_progcache_peek( fd_progcache_t *          cache,
 
 fd_progcache_rec_t * /* read locked */
 fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_accdb_user_t *          accdb,
-                   fd_funk_txn_xid_t const *  xid,
+                   fd_xid_t const *           xid,
                    void const *               prog_addr,
-                   fd_prog_load_env_t const * env );
-
-/* fd_progcache_invalidate marks the program at the given address as
-   invalidated (typically due to a change of program content).  This
-   creates a non-executable cache entry at the given xid.
-
-   After a program has been invalidated at xid, it is forbidden to pull
-   the same entry at the same xid.  (Invalidations should happen after
-   replaying transactions).
-
-   Assumes that xid is a valid fork graph node (not rooted) until
-   invalidate returns. */
-
-void
-fd_progcache_invalidate( fd_progcache_t *          cache,
-                         fd_funk_txn_xid_t const * xid,
-                         void const *              prog_addr,
-                         ulong                     slot );
+                   fd_prog_load_env_t const * env,
+                   fd_accdb_ro_t *            progdata_ro );
 
 /* fd_progcache_rec_close releases a cache record handle returned by
    fd_progcache_{pull,peek}. */

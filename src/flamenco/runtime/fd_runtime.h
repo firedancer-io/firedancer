@@ -282,15 +282,6 @@ struct fd_txn_out {
 
     ulong                       signature_count;           /* Number of signatures in the transaction */
     int                         is_simple_vote;            /* Whether the transaction is a simple vote */
-    /* When a program is deployed or upgraded, we must queue it to be
-        updated in the program cache (if it exists already) so that
-        the cache entry's ELF / sBPF information can be updated for
-        future executions.  We keep an array of pubkeys for the
-        transaction to track which programs need to be reverified.  The
-        actual queueing for reverification is done in the transaction
-        finalization step. */
-    uchar                       programs_to_reverify_cnt;
-    fd_pubkey_t                 programs_to_reverify[ MAX_TX_ACCOUNT_LOCKS ];
   } details;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:

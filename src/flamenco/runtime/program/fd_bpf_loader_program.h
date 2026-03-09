@@ -64,7 +64,6 @@ fd_bpf_loader_program_get_state( fd_account_meta_t const *           meta,
 
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                   fd_pubkey_t const *   program_key,
                    uchar const *         programdata,
                    ulong                 programdata_size );
 

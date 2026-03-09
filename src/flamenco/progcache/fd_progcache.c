@@ -1,4 +1,5 @@
 #include "fd_progcache.h"
+#include "fd_progcache_clock.h"
 
 #define POOL_NAME       fd_prog_recp
 #define POOL_ELE_T      fd_progcache_rec_t
@@ -16,7 +17,6 @@
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MAGIC             (0xf173da2ce77ecdb8UL)
-#define MAP_CUSTOM_CHAIN      1
 #define MAP_IMPL_STYLE        2
 #include "../../util/tmpl/fd_map_chain_para.c"
 
@@ -29,7 +29,7 @@
 
 #define  MAP_NAME              fd_prog_txnm
 #define  MAP_ELE_T             fd_progcache_txn_t
-#define  MAP_KEY_T             fd_funk_txn_xid_t
+#define  MAP_KEY_T             fd_xid_t
 #define  MAP_KEY               xid
 #define  MAP_KEY_EQ(k0,k1)     fd_funk_txn_xid_eq((k0),(k1))
 #define  MAP_KEY_HASH(k0,seed) fd_funk_txn_xid_hash((k0),(seed))
@@ -41,7 +41,7 @@
 
 FD_FN_CONST ulong
 fd_progcache_shmem_align( void ) {
-  return fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max(
+  return fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max(
       alignof(fd_progcache_shmem_t),
       fd_prog_txnm_align() ),
       fd_prog_txnp_align() ),
@@ -49,7 +49,8 @@ fd_progcache_shmem_align( void ) {
       fd_prog_recm_align() ),
       fd_prog_recp_align() ),
       alignof(fd_progcache_rec_t) ),
-      fd_alloc_align() );
+      fd_alloc_align() ),
+      fd_prog_cbits_align() );
 }
 
 FD_FN_CONST ulong
@@ -72,6 +73,8 @@ fd_progcache_shmem_footprint( ulong txn_max,
   l = FD_LAYOUT_APPEND( l, alignof(fd_progcache_rec_t), sizeof(fd_progcache_rec_t) * rec_max );
 
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+
+  l = FD_LAYOUT_APPEND( l, fd_prog_cbits_align(), fd_prog_cbits_footprint( rec_max ) );
 
   return FD_LAYOUT_FINI( l, fd_progcache_shmem_align() );
 }
@@ -128,6 +131,8 @@ fd_progcache_shmem_new( void * shmem,
 
   void * alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 
+  atomic_ulong * cbits = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_cbits_align(), fd_prog_cbits_footprint( rec_max ) );
+
   FD_TEST( _l == (ulong)pc + fd_progcache_shmem_footprint( txn_max, rec_max ) );
 
   fd_memset( pc, 0, sizeof(fd_progcache_shmem_t) );
@@ -162,13 +167,15 @@ fd_progcache_shmem_new( void * shmem,
     fd_rwlock_new( &rec_ele[ i ].lock );
   }
 
-  fd_rwlock_new( &pc->clock.lock );
-  pc->clock.head = 0U;
-
   fd_rwlock_new( &pc->spill.lock );
   pc->spill.spad_used = 0U;
 
   pc->alloc_gaddr = fd_wksp_gaddr_fast( wksp, fd_alloc_join( fd_alloc_new( alloc, wksp_tag ), 0UL ) );
+
+  pc->clock.cbits_gaddr = fd_wksp_gaddr_fast( wksp, cbits );
+  pc->clock.head        = 0UL;
+  fd_rwlock_new( &pc->clock.lock );
+  fd_prog_clock_init( cbits, rec_max );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( pc->magic ) = FD_PROGCACHE_SHMEM_MAGIC;
@@ -232,6 +239,8 @@ fd_progcache_shmem_join( fd_progcache_join_t *  ljoin,
     FD_LOG_WARNING(( "fd_alloc_join failed" ));
     return NULL;
   }
+
+  ljoin->clock.bits = fd_wksp_laddr( wksp, shmem->clock.cbits_gaddr );
 
   return ljoin;
 }

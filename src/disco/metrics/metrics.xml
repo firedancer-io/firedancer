@@ -1186,7 +1186,6 @@ metric introduced.
   <counter name="ProgcacheLookups" summary="Program cache lookup counter" />
   <counter name="ProgcacheHits" summary="Program cache hit counter" />
   <counter name="ProgcacheMisses" summary="Program cache miss counter" />
-  <counter name="ProgcacheInvalidations" summary="Program cache invalidation counter" />
   <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory event counter (heap)" />
   <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory event counter (descriptor table)" />
   <counter name="ProgcacheFills" summary="Number of program cache insertions" />

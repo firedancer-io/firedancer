@@ -77,7 +77,6 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   rec->rodata_off    = (uint)( (ulong)rodata_mem - (ulong)val );
   rec->entry_pc      = 0;
   rec->rodata_sz     = 0;
-  rec->executable    = 0;
 
   rec->text_cnt      = elf_info->text_cnt;
   rec->text_off      = elf_info->text_off;
@@ -146,7 +145,6 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   if( FD_UNLIKELY( fd_vm_validate( vm )!=FD_VM_SUCCESS ) ) return NULL;
 
-  rec->executable = 1;
   return rec;
 }
 
@@ -162,7 +160,5 @@ fd_progcache_rec_nx( fd_progcache_rec_t * rec ) {
   rec->calldests_off = 0;
   rec->rodata_off    = 0;
   rec->sbpf_version  = 0;
-  rec->executable    = 0;
-  rec->invalidate    = 0;
   return rec;
 }

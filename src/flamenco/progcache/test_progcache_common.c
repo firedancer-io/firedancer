@@ -73,9 +73,9 @@ test_env_destroy( test_env_t * env ) {
 
 static void
 test_env_txn_prepare( test_env_t *              env,
-                      fd_funk_txn_xid_t const * parent,
-                      fd_funk_txn_xid_t const * xid ) {
-  fd_funk_txn_xid_t root[1];
+                      fd_xid_t const * parent,
+                      fd_xid_t const * xid ) {
+  fd_xid_t root[1];
   if( !parent ) {
     fd_funk_txn_xid_set_root( root );
     parent = root;
@@ -89,7 +89,7 @@ test_env_txn_prepare( test_env_t *              env,
 
 static void
 test_env_txn_cancel( test_env_t *              env,
-                     fd_funk_txn_xid_t const * xid ) {
+                     fd_xid_t const * xid ) {
   fd_accdb_cancel        ( env->accdb_admin,     xid );
   fd_progcache_txn_cancel( env->progcache->join, xid );
 }
@@ -99,7 +99,7 @@ test_env_txn_cancel( test_env_t *              env,
 
 FD_FN_UNUSED static void
 test_env_txn_publish( test_env_t *              env,
-                      fd_funk_txn_xid_t const * xid ) {
+                      fd_xid_t const * xid ) {
   fd_accdb_advance_root( env->accdb_admin, xid );
   fd_progcache_txn_advance_root( env->progcache->join, xid );
 }
@@ -115,7 +115,7 @@ test_key( ulong x ) {
 
 static void
 create_test_account( test_env_t *              env,
-                     fd_funk_txn_xid_t const * xid,
+                     fd_xid_t const * xid,
                      void const *              pubkey,
                      void const *              owner,
                      void const *              data,

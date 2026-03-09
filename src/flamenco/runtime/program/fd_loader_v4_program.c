@@ -526,14 +526,11 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   }
   uchar const * programdata = fd_borrowed_account_get_data( &program ) + LOADER_V4_PROGRAM_DATA_OFFSET;
 
-  /* Our program cache is fundamentally different from Agave's.  Here,
-     they would perform verifications and add the program to their
-     cache, but we only perform verifications now and defer cache
-     population to the end of the slot.  Since programs cannot be
-     invoked until the next slot anyways, doing this is okay.
+  /* Perform deploy checks.
+     Unlike Agave, Firedancer does not interact with the program cache when deploying.
 
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L309-L316 */
-  err = fd_deploy_program( instr_ctx, program.pubkey, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET );
+  err = fd_deploy_program( instr_ctx, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -881,9 +878,8 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L520 */
     fd_guarded_borrowed_account_t program = {0};
     rc = fd_exec_instr_ctx_try_borrow_last_program_account( instr_ctx, &program );
-    if( FD_UNLIKELY( rc ) ) {
-      return rc;
-    }
+    if( FD_UNLIKELY( rc ) ) return rc;
+    fd_accdb_ro_t program_ro[1]; fd_borrowed_account_ro( &program, program_ro );
 
     /* Work around differences in program caching behavior between
        Fireadncer and Agave here.
@@ -920,7 +916,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->bank );
     fd_progcache_t * progcache = instr_ctx->runtime->progcache;
     fd_progcache_rec_t * cache_entry = fd_progcache_pull(
-        progcache, instr_ctx->runtime->accdb, &xid, program_id, load_env );
+        progcache, &xid, program_id, load_env, program_ro );
     if( FD_UNLIKELY( !cache_entry ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -928,7 +924,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* The program may be in the cache but could have failed
        verification in the current epoch. */
-    if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
+    if( FD_UNLIKELY( !cache_entry->data_gaddr ) ) {
       fd_progcache_rec_close( progcache, cache_entry );
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
