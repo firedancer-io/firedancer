@@ -50,7 +50,7 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_live = 0;
   ctx->bundle_subscription_wait = 0;
 
-  memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
+  fd_memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
 
 # if FD_HAS_OPENSSL
   if( FD_UNLIKELY( ctx->ssl ) ) {
@@ -521,7 +521,7 @@ fd_bundle_tile_publish_txn(
   entry->bundle_seq     = 0UL;
   entry->bundle_txn_cnt = 1UL;
   entry->commission     = 0U;
-  memset( entry->commission_pubkey, 0, 32UL );
+  fd_memset( entry->commission_pubkey, 0, 32UL );
   ctx->metrics.txn_received_cnt++;
 }
 
