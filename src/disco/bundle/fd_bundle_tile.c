@@ -37,7 +37,6 @@ scratch_align( void ) {
 
 FD_FN_CONST static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
   ulong pending_max = tile->bundle.out_depth;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
