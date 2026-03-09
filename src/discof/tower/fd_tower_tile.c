@@ -616,6 +616,7 @@ reindex_notar( fd_tower_tile_t * ctx,
                                     !fd_tower_voters_iter_done( ctx->tower_voters, iter );
                               iter = fd_tower_voters_iter_next( ctx->tower_voters, iter ) ) {
     fd_tower_voters_t * tower_vtr = fd_tower_voters_iter_ele( ctx->tower_voters, iter );
+    if( FD_UNLIKELY( !tower_vtr->valid_data ) ) continue; /* skip vote accounts with invalid data */
     fd_notar_vtr_t *    notar_vtr = fd_notar_vtr_query( ctx->notar->vtr_map, tower_vtr->addr, NULL );
     if( FD_UNLIKELY( !notar_vtr ) ) { /* optimize for most existing voters carrying over */
       fd_tower_stakes_vtr_xid_t stake_xid = { .addr = tower_vtr->addr, .slot = new_root };
@@ -822,13 +823,15 @@ done_vote_iter:
                               iter = fd_tower_voters_iter_next( tower_voters, iter ) ) {
     fd_tower_voters_t * acct = fd_tower_voters_iter_ele( tower_voters, iter );
 
+    if( FD_UNLIKELY( !acct->valid_data ) ) continue; /* skip vote accounts with invalid data */
+
     /* 1. Update forks with lockouts. */
 
     fd_tower_lockos_insert( ctx->tower_lockos, slot_completed->slot, &acct->addr, acct );
 
     /* 2. Count the last vote slot in the vote state towards ghost. */
 
-    ulong vote_slot = acct->valid_data ? fd_vote_acc_vote_slot( acct->data ) : ULONG_MAX;
+    ulong vote_slot = fd_vote_acc_vote_slot( acct->data );
     if( FD_LIKELY( vote_slot!=ULONG_MAX && /* has voted */
                     vote_slot>=fd_ghost_root( ctx->ghost )->slot ) ) { /* vote not too old */
 
