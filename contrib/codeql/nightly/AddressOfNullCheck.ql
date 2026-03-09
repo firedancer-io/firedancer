@@ -20,23 +20,14 @@ import semmle.code.cpp.controlflow.Guards
  * Models flows from address-of expressions to NULL/non-NULL checks that
  * always hold.
  */
-private class MustFlowConfig extends MustFlowConfiguration {
-  MustFlowConfig() { this = "SuspiciousAddressOfNullCheckMustFlow" }
-
-  override predicate isSource(Instruction source) {
+module MustFlowConfig implements MustFlow::ConfigSig {
+  predicate isSource(Instruction source) {
     source.getUnconvertedResultExpression() instanceof ValidAddressOfExpr
   }
 
-  override predicate isSink(Operand sink) { isNullOrNonNullCheck(sink) }
+  predicate isSink(Operand sink) { isNullOrNonNullCheck(sink) }
 
-  override predicate allowInterproceduralFlow() { none() }
-
-  override predicate isBarrier(Instruction instr) {
-    // Temporary workaround for bug in the library where interprocedural flow
-    // in recursive functions is not handled correctly.
-    // Tracking issue: https://github.com/github/codeql/issues/21240
-    instr instanceof InitializeParameterInstruction
-  }
+  predicate allowInterproceduralFlow() { none() }
 }
 
 /**
@@ -51,9 +42,11 @@ predicate isNullOrNonNullCheck(Operand operand) {
   any(IRGuardCondition gc).comparesEq(operand, 0, _, _)
 }
 
-from MustFlowPathNode source, MustFlowPathNode sink, MustFlowConfig cfg
+module Flow = MustFlow::Global<MustFlowConfig>;
+
+from Flow::PathNode source, Flow::PathNode sink
 where
-  cfg.hasFlowPath(source, sink) and
+  Flow::flowPath(source, sink) and
   not source.getInstruction().getUnconvertedResultExpression().isInMacroExpansion() and
   source.getInstruction().getEnclosingFunction() = sink.getInstruction().getEnclosingFunction()
 select sink, "Taking the address of $@ always produces a non-NULL pointer, but it is checked $@.",

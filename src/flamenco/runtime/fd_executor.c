@@ -1358,7 +1358,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   return fd_execute_instr_end( ctx, instr, instr_exec_result );
 }
 
-static void
+void
 fd_executor_reclaim_account( fd_account_meta_t * meta,
                              ulong               slot ) {
   if( FD_UNLIKELY( meta->lamports==0UL ) ) {

@@ -92,8 +92,6 @@
 | <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;total</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapct_&#8203;incremental_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the incremental snapshot download because the peer was too slow |
 | <span class="metrics-name">snapct_&#8203;predicted_&#8203;slot</span> | gauge | The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapct_&#8203;gossip_&#8203;fresh_&#8203;count</span> | gauge | Number of fresh gossip peers seen when collecting gossip peers.  |
-| <span class="metrics-name">snapct_&#8203;gossip_&#8203;total_&#8203;count</span> | gauge | Number of total gossip peers seen when collecting gossip peers.  |
 | <span class="metrics-name">snapct_&#8203;ssl_&#8203;alloc_&#8203;errors</span> | counter | Number of SSL allocation errors encountered.  |
 
 </div>
@@ -433,6 +431,8 @@
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;smoothed</span> | gauge | RTT moving average (nanoseconds) |
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;var</span> | gauge | RTT variance (nanoseconds) |
 | <span class="metrics-name">bundle_&#8203;message_&#8203;rx_&#8203;delay_&#8203;nanos</span> | histogram | Message receive delay in nanoseconds from bundle server to bundle client |
+| <span class="metrics-name">bundle_&#8203;pending_&#8203;transactions</span> | gauge | Number of transactions buffered and waiting to be published |
+| <span class="metrics-name">bundle_&#8203;transaction_&#8203;dropped_&#8203;backpressure</span> | counter | Transactions dropped because the pending transaction buffer was full (should never happen) |
 
 </div>
 
@@ -1014,8 +1014,10 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored due to asynchronous state |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;gauge</span> | gauge | Slot number of most recently ignored replay_slot_completed_frag |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;gauge</span> | gauge | Slot number of most recently ignored replay_slot_completed frag |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;gauge</span> | gauge | Slot number of most recently equivocating replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
 | <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Vote slot |
 | <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |

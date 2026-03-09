@@ -97,6 +97,10 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                          fd_txn_in_t const * txn_in,
                                          fd_txn_out_t *      txn_out );
 
+void
+fd_executor_reclaim_account( fd_account_meta_t * meta,
+                             ulong               slot );
+
 /* fd_executor_instr_strerror converts an FD_EXECUTOR_INSTR_ERR_{...}
    code into a human readable cstr.  The lifetime of the returned
    pointer is infinite and the call itself is thread safe.  The

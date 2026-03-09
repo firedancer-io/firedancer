@@ -737,6 +737,24 @@ void fd_log_private_user_set ( char const * user  ); /* Not thread safe */
    logs and that should be done by the functions in fd_log.h */
 int fd_log_private_logfile_fd( void );
 
+
+/* fd_log_should_colorize() returns 1 if ANSI color escape sequences
+   should be emitted for log output, 0 otherwise.
+
+   Check (in order):
+    - NO_COLOR env var set and non-empty, no
+    - Output is not a TTY (piped/file), no
+    - TERM is unset or "dumb", no
+    - Queries compiled terminfo db for the terminal's max_colors
+      capability. If it is more than 0, returns yes.
+
+    Does not detect 24-bit/truecolor (terminfo commonly underreports
+    the number of colors supported). Simple ASCII-based color codes
+    won't need this. */
+
+int
+fd_log_should_colorize( void );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_log_fd_log_h */

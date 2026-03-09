@@ -29,14 +29,14 @@ fd_bn254_g1_compress( uchar       out[32],
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 32 );
     /* The infinity flag in the result is set iff the infinity flag is set in the Y coordinate */
-    out[0] = (uchar)( out[0] | flag_inf );
+    out[ big_endian ? 0 : 31 ] |= (uchar)flag_inf;
     return out;
   }
 
   int is_neg = fd_bn254_fp_is_neg_nm( &p->Y );
   fd_bn254_fp_tobytes_nm( out, &p->X, big_endian );
   if( is_neg ) {
-    out[ big_endian ? 0 : 31 ] = (uchar)( out[ big_endian ? 0 : 31 ] | FLAG_NEG );
+    out[ big_endian ? 0 : 31 ] |= FLAG_NEG;
   }
   return out;
 }
@@ -96,14 +96,14 @@ fd_bn254_g2_compress( uchar       out[64],
     return NULL;
   }
   int is_inf   = fd_bn254_g2_is_zero( p );
-  int flag_inf = in[64] & FLAG_INF;
+  int flag_inf = in[ big_endian ? 64 : 127 ] & FLAG_INF;
 
   /* Serialize compressed point */
 
   if( FD_UNLIKELY( is_inf ) ) {
     fd_memset( out, 0, 64 );
     /* The infinity flag in the result is set iff the infinity flag is set in the Y coordinate */
-    out[0] = (uchar)( out[0] | flag_inf );
+    out[ big_endian ? 0 : 63 ] |= (uchar)flag_inf;
     return out;
   }
 
@@ -112,7 +112,7 @@ fd_bn254_g2_compress( uchar       out[64],
   int is_neg = fd_bn254_fp2_is_neg_nm( &p->Y );
   fd_bn254_fp2_tobytes_nm( out, &p->X, big_endian );
   if( is_neg ) {
-    out[ big_endian ? 0 : 63 ] = (uchar)( out[ big_endian ? 0 : 63 ] | FLAG_NEG );
+    out[ big_endian ? 0 : 63 ] |= FLAG_NEG;
   }
   return out;
 }

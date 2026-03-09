@@ -108,9 +108,8 @@ FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
 /* Sync with src/app/shared/fd_config.c */
 #define FD_PACK_STRATEGY_PERF     0
 #define FD_PACK_STRATEGY_BALANCED 1
-#define FD_PACK_STRATEGY_BUNDLE   2
 
-static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "BUN" };
+static char const * const schedule_strategy_strings[2] = { "PRF", "BAL" };
 
 
 typedef struct {
@@ -744,10 +743,6 @@ after_credit( fd_pack_ctx_t *     ctx,
         flags = FD_PACK_SCHEDULE_VOTE | fd_int_if( i==0,                FD_PACK_SCHEDULE_BUNDLE, 0 )
                                       | fd_int_if( i<pacing_execle_cnt, FD_PACK_SCHEDULE_TXN,    0 );
         break;
-      case FD_PACK_STRATEGY_BUNDLE:
-        flags = FD_PACK_SCHEDULE_VOTE | FD_PACK_SCHEDULE_BUNDLE
-                                      | fd_int_if( ctx->slot_end_ns - ctx->approx_wallclock_ns<50000000L, FD_PACK_SCHEDULE_TXN,  0 );
-        break;
     }
 
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( ctx->execle_out_mem, ctx->execle_out_chunk );
@@ -1262,7 +1257,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( execle_cnt>FD_PACK_MAX_EXECLE_TILES       ) ) FD_LOG_ERR(( "pack tile connects to too many execle tiles" ));
   // if( FD_UNLIKELY( execle_cnt!=tile->pack.execle_tile_count ) ) FD_LOG_ERR(( "pack tile connects to %lu execle tiles, but tile->pack.execle_tile_count is %lu", execle_cnt, tile->pack.execle_tile_count ));
 
-  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BUNDLE) );
+  FD_TEST( (tile->pack.schedule_strategy>=0) & (tile->pack.schedule_strategy<=FD_PACK_STRATEGY_BALANCED) );
 
   ctx->crank->enabled = tile->pack.bundle.enabled;
   if( FD_UNLIKELY( tile->pack.bundle.enabled ) ) {

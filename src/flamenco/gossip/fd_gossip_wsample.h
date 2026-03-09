@@ -24,7 +24,9 @@ void
 fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
                        ulong                 ci_idx,
                        ulong                 stake,
-                       int                   active );
+                       int                   ping_tracked,
+                       int                   is_entrypoint,
+                       int                   is_me );
 
 void
 fd_gossip_wsample_remove( fd_gossip_wsample_t * sampler,
@@ -64,16 +66,24 @@ fd_gossip_wsample_fresh( fd_gossip_wsample_t * sampler,
                          ulong                 ci_idx,
                          int                   fresh );
 
-/* fd_gossip_wsample_active marks a peer as active or inactive in the
-   sampler.  Active peers are eligible to be sampled; inactive peers are
-   not.  This should be used to mark a peer as inactive when we have
-   evidence that the peer is not responsive, and mark it active again if
-   we later have evidence that it is responsive again. */
+void
+fd_gossip_wsample_ping_tracked( fd_gossip_wsample_t * sampler,
+                                ulong                 ci_idx,
+                                int                   ping_tracked );
 
 void
-fd_gossip_wsample_active( fd_gossip_wsample_t * sampler,
-                          ulong                 ci_idx,
-                          int                   active );
+fd_gossip_wsample_is_entrypoint( fd_gossip_wsample_t * sampler,
+                                 ulong                 ci_idx,
+                                 int                   is_entrypoint );
+
+void
+fd_gossip_wsample_is_me( fd_gossip_wsample_t * sampler,
+                         ulong                 ci_idx,
+                         int                   is_me );
+
+void
+fd_gossip_wsample_set_identity( fd_gossip_wsample_t * sampler,
+                                ulong                 ci_idx );
 
 /* fd_gossip_wsample_sample_pull_request samples a peer index for
    sending a pull request.  Returns ULONG_MAX if no peers are available

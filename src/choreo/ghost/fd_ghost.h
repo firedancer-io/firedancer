@@ -234,7 +234,7 @@ fd_ghost_slot_ancestor( fd_ghost_t     * ghost,
                         ulong            ancestor_slot );
 
 /* fd_ghost_invalid_ancestor returns the first ancestor on the same fork
-   as descendant that is marked invalid.  Does not include descendant
+   as descendant that is marked invalid.  Includes checking descendant
    itself.  Returns NULL if there are no invalid ancestors. */
 
 fd_ghost_blk_t *
@@ -285,10 +285,8 @@ fd_ghost_publish( fd_ghost_t     * ghost,
 
 /* Misc */
 
-/* fd_ghost_verify checks the ghost is not obviously corrupt, as well as
-   that ghost invariants are being preserved ie. the weight of every
-   ele is >= the sum of weights of its direct children.  Returns 0 if
-   verify succeeds, -1 otherwise. */
+/* fd_ghost_verify checks the ghost is not obviously corrupt.  Returns 0
+   if verify succeeds, -1 otherwise. */
 
 int
 fd_ghost_verify( fd_ghost_t * ghost );

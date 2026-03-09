@@ -411,8 +411,8 @@ verify_proof( fd_eqvoc_t const * eqvoc,
 
 verified_t *
 verified_insert( fd_eqvoc_t * eqvoc,
-               ulong        slot,
-               int          err ) {
+                 ulong        slot,
+                 int          err ) {
   if( FD_UNLIKELY( !verified_pool_free( eqvoc->verified_pool ) ) ) {
     ulong idx = verified_deque_pop_head( eqvoc->verified_deque );
     verified_map_idx_remove_fast( eqvoc->verified_map, idx, eqvoc->verified_pool );
@@ -466,8 +466,8 @@ fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
 
   /* Many equivocation checks are based on conflicts between two shreds
      within the same FEC set, so we index shreds by a composite key of
-     32 msb verified and 32 lsb fec_set_idx to compare siblings shreds in
-     the same FEC set. */
+     32 msb verified and 32 lsb fec_set_idx to compare siblings shreds
+     in the same FEC set. */
 
   if( FD_UNLIKELY( is_last_shred( shred ) ) ) {
     ulong     key  = shred->slot << 32 | UINT_MAX;

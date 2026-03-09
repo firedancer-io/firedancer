@@ -38,10 +38,7 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
-
-# if FD_HAS_FLATCC
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
-#endif
 
 #include <stdio.h>
 
@@ -2593,6 +2590,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_GENESIS: {
       fd_genesis_meta_t const * meta = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->has_genesis_hash = 1;
+      ctx->has_genesis_timestamp = 1;
+      ctx->genesis_timestamp = meta->creation_time_millis;
       *ctx->genesis_hash = meta->genesis_hash;
       if( FD_LIKELY( meta->bootstrap ) ) {
         boot_genesis( ctx, stem, meta );

@@ -455,7 +455,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->log.capture_ctx          = ctx->capture_ctx;
   ctx->runtime->log.dump_proto_ctx       = ctx->dump_proto_ctx;
   ctx->runtime->log.txn_dump_ctx         = ctx->txn_dump_ctx;
-  ctx->runtime->fuzz.enabled             = 0;
 
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );

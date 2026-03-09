@@ -1,70 +1,84 @@
 #include "fd_tower_blocks.h"
-#include "fd_tower.h"
 
 void *
-fd_tower_blocks_new( void * shmem, ulong slot_max, ulong voter_max ) {
+fd_tower_blocks_new( void * shmem,
+                     ulong  slot_max,
+                     ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
   }
 
-  fd_wksp_t * wksp = fd_wksp_containing( shmem );
-  if( FD_UNLIKELY( !wksp ) ) {
-    FD_LOG_WARNING(( "shmem must be part of a workspace" ));
-    return NULL;
-  }
-
-  ulong footprint = fd_tower_blocks_footprint( slot_max, voter_max );
+  ulong footprint = fd_tower_blocks_footprint( slot_max );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "bad slot_max (%lu)", slot_max ));
     return NULL;
   }
-  /* verify aligned to fd_tower_blocks_align() */
+
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_tower_blocks_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
 
-  ulong interval_max = fd_ulong_pow2_up( FD_LOCKOUT_ENTRY_MAX*slot_max*voter_max );
   int   lg_slot_max  = fd_ulong_find_msb( fd_ulong_pow2_up( slot_max ) ) + 1;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_tower_blocks_t * blocks              = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_blocks_align(),                  sizeof(fd_tower_blocks_t)                                  );
-  void *       tower_forks        = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_blk_align(),            fd_tower_blk_footprint   ( lg_slot_max )          );
-  void *       leaves_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_leaves_map_align(),       fd_tower_leaves_map_footprint ( slot_max )          );
-  void *       leaves_dlist       = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_leaves_dlist_align(),     fd_tower_leaves_dlist_footprint()                   );
-  void *       leaves_pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_leaves_pool_align(),      fd_tower_leaves_pool_footprint( slot_max )          );
-  void *       lockout_slots_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_lockout_slots_map_align(),      fd_lockout_slots_map_footprint( slot_max )          );
-  void *       lockout_slots_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_lockout_slots_pool_align(),     fd_lockout_slots_pool_footprint    ( interval_max ) );
-  void *       lockout_itrvl_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_lockout_intervals_map_align(),  fd_lockout_intervals_map_footprint ( interval_max ) );
-  void *       lockout_itrvl_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_lockout_intervals_pool_align(), fd_lockout_intervals_pool_footprint( interval_max ) );
+  fd_tower_blocks_t * blocks = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_blocks_align(), sizeof(fd_tower_blocks_t)             );
+  void *              map    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_blk_align(),    fd_tower_blk_footprint( lg_slot_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_tower_blocks_align() ) == (ulong)shmem + footprint );
 
-  blocks->blk_map            = fd_tower_blk_join           ( fd_tower_blk_new           ( tower_forks, lg_slot_max, 0UL ) ); /* FIXME seed */
-  blocks->tower_leaves_map       = fd_tower_leaves_map_join      ( fd_tower_leaves_map_new      ( leaves_map,  slot_max, 0 ) );
-  blocks->tower_leaves_pool      = fd_tower_leaves_pool_join     ( fd_tower_leaves_pool_new     ( leaves_pool, slot_max    ) );
-  blocks->tower_leaves_dlist     = fd_tower_leaves_dlist_join    ( fd_tower_leaves_dlist_new    ( leaves_dlist             ) );
-  blocks->lockout_slots_map      = fd_lockout_slots_map_join     ( fd_lockout_slots_map_new     ( lockout_slots_map,  slot_max,     0 ) );
-  blocks->lockout_slots_pool     = fd_lockout_slots_pool_join    ( fd_lockout_slots_pool_new    ( lockout_slots_pool, interval_max    ) );
-  blocks->lockout_intervals_map  = fd_lockout_intervals_map_join ( fd_lockout_intervals_map_new ( lockout_itrvl_map,  interval_max, 0 ) );
-  blocks->lockout_intervals_pool = fd_lockout_intervals_pool_join( fd_lockout_intervals_pool_new( lockout_itrvl_pool, interval_max    ) );
-
+  blocks->blk_map = fd_tower_blk_new( map, lg_slot_max, seed );
   FD_TEST( blocks->blk_map );
-  FD_TEST( blocks->tower_leaves_map );
-  FD_TEST( blocks->tower_leaves_pool );
-  FD_TEST( blocks->tower_leaves_dlist );
-  FD_TEST( blocks->lockout_slots_map );
-  FD_TEST( blocks->lockout_slots_pool );
-  FD_TEST( blocks->lockout_intervals_map );
-  FD_TEST( blocks->lockout_intervals_pool );
+
   return shmem;
 }
 
 fd_tower_blocks_t *
-fd_tower_blocks_join( void * shforks ) {
-  return shforks;
+fd_tower_blocks_join( void * shblocks ) {
+  fd_tower_blocks_t * blocks = (fd_tower_blocks_t *)shblocks;
+
+  if( FD_UNLIKELY( !blocks ) ) {
+    FD_LOG_WARNING(( "NULL tower_blocks" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)blocks, fd_tower_blocks_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned tower_blocks" ));
+    return NULL;
+  }
+
+  blocks->blk_map = fd_tower_blk_join( blocks->blk_map );
+  FD_TEST( blocks->blk_map );
+
+  return blocks;
 }
 
+void *
+fd_tower_blocks_leave( fd_tower_blocks_t const * blocks ) {
+
+  if( FD_UNLIKELY( !blocks ) ) {
+    FD_LOG_WARNING(( "NULL blocks" ));
+    return NULL;
+  }
+
+  return (void *)blocks;
+}
+
+void *
+fd_tower_blocks_delete( void * blocks ) {
+
+  if( FD_UNLIKELY( !blocks ) ) {
+    FD_LOG_WARNING(( "NULL blocks" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)blocks, fd_tower_blocks_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned blocks" ));
+    return NULL;
+  }
+
+  return blocks;
+}
 
 int
 is_ancestor( fd_tower_blk_t * forks,
@@ -94,29 +108,31 @@ fd_tower_blocks_is_slot_descendant( fd_tower_blocks_t * forks,
 
 ulong
 fd_tower_blocks_lowest_common_ancestor( fd_tower_blocks_t * forks,
-                                 ulong        slot1,
-                                 ulong        slot2 ) {
+                                        ulong               slot1,
+                                        ulong               slot2 ) {
+
   fd_tower_blk_t * fork1 = fd_tower_blk_query( forks->blk_map, slot1, NULL );
   fd_tower_blk_t * fork2 = fd_tower_blk_query( forks->blk_map, slot2, NULL );
 
   if( FD_UNLIKELY( !fork1 )) FD_LOG_CRIT(( "slot1 %lu not found", slot1 ));
   if( FD_UNLIKELY( !fork2 )) FD_LOG_CRIT(( "slot2 %lu not found", slot2 ));
 
-
   while( FD_LIKELY( fork1 && fork2 ) ) {
     if( FD_UNLIKELY( fork1->slot == fork2->slot ) ) return fork1->slot;
     if( fork1->slot > fork2->slot                 ) fork1 = fd_tower_blk_query( forks->blk_map, fork1->parent_slot, NULL );
     else                                            fork2 = fd_tower_blk_query( forks->blk_map, fork2->parent_slot, NULL );
   }
+
   /* If we reach here, then one of the slots is on a minority fork who's
      ancestor that connected it to the main fork has been pruned (i.e.)
      we have a dangling leaf right now! There is no LCA in this case. */
+
   return ULONG_MAX;
 }
 
 fd_hash_t const *
 fd_tower_blocks_canonical_block_id( fd_tower_blocks_t * forks,
-                             ulong        slot ) {
+                                    ulong               slot ) {
   fd_tower_blk_t * fork = fd_tower_blk_query( forks->blk_map, slot, NULL );
   if( FD_UNLIKELY( !fork ) ) return NULL;
   if     ( FD_LIKELY( fork->confirmed ) ) return &fork->confirmed_block_id;
@@ -124,54 +140,15 @@ fd_tower_blocks_canonical_block_id( fd_tower_blocks_t * forks,
   else                                    return &fork->replayed_block_id;
 }
 
-void
-fd_tower_blocks_link( fd_tower_blocks_t * forks, ulong slot, ulong parent_slot ) {
-  fd_tower_blk_t * fork = fd_tower_blk_insert( forks->blk_map, slot );
-  if( FD_UNLIKELY( !fork ) ) return;
-  fork->parent_slot = parent_slot;
-  fork->slot        = slot;
+fd_tower_blk_t *
+fd_tower_blocks_query( fd_tower_blocks_t * forks, ulong slot ) {
+  return fd_tower_blk_query( forks->blk_map, slot, NULL );
 }
 
 fd_tower_blk_t *
-fd_tower_blocks_voted( fd_tower_blk_t * fork,
-                fd_hash_t const  * block_id ) {
-  fork->voted             = 1;
-  fork->voted_block_id    = *block_id;
-  return fork;
-}
-fd_tower_blk_t *
-fd_tower_blocks_replayed( fd_tower_blocks_t * forks,
-                          fd_tower_blk_t    * fork,
-                          ulong               bank_idx,
-                          fd_hash_t const   * block_id ) {
-  fork->bank_idx          = bank_idx;
-  fork->replayed          = 1;
-  fork->replayed_block_id = *block_id;
-
-  fd_tower_leaf_t * parent;
-  if( ( parent = fd_tower_leaves_map_ele_remove( forks->tower_leaves_map, &fork->parent_slot, NULL, forks->tower_leaves_pool ) ) ) {
-    fd_tower_leaves_dlist_ele_remove( forks->tower_leaves_dlist, parent, forks->tower_leaves_pool );
-    fd_tower_leaves_pool_ele_release( forks->tower_leaves_pool,  parent );
-  }
-
-  fd_tower_leaf_t * existing_leaf;
-  if( FD_UNLIKELY( ( existing_leaf = fd_tower_leaves_map_ele_query( forks->tower_leaves_map, &fork->slot, NULL, forks->tower_leaves_pool ) ) ) ) {
-    /* equivocation */
-    return fork;
-  }
-
-  fd_tower_leaf_t * leaf = fd_tower_leaves_pool_ele_acquire( forks->tower_leaves_pool );
-  leaf->slot = fork->slot;
-  fd_tower_leaves_map_ele_insert( forks->tower_leaves_map, leaf, forks->tower_leaves_pool );
-  fd_tower_leaves_dlist_ele_push_tail( forks->tower_leaves_dlist, leaf, forks->tower_leaves_pool );
-
-  return fork;
-}
-
-fd_tower_blk_t *
-fd_tower_blocks_insert( fd_tower_blocks_t *      forks,
-                 ulong             slot,
-                 ulong             parent_slot ) {
+fd_tower_blocks_insert( fd_tower_blocks_t * forks,
+                        ulong               slot,
+                        ulong               parent_slot ) {
   fd_tower_blk_t * fork = fd_tower_blk_insert( forks->blk_map, slot );
   if( FD_UNLIKELY( !fork ) ) return NULL;
 
@@ -183,70 +160,9 @@ fd_tower_blocks_insert( fd_tower_blocks_t *      forks,
   return fork;
 }
 
-fd_tower_blk_t *
-fd_tower_blocks_query( fd_tower_blocks_t * forks, ulong slot ) {
-  return fd_tower_blk_query( forks->blk_map, slot, NULL );
-}
-
-int
-fd_tower_blocks_remove( fd_tower_blocks_t * forks, ulong slot ) {
-  fd_tower_blk_t * fork = fd_tower_blk_query( forks->blk_map, slot, NULL );
-  if( FD_UNLIKELY( !fork ) ) return 0;
-  fd_tower_blk_remove( forks->blk_map, fork );
-  fd_tower_leaf_t * leaf = fd_tower_leaves_map_ele_remove( forks->tower_leaves_map, &slot, NULL, forks->tower_leaves_pool );
-  if( FD_UNLIKELY( leaf ) ) {
-    fd_tower_leaves_dlist_ele_remove( forks->tower_leaves_dlist, leaf, forks->tower_leaves_pool );
-    fd_tower_leaves_pool_ele_release( forks->tower_leaves_pool,  leaf );
-  }
-  return 1; /* success */
-}
-
 void
-fd_tower_blocks_lockouts_add( fd_tower_blocks_t * forks, ulong fork_slot, fd_hash_t const * vote_account_pubkey, fd_tower_voters_t * accts ) {
-  uchar __attribute__((aligned(FD_TOWER_ALIGN))) scratch[ FD_TOWER_FOOTPRINT ];
-  fd_tower_t * scratch_tower = fd_tower_join( fd_tower_new( scratch ) );
-
-  fd_tower_from_vote_acc( scratch_tower, accts->data );
-
-  for( fd_tower_iter_t iter = fd_tower_iter_init( scratch_tower );
-                             !fd_tower_iter_done( scratch_tower, iter );
-                       iter = fd_tower_iter_next( scratch_tower, iter ) ) {
-    fd_tower_t * vote    = fd_tower_iter_ele( scratch_tower, iter );
-    ulong interval_start = vote->slot;
-    ulong interval_end   = vote->slot + (1UL << vote->conf);
-    ulong key = fd_lockout_interval_key( fork_slot, interval_end );
-
-    if( !fd_lockout_intervals_map_ele_query( forks->lockout_intervals_map, &key, NULL, forks->lockout_intervals_pool ) ) {
-      /* No other pubkey has yet created [fork_slot, interval_end], so we can add this interval to the slot map linkedlist
-         Guaranteed to have space in pool */
-      FD_TEST( fd_lockout_intervals_pool_free( forks->lockout_intervals_pool ) );
-      fd_lockout_slots_t * slot = fd_lockout_slots_pool_ele_acquire( forks->lockout_slots_pool );
-      /* map multi, multiple keys for the same fork_slot */
-      slot->fork_slot = fork_slot;
-      slot->interval_end = interval_end;
-      FD_TEST( fd_lockout_slots_map_ele_insert( forks->lockout_slots_map, slot, forks->lockout_slots_pool ) );
-    }
-
-    FD_TEST( fd_lockout_intervals_pool_free( forks->lockout_intervals_pool ) );
-    fd_lockout_intervals_t * interval = fd_lockout_intervals_pool_ele_acquire( forks->lockout_intervals_pool );
-    interval->key                 = key;
-    interval->addr = *vote_account_pubkey;
-    interval->interval_start      = interval_start;
-    FD_TEST( fd_lockout_intervals_map_ele_insert( forks->lockout_intervals_map, interval, forks->lockout_intervals_pool ) );
-  }
-}
-
-void
-fd_tower_blocks_lockouts_clear( fd_tower_blocks_t * blocks, ulong slot ) {
-  for( fd_lockout_slots_t * slot_interval = fd_lockout_slots_map_ele_remove( blocks->lockout_slots_map, &slot, NULL, blocks->lockout_slots_pool );
-                            slot_interval;
-                            slot_interval = fd_lockout_slots_map_ele_remove( blocks->lockout_slots_map, &slot, NULL, blocks->lockout_slots_pool ) ) {
-    ulong key = fd_lockout_interval_key( slot, slot_interval->interval_end );
-    for( fd_lockout_intervals_t * itrvl = fd_lockout_intervals_map_ele_remove( blocks->lockout_intervals_map, &key, NULL, blocks->lockout_intervals_pool );
-                                  itrvl;
-                                  itrvl = fd_lockout_intervals_map_ele_remove( blocks->lockout_intervals_map, &key, NULL, blocks->lockout_intervals_pool ) ) {
-      fd_lockout_intervals_pool_ele_release( blocks->lockout_intervals_pool, itrvl );
-    }
-    fd_lockout_slots_pool_ele_release( blocks->lockout_slots_pool, slot_interval );
-  }
+fd_tower_blocks_remove( fd_tower_blocks_t * forks,
+                        ulong               slot ) {
+  fd_tower_blk_t * blk = fd_tower_blk_query( forks->blk_map, slot, NULL ); /* validate slot exists before removing */
+  if( FD_LIKELY( blk ) ) fd_tower_blk_remove( forks->blk_map, blk );
 }
