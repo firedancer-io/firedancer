@@ -291,7 +291,6 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L61-L71 */
   if( verified_build_hash ) {
-
     /* Strip trailing zero-padding before hashing
        https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L61-L63 */
     uchar const * data       = (uchar const *)acc->data;
