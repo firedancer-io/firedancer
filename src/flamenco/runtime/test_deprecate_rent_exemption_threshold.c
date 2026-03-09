@@ -139,6 +139,8 @@ test_env_create( test_env_t * env,
 
   FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
+  fd_bank_top_votes_modify( env->bank );
+
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), env->tag );
   FD_TEST( env->runtime_stack );
   fd_memset( env->runtime_stack, 0, sizeof(fd_runtime_stack_t) );
