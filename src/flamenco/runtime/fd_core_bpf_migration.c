@@ -7,6 +7,7 @@
 #include "fd_system_ids.h"
 #include "fd_hashes.h"
 #include "../accdb/fd_accdb_sync.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include <assert.h>
 
 static fd_pubkey_t
@@ -256,13 +257,14 @@ target_core_bpf_new_checked( target_core_bpf_t *       target_core_bpf,
   return target_core_bpf;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L22-L49 */
+/* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L51-L75 */
 
 static fd_tmp_account_t *
 source_buffer_new_checked( fd_tmp_account_t *        acc,
                            fd_accdb_user_t *         accdb,
                            fd_funk_txn_xid_t const * xid,
-                           fd_pubkey_t const *       pubkey ) {
+                           fd_pubkey_t const *       pubkey,
+                           fd_hash_t const *         verified_build_hash ) {
 
   if( FD_UNLIKELY( !tmp_account_read( acc, accdb, xid, pubkey ) ) ) {
     /* CoreBpfMigrationError::AccountNotFound(*buffer_address) */
@@ -274,8 +276,7 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
     return NULL;
   }
 
-  ulong const buffer_metadata_sz = 37UL;
-  if( acc->data_sz < buffer_metadata_sz ) {
+  if( acc->data_sz < BUFFER_METADATA_SIZE ) {
     /* CoreBpfMigrationError::InvalidBufferAccount(*buffer_address) */
     return NULL;
   }
@@ -286,6 +287,26 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
       acc->data, acc->data_sz,
       NULL ) ) ) {
     return NULL;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L61-L71 */
+  if( verified_build_hash ) {
+
+    /* Strip trailing zero-padding before hashing
+       https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L61-L63 */
+    uchar const * data       = (uchar const *)acc->data;
+    ulong         offset     = BUFFER_METADATA_SIZE;
+    ulong         end_offset = acc->data_sz;
+    while( end_offset>offset && data[end_offset-1]==0 ) end_offset--;
+    uchar const * buffer_program_data    = data + offset;
+    ulong         buffer_program_data_sz = end_offset - offset;
+
+    fd_hash_t hash;
+    fd_sha256_hash( buffer_program_data, buffer_program_data_sz, hash.uc );
+    if( FD_UNLIKELY( 0!=memcmp( hash.uc, verified_build_hash->uc, FD_HASH_FOOTPRINT ) ) ) {
+      /* CoreBpfMigrationError::BuildHashMismatch */
+      return NULL;
+    }
   }
 
   return acc;
@@ -439,7 +460,8 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       source,
       accdb,
       xid,
-      config->source_buffer_address ) ) )
+      config->source_buffer_address,
+      config->verified_build_hash ) ) )
     return;
 
   fd_rent_t const * rent = fd_bank_rent_query( bank );
@@ -527,7 +549,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L328 */
   fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
-  if( FD_UNLIKELY( !source_buffer_new_checked( source, accdb, xid, source_buffer_address ) ) ) {
+  if( FD_UNLIKELY( !source_buffer_new_checked( source, accdb, xid, source_buffer_address, NULL ) ) ) {
     return;
   }
 
