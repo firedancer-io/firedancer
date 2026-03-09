@@ -663,8 +663,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
-  fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_txn_attach_child( ctx->progcache, &parent_xid, &xid );
+  fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
+  fd_progcache_attach_child( ctx->progcache,   &parent_xid, &xid );
 
   /* Update required runtime state and handle potential boundary. */
 
@@ -947,8 +947,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->data->idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
-  fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_txn_attach_child( ctx->progcache, &parent_xid, &xid );
+  fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
+  fd_progcache_attach_child( ctx->progcache,   &parent_xid, &xid );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
@@ -1103,8 +1103,8 @@ init_funk( fd_replay_tile_t * ctx,
 
   fd_funk_txn_xid_t last_publish = fd_accdb_root_get( ctx->accdb_admin );
   fd_funk_txn_xid_t root = { .ul = { ULONG_MAX, ULONG_MAX } };
-  fd_progcache_txn_attach_child( ctx->progcache, &root, &last_publish );
-  fd_progcache_txn_advance_root( ctx->progcache,        &last_publish );
+  fd_progcache_attach_child( ctx->progcache, &root, &last_publish );
+  fd_progcache_advance_root( ctx->progcache,        &last_publish );
 }
 
 static void
@@ -2092,7 +2092,7 @@ accdb_advance_root( fd_replay_tile_t * ctx,
   fd_histf_sample( ctx->metrics.root_slot_dur,    (ulong)root_accounts_dt );
   fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
 
-  fd_progcache_txn_advance_root( ctx->progcache, &xid );
+  fd_progcache_advance_root( ctx->progcache, &xid );
   long t2 = fd_tickcount();
   FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
 }
@@ -2195,8 +2195,8 @@ after_credit( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( pruned==2 ) ) {
     fd_txncache_cancel_fork( ctx->txncache, cancel_info->txncache_fork_id );
     fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_idx } };
-    fd_accdb_cancel( ctx->accdb_admin, &xid );
-    fd_progcache_txn_cancel( ctx->progcache, &xid );
+    fd_accdb_cancel    ( ctx->accdb_admin, &xid );
+    fd_progcache_cancel( ctx->progcache,   &xid );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;

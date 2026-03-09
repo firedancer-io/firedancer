@@ -1,12 +1,12 @@
 #include "fd_progcache.h"
 #include "fd_progcache_admin.h"
+#include "fd_progcache_base.h"
+#include "fd_progcache_clock.h"
 #include "fd_progcache_rec.h"
-#include "fd_prog_load.h"
-#include "../runtime/program/fd_bpf_loader_program.h"
-#include "../runtime/program/fd_loader_v4_program.h"
-#include "../runtime/fd_system_ids.h"
+#include "fd_progcache_reclaim.h"
 #include "../../util/wksp/fd_wksp_private.h"
 
+/* FIXME get rid of this thread-local */
 FD_TL fd_progcache_admin_metrics_t fd_progcache_admin_metrics_g;
 
 /* Algorithm to estimate size of cache metadata structures (rec_pool
@@ -33,19 +33,20 @@ fd_progcache_est_rec_max( ulong wksp_footprint,
    txn_map. */
 
 void
-fd_progcache_txn_attach_child( fd_progcache_join_t *      cache,
-                               fd_progcache_xid_t const * xid_parent,
-                               fd_progcache_xid_t const * xid_new ) {
+fd_progcache_attach_child( fd_progcache_join_t * cache,
+                           fd_xid_t const *      xid_parent,
+                           fd_xid_t const *      xid_new ) {
   fd_rwlock_write( &cache->shmem->txn.rwlock );
 
   if( FD_UNLIKELY( fd_prog_txnm_idx_query_const( cache->txn.map, xid_new, ULONG_MAX, cache->txn.pool )!=ULONG_MAX ) ) {
-    FD_LOG_ERR(( "fd_progcache_txn_attach_child failed: xid %lu:%lu already in use",
+    FD_LOG_ERR(( "fd_progcache_attach_child failed: xid %lu:%lu already in use",
                  xid_new->ul[0], xid_new->ul[1] ));
   }
   if( FD_UNLIKELY( fd_prog_txnp_free( cache->txn.pool )==0UL ) ) {
-    FD_LOG_ERR(( "fd_progcache_txn_attach_child failed: transaction object pool out of memory" ));
+    FD_LOG_ERR(( "fd_progcache_attach_child failed: transaction object pool out of memory" ));
   }
 
+  ulong  txn_max = fd_prog_txnp_max( cache->txn.pool );
   ulong  parent_idx;
   uint * _child_head_idx;
   uint * _child_tail_idx;
@@ -61,9 +62,11 @@ fd_progcache_txn_attach_child( fd_progcache_join_t *      cache,
 
     parent_idx = fd_prog_txnm_idx_query( cache->txn.map, xid_parent, ULONG_MAX, cache->txn.pool );
     if( FD_UNLIKELY( parent_idx==ULONG_MAX ) ) {
-      FD_LOG_CRIT(( "fd_funk_txn_prepare failed: user provided invalid parent XID %lu:%lu",
+      FD_LOG_CRIT(( "fd_progcache_attach_child failed: user provided invalid parent XID %lu:%lu",
                     xid_parent->ul[0], xid_parent->ul[1] ));
     }
+    if( FD_UNLIKELY( parent_idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (attach_child parent_idx=%lu txn_max=%lu)", parent_idx, txn_max ));
 
     _child_head_idx = &cache->txn.pool[ parent_idx ].child_head_idx;
     _child_tail_idx = &cache->txn.pool[ parent_idx ].child_tail_idx;
@@ -71,13 +74,15 @@ fd_progcache_txn_attach_child( fd_progcache_join_t *      cache,
   }
 
   uint txn_idx = (uint)fd_prog_txnp_idx_acquire( cache->txn.pool );
-  if( FD_UNLIKELY( txn_idx==UINT_MAX ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed: transaction object pool out of memory" ));
+  if( FD_UNLIKELY( txn_idx==UINT_MAX ) ) FD_LOG_ERR(( "fd_progcache_attach_child failed: transaction object pool out of memory" ));
   fd_progcache_txn_t * txn = &cache->txn.pool[ txn_idx ];
   fd_funk_txn_xid_copy( &txn->xid, xid_new );
 
   uint sibling_prev_idx = *_child_tail_idx;
 
   int first_born = sibling_prev_idx==UINT_MAX;
+  if( FD_UNLIKELY( !first_born && (ulong)sibling_prev_idx >= txn_max ) )
+    FD_LOG_CRIT(( "progcache: corruption detected (attach_child sibling_prev_idx=%u txn_max=%lu)", sibling_prev_idx, txn_max ));
 
   txn->parent_idx       = (uint)parent_idx;
   txn->child_head_idx   = UINT_MAX;
@@ -97,57 +102,31 @@ fd_progcache_txn_attach_child( fd_progcache_join_t *      cache,
   fd_prog_txnm_idx_insert( cache->txn.map, txn_idx, cache->txn.pool );
 
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
-
-  FD_LOG_INFO(( "progcache xid %lu:%lu: created with parent %lu:%lu",
-                xid_new   ->ul[0], xid_new   ->ul[1],
-                xid_parent->ul[0], xid_parent->ul[1] ));
 }
 
 static void
-fd_progcache_rec_list_append( fd_progcache_rec_t * rec_pool,
-                              uint *               list_head,
-                              uint *               list_tail,
-                              uint                 rec_head,
-                              uint                 rec_tail ) {
-  if( rec_head==UINT_MAX ) return;
-  if( *list_tail!=UINT_MAX ) {
-    rec_pool[ *list_tail ].next_idx = rec_head;
-  } else {
-    *list_head = rec_head;
-  }
-  *list_tail = rec_tail;
-}
+fd_progcache_cancel_one( fd_progcache_join_t * cache,
+                         fd_progcache_txn_t *  txn ) {
+  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
+  ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
 
-static void
-fd_progcache_txn_cancel_one( fd_progcache_join_t * cache,
-                             fd_progcache_txn_t *  txn,
-                             uint *                cancel_head,
-                             uint *                cancel_tail ) {
-  FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: cancel", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
   fd_rwlock_write( &txn->lock );
 
   if( FD_UNLIKELY( txn->child_head_idx!=UINT_MAX ||
                    txn->child_tail_idx!=UINT_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_cancel failed: txn at %p with xid %lu:%lu has children (data corruption?)",
+    FD_LOG_CRIT(( "fd_progcache_cancel failed: txn at %p with xid %lu:%lu has children (data corruption?)",
                   (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
   }
 
   /* Remove records */
 
   for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.pool->ele[ idx ].next_idx ) {
-    fd_progcache_rec_t * rec = &cache->rec.pool->ele[ idx ];
-    if( rec->exists ) {
-      fd_prog_recm_query_t query[1];
-      int remove_err = fd_prog_recm_remove( cache->rec.map, &rec->pair, NULL, query, FD_MAP_FLAG_BLOCKING );
-      if( FD_UNLIKELY( remove_err ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed: %i-%s", remove_err, fd_map_strerror( remove_err ) ));
-    }
+    if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (cancel_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
+    atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
+    fd_prog_delete_rec( cache, &cache->rec.pool->ele[ idx ] );
   }
 
-  /* Detach record list from txn and append to cancel list */
-
-  fd_progcache_rec_list_append( cache->rec.pool->ele,
-                                cancel_head, cancel_tail,
-                                txn->rec_head_idx, txn->rec_tail_idx );
   txn->rec_head_idx = UINT_MAX;
   txn->rec_tail_idx = UINT_MAX;
 
@@ -157,12 +136,18 @@ fd_progcache_txn_cancel_one( fd_progcache_join_t * cache,
   uint prev_idx = txn->sibling_prev_idx;
   uint next_idx = txn->sibling_next_idx;
   if( next_idx!=UINT_MAX ) {
+    if( FD_UNLIKELY( (ulong)next_idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (cancel_one sibling_next_idx=%u txn_max=%lu)", next_idx, txn_max ));
     cache->txn.pool[ next_idx ].sibling_prev_idx = prev_idx;
   }
   if( prev_idx!=UINT_MAX ) {
+    if( FD_UNLIKELY( (ulong)prev_idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (cancel_one sibling_prev_idx=%u txn_max=%lu)", prev_idx, txn_max ));
     cache->txn.pool[ prev_idx ].sibling_next_idx = next_idx;
   }
   if( txn->parent_idx!=UINT_MAX ) {
+    if( FD_UNLIKELY( (ulong)txn->parent_idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (cancel_one parent_idx=%u txn_max=%lu)", txn->parent_idx, txn_max ));
     fd_progcache_txn_t * parent = &cache->txn.pool[ txn->parent_idx ];
     if( parent->child_head_idx==self_idx ) parent->child_head_idx = next_idx;
     if( parent->child_tail_idx==self_idx ) parent->child_tail_idx = prev_idx;
@@ -174,7 +159,7 @@ fd_progcache_txn_cancel_one( fd_progcache_join_t * cache,
   /* Remove transaction from index */
 
   if( FD_UNLIKELY( !fd_prog_txnm_ele_remove( cache->txn.map, &txn->xid, NULL, cache->txn.pool ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_cancel failed: fd_funk_txn_map_remove(%lu:%lu) failed",
+    FD_LOG_CRIT(( "fd_progcache_cancel failed: fd_funk_txn_map_remove(%lu:%lu) failed",
                   txn->xid.ul[0], txn->xid.ul[1] ));
   }
 
@@ -187,139 +172,50 @@ fd_progcache_txn_cancel_one( fd_progcache_join_t * cache,
 /* Cancels txn and all children */
 
 static void
-fd_progcache_txn_cancel_tree( fd_progcache_join_t * cache,
-                              fd_progcache_txn_t *  txn,
-                              uint *                cancel_head,
-                              uint *                cancel_tail ) {
+fd_progcache_cancel_tree( fd_progcache_join_t * cache,
+                          fd_progcache_txn_t *  txn ) {
+  ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   for(;;) {
     uint child_idx = txn->child_head_idx;
     if( child_idx==UINT_MAX ) break;
+    if( FD_UNLIKELY( (ulong)child_idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (cancel_tree child_idx=%u txn_max=%lu)", child_idx, txn_max ));
     fd_progcache_txn_t * child = &cache->txn.pool[ child_idx ];
-    fd_progcache_txn_cancel_tree( cache, child, cancel_head, cancel_tail );
+    fd_progcache_cancel_tree( cache, child );
   }
-  fd_progcache_txn_cancel_one( cache, txn, cancel_head, cancel_tail );
+  fd_progcache_cancel_one( cache, txn );
 }
 
 /* Cancels all left/right siblings */
 
 static void
-fd_progcache_txn_cancel_prev_list( fd_progcache_join_t * cache,
-                                   fd_progcache_txn_t *  txn,
-                                   uint *                cancel_head,
-                                   uint *                cancel_tail ) {
+fd_progcache_cancel_prev_list( fd_progcache_join_t * cache,
+                               fd_progcache_txn_t *  txn ) {
+  ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   uint cur_idx = txn->sibling_prev_idx;
   while( cur_idx!=UINT_MAX ) {
+    if( FD_UNLIKELY( (ulong)cur_idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (cancel_prev_list txn_idx=%u txn_max=%lu)", cur_idx, txn_max ));
     fd_progcache_txn_t * sibling = &cache->txn.pool[ cur_idx ];
     uint next = sibling->sibling_prev_idx;
-    fd_progcache_txn_cancel_tree( cache, sibling, cancel_head, cancel_tail );
+    fd_progcache_cancel_tree( cache, sibling );
     cur_idx = next;
   }
 }
 
 static void
-fd_progcache_txn_cancel_next_list( fd_progcache_join_t * cache,
-                                   fd_progcache_txn_t *  txn,
-                                   uint *                cancel_head,
-                                   uint *                cancel_tail ) {
+fd_progcache_cancel_next_list( fd_progcache_join_t * cache,
+                               fd_progcache_txn_t *  txn ) {
+  ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   uint cur_idx = txn->sibling_next_idx;
   while( cur_idx!=UINT_MAX ) {
+    if( FD_UNLIKELY( (ulong)cur_idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (cancel_next_list txn_idx=%u txn_max=%lu)", cur_idx, txn_max ));
     fd_progcache_txn_t * sibling = &cache->txn.pool[ cur_idx ];
     uint next = sibling->sibling_next_idx;
-    fd_progcache_txn_cancel_tree( cache, sibling, cancel_head, cancel_tail );
+    fd_progcache_cancel_tree( cache, sibling );
     cur_idx = next;
   }
-}
-
-/* Drain readers and free cancelled records */
-
-static void
-fd_progcache_txn_cancel_release( fd_progcache_join_t * cache,
-                                 uint                  head ) {
-  while( head!=UINT_MAX ) {
-    fd_progcache_rec_t * rec = &cache->rec.pool->ele[ head ];
-    uint next = rec->next_idx;
-
-    if( FD_LIKELY( rec->exists ) ) {
-      fd_rwlock_write( &rec->lock );
-      fd_progcache_val_free( rec, cache );
-      rec->exists = 0;
-      fd_rwlock_unwrite( &rec->lock );
-    }
-    fd_prog_recp_release( cache->rec.pool, rec, 1 );
-
-    head = next;
-  }
-}
-
-/* fd_progcache_gc_root cleans up a stale "rooted" version of a
-   record. */
-
-static void
-fd_progcache_gc_root( fd_progcache_join_t *          cache,
-                      fd_funk_xid_key_pair_t const * pair ) {
-  /* Phase 1: Remove record from map if found */
-
-  fd_prog_recm_query_t query[1];
-  int rm_err = fd_prog_recm_remove( cache->rec.map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
-  if( rm_err==FD_MAP_ERR_KEY ) return;
-  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
-  FD_COMPILER_MFENCE();
-
-  /* Phase 2: Drain readers */
-
-  fd_rwlock_write( &query->ele->lock );
-  fd_progcache_rec_t * old_rec = query->ele;
-  memset( &old_rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
-  FD_COMPILER_MFENCE();
-
-  /* Phase 3: Free record */
-
-  fd_progcache_val_free( old_rec, cache );
-  old_rec->exists = 0;
-  fd_rwlock_unwrite( &old_rec->lock );
-  fd_prog_recp_release( cache->rec.pool, old_rec, 1 );
-  fd_progcache_admin_metrics_g.gc_root_cnt++;
-}
-
-/* fd_progcache_gc_invalidation cleans up a "cache invalidate" record */
-
-static void
-fd_progcache_gc_invalidation( fd_progcache_join_t * cache,
-                              fd_progcache_rec_t *  rec ) { /* no lock */
-
-  /* Phase 1: Remove record from map if found */
-
-  fd_funk_xid_key_pair_t pair = rec->pair;
-  fd_prog_recm_query_t query[1];
-  int rm_err = fd_prog_recm_remove( cache->rec.map, &pair, NULL, query, FD_MAP_FLAG_BLOCKING );
-  if( rm_err==FD_MAP_ERR_KEY ) return;
-  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
-  if( FD_UNLIKELY( query->ele!=rec ) ) {
-    FD_LOG_CRIT(( "Found record collision in program cache: xid=%lu:%lu key=%016lx%016lx%016lx%016lx ele0=%u ele1=%u",
-                  pair.xid->ul[0], pair.xid->ul[1],
-                  fd_ulong_bswap( pair.key->ul[0] ),
-                  fd_ulong_bswap( pair.key->ul[1] ),
-                  fd_ulong_bswap( pair.key->ul[2] ),
-                  fd_ulong_bswap( pair.key->ul[3] ),
-                  (uint)( query->ele - cache->rec.pool->ele ),
-                  (uint)( rec        - cache->rec.pool->ele ) ));
-  }
-
-  /* Phase 2: Wait for readers to drain */
-
-  fd_rwlock_write( &rec->lock );
-
-  /* Phase 3: Invalidate and free record */
-
-  memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
-  FD_COMPILER_MFENCE();
-
-  rec->map_next = UINT_MAX;
-  fd_progcache_val_free( rec, cache );
-  rec->exists = 0;
-  fd_rwlock_unwrite( &rec->lock );
-  fd_prog_recp_release( cache->rec.pool, rec, 1 );
-  fd_progcache_admin_metrics_g.gc_root_cnt++;
 }
 
 /* Move list of records to root txn (advance_root)
@@ -332,37 +228,47 @@ fd_progcache_gc_invalidation( fd_progcache_join_t * cache,
 static void
 fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
                                   uint                  head ) {
+  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
   while( head!=UINT_MAX ) {
+    if( FD_UNLIKELY( (ulong)head >= rec_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (publish_release rec_idx=%u rec_max=%lu)", head, rec_max ));
     fd_progcache_rec_t * rec = &cache->rec.pool->ele[ head ];
     uint next = rec->next_idx;
 
-    if( FD_UNLIKELY( !rec->exists ) ) {
-      fd_prog_recp_release( cache->rec.pool, rec, 1 );
-      head = next;
-      continue;
+    /* Lock rec_map chain */
+    struct {
+      fd_prog_recm_txn_t txn[1];
+      fd_prog_recm_txn_private_info_t info[1];
+    } _map_txn;
+    fd_prog_recm_txn_t * map_txn = fd_prog_recm_txn_init( _map_txn.txn, cache->rec.map, 1UL );
+    fd_prog_recm_txn_add( map_txn, &rec->pair, 1 );
+    int txn_err = fd_prog_recm_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
+    if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) ) {
+      FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock funk rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
     }
 
-    /* Evict previous root value from hash chain */
+    /* Evict previous root value */
     fd_funk_xid_key_pair_t pair[1];
     fd_funk_rec_key_copy( pair->key, rec->pair.key );
     fd_funk_txn_xid_set_root( pair->xid );
-    fd_progcache_gc_root( cache, pair );
+    if( fd_prog_delete_rec_by_key( cache, pair, 0 )>=0 ) {
+      fd_progcache_admin_metrics_g.gc_root_cnt++;
+    }
 
-    /* Detach from txn list */
+    /* Migrate record to root */
+    fd_rwlock_write( &rec->lock );
     rec->prev_idx = UINT_MAX;
     rec->next_idx = UINT_MAX;
+    atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
+    fd_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
+    fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
+    fd_rwlock_unwrite( &rec->lock );
+    fd_progcache_admin_metrics_g.root_cnt++;
 
-    if( FD_UNLIKELY( rec->invalidate ) ) {
-      /* Drop cache invalidate records */
-      fd_progcache_gc_invalidation( cache, rec );
-    } else {
-      /* Migrate record to root */
-      fd_rwlock_write( &rec->lock );
-      fd_progcache_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
-      fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
-      fd_rwlock_unwrite( &rec->lock );
-      fd_progcache_admin_metrics_g.root_cnt++;
-    }
+    /* Unlock rec_map chain */
+    int test_err = fd_prog_recm_txn_test( map_txn );
+    if( FD_UNLIKELY( test_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_txn_test failed: %i-%s", test_err, fd_map_strerror( test_err ) ));
+    fd_prog_recm_txn_fini( map_txn );
 
     head = next;
   }
@@ -377,8 +283,7 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 
   /* Phase 1: Mark transaction as "last published" */
 
-  fd_progcache_xid_t const xid = txn->xid;
-  FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: publish", (void *)txn, xid.ul[0], xid.ul[1] ));
+  fd_xid_t const xid = txn->xid;
   if( FD_UNLIKELY( txn->parent_idx!=UINT_MAX ) ) {
     FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid.ul[0], xid.ul[1] ));
   }
@@ -390,6 +295,13 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 
   /* Phase 3: Detach records */
 
+  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
+  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.pool->ele[ idx ].next_idx ) {
+    if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (publish_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
+    atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
+  }
+
   uint rec_head = txn->rec_head_idx;
   txn->rec_head_idx = UINT_MAX;
   txn->rec_tail_idx = UINT_MAX;
@@ -397,8 +309,11 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   /* Phase 4: Remove transaction from fork graph */
 
   { /* Adjust the parent pointers of the children to point to "last published" */
+    ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
     ulong child_idx = txn->child_head_idx;
     while( child_idx!=UINT_MAX ) {
+      if( FD_UNLIKELY( child_idx >= txn_max ) )
+        FD_LOG_CRIT(( "progcache: corruption detected (publish_one child_idx=%lu txn_max=%lu)", child_idx, txn_max ));
       cache->txn.pool[ child_idx ].parent_idx = UINT_MAX;
       child_idx = cache->txn.pool[ child_idx ].sibling_next_idx;
     }
@@ -425,27 +340,28 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 }
 
 void
-fd_progcache_txn_advance_root( fd_progcache_join_t *     cache,
-                               fd_funk_txn_xid_t const * xid ) {
+fd_progcache_advance_root( fd_progcache_join_t * cache,
+                           fd_xid_t const *      xid ) {
 
   /* Detach records from txns without acquiring record locks */
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
 
+  ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   uint txn_idx = (uint)fd_prog_txnm_idx_query( cache->txn.map, xid, UINT_MAX, cache->txn.pool );
   if( FD_UNLIKELY( txn_idx==UINT_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_advance_root failed: invalid XID %lu:%lu",
+    FD_LOG_CRIT(( "fd_progcache_advance_root failed: invalid XID %lu:%lu",
                   xid->ul[0], xid->ul[1] ));
   }
+  if( FD_UNLIKELY( (ulong)txn_idx >= txn_max ) )
+    FD_LOG_CRIT(( "progcache: corruption detected (advance_root txn_idx=%u txn_max=%lu)", txn_idx, txn_max ));
   fd_progcache_txn_t * txn = &cache->txn.pool[ txn_idx ];
   if( FD_UNLIKELY( txn->parent_idx!=UINT_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
+    FD_LOG_CRIT(( "fd_progcache_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
   }
 
-  uint cancel_head = UINT_MAX;
-  uint cancel_tail = UINT_MAX;
-  fd_progcache_txn_cancel_prev_list( cache, txn, &cancel_head, &cancel_tail );
-  fd_progcache_txn_cancel_next_list( cache, txn, &cancel_head, &cancel_tail );
+  fd_progcache_cancel_prev_list( cache, txn );
+  fd_progcache_cancel_next_list( cache, txn );
 
   txn->sibling_prev_idx = UINT_MAX;
   txn->sibling_next_idx = UINT_MAX;
@@ -458,26 +374,23 @@ fd_progcache_txn_advance_root( fd_progcache_join_t *     cache,
 
   /* Update records */
 
-  fd_progcache_txn_cancel_release ( cache, cancel_head  );
+  fd_prog_reclaim_work( cache );
   fd_progcache_txn_publish_release( cache, publish_head );
 }
 
 void
-fd_progcache_txn_cancel( fd_progcache_join_t *      cache,
-                         fd_progcache_xid_t const * xid ) {
+fd_progcache_cancel( fd_progcache_join_t * cache,
+                     fd_xid_t const *      xid ) {
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
   fd_progcache_txn_t * txn = fd_prog_txnm_ele_query( cache->txn.map, xid, NULL, cache->txn.pool );
   if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_cancel failed: invalid XID %lu:%lu",
+    FD_LOG_CRIT(( "fd_progcache_cancel failed: invalid XID %lu:%lu",
                   xid->ul[0], xid->ul[1] ));
   }
-  uint cancel_head = UINT_MAX;
-  uint cancel_tail = UINT_MAX;
-  fd_progcache_txn_cancel_tree( cache, txn, &cancel_head, &cancel_tail );
+  fd_progcache_cancel_tree( cache, txn );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
-
-  fd_progcache_txn_cancel_release( cache, cancel_head );
+  fd_prog_reclaim_work( cache );
 }
 
 /* reset_txn_list does a depth-first traversal of the txn tree.
@@ -486,7 +399,10 @@ fd_progcache_txn_cancel( fd_progcache_join_t *      cache,
 static void
 reset_txn_list( fd_progcache_join_t * cache,
                 uint                  txn_head_idx ) {
+  ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
   for( uint idx = txn_head_idx; idx!=UINT_MAX; ) {
+    if( FD_UNLIKELY( (ulong)idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (reset_txn_list txn_idx=%u txn_max=%lu)", idx, txn_max ));
     fd_progcache_txn_t * txn = &cache->txn.pool[ idx ];
     txn->rec_head_idx = UINT_MAX;
     txn->rec_tail_idx = UINT_MAX;
@@ -499,6 +415,7 @@ reset_txn_list( fd_progcache_join_t * cache,
 
 static void
 reset_rec_map( fd_progcache_join_t * cache ) {
+  fd_progcache_rec_t * rec0 = cache->rec.pool->ele;
   ulong chain_cnt = fd_prog_recm_chain_cnt( cache->rec.map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     for(
@@ -506,17 +423,17 @@ reset_rec_map( fd_progcache_join_t * cache ) {
         !fd_prog_recm_iter_done( iter );
     ) {
       fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
-      ulong next = fd_prog_recm_private_idx( rec->map_next );;
+      ulong next = fd_prog_recm_private_idx( rec->map_next );
 
       if( rec->exists ) {
         fd_prog_recm_query_t rec_query[1];
         int err = fd_prog_recm_remove( cache->rec.map, &rec->pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
-        fd_funk_rec_key_t key; fd_funk_rec_key_copy( &key, rec->pair.key );
         if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
         fd_progcache_val_free( rec, cache );
       }
 
       rec->exists = 0;
+      fd_prog_clock_remove( cache->clock.bits, (ulong)( rec-rec0 ) );
       fd_prog_recp_release( cache->rec.pool, rec, 1 );
       iter.ele_idx = next;
     }
@@ -535,7 +452,10 @@ fd_progcache_reset( fd_progcache_join_t * cache ) {
 static void
 clear_txn_list( fd_progcache_join_t * join,
                 uint                  txn_head_idx ) {
+  ulong txn_max = fd_prog_txnp_max( join->txn.pool );
   for( uint idx = txn_head_idx; idx!=UINT_MAX; ) {
+    if( FD_UNLIKELY( (ulong)idx >= txn_max ) )
+      FD_LOG_CRIT(( "progcache: corruption detected (clear_txn_list txn_idx=%u txn_max=%lu)", idx, txn_max ));
     fd_progcache_txn_t * txn = &join->txn.pool[ idx ];
     uint next_idx  = txn->sibling_next_idx;
     uint child_idx = txn->child_head_idx;
@@ -561,91 +481,138 @@ fd_progcache_clear( fd_progcache_join_t * cache ) {
   reset_rec_map( cache );
 }
 
-void
-fd_progcache_inject_rec( fd_progcache_join_t *     cache,
-                         void const *              prog_addr,
-                         void const *              prog_owner,
-                         fd_account_meta_t const * progdata_meta,
-                         fd_features_t const *     features,
-                         ulong                     slot,
-                         uchar *                   scratch,
-                         ulong                     scratch_sz ) {
+static int
+fd_progcache_verify_siblings( fd_progcache_txn_t * pool,
+                              ulong                txn_max,
+                              uint                 head_idx,
+                              uint                 tail_idx,
+                              uint                 expected_parent_idx,
+                              uint *               stack,
+                              ulong *              stack_top ) {
 
-  /* XID overview:
+# define TEST(c) do {                                                    \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return -1; } \
+  } while(0)
 
-     - load_xid:   tip of fork currently being executed
-     - modify_xid: xid in which program was last modified / deployed
-     - txn->xid:   xid in which program cache entry is inserted
+  TEST( (head_idx==UINT_MAX)==(tail_idx==UINT_MAX) );
 
-     slot(load_xid) > slot(entry_xid) >= slot(txn->xid) */
-
-  /* Acquire reference to ELF binary data */
-
-  uchar const * elf_bin    = NULL;
-  ulong         elf_bin_sz = progdata_meta->dlen;
-  if( !memcmp( prog_owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    if( FD_UNLIKELY( elf_bin_sz<PROGRAMDATA_METADATA_SIZE ) ) return;
-
-    elf_bin     = (uchar const *)fd_account_data( progdata_meta ) + PROGRAMDATA_METADATA_SIZE;
-    elf_bin_sz -= PROGRAMDATA_METADATA_SIZE;
-  } else if( !memcmp( prog_owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    if( FD_UNLIKELY( elf_bin_sz<LOADER_V4_PROGRAM_DATA_OFFSET ) ) return;
-
-    elf_bin     = (uchar const *)fd_account_data( progdata_meta ) + LOADER_V4_PROGRAM_DATA_OFFSET;
-    elf_bin_sz -= LOADER_V4_PROGRAM_DATA_OFFSET;
-  } else if( !memcmp( prog_owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
-             !memcmp( prog_owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    elf_bin = (uchar const *)fd_account_data( progdata_meta );
-  }
-  if( FD_UNLIKELY( !elf_bin ) ) return;
-
-  /* Allocate a rec */
-
-  fd_progcache_rec_t * rec = fd_prog_recp_acquire( cache->rec.pool, NULL, 0, NULL );
-  if( FD_UNLIKELY( !rec ) ) {
-    FD_LOG_ERR(( "Program cache is out of memory: fd_funk_rec_pool_acquire failed (rec_max=%lu)",
-                 fd_prog_recp_ele_max( cache->rec.pool ) ));
-  }
-  memset( rec, 0, sizeof(fd_progcache_rec_t) );
-  rec->exists = 1;
-  rec->slot   = slot;
-
-  rec->prev_idx = UINT_MAX;
-  rec->next_idx = UINT_MAX;
-  memcpy( rec->pair.key, prog_addr, 32UL );
-  fd_funk_txn_xid_set_root( rec->pair.xid );
-
-  /* Load program */
-
-  ulong const load_slot = slot;
-  fd_prog_versions_t versions = fd_prog_versions( features, load_slot );
-  fd_sbpf_loader_config_t config = {
-    .sbpf_min_version = versions.min_sbpf_version,
-    .sbpf_max_version = versions.max_sbpf_version,
-  };
-  fd_sbpf_elf_info_t elf_info[1];
-
-  if( FD_LIKELY( fd_sbpf_elf_peek( elf_info, elf_bin, elf_bin_sz, &config )==FD_SBPF_ELF_SUCCESS ) ) {
-    ulong val_sz = fd_progcache_val_footprint( elf_info );
-    if( FD_UNLIKELY( !fd_progcache_val_alloc( rec, cache, fd_progcache_val_align(), val_sz ) ) ) {
-      /* This is a test API, so no need to do cache eviction */
-      FD_LOG_ERR(( "Program cache is out of memory: fd_alloc_malloc failed (requested sz=%lu)", val_sz ));
+  uint last_idx = UINT_MAX;
+  for( uint idx = head_idx; idx!=UINT_MAX; ) {
+    TEST( idx<txn_max );
+    fd_progcache_txn_t * child = &pool[ idx ];
+    TEST( !child->tag );
+    TEST( child->parent_idx==expected_parent_idx );
+    child->tag = 1;
+    TEST( *stack_top<FD_PROGCACHE_DEPTH_MAX );
+    stack[ (*stack_top)++ ] = idx;
+    last_idx = idx;
+    uint next_idx = child->sibling_next_idx;
+    if( next_idx!=UINT_MAX ) {
+      TEST( next_idx<txn_max );
+      TEST( pool[ next_idx ].sibling_prev_idx==idx );
     }
+    idx = next_idx;
+  }
+  TEST( last_idx==tail_idx );
 
-    if( FD_UNLIKELY( !fd_progcache_rec_load( rec, cache->wksp, elf_info, &config, load_slot, features, elf_bin, elf_bin_sz, scratch, scratch_sz ) ) ) {
-      fd_progcache_val_free( rec, cache );
-      fd_progcache_rec_nx( rec );
+# undef TEST
+
+  return 0;
+}
+
+int
+fd_progcache_verify( fd_progcache_join_t * join ) {
+
+# define TEST(c) do {                                                    \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return -1; } \
+  } while(0)
+
+  TEST( join );
+
+  fd_progcache_shmem_t * shmem = join->shmem;
+  TEST( shmem );
+  TEST( shmem->magic==FD_PROGCACHE_SHMEM_MAGIC );
+  TEST( shmem->wksp_tag );
+
+  TEST( !fd_prog_recp_verify( join->rec.pool ) );
+  TEST( !fd_prog_recm_verify( join->rec.map ) );
+
+  ulong rec_max = fd_prog_recp_ele_max( join->rec.pool );
+  fd_progcache_rec_t * rec0 = join->rec.pool->ele;
+
+  ulong txn_max = fd_prog_txnp_max( join->txn.pool );
+  TEST( !fd_prog_txnm_verify( join->txn.map, txn_max, join->txn.pool ) );
+
+  for( ulong i=0UL; i<txn_max; i++ ) join->txn.pool[ i ].tag = 0;
+
+  uint  stack[ FD_PROGCACHE_DEPTH_MAX ];
+  ulong stack_top = 0UL;
+
+  TEST( !fd_progcache_verify_siblings( join->txn.pool, txn_max,
+      shmem->txn.child_head_idx, shmem->txn.child_tail_idx,
+      UINT_MAX, stack, &stack_top ) );
+
+  while( stack_top ) {
+    uint txn_idx = stack[ --stack_top ];
+    fd_progcache_txn_t * txn = &join->txn.pool[ txn_idx ];
+    TEST( !fd_progcache_verify_siblings( join->txn.pool, txn_max,
+        txn->child_head_idx, txn->child_tail_idx,
+        txn_idx, stack, &stack_top ) );
+  }
+
+  for( ulong i=0UL; i<txn_max; i++ ) {
+    if( !join->txn.pool[ i ].tag ) continue;
+    fd_progcache_txn_t * txn = &join->txn.pool[ i ];
+
+    TEST( (txn->rec_head_idx==UINT_MAX)==(txn->rec_tail_idx==UINT_MAX) );
+
+    ulong rec_cnt = 0UL;
+    uint  prev    = UINT_MAX;
+    for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; ) {
+      TEST( idx<rec_max );
+      TEST( rec_cnt<rec_max ); /* cycle detection */
+      fd_progcache_rec_t * rec = &rec0[ idx ];
+      TEST( rec->prev_idx==prev );
+      TEST( rec->exists );
+      prev = idx;
+      idx  = rec->next_idx;
+      rec_cnt++;
     }
-  } else {
-    fd_progcache_rec_nx( rec );
+    TEST( prev==txn->rec_tail_idx );
   }
 
-  /* Publish cache entry to funk index */
+  ulong chain_cnt = fd_prog_recm_chain_cnt( join->rec.map );
+  for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    for(
+        fd_prog_recm_iter_t iter = fd_prog_recm_iter( join->rec.map, chain_idx );
+        !fd_prog_recm_iter_done( iter );
+        iter = fd_prog_recm_iter_next( iter )
+    ) {
+      fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
+      TEST( rec->exists );
 
-  int insert_err = fd_prog_recm_txn_insert( cache->rec.map, rec );
-  if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) {
-    FD_LOG_CRIT(( "fd_funk_rec_map_txn_insert failed: %i-%s", insert_err, fd_map_strerror( insert_err ) ));
+      /* Verify clock exists bit is set for mapped records */
+      ulong rec_idx = (ulong)( rec - rec0 );
+      TEST( rec_idx<rec_max );
+      atomic_ulong * slot_p = fd_prog_cbits_slot( join->clock.bits, rec_idx );
+      ulong slot_val = atomic_load_explicit( slot_p, memory_order_relaxed );
+      TEST( fd_ulong_extract_bit( slot_val, fd_prog_exists_bit( rec_idx ) ) );
+    }
   }
+
+  {
+    ulong reclaim_cnt = 0UL;
+    for( uint idx = join->rec.reclaim_head; idx!=UINT_MAX; ) {
+      TEST( idx<rec_max );
+      TEST( reclaim_cnt<rec_max ); /* cycle detection */
+      idx = rec0[ idx ].reclaim_next;
+      reclaim_cnt++;
+    }
+  }
+
+# undef TEST
+
+  return 0;
 }
 
 void

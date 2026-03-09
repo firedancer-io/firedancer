@@ -51,8 +51,8 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   ulong             slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
   fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->data->idx } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_txn_attach_child( runner->progcache->join, &parent_xid, &xid );
+  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
+  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
 
   /* Initialize bank from input txn bank */
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );

@@ -358,9 +358,9 @@ test_env_create( test_env_t * env,
   /* Transaction fork */
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 10UL, env->bank->data->idx } };
-  fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
-  fd_progcache_txn_attach_child( env->progcache->join, root, &env->xid );
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 1UL, env->bank->data->idx } };
+  fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
+  fd_progcache_attach_child( env->progcache->join, root, &env->xid );
 
   env->bank->data->f.slot = 10UL;
   env->bank->data->f.parent_slot = 9UL;
@@ -389,34 +389,6 @@ test_env_create( test_env_t * env,
   create_account_in_accdb( env, &acct1_pubkey, &callee_program_pubkey, 1000000UL, NULL, init_dlen, 0 );
   if( num_data_accts >= 2UL ) {
     create_account_in_accdb( env, &acct2_pubkey, &callee_program_pubkey, 1000000UL, NULL, init_dlen, 0 );
-  }
-
-  /* Inject BPF program into progcache */
-  {
-    ulong inject_sz = sizeof(fd_account_meta_t) + elf_sz;
-    uchar * inject_buf = fd_wksp_alloc_laddr( wksp, alignof(fd_account_meta_t), inject_sz, TEST_WKSP_TAG );
-    FD_TEST( inject_buf );
-
-    fd_account_meta_t * inject_meta = (fd_account_meta_t *)inject_buf;
-    fd_account_meta_init( inject_meta );
-    inject_meta->lamports   = 1000000UL;
-    inject_meta->dlen       = (uint)elf_sz;
-    inject_meta->executable = 1;
-    memcpy( inject_meta->owner, fd_solana_bpf_loader_program_id.uc, sizeof(fd_pubkey_t) );
-    memcpy( inject_buf + sizeof(fd_account_meta_t), elf_data, elf_sz );
-
-    uchar * scratch = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN, elf_sz, TEST_WKSP_TAG );
-    FD_TEST( scratch );
-    fd_progcache_inject_rec( env->progcache->join,
-                             &callee_program_pubkey,
-                             inject_meta->owner,
-                             inject_meta,
-                             features,
-                             env->bank->data->f.slot,
-                             scratch,
-                             elf_sz );
-    fd_wksp_free_laddr( scratch );
-    fd_wksp_free_laddr( inject_buf );
   }
 
   /* Set up caller VM */
@@ -522,8 +494,8 @@ test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( env->acct1_meta );
   if( env->acct2_meta ) fd_wksp_free_laddr( env->acct2_meta );
 
-  fd_accdb_cancel( env->accdb_admin, &env->xid );
-  fd_progcache_txn_cancel( env->progcache->join, &env->xid );
+  fd_accdb_cancel    ( env->accdb_admin,     &env->xid );
+  fd_progcache_cancel( env->progcache->join, &env->xid );
 
   fd_wksp_free_laddr( env->runtime );
   fd_wksp_free_laddr( env->acc_pool_mem );

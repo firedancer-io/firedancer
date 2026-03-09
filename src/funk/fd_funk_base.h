@@ -115,6 +115,7 @@ union __attribute__((aligned(FD_FUNK_TXN_XID_ALIGN))) fd_funk_txn_xid {
 };
 
 typedef union fd_funk_txn_xid fd_funk_txn_xid_t;
+typedef union fd_funk_txn_xid fd_xid_t;
 
 /* FD_FUNK_XID_KEY_PAIR_{ALIGN,FOOTPRINT} describe the alignment and
    footprint of a fd_funk_xid_key_pair_t.  ALIGN is a positive integer

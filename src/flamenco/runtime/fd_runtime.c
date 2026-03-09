@@ -1292,16 +1292,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     /* Atomically add all accumulated tips to the bank once after processing all accounts */
     if( txn_out->details.tips>0UL )
       FD_ATOMIC_FETCH_AND_ADD( &bank->data->f.tips, txn_out->details.tips );
-
-    /* We need to queue any existing program accounts that may have
-       been deployed / upgraded for reverification in the program
-       cache since their programdata may have changed. ELF / sBPF
-       metadata will need to be updated. */
-    ulong current_slot = bank->data->f.slot;
-    for( uchar i=0; i<txn_out->details.programs_to_reverify_cnt; i++ ) {
-      fd_pubkey_t const * program_key = &txn_out->details.programs_to_reverify[i];
-      fd_progcache_invalidate( runtime->progcache, &xid, program_key, current_slot );
-    }
   }
 
   /* Accumulate block-level information to the bank. */
@@ -1419,8 +1409,6 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->details.execution_fee   = 0UL;
   txn_out->details.priority_fee    = 0UL;
   txn_out->details.signature_count = 0UL;
-
-  txn_out->details.programs_to_reverify_cnt = 0UL;
 
   txn_out->details.signature_count = TXN( txn_in->txn )->signature_cnt;
   txn_out->details.is_simple_vote  = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );

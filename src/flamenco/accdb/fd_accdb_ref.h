@@ -56,6 +56,26 @@ fd_accdb_ro_init_nodb( fd_accdb_ro_t *           ro,
   return ro;
 }
 
+/* fd_accdb_ro_init_nodb_oob creates a read-only account reference to an
+   account that is not managed by an account database, where the account
+   data is stored out-of-band (i.e. not contiguous at meta+1).  The
+   data pointer is stored in user_data2 and returned by
+   fd_accdb_ref_data_const. */
+
+static inline fd_accdb_ro_t *
+fd_accdb_ro_init_nodb_oob( fd_accdb_ro_t *           ro,
+                           void const *              address,
+                           fd_account_meta_t const * meta,
+                           void const *              data ) {
+  ro->meta = meta;
+  ro->ref->user_data  = 0UL;
+  ro->ref->user_data2 = (ulong)data;
+  memcpy( ro->ref->address, address, 32UL );
+  ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  ro->ref->ref_type   = FD_ACCDB_REF_RO;
+  return ro;
+}
+
 /* fd_accdb_ro_init_empty creates a read-only account reference to a
    non-existent account. */
 
@@ -80,6 +100,8 @@ fd_accdb_ref_address( fd_accdb_ro_t const * ro ) {
 
 static inline void const *
 fd_accdb_ref_data_const( fd_accdb_ro_t const * ro ) {
+  if( FD_UNLIKELY( ro->ref->user_data2 && ro->ref->accdb_type==FD_ACCDB_TYPE_NONE ) )
+    return (void const *)ro->ref->user_data2;
   return (void *)( ro->meta+1 );
 }
 
@@ -140,7 +162,8 @@ fd_accdb_rw_init_nodb( fd_accdb_rw_t *           rw,
                        fd_account_meta_t const * meta,
                        ulong                     data_max ) {
   rw->meta = (fd_account_meta_t *)meta;
-  rw->ref->user_data = data_max;
+  rw->ref->user_data  = data_max;
+  rw->ref->user_data2 = 0UL;
   memcpy( rw->ref->address, address, 32UL );
   rw->ref->accdb_type = FD_ACCDB_TYPE_NONE;
   return rw;
@@ -151,6 +174,8 @@ fd_accdb_rw_init_nodb( fd_accdb_rw_t *           rw,
 
 static inline void *
 fd_accdb_ref_data( fd_accdb_rw_t * rw ) {
+  if( FD_UNLIKELY( rw->ref->user_data2 && rw->ref->accdb_type==FD_ACCDB_TYPE_NONE ) )
+    return (void *)rw->ref->user_data2;
   return (void *)( rw->meta+1 );
 }
 

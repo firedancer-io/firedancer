@@ -120,7 +120,6 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, PROGCACHE_LOOKUPS,                pm->lookup_cnt     );
   FD_MCNT_SET( EXECRP, PROGCACHE_HITS,                   pm->hit_cnt        );
   FD_MCNT_SET( EXECRP, PROGCACHE_MISSES,                 pm->miss_cnt       );
-  FD_MCNT_SET( EXECRP, PROGCACHE_INVALIDATIONS,          pm->invalidate_cnt );
   FD_MCNT_SET( EXECRP, PROGCACHE_OOM_HEAP,               pm->oom_heap_cnt   );
   FD_MCNT_SET( EXECRP, PROGCACHE_OOM_DESC,               pm->oom_desc_cnt   );
   FD_MCNT_SET( EXECRP, PROGCACHE_FILLS,                  pm->fill_cnt       );

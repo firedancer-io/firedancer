@@ -7,8 +7,6 @@
 #include "../../stakes/fd_stakes.h"
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../sysvar/fd_sysvar_rent.h"
-#include "../sysvar/fd_sysvar_recent_hashes.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../accdb/fd_accdb_sync.h"
@@ -151,8 +149,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child( runner->accdb_admin, &parent_xid, xid );
-  fd_progcache_txn_attach_child( runner->progcache->join, &parent_xid, xid );
+  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, xid );
+  fd_progcache_attach_child( runner->progcache->join, &parent_xid, xid );
 
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );
@@ -328,8 +326,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, 0UL } };
-  fd_accdb_attach_child        ( runner->accdb_admin,     xid, &fork_xid );
-  fd_progcache_txn_attach_child( runner->progcache->join, xid, &fork_xid );
+  fd_accdb_attach_child    ( runner->accdb_admin,     xid, &fork_xid );
+  fd_progcache_attach_child( runner->progcache->join, xid, &fork_xid );
   xid[0] = fork_xid;
 
   /* Set the initial lthash from the input since we're in a new Funk txn */

@@ -1027,7 +1027,6 @@
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;lookups</span> | counter | Program cache lookup counter |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;hits</span> | counter | Program cache hit counter |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;misses</span> | counter | Program cache miss counter |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;invalidations</span> | counter | Program cache invalidation counter |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;oom_&#8203;heap</span> | counter | Program cache out-of-memory event counter (heap) |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;oom_&#8203;desc</span> | counter | Program cache out-of-memory event counter (descriptor table) |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |

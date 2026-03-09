@@ -28,8 +28,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, xid );
-  fd_progcache_txn_attach_child( runner->progcache->join, &parent_xid, xid );
+  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, xid );
+  fd_progcache_attach_child( runner->progcache->join, &parent_xid, xid );
 
   fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
@@ -87,7 +87,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_out->accounts.cnt     = 0UL;
   runtime->accounts.executable_cnt   = 0UL;
 
-  txn_out->details.programs_to_reverify_cnt  = 0UL;
   txn_out->details.loaded_accounts_data_size = 0UL;
   txn_out->details.accounts_resize_delta     = 0L;
 
@@ -222,23 +221,11 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       }
       meta = txn_out->accounts.account[i].meta;
     }
-
-    FD_SPAD_FRAME_BEGIN( runner->spad ) {
-      uchar * scratch = fd_spad_alloc( runner->spad, FD_FUNK_REC_ALIGN, meta->dlen );
-      fd_progcache_inject_rec( runner->progcache->join,
-                               &txn_out->accounts.keys[i],
-                               owner,
-                               meta,
-                               features,
-                               runner->bank->data->f.slot,
-                               scratch,
-                               meta->dlen );
-    } FD_SPAD_FRAME_END;
   }
 
   fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ runner->bank->data->f.slot, runner->bank->data->idx } }};
-  fd_accdb_attach_child        ( runner->accdb_admin,     xid, exec_xid );
-  fd_progcache_txn_attach_child( runner->progcache->join, xid, exec_xid );
+  fd_accdb_attach_child    ( runner->accdb_admin,     xid, exec_xid );
+  fd_progcache_attach_child( runner->progcache->join, xid, exec_xid );
 
   /* Load instruction accounts */
 
