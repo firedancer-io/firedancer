@@ -6,7 +6,6 @@
 #include <string.h>
 
 #include "fd_eqvoc.h"
-#include "fd_eqvoc_private.h"
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
 
@@ -17,6 +16,7 @@
 static fd_pubkey_t        leader[1]  = {{{ 0 }}};
 static uint               sched[100] = { 0 };
 static fd_epoch_leaders_t leaders    = { .slot0 = 0, .slot_cnt = 100, .pub = leader, .pub_cnt = 1, .sched = sched, .sched_cnt = 4 };
+static fd_gossip_duplicate_shred_t chunks_out[ FD_EQVOC_CHUNK_CNT ];
 
 int
 LLVMFuzzerInitialize( int  *   argc,
@@ -34,22 +34,25 @@ LLVMFuzzerTestOneInput( uchar const * data,
   ulong chunk_sz = sizeof(fd_gossip_duplicate_shred_t);
   if( FD_UNLIKELY( size < 32UL + 3UL * chunk_sz ) ) return -1;
 
-  ulong   footprint = fd_eqvoc_footprint( SHRED_MAX, SLOT_MAX, FROM_MAX );
+  ulong   footprint = fd_eqvoc_footprint( SLOT_MAX, SHRED_MAX, FROM_MAX );
   uchar * mem       = aligned_alloc( fd_eqvoc_align(), footprint );
 
-  fd_eqvoc_t * eqvoc = fd_eqvoc_join( fd_eqvoc_new( mem, SHRED_MAX, SLOT_MAX, FROM_MAX, 0UL ) );
-  fd_eqvoc_set_shred_version( eqvoc, 42 );
-  fd_eqvoc_set_leader_schedule( eqvoc, &leaders );
+  fd_eqvoc_t * eqvoc = fd_eqvoc_join( fd_eqvoc_new( mem, SLOT_MAX, SHRED_MAX, FROM_MAX, 0UL ) );
 
   fd_pubkey_t from;
   memcpy( &from, data, 32UL );
   data += 32UL;
   size -= 32UL;
 
+  uchar voters_mem[16384] __attribute__((aligned(128)));
+  fd_tower_voters_t * tower_voters = fd_tower_voters_join( fd_tower_voters_new( voters_mem, 1 ) );
+  fd_tower_voters_push_tail( tower_voters, (fd_tower_voters_t){ .id = from } );
+  fd_eqvoc_update_voters( eqvoc, tower_voters );
+
   while( size >= sizeof(fd_gossip_duplicate_shred_t) ) {
     fd_gossip_duplicate_shred_t chunk;
     memcpy( &chunk, data, sizeof(fd_gossip_duplicate_shred_t) );
-    fd_eqvoc_chunk_insert( eqvoc, &from, &chunk );
+    fd_eqvoc_chunk_insert( eqvoc, 42, 0UL, &leaders, &from, &chunk, chunks_out );
     data += sizeof(fd_gossip_duplicate_shred_t);
     size -= sizeof(fd_gossip_duplicate_shred_t);
   }
