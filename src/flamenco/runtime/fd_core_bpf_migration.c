@@ -284,8 +284,13 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
   fd_bpf_upgradeable_loader_state_t state[1];
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       bpf_upgradeable_loader_state, state,
-      acc->data, acc->data_sz,
+      acc->data, BUFFER_METADATA_SIZE,
       NULL ) ) ) {
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( state->discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) ) {
+    /* CoreBpfMigrationError::InvalidBufferAccount(*buffer_address) */
     return NULL;
   }
 
