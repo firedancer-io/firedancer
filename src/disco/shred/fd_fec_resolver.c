@@ -498,7 +498,8 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   if( !is_data_shred ) { /* Roughly 50/50 branch */
     if( FD_UNLIKELY( (shred->code.data_cnt!=FD_FEC_SHRED_CNT) | (shred->code.code_cnt!=FD_FEC_SHRED_CNT) ) )
       return FD_FEC_RESOLVER_SHRED_REJECTED;
-    if( FD_UNLIKELY( shred->code.idx>=FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( shred->code.idx>=FD_FEC_SHRED_CNT            ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( shred->code.idx!=shred->idx%FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
   if( FD_UNLIKELY( (shred_type==FD_SHRED_TYPE_LEGACY_DATA) | (shred_type==FD_SHRED_TYPE_LEGACY_CODE) ) ) {
