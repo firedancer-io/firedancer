@@ -1688,7 +1688,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x08\xe9\x40\xc0\xc3\x42\x8a\xf0\xbd\x9d\x09\x80\xa6\xce\x78\xcb\x1c\xc6\x57\x4e\x44\xfe\xf5\x52\xe7\x0c\x40\x70\xe9\x51\xec\x74"},
                                  /* bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm */
     .name                      = "fix_alt_bn128_pairing_length_check",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, poseidon_enforce_padding)>>3,
     .id                        = {"\x0c\x3e\xd9\x52\x45\xee\x7b\x8c\x8a\xaf\x88\xa2\x5e\x37\x29\x76\x1d\xa5\xfb\xfa\x47\x48\xfd\xd4\x5a\xff\x2b\xb8\xfa\xd3\x1c\x98"},

@@ -299,13 +299,7 @@ fd_config_fill( fd_config_t * config,
   else  FD_LOG_ERR(( "[log.colorize] must be one of \"auto\", \"true\", or \"false\"" ));
 
   if( FD_LIKELY( 2==config->log.colorize1 ) ) {
-    char const * cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
-    int truecolor = cstr && !strcmp( cstr, "truecolor" );
-
-    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-    int color256 = cstr && strstr( cstr, "256color" );
-
-    config->log.colorize1 = truecolor || color256;
+    config->log.colorize1 = fd_log_should_colorize();
   }
 
   config->log.level_logfile1 = parse_log_level( config->log.level_logfile );

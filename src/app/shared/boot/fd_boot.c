@@ -61,16 +61,6 @@ init_log_memfd( void ) {
   return memfd;
 }
 
-static int
-should_colorize( void ) {
-  char const * cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
-  if( cstr && !strcmp( cstr, "truecolor" ) ) return 1;
-
-  cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-  if( cstr && strstr( cstr, "256color" ) ) return 1;
-  return 0;
-}
-
 static void
 determine_override_config( int *                      pargc,
                            char ***                   pargv,
@@ -162,7 +152,7 @@ fd_main_init( int *                      pargc,
               fd_config_file_t * const * configs ) {
   fd_log_enable_unclean_exit(); /* Don't call atexit handlers on FD_LOG_ERR */
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
-  fd_log_colorize_set( should_colorize() ); /* Colorize during boot until we can determine from config */
+  fd_log_colorize_set( fd_log_should_colorize() ); /* Colorize during boot until we can determine from config */
   fd_log_level_stderr_set( 2 ); /* Only NOTICE and above will be logged during boot until fd_log is initialized */
 
   int config_fd = fd_env_strip_cmdline_int( pargc, pargv, "--config-fd", NULL, -1 );

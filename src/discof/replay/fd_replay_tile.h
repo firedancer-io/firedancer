@@ -13,6 +13,12 @@
 #define REPLAY_SIG_OC_ADVANCED    (5)
 #define REPLAY_SIG_TXN_EXECUTED   (6)
 
+/* fd_replay_slot_completed promises that it will deliver at most 2
+   frags for a given slot (at most 2 equivocating blocks).  The first
+   block is the first one we replay to completion.  The second version
+   (if there is) is always the confirmed equivocating block.  This
+   guarantee is provided by fd_reasm. */
+
 struct fd_replay_slot_completed {
   ulong slot;
   ulong root_slot;
@@ -27,7 +33,6 @@ struct fd_replay_slot_completed {
   fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
   fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
-
   ulong transaction_count;
 
   struct {

@@ -26,7 +26,6 @@
 
 #define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
 
-#define FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE (5UL)
 
 __attribute__((weak)) long
 fd_bundle_now( void ) {
@@ -51,7 +50,7 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_live = 0;
   ctx->bundle_subscription_wait = 0;
 
-  memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
+  fd_memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
 
 # if FD_HAS_OPENSSL
   if( FD_UNLIKELY( ctx->ssl ) ) {
@@ -468,7 +467,7 @@ fd_bundle_client_grpc_conn_dead( void * app_ctx,
   ctx->defer_reset = 1;
 }
 
-/* Forwards a bundle transaction to the tango message bus. */
+/* Buffers a bundle transaction for deferred publishing by after_credit. */
 
 static void
 fd_bundle_tile_publish_bundle_txn(
@@ -483,36 +482,24 @@ fd_bundle_tile_publish_bundle_txn(
     return;
   }
 
-  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
-  *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0U,
-    .source_ipv4      = source_ipv4,
-    .source_tpu       = FD_TXN_M_TPU_SOURCE_BUNDLE,
-    .block_engine   = {
-      .bundle_id      = ctx->bundle_seq,
-      .bundle_txn_cnt = bundle_txn_cnt,
-      .commission     = (uchar)ctx->builder_commission
-    },
-  };
-  memcpy( txnm->block_engine.commission_pubkey, ctx->builder_pubkey, 32UL );
-  fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
-
-  ulong sz  = fd_txn_m_realized_footprint( txnm, 0, 0 );
-  ulong sig = 1UL;
-
-  if( FD_UNLIKELY( !ctx->stem ) ) {
-    FD_LOG_CRIT(( "ctx->stem not set. This is a bug." ));
+  if( FD_UNLIKELY( pending_txn_full( ctx->pending_txns ) ) ) {
+    ctx->metrics.backpressure_drop_cnt++;
+    return;
   }
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
-  fd_stem_publish( ctx->stem, ctx->verify_out.idx, sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
-  ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
+  fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
+  fd_memcpy( entry->payload, txn, txn_sz );
+  entry->payload_sz     = (ushort)txn_sz;
+  entry->source_ipv4    = source_ipv4;
+  entry->sig            = 1UL;
+  entry->bundle_seq     = ctx->bundle_seq;
+  entry->bundle_txn_cnt = bundle_txn_cnt;
+  entry->commission     = (uchar)ctx->builder_commission;
+  fd_memcpy( entry->commission_pubkey, ctx->builder_pubkey, 32UL );
   ctx->metrics.txn_received_cnt++;
 }
 
-/* Forwards a regular transaction to the tango message bus. */
+/* Buffers a regular transaction for deferred publishing by after_credit. */
 
 static void
 fd_bundle_tile_publish_txn(
@@ -521,32 +508,20 @@ fd_bundle_tile_publish_txn(
     ulong              txn_sz,  /* <=FD_TXN_MTU */
     uint               source_ipv4
 ) {
-  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
-  *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0U,
-    .source_ipv4    = source_ipv4,
-    .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
-    .block_engine   = {
-      .bundle_id         = 0UL,
-      .bundle_txn_cnt    = 1UL,
-      .commission        = 0U,
-      .commission_pubkey = {0U}
-    },
-  };
-  fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
-
-  ulong sz  = fd_txn_m_realized_footprint( txnm, 0, 0 );
-  ulong sig = 0UL;
-
-  if( FD_UNLIKELY( !ctx->stem ) ) {
-    FD_LOG_CRIT(( "ctx->stem not set. This is a bug." ));
+  if( FD_UNLIKELY( pending_txn_full( ctx->pending_txns ) ) ) {
+    ctx->metrics.backpressure_drop_cnt++;
+    return;
   }
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
-  fd_stem_publish( ctx->stem, ctx->verify_out.idx, sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
-  ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
+  fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
+  fd_memcpy( entry->payload, txn, txn_sz );
+  entry->payload_sz     = (ushort)txn_sz;
+  entry->source_ipv4    = source_ipv4;
+  entry->sig            = 0UL;
+  entry->bundle_seq     = 0UL;
+  entry->bundle_txn_cnt = 1UL;
+  entry->commission     = 0U;
+  fd_memset( entry->commission_pubkey, 0, 32UL );
   ctx->metrics.txn_received_cnt++;
 }
 
@@ -654,6 +629,11 @@ fd_bundle_client_visit_pb_bundle_uuid(
      Second pass: Actually publish bundle packets */
 
   if( FD_UNLIKELY( ctx->bundle_txn_cnt>FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ) ) return true;
+
+  if( FD_UNLIKELY( pending_txn_avail( ctx->pending_txns )<ctx->bundle_txn_cnt ) ) {
+    ctx->metrics.backpressure_drop_cnt += ctx->bundle_txn_cnt;
+    return true;
+  }
 
   ctx->bundle_seq++;
   bundle = (bundle_BundleUuid)bundle_BundleUuid_init_default;

@@ -431,6 +431,8 @@
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;smoothed</span> | gauge | RTT moving average (nanoseconds) |
 | <span class="metrics-name">bundle_&#8203;rtt_&#8203;var</span> | gauge | RTT variance (nanoseconds) |
 | <span class="metrics-name">bundle_&#8203;message_&#8203;rx_&#8203;delay_&#8203;nanos</span> | histogram | Message receive delay in nanoseconds from bundle server to bundle client |
+| <span class="metrics-name">bundle_&#8203;pending_&#8203;transactions</span> | gauge | Number of transactions buffered and waiting to be published |
+| <span class="metrics-name">bundle_&#8203;transaction_&#8203;dropped_&#8203;backpressure</span> | counter | Transactions dropped because the pending transaction buffer was full (should never happen) |
 
 </div>
 
@@ -1012,8 +1014,10 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored due to asynchronous state |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;gauge</span> | gauge | Slot number of most recently ignored replay_slot_completed_frag |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;gauge</span> | gauge | Slot number of most recently ignored replay_slot_completed frag |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
+| <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;gauge</span> | gauge | Slot number of most recently equivocating replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
 | <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Vote slot |
 | <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |

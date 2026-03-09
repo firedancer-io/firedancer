@@ -370,6 +370,8 @@
 
 #include "../fd_choreo_base.h"
 #include "fd_tower_blocks.h"
+#include "fd_tower_leaves.h"
+#include "fd_tower_lockos.h"
 #include "fd_tower_serdes.h"
 #include "fd_tower_stakes.h"
 #include "fd_tower_voters.h"
@@ -377,7 +379,7 @@
 #include "../notar/fd_notar.h"
 #include "../../disco/pack/fd_microblock.h"
 
-#define FD_TOWER_VOTE_MAX (31UL)
+#define FD_TOWER_VOTE_MAX (FD_TOWER_LOCKOS_MAX)
 
 /* fd_tower is a representation of a validator's "vote tower" (described
    in detail in the preamble at the top of this file).  The votes in the
@@ -440,9 +442,11 @@ typedef struct fd_tower_out fd_tower_out_t;
 
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
-                         fd_tower_voters_t * accts,
-                         fd_tower_stakes_t * tower_stakes,
-                         fd_tower_blocks_t * forks,
+                         fd_tower_blocks_t * blocks,
+                         fd_tower_leaves_t * leaves,
+                         fd_tower_lockos_t * lockos,
+                         fd_tower_stakes_t * stakes,
+                         fd_tower_voters_t * voters,
                          fd_ghost_t        * ghost,
                          fd_notar_t        * notar );
 
@@ -486,7 +490,7 @@ fd_tower_to_vote_txn( fd_tower_t    const * tower,
                       fd_pubkey_t   const * validator_identity,
                       fd_pubkey_t   const * vote_authority,
                       fd_pubkey_t   const * vote_account,
-                      fd_txn_p_t *          vote_txn );
+                      fd_txn_p_t          * vote_txn );
 
 /* fd_tower_verify checks tower is in a valid state. Valid iff:
    - cnt < FD_TOWER_VOTE_MAX

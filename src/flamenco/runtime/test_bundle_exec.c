@@ -175,6 +175,7 @@ init_rent_sysvar( test_env_t * env,
     fd_accdb_advance_root( env->accdb_admin, &env->xid );
 
     env->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), env->tag );
+    memset( env->runtime, 0, sizeof(fd_runtime_t) );
 
     uchar * acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(), fd_acc_pool_footprint( TEST_ACC_POOL_ACCOUNT_CNT ), env->tag );
     fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, TEST_ACC_POOL_ACCOUNT_CNT ) );
@@ -471,7 +472,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* A fourth transaction where the second account is once again
      passed in as read-only.  Make sure that the right version of the
      account is being reussed. */
-  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, account_keys, &dummy_hash );
   FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
@@ -485,7 +486,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( !memcmp( &env->txn_out[3].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( &env->txn_out[3].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
   FD_TEST( env->txn_out[3].accounts.is_writable[0] == 1 );
-  FD_TEST( env->txn_out[3].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[3].accounts.is_writable[1] == 0 );
   FD_TEST( env->txn_out[3].accounts.account[1].meta->lamports == 2000011UL );
 
   /* Commit all bundle transactions and make sure that all accdb
@@ -664,8 +665,8 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   env->txn_out[0].accounts.account[1].meta->lamports = 0UL;
 
   /* tx1: Execute with victim writable, reading from prev_txn_outs.
-     In bundle mode, victim should still have owner=some_program and dlen=64
-     because fd_executor_reclaim_account has NOT been called yet. */
+     In bundle mode, victim will have all of its metadata zeroed out
+     since the account is reclaimed. */
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
   env->txn_in.bundle.prev_txn_cnt     = 1;
@@ -674,20 +675,18 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( env->txn_out[1].err.is_committable );
   FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
 
-  /* KEY ASSERTION: In bundle mode, tx1 should not see the un-relcaimed
+  /* KEY ASSERTION: In bundle mode, tx1 should not see the un-reclaimed
      state from tx0.  The dlen should also not be 64 since from tx1's
      POV, the account should not exist yet. */
   FD_TEST( env->txn_out[1].accounts.account[1].meta->lamports == 0UL );
   FD_TEST( env->txn_out[1].accounts.account[1].meta->dlen != 64UL );
   FD_TEST( memcmp( env->txn_out[1].accounts.account[1].meta->owner, &some_program, 32UL ) );
 
-  /* Now commit both bundle transactions. commit_txn calls
-     fd_executor_reclaim_account which zeroes owner/dlen for 0-lamport accounts. */
+  /* Now commit both bundle transactions. */
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
 
-  /* Execute a non-bundle txn to read the account from funk post-commit.
-     Now the account should be reclaimed: owner zeroed, dlen=0. */
+  /* Execute a non-bundle txn to read the account post-commit */
   env->txn_in.txn              = &txn_p;
   env->txn_in.bundle.is_bundle = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );

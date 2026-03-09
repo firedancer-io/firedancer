@@ -311,7 +311,7 @@ fd_hfork_record_our_bank_hash( fd_hfork_t * hfork,
     /* blk->our_bank_hash set later */
     blk->bank_hashes = NULL;
   }
-  if( FD_LIKELY( bank_hash ) ) { blk->dead = 0; blk->replayed = 0; blk->our_bank_hash = *bank_hash; }
+  if( FD_LIKELY( bank_hash ) ) { blk->dead = 0; blk->replayed = 1; blk->our_bank_hash = *bank_hash; }
   else                         { blk->dead = 1; blk->replayed = 0; /* our_bank_hash undefined */    }
 
   bank_hash_t * curr  = blk->bank_hashes;

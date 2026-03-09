@@ -1400,12 +1400,22 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
       fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
         if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], address ) && prev_txn_out->accounts.is_writable[j] ) {
-          /* Found the account in a previous transaction.
-             Move ownership of reference from previous transaction to
-             this one. */
+          /* Found the account in a previous transaction. Move ownership
+             of reference from previous transaction to this one. */
           fd_memcpy( ref_slot, prev_txn_out->accounts.account[ j ].ref, sizeof(fd_accdb_rw_t) );
           account = ref_slot;
           is_found_in_bundle = 1;
+
+          /* If the account being carried forward from the previous txn
+             had queued an update to the vote/stakes caches and is
+             writable in the new transaction, unmark the update to avoid
+             double-counting the update. */
+          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] &&
+                           (prev_txn_out->accounts.stake_update[ j ] || prev_txn_out->accounts.vote_update[ j ]) ) ) {
+            prev_txn_out->accounts.stake_update[ j ] = 0;
+            prev_txn_out->accounts.vote_update[ j ]  = 0;
+          }
+
           break;
         }
       }
@@ -1617,6 +1627,9 @@ fd_executor_txn_check( fd_runtime_t * runtime,
         }
       }
     }
+
+    if     ( !memcmp( meta->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) txn_out->accounts.stake_update[i] = 1;
+    else if( !memcmp( meta->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[i] = 1;
 
     if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
       fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
