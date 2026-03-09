@@ -16,7 +16,7 @@ typedef struct {
 } fd_gossip_in_ctx_t;
 
 #define FD_GOSSIP_WFS_STATE_INIT    (1)
-#define FD_GOSSIP_WFS_STATE_START   (2)
+#define FD_GOSSIP_WFS_STATE_WAIT    (2)
 #define FD_GOSSIP_WFS_STATE_PUBLISH (3)
 #define FD_GOSSIP_WFS_STATE_DONE    (4)
 
@@ -68,10 +68,11 @@ struct fd_gossip_tile_ctx {
      being active on gossip, so we don't double count their stake. */
   uchar             wfs_active[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   int               wfs_state;
+
   struct {
     ulong online;
     ulong total;
-  } wfs_stake;
+  } wfs_stake, wfs_peers;
 
   /* Peer table saturation detection.  We track the high-water mark
      of the peer count (staked + unstaked).  When the count stops
