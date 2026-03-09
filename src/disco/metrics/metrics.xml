@@ -378,6 +378,8 @@ metric introduced.
     <histogram name="MessageRxDelayNanos" min="100000" max="1000000000">
         <summary>Message receive delay in nanoseconds from bundle server to bundle client</summary>
     </histogram>
+    <gauge name="PendingTransactions" summary="Number of transactions buffered and waiting to be published" />
+    <counter name="TransactionDroppedBackpressure" summary="Transactions dropped because the pending transaction buffer was full (should never happen)" />
 </tile>
 
 <enum name="VerifyTileResult">
