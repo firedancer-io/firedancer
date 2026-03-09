@@ -454,6 +454,9 @@ struct fd_pack_private {
                                 generated in this block? */
   ulong      data_bytes_consumed; /* How much data is in this block so
                                      far ? */
+  /* There's a limit on the total amount that transactions in a block
+     can allocate.  How much of that limit have we consumed? */
+  ulong      alloc_consumed;
 
   /* counters / gauge for schedule outcome enums */
   ulong      sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_CNT ];
@@ -752,6 +755,7 @@ fd_pack_new( void                   * mem,
   pack->pending_txn_cnt             = 0UL;
   pack->microblock_cnt              = 0UL;
   pack->data_bytes_consumed         = 0UL;
+  pack->alloc_consumed              = 0UL;
   memset( pack->sched_results, 0, sizeof(pack->sched_results) );
   pack->rng                         = rng;
   pack->cumulative_block_cost       = 0UL;
@@ -895,8 +899,9 @@ fd_pack_join( void * mem ) {
 /* Returns 0 on failure, 1 on success for a vote, 2 on success for a
    non-vote. */
 static int
-fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
-                                      fd_pack_ord_txn_t * out ) {
+fd_pack_estimate_rewards_and_compute( fd_txn_e_t             * txne,
+                                      fd_pack_ord_txn_t      * out,
+                                      fd_pack_limits_t const * lim ) {
   fd_txn_t * txn = TXN(txne->txnp);
   ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt; /* Easily in [5000, 635000] */
 
@@ -904,7 +909,8 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
   ulong priority_rewards;
   ulong precompile_sigs;
   ulong requested_loaded_accounts_data_cost;
-  ulong cost_estimate = fd_pack_compute_cost( txn, txne->txnp->payload, &txne->txnp->flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost );
+  ulong allocated_data;
+  ulong cost_estimate = fd_pack_compute_cost( txn, txne->txnp->payload, &txne->txnp->flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
 
   if( FD_UNLIKELY( !cost_estimate ) ) return 0;
 
@@ -923,6 +929,26 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
   out->compute_est                          = (uint)cost_estimate;
   out->txn->pack_cu.requested_exec_plus_acct_data_cus = (uint)(requested_execution_cus + requested_loaded_accounts_data_cost);
   out->txn->pack_cu.non_execution_cus       = (uint)(cost_estimate - requested_execution_cus - requested_loaded_accounts_data_cost);
+  out->txn->pack_alloc                      = (uint)allocated_data;
+
+  /* If a transaction allocates a lot, we want to treat it as if it
+     requests more CUs.  However, we use compute_est in the block
+     limit calculations, so we can't touch it.  To have the same
+     effect, we decrease rewards.
+     divisor is 1 unless
+            allocated_data                       cost_estimate
+      ----------------------------    >=       ------------------
+      max_allocated_data_per_block             max_cost_per_block
+
+     0       <=allocated_data      <=20 * 1024^2
+     48*10^6 <= max_cost_per_block < 2^32
+     1020    <= cost_estimate      < 1.6 * 10^6
+     max_allocated_data_per_block = 100 * 1000^2
+     So the numerator (<2^57) and denominator (<2^48) can't overflow.
+     1 <= divisor <= 1 + (max_cost_per_block * .000206)
+     */
+  ulong divisor = 1UL + (allocated_data * lim->max_cost_per_block) / (cost_estimate * lim->max_allocated_data_per_block);
+  out->rewards /= (uint)divisor;
 
   return fd_int_if( txne->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
 }
@@ -1273,7 +1299,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   ord->expires_at = expires_at;
 
-  int est_result = fd_pack_estimate_rewards_and_compute( txne, ord );
+  int est_result = fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
   int is_vote          = est_result==1;
 
@@ -1440,7 +1466,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
     fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
-    int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord );
+    int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord, pack->lim );
     if( FD_UNLIKELY( !est_result   ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL; break; }
     int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
     if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;   break; }
@@ -1755,6 +1781,7 @@ typedef struct {
   ulong cus_scheduled;
   ulong txns_scheduled;
   ulong bytes_scheduled;
+  ulong alloc_scheduled;
 } sched_return_t;
 
 static inline sched_return_t
@@ -1763,6 +1790,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
                        ulong                cu_limit,
                        ulong                txn_limit,
                        ulong                byte_limit,
+                       ulong                alloc_limit,
                        ulong                bank_tile,
                        fd_pack_smallest_t * smallest_in_treap,
                        ulong              * use_by_bank_txn,
@@ -1791,6 +1819,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   ulong txns_scheduled  = 0UL;
   ulong cus_scheduled   = 0UL;
   ulong bytes_scheduled = 0UL;
+  ulong alloc_scheduled = 0UL;
 
   ulong bank_tile_mask = 1UL << bank_tile;
 
@@ -1798,6 +1827,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   ulong slow_path     = 0UL;
   ulong cu_limit_c    = 0UL;
   ulong byte_limit_c  = 0UL;
+  ulong alloc_limit_c = 0UL;
   ulong write_limit_c = 0UL;
   ulong skip_c        = 0UL;
 
@@ -1829,6 +1859,14 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       /* Too big to be scheduled at the moment, but might be okay for
          the next microblock, so we don't want to delay it. */
       cu_limit_c++;
+      continue;
+    }
+
+    if( FD_UNLIKELY( cur->txn->pack_alloc>alloc_limit ) ) {
+      /* We don't want to consider this until the next block, but
+         checking alloc is as cheap as checking cur->skip, so there's
+         not a big difference. */
+      alloc_limit_c++;
       continue;
     }
 
@@ -2046,6 +2084,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     txns_scheduled  += 1UL;                      txn_limit       -= 1UL;
     cus_scheduled   += cur->compute_est;         cu_limit        -= cur->compute_est;
     bytes_scheduled += cur->txn->payload_sz;     byte_limit      -= cur->txn->payload_sz;
+    alloc_scheduled += cur->txn->pack_alloc;     alloc_limit     -= cur->txn->pack_alloc;
 
     *(use_by_bank_txn++) = use_by_bank_cnt;
 
@@ -2061,13 +2100,14 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     if( FD_UNLIKELY( (cu_limit<smallest_in_treap->cus) | (txn_limit==0UL) | (byte_limit<smallest_in_treap->bytes) ) ) break;
   }
 
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX      ] += txns_scheduled;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX   ] += cu_limit_c;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX  ] += fast_path;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX ] += byte_limit_c;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX ] += write_limit_c;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX  ] += slow_path;
-  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX ] += skip_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX       ] += txns_scheduled;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX    ] += cu_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX   ] += fast_path;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_BYTE_LIMIT_IDX  ] += byte_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_ALLOC_LIMIT_IDX ] += alloc_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_WRITE_COST_IDX  ] += write_limit_c;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_SLOW_PATH_IDX   ] += slow_path;
+  pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_DEFER_SKIP_IDX  ] += skip_c;
 
   /* If we scanned the whole treap and didn't break early, we now have a
      better estimate of the smallest. */
@@ -2082,7 +2122,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
   pack->written_list_cnt = written_list_cnt;
 
-  sched_return_t to_return = { .cus_scheduled=cus_scheduled, .txns_scheduled=txns_scheduled, .bytes_scheduled=bytes_scheduled };
+  sched_return_t to_return = { .cus_scheduled=cus_scheduled,     .txns_scheduled=txns_scheduled,
+                               .bytes_scheduled=bytes_scheduled, .alloc_scheduled=alloc_scheduled };
   return to_return;
 }
 
@@ -2248,9 +2289,10 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   int has_conflict = 0;
   ulong txn_cnt = 0UL;
 
-  ulong cu_limit         = pack->lim->max_cost_per_block        - pack->cumulative_block_cost;
-  ulong byte_limit       = pack->lim->max_data_bytes_per_block  - pack->data_bytes_consumed;
-  ulong microblock_limit = pack->lim->max_microblocks_per_block - pack->microblock_cnt;
+  ulong cu_limit         = pack->lim->max_cost_per_block           - pack->cumulative_block_cost;
+  ulong byte_limit       = pack->lim->max_data_bytes_per_block     - pack->data_bytes_consumed;
+  ulong microblock_limit = pack->lim->max_microblocks_per_block    - pack->microblock_cnt;
+  ulong alloc_limit      = pack->lim->max_allocated_data_per_block - pack->alloc_consumed;
 
   FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
   FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
@@ -2291,6 +2333,13 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
       break;
     }
     byte_limit -= cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
+
+    if( FD_UNLIKELY( cur->txn->pack_alloc>alloc_limit ) ) {
+      doesnt_fit = 1;
+      pack->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_ALLOC_LIMIT_IDX ]++;
+      break;
+    }
+    alloc_limit -= cur->txn->pack_alloc;
 
     if( FD_UNLIKELY( !FD_PACK_BITSET_INTERSECT4_EMPTY( pack->bitset_rw_in_use, pack->bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) ) {
       has_conflict = 1;
@@ -2437,6 +2486,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     pack->cumulative_block_cost += cur->compute_est;
     pack->data_bytes_consumed   += cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
+    pack->alloc_consumed        += cur->txn->pack_alloc;
     pack->microblock_cnt        += 1UL;
 
     if( FD_UNLIKELY( cur->txn->flags & FD_TXN_P_FLAGS_DURABLE_NONCE ) ) noncemap_ele_remove_fast( pack->noncemap, cur, pack->pool );
@@ -2522,22 +2572,26 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   ulong * use_by_bank_txn = pack->use_by_bank_txn[ bank_tile ];
 
-  ulong cu_limit  = total_cus - vote_cus;
-  ulong txn_limit = pack->lim->max_txn_per_microblock - vote_reserved_txns;
-  ulong scheduled = 0UL;
-  ulong byte_limit = pack->lim->max_data_bytes_per_block - pack->data_bytes_consumed - MICROBLOCK_DATA_OVERHEAD;
+  ulong cu_limit    = total_cus - vote_cus;
+  ulong txn_limit   = pack->lim->max_txn_per_microblock - vote_reserved_txns;
+  ulong scheduled   = 0UL;
+  ulong byte_limit  = pack->lim->max_data_bytes_per_block - pack->data_bytes_consumed - MICROBLOCK_DATA_OVERHEAD;
+  ulong alloc_limit = pack->lim->max_allocated_data_per_block - pack->alloc_consumed;
 
   sched_return_t status = {0}, status1 = {0};
 
   if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_VOTE ) ) {
     /* Schedule vote transactions */
-    status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, bank_tile, pack->pending_votes_smallest, use_by_bank_txn, out+scheduled );
+    status1= fd_pack_schedule_impl( pack, pack->pending_votes, vote_cus, vote_reserved_txns, byte_limit, alloc_limit, bank_tile,
+        pack->pending_votes_smallest, use_by_bank_txn, out+scheduled );
 
     scheduled                   += status1.txns_scheduled;
     pack->cumulative_vote_cost  += status1.cus_scheduled;
     pack->cumulative_block_cost += status1.cus_scheduled;
     pack->data_bytes_consumed   += status1.bytes_scheduled;
     byte_limit                  -= status1.bytes_scheduled;
+    pack->alloc_consumed        += status1.alloc_scheduled;
+    alloc_limit                 -= status1.alloc_scheduled;
     use_by_bank_txn             += status1.txns_scheduled;
     /* Add any remaining CUs/txns to the non-vote limits */
     txn_limit += vote_reserved_txns - status1.txns_scheduled;
@@ -2560,11 +2614,13 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   /* Fill any remaining space with non-vote transactions */
   if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_TXN ) ) {
-    status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, pack->pending_smallest,       use_by_bank_txn, out+scheduled );
+    status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, alloc_limit, bank_tile,
+        pack->pending_smallest,       use_by_bank_txn, out+scheduled );
 
     scheduled                   += status.txns_scheduled;
     pack->cumulative_block_cost += status.cus_scheduled;
     pack->data_bytes_consumed   += status.bytes_scheduled;
+    pack->alloc_consumed        += status.alloc_scheduled;
   }
 
   ulong nonempty = (ulong)(scheduled>0UL);
@@ -2596,11 +2652,12 @@ fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits ) {
   FD_TEST( limits->max_vote_cost_per_block >= FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND );
   FD_TEST( limits->max_write_cost_per_acct >= FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND );
 
-  pack->lim->max_microblocks_per_block = limits->max_microblocks_per_block;
-  pack->lim->max_data_bytes_per_block  = limits->max_data_bytes_per_block;
-  pack->lim->max_cost_per_block        = limits->max_cost_per_block;
-  pack->lim->max_vote_cost_per_block   = limits->max_vote_cost_per_block;
-  pack->lim->max_write_cost_per_acct   = limits->max_write_cost_per_acct;
+  pack->lim->max_microblocks_per_block    = limits->max_microblocks_per_block;
+  pack->lim->max_data_bytes_per_block     = limits->max_data_bytes_per_block;
+  pack->lim->max_cost_per_block           = limits->max_cost_per_block;
+  pack->lim->max_vote_cost_per_block      = limits->max_vote_cost_per_block;
+  pack->lim->max_write_cost_per_acct      = limits->max_write_cost_per_acct;
+  pack->lim->max_allocated_data_per_block = limits->max_allocated_data_per_block;
 }
 
 void
@@ -2610,6 +2667,7 @@ fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_
     opt_limits_usage->vote_cost           = pack->cumulative_vote_cost;
     opt_limits_usage->block_data_bytes    = pack->data_bytes_consumed;
     opt_limits_usage->microblocks         = pack->microblock_cnt;
+    opt_limits_usage->alloc               = pack->alloc_consumed;
   }
   if( FD_LIKELY( opt_limits ) ) fd_memcpy( opt_limits, pack->lim, sizeof(fd_pack_limits_t) );
 }
@@ -2635,6 +2693,7 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
   pack->cumulative_block_cost  -= rebate->total_cost_rebate;
   pack->cumulative_vote_cost   -= rebate->vote_cost_rebate;
   pack->data_bytes_consumed    -= rebate->data_bytes_rebate;
+  pack->alloc_consumed         -= rebate->alloc_rebate;
   pack->cumulative_rebated_cus += rebate->total_cost_rebate;
   /* For now, we want to ignore the microblock count rebate.  There are
      3 places the microblock count is kept (here, in the pack tile, and
@@ -2697,6 +2756,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->cumulative_vote_cost        = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
   pack->outstanding_microblock_mask = 0UL;
+  pack->alloc_consumed              = 0UL;
 
   pack->initializer_bundle_state = FD_PACK_IB_STATE_NOT_INITIALIZED;
 
@@ -2788,6 +2848,8 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->cumulative_block_cost  = 0UL;
   pack->cumulative_vote_cost   = 0UL;
   pack->cumulative_rebated_cus = 0UL;
+  pack->data_bytes_consumed    = 0UL;
+  pack->alloc_consumed         = 0UL;
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
