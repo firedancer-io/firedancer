@@ -175,6 +175,7 @@ init_rent_sysvar( test_env_t * env,
     fd_accdb_advance_root( env->accdb_admin, &env->xid );
 
     env->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), env->tag );
+    memset( env->runtime, 0, sizeof(fd_runtime_t) );
 
     uchar * acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(), fd_acc_pool_footprint( TEST_ACC_POOL_ACCOUNT_CNT ), env->tag );
     fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, TEST_ACC_POOL_ACCOUNT_CNT ) );
@@ -664,7 +665,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   env->txn_out[0].accounts.account[1].meta->lamports = 0UL;
 
   /* tx1: Execute with victim writable, reading from prev_txn_outs.
-     In bundle mode, victim will have all of it's metadata zeroed out
+     In bundle mode, victim will have all of its metadata zeroed out
      since the account is reclaimed. */
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
@@ -681,8 +682,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( env->txn_out[1].accounts.account[1].meta->dlen != 64UL );
   FD_TEST( memcmp( env->txn_out[1].accounts.account[1].meta->owner, &some_program, 32UL ) );
 
-  /* Now commit both bundle transactions. commit_txn calls
-     fd_executor_reclaim_account which zeroes owner/dlen for 0-lamport accounts. */
+  /* Now commit both bundle transactions. */
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
 

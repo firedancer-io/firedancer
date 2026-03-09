@@ -1406,11 +1406,12 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
           account = ref_slot;
           is_found_in_bundle = 1;
 
-          /* If the account being carried forward will apply an update
-             to the vote/stake caches, then unmark the account's cache
-             updates in the previous transaction. */
+          /* If the account being carried forward from the previous txn
+             had queued an update to the vote/stakes caches and is
+             writable in the new transaction, unmark the update to avoid
+             double-counting the update. */
           if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] &&
-                           (txn_out->accounts.stake_update[ idx ] || txn_out->accounts.vote_update[ idx ]) ) ) {
+                           (prev_txn_out->accounts.stake_update[ idx ] || prev_txn_out->accounts.vote_update[ idx ]) ) ) {
             prev_txn_out->accounts.stake_update[ j ] = 0;
             prev_txn_out->accounts.vote_update[ j ]  = 0;
           }
