@@ -2,6 +2,8 @@ CC:=hfuzz-clang
 CXX:=hfuzz-clang++
 LD:=hfuzz-clang++
 CPPFLAGS+=-fno-omit-frame-pointer
+CPPFLAGS+=-fsanitize-coverage=inline-8bit-counters
+LDFLAGS+=-fsanitize-coverage=inline-8bit-counters
 
 FD_HAS_FUZZ:=1
 
