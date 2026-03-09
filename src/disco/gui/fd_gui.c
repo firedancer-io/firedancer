@@ -3090,8 +3090,9 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     ulong requested_execution_cus             = ULONG_MAX;
     ulong precompile_sigs                     = ULONG_MAX;
     ulong requested_loaded_accounts_data_cost = ULONG_MAX;
+    ulong allocated_data                      = ULONG_MAX;
     uint _flags;
-    ulong cost_estimate = fd_pack_compute_cost( txn, txn_payload->payload, &_flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost );
+    ulong cost_estimate = fd_pack_compute_cost( txn, txn_payload->payload, &_flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
     sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
     sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
 

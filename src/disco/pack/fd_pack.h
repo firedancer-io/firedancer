@@ -67,7 +67,7 @@ struct fd_pack_limits {
      Similarly, a block in where the sum of the cost of all transactions
      that write to a given account exceeds max_write_cost_per_acct is
      invalid. */
-  ulong max_cost_per_block;          /* in [0, ULONG_MAX) */
+  ulong max_cost_per_block;          /* in [0, UINT_MAX) */
   ulong max_vote_cost_per_block;     /* in [0, max_cost_per_block] */
   ulong max_write_cost_per_acct;     /* in [0, max_cost_per_block] */
 
@@ -96,6 +96,16 @@ struct fd_pack_limits {
   ulong max_txn_per_microblock;      /* in [0, 16777216] */
   ulong max_microblocks_per_block;   /* in [0, 1e12) */
 
+  /* max_allocated_data_per_block is a consensus-critical constant that
+     limits the total amount of data that can be allocated by
+     transactions in a block.  This includes new accounts and extending
+     existing accounts.  This limit is not especially well specified,
+     and rarely comes close to being hit in production, so we use a
+     conservative estimate when packing to ensure we never hit it.  It
+     is currently limited to 100 MB, without any features to change it,
+     but we include it here with other limits in case it is change-able
+     in the future. */
+  ulong max_allocated_data_per_block; /* in [1, 100,000,000 ] */
 };
 typedef struct fd_pack_limits fd_pack_limits_t;
 
@@ -151,6 +161,7 @@ struct fd_pack_limits_usage {
   fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_CNT ];
   ulong block_data_bytes;
   ulong microblocks;
+  ulong alloc;
 };
 
 typedef struct fd_pack_limits_usage fd_pack_limits_usage_t;
@@ -234,7 +245,7 @@ fd_pack_t * fd_pack_join( void * mem );
 
 /* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
    in fd_pack.c. */
-#define FD_PACK_PENDING_TXN_CNT_OFF 72
+#define FD_PACK_PENDING_TXN_CNT_OFF 80
 FD_FN_PURE static inline ulong
 fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
   return *((ulong const *)((uchar const *)pack + FD_PACK_PENDING_TXN_CNT_OFF));
