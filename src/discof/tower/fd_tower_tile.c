@@ -537,7 +537,9 @@ fill_bank_stakes_voters( fd_bank_t *         bank,
     fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
 
     if( FD_UNLIKELY( !stake_t_2 ) ) continue; /* 0 stake voters are ignored */
-    fd_tower_voters_push_tail( voters, (fd_tower_voters_t){ .addr = pubkey, .stake = stake_t_2 } );
+    /* The tower voters entry will only be marked as fully valid if
+       valid vote account data is found in the accdb. */
+    fd_tower_voters_push_tail( voters, (fd_tower_voters_t){ .addr = pubkey, .stake = stake_t_2, .valid_data = 0 } );
     prev_voter_idx = fd_tower_stakes_insert( stakes, slot, &pubkey, stake_t_2, prev_voter_idx );
     total_stake += stake_t_2;
   }
@@ -797,9 +799,12 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
       if( FD_UNLIKELY( !fd_accdb_ref_lamports( ro ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( acct->addr.key, pubkey_b58 );
         FD_LOG_WARNING(( "vote account in bank (fd_vote_stakes_t) not found in accdb. slot %lu address %s", slot_completed->slot, pubkey_b58 ));
+        acct->valid_data = 0;
+      } else {
+        ulong data_sz = fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX );
+        fd_memcpy( acct->data, fd_accdb_ref_data_const( ro ), data_sz );
+        acct->valid_data = 1;
       }
-      ulong data_sz = fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX );
-      fd_memcpy( acct->data, fd_accdb_ref_data_const( ro ), data_sz );
       if( FD_UNLIKELY( fd_tower_voters_iter_done( tower_voters, iter_tail ) ) ) goto done_vote_iter;
       iter_tail = fd_tower_voters_iter_next( tower_voters, iter_tail );
     }
@@ -823,7 +828,7 @@ done_vote_iter:
 
     /* 2. Count the last vote slot in the vote state towards ghost. */
 
-    ulong vote_slot = fd_vote_acc_vote_slot( acct->data );
+    ulong vote_slot = acct->valid_data ? fd_vote_acc_vote_slot( acct->data ) : ULONG_MAX;
     if( FD_LIKELY( vote_slot!=ULONG_MAX && /* has voted */
                     vote_slot>=fd_ghost_root( ctx->ghost )->slot ) ) { /* vote not too old */
 

@@ -15,6 +15,7 @@ struct fd_tower_voters {
   fd_pubkey_t addr;                         /* vote account address */
   ulong       stake;                        /* vote account stake */
   uchar       data[FD_VOTE_STATE_DATA_MAX]; /* vote account data (max 3762 bytes) */
+  uchar       valid_data;                   /* whether the vote account data is valid */
 };
 typedef struct fd_tower_voters fd_tower_voters_t;
 
