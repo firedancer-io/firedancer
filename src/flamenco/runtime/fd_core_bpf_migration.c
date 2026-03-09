@@ -366,12 +366,13 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   if( FD_UNLIKELY( state.discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) )
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
 
-  if( FD_UNLIKELY( state.inner.buffer.has_authority_address != (!!upgrade_authority_address) ) )
-    return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
-
-  if( FD_UNLIKELY( upgrade_authority_address &&
-                   !fd_pubkey_eq( upgrade_authority_address, &state.inner.buffer.authority_address ) ) )
-    return NULL; /* CoreBpfMigrationError::UpgradeAuthorityMismatch */
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
+  if( upgrade_authority_address ) {
+    if( FD_UNLIKELY( !state.inner.buffer.has_authority_address ||
+                     !fd_pubkey_eq( upgrade_authority_address, &state.inner.buffer.authority_address ) ) ) {
+      return NULL; /* CoreBpfMigrationError::UpgradeAuthorityMismatch */
+    }
+  }
 
   void const * elf      = (uchar const *)source->data    + buffer_metadata_sz;
   ulong        elf_sz   = /*           */source->data_sz - buffer_metadata_sz;
