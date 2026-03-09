@@ -93,7 +93,10 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int is_cpi            = !strncmp( (const char *)input->syscall_invocation.function_name.bytes, "sol_invoke_signed", 17 );
   int skip_extra_checks = !is_cpi;
 
-  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks );
+  if( fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx, skip_extra_checks ) ) {
+    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
+    return 0;
+  }
 
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;

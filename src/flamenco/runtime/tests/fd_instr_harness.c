@@ -13,7 +13,7 @@
 #include "../../log_collector/fd_log_collector.h"
 #include <assert.h>
 
-void
+int
 fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                 fd_exec_instr_ctx_t *                ctx,
                                 fd_exec_test_instr_context_t const * test_ctx,
@@ -163,12 +163,15 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
     if( !memcmp( acc_key, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       has_program_id = 1;
-      info->program_id = (uchar)txn_out->accounts.cnt;
+      info->program_id = (uchar)j;
     }
   }
 
   /* If the program id is not in the set of accounts it must be added to the set of accounts. */
   if( FD_UNLIKELY( !has_program_id ) ) {
+    if( FD_UNLIKELY( txn_out->accounts.cnt >= MAX_TX_ACCOUNT_LOCKS ) ) {
+      return -1;
+    }
     fd_pubkey_t * program_key = &txn_out->accounts.keys[ txn_out->accounts.cnt ];
     memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
 
@@ -340,6 +343,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_log_collector_init( ctx->runtime->log.log_collector, 1 );
   fd_base58_encode_32( txn_out->accounts.keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
+  return 0;
 }
 
 void
@@ -367,7 +371,10 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
-  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false );
+  if( fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false ) ) {
+    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
+    return 0UL;
+  }
 
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 

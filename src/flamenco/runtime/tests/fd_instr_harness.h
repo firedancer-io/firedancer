@@ -16,12 +16,14 @@ FD_PROTOTYPES_BEGIN
    Setting is_syscall avoids some operations/checks only relevant for
    program instructions.
 
-   This function is infallible, it will abort with FD_LOG_ERR on
-   invariant violations (malformed test inputs).
+   Returns 0 on success, non-zero if the input is malformed and the
+   context could not be created (e.g. too many accounts).  On error,
+   the caller must still call fd_solfuzz_pb_instr_ctx_destroy to
+   release any partially initialized resources.
 
    Should be coupled with fd_solfuzz_pb_instr_ctx_destroy when the
    instr_ctx is no longer needed. */
-void
+int
 fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                 fd_exec_instr_ctx_t *                ctx,
                                 fd_exec_test_instr_context_t const * test_ctx,
