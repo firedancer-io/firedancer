@@ -2,8 +2,8 @@
 
 This document explains technical internals of Firedancer's SVM program
 cache.  The program cache is a fork-aware thread-concurrent cache over
-programs in the account database with fixed size and a LRU-like eviction
-policy.
+programs in the account database with fixed size.  It uses CLOCK cache
+replacement.
 
 The program cache is filled lazily on use, and does lazy and eager
 cache invalidation (for feature activations and redeploys respectively).
@@ -43,9 +43,6 @@ important for concurrency:
 - **quiescent state**: a point in time when a given thread has no active
   uses/references to any resources (typical example: txn executor thread
   has finished one txn, but has not yet started executing the next)
-- **QSBR**: mechanism for efficient deletions of concurrently accessed
-  resources using immediate removal and deferred evictions (using
-  quiescent states)
 
 The term "resource" is loosely defined: a collection of objects with
 the same life cycle (e.g. a fixed size descriptor from a pool allocator
@@ -127,20 +124,21 @@ progcache.
 Program cache record revisions work quite differently from account
 revisions.
 
-Each program (identified by the SVM address) has multiple database
-revisions.  Minimally, there are two revisions: when the program did not
-exist, and when the program was first deployed.
+Each program (identified by the SVM address) has multiple account
+revisions.  Minimally, two: when the program did not exist, and when
+the program was first deployed.
 
-Immediately after a transaction is executed that retracts or redeploys
-a program, a cache invalidation record is inserted.  Once the program
-becomes executable again, a future execution lazily inserts a new cache
-revision.
+Epoch boundaries may introduce breaking virtual machine changes via
+feature activations.  For example, a feature could do small changes to
+the program loader, resulting in a different read-only image for the
+same program executable.
 
-The SVM may activate breaking changes in epoch boundaries.  The program
-cache thus creates new revisions if it detects that the most recent
-revision is in a different epoch.  Future versions of Firedancer could
-relax this mechanism by only reloading programs if the feature set
-actually changed.
+Thus, the cache maintains distinct program cache records before and
+after an epoch boundary, even if they refer to the same same program
+account revision.
+
+Future versions of Firedancer could relax this mechanism by only
+reloading programs if the program content actually changed.
 
 On query, selecting the wanted revision of a record is thus rather non-
 trivial.  Each record access considers the following slot numbers:
@@ -184,22 +182,86 @@ The record descriptor itself is reclaimed according to these rules:
 Progcache uses the CLOCK cache replacement policy over hash map buckets.
 Any thread that inserts records also runs cache replacement.
 
-## Future improvements
+## Details
 
-### Targeted loads
+### Concurrency
 
-Currently, progcache users request the latest revision of cache records
-on a fork.  These queries complicate eviction of records from the cache
-because complete removal of a record could result in phantom reads
-(future queries returning an older record).
+Progcache uses reader-writer spinlocks heavily (read operations require
+atomic CAS) for sequencing concurrent accesses and ref-counting based
+reclamation.  This is a deliberately prude design and currently
+preferable over designs like QSBR.
 
-Users have all information available locally to recover `revision_slot`.
-Querying with `revision_slot` would allow for a stronger form of query
-that returns correct results even if records are randomly evicted.
+The reason is that mainnet replay performance is heavily dependent on
+tail events (like program cache OOM conditions).
 
-### QSBR
+Whether the happy path (read locks to existing records) takes 10 or
+100 nanoseconds is immaterial to mainnet performance, but this is what
+QSBR optimizes for, at the expense of tail event performance.
 
-Currently, progcache does not make use of QSBR.  QSBR would simplify
-reclamation logic by removing the need for record locking.
+Reader-writer spinlocks are great in this case: all tiles spin pinned
+to cores, so priority inversion and sleep deadlocks are not a concern.
+And write lock latency is low.  The program cache further tries to
+do fine grained locking in the happy path to distribute cache traffic.
 
-Implementing QSBR efficiently requires targeted loads.
+QSBR, while having superior read lock latency, has massively higher
+write lock (reclamation) latency.  Low latency reclamation is required
+in the event of OOM, because it requires each exec tile to finish the
+currently executing transaction, which could take multiple milliseconds.
+
+### Allocator
+
+Progcache currently uses the general-purpose fd_wksp (large objects)
+and fd_alloc (tiny objects) allocators.  On OOM (failure to allocate a
+new object), the cache replacement algorithm does random evictions with
+a heuristic.
+
+It is a desirable future improvement to harmonize the allocator with
+the cache replacement algorithm (e.g. by making the latter sizeclass
+aware, or by supporting heap compaction).
+
+## Verification
+
+Progcache is a complex component:
+- Uses a general-purpose heap allocator (use-after-free risk)
+- Thread-concurrent with complex locking rules (deadlock risk)
+- Maintains a multi-versioned index (algorithmic complexity)
+- Does cache eviction (use-after-free risk, correctness risk)
+
+----------------
+
+To address these risks, we use various dynamic analysis tooling:
+
+### AddressSanitizer
+
+Compiler tool for detecting invalid memory accesses.
+
+Uses compile-time instrumentation which is a mix of automatic
+hooks inserted by the compiler and `asan_poison` calls in our
+code.
+
+### Valgrind memcheck
+
+External tool for detecting invalid memory accesses.
+
+Uses a mix of automatic dynamic hooks inserted into libc and
+custom instrumentation in our code.
+
+### ThreadSanitizer
+
+Compiler tool for detecting data races.  Integrates with
+progcache's use of C11 stdatomic.
+
+### fd_progcache_verify
+
+Algorithm for verifying data structure integrity issues
+(leaked ref counts, index aliasing, linked list cycles, etc).
+
+----------------
+
+These are then run over the following test harnesses.
+
+### test_progcache
+
+Contains various unit and regression tests (ASan, MSan, Valgrind instrumented).
+
+----------------

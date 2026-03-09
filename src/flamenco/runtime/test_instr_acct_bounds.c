@@ -149,8 +149,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
   env->xid = (fd_funk_txn_xid_t){ .ul = { 10UL, env->bank->data->idx } };
-  fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
-  fd_progcache_txn_attach_child( env->progcache->join, root, &env->xid );
+  fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
+  fd_progcache_attach_child( env->progcache->join, root, &env->xid );
 
   env->bank->data->f.slot = 10UL;
   env->bank->data->f.parent_slot = 9UL;
@@ -174,8 +174,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
 
 static void
 test_env_destroy( test_env_t * env ) {
-  fd_accdb_cancel( env->accdb_admin, &env->xid );
-  fd_progcache_txn_cancel( env->progcache->join, &env->xid );
+  fd_accdb_cancel    ( env->accdb_admin,     &env->xid );
+  fd_progcache_cancel( env->progcache->join, &env->xid );
 
   fd_wksp_free_laddr( env->runtime );
   fd_wksp_free_laddr( env->acc_pool_mem );

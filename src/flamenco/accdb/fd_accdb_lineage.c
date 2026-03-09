@@ -124,3 +124,15 @@ fd_accdb_lineage_write_check( fd_accdb_lineage_t const * lineage,
   }
   return txn;
 }
+
+fd_xid_t const *
+fd_lineage_xid( fd_accdb_lineage_t const * lineage,
+                ulong                      slot ) {
+  ulong depth = lineage->fork_depth;
+  for( ulong i=0UL; i<depth; i++ ) {
+    if( lineage->fork[ i ].ul[0] == slot ) {
+      return &lineage->fork[ i ];
+    }
+  }
+  return NULL;
+}

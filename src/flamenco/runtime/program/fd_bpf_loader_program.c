@@ -124,7 +124,6 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
    'account_size' argument because we do not update the funk record here. */
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                   fd_pubkey_t const *   program_key,
                    uchar const *         programdata,
                    ulong                 programdata_size ) {
   int deploy_mode                          = 1;
@@ -223,9 +222,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   if( FD_UNLIKELY( validate_result!=FD_VM_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
-
-  /* Queue the program for reverification */
-  instr_ctx->txn_out->details.programs_to_reverify[instr_ctx->txn_out->details.programs_to_reverify_cnt++] = *program_key;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -888,7 +884,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   ulong         programdata_size = new_len - PROGRAMDATA_METADATA_SIZE;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1512-L1522 */
-  err = fd_deploy_program( instr_ctx, program_account.pubkey, programdata_data, programdata_size );
+  err = fd_deploy_program( instr_ctx, programdata_data, programdata_size );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1303,7 +1299,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
 
-      err = fd_deploy_program( instr_ctx, program.pubkey, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1581,7 +1577,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
-      err = fd_deploy_program( instr_ctx, program.pubkey, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -2512,6 +2508,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &program_account );
   uchar is_deprecated = !memcmp( metadata->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
+  fd_accdb_ro_t progdata_ro[1]; fd_borrowed_account_ro( &program_account, progdata_ro );
   if( !memcmp( metadata->owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
     fd_bpf_upgradeable_loader_state_t program_account_state[1];
     err = fd_bpf_loader_program_get_state( program_account.meta, program_account_state );
@@ -2546,6 +2543,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
+    fd_accdb_ro_init_nodb( progdata_ro, programdata_pubkey, programdata_meta );
 
     if( FD_UNLIKELY( programdata_meta->dlen<PROGRAMDATA_METADATA_SIZE ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
@@ -2580,18 +2578,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_funk_txn_xid_t xid = { .ul = { ctx->bank->data->f.slot, ctx->bank->data->idx } };
   fd_progcache_t * progcache = ctx->runtime->progcache;
   fd_progcache_rec_t * cache_entry =
-      fd_progcache_pull( progcache,
-                         ctx->runtime->accdb,
-                         &xid,
-                         program_id,
-                         load_env );
+      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro );
   if( FD_UNLIKELY( !cache_entry ) ) {
     fd_log_collector_msg_literal( ctx, "Program is not cached" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
   /* The program may be in the cache but could have failed verification in the current epoch. */
-  if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
+  if( FD_UNLIKELY( !cache_entry->data_gaddr ) ) {
     fd_progcache_rec_close( progcache, cache_entry );
     fd_log_collector_msg_literal( ctx, "Program is not deployed" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
