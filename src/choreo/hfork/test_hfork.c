@@ -19,7 +19,7 @@ test_hfork_simple( fd_wksp_t * wksp ) {
   ulong  max_vote_accounts = 4;
 
   void *       mem   = fd_wksp_alloc_laddr( wksp, fd_hfork_align(), fd_hfork_footprint( max_live_slots, max_vote_accounts ), 1UL );
-  fd_hfork_t * hfork = fd_hfork_join( fd_hfork_new( mem, max_live_slots, max_vote_accounts, 42, 0 ) );
+  fd_hfork_t * hfork = fd_hfork_join( fd_hfork_new( mem, max_live_slots, max_vote_accounts, 0 /* seed is xor identity for testing */, 0 ) );
   FD_TEST( hfork );
 
   ulong     slot      = 368778150;

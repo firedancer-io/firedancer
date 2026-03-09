@@ -160,13 +160,13 @@ ping_tracker_change( void *        _ctx,
   if( FD_UNLIKELY( ci_idx!=ULONG_MAX ) ) {
     switch( change_type ) {
       case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:
-        fd_gossip_wsample_active( ctx->wsample, ci_idx, 1 );
+        fd_gossip_wsample_ping_tracked( ctx->wsample, ci_idx, 1 );
         break;
       case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE:
-        fd_gossip_wsample_active( ctx->wsample, ci_idx, 0 );
+      case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED:
+        fd_gossip_wsample_ping_tracked( ctx->wsample, ci_idx, 0 );
         fd_active_set_remove_peer( ctx->active_set, ci_idx );
         break;
-      case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED: break;
       default: FD_LOG_ERR(( "Unknown change type %d", change_type )); return;
     }
   }
@@ -256,7 +256,7 @@ fd_gossip_new( void *                           shmem,
   gossip->wsample = fd_gossip_wsample_join( fd_gossip_wsample_new( wsample, rng, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( gossip->wsample );
 
-  gossip->crds = fd_crds_join( fd_crds_new( crds, gossip->wsample, active_set, rng, max_values, gossip->purged, activity_update_fn, activity_update_fn_ctx, gossip_update_out ) );
+  gossip->crds = fd_crds_join( fd_crds_new( crds, entrypoints, entrypoints_len, gossip->wsample, active_set, rng, max_values, gossip->purged, activity_update_fn, activity_update_fn_ctx, gossip_update_out ) );
   FD_TEST( gossip->crds );
 
   gossip->active_set = fd_active_set_join( fd_active_set_new( active_set, gossip->wsample, gossip->crds, rng, identity_pubkey, 0UL, send_fn, send_ctx ) );
@@ -364,43 +364,24 @@ void
 fd_gossip_set_identity( fd_gossip_t * gossip,
                         uchar const * identity_pubkey,
                         long          now ) {
-  int old_identity_active = fd_ping_tracker_active( gossip->ping_tracker, gossip->identity_pubkey );
-  ulong old_ci_idx = fd_crds_ci_idx( gossip->crds, gossip->identity_pubkey );
+  int identity_changed = memcmp( gossip->identity_pubkey, identity_pubkey, 32UL );
+  if( FD_UNLIKELY( !identity_changed ) ) return;
 
-  int identity_changed = !!memcmp( gossip->identity_pubkey, identity_pubkey, 32UL );
   ulong new_ci_idx = fd_crds_ci_idx( gossip->crds, identity_pubkey );
 
-  if( FD_UNLIKELY( identity_changed && new_ci_idx!=ULONG_MAX ) ) {
-    /* The new identity may already exist in CRDS as a normal peer
-       (active in the wsample and potentially present in the active
-       set).  We must deactivate it before updating identity_pubkey to
-       maintain the invariant that our own identity is never sampleable.
-
-       Deactivate in wsample first (zeroes all 26 tree weights), then
-       remove from active set. */
-    fd_gossip_wsample_active(gossip->wsample, new_ci_idx, 0 );
-    fd_active_set_remove_peer( gossip->active_set, new_ci_idx );
-  }
+  /* The new identity may already exist in CRDS as a normal peer (active
+     in the wsample and potentially present in the active set).  We
+     must deactivate it before updating identity_pubkey to maintain the
+     invariant that our own identity is never sampleable. */
+  if( FD_UNLIKELY( new_ci_idx!=ULONG_MAX ) ) fd_active_set_remove_peer( gossip->active_set, new_ci_idx );
 
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
   gossip->identity_stake = get_stake( gossip, identity_pubkey );
+  fd_gossip_wsample_set_identity( gossip->wsample, new_ci_idx );
   fd_gossip_wsample_self_stake( gossip->wsample, gossip->identity_stake );
   fd_active_set_set_identity( gossip->active_set, gossip->identity_pubkey, gossip->identity_stake );
   fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
   refresh_contact_info( gossip, now );
-
-  if( FD_UNLIKELY( identity_changed ) ) {
-    /* The old identity is now a normal peer.  If the ping tracker
-       considers it active (validated via pong), restore its weights
-       in the wsample so it becomes sampleable.  If not, it stays
-       inactive and will be activated naturally when/if the ping
-       tracker fires an ACTIVE callback for it.
-
-       Note: identity_pubkey has been updated, so the filter in
-       ping_tracker_change now blocks the new identity (correct) and
-       allows the old identity through (correct). */
-    if( FD_LIKELY( old_identity_active && old_ci_idx!=ULONG_MAX ) ) fd_gossip_wsample_active( gossip->wsample, old_ci_idx, 1 );
-  }
 }
 
 void
@@ -575,10 +556,10 @@ rx_values( fd_gossip_t *             gossip,
     }
 
     ulong origin_stake = get_stake( gossip, value->origin );
-    int origin_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin );
+    int origin_ping_tracker_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin );
     int is_me = !memcmp( value->origin, gossip->identity_pubkey, 32UL );
 
-    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_active, is_me, now, stem );
+    results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, now, stem );
     if( FD_UNLIKELY( results[ i ] ) ) continue;
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
@@ -813,7 +794,7 @@ fd_gossip_push( fd_gossip_t *             gossip,
   FD_TEST( serialized_sz!=-1L );
   gossip->sign_fn( gossip->sign_ctx, serialized+64UL, (ulong)serialized_sz-64UL, FD_KEYGUARD_SIGN_TYPE_ED25519, serialized );
 
-  int origin_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin );
+  int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
   if( FD_UNLIKELY( fd_crds_insert( gossip->crds, value, serialized, (ulong)serialized_sz, gossip->identity_stake, origin_active, 1, now, stem ) ) ) return -1;
 
   fd_active_set_push( gossip->active_set, serialized, (ulong)serialized_sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
@@ -1085,7 +1066,7 @@ fd_gossip_advance( fd_gossip_t *       gossip,
   if( FD_UNLIKELY( now>=gossip->timers.next_contact_info_refresh ) ) {
     /* TODO: Frequency of this? More often if observing? */
     refresh_contact_info( gossip, now );
-    int origin_active = fd_ping_tracker_active( gossip->ping_tracker, gossip->identity_pubkey );
+    int origin_active = 0; /* Value doesn't matter, since is_me=1 it's never used. */
     fd_crds_insert( gossip->crds, gossip->my_contact_info.ci, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_stake, origin_active, 1, now, stem );
     fd_active_set_push( gossip->active_set, gossip->my_contact_info.crds_val, gossip->my_contact_info.crds_val_sz, gossip->identity_pubkey, gossip->identity_stake, stem, now, 1 );
     gossip->timers.next_contact_info_refresh = now+15L*500L*1000L*1000L; /* TODO: Jitter */

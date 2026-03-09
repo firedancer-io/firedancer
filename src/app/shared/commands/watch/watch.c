@@ -315,16 +315,12 @@ write_snapshots( config_t const * config,
   ulong bytes_read = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ];
   ulong bytes_total = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ];
 
-  ulong gossip_fresh_count = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, GOSSIP_FRESH_COUNT ) ];
-  ulong gossip_total_count = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, GOSSIP_TOTAL_COUNT ) ];
-
   double progress = 0.0;
   switch( state ) {
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS:
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL:
     case FD_SNAPCT_STATE_COLLECTING_PEERS:
     case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL:
-      if( FD_LIKELY( gossip_total_count>0UL ) ) progress = 100.0 * (1.0 - (double)gossip_fresh_count / (double)gossip_total_count );
       break;
     case FD_SNAPCT_STATE_READING_FULL_FILE:
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:

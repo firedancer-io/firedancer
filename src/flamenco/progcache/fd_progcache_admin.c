@@ -207,7 +207,6 @@ fd_progcache_txn_cancel( fd_progcache_admin_t * cache,
   }
   fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
-  fd_progcache_txn_cancel_next_list( cache, txn );
   fd_progcache_txn_cancel_tree( cache, txn );
 }
 

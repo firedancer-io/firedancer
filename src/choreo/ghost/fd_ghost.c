@@ -143,9 +143,17 @@ fd_ghost_best( fd_ghost_t     * ghost,
     while( FD_LIKELY( child ) ) { /* greedily pick the heaviest valid child */
       if( FD_LIKELY( child->valid ) ) {
         if( FD_LIKELY( !valid ) ) { /* this is the first valid child, so progress the head */
-          best        = child;
+          best  = child;
           valid = 1;
         }
+
+        /* When stake is equal, tie-break by lower slot.  Two valid
+           children with equal stake and equal slot (ie. equivocating
+           blocks) cannot occur: equivocating blocks are marked eqvoc=1
+           and valid=0, so at most one of them would be valid unless
+           multiple blocks for that slot are duplicate confirmed, which
+           is a consensus invariant violation. */
+
         best = fd_ptr_if(
           fd_int_if(
             child->stake == best->stake,   /* if the weights are equal */
@@ -180,13 +188,14 @@ fd_ghost_deepest( fd_ghost_t     * ghost,
   while( FD_LIKELY( head ) ) {
     fd_ghost_blk_t const * child = blk_pool_ele( pool, head->child );
     while( FD_LIKELY( child ) ) {
-      tail->next = blk_pool_idx( pool, blk_map_ele_remove( blk_map( ghost ), &child->id, NULL, pool ) );
+      FD_TEST( blk_map_ele_remove( blk_map( ghost ), &child->id, NULL, pool ) ); /* in the tree so must be in the map */
+      tail->next = blk_pool_idx( pool, child );
       tail       = blk_pool_ele( pool, tail->next );
       tail->next = blk_pool_idx_null( pool );
       child      = blk_pool_ele( pool, child->sibling ); /* next sibling */
     }
     fd_ghost_blk_t * next = blk_pool_ele( pool, head->next ); /* pop prune queue head */
-    blk_map_ele_insert( blk_map( ghost ), head, pool );     /* re-insert head into map */
+    blk_map_ele_insert( blk_map( ghost ), head, pool );       /* re-insert head into map */
     prev = head;
     head = next;
   }
@@ -312,7 +321,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
       int cf = __builtin_usubl_overflow( ancestor->stake, vtr->prev_stake, &ancestor->stake );
       if( FD_UNLIKELY( cf ) ) {
         FD_BASE58_ENCODE_32_BYTES( ancestor->id.key, ancestor_id_b58 );
-        FD_LOG_CRIT(( "[%s] overflow: %lu - %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, vtr->prev_stake, ancestor->slot, ancestor_id_b58 ));
+        FD_LOG_CRIT(( "[%s] overflow (after): %lu. subtracted: %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, vtr->prev_stake, ancestor->slot, ancestor_id_b58 ));
       }
       ancestor = blk_pool_ele( blk_pool( ghost ), ancestor->parent );
     }
@@ -329,7 +338,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
     int cf = __builtin_uaddl_overflow( ancestor->stake, stake, &ancestor->stake );
     if( FD_UNLIKELY( cf ) ) {
       FD_BASE58_ENCODE_32_BYTES( ancestor->id.key, ancestor_id_b58 );
-      FD_LOG_CRIT(( "[%s] overflow: %lu + %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, stake, ancestor->slot, ancestor_id_b58 ));
+      FD_LOG_CRIT(( "[%s] overflow (after): %lu. added: %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, stake, ancestor->slot, ancestor_id_b58 ));
     }
     ancestor = blk_pool_ele( blk_pool( ghost ), ancestor->parent );
   }
@@ -356,7 +365,43 @@ fd_ghost_publish( fd_ghost_t     * ghost,
   fd_ghost_blk_t * tail = head;
 
   /* Second, BFS down the tree, pruning all of root's ancestors and also
-     any descendants of those ancestors. */
+     any descendants of those ancestors.
+
+         oldr
+          |
+          X
+         / \
+      newr   Y
+              |
+              Z
+
+         ...
+
+        newr
+
+    BFS starts with oldr.  Its child is X.  X != newr, so X gets
+    enqueued. oldr is released.  Next head = X. X's children are newr
+    and Y.  newr is skipped.  Y gets enqueued.  X is released.  Next
+    head = Y.  Y's child Z gets enqueued.  Y released.  Z released.
+    Queue is empty, loop ends.
+
+       oldr
+     /    \
+    A     newr
+          /   \
+         B     C
+
+      ...
+
+     newr
+     /   \
+    B     C
+
+
+    The BFS starts with oldr.  Its children are A and newr.  A gets
+    enqueued for pruning.  newr is skipped (line 374).  Then oldr is
+    released.  Next, head = A.  A has no children.  A is released.
+    Queue is empty, loop ends. */
 
   head->next = null;
   while( FD_LIKELY( head ) ) {
@@ -401,20 +446,6 @@ fd_ghost_verify( fd_ghost_t * ghost ) {
   /* Check every ele that exists in pool exists in map. */
 
   if( blk_map_verify( blk_map( ghost ), blk_pool_max( pool ), pool ) ) return -1;
-
-  /* Check every ele's stake is >= sum of children's stakes. */
-
-  fd_ghost_blk_t const * parent = fd_ghost_root( ghost );
-  while( FD_LIKELY( parent ) ) {
-    ulong                  weight = 0;
-    fd_ghost_blk_t const * child  = blk_pool_ele( blk_pool( ghost ), parent->child );
-    while( FD_LIKELY( child ) ) {
-      weight += child->stake;
-      child = blk_pool_ele( blk_pool( ghost ), child->sibling );
-    }
-    FD_TEST( parent->stake >= weight );
-    parent = blk_pool_ele_const( pool, parent->next );
-  }
 
   return 0;
 }
@@ -477,16 +508,10 @@ to_cstr( fd_ghost_t const *     ghost,
   }
 
   fd_ghost_blk_t const * curr = blk_pool_ele_const( pool, ele->child );
-  char new_prefix[1024]; /* FIXME size this correctly */
 
   while( curr ) {
-    if( FD_UNLIKELY( blk_pool_ele_const( pool, curr->sibling ) ) ) {
-      sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
-      to_cstr( ghost, curr, total_stake, space + 4, new_prefix, cstr, len, off, depth + 1 ); /* TODO remove recursion */
-    } else {
-      sprintf( new_prefix, "└── " ); /* end branch */
-      to_cstr( ghost, curr, total_stake, space + 4, new_prefix, cstr, len, off, depth + 1 ); /* TODO remove recursion */
-    }
+    char const * next_prefix = blk_pool_ele_const( pool, curr->sibling ) ? "├── " : "└── ";
+    to_cstr( ghost, curr, total_stake, space + 4, next_prefix, cstr, len, off, depth + 1 ); /* TODO remove recursion */
     curr = blk_pool_ele_const( pool, curr->sibling );
   }
 }

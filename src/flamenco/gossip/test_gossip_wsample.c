@@ -65,7 +65,7 @@ test_single_peer( fd_rng_t * rng ) {
 
   fd_gossip_wsample_t * s = new_sampler( rng, 16UL );
 
-  fd_gossip_wsample_add( s, 5UL, 1000UL, 1 );
+  fd_gossip_wsample_add( s, 5UL, 1000UL, 1, 0, 0 );
 
   /* Pull request should always return idx 5 */
   for( ulong i=0UL; i<100UL; i++ )
@@ -97,7 +97,7 @@ test_zero_stake( fd_rng_t * rng ) {
   fd_gossip_wsample_t * s = new_sampler( rng, 8UL );
 
   /* Add a peer with stake=0 */
-  fd_gossip_wsample_add( s, 2UL, 0UL, 1 );
+  fd_gossip_wsample_add( s, 2UL, 0UL, 1, 0, 0 );
 
   /* Should still be sampleable for pull requests (BASE_WEIGHT > 0) */
   for( ulong i=0UL; i<50UL; i++ )
@@ -117,9 +117,9 @@ test_add_remove( fd_rng_t * rng ) {
 
   fd_gossip_wsample_t * s = new_sampler( rng, 32UL );
 
-  fd_gossip_wsample_add( s, 3UL, 500UL, 1 );
-  fd_gossip_wsample_add( s, 7UL, 300UL, 1 );
-  fd_gossip_wsample_add( s, 15UL, 200UL, 1 );
+  fd_gossip_wsample_add( s, 3UL, 500UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 7UL, 300UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 15UL, 200UL, 1, 0, 0 );
 
   /* All samples should be one of {3, 7, 15} */
   for( ulong i=0UL; i<200UL; i++ ) {
@@ -151,9 +151,9 @@ test_bucket_cycle( fd_rng_t * rng ) {
 
   fd_gossip_wsample_t * s = new_sampler( rng, 32UL );
 
-  fd_gossip_wsample_add( s, 0UL, 10000UL, 1 );
-  fd_gossip_wsample_add( s, 1UL, 20000UL, 1 );
-  fd_gossip_wsample_add( s, 2UL, 30000UL, 1 );
+  fd_gossip_wsample_add( s, 0UL, 10000UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 1UL, 20000UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 2UL, 30000UL, 1, 0, 0 );
 
   ulong bucket = 5UL;
 
@@ -190,7 +190,7 @@ test_remove_after_bucket_remove( fd_rng_t * rng ) {
 
   fd_gossip_wsample_t * s = new_sampler( rng, 16UL );
 
-  fd_gossip_wsample_add( s, 4UL, 5000UL, 1 );
+  fd_gossip_wsample_add( s, 4UL, 5000UL, 1, 0, 0 );
 
   /* Remove from bucket 10 via sample */
   FD_TEST( fd_gossip_wsample_sample_remove_bucket( s, 10UL ) == 4UL );
@@ -216,9 +216,9 @@ test_sparse_indices( fd_rng_t * rng ) {
   fd_gossip_wsample_t * s = new_sampler( rng, max_peers );
 
   /* Add peers at widely spaced indices */
-  fd_gossip_wsample_add( s, 0UL,   100UL, 1 );
-  fd_gossip_wsample_add( s, 500UL, 200UL, 1 );
-  fd_gossip_wsample_add( s, 999UL, 300UL, 1 );
+  fd_gossip_wsample_add( s, 0UL,   100UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 500UL, 200UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 999UL, 300UL, 1, 0, 0 );
 
   for( ulong i=0UL; i<300UL; i++ ) {
     ulong idx = fd_gossip_wsample_sample_pull_request( s );
@@ -252,8 +252,8 @@ test_distribution( fd_rng_t * rng ) {
      Expected ratio ~ 121:4 ~ 30:1. */
   ulong stake_a = 1000UL * 1000000000UL;  /* 1000 SOL */
   ulong stake_b =    1UL * 1000000000UL;  /*    1 SOL */
-  fd_gossip_wsample_add( s, 0UL, stake_a, 1 );
-  fd_gossip_wsample_add( s, 1UL, stake_b, 1 );
+  fd_gossip_wsample_add( s, 0UL, stake_a, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 1UL, stake_b, 1, 0, 0 );
 
   ulong cnt_a = 0UL;
   ulong cnt_b = 0UL;
@@ -286,7 +286,7 @@ test_many_peers( fd_rng_t * rng ) {
 
   /* Add all peers */
   for( ulong i=0UL; i<max_peers; i++ )
-    fd_gossip_wsample_add( s, i, (i+1UL) * 100UL, 1 );
+    fd_gossip_wsample_add( s, i, (i+1UL) * 100UL, 1, 0, 0 );
 
   /* Sample a bunch */
   for( ulong i=0UL; i<10000UL; i++ ) {
@@ -324,8 +324,8 @@ test_bucket_independence( fd_rng_t * rng ) {
 
   fd_gossip_wsample_t * s = new_sampler( rng, 16UL );
 
-  fd_gossip_wsample_add( s, 0UL, 1000UL, 1 );
-  fd_gossip_wsample_add( s, 1UL, 2000UL, 1 );
+  fd_gossip_wsample_add( s, 0UL, 1000UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 1UL, 2000UL, 1, 0, 0 );
 
   /* Remove both from bucket 0 */
   ulong a = fd_gossip_wsample_sample_remove_bucket( s, 0UL );
@@ -356,14 +356,14 @@ test_readd_peer( fd_rng_t * rng ) {
 
   fd_gossip_wsample_t * s = new_sampler( rng, 16UL );
 
-  fd_gossip_wsample_add( s, 3UL, 500UL, 1 );
+  fd_gossip_wsample_add( s, 3UL, 500UL, 1, 0, 0 );
   FD_TEST( fd_gossip_wsample_sample_pull_request( s ) == 3UL );
 
   fd_gossip_wsample_remove( s, 3UL );
   FD_TEST( fd_gossip_wsample_sample_pull_request( s ) == ULONG_MAX );
 
   /* Re-add at the same index with different stake */
-  fd_gossip_wsample_add( s, 3UL, 7000UL, 1 );
+  fd_gossip_wsample_add( s, 3UL, 7000UL, 1, 0, 0 );
   FD_TEST( fd_gossip_wsample_sample_pull_request( s ) == 3UL );
 
   /* Bucket should also work for the re-added peer */
@@ -385,8 +385,8 @@ test_self_stake( fd_rng_t * rng ) {
      be sampled roughly equally. */
   ulong big_stake   = 10000UL * 1000000000UL; /* 10000 SOL */
   ulong small_stake =     1UL * 1000000000UL; /*     1 SOL */
-  fd_gossip_wsample_add( s, 0UL, big_stake,   1 );
-  fd_gossip_wsample_add( s, 1UL, small_stake, 1 );
+  fd_gossip_wsample_add( s, 0UL, big_stake,   1, 0, 0 );
+  fd_gossip_wsample_add( s, 1UL, small_stake, 1, 0, 0 );
 
   ulong cnt_0 = 0UL;
   ulong N = 10000UL;
@@ -434,8 +434,8 @@ test_stake_update( fd_rng_t * rng ) {
 
   /* Add two peers with equal stake. */
   ulong equal_stake = 100UL * 1000000000UL; /* 100 SOL */
-  fd_gossip_wsample_add( s, 0UL, equal_stake, 1 );
-  fd_gossip_wsample_add( s, 1UL, equal_stake, 1 );
+  fd_gossip_wsample_add( s, 0UL, equal_stake, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 1UL, equal_stake, 1, 0, 0 );
 
   /* Sampling should be roughly 50/50. */
   ulong cnt_0 = 0UL;
@@ -476,8 +476,8 @@ test_fresh( fd_rng_t * rng ) {
   fd_gossip_wsample_self_stake( s, 100000UL * 1000000000UL );
 
   ulong stake = 1000UL * 1000000000UL; /* 1000 SOL */
-  fd_gossip_wsample_add( s, 0UL, stake, 1 );
-  fd_gossip_wsample_add( s, 1UL, stake, 1 );
+  fd_gossip_wsample_add( s, 0UL, stake, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 1UL, stake, 1, 0, 0 );
 
   /* Both fresh: roughly 50/50. */
   ulong cnt_0 = 0UL;
@@ -531,27 +531,26 @@ test_fresh( fd_rng_t * rng ) {
   destroy_sampler( s );
 }
 
-/* ---- test: active/inactive toggle --------------------------------------- */
+/* ---- test: ping_tracked toggle ------------------------------------------ */
 
 static void
-test_active( fd_rng_t * rng ) {
-  FD_LOG_NOTICE(( "test_active" ));
+test_ping_tracked( fd_rng_t * rng ) {
+  FD_LOG_NOTICE(( "test_ping_tracked" ));
 
   fd_gossip_wsample_t * s = new_sampler( rng, 16UL );
-  fd_gossip_wsample_self_stake( s, 100000UL * 1000000000UL );
 
-  ulong stake = 100UL * 1000000000UL;
-  fd_gossip_wsample_add( s, 0UL, stake, 1 );
-  fd_gossip_wsample_add( s, 1UL, stake, 1 );
+  /* Use unstaked peers so is_active depends on ping_tracked. */
+  fd_gossip_wsample_add( s, 0UL, 0UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 1UL, 0UL, 1, 0, 0 );
 
-  /* Both active: PR and bucket samples return 0 or 1. */
+  /* Both active (ping_tracked): PR and bucket samples return 0 or 1. */
   for( ulong i=0UL; i<50UL; i++ ) {
     ulong idx = fd_gossip_wsample_sample_pull_request( s );
     FD_TEST( idx==0UL || idx==1UL );
   }
 
   /* Deactivate peer 1 -- only peer 0 should appear anywhere. */
-  fd_gossip_wsample_active( s, 1UL, 0 );
+  fd_gossip_wsample_ping_tracked( s, 1UL, 0 );
 
   for( ulong i=0UL; i<100UL; i++ )
     FD_TEST( fd_gossip_wsample_sample_pull_request( s ) == 0UL );
@@ -562,7 +561,7 @@ test_active( fd_rng_t * rng ) {
   }
 
   /* Reactivate peer 1 -- both peers should be sampleable again. */
-  fd_gossip_wsample_active( s, 1UL, 1 );
+  fd_gossip_wsample_ping_tracked( s, 1UL, 1 );
 
   int seen_0 = 0, seen_1 = 0;
   for( ulong i=0UL; i<200UL; i++ ) {
@@ -585,18 +584,18 @@ test_active( fd_rng_t * rng ) {
   destroy_sampler( s );
 }
 
-/* ---- test: add with active=0 ------------------------------------------- */
+/* ---- test: add with ping_tracked=0 -------------------------------------- */
 
 static void
-test_add_inactive( fd_rng_t * rng ) {
-  FD_LOG_NOTICE(( "test_add_inactive" ));
+test_add_not_ping_tracked( fd_rng_t * rng ) {
+  FD_LOG_NOTICE(( "test_add_not_ping_tracked" ));
 
   fd_gossip_wsample_t * s = new_sampler( rng, 16UL );
-  fd_gossip_wsample_self_stake( s, 100000UL * 1000000000UL );
 
-  /* Add peer 0 active, peer 1 inactive. */
-  fd_gossip_wsample_add( s, 0UL, 100UL * 1000000000UL, 1 );
-  fd_gossip_wsample_add( s, 1UL, 100UL * 1000000000UL, 0 );
+  /* Add peer 0 active (ping_tracked), peer 1 inactive (not ping_tracked).
+     Use unstaked peers so is_active depends on ping_tracked. */
+  fd_gossip_wsample_add( s, 0UL, 0UL, 1, 0, 0 );
+  fd_gossip_wsample_add( s, 1UL, 0UL, 0, 0, 0 );
 
   /* PR tree: peer 1 is inactive and should NOT be sampleable.  Only
      peer 0 should appear. */
@@ -611,7 +610,7 @@ test_add_inactive( fd_rng_t * rng ) {
   }
 
   /* Activate peer 1 -- now both in buckets. */
-  fd_gossip_wsample_active( s, 1UL, 1 );
+  fd_gossip_wsample_ping_tracked( s, 1UL, 1 );
 
   /* Re-add peer 0 to buckets (was drained above). */
   for( ulong b=0UL; b<25UL; b++ )
@@ -634,7 +633,7 @@ test_stake_update_preserves_unfresh( fd_rng_t * rng ) {
   fd_gossip_wsample_self_stake( s, 100000UL * 1000000000UL );
 
   ulong stake = 1000UL * 1000000000UL;
-  fd_gossip_wsample_add( s, 0UL, stake, 1 );
+  fd_gossip_wsample_add( s, 0UL, stake, 1, 0, 0 );
 
   /* Mark unfresh -- weight should be full/16. */
   fd_gossip_wsample_fresh( s, 0UL, 0 );
@@ -648,7 +647,7 @@ test_stake_update_preserves_unfresh( fd_rng_t * rng ) {
 
   /* Now add a fresh peer with comparable stake -- it should dominate
      because peer 0 is still unfresh. */
-  fd_gossip_wsample_add( s, 1UL, 5000UL * 1000000000UL, 1 );
+  fd_gossip_wsample_add( s, 1UL, 5000UL * 1000000000UL, 1, 0, 0 );
 
   ulong cnt_1 = 0UL;
   ulong N = 10000UL;
@@ -661,42 +660,35 @@ test_stake_update_preserves_unfresh( fd_rng_t * rng ) {
   destroy_sampler( s );
 }
 
-/* ---- test: active toggle preserves unfresh state (bugs #17/#18) --------- */
+/* ---- test: ping_tracked toggle preserves unfresh state ------------------ */
 
 static void
-test_active_preserves_unfresh( fd_rng_t * rng ) {
-  FD_LOG_NOTICE(( "test_active_preserves_unfresh" ));
+test_ping_tracked_preserves_unfresh( fd_rng_t * rng ) {
+  FD_LOG_NOTICE(( "test_ping_tracked_preserves_unfresh" ));
 
   fd_gossip_wsample_t * s = new_sampler( rng, 16UL );
-  fd_gossip_wsample_self_stake( s, 100000UL * 1000000000UL );
 
-  ulong stake = 1000UL * 1000000000UL;
-  fd_gossip_wsample_add( s, 0UL, stake, 1 ); /* fresh peer */
-  fd_gossip_wsample_add( s, 1UL, stake, 1 );
+  /* Use unstaked peers so is_active depends on ping_tracked. */
+  fd_gossip_wsample_add( s, 0UL, 0UL, 1, 0, 0 ); /* fresh peer */
+  fd_gossip_wsample_add( s, 1UL, 0UL, 1, 0, 0 );
 
-  /* Mark peer 1 unfresh. */
+  /* Mark peer 1 unfresh.  Unstaked + unfresh => weight 0. */
   fd_gossip_wsample_fresh( s, 1UL, 0 );
 
   /* Deactivate then reactivate peer 1.  Its unfresh state should be
      preserved across the inactive/active cycle. */
-  fd_gossip_wsample_active( s, 1UL, 0 );
-  fd_gossip_wsample_active( s, 1UL, 1 );
+  fd_gossip_wsample_ping_tracked( s, 1UL, 0 );
+  fd_gossip_wsample_ping_tracked( s, 1UL, 1 );
 
-  /* PR tree: peer 0 (fresh) should dominate peer 1 (unfresh). */
-  ulong cnt_0 = 0UL;
-  ulong N = 10000UL;
-  for( ulong i=0UL; i<N; i++ )
-    cnt_0 += (ulong)( fd_gossip_wsample_sample_pull_request( s ) == 0UL );
-  FD_TEST( cnt_0 > N * 8UL / 10UL );
+  /* PR tree: peer 1 is unfresh + unstaked => weight 0.  Only peer 0. */
+  for( ulong i=0UL; i<100UL; i++ )
+    FD_TEST( fd_gossip_wsample_sample_pull_request( s ) == 0UL );
 
-  /* Bucket tree: peer 0 should also dominate. */
-  ulong bcnt_0 = 0UL;
-  for( ulong i=0UL; i<N; i++ ) {
-    ulong idx = fd_gossip_wsample_sample_remove_bucket( s, 5UL );
-    bcnt_0 += (ulong)( idx == 0UL );
-    fd_gossip_wsample_add_bucket( s, 5UL, idx );
+  /* Bucket tree: same, only peer 0 sampleable. */
+  for( ulong b=0UL; b<25UL; b++ ) {
+    FD_TEST( fd_gossip_wsample_sample_remove_bucket( s, b ) == 0UL );
+    FD_TEST( fd_gossip_wsample_sample_remove_bucket( s, b ) == ULONG_MAX );
   }
-  FD_TEST( bcnt_0 > N * 8UL / 10UL );
 
   destroy_sampler( s );
 }
@@ -707,7 +699,7 @@ test_active_preserves_unfresh( fd_rng_t * rng ) {
    weight 0 (unfresh + unstaked => weight 0).  When later marked fresh,
    the old code checked "if( old_pr_weight == 0 ) skip", so the fresh
    toggle was silently ignored and the peer could never be sampled again
-   despite being active.  The explicit active[] array fixes this. */
+   despite being active.  The `recompute` function fixes this. */
 
 static void
 test_unfresh_unstaked_regains_fresh( fd_rng_t * rng ) {
@@ -716,7 +708,7 @@ test_unfresh_unstaked_regains_fresh( fd_rng_t * rng ) {
   fd_gossip_wsample_t * s = new_sampler( rng, 16UL );
 
   /* Add an unstaked active peer. */
-  fd_gossip_wsample_add( s, 0UL, 0UL, 1 );
+  fd_gossip_wsample_add( s, 0UL, 0UL, 1, 0, 0 );
 
   /* Should be sampleable (weight 1 for zero-stake fresh peers). */
   FD_TEST( fd_gossip_wsample_sample_pull_request( s ) == 0UL );
@@ -749,7 +741,7 @@ test_stake_update_zero_weight_active( fd_rng_t * rng ) {
   fd_gossip_wsample_self_stake( s, 100000UL * 1000000000UL );
 
   /* Add an unstaked active peer, then mark unfresh => PR weight 0. */
-  fd_gossip_wsample_add( s, 0UL, 0UL, 1 );
+  fd_gossip_wsample_add( s, 0UL, 0UL, 1, 0, 0 );
   fd_gossip_wsample_fresh( s, 0UL, 0 );
   FD_TEST( fd_gossip_wsample_sample_pull_request( s ) == ULONG_MAX );
 
@@ -788,10 +780,10 @@ main( int     argc,
   test_self_stake( rng );
   test_stake_update( rng );
   test_fresh( rng );
-  test_active( rng );
-  test_add_inactive( rng );
+  test_ping_tracked( rng );
+  test_add_not_ping_tracked( rng );
   test_stake_update_preserves_unfresh( rng );
-  test_active_preserves_unfresh( rng );
+  test_ping_tracked_preserves_unfresh( rng );
   test_unfresh_unstaked_regains_fresh( rng );
   test_stake_update_zero_weight_active( rng );
 

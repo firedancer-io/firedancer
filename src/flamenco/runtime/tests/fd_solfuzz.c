@@ -124,6 +124,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   runner->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime ) ) goto bail2;
+  runner->runtime->accounts.executable_cnt = 0UL;
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
 

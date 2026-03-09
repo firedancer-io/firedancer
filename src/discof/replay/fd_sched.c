@@ -232,9 +232,9 @@ struct fd_sched {
   ulong                 staged_head_bank_idx[ FD_SCHED_MAX_STAGING_LANES ]; /* Head of the linear chain in each staging lane, ignored if bit i is
                                                                                not set in the bitset. */
   ulong                 txn_pool_free_cnt;
-  fd_txn_p_t *          txn_pool;
-  fd_sched_txn_info_t * txn_info_pool;
-  fd_sched_mblk_t *     mblk_pool;
+  fd_txn_p_t *          txn_pool;      /* Just a flat array. */
+  fd_sched_txn_info_t * txn_info_pool; /* Just a flat array. */
+  fd_sched_mblk_t *     mblk_pool;     /* Just a flat array. */
   ulong                 mblk_pool_free_cnt;
   uint                  mblk_pool_free_head;
   ulong                 tile_to_bank_idx[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Index of the bank that the exec tile is executing against. */
@@ -749,18 +749,9 @@ fd_sched_can_ingest_cnt( fd_sched_t * sched ) {
 
 int
 fd_sched_is_drained( fd_sched_t * sched ) {
-  /* We don't bother checking the mblk pool popcnt, because the txn pool
-     alone will answer the question.  All types of tasks will continue
-     to dispatch to the point where all allocated indices in the pool
-     are reclaimed.  In fact, it is not correct to check whether the
-     mblk pool is totally free.  The mblk pool can have outstanding
-     elements while sched is unable to make progress, due to partially
-     parsed microblocks pending mixins.  Nonetheless, because we mixin
-     even partially parsed microblocks as much as possible, there should
-     be no outstanding transactions.
-
-     FIXME This doesn't check for block finalization tasks. */
-  return sched->txn_pool_free_cnt==sched->depth-1;
+  int nothing_inflight = sched->exec_cnt==(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
+  int nothing_queued = sched->active_bank_idx==ULONG_MAX;
+  return nothing_inflight && nothing_queued;
 }
 
 FD_WARN_UNUSED int
@@ -987,6 +978,28 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
+  if( FD_UNLIKELY( block->fec_eos && (block->txns_rem||block->mblks_rem) ) ) {
+    /* A malformed block that fails to parse out exactly as many
+       transactions and microblocks as it should. */
+    FD_LOG_INFO(( "bad block: bytes_rem %u, txns_rem %lu, mblks_rem %lu, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->slot, block->parent_slot ));
+    handle_bad_block( sched, block );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
+    /* The last microblock should be a tick.
+
+       Note that this early parse-time detection could cause us to throw
+       a slightly different error from Agave, in the case that there are
+       too few ticks, since the tick count check precedes the trailing
+       entry check in Agave.  That being said, ultimately a
+       TRAILING_ENTRY renders a block invalid, regardless of anything
+       else. */
+    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
+    handle_bad_block( sched, block );
+    return 0;
+  }
+
   /* We just received a FEC set, which may have made all transactions in
      a partially parsed microblock available.  If this were a malformed
      block that ends in a non-tick microblock, there's not going to be a
@@ -1002,20 +1015,6 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
       return 0;
     }
     FD_TEST( mixin_res==1||mixin_res==2 );
-  }
-
-  if( FD_UNLIKELY( block->fec_eos && !block->last_mblk_is_tick ) ) {
-    /* The last microblock should be a tick.
-
-       Note that this early parse-time detection could cause us to throw
-       a slightly different error from Agave, in the case that there are
-       too few ticks, since the tick count check precedes the trailing
-       entry check in Agave.  That being said, ultimately a
-       TRAILING_ENTRY renders a block invalid, regardless of anything
-       else. */
-    FD_LOG_INFO(( "bad block: TRAILING_ENTRY, slot %lu, parent slot %lu, mblk_cnt %u", block->slot, block->parent_slot, block->mblk_cnt ));
-    handle_bad_block( sched, block );
-    return 0;
   }
 
   /* Check if we need to set the active block. */
@@ -1970,31 +1969,17 @@ FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
-  /* FIXME: For the replay pipeline, we allow up to 128 instructions per
-     transaction.  Note that we are not concomitantly bumping the size
-     of fd_txn_t.  We allow this because transactions like that do get
-     packed by other validators, so we have to replay them.  Those
-     transactions will eventually fail in the runtime, which imposes a
-     limit of 64 instructions, but unfortunately they are not tossed out
-     at parse time and they land on chain.  static_instruction_limit is
-     going to enforece this limit at parse time, and transactions like
-     that would not land on chain.  Then this short term change should
-     be rolled back. */
   ulong pay_sz = 0UL;
   ulong txn_sz = fd_txn_parse_core( block->fec_buf+block->fec_buf_soff,
                                     fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
                                     txn,
                                     NULL,
-                                    &pay_sz,
-                                    ULONG_MAX );
+                                    &pay_sz );
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */
     return FD_SCHED_AGAIN_LATER;
   }
-
-  /* FIXME: remove after static_instruction_limit */
-  if( FD_UNLIKELY( txn->instr_cnt>FD_TXN_INSTR_MAX*2UL ) ) FD_LOG_CRIT(( "slot %lu txn idx %u has %u instructions, static_instruction_limit will resolve this", block->slot, block->txn_parsed_cnt, txn->instr_cnt ));
 
   if( FD_UNLIKELY( block->txn_parsed_cnt>=FD_MAX_TXN_PER_SLOT ) ) {
     /* The block contains more transactions than a valid block would.

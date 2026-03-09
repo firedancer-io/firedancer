@@ -366,13 +366,6 @@ fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_out_t *      txn_out ) {
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
 
-  /* SIMD-0160: enforce static limit on number of instructions.
-     https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L4710-L4716 */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, static_instruction_limit ) &&
-                   TXN( txn_in->txn )->instr_cnt > FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-    return FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
-  }
-
   /* SIMD-0406: enforce limit on number of instruction accounts.
 
      TODO: when limit_instruction_accounts is activated everywhere,
@@ -1365,14 +1358,13 @@ fd_execute_instr( fd_runtime_t *      runtime,
   return fd_execute_instr_end( ctx, instr, instr_exec_result );
 }
 
-static void
+void
 fd_executor_reclaim_account( fd_account_meta_t * meta,
                              ulong               slot ) {
-  meta->slot = slot;
   if( FD_UNLIKELY( meta->lamports==0UL ) ) {
-    meta->dlen = 0UL;
-    memset( meta->owner, 0, sizeof(fd_pubkey_t) );
+    memset( meta, 0, sizeof(fd_account_meta_t) );
   }
+  meta->slot = slot;
 }
 
 static void
@@ -1624,10 +1616,6 @@ fd_executor_txn_check( fd_runtime_t * runtime,
           return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
         }
       }
-    }
-
-    if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
-      fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
     }
   }
 

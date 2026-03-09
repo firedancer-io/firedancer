@@ -245,7 +245,7 @@ fd_active_set_remove_peer( fd_active_set_t * active_set,
         }
         entry->nodes_len--;
         if( FD_UNLIKELY( !entry->nodes_len ) ) entry->nodes_idx = 0UL;
-        return;
+        break;
       }
     }
   }
@@ -311,7 +311,7 @@ rotate_active_set( fd_active_set_t *   active_set,
     fd_gossip_wsample_add_bucket( active_set->wsample, bucket, old_ci_idx );
     push_flush( active_set, &active_set->peers[ bucket*12UL+replace_idx ], stem, now );
   } else {
-    replace_idx = entry->nodes_len;
+    replace_idx = (entry->nodes_idx+entry->nodes_len) % 12UL;
   }
 
   fd_active_set_peer_t * replace = &active_set->peers[ bucket*12UL+replace_idx ];

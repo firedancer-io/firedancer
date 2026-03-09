@@ -308,7 +308,6 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
   runtime->log.capture_ctx    = NULL;
   runtime->log.dump_proto_ctx = NULL;
   runtime->log.txn_dump_ctx   = NULL;
-  runtime->fuzz.enabled       = 1;
 
   fd_runtime_prepare_and_execute_txn( runtime, runner->bank, txn_in, txn_out );
   *exec_res = txn_out->err.txn_err;

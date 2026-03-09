@@ -72,6 +72,14 @@ struct fd_gossip_tile_ctx {
     ulong online;
     ulong total;
   } wfs_stake;
+
+  /* Peer table saturation detection.  We track the high-water mark
+     of the peer count (staked + unstaked).  When the count stops
+     increasing for FD_GOSSIP_PEER_SAT_QUIET_NS and at least one
+     peer is present, we publish PEER_SATURATED on gossip_out. */
+  ulong peer_sat_hwm;        /* high-water mark of peer count       */
+  long  peer_sat_hwm_nanos;  /* wallclock when HWM last increased   */
+  int   peer_sat_published;  /* one-shot latch (0 -> 1)             */
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;

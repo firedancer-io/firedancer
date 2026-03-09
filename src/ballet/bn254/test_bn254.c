@@ -818,6 +818,47 @@ int main( int     argc,
     }
   }
 
+
+  /* compress/decompress edge cases */
+  {
+    uchar FD_ALIGNED input[64] = {0};
+    input[63] = 0x40; /* Infinity flag in LE Y coordinate high byte */
+
+    uchar FD_ALIGNED out[32];
+    FD_TEST( fd_bn254_g1_compress( out, input, 0 /*LE*/ ) );
+
+    uchar FD_ALIGNED expected[32];
+    fd_hex_decode( expected, "0000000000000000000000000000000000000000000000000000000000000040", 32UL );
+    FD_TEST( fd_memeq( expected, out, 32 ) );
+  }
+  {
+    uchar FD_ALIGNED input[128] = {0};
+    input[127] = 0x40; /* FLAG_INF in Y coord el[1], LE flag byte */
+
+    uchar FD_ALIGNED out[64];
+    FD_TEST( fd_bn254_g2_compress( out, input, 0 /*LE*/ ) );
+
+    uchar FD_ALIGNED expected[64];
+    fd_hex_decode( expected, "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040", 64UL );
+    FD_TEST( fd_memeq( expected, out, 64 ) );
+
+    uchar FD_ALIGNED round[128] = { 0 };
+    FD_TEST( fd_bn254_g2_decompress( round, out, 0 /*LE*/ ) );
+    const uchar zeroes[128] = { 0 };
+    FD_TEST( fd_memeq( zeroes, round, 128 ) );
+  }
+  {
+    uchar FD_ALIGNED input[128] = {0};
+    input[64] = 0x40; /* FLAG_INF in Y coord el[1], BE flag byte */
+
+    uchar FD_ALIGNED out[64];
+    FD_TEST( fd_bn254_g2_compress( out, input, 1 /*BE*/ ) );
+
+    uchar FD_ALIGNED expected[64];
+    fd_hex_decode( expected, "40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", 64UL );
+    FD_TEST( fd_memeq( expected, out, 64 ) );
+  }
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

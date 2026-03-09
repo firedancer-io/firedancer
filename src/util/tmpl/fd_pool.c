@@ -492,6 +492,7 @@ static inline void     POOL_(ele_release)( POOL_T * join, POOL_T * ele ) { POOL_
 
 FD_PROTOTYPES_END
 
+#undef POOL_IMPL_STATIC
 #undef POOL_IDX_NULL
 #undef POOL_
 

@@ -20,7 +20,7 @@
 
    fd_tower_stakes_t is backed by two hash maps:
    1. fd_tower_stakes_vtr_map: this maps a vote account to a voter stake
-   2. fd_tower_stakes_blk_map: this maps a slot to a voter stake index
+   2. fd_tower_stakes_slot_map: this maps a slot to a voter stake index
 
    The voter_stake_map has a compound key {vote_account, slot}, so that
    the map can be queries O(1) by slot and vote account. As we populate
@@ -74,15 +74,14 @@ typedef struct fd_tower_stakes_vtr fd_tower_stakes_vtr_t;
 #define SET_NAME    fd_used_acc_scratch
 #include "../../util/tmpl/fd_set_dynamic.c"
 
-struct fd_tower_stakes_blk {
+struct fd_tower_stakes_slot {
   ulong slot;
-  ulong epoch;
   ulong head; /* pool idx of the head of a linked list of voters in this slot */
 };
-typedef struct fd_tower_stakes_blk fd_tower_stakes_blk_t;
+typedef struct fd_tower_stakes_slot fd_tower_stakes_slot_t;
 
-#define MAP_NAME           fd_tower_stakes_blk
-#define MAP_T              fd_tower_stakes_blk_t
+#define MAP_NAME           fd_tower_stakes_slot
+#define MAP_T              fd_tower_stakes_slot_t
 #define MAP_KEY            slot
 #define MAP_KEY_NULL       ULONG_MAX
 #define MAP_KEY_INVAL(key) ((key)==ULONG_MAX)
@@ -92,7 +91,7 @@ typedef struct fd_tower_stakes_blk fd_tower_stakes_blk_t;
 struct __attribute__((aligned(128UL))) fd_tower_stakes {
   fd_tower_stakes_vtr_map_t * vtr_map;
   fd_tower_stakes_vtr_t *     vtr_pool;
-  fd_tower_stakes_blk_t *     blk_map;
+  fd_tower_stakes_slot_t *    slot_map;
   fd_used_acc_scratch_t *     used_acc_scratch;
 };
 typedef struct fd_tower_stakes fd_tower_stakes_t;
@@ -117,39 +116,67 @@ fd_tower_stakes_footprint( ulong slot_max ) {
       alignof(fd_tower_stakes_t),       sizeof(fd_tower_stakes_t)                                     ),
       fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( FD_VOTER_MAX * slot_max ) ),
       fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( FD_VOTER_MAX * slot_max ) ),
-      fd_tower_stakes_blk_align(),      fd_tower_stakes_blk_footprint( lg_slot_cnt )                  ),
+      fd_tower_stakes_slot_align(),      fd_tower_stakes_slot_footprint( lg_slot_cnt )                  ),
       fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( FD_VOTER_MAX * slot_max )      ),
     fd_tower_stakes_align() );
 }
 
+/* fd_tower_stakes_new formats an unused memory region for use as a
+   tower_stakes.  mem is a non-NULL pointer to this region in the local
+   address space with the required footprint and alignment. */
+
 void *
 fd_tower_stakes_new( void * shmem,
-                     ulong  slot_max );
+                     ulong  slot_max,
+                     ulong  seed );
+
+/* fd_tower_stakes_join joins the caller to the tower_stakes. shstakes
+   points to the first byte of the memory region backing the shstakes in
+   the caller's address space.
+
+   Returns a pointer in the local address space to stakes on success. */
 
 fd_tower_stakes_t *
-fd_tower_stakes_join( void * shtower_stakes );
+fd_tower_stakes_join( void * shstakes );
 
-/* fd_tower_stakes_vtr_insert adds a new stake for a voter to the epoch
+/* fd_tower_stakes_leave stakes a current local join.  Returns a pointer
+   to the underlying shared memory region on success and NULL on failure
+   (logs details).  Reasons for failure include stakes is NULL. */
+
+void *
+fd_tower_stakes_leave( fd_tower_stakes_t const * stakes );
+
+/* fd_tower_stakes_delete unformats a memory region used as a stakes.
+   Assumes only the local process is joined to the region.  Returns a
+   pointer to the underlying shared memory region or NULL if used
+   obviously in error (e.g. stakes is obviously not a stakes ...  logs
+   details).  The ownership of the memory region is transferred to the
+   caller. */
+
+void *
+fd_tower_stakes_delete( void * stakes );
+
+/* fd_tower_stakes_insert adds a new (voter, stake) pair to the epoch
    stakes for a specific slot, and returns the index of the new voter
-   stake in the pool. prev_voter_idx is the index of the previous voter
-   stake in the pool. If this is the first voter inserted for this slot,
-   prev_voter_idx should be ULONG_MAX. Example usage:
+   stake in the pool.  prev_voter_idx is the index of the previous voter
+   stake in the pool.  If this is the first voter inserted for this
+   slot, prev_voter_idx should be ULONG_MAX.  Example usage:
 
    prev_voter_idx = ULONG_MAX;
    for( v : voters ) {
-     voter_idx = fd_tower_stakes_vtr_insert( tower_stakes, slot, v.vote_account, v.stake, prev_voter_idx );
+     voter_idx = fd_tower_stakes_insert( tower_stakes, slot, v.vote_account, v.stake, prev_voter_idx );
      prev_voter_idx = voter_idx;
    } */
 
 ulong
-fd_tower_stakes_vtr_insert( fd_tower_stakes_t * tower_stakes,
-                            ulong               slot,
-                            fd_hash_t const *   vote_account,
-                            ulong               stake,
-                            ulong               prev_voter_idx );
+fd_tower_stakes_insert( fd_tower_stakes_t * tower_stakes,
+                        ulong               slot,
+                        fd_hash_t const *   vote_account,
+                        ulong               stake,
+                        ulong               prev_voter_idx );
 
 void
-fd_tower_stakes_blk_prune( fd_tower_stakes_t     * tower_stakes,
-                            fd_tower_stakes_blk_t * blk );
+fd_tower_stakes_remove( fd_tower_stakes_t * tower_stakes,
+                        ulong               slot );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_stakes_h */
