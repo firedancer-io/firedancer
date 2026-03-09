@@ -664,8 +664,8 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   env->txn_out[0].accounts.account[1].meta->lamports = 0UL;
 
   /* tx1: Execute with victim writable, reading from prev_txn_outs.
-     In bundle mode, victim should still have owner=some_program and dlen=64
-     because fd_executor_reclaim_account has NOT been called yet. */
+     In bundle mode, victim will have all of it's metadata zeroed out
+     since the account is reclaimed. */
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
   env->txn_in.bundle.prev_txn_cnt     = 1;
@@ -674,7 +674,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( env->txn_out[1].err.is_committable );
   FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
 
-  /* KEY ASSERTION: In bundle mode, tx1 should not see the un-relcaimed
+  /* KEY ASSERTION: In bundle mode, tx1 should not see the un-reclaimed
      state from tx0.  The dlen should also not be 64 since from tx1's
      POV, the account should not exist yet. */
   FD_TEST( env->txn_out[1].accounts.account[1].meta->lamports == 0UL );
@@ -686,8 +686,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
 
-  /* Execute a non-bundle txn to read the account from funk post-commit.
-     Now the account should be reclaimed: owner zeroed, dlen=0. */
+  /* Execute a non-bundle txn to read the account post-commit */
   env->txn_in.txn              = &txn_p;
   env->txn_in.bundle.is_bundle = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
