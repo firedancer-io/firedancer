@@ -1267,9 +1267,16 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
 
 static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
-  runtime->instr.stack_sz          = 0;
-  runtime->instr.trace_length      = 0UL;
+  runtime->instr.stack_sz     = 0;
+  runtime->instr.trace_length = 0UL;
+  /* The only condition where the executable count of the current
+     runtime is not 0 is when a bundle of transaction is being executed.
+     In this case, close any outstanding executable accounts. */
+  for( ulong i=0UL; i<runtime->accounts.executable_cnt; i++ ) {
+    fd_accdb_close_ro( runtime->accdb, &runtime->accounts.executable[i] );
+  }
   runtime->accounts.executable_cnt = 0UL;
+
 }
 
 static inline void
