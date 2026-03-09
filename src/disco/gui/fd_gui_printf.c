@@ -727,8 +727,7 @@ fd_gui_printf_skip_rate( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "summary", "skip_rate" );
     jsonp_open_object( gui->http, "value" );
       jsonp_ulong( gui->http, "epoch", gui->epoch.epochs[ epoch_idx ].epoch );
-      if( FD_UNLIKELY( !gui->epoch.epochs[ epoch_idx ].my_total_slots ) ) jsonp_double( gui->http, "skip_rate", 0.0 );
-      else                                                                jsonp_double( gui->http, "skip_rate", (double)gui->epoch.epochs[ epoch_idx ].my_skipped_slots/(double)gui->epoch.epochs[ epoch_idx ].my_total_slots );
+      fd_http_server_printf( gui->http, "\"skip_rate\":%.7f,", !!gui->epoch.epochs[ epoch_idx ].my_total_slots ? (double)gui->epoch.epochs[ epoch_idx ].my_skipped_slots/(double)gui->epoch.epochs[ epoch_idx ].my_total_slots : 0.0 );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }
