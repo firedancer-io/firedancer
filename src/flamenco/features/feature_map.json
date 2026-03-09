@@ -244,7 +244,7 @@
   {"name":"raise_account_cu_limit","pubkey":"htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8"},
   {"name":"stricter_abi_and_runtime_constraints","pubkey":"sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r","old":"CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM"},
   {"name":"account_data_direct_mapping","pubkey":"DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA","old":"9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ"},
-  {"name":"fix_alt_bn128_pairing_length_check","pubkey":"bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm"},
+  {"name":"fix_alt_bn128_pairing_length_check","pubkey":"bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm","hardcode_for_fuzzing":1},
   {"name":"poseidon_enforce_padding","pubkey":"poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb"},
   {"name":"relax_intrabatch_account_locks","pubkey":"4WeHX6QoXCCwqbSFgi6dxnB6QsPo6YApaNTH7P4MLQ99","old":"ENTRYnPAoT5Swwx73YDGzMp3XnNH1kxacyvLosRHza1i","comment":"sched suppports this no need for feature gate"},
   {"name":"provide_instruction_data_offset_in_vm_r2","pubkey":"5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL"},
