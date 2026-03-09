@@ -107,7 +107,8 @@ fd_top_votes_invalidate( fd_top_votes_t *    top_votes,
 /* fd_top_votes_query queries a fd_top_votes_t structure given a
    vote account and returns 1 if the vote account is in the top voters
    set and 0 otherwise.  If the vote account is in the top voters set,
-   the node account and stake are returned. */
+   the node account, stake, last vote slot, and last vote timestamp are
+   all optionally returned via parameter pointers. */
 
 int
 fd_top_votes_query( fd_top_votes_t const * top_votes,
