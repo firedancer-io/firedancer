@@ -472,7 +472,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* A fourth transaction where the second account is once again
      passed in as read-only.  Make sure that the right version of the
      account is being reussed. */
-  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, account_keys, &dummy_hash );
   FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
@@ -486,7 +486,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( !memcmp( &env->txn_out[3].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( &env->txn_out[3].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
   FD_TEST( env->txn_out[3].accounts.is_writable[0] == 1 );
-  FD_TEST( env->txn_out[3].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[3].accounts.is_writable[1] == 0 );
   FD_TEST( env->txn_out[3].accounts.account[1].meta->lamports == 2000011UL );
 
   /* Commit all bundle transactions and make sure that all accdb
