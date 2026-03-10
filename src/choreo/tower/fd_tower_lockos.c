@@ -110,7 +110,6 @@ fd_tower_lockos_insert( fd_tower_lockos_t * lockos,
   uchar __attribute__((aligned(FD_TOWER_ALIGN))) scratch[ FD_TOWER_FOOTPRINT ];
   fd_tower_t * scratch_tower = fd_tower_join( fd_tower_new( scratch ) );
 
-  FD_TEST( voters->valid_data );
   fd_tower_from_vote_acc( scratch_tower, voters->data );
 
   for( fd_tower_iter_t iter = fd_tower_iter_init( scratch_tower );

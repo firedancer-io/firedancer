@@ -7,15 +7,14 @@
 
 /* fd_tower_voters describes the set of vote accounts that feed into
    TowerBFT rules.  This is fixed for each epoch, and each acct is
-   associated with a 4-tuple of (vote account address, vote account
-   stake, vote account data, and valid data flag).  All the accts in the
-   deque are intended to be as of the same slot. */
+   associated with a 3-tuple of (vote account address, vote account
+   stake, and vote account data).  All the accts in the deque are
+   intended to be as of the same slot. */
 
 struct fd_tower_voters {
   fd_pubkey_t addr;                         /* vote account address */
   ulong       stake;                        /* vote account stake */
   uchar       data[FD_VOTE_STATE_DATA_MAX]; /* vote account data (max 3762 bytes) */
-  uchar       valid_data;                   /* whether the vote account data is valid */
 };
 typedef struct fd_tower_voters fd_tower_voters_t;
 

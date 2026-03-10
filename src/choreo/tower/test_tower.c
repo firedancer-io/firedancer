@@ -215,7 +215,6 @@ mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_
   };
 
   memcpy( out->data, &voter, sizeof(fd_vote_acc_t) );
-  out->valid_data = 1;
   out->stake = stake;
   out->addr = *pubkey;
 }
