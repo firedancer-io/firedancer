@@ -19,6 +19,16 @@
 
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
 
+/* limit_instruction_accounts limits the number of accounts an
+   instruction can reference to 255. Any transactions that violate this
+   limit are invalid and cannot be included in a block.
+
+   To avoid feature-gating Pack, we always throw out transactions that
+   violate this limit.
+
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/runtime-transaction/src/runtime_transaction/sdk_transactions.rs#L93-L99 */
+#define FD_PACK_MAX_ACCOUNTS_PER_INSTRUCTION (255UL)
+
 /* Each block is limited to 32k parity shreds.  We don't want pack to
    produce a block with so many transactions we can't shred it, but the
    correspondence between transactions and parity shreds is somewhat
@@ -388,14 +398,15 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
 #define FD_PACK_INSERT_REJECT_INVALID_NONCE         (-12)
 #define FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST      (-13)
 #define FD_PACK_INSERT_REJECT_NONCE_CONFLICT        (-14)
+#define FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT        (-15)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF 14
-#define FD_PACK_INSERT_RETVAL_CNT 21
+#define FD_PACK_INSERT_RETVAL_OFF 15
+#define FD_PACK_INSERT_RETVAL_CNT 22
 
-FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_NONCE_CONFLICT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of

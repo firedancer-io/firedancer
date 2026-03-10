@@ -76,7 +76,8 @@ def print_sankey(summed: Dict[Tuple[str, str, Optional[str]], int]):
                           get_link_count(summed, metric='pack_bundle_crank_status_insertion_failed') + \
                           get_link_count(summed, metric='pack_bundle_crank_status_creation_failed')
 
-    pack_invalid = get_link_count(summed, metric='pack_transaction_inserted', link='nonce_conflict') + \
+    pack_invalid = get_link_count(summed, metric='pack_transaction_inserted', link='instr_acct_cnt') + \
+                   get_link_count(summed, metric='pack_transaction_inserted', link='nonce_conflict') + \
                    get_link_count(summed, metric='pack_transaction_inserted', link='bundle_blacklist') + \
                    get_link_count(summed, metric='pack_transaction_inserted', link='invalid_nonce') + \
                    get_link_count(summed, metric='pack_transaction_inserted', link='write_sysvar') + \

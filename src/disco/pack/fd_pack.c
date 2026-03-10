@@ -1167,6 +1167,13 @@ validate_transaction( fd_pack_t               * pack,
   if( FD_UNLIKELY( writes_to_sysvar                                        ) ) return FD_PACK_INSERT_REJECT_WRITES_SYSVAR;
   /*           ... that use an account that violates bundle rules */
   if( FD_UNLIKELY( bundle_blacklist & 1                                    ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
+  /*           ... that have an instruction with too many accounts */
+  /*               TODO: move this check into the transaction parser
+                   when limit_instruction_accounts is activated
+                   everywhere. */
+  for( ushort i=0; i<txn->instr_cnt; i++ ) {
+    if( FD_UNLIKELY( txn->instr[ i ].acct_cnt > FD_PACK_MAX_ACCOUNTS_PER_INSTRUCTION ) ) return FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT;
+  }
 
   return 0;
 }
