@@ -65,7 +65,7 @@ typedef struct {
 
 FD_FN_CONST static inline ulong
 fd_rserve_align( void ) {
-  return alignof(fd_rserve_t);
+  return 128UL;
 }
 
 ulong

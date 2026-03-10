@@ -72,8 +72,9 @@
 #define FD_REPAIR_USE_HANDHOLDING 1
 #endif
 
-/* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} specify discriminant
-   values the protocol uses to distinguish message types. */
+/* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN,ANCESTOR_HASHES} 
+   specify discriminant values the protocol uses to distinguish 
+   message types. */
 
 #define FD_REPAIR_KIND_PING            (0U)
 #define FD_REPAIR_KIND_PONG            (7U)
