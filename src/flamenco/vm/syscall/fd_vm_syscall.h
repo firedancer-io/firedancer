@@ -922,11 +922,13 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
 /* FD_VM_SYSCALL_SOL_CURVE_{...}_SZ specifies the size of inputs/outputs. */
 
-#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ      (32UL) /* point (compressed) */
-#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ     (32UL) /* scalar */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ    (96UL) /* G1 point (uncompressed) */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ  (2*96UL) /* G2 point (uncompressed) */
-#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ   (12*48UL) /* GT element */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ           (32UL)   /* point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ          (32UL)   /* scalar */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ    (48UL)   /* G1 point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ         (96UL)   /* G1 point (uncompressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ  (2*48UL)   /* G2 point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ       (2*96UL)   /* G2 point (uncompressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ        (12*48UL)   /* GT element */
 
 /* syscall(aa2607ca) sol_curve_validate_point
 
@@ -1012,8 +1014,8 @@ FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
    Inputs:
 
      arg0 - curve_id
-     arg1 - point_addr
-     arg2 - result_addr
+     arg1 - point_addr, compressed BLS12-381 point selected by curve_id
+     arg2 - result_addr, uncompressed BLS12-381 point
      arg3 - ignored
      arg4 - ignored
 
