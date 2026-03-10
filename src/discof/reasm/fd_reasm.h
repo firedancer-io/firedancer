@@ -161,10 +161,23 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ulong parent;  /* pool idx of the parent */
   ulong child;   /* pool idx of the left-child */
   ulong sibling; /* pool idx of the right-sibling */
+
   /* When it's in the subtrees map, it's also in the subtreel dlist,
      which uses these two pointers. */
-  ulong dlist_prev;
-  ulong dlist_next;
+  struct {
+    ulong prev;
+    ulong next;
+  } subtreel;
+
+  /* dlist threaded through elements if they are in the out queue.
+     Internal reasm APIs need to maintain the invariant that elements in
+     the out dlist must exist in and only in the ancestry/frontier map.
+     If an element exists in the out dlist, in_out must be 1 (and the
+     vice versa). */
+  struct {
+   ulong prev;
+   ulong next;
+  } out;
 
   /* Data (set on insert) */
 
@@ -178,6 +191,7 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   int    eqvoc;         /* whether this FEC equivocates */
   int    confirmed;     /* whether this FEC has been confirmed */
   int    popped;        /* whether this FEC has been previously delivered by fd_reasm_pop */
+  int    in_out;        /* whether this FEC is currently present in the out dlist */
 
   /* Data (set by caller) */
 
@@ -325,15 +339,22 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  fd_reasm_fec_t ** evicted );
 
 /* fd_reasm_remove removes a leaf node or a chain of nodes that
-   terminates with a leaf node from reasm.  Returns the start of the
-   chain of evicted fd_reasm_fec_t.  This function cannot return NULL.
+   terminates with the provided node from reasm.  Returns the start of
+   the chain of evicted fd_reasm_fec_t.  This function cannot return
+   NULL.
 
-   It is assumed that the passed `head` is a leaf node, i.e. it has no
-   children.  If `head` is in orphans, only `head` will be cleared.  If
-   `head` is in ancestry, a chain of nodes will be cleared starting from
-   `head` and walking up the tree until one of the following conditions
-   is met: we reach fec_set_idx 0, we reach a fec set with an
-   equivocating sibling.
+   It is assumed that the passed `head` exists in reasm.  If `head` is
+   in orphans, it is assumed that it is a leaf node, and only `head`
+   will be cleared.  If `head` is in ancestry, a chain of nodes will be
+   cleared starting from `head` and walking up the tree until one of the
+   following conditions is met: we reach fec_set_idx 0, we reach a fec
+   set with an equivocating sibling.  Any children nodes of `head` will
+   be appropriately orphaned.
+
+   Note that an invariant reasm_remove guarantees is that from the
+   returned head to the end of the chain, it is a linear chain of nodes
+   with no branches.  This is important because it allows the caller to
+   traverse the chain without needing to BFS.
 
    The evicted fd_reasm_fec_t will be returned as a pointer to a pool
    element. At this point the evicted pool element will still be
@@ -355,6 +376,12 @@ fd_reasm_remove( fd_reasm_t     * reasm,
 void
 fd_reasm_pool_release( fd_reasm_t *     reasm,
                        fd_reasm_fec_t * ele   );
+
+/* fd_reasm_pool_idx returns the pool index of the provided element.
+   Assumes ele is a valid pointer to a pool element inside reasm.  This
+   is exposed to caller so that it can link elements as a dlist. */
+ulong
+fd_reasm_pool_idx( fd_reasm_t * reasm, fd_reasm_fec_t * ele );
 
 /* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
    beginning from this FEC then becomes the canonical chain of FEC sets

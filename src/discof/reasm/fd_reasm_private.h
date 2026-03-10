@@ -35,18 +35,20 @@
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define DLIST_NAME             dlist
+#define DLIST_NAME             subtreel
 #define DLIST_ELE_T            fd_reasm_fec_t
-#define DLIST_PREV             dlist_prev
-#define DLIST_NEXT             dlist_next
+#define DLIST_PREV             subtreel.prev
+#define DLIST_NEXT             subtreel.next
+#include "../../util/tmpl/fd_dlist.c"
+
+#define DLIST_NAME             out
+#define DLIST_ELE_T            fd_reasm_fec_t
+#define DLIST_PREV             out.prev
+#define DLIST_NEXT             out.next
 #include "../../util/tmpl/fd_dlist.c"
 
 #define DEQUE_NAME             bfs
 #define DEQUE_T                ulong
-#include "../../util/tmpl/fd_deque_dynamic.c"
-
-#define DEQUE_NAME             out
-#define DEQUE_T                fd_hash_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct xid {
@@ -71,10 +73,13 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   frontier_t * frontier;    /* map of mr->fec. leaves of the connected tree */
   orphaned_t * orphaned;    /* map of mr->fec. non-roots of the orphaned subtrees */
   subtrees_t * subtrees;    /* map of mr->fec. roots of the orphaned subtrees */
-  dlist_t      _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
-  dlist_t *    subtreel;    /* the join to the dlist */
+  subtreel_t  _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
+  subtreel_t * subtreel;    /* the join to the dlist */
+
+  out_t        _out[1];    /* delivery queue(dlist) of elements to output */
+  out_t *      out;        /* the join to the dlist */
+
   ulong *      bfs;         /* internal queue of pool idxs for BFS */
-  fd_hash_t *  out;         /* delivery queue of mrs to output */
   xid_t *      xid;         /* map of (slot, fec_set_idx)->mr */
 };
 
