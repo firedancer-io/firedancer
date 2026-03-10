@@ -15,6 +15,7 @@
 [accounts]
     file_size_gib = {funk_pages}
     max_accounts = {index_max}
+    in_memory_only = true
 [runtime]
     max_live_slots = 128
     max_fork_width = 4
