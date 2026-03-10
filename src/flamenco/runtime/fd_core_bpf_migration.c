@@ -7,6 +7,7 @@
 #include "fd_system_ids.h"
 #include "fd_hashes.h"
 #include "../accdb/fd_accdb_sync.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include <assert.h>
 
 static fd_pubkey_t
@@ -256,13 +257,14 @@ target_core_bpf_new_checked( target_core_bpf_t *       target_core_bpf,
   return target_core_bpf;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L22-L49 */
+/* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L51-L75 */
 
 static fd_tmp_account_t *
 source_buffer_new_checked( fd_tmp_account_t *        acc,
                            fd_accdb_user_t *         accdb,
                            fd_funk_txn_xid_t const * xid,
-                           fd_pubkey_t const *       pubkey ) {
+                           fd_pubkey_t const *       pubkey,
+                           fd_hash_t const *         verified_build_hash ) {
 
   if( FD_UNLIKELY( !tmp_account_read( acc, accdb, xid, pubkey ) ) ) {
     /* CoreBpfMigrationError::AccountNotFound(*buffer_address) */
@@ -274,8 +276,7 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
     return NULL;
   }
 
-  ulong const buffer_metadata_sz = 37UL;
-  if( acc->data_sz < buffer_metadata_sz ) {
+  if( acc->data_sz < BUFFER_METADATA_SIZE ) {
     /* CoreBpfMigrationError::InvalidBufferAccount(*buffer_address) */
     return NULL;
   }
@@ -283,9 +284,33 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
   fd_bpf_upgradeable_loader_state_t state[1];
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       bpf_upgradeable_loader_state, state,
-      acc->data, acc->data_sz,
+      acc->data, BUFFER_METADATA_SIZE,
       NULL ) ) ) {
     return NULL;
+  }
+
+  if( FD_UNLIKELY( state->discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) ) {
+    /* CoreBpfMigrationError::InvalidBufferAccount(*buffer_address) */
+    return NULL;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L61-L71 */
+  if( verified_build_hash ) {
+    /* Strip trailing zero-padding before hashing
+       https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L61-L63 */
+    uchar const * data       = (uchar const *)acc->data;
+    ulong         offset     = BUFFER_METADATA_SIZE;
+    ulong         end_offset = acc->data_sz;
+    while( end_offset>offset && data[end_offset-1]==0 ) end_offset--;
+    uchar const * buffer_program_data    = data + offset;
+    ulong         buffer_program_data_sz = end_offset - offset;
+
+    fd_hash_t hash;
+    fd_sha256_hash( buffer_program_data, buffer_program_data_sz, hash.uc );
+    if( FD_UNLIKELY( 0!=memcmp( hash.uc, verified_build_hash->uc, FD_HASH_FOOTPRINT ) ) ) {
+      /* CoreBpfMigrationError::BuildHashMismatch */
+      return NULL;
+    }
   }
 
   return acc;
@@ -307,10 +332,16 @@ new_target_program_account( fd_tmp_account_t *        acc,
     }
   };
 
-  tmp_account_new( acc, fd_bpf_upgradeable_loader_state_size( &state ) );
+  ulong state_sz = fd_bpf_upgradeable_loader_state_size( &state );
+  tmp_account_new( acc, state_sz );
   acc->meta.lamports   = fd_rent_exempt_minimum_balance( rent, SIZE_OF_PROGRAM );
   acc->meta.executable = 1;
   memcpy( acc->meta.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) );
+
+  fd_bincode_encode_ctx_t ctx = { .data=acc->data, .dataend=(uchar *)acc->data+state_sz };
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &state, &ctx )!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_encode failed" ));
+  }
 
   return acc;
 }
@@ -339,12 +370,13 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   if( FD_UNLIKELY( state.discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) )
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
 
-  if( FD_UNLIKELY( state.inner.buffer.has_authority_address != (!!upgrade_authority_address) ) )
-    return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
-
-  if( FD_UNLIKELY( upgrade_authority_address &&
-                   !fd_pubkey_eq( upgrade_authority_address, &state.inner.buffer.authority_address ) ) )
-    return NULL; /* CoreBpfMigrationError::UpgradeAuthorityMismatch */
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
+  if( upgrade_authority_address ) {
+    if( FD_UNLIKELY( !state.inner.buffer.has_authority_address ||
+                     !fd_pubkey_eq( upgrade_authority_address, &state.inner.buffer.authority_address ) ) ) {
+      return NULL; /* CoreBpfMigrationError::UpgradeAuthorityMismatch */
+    }
+  }
 
   void const * elf      = (uchar const *)source->data    + buffer_metadata_sz;
   ulong        elf_sz   = /*           */source->data_sz - buffer_metadata_sz;
@@ -433,7 +465,8 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       source,
       accdb,
       xid,
-      config->source_buffer_address ) ) )
+      config->source_buffer_address,
+      config->verified_build_hash ) ) )
     return;
 
   fd_rent_t const * rent = fd_bank_rent_query( bank );
@@ -445,6 +478,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       target,
       rent ) ) )
     return;
+  new_target_program->addr = *builtin_program_id;
 
   fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration.new_target_program_data;
   if( FD_UNLIKELY( !new_target_program_data_account(
@@ -454,6 +488,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       rent,
       slot ) ) )
     return;
+  new_target_program_data->addr = target->program_data_address;
 
   ulong old_data_sz;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_account->data_sz, source->data_sz, &old_data_sz ) ) ) return;
@@ -519,7 +554,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L328 */
   fd_tmp_account_t * source = &runtime_stack->bpf_migration.source;
-  if( FD_UNLIKELY( !source_buffer_new_checked( source, accdb, xid, source_buffer_address ) ) ) {
+  if( FD_UNLIKELY( !source_buffer_new_checked( source, accdb, xid, source_buffer_address, NULL ) ) ) {
     return;
   }
 

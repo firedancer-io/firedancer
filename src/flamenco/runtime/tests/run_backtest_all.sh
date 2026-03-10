@@ -107,3 +107,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258 -y 1 -m 2
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax-intrabatch-account-locks -y 1 -m 1000 -e 240
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary -y 1 -m 1000 -e 75
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l limit_instruction_accounts -y 1 -m 1000 -e 290
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l enshrine_slashing_program -y 1 -m 1000 -e 260
