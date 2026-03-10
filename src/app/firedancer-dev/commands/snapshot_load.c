@@ -537,7 +537,7 @@ accounts_hist_print( accounts_hist_t const * hist ) {
     /* bin min, max, avg */
     ulong hist_bin_min      = fd_ulong_if( hist->bin_cnt[ i ] > 0, hist->bin_min[ i ], 0UL );
     ulong hist_bin_max      = hist->bin_max[ i ];
-    ulong hist_bin_avg      = fd_ulong_if( hist->bin_cnt[ i ] > 0, hist->bin_acc[ i ] / hist->bin_cnt[ i ], 0UL );
+    ulong hist_bin_avg      = hist->bin_cnt[ i ] > 0 ? hist->bin_acc[ i ] / hist->bin_cnt[ i ] : 0UL;
     /* log */
     char buf[256];
     char * p = fd_cstr_init( buf );

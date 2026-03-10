@@ -133,7 +133,7 @@ gossip_activity_update_fn( void *                           _ctx,
     ctx->wfs_active[ stake_idx ] = 0;
   }
 
-  if( FD_UNLIKELY( fd_ulong_if( ctx->wfs_stake.total>0UL, (100UL*ctx->wfs_stake.online) / ctx->wfs_stake.total, 0UL ) >= 80UL ) ) {
+  if( FD_UNLIKELY( ctx->wfs_stake.total>0UL && (100UL*ctx->wfs_stake.online) / ctx->wfs_stake.total >= 80UL ) ) {
     ctx->wfs_state = FD_GOSSIP_WFS_STATE_PUBLISH;
   }
 }
