@@ -942,6 +942,57 @@ metric introduced.
 
 </tile>
 
+<enum name="RserveSentResponseTypes">
+    <int value="0" name="Ping" label="Ping" />
+    <int value="1" name="Window" label="Window" />
+    <int value="2" name="HighestWindow" label="Highest Window" />
+    <int value="3" name="Orphan" label="Orphan" />
+</enum>
+
+<enum name="RserveRequestTypes">
+    <int value="0" name="Pong" label="Pong" />
+    <int value="1" name="WindowIndex" label="Window Index" />
+    <int value="2" name="HighestWindowIndex" label="Highest Window Index" />
+    <int value="3" name="Orphan" label="Orphan" />
+</enum>
+
+<enum name="RserveMalformedTypes">
+    <int value="0" name="TooSmall" label="Too Small" />
+    <int value="1" name="Ping" label="Ping" />
+    <int value="2" name="UnknownTag" label="Unknown Tag" />
+    <int value="3" name="WrongSize" label="Wrong Size" />
+    <int value="4" name="AncestorHashes" label="Ancestor Hashes" />
+</enum>
+
+<tile name="rserve">
+    <counter name="ReceivedRequestCount" enum="RserveRequestTypes" summary="Total repair requests received by type, before any validation" />
+    <counter name="ReceivedRequestBytes" summary="Total bytes of incoming repair request payloads" />
+    <counter name="ReceivedMalformedCount" enum="RserveMalformedTypes" summary="Packets dropped for being malformed, broken down by reason" />
+
+    <counter name="TotalPktCount" summary="How many network packets we have sent, including pings, responses, etc" />
+    <counter name="SentResponseTypes" enum="RserveSentResponseTypes" summary="What types of response messages are we sending" />
+    <counter name="SentResponseBytes" summary="Total payload bytes sent in response packets" />
+    <counter name="SentPingBackCount" summary="How many ping-back packets we sent to nodes not yet in the ping cache" />
+
+    <counter name="MissedResponseTypes" enum="RserveSentResponseTypes" summary="What types of response messages could we not fulfill" />
+    <counter name="FailedSigverify" summary="How many times we failed to verify the signature of a request" />
+    <counter name="FailedOwnKey" summary="How many requests we've received that were sent by us" />
+    <counter name="FailedInvalidToken" summary="How many pong requests we've received with outdated or invalid tokens" />
+    <counter name="FailedNotForUs" summary="How many requests we've received that were not intended for us" />
+    <counter name="FailedOutdated" summary="How many requests we've received that had outdated timestamps" />
+    <counter name="FailedInvalidShredIndex" summary="How many requests we've received that had invalid shred indices" />
+    <counter name="FailedPingCacheLookup" summary="Requests from nodes not in the ping cache, which triggered a ping-back instead of a response" />
+
+    <gauge   name="ShredsCurrent" summary="The number of shreds currently in the shreds database" />
+    <gauge   name="ShredsMax" summary="Total capacity of shreds that can be stored in the shreds database" />
+    <gauge   name="DiskCurrentBytes" summary="The number of bytes currently used on disk by the database" />
+    <gauge   name="DiskAllocatedBytes" summary="The current size of the database file on disk" />
+
+    <counter name="PingCacheEntries" summary="How many active entries do we have in the ping cache" />
+    <counter name="PingCacheEvictions" summary="How many entries we've evicted from the ping cache" />
+
+</tile>
+
 <enum name="CrdsValue">
     <int value="0" name="ContactInfoV1" label="Contact Info V1" />
     <int value="1" name="Vote" label="Vote" />
