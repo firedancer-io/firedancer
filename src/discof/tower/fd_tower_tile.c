@@ -768,9 +768,15 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   fd_tower_leaves_upsert( ctx->tower_leaves, slot_completed->slot, slot_completed->parent_slot );
 
-  fd_bank_t bank[1];
-  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, slot_completed->bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
-  ulong total_stake = fill_bank_stakes_voters( bank, slot_completed->slot, ctx->tower_stakes, ctx->tower_voters );
+  ulong total_stake = 0UL;
+  if( FD_UNLIKELY( slot_completed->is_epoch_boundary ) ) {
+    fd_bank_t bank[1];
+    if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, slot_completed->bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
+    total_stake = fill_bank_stakes_voters( bank, slot_completed->slot, ctx->tower_stakes, ctx->tower_voters );
+  } else {
+    fd_ghost_blk_t * ghost_blk = fd_ghost_query( ctx->ghost, &slot_completed->parent_block_id );
+    total_stake = ghost_blk ? ghost_blk->total_stake : 0UL;
+  }
 
   /* Insert into ghost. */
 
