@@ -173,12 +173,12 @@ fd_executor_rent_transition_allowed( fd_rent_state_t const * pre_rent_state,
                  post_rent_state->lamports<=pre_rent_state->lamports;
         }
         default: {
-          __builtin_unreachable();
+          FD_LOG_CRIT(( "unexpected pre-rent state discriminant %u", pre_rent_state->discriminant ));
         }
       }
     }
     default: {
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unexpected post-rent state discriminant %u", post_rent_state->discriminant ));
     }
   }
 }

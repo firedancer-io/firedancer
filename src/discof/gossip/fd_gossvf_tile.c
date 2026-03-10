@@ -441,7 +441,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         return 0;
       }
     }
-    default: __builtin_unreachable();
+    default: FD_LOG_CRIT(( "unexpected message tag %u", view->tag ));
   };
 }
 
@@ -529,7 +529,7 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
         return 0;
       }
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unexpected message tag %u", view->tag ));
   }
 }
 
@@ -553,7 +553,7 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *      ctx,
       values_len = view->pull_response->values_len;
       break;
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unexpected message tag %u", view->tag ));
   }
 
   for( ulong i=0UL; i<values_len; i++ ) {

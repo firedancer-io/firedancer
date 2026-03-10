@@ -106,7 +106,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_vote_stakes_t *            vote_st
         epoch_credits = vsv->inner.v4.epoch_credits;
         break;
       default:
-        __builtin_unreachable();
+        FD_LOG_CRIT(( "invalid vote state version %u", vsv->discriminant ));
     }
 
     (void)epoch_credits;
