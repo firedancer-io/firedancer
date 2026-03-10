@@ -65,8 +65,8 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
-/* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} specify discriminant
-   values the protocol uses to distinguish message types. */
+/* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN,ANCESTOR_HASHES} specify
+  discriminant values the protocol uses to distinguish message types. */
 
 #define FD_REPAIR_KIND_PING            (0U)
 #define FD_REPAIR_KIND_PONG            (7U)
