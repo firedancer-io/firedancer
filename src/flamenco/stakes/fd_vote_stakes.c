@@ -313,7 +313,7 @@ fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
       stakes_pool_ele_release( stakes_pool, stake );
 
       stake = stakes_pool_ele_acquire( stakes_pool );
-      stake->idx = stake->idx;
+      stake->idx = (uint)index_pool_idx( index_pool, index_ele_query );
       FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
     } else {
       /* If the element is new, add it to the index map. */
