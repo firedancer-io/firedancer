@@ -799,7 +799,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
       fd_tower_voters_t * acct = fd_tower_voters_iter_ele( tower_voters, iter_tail );
       if( FD_UNLIKELY( !fd_accdb_ref_lamports( ro ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( acct->addr.key, pubkey_b58 );
-        FD_LOG_WARNING(( "vote account in bank (fd_vote_stakes_t) not found in accdb. slot %lu address %s", slot_completed->slot, pubkey_b58 ));
+        FD_LOG_DEBUG(( "vote account in bank not found in accdb. slot %lu address %s (ignoring)", slot_completed->slot, pubkey_b58 ));
         acct->valid_data = 0;
       } else {
         ulong data_sz = fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX );
