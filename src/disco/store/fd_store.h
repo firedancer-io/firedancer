@@ -141,6 +141,7 @@
    relatively infrequent Store access compared to FEC queries and
    inserts (which is good because it is also the most expensive). */
 
+#include "../../disco/shred/fd_shredder.h"
 #include "../../flamenco/fd_rwlock.h"
 #include "../../flamenco/types/fd_types_custom.h"
 #include "../../util/hist/fd_histf.h"
@@ -166,9 +167,11 @@
    set payload.  The value is computed from the maximum number
    of shreds in a FEC set * the payload bytes per shred.
 
-   67 shreds per FEC set * 955 payloads per shred = 63985 bytes max. */
+   32 shreds per FEC set (FD_FEC_SHRED_CNT) * 955 payloads per shred = 31840 bytes max (FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ). */
 
-#define FD_STORE_DATA_MAX (63985UL) /* TODO fixed-32 */
+#define FD_STORE_DATA_MAX (FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ)
+FD_STATIC_ASSERT( FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ>FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ,  update FD_STORE_DATA_MAX );
+FD_STATIC_ASSERT( FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ>FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ, update FD_STORE_DATA_MAX );
 
 /* fd_store_fec describes a store element (FEC set).  The pointer fields
    implement a left-child, right-sibling n-ary tree. */

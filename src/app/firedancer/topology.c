@@ -1349,15 +1349,14 @@ fd_topo_initialize( config_t * config ) {
 
    /* The Store fec_max parameter is the max number of FEC sets that can
       be retained before the Tower consensus algorithm indicates a new
-      "root", which allows pruning FECs.
+      "root", which allows pruning FECs.  Exceeding this value will make
+      Store evict FEC sets.
 
       The default value is from multiplying max_live_slots by the
-      maximum number of FEC sets in a block (currently 32768 but can be
-      reduced to 1024 once FECs are restricted to always be size 32,
-      given the current consensus limit of 32768 shreds per block). */
+      maximum number of FEC sets in a block. */
 
   if( FD_UNLIKELY( !fd_ulong_is_pow2( config->firedancer.runtime.max_live_slots ) ) ) FD_LOG_ERR(( "max_live_slots must be a power of 2 for store" ));
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * 1024UL /* FIXME temporary hack to run on 512 gb boxes */, (uint)shred_tile_cnt );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT, (uint)shred_tile_cnt );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
