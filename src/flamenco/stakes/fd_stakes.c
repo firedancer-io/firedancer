@@ -140,13 +140,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         history,
         new_rate_activation_epoch );
 
-    if( FD_UNLIKELY( !fd_vote_stakes_query( vote_stakes, child_idx, &stake_delegation->vote_account, NULL, NULL, NULL, NULL ) ) ) {
+    if( FD_UNLIKELY( !fd_vote_stakes_query_pubkey( vote_stakes, child_idx, &stake_delegation->vote_account ) ) ) {
       fd_accdb_ro_t vote_ro[1];
 
       ulong       old_stake_t_1        = 0UL;
       fd_pubkey_t old_node_account_t_1 = {0};
-      int exists_prev = fd_vote_stakes_query( vote_stakes, parent_idx, &stake_delegation->vote_account, &old_stake_t_1, NULL, &old_node_account_t_1, NULL );
-      exists_prev = exists_prev && old_stake_t_1>0UL;
+      int exists_prev = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_delegation->vote_account, &old_stake_t_1, &old_node_account_t_1 );
       int exists_curr = 1;
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_delegation->vote_account ) ) ) {
         exists_curr = 0;

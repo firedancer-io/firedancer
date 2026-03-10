@@ -600,16 +600,15 @@ generate_epoch_info_msg( ulong                       slot,
       fd_pubkey_t pubkey;
       fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL );
 
-      ulong       stake_t_1;
-      ulong       stake_t_2;
-      fd_pubkey_t node_account_t_1;
-      fd_pubkey_t node_account_t_2;
-      int         found = fd_vote_stakes_query( vote_stakes, vote_stakes_fork_idx, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+      ulong       stake;
+      fd_pubkey_t node_account;
+      int         found;
+      if( current_epoch ) {
+        found = fd_vote_stakes_query_t_1( vote_stakes, vote_stakes_fork_idx, &pubkey, &stake, &node_account );
+      } else {
+        found = fd_vote_stakes_query_t_2( vote_stakes, vote_stakes_fork_idx, &pubkey, &stake, &node_account );
+      }
       if( FD_UNLIKELY( !found ) ) continue;
-
-      ulong       stake        = current_epoch ? stake_t_1 : stake_t_2;
-      fd_pubkey_t node_account = current_epoch ? node_account_t_1 : node_account_t_2;
-      if( FD_UNLIKELY( !stake ) ) continue;
 
       stake_weights[ idx ].stake = stake;
       memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );

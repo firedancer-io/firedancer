@@ -247,13 +247,38 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
    zero stake: they are treated as the same thing. */
 
 int
-fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
-                      ushort              fork_idx,
-                      fd_pubkey_t const * pubkey,
-                      ulong *             stake_t_1_out_opt,
-                      ulong *             stake_t_2_out_opt,
-                      fd_pubkey_t *       node_account_t_1_out_opt,
-                      fd_pubkey_t *       node_account_t_2_out_opt );
+fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
+                      ushort                   fork_idx,
+                      fd_pubkey_t const *      pubkey,
+                      ulong *                  stake_t_1_out_opt,
+                      ulong *                  stake_t_2_out_opt,
+                      fd_pubkey_t *            node_account_t_1_out_opt,
+                      fd_pubkey_t *            node_account_t_2_out_opt );
+
+int
+fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
+                             ushort                   fork_idx,
+                             fd_pubkey_t const *      pubkey );
+
+/* fd_vote_stakes_query_t_1 and fd_vote_stakes_query_t_2 are shortcuts
+   for querying the t_1 and t_2 stake for a given vote account in the
+   given fork.  0 is returned if the vote account does not exist for the
+   epoch or if it has zero stake.  If the account is found, stake_out
+   and node_account_out will be set. */
+
+int
+fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
+                          ushort                   fork_idx,
+                          fd_pubkey_t const *      pubkey,
+                          ulong *                  stake_out,
+                          fd_pubkey_t *            node_account_out );
+
+int
+fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
+                          ushort                   fork_idx,
+                          fd_pubkey_t const *      pubkey,
+                          ulong *                  stake_out,
+                          fd_pubkey_t *            node_account_out );
 
 /* fd_vote_stakes_ele_cnt returns the number of entries for a given
    fork. */

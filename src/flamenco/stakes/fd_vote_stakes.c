@@ -408,13 +408,13 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
 }
 
 int
-fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
-                      ushort              fork_idx,
-                      fd_pubkey_t const * pubkey,
-                      ulong *             stake_t_1_out_opt,
-                      ulong *             stake_t_2_out_opt,
-                      fd_pubkey_t *       node_account_t_1_out_opt,
-                      fd_pubkey_t *       node_account_t_2_out_opt ) {
+fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
+                      ushort                   fork_idx,
+                      fd_pubkey_t const *      pubkey,
+                      ulong *                  stake_t_1_out_opt,
+                      ulong *                  stake_t_2_out_opt,
+                      fd_pubkey_t *            node_account_t_1_out_opt,
+                      fd_pubkey_t *            node_account_t_2_out_opt ) {
 
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
@@ -444,6 +444,33 @@ fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
   if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
   if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
   return 1;
+}
+
+int
+fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
+                             ushort                   fork_idx,
+                             fd_pubkey_t const *      pubkey ) {
+  return fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, NULL, NULL, NULL, NULL );
+}
+
+int
+fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
+                          ushort                   fork_idx,
+                          fd_pubkey_t const *      pubkey,
+                          ulong *                  stake_out,
+                          fd_pubkey_t *            node_account_out ) {
+  int found = fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, stake_out, NULL, node_account_out, NULL );
+  return found && *stake_out>0UL;
+}
+
+int
+fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
+                          ushort                   fork_idx,
+                          fd_pubkey_t const *      pubkey,
+                          ulong *                  stake_out,
+                          fd_pubkey_t *            node_account_out ) {
+  int found = fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, NULL, stake_out, NULL, node_account_out );
+  return found && *stake_out>0UL;
 }
 
 void
