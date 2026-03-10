@@ -250,30 +250,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     uint actual_execution_cus = consumed_exec_cus[ sanitized_idx-1UL ];
     uint actual_acct_data_cus = consumed_acct_data_cus[ sanitized_idx-1UL ];
 
-    /* FIXME: before remove_simple_vote_from_cost_model is activated
-              we need to change fd_ext_bank_load_and_execute_txns to
-              return the real cost of the transaction and remove
-              this conditional logic.
-
-              The plan is to do this in the next version of
-              Frankendancer as remove_simple_vote_from_cost_model is
-              an Agave 4.0 feature. */
-    int is_simple_vote = 0;
-    if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
-      /* TODO: remove this once remove_simple_vote_from_cost_model is
-               activated */
-
-      /* Simple votes are charged fixed amounts of compute regardless of
-      the real cost they incur.  fd_ext_bank_load_and_execute_txns
-      returns the real cost, however, so we override it here. */
-      actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-      actual_acct_data_cus = 0U;
-    }
-
     /* FeesOnly transactions are transactions that failed to load
        before they even reach the VM stage. They have zero execution
-       cost but do charge for the account data they are able to load.
-       FeesOnly votes are charged the fixed voe cost. */
+       cost but do charge for the account data they are able to load. */
     txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
     txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
@@ -294,8 +273,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
       FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
-                   "(%u) requested_exec_plus_acct_data_cus (%u) is_simple_vote (%i) exec_failed (%i)",
-                   actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
+                   "(%u) requested_exec_plus_acct_data_cus (%u) exec_failed (%i)",
+                   actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
                    transaction_err[ sanitized_idx-1UL ] ));
     }
   }
@@ -450,26 +429,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
 
-    /* TODO: remove this once remove_simple_vote_from_cost_model is
-             activated */
-    if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
-      /* Although bundles dont typically contain simple votes, we want
-        to charge them correctly anyways. */
-      /* FIXME: before remove_simple_vote_from_cost_model is activated
-                we need to change fd_ext_bank_load_and_execute_txns to
-                return the real cost of the transaction and remove
-                this conditional logic.
-
-                The plan is to do this in the next version of
-                Frankendancer as remove_simple_vote_from_cost_model is
-                an Agave 4.0 feature. */
-      consumed_cus[ i ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-    } else {
-      /* Note that some transactions will have 0 consumed cus because
-         they were never actually executed, due to an earlier
-         transaction failing. */
-      consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
-    }
+    /* Note that some transactions will have 0 consumed cus because
+       they were never actually executed, due to an earlier
+       transaction failing. */
+    consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
 
     /* Assume failure, set below if success.  If it doesn't land in the
        block, rebate the non-execution CUs too. */
