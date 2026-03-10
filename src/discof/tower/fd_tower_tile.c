@@ -665,7 +665,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
      or genesis slot, which we use to initialize our slot and
      epoch-related metadata. */
 
-  if( FD_UNLIKELY( ctx->init_slot==ULONG_MAX ) ) {
+  int is_booting = ctx->init_slot==ULONG_MAX;
+  if( FD_UNLIKELY( is_booting ) ) {
     ctx->init_slot = slot_completed->slot;
     ctx->root_slot = slot_completed->slot;
   }
@@ -768,20 +769,18 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   fd_tower_leaves_upsert( ctx->tower_leaves, slot_completed->slot, slot_completed->parent_slot );
 
-  ulong total_stake = 0UL;
-  if( FD_UNLIKELY( slot_completed->is_epoch_boundary ) ) {
-    fd_bank_t bank[1];
-    if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, slot_completed->bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
-    total_stake = fill_bank_stakes_voters( bank, slot_completed->slot, ctx->tower_stakes, ctx->tower_voters );
-  } else {
-    fd_ghost_blk_t * ghost_blk = fd_ghost_query( ctx->ghost, &slot_completed->parent_block_id );
-    total_stake = ghost_blk ? ghost_blk->total_stake : 0UL;
-  }
-
   /* Insert into ghost. */
 
   fd_ghost_blk_t * ghost_blk = fd_ghost_insert( ctx->ghost, &slot_completed->block_id, fd_ptr_if( slot_completed->slot!=ctx->init_slot, &slot_completed->parent_block_id, NULL ), slot_completed->slot );
-  ghost_blk->total_stake     = total_stake;
+
+  if( FD_UNLIKELY( slot_completed->is_epoch_boundary || is_booting ) ) {
+    fd_bank_t bank[1];
+    if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, slot_completed->bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
+    ghost_blk->total_stake = fill_bank_stakes_voters( bank, slot_completed->slot, ctx->tower_stakes, ctx->tower_voters );
+  } else {
+    fd_ghost_blk_t * parent_blk = fd_ghost_query( ctx->ghost, &slot_completed->parent_block_id );
+    ghost_blk->total_stake = parent_blk ? parent_blk->total_stake : 0UL;
+  }
 
   /* Insert into hard fork detector. */
 
