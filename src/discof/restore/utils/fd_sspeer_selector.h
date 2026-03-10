@@ -9,6 +9,7 @@
 #include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
 #include "../../../flamenco/types/fd_types_custom.h"
+#include "fd_sspeer.h"
 
 #define FD_SSPEER_SELECTOR_MAGIC (0xF17EDA2CE5593350) /* FIREDANCE SSPING V0 */
 
@@ -61,11 +62,34 @@ fd_sspeer_selector_leave( fd_sspeer_selector_t * selector );
 void *
 fd_sspeer_selector_delete( void * shselector );
 
+/* Update the selector when an http server is resolved.  The peer is
+   identified by key.  The values that can be updated are slot and
+   hash, for both full and incremental snapshots.  On success it
+   returns 0, -1 if key==NULL, and -2 if the key was not found. */
+int
+fd_sspeer_selector_update_on_resolve( fd_sspeer_selector_t *  selector,
+                                      fd_sspeer_key_t const * key,
+                                      ulong                   full_slot,
+                                      ulong                   incr_slot,
+                                      uchar const             full_hash[ FD_HASH_FOOTPRINT ],
+                                      uchar const             incr_hash[ FD_HASH_FOOTPRINT ] );
+
+/* Update the selector when a ping response is received.  The only
+   value that can be updated is the latency.  If multiple peers
+   advertise the same address, the update is applied to all of them,
+   since ssping cannot distinguish between these peers.  It returns
+   the number of peers that have been updated. */
+ulong
+fd_sspeer_selector_update_on_ping( fd_sspeer_selector_t * selector,
+                                   fd_ip4_port_t          addr,
+                                   ulong                  latency );
+
 /* Add a peer to the selector.  If the peer already exists,
    fd_sspeer_selector_add updates the existing peer's score using the
    given peer latency and snapshot info.  Returns the updated score. */
 ulong
 fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
+                        fd_sspeer_key_t const * key,
                         fd_ip4_port_t          addr,
                         ulong                  peer_latency,
                         ulong                  full_slot,
@@ -75,10 +99,15 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
 
 /* Remove a peer from the selector.  Peers are removed when they are
    not reachable or serving corrupted/malformed snapshots.  This is a
-   no-op if the peer does not exist in the selector.  */
+   no-op if the peer does not exist in the selector.  When removing by
+   address, all peers advertising that address will be removed. */
 void
-fd_sspeer_selector_remove( fd_sspeer_selector_t * selector,
-                           fd_ip4_port_t          addr );
+fd_sspeer_selector_remove( fd_sspeer_selector_t *  selector,
+                           fd_sspeer_key_t const * key );
+
+void
+fd_sspeer_selector_remove_by_addr( fd_sspeer_selector_t * selector,
+                                   fd_ip4_port_t          addr );
 
 /* Select the best peer to download a snapshot from.  incremental
    indicates to select a peer to download an incremental snapshot.  If
@@ -100,6 +129,15 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
    from resolved http peers. */
 fd_sscluster_slot_t
 fd_sspeer_selector_cluster_slot( fd_sspeer_selector_t * selector );
+
+/* Helper functions to count how many elements exist in both peer maps
+   (by_key and by_addr).  Mainly used in unit tests.  These are not
+   optimized for performance. */
+ulong
+fd_sspeer_selector_peer_map_by_key_ele_cnt( fd_sspeer_selector_t * selector );
+
+ulong
+fd_sspeer_selector_peer_map_by_addr_ele_cnt( fd_sspeer_selector_t * selector );
 
 FD_PROTOTYPES_END
 

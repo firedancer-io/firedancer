@@ -37,6 +37,7 @@
 #include "fd_inflight.h"
 #include "fd_repair.h"
 #include "fd_policy.h"
+#include "../replay/fd_replay_tile.h"
 
 #define LOGGING       1
 #define DEBUG_LOGGING 0
@@ -49,6 +50,7 @@
 #define IN_KIND_SNAP    (5)
 #define IN_KIND_GOSSIP  (6)
 #define IN_KIND_GENESIS (7)
+#define IN_KIND_REPLAY  (8)
 
 #define MAX_IN_LINKS    (32)
 
@@ -232,6 +234,7 @@ struct ctx {
 
   int skip_frag;
 
+  /* TODO change to use out_ctx_t */
   uint        net_out_idx;
   fd_wksp_t * net_out_mem;
   ulong       net_out_chunk0;
@@ -240,8 +243,7 @@ struct ctx {
 
   ulong snap_out_chunk;
 
-  uint      shred_tile_cnt;
-  out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
+  out_ctx_t repair_out_ctx[1];
 
   /* repair_sign links (to sign tiles 1+) - for round-robin distribution */
 
@@ -448,6 +450,7 @@ before_frag( ctx_t * ctx,
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) return sig!=REPLAY_SIG_REASM_EVICTED;
   return 0;
 }
 
@@ -505,6 +508,12 @@ during_frag( ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    fd_memcpy( ctx->buffer, dcache_entry, sz );
+    return;
+  }
+
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
     uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     fd_memcpy( ctx->buffer, dcache_entry, sz );
     return;
@@ -696,7 +705,7 @@ check_confirmed( ctx_t           * ctx,
                  fd_forest_blk_t * blk,
                  fd_hash_t const * confirmed_bid ) {
 
-  if( FD_LIKELY( !blk->confirmed && blk->complete_idx != UINT_MAX && blk->buffered_idx == blk->complete_idx ) ) {
+  if( FD_LIKELY( !blk->chain_confirmed && blk->complete_idx != UINT_MAX && blk->buffered_idx == blk->complete_idx ) ) {
     /* The above conditions say that all the shreds of the block have arrived. */
     fd_forest_blk_t * bad_blk = fd_forest_fec_chain_verify( ctx->forest, blk, confirmed_bid );
     if( FD_LIKELY( !bad_blk ) ) {
@@ -713,7 +722,7 @@ check_confirmed( ctx_t           * ctx,
        recompletes, this function will trigger again and we will dump the
        second to last incorrect FEC. */
 
-    fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, 31UL );
+    fd_forest_fec_clear( ctx->forest, bad_blk->slot, bad_fec_idx, FD_FEC_SHRED_CNT - 1 );
   }
 }
 
@@ -736,7 +745,8 @@ after_fec( ctx_t      * ctx,
   ulong evicted  = ULONG_MAX;
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
   if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return;
-  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
+  if( FD_LIKELY( ele ) ) fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
+  else return;
 
   /* metrics for completed slots */
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
@@ -810,7 +820,7 @@ after_frag( ctx_t *             ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub  FD_PARAM_UNUSED,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
@@ -888,7 +898,6 @@ after_frag( ctx_t *             ctx,
       return;
     };
 
-
     if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && ( shred->slot > ctx->turbine_slot0 ) ) ) return;
 #   if LOGGING
     if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
@@ -922,6 +931,11 @@ after_frag( ctx_t *             ctx,
 
     if( FD_UNLIKELY( fec_completes ) ) {
       after_fec( ctx, shred, mr, cmr );
+
+      /* forward along to replay */
+      memcpy( fd_chunk_to_laddr( ctx->repair_out_ctx->mem, ctx->repair_out_ctx->chunk ), ctx->buffer, sz );
+      fd_stem_publish( ctx->stem, ctx->repair_out_ctx->idx, sig, ctx->repair_out_ctx->chunk, sz, 0UL, 0UL, tspub );
+      ctx->repair_out_ctx->chunk = fd_dcache_compact_next( ctx->repair_out_ctx->chunk, sz, ctx->repair_out_ctx->chunk0, ctx->repair_out_ctx->wmark );
     } else {
       after_shred( ctx, sig, shred, nonce, mr, cmr );
     }
@@ -940,6 +954,14 @@ after_frag( ctx_t *             ctx,
     after_net( ctx, sz );
     return;
   }
+
+  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
+    fd_replay_fec_evicted_t const * msg = fd_type_pun_const( ctx->buffer );
+    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, FD_FEC_SHRED_CNT - 1 );
+    return;
+  }
+
+  /* Should never reach here since before_frag should have filtered out any unexpected frags. */
 }
 
 static inline void
@@ -1142,6 +1164,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
     else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
+    else if( 0==strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -1152,8 +1175,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_TEST( fd_dcache_compact_is_safe( ctx->in_links[in_idx].mem, link->dcache, link->mtu, link->depth ) );
   }
 
-  ctx->net_out_idx       = UINT_MAX;
-  ctx->shred_tile_cnt    = 0;
+  ctx->net_out_idx         = UINT_MAX;
+  ctx->repair_out_ctx->idx = UINT_MAX;
   ctx->repair_sign_cnt   = 0;
   ctx->sign_rrobin_idx   = 0;
 
@@ -1169,14 +1192,14 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, link->dcache, link->mtu );
       ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-    } else if( 0==strcmp( link->name, "repair_shred" ) ) {
+    } else if( 0==strcmp( link->name, "repair_out" ) ) {
 
-      out_ctx_t * shred_out = &ctx->shred_out_ctx[ ctx->shred_tile_cnt++ ];
-      shred_out->idx        = out_idx;
-      shred_out->mem        = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      shred_out->chunk0     = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
-      shred_out->wmark      = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
-      shred_out->chunk      = shred_out->chunk0;
+      out_ctx_t * replay_out = ctx->repair_out_ctx;
+      replay_out->idx        = out_idx;
+      replay_out->mem        = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      replay_out->chunk0     = fd_dcache_compact_chunk0( replay_out->mem, link->dcache );
+      replay_out->wmark      = fd_dcache_compact_wmark( replay_out->mem, link->dcache, link->mtu );
+      replay_out->chunk      = replay_out->chunk0;
 
     } else if( 0==strcmp( link->name, "repair_sign" ) ) {
 
@@ -1194,12 +1217,11 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "repair tile has unexpected output link %s", link->name ));
     }
   }
-  if( FD_UNLIKELY( ctx->net_out_idx==UINT_MAX       ) ) FD_LOG_ERR(( "Missing repair_net link" ));
+  FD_TEST( ctx->net_out_idx!=UINT_MAX         );
+  FD_TEST( ctx->repair_out_ctx->idx!=UINT_MAX );
   if( FD_UNLIKELY( ctx->repair_sign_cnt!=sign_repair_idx ) ) {
     FD_LOG_ERR(( "Mismatch between repair_sign output links (%lu) and sign_repair input links (%u)", ctx->repair_sign_cnt, sign_repair_idx ));
   }
-
-  FD_TEST( ctx->shred_tile_cnt == fd_topo_tile_name_cnt( topo, "shred" ) );
 
 # if DEBUG_LOGGING
   if( fd_signs_map_key_max( ctx->signs_map ) < tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt ) {

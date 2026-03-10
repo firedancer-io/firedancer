@@ -67,9 +67,10 @@ static const fd_core_bpf_migration_config_t STATELESS_TO_CORE_BPF_FEATURE_GATE_P
 };
 static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG = &STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG;
 
-/* 192ed727334abe822d5accba8b886e25f88b03c76973c2e7290cfb55b9e1115f */
-#define SLASHING_PROG_HASH_SIMD_204 0x19U,0x2eU,0xd7U,0x27U,0x33U,0x4aU,0xbeU,0x82U,0x2dU,0x5aU,0xccU,0xbaU,0x8bU,0x88U,0x6eU,0x25U, \
-                                    0xf8U,0x8bU,0x03U,0xc7U,0x69U,0x73U,0xc2U,0xe7U,0x29U,0x0cU,0xfbU,0x55U,0xb9U,0xe1U,0x11U,0x5fU
+/* FIXME: update to correct hash when slashing program is finalized */
+/* 9260b9ac8dfa1a6ed1022380a713bec7b75979ae136e91f9a86795b51c6c489f */
+#define SLASHING_PROG_HASH_SIMD_204 0x92U,0x60U,0xb9U,0xacU,0x8dU,0xfaU,0x1aU,0x6eU,0xd1U,0x02U,0x23U,0x80U,0xa7U,0x13U,0xbeU,0xc7U, \
+                                    0xb7U,0x59U,0x79U,0xaeU,0x13U,0x6eU,0x91U,0xf9U,0xa8U,0x67U,0x95U,0xb5U,0x1cU,0x6cU,0x48U,0x9fU
 const fd_hash_t fd_solana_slashing_program_verified_build_hash_simd_204 = { .uc = { SLASHING_PROG_HASH_SIMD_204 } };
 static const fd_core_bpf_migration_config_t STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG = {
     &fd_solana_slashing_program_buffer_address,

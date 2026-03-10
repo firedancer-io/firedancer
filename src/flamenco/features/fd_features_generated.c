@@ -1688,7 +1688,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x08\xe9\x40\xc0\xc3\x42\x8a\xf0\xbd\x9d\x09\x80\xa6\xce\x78\xcb\x1c\xc6\x57\x4e\x44\xfe\xf5\x52\xe7\x0c\x40\x70\xe9\x51\xec\x74"},
                                  /* bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm */
     .name                      = "fix_alt_bn128_pairing_length_check",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, poseidon_enforce_padding)>>3,
     .id                        = {"\x0c\x3e\xd9\x52\x45\xee\x7b\x8c\x8a\xaf\x88\xa2\x5e\x37\x29\x76\x1d\xa5\xfb\xfa\x47\x48\xfd\xd4\x5a\xff\x2b\xb8\xfa\xd3\x1c\x98"},
@@ -1786,6 +1787,12 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x03\x49\xeb\xe8\x87\x98\x86\x73\x53\x66\xe5\x65\x8c\xf5\x66\x5c\x2c\x97\x0c\xfe\x58\x24\x37\x66\x9f\xdb\x3c\xa0\x86\xbc\x72\x7d"},
                                  /* DqbnFPASg7tHmZ6qfpdrt2M6MWoSeiicWPXxPhxqFCQ */
     .name                      = "limit_instruction_accounts",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, validator_admission_ticket)>>3,
+    .id                        = {"\x07\x36\xf6\x93\xcd\x86\x07\x8b\x03\x1c\xc1\x6f\xe8\x9a\x9e\xaf\x04\xa6\x5e\x21\xdd\xe6\xe6\x42\xfc\x5a\x4d\x39\xa9\xc6\xde\xb7"},
+                                 /* VATtb1DepUwdPh5bFVasdtkbeDNsftZSRzr2aKpKWJA */
+    .name                      = "validator_admission_ticket",
     .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
@@ -2066,6 +2073,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_259 0xa5ce8f931961b80cUL, .val = &ids[259]
 #define MAP_PERFECT_260 0xf55c421c9eccc012UL, .val = &ids[260]
 #define MAP_PERFECT_261 0x73869887e8eb4903UL, .val = &ids[261]
+#define MAP_PERFECT_262 0x8b0786cd93f63607UL, .val = &ids[262]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2338,4 +2346,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account
 FD_STATIC_ASSERT( offsetof( fd_features_t, relax_programdata_account_check_migration               )>>3==259UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model                      )>>3==260UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==261UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==262UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

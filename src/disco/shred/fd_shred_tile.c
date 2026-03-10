@@ -943,7 +943,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* We've spilled an in-progress FEC set in the fec_resolver. We
          need to let repair know to clear out it's cached info for that
          fec set and re-repair those shreds. */
-      ulong sig_ = fd_disco_shred_out_shred_sig( 0, spilled_fec.slot, spilled_fec.fec_set_idx, FD_FEC_SHRED_CNT-1U );
+      ulong sig_  = fd_disco_shred_out_shred_sig( 0, spilled_fec.slot, spilled_fec.fec_set_idx, FD_FEC_SHRED_CNT-1U );
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, ctx->shred_out_idx, sig_, ctx->shred_out_chunk, 0, 0, ctx->tsorig, tspub );
     }
@@ -1372,7 +1372,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "stake_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_STAKE; /* Frankendancer */
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) )   ctx->in_kind[ i ] = IN_KIND_EPOCH; /* Firedancer */
     else if( FD_LIKELY( !strcmp( link->name, "sign_shred"   ) ) )   ctx->in_kind[ i ] = IN_KIND_SIGN;
-    else if( FD_LIKELY( !strcmp( link->name, "repair_shred" ) ) )   ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) )   ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTED;
     else if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) )   ctx->in_kind[ i ] = IN_KIND_ROOTEDH;

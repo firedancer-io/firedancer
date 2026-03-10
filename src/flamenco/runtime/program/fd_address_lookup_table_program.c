@@ -1007,7 +1007,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     case FD_ADDRLUT_STATUS_DEACTIVATED:
       break;
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "invalid lut status %d", status ));
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L456 */
@@ -1109,14 +1109,15 @@ is_active( fd_address_lookup_table_t const * self,
            fd_slot_hash_t const *            slot_hashes ) { /* deque */
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L73-L77 */
   ulong _dummy[1];
-  switch( fd_addrlut_status( &self->meta, current_slot, slot_hashes, _dummy ) ) {
+  uchar status = fd_addrlut_status( &self->meta, current_slot, slot_hashes, _dummy );
+  switch( status ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:
     case FD_ADDRLUT_STATUS_DEACTIVATING:
       return 1;
     case FD_ADDRLUT_STATUS_DEACTIVATED:
       return 0;
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "invalid lut status %d", status ));
   }
 }
 

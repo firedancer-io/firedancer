@@ -1,4 +1,5 @@
 #include "fd_snapct_tile.h"
+#include "utils/fd_sspeer.h"
 #include "utils/fd_ssping.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssarchive.h"
@@ -23,7 +24,6 @@
 #define NAME "snapct"
 
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
-/* FIXME: Make the code more strict about duplicate IP:port's */
 
 #define GOSSIP_PEERS_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 #define SERVER_PEERS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED)
@@ -75,6 +75,7 @@ struct fd_snapct_tile {
   fd_ssping_t *          ssping;
   fd_http_resolver_t *   ssresolver;
   fd_sspeer_selector_t * selector;
+  ulong                  selector_seed;
 
   int           state;
   int           malformed;
@@ -238,15 +239,31 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
 }
 
 static void
-on_resolve( void *        _ctx,
-            fd_ip4_port_t addr,
-            ulong         full_slot,
-            ulong         incr_slot,
-            uchar         full_hash[ FD_HASH_FOOTPRINT ],
-            uchar         incr_hash[ FD_HASH_FOOTPRINT ] ) {
+on_resolve( void *                  _ctx,
+            fd_sspeer_key_t const * key,
+            ulong                   full_slot,
+            ulong                   incr_slot,
+            uchar                   full_hash[ FD_HASH_FOOTPRINT ],
+            uchar                   incr_hash[ FD_HASH_FOOTPRINT ] ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, full_hash, incr_hash );
+  int status = fd_sspeer_selector_update_on_resolve( ctx->selector, key, full_slot, incr_slot, full_hash, incr_hash );
+  if( FD_UNLIKELY( status<0 ) ) {
+    /* The update may fail in normal operation, e.g. after a peer has
+       been removed from the selector.  The log level is set to a
+       minimum accordingly. */
+    if( FD_UNLIKELY( key==NULL ) ) {
+      FD_LOG_DEBUG(( "selector update on resolve returned %d for NULL peer key", status ) );
+    } else {
+      if( FD_UNLIKELY( !key->is_url ) ) {
+        FD_BASE58_ENCODE_32_BYTES( key->pubkey->key, pubkey_b58 );
+        FD_LOG_DEBUG(( "selector update on resolve returned %d for peer with pubkey %s", status, pubkey_b58 ) );
+      } else {
+        FD_LOG_DEBUG(( "selector update on resolve returned %d for peer %s with addr " FD_IP4_ADDR_FMT ":%hu", status, key->url.hostname,
+                       FD_IP4_ADDR_FMT_ARGS( key->url.resolved_addr.addr ), fd_ushort_bswap( key->url.resolved_addr.port ) ));
+      }
+    }
+  }
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
@@ -257,12 +274,20 @@ on_ping( void *        _ctx,
          ulong         latency ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  fd_sspeer_selector_add( ctx->selector, addr, latency, ULONG_MAX, ULONG_MAX, NULL, NULL );
+  ulong cnt = fd_sspeer_selector_update_on_ping( ctx->selector, addr, latency );
+  if( FD_UNLIKELY( !cnt ) ) {
+    /* The update may fail in normal operation, e.g. after a peer has
+       been removed from the selector.  The log level is set to a
+       minimum accordingly. */
+    FD_LOG_DEBUG(( "selector update on ping did not find address " FD_IP4_ADDR_FMT ":%hu",
+                   FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
+  }
   predict_incremental( ctx );
 }
 
 static void
 on_snapshot_hash( fd_snapct_tile_t *                 ctx,
+                  fd_sspeer_key_t const *            key,
                   fd_ip4_port_t                      addr,
                   fd_gossip_update_message_t const * msg ) {
   ulong         full_slot = msg->snapshot_hashes->full_slot;
@@ -276,7 +301,14 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
     }
   }
 
-  fd_sspeer_selector_add( ctx->selector, addr, ULONG_MAX, full_slot, incr_slot, msg->snapshot_hashes->full_hash, incr_hash );
+  if( FD_UNLIKELY( !addr.l ) ) {
+    /* A peer that does not advertise an rpc_addr cannot be added to
+       the selector: if previously added, remove it.  The remove
+       operation becomes a no-op if the peer is not found. */
+    fd_sspeer_selector_remove( ctx->selector, key );
+    return;
+  }
+  fd_sspeer_selector_add( ctx->selector, key, addr, ULONG_MAX, full_slot, incr_slot, msg->snapshot_hashes->full_hash, incr_hash );
   fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
@@ -711,7 +743,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
         break;
       }
 
@@ -732,7 +764,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
         break;
       }
 
@@ -810,7 +842,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
         break;
       }
 
@@ -831,7 +863,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
         break;
       }
 
@@ -965,7 +997,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
         break;
       }
       if( FD_UNLIKELY( ctx->metrics.full.bytes_total!=0UL && ctx->metrics.full.bytes_read==ctx->metrics.full.bytes_total ) ) {
@@ -987,7 +1019,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_WARNING(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/%s",
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
         break;
       }
       if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_total!=0UL && ctx->metrics.incremental.bytes_read==ctx->metrics.incremental.bytes_total ) ) {
@@ -1078,10 +1110,18 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       if( FD_UNLIKELY( new_addr.l!=cur_addr.l ) ) {
         entry->rpc_addr = new_addr;
         if( FD_LIKELY( !!cur_addr.l ) ) {
-          int removed = fd_ssping_remove( ctx->ssping, cur_addr );
-          if( FD_LIKELY( removed ) ) fd_sspeer_selector_remove( ctx->selector, cur_addr );
+          fd_ssping_remove( ctx->ssping, cur_addr );
         }
-        if( FD_LIKELY( !!new_addr.l ) ) fd_ssping_add( ctx->ssping, new_addr );
+        fd_sspeer_key_t entry_key = {0};
+        *entry_key.pubkey = entry->pubkey;
+        entry_key.is_url  = 0;
+        if( FD_LIKELY( !!new_addr.l ) ) {
+          fd_ssping_add( ctx->ssping, new_addr );
+          /* update address */
+          fd_sspeer_selector_add( ctx->selector, &entry_key, new_addr, ULONG_MAX, ULONG_MAX, ULONG_MAX, NULL, NULL );
+        } else {
+          fd_sspeer_selector_remove( ctx->selector, &entry_key );
+        }
         if( !ctx->config.sources.gossip.allow_any ) {
           FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
           if( FD_LIKELY( !!new_addr.l ) ) {
@@ -1103,8 +1143,11 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       ctx->gossip.allowed_cnt--;
       fd_ip4_port_t addr = entry->rpc_addr;
       if( FD_LIKELY( !!addr.l ) ) {
-        int removed = fd_ssping_remove( ctx->ssping, addr );
-        if( FD_LIKELY( removed ) ) fd_sspeer_selector_remove( ctx->selector, addr );
+        fd_ssping_remove( ctx->ssping, addr );
+        fd_sspeer_key_t entry_key = {0};
+        *entry_key.pubkey = entry->pubkey;
+        entry_key.is_url  = 0;
+        fd_sspeer_selector_remove( ctx->selector, &entry_key );
       }
       if( !ctx->config.sources.gossip.allow_any ) {
         FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, pubkey_b58 );
@@ -1119,7 +1162,10 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( idx!=ULONG_MAX ) ) {
         gossip_ci_entry_t * entry = ctx->gossip.ci_table + idx;
         FD_TEST( entry->allowed );
-        on_snapshot_hash( ctx, entry->rpc_addr, msg );
+        fd_sspeer_key_t entry_key = {0};
+        *entry_key.pubkey = entry->pubkey;
+        entry_key.is_url  = 0;
+        on_snapshot_hash( ctx, &entry_key, entry->rpc_addr, msg );
       }
       break;
     }
@@ -1441,6 +1487,8 @@ privileged_init( fd_topo_t *      topo,
       if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_INCR_SNAP_NAME, errno, fd_io_strerror( errno ) ));
     }
   }
+
+  FD_TEST( fd_rng_secure( &ctx->selector_seed, 8UL ) );
 }
 
 static inline fd_snapct_out_link_t
@@ -1485,21 +1533,25 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_enabled   = gossip_enabled( tile );
   ctx->download_enabled = download_enabled( tile );
 
+  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->config.incremental_snapshots, ctx->selector_seed ) );
+
   if( ctx->config.sources.servers_cnt ) {
     for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {
-      fd_ssping_add       ( ctx->ssping, tile->snapct.sources.servers[ i ].addr );
-      fd_http_resolver_add( ctx->ssresolver,
-                            tile->snapct.sources.servers[ i ].addr,
-                            tile->snapct.sources.servers[ i ].hostname,
-                            tile->snapct.sources.servers[ i ].is_https );
+      /* The peers needs to be added to resolver and to selector.
+         Only if this succeeds, add the peer to ssping list. */
+      if( FD_LIKELY( !fd_http_resolver_add( ctx->ssresolver,
+                                            tile->snapct.sources.servers[ i ].addr,
+                                            tile->snapct.sources.servers[ i ].hostname,
+                                            tile->snapct.sources.servers[ i ].is_https,
+                                            ctx->selector ) ) ) {
+        fd_ssping_add( ctx->ssping, tile->snapct.sources.servers[ i ].addr );
+      }
     }
   }
 
   if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
     FD_LOG_WARNING(( "incremental snapshots disabled via [snapshots.incremental_snapshots]." ));
   }
-
-  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->config.incremental_snapshots, 1UL ) );
 
   ctx->state          = FD_SNAPCT_STATE_INIT;
   ctx->malformed      = 0;

@@ -23,6 +23,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
 
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000UL)
+
 /* Maximum amount of writable accounts per transaction
    https://github.com/anza-xyz/agave/blob/v3.0.8/runtime/src/bank.rs#L2946 */
 #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION (64UL)

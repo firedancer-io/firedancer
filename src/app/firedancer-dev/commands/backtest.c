@@ -23,6 +23,7 @@
 #include "../../../disco/topo/fd_topob_vinyl.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
+#include "../../../discof/reasm/fd_reasm.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/fd_snapin_tile_private.h"
 #include "../../../discof/restore/fd_snaplv_tile_private.h"
@@ -173,7 +174,7 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
-  /* Setup backtest->replay link (shred_out) in topo                 */
+  /* Setup backtest->replay link (repair_out) in topo                 */
   /**********************************************************************/
 
   /* The repair tile is replaced by the backtest tile for the repair to
@@ -181,10 +182,10 @@ backtest_topo( config_t * config ) {
      which is provided by the backtest tile, which reads in the entry
      batches from the CLI-specified source (eg. RocksDB). */
 
-  fd_topob_wksp( topo, "shred_out" );
-  fd_topob_link( topo, "shred_out", "shred_out", 65536UL, FD_SHRED_OUT_MTU, 1UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "shred_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "backt", 0UL, "shred_out", 0UL );
+  fd_topob_wksp( topo, "repair_out" );
+  fd_topob_link( topo, "repair_out", "repair_out", 65536UL, FD_SHRED_OUT_MTU, 1UL );
+  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "backt", 0UL, "repair_out", 0UL );
 
   /**********************************************************************/
   /* Setup snapshot links in topo                                       */
@@ -388,11 +389,8 @@ backtest_topo( config_t * config ) {
   /* Setup replay->stake/send/poh links in topo w/o consumers         */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_epoch"    );
-
   fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL, FD_EPOCH_OUT_MTU, 1UL );
-
   fd_topob_tile_out( topo, "replay", 0UL, "replay_epoch",   0UL );
-
   topo->links[ replay_tile->out_link_id[ fd_topo_find_tile_out_link( topo, replay_tile, "replay_epoch",   0 ) ] ].permit_no_consumers = 1;
 
   /**********************************************************************/

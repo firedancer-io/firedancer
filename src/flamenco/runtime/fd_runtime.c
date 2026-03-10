@@ -1138,6 +1138,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   } else {
 
+
+    fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
@@ -1155,16 +1157,21 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
        txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
       }
 
-      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_stake_program_id ) ) {
+      if( txn_out->accounts.stake_update[i] ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
+      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_vote_program_id ) ) {
+        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_and_initialized( account->meta ) ) ) {
+          fd_top_votes_invalidate( top_votes, pubkey );
+        } else {
+          fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( account->meta ), account->meta->dlen );
+          fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
+        }
+      }
 
-      /* Reclaim any accounts that have 0-lamports, now that any related
-         cache updates have been applied. */
-      fd_executor_reclaim_account( txn_out->accounts.account[i].meta, fd_bank_slot_get( bank ) );
+      /* TODO: vote update is currently unused */
 
-      int save_type =
-        fd_runtime_save_account( runtime->accdb, &xid, pubkey, account->meta, bank, runtime->log.capture_ctx );
+      int save_type = fd_runtime_save_account( runtime->accdb, &xid, pubkey, account->meta, bank, runtime->log.capture_ctx );
       runtime->metrics.txn_account_save[ save_type ]++;
     }
 
@@ -1312,6 +1319,8 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->accounts.cnt                = 0UL;
   txn_out->accounts.rollback_nonce     = NULL;
   txn_out->accounts.rollback_fee_payer = NULL;
+  memset( txn_out->accounts.stake_update, 0, sizeof(txn_out->accounts.stake_update) );
+  memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
@@ -1356,8 +1365,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
-
-  txn_out->details.exec_start_timestamp = fd_tickcount();
 
   /* Execute the transaction if eligible to do so. */
   if( FD_LIKELY( txn_out->err.is_committable ) ) {
