@@ -141,8 +141,8 @@ fd_vote_stakes_new( void * shmem,
 fd_vote_stakes_t *
 fd_vote_stakes_join( void * shmem );
 
-/* fd_vote_stakes_root_{insert, update, purge}_key are APIs for
-   inserting, updating, and purging keys for the root fork.  These
+/* fd_vote_stakes_root_{insert, update}_key are APIs for
+   inserting and updating keys for the root fork.  These
    operations are split out in order to support the snapshot loading
    process.  The set of stakes from the T-1 epoch are inserted into
    the root fork with a call to fd_vote_stakes_root_insert_key.  The
@@ -173,18 +173,6 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  ulong               stake_t_2,
                                  ulong               epoch );
 
-/* fd_vote_stakes_root_purge_key allows the caller to purge a key from
-   the root fork.  This unfortunately has to be decoupled from the other
-   root APIs due to quirks in the Solana protocol.  The elements of the
-   vote stakes are loaded in along with the snapshot manifest: before
-   the actual account data has been loaded.  Some vote stakes keys may
-   be stale however, and can only be removed after the account data has
-   been loaded. */
-
-void
-fd_vote_stakes_root_purge_key( fd_vote_stakes_t *  vote_stakes,
-                               fd_pubkey_t const * pubkey );
-
 /* fd_vote_stakes_insert_{key, update, fini} is API for inserting
    entries into a given fork.  It reflects the access pattern during
    epoch rewards, where the current stake for a vote account is
@@ -213,7 +201,8 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
                            fd_pubkey_t const * node_account_t_1,
                            fd_pubkey_t const * node_account_t_2,
                            ulong               stake_t_2,
-                           ulong               epoch );
+                           ulong               epoch,
+                           uchar               exists_curr );
 
 void
 fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
@@ -252,16 +241,44 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
    in the given fork.  If the element is found returns 1, otherwise
    returns 0.  If any of the optional fields are set to NULL, then their
-   corresponding value will not be set. */
+   corresponding value will not be set.  If the stake_t_{1,2}_out_opt is
+   set to 0UL and the record is found, that means the vote account
+   either did not exist at the end of the t-{1,2} epoch boundary or had
+   zero stake: they are treated as the same thing. */
 
 int
-fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
-                      ushort              fork_idx,
-                      fd_pubkey_t const * pubkey,
-                      ulong *             stake_t_1_out_opt,
-                      ulong *             stake_t_2_out_opt,
-                      fd_pubkey_t *       node_account_t_1_out_opt,
-                      fd_pubkey_t *       node_account_t_2_out_opt );
+fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
+                      ushort                   fork_idx,
+                      fd_pubkey_t const *      pubkey,
+                      ulong *                  stake_t_1_out_opt,
+                      ulong *                  stake_t_2_out_opt,
+                      fd_pubkey_t *            node_account_t_1_out_opt,
+                      fd_pubkey_t *            node_account_t_2_out_opt );
+
+int
+fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
+                             ushort                   fork_idx,
+                             fd_pubkey_t const *      pubkey );
+
+/* fd_vote_stakes_query_t_1 and fd_vote_stakes_query_t_2 are shortcuts
+   for querying the t_1 and t_2 stake for a given vote account in the
+   given fork.  0 is returned if the vote account does not exist for the
+   epoch or if it has zero stake.  If the account is found, stake_out
+   and node_account_out will be set. */
+
+int
+fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
+                          ushort                   fork_idx,
+                          fd_pubkey_t const *      pubkey,
+                          ulong *                  stake_out,
+                          fd_pubkey_t *            node_account_out );
+
+int
+fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
+                          ushort                   fork_idx,
+                          fd_pubkey_t const *      pubkey,
+                          ulong *                  stake_out,
+                          fd_pubkey_t *            node_account_out );
 
 /* fd_vote_stakes_ele_cnt returns the number of entries for a given
    fork. */
