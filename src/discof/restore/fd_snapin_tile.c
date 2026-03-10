@@ -504,6 +504,17 @@ process_manifest( fd_snapin_tile_t * ctx ) {
                   manifest->slot, sum_enc, hash32_enc ));
   }
 
+  if( ctx->full ) {
+    ctx->full_genesis_creation_time_millis = manifest->creation_time_millis;
+  } else {
+    if( FD_UNLIKELY( manifest->creation_time_millis!=ctx->full_genesis_creation_time_millis ) ) {
+      FD_LOG_WARNING(( "snapshot manifest genesis creation time millis %lu does not match full snapshot genesis creation time millis %lu",
+                       manifest->creation_time_millis, ctx->full_genesis_creation_time_millis ));
+      transition_malformed( ctx, ctx->stem );
+      return;
+    }
+  }
+
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   if( FD_LIKELY( !ctx->lthash_disabled ) ) {
@@ -697,6 +708,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
         ctx->metrics.full_bytes_read   = 0UL;
         ctx->metrics.incremental_bytes_read = 0UL;
+        ctx->full_genesis_creation_time_millis = 0UL;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
@@ -1006,6 +1018,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->advertised_slot = 0UL;
   ctx->bank_slot       = 0UL;
+
+  ctx->full_genesis_creation_time_millis = 0UL;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 
