@@ -8,6 +8,7 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../disco/store/fd_shredb.h"
@@ -30,6 +31,15 @@
 
 /* 10 minutes in milliseconds. */
 #define FD_RSERVE_SIGNED_REPAIR_WINDOW (60L*10L*1000L)
+
+/* static map from request type to metric array index */
+static uint metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
+  [FD_REPAIR_KIND_PING]          = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_PING_IDX,
+  [FD_REPAIR_KIND_SHRED]         = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_WINDOW_IDX,
+  [FD_REPAIR_KIND_HIGHEST_SHRED] = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_HIGHEST_WINDOW_IDX,
+  [FD_REPAIR_KIND_ORPHAN]        = FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_ORPHAN_IDX,
+};
+
 
 typedef union {
   struct {
@@ -74,6 +84,13 @@ typedef struct ctx {
   fd_ip4_udp_hdrs_t serve_hdr[1];
   ushort            net_id;
 
+  struct {
+    ulong send_pkt_cnt;
+    ulong sent_pkt_types  [FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_CNT];
+    ulong missed_pkt_types[FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_CNT];
+    ulong stored_shreds;
+    ulong ping_cache_entries;
+  } metrics[ 1 ];
 } ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -99,6 +116,7 @@ send_packet( ctx_t               * ctx,
             uchar const          * payload,
             ulong                  payload_sz,
             ulong                  tsorig ) {
+  ctx->metrics->send_pkt_cnt++;
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
   *hdr = *ctx->serve_hdr;
@@ -147,6 +165,7 @@ handle_pong( ctx_t              * ctx,
   ping_cache_entry_t * entry = ping_cache_query( ctx->rserve->ping_cache, request->from, NULL );
   /* If it doesn't exist yet, create the entry. */
   if( FD_LIKELY( !entry ) ) {
+    ctx->metrics->ping_cache_entries++;
     entry = ping_cache_insert( ctx->rserve->ping_cache, request->from );
   }
   /* It must have either already existed, or we just created it.
@@ -245,6 +264,7 @@ handle_net_request( ctx_t             * ctx,
         }
         if( FD_UNLIKELY( len<0 ) ) {
           FD_LOG_NOTICE(("didn't have shreds for (slot=%lu, shred_idx=%lu)", slot, shred_idx ));
+          ctx->metrics->missed_pkt_types[ metric_index[tag] ]++;
           return;
         }
 
@@ -252,7 +272,7 @@ handle_net_request( ctx_t             * ctx,
 
         fd_memcpy( payload+len, &header->nonce, sizeof(uint) );
         send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, payload, (ulong)len+sizeof(uint), fd_frag_meta_ts_comp( fd_tickcount() ) );
-        return;
+        break;
       }
       case FD_REPAIR_KIND_ORPHAN: {
         /* Orphan repair works by giving us a "root" slot to start at,
@@ -267,6 +287,7 @@ handle_net_request( ctx_t             * ctx,
           int len = fd_shredb_query_highest( ctx->shredb, current, 0, payload );
           if( FD_UNLIKELY( len<0 ) ) {
             FD_LOG_NOTICE(("didn't have orphan shreds for (slot=%lu, root=%lu)", current, request->slot ));
+            ctx->metrics->missed_pkt_types[ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_ORPHAN_IDX ]++;
             return;
           }
           fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( payload );
@@ -277,6 +298,7 @@ handle_net_request( ctx_t             * ctx,
         break;
       }
     }
+    ctx->metrics->sent_pkt_types[ metric_index[tag] ]++;
   } else {
     /* Generate a token. */
     uchar token[ 32 ];
@@ -294,6 +316,7 @@ handle_net_request( ctx_t             * ctx,
 
     /* Send the ping packet back to the source. */
     send_packet( ctx, stem, ip4->saddr, udp->net_sport, ip4->daddr, (uchar const *)fd_type_pun_const( msg ), sizeof(fd_repair_ping_t), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->metrics->sent_pkt_types[ FD_METRICS_ENUM_RSERVE_SENT_RESPONSE_TYPES_V_PING_IDX ]++;
   }
 }
 
@@ -328,6 +351,7 @@ handle_shred( ctx_t             * ctx,
          full shred payload, we will get that once the full FEC set has been
          completed. */
       fd_shredb_insert_header( ctx->shredb, shred );
+      ctx->metrics->stored_shreds = ctx->shredb->cnt;
       return;
     }
     case FD_SHRED_OUT_MSG_TYPE_FEC: {
@@ -435,6 +459,16 @@ during_housekeeping( ctx_t * ctx ) {
   }
 }
 
+static inline void
+metrics_write( ctx_t * ctx ) {
+  FD_MCNT_SET( RSERVE, TOTAL_PKT_COUNT, ctx->metrics->send_pkt_cnt );
+  FD_MCNT_ENUM_COPY( RSERVE, SENT_RESPONSE_TYPES,  ctx->metrics->sent_pkt_types );
+  FD_MCNT_ENUM_COPY( RSERVE, MISSED_RESPONSE_TYPES,  ctx->metrics->missed_pkt_types );
+
+  FD_MCNT_SET( RSERVE, STORED_SHREDS, ctx->metrics->stored_shreds );
+  FD_MCNT_SET( RSERVE, PING_CACHE_ENTRIES, ctx->metrics->ping_cache_entries );
+}
+
 static void
 privileged_init( fd_topo_t *      topo,
                 fd_topo_tile_t * tile ) {
@@ -478,6 +512,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
 
+  fd_memset( ctx->metrics, 0, sizeof(ctx->metrics) );
   ctx->halt_signing = 0;
   ctx->net_id = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->serve_hdr, FD_RSERVE_MAX_PACKET_SIZE, 0, tile->rserve.repair_serve_listen_port );
@@ -563,12 +598,15 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+/* For orphan responses, we may send up to 11 net packets out.
+   All other implemented codepaths will send at most 1. */
+#define STEM_BURST (11UL)
 #define STEM_LAZY (64000UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
