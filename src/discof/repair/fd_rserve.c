@@ -10,9 +10,9 @@ fd_rserve_footprint( ulong ping_cache_entries ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_rserve_t), sizeof(fd_rserve_t) );
-  l = FD_LAYOUT_APPEND( l, ping_pool_align(),     ping_pool_footprint( ping_max ) );
-  l = FD_LAYOUT_APPEND( l, ping_map_align(),      ping_map_footprint( ping_map_chain_cnt_est( ping_max ) ) );
-  l = FD_LAYOUT_APPEND( l, ping_dlist_align(),    ping_dlist_footprint() );
+  l = FD_LAYOUT_APPEND( l, ping_pool_align(),    ping_pool_footprint( ping_max ) );
+  l = FD_LAYOUT_APPEND( l, ping_map_align(),     ping_map_footprint( ping_map_chain_cnt_est( ping_max ) ) );
+  l = FD_LAYOUT_APPEND( l, ping_dlist_align(),   ping_dlist_footprint() );
   return FD_LAYOUT_FINI( l, fd_rserve_align() );
 }
 

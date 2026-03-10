@@ -927,6 +927,22 @@ metric introduced.
     <counter name="BlkFailedInsert" summary="How many times we failed to insert a block into the forest due to failed eviction" />
 </tile>
 
+<enum name="RserveSentResponseTypes">
+    <int value="0" name="Ping" label="Ping" />
+    <int value="1" name="Window" label="Window" />
+    <int value="2" name="HighestWindow" label="Highest Window" />
+    <int value="3" name="Orphan" label="Orphan" />
+</enum>
+
+<tile name="rserve">
+    <counter name="TotalPktCount" summary="How many network packets we have sent, including pings, responses, etc" />
+    <counter name="SentResponseTypes" enum="RserveSentResponseTypes" summary="What types of response messages are we sending" />
+    <counter name="MissedResponseTypes" enum="RserveSentResponseTypes" summary="What types of response messages could we not fulfill" />
+    <counter name="StoredShreds" summary="How many shreds do we have stored in the archive" />
+    <counter name="PingCacheEntries" summary="How many active entries do we have in the ping cache" />
+    <counter name="FailedSigverify" summary="How many times we failed to verify the signature of a request" />
+</tile>
+
 <enum name="CrdsValue">
     <int value="0" name="ContactInfoV1" label="Contact Info V1" />
     <int value="1" name="Vote" label="Vote" />

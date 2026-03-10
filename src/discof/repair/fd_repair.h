@@ -81,7 +81,7 @@
 #define FD_REPAIR_KIND_SHRED           (8U)
 #define FD_REPAIR_KIND_HIGHEST_SHRED   (9U)
 #define FD_REPAIR_KIND_ORPHAN          (10U)
-#define FD_REPAIR_KIND_ANCESTOR_HASHES (11U)
+/* TODO: ancestor hashes */
 
 /* fd_repair_pong describes the schema of a Pong. */
 
