@@ -241,7 +241,10 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
    in the given fork.  If the element is found returns 1, otherwise
    returns 0.  If any of the optional fields are set to NULL, then their
-   corresponding value will not be set. */
+   corresponding value will not be set.  If the stake_t_{1,2}_out_opt is
+   set to 0UL and the record is found, that means the vote account
+   either did not exist at the end of the t-{1,2} epoch boundary or had
+   zero stake: they are treated as the same thing. */
 
 int
 fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,

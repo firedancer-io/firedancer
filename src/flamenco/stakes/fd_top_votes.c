@@ -101,7 +101,6 @@ fd_top_votes_new( void * mem,
   void *           pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),         pool_footprint( vote_accounts_max ) );
   void *           heap_mem  = FD_SCRATCH_ALLOC_APPEND( l, heap_align(),         heap_footprint( vote_accounts_max ) );
   void *           map_mem   = FD_SCRATCH_ALLOC_APPEND( l, map_align(),          map_footprint( map_chain_cnt ) );
-  FD_SCRATCH_ALLOC_FINI( l, fd_top_votes_align() );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_top_votes_align() ) != (ulong)top_votes + fd_top_votes_footprint( vote_accounts_max ) ) ) {
     FD_LOG_WARNING(( "fd_banks_new: bad layout" ));

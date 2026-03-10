@@ -568,7 +568,7 @@ static inline ulong
 generate_epoch_info_msg( ulong                       slot,
                          ulong                       epoch,
                          fd_epoch_schedule_t const * epoch_schedule,
-                         fd_top_votes_t *            top_votes,
+                         fd_top_votes_t const *      top_votes,
                          fd_vote_stakes_t *          vote_stakes,
                          ushort                      vote_stakes_fork_idx,
                          fd_features_t const *       features,
@@ -662,7 +662,7 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-  fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
   ulong epoch_info_sz = generate_epoch_info_msg( fd_bank_slot_get( bank ), epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, top_votes, vote_stakes, bank->data->vote_stakes_fork_id, features, epoch_info_msg, current_epoch );
   fd_bank_vote_stakes_end_locking_modify( bank );
 

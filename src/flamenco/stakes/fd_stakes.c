@@ -134,7 +134,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
-
     fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
         stake_delegation,
         epoch,
@@ -147,22 +146,21 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       ulong       old_stake_t_1        = 0UL;
       fd_pubkey_t old_node_account_t_1 = {0};
       int exists_prev = fd_vote_stakes_query( vote_stakes, parent_idx, &stake_delegation->vote_account, &old_stake_t_1, NULL, &old_node_account_t_1, NULL );
+      exists_prev = exists_prev && old_stake_t_1>0UL;
       int exists_curr = 1;
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_delegation->vote_account ) ) ) {
         exists_curr = 0;
-      }
-      if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
+      } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
         fd_accdb_close_ro( accdb, vote_ro );
         exists_curr = 0;
       }
 
-      if( FD_UNLIKELY( !exists_curr && !exists_prev ) ) {
+      if( FD_UNLIKELY( !exists_curr ) ) {
         /* If the vote account does not exist going into the epoch
            boundary, and did not exist at the end of the last epoch
            boundary, then we can fully skip it. */
-        fd_accdb_close_ro( accdb, vote_ro );
-        continue;
-      } else if( FD_UNLIKELY( !exists_curr && exists_prev ) ) {
+        if( FD_UNLIKELY( !exists_prev ) ) continue;
+
         /* If the account does not exist but did in the previous epoch,
            it still needs to be added to the top votes and the vote
            stakes data structure in case the vote account is revived
@@ -201,8 +199,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                                     &last_vote_timestamp );
         fd_accdb_close_ro( accdb, vote_ro );
 
-        /* If old_node_account_t_1 gets zero-initalized which means that
-           it is still safe to use. */
+        /* If old_node_account_t_1 gets zero-initialized which means
+           that it is still valid to use. */
         fd_vote_stakes_insert_key(
             vote_stakes,
             child_idx,
