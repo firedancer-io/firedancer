@@ -69,7 +69,7 @@ get_vote_credits_commission( uchar const *       account_data,
     *node_account_t_1    = vsv->inner.v4.node_pubkey;
     break;
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "invalid vote state version %u", vsv->discriminant ));
   }
 
   vote_ele->epoch_credits.cnt = 0UL;

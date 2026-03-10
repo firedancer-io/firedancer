@@ -752,7 +752,7 @@ unprivileged_init( fd_topo_t *      topo,
     case 0: STATIC_FILES = STATIC_FILES_STABLE; break;
     case 1: STATIC_FILES = STATIC_FILES_ALPHA;  break;
     case 2: STATIC_FILES = STATIC_FILES_DEV;    break;
-    default: __builtin_unreachable();
+    default: FD_LOG_CRIT(( "invalid frontend_release_channel %d", gui_tile->gui.frontend_release_channel ));
   }
 
   fd_http_server_params_t http_param = derive_http_params( tile );

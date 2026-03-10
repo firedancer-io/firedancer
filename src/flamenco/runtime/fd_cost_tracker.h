@@ -131,7 +131,7 @@ fd_cost_tracker_err_to_runtime_err( int err ) {
     case FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT:
       return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT;
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unexpected cost tracker error %d", err ));
   }
 }
 

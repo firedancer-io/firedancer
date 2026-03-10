@@ -327,7 +327,7 @@ transaction_cost_sum( fd_transaction_cost_t const * txn_cost ) {
       return cost;
     }
     default: {
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unexpected transaction cost type %u", txn_cost->type ));
     }
   }
 }
@@ -340,7 +340,7 @@ get_allocated_accounts_data_size( fd_transaction_cost_t const * txn_cost ) {
   case FD_TXN_COST_TYPE_TRANSACTION:
     return txn_cost->transaction.allocated_accounts_data_size;
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "unexpected transaction cost type %u", txn_cost->type ));
   }
 }
 
