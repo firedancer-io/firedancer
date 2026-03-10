@@ -29,6 +29,7 @@ struct index_ele {
   uint        prev_multi;
   uint        next_multi;
   ushort      refcnt;
+  uchar       exists_t_1;
 };
 typedef struct index_ele index_ele_t;
 

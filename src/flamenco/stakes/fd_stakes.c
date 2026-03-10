@@ -142,56 +142,91 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         new_rate_activation_epoch );
 
     if( FD_UNLIKELY( !fd_vote_stakes_query( vote_stakes, child_idx, &stake_delegation->vote_account, NULL, NULL, NULL, NULL ) ) ) {
-      fd_vote_rewards_t * vote_ele    = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
-      vote_ele->pubkey       = stake_delegation->vote_account;
-      vote_ele->vote_rewards = 0UL;
-
       fd_accdb_ro_t vote_ro[1];
-      if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &vote_ele->pubkey ) ) ) {
-        continue;
-      }
 
+      ulong       old_stake_t_1        = 0UL;
+      fd_pubkey_t old_node_account_t_1 = {0};
+      int exists_prev = fd_vote_stakes_query( vote_stakes, parent_idx, &stake_delegation->vote_account, &old_stake_t_1, NULL, &old_node_account_t_1, NULL );
+      int exists_curr = 1;
+      if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_delegation->vote_account ) ) ) {
+        exists_curr = 0;
+      }
       if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
         fd_accdb_close_ro( accdb, vote_ro );
+        exists_curr = 0;
+      }
+
+      if( FD_UNLIKELY( !exists_curr && !exists_prev ) ) {
+        /* If the vote account does not exist going into the epoch
+           boundary, and did not exist at the end of the last epoch
+           boundary, then we can fully skip it. */
+        fd_accdb_close_ro( accdb, vote_ro );
         continue;
-      }
-
-      fd_pubkey_t node_account_t_1;
-      ulong       last_vote_slot;
-      long        last_vote_timestamp;
-      get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
-                                   fd_accdb_ref_data_sz( vote_ro ),
-                                   vsv_buf,
-                                   &runtime_stack->stakes.vote_ele[ vote_ele_cnt ],
-                                   &node_account_t_1,
-                                   &last_vote_slot,
-                                   &last_vote_timestamp );
-      fd_accdb_close_ro( accdb, vote_ro );
-
-      fd_vote_rewards_map_ele_insert( vote_ele_map, vote_ele, runtime_stack->stakes.vote_ele );
-      vote_ele_cnt++;
-
-      ulong       old_stake_t_1;
-      fd_pubkey_t node_account_t_2;
-      int found = fd_vote_stakes_query( vote_stakes, parent_idx, &vote_ele->pubkey, &old_stake_t_1, NULL, &node_account_t_2, NULL );
-      ulong stake_t_2 = found ? old_stake_t_1 : 0UL;
-
-      if( FD_LIKELY( found ) ) {
+      } else if( FD_UNLIKELY( !exists_curr && exists_prev ) ) {
+        /* If the account does not exist but did in the previous epoch,
+           it still needs to be added to the top votes and the vote
+           stakes data structure in case the vote account is revived
+           again. */
         fd_top_votes_insert( top_votes,
-                             &vote_ele->pubkey,
-                             &node_account_t_2,
-                             stake_t_2,
-                             last_vote_slot,
-                             last_vote_timestamp );
-      }
+                             &stake_delegation->vote_account,
+                             &old_node_account_t_1,
+                             old_stake_t_1,
+                             0UL,
+                             0L );
+        fd_top_votes_invalidate( top_votes, &stake_delegation->vote_account );
 
-      fd_vote_stakes_insert_key( vote_stakes,
-                                 child_idx,
-                                 &stake_delegation->vote_account,
-                                 &node_account_t_1,
-                                 &node_account_t_2,
-                                 stake_t_2,
-                                 fd_bank_epoch_get( bank ) );
+        fd_vote_stakes_insert_key(
+            vote_stakes,
+            child_idx,
+            &stake_delegation->vote_account,
+            &old_node_account_t_1,
+            &old_node_account_t_1,
+            old_stake_t_1,
+            fd_bank_epoch_get( bank ),
+            0 );
+      } else {
+        /* If the account currently exists, we need to insert the entry
+           into the vote stakes data structure.  We will treat the t-2
+           stake as 0 if the account did not exist at the end of the
+           last epoch boundary.*/
+        fd_pubkey_t curr_node_account_t_1;
+        ulong       last_vote_slot;
+        long        last_vote_timestamp;
+        get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
+                                    fd_accdb_ref_data_sz( vote_ro ),
+                                    vsv_buf,
+                                    &runtime_stack->stakes.vote_ele[ vote_ele_cnt ],
+                                    &curr_node_account_t_1,
+                                    &last_vote_slot,
+                                    &last_vote_timestamp );
+        fd_accdb_close_ro( accdb, vote_ro );
+
+        /* If old_node_account_t_1 gets zero-initalized which means that
+           it is still safe to use. */
+        fd_vote_stakes_insert_key(
+            vote_stakes,
+            child_idx,
+            &stake_delegation->vote_account,
+            &curr_node_account_t_1,
+            &old_node_account_t_1,
+            old_stake_t_1,
+            fd_bank_epoch_get( bank ),
+            1 );
+
+        fd_top_votes_insert(
+            top_votes,
+            &stake_delegation->vote_account,
+            &old_node_account_t_1,
+            old_stake_t_1,
+            last_vote_slot,
+            last_vote_timestamp );
+
+        fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
+        vote_ele->pubkey             = stake_delegation->vote_account;
+        vote_ele->vote_rewards       = 0UL;
+        fd_vote_rewards_map_ele_insert( vote_ele_map, vote_ele, runtime_stack->stakes.vote_ele );
+        vote_ele_cnt++;
+      }
     }
 
     fd_vote_stakes_insert_update( vote_stakes,

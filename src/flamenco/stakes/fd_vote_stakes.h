@@ -201,7 +201,8 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
                            fd_pubkey_t const * node_account_t_1,
                            fd_pubkey_t const * node_account_t_2,
                            ulong               stake_t_2,
-                           ulong               epoch );
+                           ulong               epoch,
+                           uchar               exists_curr );
 
 void
 fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,

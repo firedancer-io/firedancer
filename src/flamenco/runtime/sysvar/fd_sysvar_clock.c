@@ -155,11 +155,10 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
-
     ulong last_vote_slot;
     long  last_vote_timestamp;
     int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp );
-    if( !found ) {
+    if( FD_UNLIKELY( !found ) ) {
       fd_accdb_ro_t ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
         continue;

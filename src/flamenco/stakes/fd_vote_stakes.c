@@ -160,6 +160,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
   ele->stake_t_2        = 0UL;
   ele->node_account_t_2 = (fd_pubkey_t){0};
   ele->epoch            = epoch % 2;
+  ele->exists_t_1       = 1U;
   /* It is fine to leave node account t_2 uninitalized because it will
      only be used if stake_t_2 is non-zero. */
 
@@ -192,6 +193,7 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
     ele->stake_t_1        = 0UL;
     ele->node_account_t_1 = (fd_pubkey_t){0};
     ele->epoch            = epoch % 2;
+    ele->exists_t_1       = 0U;
 
     FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
     FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
@@ -240,7 +242,8 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
                            fd_pubkey_t const * node_account_t_1,
                            fd_pubkey_t const * node_account_t_2,
                            ulong               stake_t_2,
-                           ulong               epoch ) {
+                           ulong               epoch,
+                           uchar               exists_curr ) {
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
 
@@ -251,6 +254,7 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
   index_ele->pubkey           = *pubkey;
   index_ele->node_account_t_1 = *node_account_t_1;
   index_ele->node_account_t_2 = *node_account_t_2;
+  index_ele->exists_t_1       = exists_curr;
   index_ele->stake_t_1        = 0UL;
   index_ele->stake_t_2        = stake_t_2;
   index_ele->epoch            = epoch % 2;
@@ -281,6 +285,8 @@ fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
   }
 
   index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
+
+  if( FD_UNLIKELY( index_ele->exists_t_1==0U ) ) return;
   index_ele->stake_t_1 += (stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
 }
 
