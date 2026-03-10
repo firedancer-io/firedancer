@@ -108,7 +108,7 @@ fd_top_votes_new( void * mem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_top_votes_footprint( vote_accounts_max )<FD_TOP_VOTES_MAX_FOOTPRINT ) ) {
+  if( FD_UNLIKELY( fd_top_votes_footprint( vote_accounts_max )>FD_TOP_VOTES_MAX_FOOTPRINT ) ) {
     FD_LOG_WARNING(( "fd_top_votes_new: bad footprint" ));
     return NULL;
   }
