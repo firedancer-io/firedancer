@@ -43,23 +43,25 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
   /* If the dirty flag is set, then we already have a pool element
      that was copied over for the current bank. We can simply just
      query the pool element and return it. */
+  fd_rwlock_write( &bank->locks->epoch_leaders_pool_lock );
   fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank->data );
   if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {
     FD_LOG_CRIT(( "NULL epoch leaders pool" ));
   }
   if( bank->data->epoch_leaders_dirty ) {
     fd_bank_epoch_leaders_t * bank_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->data->epoch_leaders_pool_idx );
+    fd_rwlock_unwrite( &bank->locks->epoch_leaders_pool_lock );
     return fd_type_pun( bank_epoch_leaders->data );
   }
-  fd_rwlock_write( &bank->locks->epoch_leaders_pool_lock );
   if( FD_UNLIKELY( !fd_bank_epoch_leaders_pool_free( epoch_leaders_pool ) ) ) {
     FD_LOG_CRIT(( "Failed to acquire epoch leaders pool element: pool is full" ));
   }
   fd_bank_epoch_leaders_t * child_epoch_leaders = fd_bank_epoch_leaders_pool_ele_acquire( epoch_leaders_pool );
   fd_rwlock_unwrite( &bank->locks->epoch_leaders_pool_lock );
   /* If the dirty flag has not been set yet, we need to allocated a
-     new pool element and copy over the data from the parent idx.
-     We also need to mark the dirty flag. */
+     new pool element and set a dirty flag  There is intentionally no
+     CoW for epoch leaders since they are updated once an epoch and the
+     epoch leaders isn't based off of its parent. */
   bank->data->epoch_leaders_pool_idx = fd_bank_epoch_leaders_pool_idx( epoch_leaders_pool, child_epoch_leaders );
   bank->data->epoch_leaders_dirty    = 1;
   return fd_type_pun( child_epoch_leaders->data );
@@ -101,6 +103,10 @@ fd_bank_top_votes_modify( fd_bank_t * bank ) {
   if( bank->data->top_votes_pool_idx!=fd_bank_top_votes_pool_idx_null( top_votes_pool ) ) {
     fd_bank_top_votes_t * parent_top_votes = fd_bank_top_votes_pool_ele( top_votes_pool, bank->data->top_votes_pool_idx );
     fd_memcpy( child_top_votes->data, parent_top_votes->data, FD_TOP_VOTES_MAX_FOOTPRINT );
+  } else {
+    /* Top votes should only be refreshed at the epoch boundary and
+       isn't dependent on its parent nodes state. */
+    fd_top_votes_init( fd_type_pun( child_top_votes->data ) );
   }
   bank->data->top_votes_pool_idx = child_idx;
   bank->data->top_votes_dirty    = 1;
@@ -312,7 +318,6 @@ fd_banks_new( void * shmem,
       FD_LOG_WARNING(( "Failed to create top votes" ));
       return NULL;
     }
-    fd_top_votes_init( top_votes );
   }
 
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) );
@@ -876,8 +881,12 @@ fd_banks_advance_root( fd_banks_t * banks,
     head = next;
   }
 
-  new_root->data->parent_idx = null_idx;
-  banks->data->root_idx      = new_root->data->idx;
+  /* new_root is detached from old_root and becomes the only root.
+     Clear sibling_idx too so traversals cannot follow a stale link to
+     a bank index that was just pruned and later reused. */
+  new_root->data->parent_idx  = null_idx;
+  new_root->data->sibling_idx = null_idx;
+  banks->data->root_idx       = new_root->data->idx;
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
   fd_vote_stakes_advance_root( vote_stakes, new_root->data->vote_stakes_fork_id );
@@ -1185,15 +1194,19 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
     }
 
     if( FD_UNLIKELY( bank->epoch_leaders_dirty && bank->epoch_leaders_pool_idx!=null_idx ) ) {
+      fd_rwlock_write( &banks->locks->epoch_leaders_pool_lock );
       fd_bank_epoch_leaders_pool_idx_release( fd_bank_get_epoch_leaders_pool( bank ), bank->epoch_leaders_pool_idx );
+      fd_rwlock_unwrite( &banks->locks->epoch_leaders_pool_lock );
       bank->epoch_leaders_pool_idx = null_idx;
     }
 
     fd_bank_top_votes_t * top_votes_pool = fd_bank_get_top_votes_pool( bank );
     ulong top_votes_null_idx = fd_bank_top_votes_pool_idx_null( top_votes_pool );
     if( FD_UNLIKELY( bank->top_votes_dirty && bank->top_votes_pool_idx!=top_votes_null_idx ) ) {
+      fd_rwlock_write( &banks->locks->top_votes_pool_lock );
       fd_bank_top_votes_pool_idx_release( top_votes_pool, bank->top_votes_pool_idx );
       bank->top_votes_pool_idx = top_votes_null_idx;
+      fd_rwlock_unwrite( &banks->locks->top_votes_pool_lock );
     }
 
     fd_rwlock_write( &banks->locks->stake_delegations_delta_lock );

@@ -98,10 +98,20 @@ fd_top_votes_new( void * mem,
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_top_votes_t * top_votes = FD_SCRATCH_ALLOC_APPEND( l, fd_top_votes_align(), sizeof(fd_top_votes_t) );
-  void *           pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( vote_accounts_max ) );
-  void *           heap_mem  = FD_SCRATCH_ALLOC_APPEND( l, heap_align(), heap_footprint( vote_accounts_max ) );
-  void *           map_mem   = FD_SCRATCH_ALLOC_APPEND( l, map_align(),  map_footprint( map_chain_cnt ) );
+  void *           pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),         pool_footprint( vote_accounts_max ) );
+  void *           heap_mem  = FD_SCRATCH_ALLOC_APPEND( l, heap_align(),         heap_footprint( vote_accounts_max ) );
+  void *           map_mem   = FD_SCRATCH_ALLOC_APPEND( l, map_align(),          map_footprint( map_chain_cnt ) );
   FD_SCRATCH_ALLOC_FINI( l, fd_top_votes_align() );
+
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_top_votes_align() ) != (ulong)top_votes + fd_top_votes_footprint( vote_accounts_max ) ) ) {
+    FD_LOG_WARNING(( "fd_banks_new: bad layout" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( fd_top_votes_footprint( vote_accounts_max )<FD_TOP_VOTES_MAX_FOOTPRINT ) ) {
+    FD_LOG_WARNING(( "fd_top_votes_new: bad footprint" ));
+    return NULL;
+  }
 
   vote_ele_t * pool = pool_join( pool_new( pool_mem, vote_accounts_max ) );
   if( FD_UNLIKELY( !pool ) ) {
@@ -271,6 +281,9 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
   if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   return 1;
 }
+
+FD_STATIC_ASSERT( FD_TOP_VOTES_ITER_FOOTPRINT == sizeof(map_iter_t), top_votes_iter );
+FD_STATIC_ASSERT( FD_TOP_VOTES_ITER_ALIGN == alignof(map_iter_t), top_votes_iter );
 
 static void
 fd_top_votes_iter_skip_invalid( fd_top_votes_t const * top_votes,

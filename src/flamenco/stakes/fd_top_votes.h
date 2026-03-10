@@ -120,8 +120,8 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
 
 #define FD_TOP_VOTES_ITER_FOOTPRINT (16UL)
 #define FD_TOP_VOTES_ITER_ALIGN     (8UL)
-struct map_iter_t;
-typedef struct map_iter_t fd_top_votes_iter_t;
+struct map_iter;
+typedef struct map_iter fd_top_votes_iter_t;
 
 /* A caller can iterate through the entries in the top votes set.  The
    iterator is initialized by a call to fd_top_votes_iter_init.  The
