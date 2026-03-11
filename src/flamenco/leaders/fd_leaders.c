@@ -104,8 +104,10 @@ fd_epoch_leaders_new( void  *                  shmem,
   laddr  = fd_ulong_align_up( laddr, fd_ulong_max( sizeof(fd_pubkey_t), FD_WSAMPLE_ALIGN ) );
   /* These two alias, like a union.  We don't need pubkeys until we're
      done with wsample. */
-  void        * wsample_mem = (void        *)fd_type_pun( (void *)laddr );
-  fd_pubkey_t * pubkeys     = (fd_pubkey_t *)fd_type_pun( (void *)laddr );
+  void        * wsample_mem            = (void        *)fd_type_pun( (void *)laddr );
+  fd_pubkey_t * pubkeys                = (fd_pubkey_t *)fd_type_pun( (void *)laddr );
+  ulong       * in_leader_set = (ulong *)( pubkeys + (pub_cnt+1UL) );
+  ulong const   in_leader_set_word_cnt = ((pub_cnt+1UL)+63UL)>>6;
 
   FD_TEST( laddr+fd_wsample_footprint( pub_cnt, 0 )<=(ulong)wsample_mem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
 
@@ -135,15 +137,21 @@ fd_epoch_leaders_new( void  *                  shmem,
   /* copy indeterminate leader to the last spot */
   static const uchar fd_indeterminate_leader[32] = { FD_INDETERMINATE_LEADER };
   memcpy( pubkeys+pub_cnt, fd_indeterminate_leader, 32UL );
+  fd_memset( in_leader_set, 0, in_leader_set_word_cnt*sizeof(ulong) );
+  for( ulong i=0UL; i<sched_cnt; i++ ) {
+    ulong idx = sched[i];
+    in_leader_set[ idx>>6 ] |= (1UL<<(idx&63UL));
+  }
 
   /* Construct the final struct */
-  leaders->epoch     = epoch;
-  leaders->slot0     = slot0;
-  leaders->slot_cnt  = slot_cnt;
-  leaders->pub       = pubkeys;
-  leaders->pub_cnt   = pub_cnt;
-  leaders->sched     = sched;
-  leaders->sched_cnt = sched_cnt;
+  leaders->epoch         = epoch;
+  leaders->slot0         = slot0;
+  leaders->slot_cnt      = slot_cnt;
+  leaders->pub           = pubkeys;
+  leaders->pub_cnt       = pub_cnt;
+  leaders->in_leader_set = in_leader_set;
+  leaders->sched         = sched;
+  leaders->sched_cnt     = sched_cnt;
 
   return (void *)shmem;
 }

@@ -6,7 +6,7 @@
 
 #define MAX_SLOTS_PER_EPOCH   432000UL
 #define MAX_PUB_CNT           50000UL
-#define MAX_STAKED_LEADERS    40200UL
+#define MAX_STAKED_LEADERS    108000UL
 
 /* Follows message structure in fd_stake_ci_stake_msg_init.
    Frankendancer only */

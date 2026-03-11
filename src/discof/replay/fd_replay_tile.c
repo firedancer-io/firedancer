@@ -577,45 +577,33 @@ generate_epoch_info_msg( ulong                       slot,
                          fd_features_t const *       features,
                          fd_epoch_info_msg_t *       epoch_info_msg,
                          int                         current_epoch ) {
-  fd_vote_stake_weight_t * stake_weights = epoch_info_msg->weights;
 
+  fd_vote_stake_weight_t * stake_weights = epoch_info_msg->weights;
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
   epoch_info_msg->excluded_stake    = 0UL;
-  epoch_info_msg->vote_keyed_lsched = 1UL;
-
-  /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
-     This code can be removed once the feature is active. */
-  if( (1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET) ||
-      (0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET) ) {
-    epoch_info_msg->vote_keyed_lsched = 0UL;
-  }
+  epoch_info_msg->vote_keyed_lsched = 1UL; /* Active on all clusters */
 
   ulong idx = 0UL;
 
-  if( FD_FEATURE_ACTIVE( slot, features, validator_admission_ticket ) ) {
+  if( FD_FEATURE_ACTIVE( slot, features, validator_admission_ticket ) && !current_epoch ) {
 
     uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
     for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem, 1 );
          !fd_top_votes_iter_done( top_votes, iter );
          fd_top_votes_iter_next( top_votes, iter, 1 ) ) {
       fd_pubkey_t pubkey;
-      fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL );
-
-      ulong       stake;
       fd_pubkey_t node_account;
-      int         found;
-      if( current_epoch ) {
-        found = fd_vote_stakes_query_t_1( vote_stakes, vote_stakes_fork_idx, &pubkey, &stake, &node_account );
-      } else {
-        found = fd_vote_stakes_query_t_2( vote_stakes, vote_stakes_fork_idx, &pubkey, &stake, &node_account );
-      }
-      if( FD_UNLIKELY( !found ) ) continue;
+      ulong       stake;
+
+      fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, NULL, NULL );
+
+      if( !stake ) continue;
 
       stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].id_key.uc,   &node_account, sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].vote_key.uc, &pubkey,       sizeof(fd_pubkey_t) );
       idx++;
     }
   } else {
@@ -642,7 +630,7 @@ generate_epoch_info_msg( ulong                       slot,
     }
   }
 
-  epoch_info_msg->staked_cnt = idx;
+  epoch_info_msg->staked_cnt = FD_FEATURE_ACTIVE( slot, features, validator_admission_ticket ) && !current_epoch ? idx : fd_ulong_min( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT, idx );
   sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
 
   epoch_info_msg->epoch_schedule = *epoch_schedule;
@@ -735,7 +723,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
-  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 1 );
 
   ulong max_tick_height;
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( fd_bank_ticks_per_slot_get( parent_bank ), slot, &max_tick_height ) ) ) {
@@ -1008,7 +995,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
-  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, ctx->leader_bank, 1 );
 
   ulong max_tick_height;
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( fd_bank_ticks_per_slot_get( parent_bank ), slot, &max_tick_height ) ) ) {
@@ -1100,6 +1086,10 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   fd_bank_t bank[1];
   if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, ctx->consensus_root_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
+  }
+
+  if( FD_UNLIKELY( fd_bank_epoch_get( bank )>fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), fd_bank_parent_slot_get( bank ), NULL ) ) ) {
+    publish_epoch_info( ctx, stem, bank, 1 );
   }
 
   if( ctx->rpc_enabled ) {

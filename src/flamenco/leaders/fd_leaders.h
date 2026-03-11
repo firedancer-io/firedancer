@@ -47,7 +47,8 @@
         )                                                                                ),          \
       FD_EPOCH_LEADERS_ALIGN                                                             )  +        \
       FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*((pub_cnt)+1UL),                                         \
-                                       FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
+                                       FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL )  +        \
+      FD_ULONG_ALIGN_UP( ((((pub_cnt)+1UL)+63UL)>>6)*sizeof(ulong), 64UL ) )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
 
@@ -69,6 +70,7 @@ struct fd_epoch_leaders {
   /* pub is a lookup table for node public keys with length pub_cnt */
   fd_pubkey_t * pub;
   ulong         pub_cnt;
+  ulong *       in_leader_set;
 
   /* sched contains the leader schedule in the form of indexes into
      the pub array.  For sched_cnt, refer to below. */
@@ -161,6 +163,23 @@ fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
   if( FD_UNLIKELY( slot      < leaders->slot0    ) ) return NULL;
   if( FD_UNLIKELY( slot_delta>=leaders->slot_cnt ) ) return NULL;
   return (fd_pubkey_t const *)( leaders->pub + leaders->sched[ slot_delta/FD_EPOCH_SLOTS_PER_ROTATION ] );
+}
+
+/* fd_epoch_leaders_contains returns 1 if pubkey appears in the derived
+   schedule, else 0. */
+FD_FN_PURE static inline int
+fd_epoch_leaders_contains( fd_epoch_leaders_t const * leaders,
+                           fd_pubkey_t const *       pubkey ) {
+  if( FD_UNLIKELY( !leaders || !pubkey ) ) return 0;
+  ulong const entry_cnt = leaders->pub_cnt + 1UL; /* +indeterminate */
+  for( ulong i=0UL; i<entry_cnt; i++ ) {
+    if( FD_LIKELY( !memcmp( leaders->pub[i].uc, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) {
+      ulong word = i>>6;
+      ulong bit  = i&63UL;
+      return !!( leaders->in_leader_set[ word ] & (1UL<<bit) );
+    }
+  }
+  return 0;
 }
 
 FD_PROTOTYPES_END
