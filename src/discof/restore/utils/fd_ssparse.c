@@ -614,9 +614,18 @@ advance_account_garbage( fd_ssparse_t *                ssparse,
                          ulong                         data_sz,
                          fd_ssparse_advance_result_t * result ) {
   (void)data;
-  ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  ulong rem = ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed;
+  if( FD_UNLIKELY( !rem ) ) {
+    ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
+    return FD_SSPARSE_ADVANCE_AGAIN;
+  }
 
+  if( FD_UNLIKELY( !data_sz ) ) {
+    FD_LOG_WARNING(( "advance_account_garbage called with no input data! Snapshot file is likely malformed." ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
+
+  ulong consume = fd_ulong_min( data_sz, rem );
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
   result->bytes_consumed            = consume;
