@@ -843,6 +843,7 @@ metric introduced.
     <counter name="EagerRepairAggresses" summary="How many times we pass eager repair threshold" />
     <counter name="RerequestQueue" summary="How many times we re-request a shred from the inflights queue" />
     <counter name="MalformedPing" summary="How many times we received a malformed ping" />
+    <counter name="UnknownPeerPing" summary="How many times we received a ping from an unknown peer" />
     <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
       <summary>Time in seconds it took to complete a slot</summary>
     </histogram>

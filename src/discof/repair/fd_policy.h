@@ -21,12 +21,6 @@
 #include "fd_repair.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 
-/* FD_POLICY_PEER_MAX specifies a hard bound for how many peers Policy
-   needs to track.  4096 is derived from the BLS signature max, which
-   is the maximum number of staked validators Solana can support. */
-
-#define FD_POLICY_PEER_MAX (4096UL)
-
 /* fd_policy_dedup implements a dedup cache for already sent Repair
    requests.  It is backed by a map and linked list, in which the least
    recently used (oldest Repair request) in the map is evicted when the
@@ -55,7 +49,7 @@ typedef struct fd_policy_dedup_ele fd_policy_dedup_ele_t;
 
 FD_FN_CONST static inline ulong
 fd_policy_dedup_key( uint kind, ulong slot, uint shred_idx ) {
-  return (ulong)kind << 61 | slot << 30 | shred_idx << 15;
+  return (ulong)kind << 62 | slot << 30 | shred_idx << 15;
 }
 
 FD_FN_CONST static inline uint  fd_policy_dedup_key_kind     ( ulong key ) { return (uint)fd_ulong_extract( key, 62, 63 ); }
@@ -80,7 +74,7 @@ FD_FN_CONST static inline uint  fd_policy_dedup_key_shred_idx( ulong key ) { ret
 struct fd_policy_dedup {
   fd_policy_dedup_map_t * map;  /* map of dedup elements */
   fd_policy_dedup_ele_t * pool; /* memory pool of dedup elements */
-  fd_policy_dedup_lru_t * lru;  /* singly-linked list of dedup elements by insertion order.  TODO: add eviction feature using linkedlist */
+  fd_policy_dedup_lru_t * lru;  /* singly-linked list of dedup elements by insertion order */
 };
 
 /* fd_policy_peer_t describes a peer validator that serves repairs.
@@ -89,11 +83,16 @@ struct fd_policy_dedup {
 
 struct fd_policy_peer {
   fd_pubkey_t key;     /* map key, pubkey of the validator */
-  uint        hash;    /* reserved for map */
+  ulong       next;    /* reserved for map_chain, pool */
   uint        ip4;     /* ip4 addr of the peer */
   ushort      port;    /* repair server port of the peer */
   ulong       req_cnt; /* count of requests we've sent to this peer */
   ulong       res_cnt; /* count of responses we've received from this peer */
+
+  struct {
+    ulong next;
+    ulong prev;
+  } dlist;
 
   /* below are for measuring bandwidth usage */
   long  first_req_ts;
@@ -105,49 +104,39 @@ struct fd_policy_peer {
   long  total_lat; /* total RTT over all responses in ns */
   ulong stake;
 
-  ulong pool_idx;
+  /* count of pongs currently living in our sign queue that belong to this peer */
+  uint ping_cnt;
 };
 typedef struct fd_policy_peer fd_policy_peer_t;
 
-#define MAP_NAME              fd_policy_peer_map
-#define MAP_T                 fd_policy_peer_t
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          null_pubkey
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_MEMOIZE           0
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key,s)   ((MAP_HASH_T)( (key).ul[1] ))
-#include "../../util/tmpl/fd_map_dynamic.c"
+#define MAP_NAME                 fd_policy_peer_map
+#define MAP_ELE_T                fd_policy_peer_t
+#define MAP_KEY_T                fd_pubkey_t
+#define MAP_KEY_EQ(k0,k1)        (!memcmp( (k0)->uc, (k1)->uc, 32UL ))
+#define MAP_KEY_HASH(key,seed)   (seed^fd_ulong_load_8( (key)->uc ))
+#include "../../util/tmpl/fd_map_chain.c"
 
-struct fd_peer {
-  fd_pubkey_t identity;
-  ulong       next;
-  ulong       prev;
-};
-typedef struct fd_peer fd_peer_t;
-
-#define POOL_NAME fd_peer_pool
-#define POOL_T    fd_peer_t
+#define POOL_NAME fd_policy_peer_pool
+#define POOL_T    fd_policy_peer_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define DLIST_NAME  fd_peer_dlist
-#define DLIST_ELE_T fd_peer_t
-#define DLIST_NEXT  next
-#define DLIST_PREV  prev
+#define DLIST_NAME  fd_policy_peer_dlist
+#define DLIST_ELE_T fd_policy_peer_t
+#define DLIST_NEXT  dlist.next
+#define DLIST_PREV  dlist.prev
 #include "../../util/tmpl/fd_dlist.c"
 
 /* fd_policy_peers implements the data structures and bookkeeping for
    selecting repair peers via round-robin. */
 
 struct fd_policy_peers {
-  fd_peer_t        * pool;  /* memory pool of repair peer pubkeys, contains entries of both dlist */
-  fd_peer_dlist_t  * fast;  /* [0, FD_POLICY_LATENCY_THRESH]   ms latency group FD_POLICY_LATENCY_FAST */
-  fd_peer_dlist_t  * slow;  /* (FD_POLICY_LATENCY_THRESH, inf) ms latency group FD_POLICY_LATENCY_SLOW */
-  fd_policy_peer_t * map;   /* map dynamic of pubkey->peer data */
+  fd_policy_peer_t * pool;        /* memory pool of peers */
+  fd_policy_peer_dlist_t * fast;  /* [0, FD_POLICY_LATENCY_THRESH]   ms latency group FD_POLICY_LATENCY_FAST */
+  fd_policy_peer_dlist_t * slow;  /* (FD_POLICY_LATENCY_THRESH, inf) ms latency group FD_POLICY_LATENCY_SLOW */
+  fd_policy_peer_map_t * map;     /* map keyed by pubkey to peer data */
   struct {
-     uint stage;                  /* < sizeof(bucket_stages)        */
-     fd_peer_dlist_iter_t iter;   /* round-robin index of next peer */
+     uint stage;                         /* < sizeof(bucket_stages)        */
+     fd_policy_peer_dlist_iter_t iter;   /* round-robin index of next peer */
   } select;
 };
 typedef struct fd_policy_peers fd_policy_peers_t;
@@ -157,7 +146,7 @@ typedef struct fd_policy_peers fd_policy_peers_t;
 
 /* Policy parameters start */
 #define FD_POLICY_LATENCY_THRESH 80e6L /* less than this is a BEST peer, otherwise a WORST peer */
-#define FD_POLICY_DEDUP_TIMEOUT  60e6L /* how long wait to request the same shred */
+#define FD_POLICY_DEDUP_TIMEOUT  80e6L /* how long wait to request the same shred */
 
 /* Round robins through ALL the worst peers once, then round robins
    through ALL the best peers once, then round robins through ALL the
@@ -195,12 +184,12 @@ typedef struct fd_policy fd_policy_t;
 
 FD_FN_CONST static inline ulong
 fd_policy_align( void ) {
-  return alignof(fd_policy_t);
+  return 128UL;
 }
 
 FD_FN_CONST static inline ulong
 fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
-  int lg_peer_max = fd_ulong_find_msb( fd_ulong_pow2_up( peer_max ) );
+  ulong peer_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -211,14 +200,14 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_policy_t),         sizeof(fd_policy_t)                           ),
-      fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max   ) ),
-      fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max   ) ),
-      fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()               ),
-      fd_policy_peer_map_align(),   fd_policy_peer_map_footprint  ( lg_peer_max ) ),
-      fd_peer_pool_align(),         fd_peer_pool_footprint        ( peer_max    ) ),
-      fd_peer_dlist_align(),        fd_peer_dlist_footprint()                     ),
-      fd_peer_dlist_align(),        fd_peer_dlist_footprint()                     ),
+      fd_policy_align(),            sizeof(fd_policy_t)                             ),
+      fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max )     ),
+      fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max )     ),
+      fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()                 ),
+      fd_policy_peer_map_align(),   fd_policy_peer_map_footprint ( peer_chain_cnt ) ),
+      fd_policy_peer_pool_align(),  fd_policy_peer_pool_footprint( peer_max )       ),
+      fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                ),
+      fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                ),
     fd_policy_align() );
 }
 
@@ -276,7 +265,7 @@ fd_policy_peer_select( fd_policy_t * policy );
 void
 fd_policy_peer_request_update( fd_policy_t * policy, fd_pubkey_t const * to );
 
-static inline fd_peer_dlist_t *
+static inline fd_policy_peer_dlist_t *
 fd_policy_peer_latency_bucket( fd_policy_t * policy, long total_rtt /* ns */, ulong res_cnt ) {
    if( res_cnt == 0 || (long)(total_rtt / (long)res_cnt) > FD_POLICY_LATENCY_THRESH ) return policy->peers.slow;
    return policy->peers.fast;
