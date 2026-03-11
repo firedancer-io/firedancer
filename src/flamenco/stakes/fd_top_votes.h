@@ -141,7 +141,8 @@ typedef struct map_iter fd_top_votes_iter_t;
 
 fd_top_votes_iter_t *
 fd_top_votes_iter_init( fd_top_votes_t const * top_votes,
-                        uchar                  iter_mem[ static FD_TOP_VOTES_ITER_FOOTPRINT ] );
+                        uchar                  iter_mem[ static FD_TOP_VOTES_ITER_FOOTPRINT ],
+                        uchar                  include_invalid );
 
 int
 fd_top_votes_iter_done( fd_top_votes_t const * top_votes,
@@ -149,7 +150,8 @@ fd_top_votes_iter_done( fd_top_votes_t const * top_votes,
 
 void
 fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
-                        fd_top_votes_iter_t *  iter );
+                        fd_top_votes_iter_t *  iter,
+                        uchar                  include_invalid );
 
 void
 fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,

@@ -101,9 +101,9 @@ main( int argc, char * argv[] ) {
   ulong iter_stake_sum = 0UL;
   ulong iter_cnt       = 0UL;
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) top_votes_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, top_votes_iter_mem );
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, top_votes_iter_mem, 0 );
        !fd_top_votes_iter_done( top_votes, iter );
-       fd_top_votes_iter_next( top_votes, iter ) ) {
+       fd_top_votes_iter_next( top_votes, iter, 0 ) ) {
     fd_pubkey_t iter_pubkey;
     ulong       iter_stake;
     fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, &iter_stake, NULL, NULL );
@@ -169,9 +169,9 @@ main( int argc, char * argv[] ) {
   FD_TEST( fd_top_votes_query( top_votes, &vote_C, NULL, NULL, NULL, NULL ) );
   FD_TEST( fd_top_votes_query( top_votes, &vote_D, NULL, NULL, NULL, NULL ) );
   ulong valid_iter_cnt = 0UL;
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, top_votes_iter_mem );
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, top_votes_iter_mem, 0 );
        !fd_top_votes_iter_done( top_votes, iter );
-       fd_top_votes_iter_next( top_votes, iter ) ) {
+       fd_top_votes_iter_next( top_votes, iter, 0 ) ) {
     fd_pubkey_t iter_pubkey;
     fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, NULL, NULL, NULL );
     FD_TEST( memcmp( &iter_pubkey, &vote_H, sizeof(fd_pubkey_t) ) );

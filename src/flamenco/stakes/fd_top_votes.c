@@ -298,9 +298,10 @@ fd_top_votes_iter_skip_invalid( fd_top_votes_t const * top_votes,
 
 fd_top_votes_iter_t *
 fd_top_votes_iter_init( fd_top_votes_t const * top_votes,
-                        uchar                  iter_mem[ static FD_TOP_VOTES_ITER_FOOTPRINT ] ) {
+                        uchar                  iter_mem[ static FD_TOP_VOTES_ITER_FOOTPRINT ],
+                        uchar                  include_invalid ) {
   map_iter_t iter = map_iter_init( get_map( top_votes ), get_pool( top_votes ) );
-  fd_top_votes_iter_skip_invalid( top_votes, &iter );
+  if( !include_invalid ) fd_top_votes_iter_skip_invalid( top_votes, &iter );
   memcpy( iter_mem, &iter, sizeof(map_iter_t) );
   return (fd_top_votes_iter_t *)iter_mem;
 }
@@ -314,10 +315,11 @@ fd_top_votes_iter_done( fd_top_votes_t const * top_votes,
 
 void
 fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
-                        fd_top_votes_iter_t *  iter ) {
+                        fd_top_votes_iter_t *  iter,
+                        uchar                  include_invalid ) {
   map_iter_t * map_iter = (map_iter_t *)iter;
   *map_iter = map_iter_next( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
-  fd_top_votes_iter_skip_invalid( top_votes, map_iter );
+  if( !include_invalid ) fd_top_votes_iter_skip_invalid( top_votes, map_iter );
 }
 
 void

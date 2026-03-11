@@ -196,9 +196,22 @@ test_next_slot( void ) {
   FD_TEST( lsched );
   FD_TEST( lsched->slot0 == 0UL );
   FD_TEST( lsched->slot_cnt == SLOTS_PER_EPOCH );
+  fd_epoch_leaders_t const * lsched1 = fd_multi_epoch_leaders_get_lsched_for_epoch( mleaders, 1UL );
+  FD_TEST( lsched1 );
+  fd_pubkey_t test_key;
+
+  /* Membership flag tracks whether a pubkey appears in this epoch's
+     computed leader set. */
+  for( char leader='A'; leader<='C'; leader++ ) {
+    fd_memset( test_key.uc, leader, sizeof(fd_pubkey_t) );
+    FD_TEST( fd_epoch_leaders_contains( lsched, &test_key ) );
+    FD_TEST( !fd_epoch_leaders_contains( lsched1, &test_key ) );
+  }
+  fd_memset( test_key.uc, 'D', sizeof(fd_pubkey_t) );
+  FD_TEST( !fd_epoch_leaders_contains( lsched, &test_key ) );
+  FD_TEST( fd_epoch_leaders_contains( lsched1, &test_key ) );
 
   /* Test finding next slot for each leader */
-  fd_pubkey_t test_key;
   for( char leader='A'; leader<='C'; leader++ ) {
     fd_memset( test_key.uc, leader, sizeof(fd_pubkey_t) );
     ulong next_slot = fd_multi_epoch_leaders_get_next_slot( mleaders, 0UL, &test_key );
@@ -210,15 +223,16 @@ test_next_slot( void ) {
   /* test crossing epoch boundary */
   {
     fd_memset( test_key.uc, 'D', sizeof(fd_pubkey_t) );
-    fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_epoch( mleaders, 1UL );
     ulong next_slot = fd_multi_epoch_leaders_get_next_slot( mleaders, 0UL, &test_key );
-    FD_TEST( next_slot >= lsched->slot0 );
-    FD_TEST( next_slot < lsched->slot0 + lsched->slot_cnt );
+    FD_TEST( next_slot >= lsched1->slot0 );
+    FD_TEST( next_slot < lsched1->slot0 + lsched1->slot_cnt );
     FD_TEST( fd_multi_epoch_leaders_get_leader_for_slot( mleaders, next_slot )->uc[0] == 'D' );
   }
 
   /* Test with non-existent leader */
   memset( test_key.uc, 'Z', sizeof(fd_pubkey_t) );
+  FD_TEST( !fd_epoch_leaders_contains( lsched,  &test_key ) );
+  FD_TEST( !fd_epoch_leaders_contains( lsched1, &test_key ) );
   ulong next_slot = fd_multi_epoch_leaders_get_next_slot( mleaders, 0UL, &test_key );
   FD_TEST( next_slot == ULONG_MAX );
 

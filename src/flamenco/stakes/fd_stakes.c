@@ -9,9 +9,9 @@
 #include "../accdb/fd_accdb_sync.h"
 
 ulong
-fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
-                          ushort                   fork_idx,
-                          fd_vote_stake_weight_t * weights ) {
+fd_stake_weights_by_node_no_vat( fd_vote_stakes_t const * vote_stakes,
+                                 ushort                   fork_idx,
+                                 fd_vote_stake_weight_t * weights ) {
   ulong weights_cnt = 0;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
@@ -23,8 +23,8 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2 );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
-    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey,           sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].id_key.uc,   &node_account_t_2, sizeof(fd_pubkey_t) );
     weights[ weights_cnt ].stake = stake_t_2;
     weights_cnt++;
   }
@@ -32,6 +32,28 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
 
   return weights_cnt;
 }
+
+ulong
+fd_stake_weights_by_node_vat( fd_top_votes_t const *   top_votes,
+                              fd_vote_stake_weight_t * weights ) {
+  ulong weights_cnt = 0;
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem, 1 );
+       !fd_top_votes_iter_done( top_votes, iter );
+       fd_top_votes_iter_next( top_votes, iter, 1 ) ) {
+    fd_pubkey_t pubkey;
+    fd_pubkey_t node_account;
+    ulong       stake;
+    fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, NULL, NULL );
+
+    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey,       sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].id_key.uc,   &node_account, sizeof(fd_pubkey_t) );
+    weights[ weights_cnt ].stake = stake;
+    weights_cnt++;
+  }
+  return weights_cnt;
+}
+
 
 static void
 get_vote_credits_commission( uchar const *       account_data,

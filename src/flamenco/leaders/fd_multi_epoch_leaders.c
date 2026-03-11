@@ -82,6 +82,7 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
 
     /* skip older epochs */
     if( FD_UNLIKELY( !mleaders->init_done[epoch_i] ) ) continue;
+    if( FD_UNLIKELY( !fd_epoch_leaders_contains( epoch_lsched, leader_q ) ) ) continue;
 
     ulong start_slot_it = fd_ulong_max( start_slot, slot0 );
     for( ulong slot=start_slot_it; slot<slot_end; slot++ ) {
