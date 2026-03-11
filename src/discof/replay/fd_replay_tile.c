@@ -1708,7 +1708,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
         ctx->hard_forks_cnts[ i ] = manifest->hard_forks_cnts[ i ];
       }
       ctx->has_expected_genesis_timestamp = 1;
-      ctx->expected_genesis_timestamp     = manifest->creation_time_millis;
+      ctx->expected_genesis_timestamp     = manifest->creation_time_seconds;
       break;
     }
     default: {
@@ -2684,7 +2684,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       fd_genesis_meta_t const * meta = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->has_genesis_hash = 1;
       ctx->has_genesis_timestamp = 1;
-      ctx->genesis_timestamp = meta->creation_time_millis;
+      ctx->genesis_timestamp = meta->creation_time_seconds;
       *ctx->genesis_hash = meta->genesis_hash;
       if( FD_LIKELY( meta->bootstrap ) ) {
         boot_genesis( ctx, stem, meta );
