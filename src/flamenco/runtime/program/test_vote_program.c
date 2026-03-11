@@ -167,7 +167,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 0UL, env->bank->data->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->data->idx } };
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
   fd_progcache_txn_attach_child( env->progcache_admin, root, &env->xid );
 
@@ -177,8 +177,10 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   init_clock_sysvar( env );
   init_blockhash_queue( env );
 
-  fd_bank_slot_set( env->bank, 0UL );
-  fd_bank_epoch_set( env->bank, 0UL );
+  fd_bank_slot_set( env->bank, 9UL );
+  fd_bank_epoch_set( env->bank, 4UL );
+
+  fd_bank_top_votes_modify( env->bank );
 
   if( enable_loader_v4 ) {
     fd_features_t features = {0};

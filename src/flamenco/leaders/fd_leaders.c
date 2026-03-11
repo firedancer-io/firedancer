@@ -36,7 +36,6 @@ fd_epoch_leaders_new( void  *                  shmem,
                       fd_vote_stake_weight_t * stakes,
                       ulong                    excluded_stake,
                       ulong                    vote_keyed_lsched ) {
-  (void)vote_keyed_lsched;
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -45,6 +44,11 @@ fd_epoch_leaders_new( void  *                  shmem,
   ulong laddr = (ulong)shmem;
   if( FD_UNLIKELY( !fd_ulong_is_aligned( laddr, FD_EPOCH_LEADERS_ALIGN ) ) ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !pub_cnt ) ) {
+    FD_LOG_WARNING(( "pub_cnt is 0" ));
     return NULL;
   }
 
