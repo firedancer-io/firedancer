@@ -235,9 +235,9 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
   FD_TEST( top_votes );
 
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem, 0 );
        !fd_top_votes_iter_done( top_votes, iter );
-       fd_top_votes_iter_next( top_votes, iter ) ) {
+       fd_top_votes_iter_next( top_votes, iter, 0 ) ) {
     fd_pubkey_t pubkey;
     ulong       stake_t_2;
     ulong       last_vote_slot;

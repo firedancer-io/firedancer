@@ -330,29 +330,29 @@ typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
    TODO: fork_idx can probably get absorbed into the iterator. */
 
 fd_vote_stakes_iter_t *
-fd_vote_stakes_fork_iter_init( fd_vote_stakes_t * vote_stakes,
-                               ushort             fork_idx,
-                               uchar              iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] );
+fd_vote_stakes_fork_iter_init( fd_vote_stakes_t const * vote_stakes,
+                               ushort                   fork_idx,
+                               uchar                    iter_mem[ static FD_VOTE_STAKES_ITER_FOOTPRINT ] );
 
 int
-fd_vote_stakes_fork_iter_done( fd_vote_stakes_t *      vote_stakes,
-                               ushort                  fork_idx,
-                               fd_vote_stakes_iter_t * iter );
+fd_vote_stakes_fork_iter_done( fd_vote_stakes_t const * vote_stakes,
+                               ushort                   fork_idx,
+                               fd_vote_stakes_iter_t *  iter );
 
 void
-fd_vote_stakes_fork_iter_next( fd_vote_stakes_t *      vote_stakes,
-                               ushort                  fork_idx,
-                               fd_vote_stakes_iter_t * iter );
+fd_vote_stakes_fork_iter_next( fd_vote_stakes_t const * vote_stakes,
+                               ushort                   fork_idx,
+                               fd_vote_stakes_iter_t *  iter );
 
 void
-fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
-                              ushort                  fork_idx,
-                              fd_vote_stakes_iter_t * iter,
-                              fd_pubkey_t *           pubkey_out,
-                              ulong *                 stake_t_1_out_opt,
-                              ulong *                 stake_t_2_out_opt,
-                              fd_pubkey_t *           node_account_t_1_out_opt,
-                              fd_pubkey_t *           node_account_t_2_out_opt );
+fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t const * vote_stakes,
+                              ushort                   fork_idx,
+                              fd_vote_stakes_iter_t *  iter,
+                              fd_pubkey_t *            pubkey_out,
+                              ulong *                  stake_t_1_out_opt,
+                              ulong *                  stake_t_2_out_opt,
+                              fd_pubkey_t *            node_account_t_1_out_opt,
+                              fd_pubkey_t *            node_account_t_2_out_opt );
 
 FD_PROTOTYPES_END
 

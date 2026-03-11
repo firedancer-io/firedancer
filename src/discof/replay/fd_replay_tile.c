@@ -597,9 +597,9 @@ generate_epoch_info_msg( ulong                       slot,
   if( FD_FEATURE_ACTIVE( slot, features, validator_admission_ticket ) ) {
 
     uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
-    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
+    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem, 1 );
          !fd_top_votes_iter_done( top_votes, iter );
-         fd_top_votes_iter_next( top_votes, iter ) ) {
+         fd_top_votes_iter_next( top_votes, iter, 1 ) ) {
       fd_pubkey_t pubkey;
       fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL );
 

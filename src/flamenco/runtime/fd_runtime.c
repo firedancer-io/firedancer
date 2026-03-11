@@ -123,10 +123,19 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes_locking_modify( bank );
-  fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
-  fd_bank_vote_stakes_end_locking_modify( bank );
+  fd_vote_stake_weight_t * epoch_weights;
+  ulong                    stake_weight_cnt;
+
+  if( FD_FEATURE_ACTIVE_BANK( bank , validator_admission_ticket ) ) {
+    fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
+    epoch_weights                    = runtime_stack->stakes.stake_weights;
+    stake_weight_cnt                 = fd_stake_weights_by_node_vat( top_votes, epoch_weights );
+  } else {
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+    epoch_weights                  = runtime_stack->stakes.stake_weights;
+    stake_weight_cnt               = fd_stake_weights_by_node_no_vat( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
+    fd_bank_vote_stakes_end_locking_modify( bank );
+  }
 
   /* Derive leader schedule */
 
