@@ -47,6 +47,11 @@ fd_epoch_leaders_new( void  *                  shmem,
     return NULL;
   }
 
+  if( FD_UNLIKELY( !pub_cnt ) ) {
+    FD_LOG_WARNING(( "pub_cnt is 0" ));
+    return NULL;
+  }
+
   /* This code can be be removed when enable_vote_address_leader_schedule is
      enabled and cleared.
      And, as a consequence, stakes can be made const. */

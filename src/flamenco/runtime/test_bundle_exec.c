@@ -155,7 +155,7 @@ init_rent_sysvar( test_env_t * env,
 
     fd_funk_txn_xid_t root[1];
     fd_funk_txn_xid_set_root( root );
-    env->xid = (fd_funk_txn_xid_t){ .ul = { 0UL, env->bank->data->idx } };
+    env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->data->idx } };
     fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
 
     init_rent_sysvar( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
@@ -164,13 +164,15 @@ init_rent_sysvar( test_env_t * env,
     init_clock_sysvar( env );
     init_blockhash_queue( env );
 
-    fd_bank_slot_set( env->bank, 0UL );
-    fd_bank_epoch_set( env->bank, 0UL );
+    fd_bank_slot_set( env->bank, 9UL );
+    fd_bank_epoch_set( env->bank, 4UL );
 
     fd_features_t features = {0};
     fd_features_disable_all( &features );
     features.deprecate_rent_exemption_threshold = TEST_FEATURE_ACTIVATION_SLOT;
     fd_bank_features_set( env->bank, features );
+
+    fd_bank_top_votes_modify( env->bank );
 
     fd_accdb_advance_root( env->accdb_admin, &env->xid );
 
@@ -636,8 +638,6 @@ test_execute_bundles( fd_wksp_t * wksp ) {
 
 /* Test 5: Account reclaim divergence between bundle and replay mode. */
 
-  FD_LOG_NOTICE(( "Test 5: account reclaim divergence" ));
-
   fd_pubkey_t some_program = { .ul[0] = 0xDEADBEEFUL };
   fd_pubkey_t victim       = { .ul[0] = 0xCAFEUL };
   uchar victim_data[64];
@@ -698,7 +698,6 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( env->txn_out[2].accounts.account[1].meta->dlen == 0UL );
   fd_pubkey_t zero_owner = {0};
   FD_TEST( !memcmp( env->txn_out[2].accounts.account[1].meta->owner, &zero_owner, 32UL ) );
-  FD_LOG_NOTICE(( "Replay mode (post-commit): account reclaimed (owner zeroed, dlen=0) - CONFIRMED" ));
 
   env->txn_out[2].err.is_committable = 0;
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
