@@ -6,6 +6,7 @@
 #include "../fd_executor_err.h"
 #include "../../capture/fd_solcap_writer.h"
 #include "../../../ballet/shred/fd_shred.h"
+#include "../../gossip/fd_gossip_message.h"
 
 #include "generated/block.pb.h"
 #include "generated/invoke.pb.h"
@@ -252,6 +253,18 @@ sol_compat_shred_parse_v1( uchar *       out,
     output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
     pb_release( &fd_exec_test_shred_binary_t_msg, input );
     return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
+}
+
+int
+sol_compat_gossip_message_deserialize_v1( uchar *       out,
+                                          ulong *       out_sz,
+                                          uchar const * in,
+                                          ulong         in_sz ) {
+  if( FD_UNLIKELY( *out_sz < 1UL ) ) return 0;
+  fd_gossip_message_t msg[1];
+  out[0] = (uchar)fd_gossip_message_deserialize( msg, in, in_sz );
+  *out_sz = 1UL;
+  return 1;
 }
 
 /*
