@@ -12,6 +12,7 @@
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -196,9 +197,18 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
 /* verification of epoch stakes from manifest
    https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
 static int
-verify_epoch_stakes( fd_snapin_tile_t * ctx, fd_snapshot_manifest_t const * manifest ) {
-  ulong min_required_epoch = manifest->epoch;
-  ulong max_required_epoch = fd_ssmanifest_parser_leader_schedule_epoch( ctx->manifest_parser );
+verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+
+  ulong min_required_epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong max_required_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
 
   /* ensure all required epochs are present in epoch stakes */
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
@@ -239,13 +249,13 @@ verify_bank_hash( fd_snapin_tile_t const *       ctx,
                   fd_snapshot_manifest_t const * manifest ) {
   if( FD_UNLIKELY( manifest->blockhashes_len==0UL ) ) {
     FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu has no blockhashes",
-                     ctx->full?"full":"incr", manifest->epoch, manifest->slot ));
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot ));
     return -1;
   }
 
   if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
     FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu is missing accounts lthash",
-                     ctx->full?"full":"incr", manifest->epoch, manifest->slot ));
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot ));
     return -1;
   }
 
@@ -274,7 +284,7 @@ verify_bank_hash( fd_snapin_tile_t const *       ctx,
     FD_BASE58_ENCODE_32_BYTES( computed_bank_hash->hash, computed_bank_hash_enc );
     FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash, manifest_bank_hash_enc );
     FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu bank hash verification failed: computed %s does not match manifest %s",
-                     ctx->full?"full":"incr", manifest->epoch, manifest->slot,
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot,
                      computed_bank_hash_enc, manifest_bank_hash_enc ));
     return -1;
   }
@@ -526,6 +536,14 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   }
 
   ctx->bank_slot = manifest->slot;
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+  ctx->epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
 
   if( FD_UNLIKELY( verify_bank_hash( ctx, manifest ) ) ) {
     /* https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/bank.rs#L4682 */
@@ -539,7 +557,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     return;
   }
 
-  if( FD_UNLIKELY( verify_epoch_stakes( ctx, manifest ) ) ) {
+  if( FD_UNLIKELY( verify_epoch_stakes( manifest ) ) ) {
     FD_LOG_WARNING(( "epoch stakes verification failed" ));
     transition_malformed( ctx, ctx->stem );
     return;
@@ -1075,6 +1093,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->advertised_slot = 0UL;
   ctx->bank_slot       = 0UL;
+  ctx->epoch           = 0UL;
 
   ctx->full_genesis_creation_time_millis = 0UL;
 

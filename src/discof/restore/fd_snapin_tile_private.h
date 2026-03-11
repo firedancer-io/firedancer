@@ -80,6 +80,7 @@ struct fd_snapin_tile {
 
   ulong advertised_slot;
   ulong bank_slot;
+  ulong epoch;
 
   ulong full_genesis_creation_time_millis;
 

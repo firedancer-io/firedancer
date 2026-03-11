@@ -1631,22 +1631,23 @@ state_process( fd_ssmanifest_parser_t * parser,
       .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
       .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
     };
+
+    /* The epoch field in the snapshot manifest is now deprecated.  We
+       derive the epoch from the slot and epoch schedule instead.
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/runtime/src/serde_snapshot.rs#L174 */
+    parser->epoch                    = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
     parser->leader_schedule_epoch    = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
     ulong const epoch_stakes_ele_cnt = sizeof(parser->manifest->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t);
 
-    if( FD_UNLIKELY( parser->leader_schedule_epoch-parser->manifest->epoch>=epoch_stakes_ele_cnt ) ) {
+    if( FD_UNLIKELY( parser->leader_schedule_epoch-parser->epoch>=epoch_stakes_ele_cnt ) ) {
       /* We only support storing the epoch stakes for the current epoch
          and the leader schedule epoch, which is usually 1 epoch ahead
          of the current epoch.  If this ever changes, we will hit this
          error and need to support more epoch stakes entries. */
-      FD_LOG_WARNING(( "fd_ssmanifest_parser only supports up to %lu epoch_stakes entries, but leader schedule epoch is %lu epochs after manifest epoch",
-                       epoch_stakes_ele_cnt, parser->leader_schedule_epoch-parser->manifest->epoch ));
+      FD_LOG_WARNING(( "fd_ssmanifest_parser only supports up to %lu epoch_stakes entries, but leader schedule epoch is %lu epochs after bank epoch",
+                       epoch_stakes_ele_cnt, parser->leader_schedule_epoch-parser->epoch ));
       return -1;
     }
-  }
-
-  if( FD_UNLIKELY( parser->state==STATE_EPOCH ) ) {
-    parser->manifest->epoch = parser->epoch;
   }
 
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_EPOCH ) ) {
@@ -2004,7 +2005,3 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
   return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
 }
 
-ulong
-fd_ssmanifest_parser_leader_schedule_epoch( fd_ssmanifest_parser_t * parser ) {
-  return parser->leader_schedule_epoch;
-}

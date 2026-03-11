@@ -301,13 +301,6 @@ struct fd_snapshot_manifest {
   /* The slot number for this snapshot */
   ulong slot;
 
-  /* The epoch for this slot.  Epochs are a time period measured by a
-     fixed number of slots (432,000 slots).  At the epoch boundary,
-     where one epoch ends and another begins, validators
-     activate/deactivate stake, distribute rewards and calculate the
-     next leader schedule rotation. */
-  ulong epoch;
-
   /* The number of blocks that have been built since genesis.  This is
      kind of like the slot number, in that it increments by 1 for every
      landed block, but it does not increment for skipped slots, so the
