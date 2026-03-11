@@ -543,7 +543,7 @@ main( int argc, char ** argv ) {
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( 16UL, 2UL, 2048UL, 2048UL ), 1UL );
   FD_TEST( mem );
 # if !FD_HAS_MSAN
-  ulong fp = fd_banks_footprint( 16UL, 2UL, 2048UL, 2048UL );
+  ulong fp = fd_banks_footprint( 16UL, 4UL, 2048UL, 2048UL );
   for( ulong i=0UL; i<fp; i+=8 ) FD_STORE( ulong, mem+i, fd_ulong_hash( i ) );
 # endif
 
