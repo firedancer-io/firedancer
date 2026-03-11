@@ -261,6 +261,7 @@ use by Firedancer.
 | Arguments | Description |
 |----------|-------------|
 | `--config` | Path to a configuration TOML file to print memory usage information with |
+| `--sort` | List all memory allocations sorted by size in decreasing order, including a percentage of total and exact byte count |
 
 ```sh [bash]
 $ fdctl mem --config config.toml
