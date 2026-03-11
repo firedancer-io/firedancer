@@ -108,6 +108,12 @@ sol_compat_shred_parse_v1( uchar *       out,
                            uchar const * in,
                            ulong         in_sz );
 
+int
+sol_compat_gossip_message_deserialize_v1( uchar *       out,
+                                          ulong *       out_sz,
+                                          uchar const * in,
+                                          ulong         in_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_sol_compat_h */
