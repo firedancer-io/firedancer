@@ -365,7 +365,6 @@ struct fd_bank_data {
 
   ulong stake_delegations_delta_offset;
 
-  int   epoch_leaders_dirty;
   ulong epoch_leaders_idx; /* always 0 or 1 based on % epoch */
   ulong epoch_leaders_offset;
 

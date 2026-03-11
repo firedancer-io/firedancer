@@ -321,6 +321,13 @@ fd_banks_new( void * shmem,
   }
   fd_banks_set_stake_delegations_delta( banks_data, stake_delegations_delta );
 
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( FD_UNLIKELY( !fd_epoch_leaders_join( fd_epoch_leaders_new( banks_data->epoch_leaders_mem[ i ], 0UL, 0UL, 0UL, 0UL, NULL, 0UL, 0UL ) ) ) ) {
+      FD_LOG_WARNING(( "Failed to create epoch leaders" ));
+      return NULL;
+    };
+  }
+
   /* For each bank, we need to set the offset of the pools and locks
      for each of the non-inlined fields. */
 
@@ -1029,8 +1036,6 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
 
     curr_bank->sibling_idx = child_bank_idx;
   }
-
-  child_bank->epoch_leaders_dirty = 0;
   child_bank->top_votes_dirty     = 0;
 
   child_bank->first_fec_set_received_nanos      = now;

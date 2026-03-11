@@ -128,33 +128,20 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
   fd_bank_vote_stakes_end_locking_modify( bank );
 
-  /* Derive leader schedule */
-
-  ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, slot_cnt );
-  if( FD_LIKELY( epoch_leaders_footprint ) ) {
-    if( FD_UNLIKELY( stake_weight_cnt>MAX_PUB_CNT ) ) {
-      FD_LOG_ERR(( "Stake weight count exceeded max" ));
-    }
-    if( FD_UNLIKELY( slot_cnt>MAX_SLOTS_PER_EPOCH ) ) {
-      FD_LOG_ERR(( "Slot count exceeeded max" ));
-    }
-
-    ulong vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank );
-    void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
-    if( ((fd_epoch_leaders_t *)fd_type_pun( epoch_leaders_mem ))->epoch != epoch ) {
-      fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
-          epoch_leaders_mem,
-          epoch,
-          slot0,
-          slot_cnt,
-          stake_weight_cnt,
-          epoch_weights,
-          0UL,
-          vote_keyed_lsched ) );
-      if( FD_UNLIKELY( !leaders ) ) {
-        FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
-      }
-    }
+  /* TODO: Can optimize by avoiding recomputing if another fork has
+     already computed them for this epoch. */
+  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
+      epoch_leaders_mem,
+      epoch,
+      slot0,
+      slot_cnt,
+      stake_weight_cnt,
+      epoch_weights,
+      0UL,
+      (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank ) ) );
+  if( FD_UNLIKELY( !leaders ) ) {
+    FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
 }
 
