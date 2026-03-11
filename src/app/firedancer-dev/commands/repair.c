@@ -439,7 +439,7 @@ print_catchup_slots( fd_wksp_t * repair_tile_wksp, ctx_t * repair_ctx, int verbo
 }
 
 static fd_location_info_t * location_table;
-static fd_pubkey_t peers_copy[ FD_ACTIVE_KEY_MAX ];
+static fd_pubkey_t peers_copy[ FD_REPAIR_PEER_MAX];
 
 static ulong
 sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_dlist, fd_peer_dlist_t * peers_wlist, fd_peer_t * peers_arr ) {
@@ -449,7 +449,7 @@ sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_
     fd_peer_t * peer = fd_peer_dlist_iter_ele( iter, peers_dlist, peers_arr );
     if( FD_UNLIKELY( !peer ) ) break;
     peers_copy[ i++ ] = peer->identity;
-    if( FD_UNLIKELY( i >= FD_ACTIVE_KEY_MAX ) ) break;
+    if( FD_UNLIKELY( i >= FD_REPAIR_PEER_MAX ) ) break;
     iter = fd_peer_dlist_iter_fwd_next( iter, peers_dlist, peers_arr );
   }
   ulong fast_cnt = i;
@@ -458,7 +458,7 @@ sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_
     fd_peer_t * peer = fd_peer_dlist_iter_ele( iter, peers_wlist, peers_arr );
     if( FD_UNLIKELY( !peer ) ) break;
     peers_copy[ i++ ] = peer->identity;
-    if( FD_UNLIKELY( i >= FD_ACTIVE_KEY_MAX ) ) break;
+    if( FD_UNLIKELY( i >= FD_REPAIR_PEER_MAX ) ) break;
     iter = fd_peer_dlist_iter_fwd_next( iter, peers_wlist, peers_arr );
   }
   FD_LOG_NOTICE(( "Fast peers cnt: %lu. Slow peers cnt: %lu.", fast_cnt, i - fast_cnt ));

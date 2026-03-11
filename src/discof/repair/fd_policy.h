@@ -21,12 +21,6 @@
 #include "fd_repair.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 
-/* FD_POLICY_PEER_MAX specifies a hard bound for how many peers Policy
-   needs to track.  4096 is derived from the BLS signature max, which
-   is the maximum number of staked validators Solana can support. */
-
-#define FD_POLICY_PEER_MAX (4096UL)
-
 /* fd_policy_dedup implements a dedup cache for already sent Repair
    requests.  It is backed by a map and linked list, in which the least
    recently used (oldest Repair request) in the map is evicted when the
@@ -55,7 +49,7 @@ typedef struct fd_policy_dedup_ele fd_policy_dedup_ele_t;
 
 FD_FN_CONST static inline ulong
 fd_policy_dedup_key( uint kind, ulong slot, uint shred_idx ) {
-  return (ulong)kind << 61 | slot << 30 | shred_idx << 15;
+  return (ulong)kind << 62 | slot << 30 | shred_idx << 15;
 }
 
 FD_FN_CONST static inline uint  fd_policy_dedup_key_kind     ( ulong key ) { return (uint)fd_ulong_extract( key, 62, 63 ); }
@@ -80,7 +74,7 @@ FD_FN_CONST static inline uint  fd_policy_dedup_key_shred_idx( ulong key ) { ret
 struct fd_policy_dedup {
   fd_policy_dedup_map_t * map;  /* map of dedup elements */
   fd_policy_dedup_ele_t * pool; /* memory pool of dedup elements */
-  fd_policy_dedup_lru_t * lru;  /* singly-linked list of dedup elements by insertion order.  TODO: add eviction feature using linkedlist */
+  fd_policy_dedup_lru_t * lru;  /* singly-linked list of dedup elements by insertion order */
 };
 
 /* fd_policy_peer_t describes a peer validator that serves repairs.
@@ -157,7 +151,7 @@ typedef struct fd_policy_peers fd_policy_peers_t;
 
 /* Policy parameters start */
 #define FD_POLICY_LATENCY_THRESH 80e6L /* less than this is a BEST peer, otherwise a WORST peer */
-#define FD_POLICY_DEDUP_TIMEOUT  60e6L /* how long wait to request the same shred */
+#define FD_POLICY_DEDUP_TIMEOUT  80e6L /* how long wait to request the same shred */
 
 /* Round robins through ALL the worst peers once, then round robins
    through ALL the best peers once, then round robins through ALL the

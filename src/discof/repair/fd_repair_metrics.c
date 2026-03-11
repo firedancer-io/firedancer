@@ -167,6 +167,7 @@ fd_repair_metrics_print_sorted( fd_repair_metrics_t * repair_metrics, int verbos
 
 void
 fd_repair_metrics_print( fd_repair_metrics_t * repair_metrics, int verbose ) {
+  if( repair_metrics->st == UINT_MAX ) return; // no data to print
   long min_ts            = repair_metrics->slots[ repair_metrics->st ].first_shred_ts;
   long max_ts            = repair_metrics->slots[ repair_metrics->en ].slot_complete_ts;
   uint total_slots       = 0;
