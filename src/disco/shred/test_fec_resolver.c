@@ -506,6 +506,7 @@ test_shred_reject( void ) {
 
   /* Now parity shred tests */
   shred = set->parity_shreds[ 0 ].s;
+  shred->fec_set_idx = MAX-32UL;
   shred->idx = MAX-32UL;  shred->code.code_cnt = 32UL;  SIGN_ACCEPT( shred );
   shred->idx = MAX;       shred->code.code_cnt = 32UL;  SIGN_REJECT( shred );
   shred->idx = MAX+1UL;   shred->code.code_cnt = 32UL;  SIGN_REJECT( shred );
@@ -517,9 +518,10 @@ test_shred_reject( void ) {
   shred->code.data_cnt =  32UL;  shred->code.code_cnt =   0UL;  SIGN_REJECT( shred );
 
   shred = set->parity_shreds[ 2 ].s;
-  shred->fec_set_idx = 64U;                                         SIGN_ACCEPT( shred );
-  shred->fec_set_idx = MAX-32UL;  shred->code.data_cnt = 32UL;      SIGN_ACCEPT( shred );
-  shred->fec_set_idx = MAX- 2UL;  shred->code.data_cnt =  3UL;      SIGN_REJECT( shred );
+  shred->code.idx = 0;
+  shred->fec_set_idx = shred->idx = 64U;                                         SIGN_ACCEPT( shred );
+  shred->fec_set_idx = shred->idx = MAX-32UL;  shred->code.data_cnt = 32UL;      SIGN_ACCEPT( shred );
+  shred->fec_set_idx = shred->idx = MAX- 2UL;  shred->code.data_cnt =  3UL;      SIGN_REJECT( shred );
   /* This one is also so malformed that fake_resign can't sign it.  The
      Merkle tree required to sign an FEC set that large wouldn't fit. */
   shred->fec_set_idx = UINT_MAX; shred->code.data_cnt = USHORT_MAX; FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) );
