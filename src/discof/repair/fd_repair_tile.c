@@ -183,12 +183,12 @@ typedef struct sign_req sign_req_t;
    FD_REPAIR_PEER_MAX), then doubled for good measure.
 
    There is a possibility that someone could try to DoS us with pings.
-   To mitigate this, we track the number of pongs currently living in
+   To mitigate this, we track the number of pings currently living in
    the sign queue that belong to each peer.  If a peer has more than 1
    pong living in the sign queue, we drop the pings from that peer.
 
-   The peer could continue send us a new bogus ping everytime we pop the
-   ping from the sign queue, but there would be no way to prevent other
+   The peer could send us a new bogus ping everytime we pop their ping
+   from the sign queue, but there would be no way to prevent other
    peers' pings from getting processed, so the wasted work and impact
    would be minimal.
 
