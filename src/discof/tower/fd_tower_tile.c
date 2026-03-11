@@ -651,10 +651,13 @@ refresh_tower_voters( fd_tower_tile_t * ctx,
       fd_accdb_ro_pipe_flush( ro_pipe );
     } else {
       fd_pubkey_t pubkey;
-      fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, NULL, NULL, NULL, NULL );
-      fd_accdb_ro_pipe_enqueue( ro_pipe, pubkey.key );
+      ulong       stake;
+      fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, NULL, &stake, NULL, NULL );
+      if( FD_LIKELY( stake ) ) {
+        fd_accdb_ro_pipe_enqueue( ro_pipe, pubkey.key );
+        pending_cnt++;
+      }
       fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id, iter );
-      pending_cnt++;
     }
 
     fd_accdb_ro_t * ro;
@@ -665,7 +668,10 @@ refresh_tower_voters( fd_tower_tile_t * ctx,
       ulong       stake;
       fd_pubkey_t node_account;
       int found = fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, address, &stake, &node_account );
-      if( FD_UNLIKELY( !found || !fd_accdb_ref_lamports( ro ) || !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) continue;
+      FD_TEST( found );
+      total_stake += stake;
+
+      if( FD_UNLIKELY( !fd_accdb_ref_lamports( ro ) || !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) continue;
 
       fd_tower_voters_t acct;
       acct.addr = *address;
@@ -673,7 +679,6 @@ refresh_tower_voters( fd_tower_tile_t * ctx,
       fd_memcpy( acct.data, fd_accdb_ref_data_const( ro ), fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX ) );
       fd_tower_voters_push_tail( tower_voters, acct );
       prev_voter_idx = fd_tower_stakes_insert( ctx->tower_stakes, slot, address, stake, prev_voter_idx );
-      total_stake += stake;
     }
   }
 

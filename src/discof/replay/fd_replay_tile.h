@@ -63,8 +63,6 @@ struct fd_replay_slot_completed {
   long last_transaction_finished_nanos;   /* timestamp when replay received the last execution completion */
   long completion_time_nanos;             /* timestamp when replay completed finalizing the slot and notified tower */
 
-  int is_epoch_boundary;
-
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
 

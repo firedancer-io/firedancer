@@ -821,7 +821,6 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
   slot_info->transaction_count     = fd_bank_txn_count_get( bank );
-  slot_info->is_epoch_boundary     = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL )!=epoch;
 
   fd_inflation_t inflation = fd_bank_inflation_get( bank );
   slot_info->inflation.foundation      = inflation.foundation;
