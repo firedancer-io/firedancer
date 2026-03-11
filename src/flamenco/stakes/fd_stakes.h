@@ -26,6 +26,12 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
                           ushort                   fork_idx,
                           fd_vote_stake_weight_t * weights );
 
+
+ulong
+fd_stake_weights_by_node_next( fd_vote_stakes_t *       vote_stakes,
+                               ushort                   fork_idx,
+                               fd_vote_stake_weight_t * weights );
+
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,

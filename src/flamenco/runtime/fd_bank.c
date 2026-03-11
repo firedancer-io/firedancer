@@ -333,6 +333,7 @@ fd_banks_new( void * shmem,
     fd_bank_set_epoch_leaders( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, epoch_leaders_mem) );
 
     fd_bank_set_stake_weights( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights) );
+    fd_bank_set_stake_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights) );
 
     fd_bank_top_votes_t * top_votes_pool = fd_banks_get_top_votes_pool( banks_data );
     fd_bank_set_top_votes_pool( bank, top_votes_pool );
