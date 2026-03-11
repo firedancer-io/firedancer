@@ -242,7 +242,7 @@ generate_epoch_info_msg_manifest( ulong                                       ep
 
   /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
   for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
-    stake_weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake;
+    stake_weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
     memcpy( stake_weights[ i ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
     memcpy( stake_weights[ i ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
   }

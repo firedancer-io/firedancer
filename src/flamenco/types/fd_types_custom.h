@@ -88,9 +88,10 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
 FD_PROTOTYPES_END
 
 struct fd_vote_stake_weight {
-  fd_pubkey_t vote_key; /* vote account pubkey */
-  fd_pubkey_t id_key;   /* validator identity pubkey */
-  ulong       stake;    /* total stake by vote account */
+  fd_pubkey_t vote_key;      /* vote account pubkey */
+  fd_pubkey_t id_key;        /* validator identity pubkey */
+  ulong       stake : 63;    /* total stake by vote account */
+  ulong       is_leader : 1; /* 1 if the vote account is a leader, 0 otherwise */
 };
 typedef struct fd_vote_stake_weight fd_vote_stake_weight_t;
 

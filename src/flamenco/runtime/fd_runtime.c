@@ -120,7 +120,7 @@ update_next_leaders( fd_bank_t *          bank,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
-  ulong epoch    = fd_slot_to_epoch ( epoch_schedule, fd_bank_slot_get( bank ), NULL ) - 1UL;
+  ulong epoch    = fd_slot_to_epoch ( epoch_schedule, fd_bank_slot_get( bank ), NULL ) + 1UL;
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
@@ -154,17 +154,19 @@ update_next_leaders( fd_bank_t *          bank,
 
     if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
       stake_weights[ idx ].stake = stake;
+      stake_weights[ idx ].is_leader = 1;
       memcpy( stake_weights[ idx ].id_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
       idx++;
-    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, idx-1UL ) ) {
+    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
       stake_weights[ idx-1UL ].stake += stake;
     } else {
       stake_weights[ idx ].stake = stake;
+      stake_weights[ idx ].is_leader = 0;
       idx++;
     }
   }
-  fd_bank_set_stake_weights_cnt_next( bank->data, idx );
+  *fd_bank_get_stake_weights_cnt_next( bank->data ) = idx;
 }
 
 void
@@ -212,18 +214,20 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) == 1);
 
     if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
-      stake_weights[ idx ].stake = stake;
+      stake_weights[ idx ].stake     = stake;
+      stake_weights[ idx ].is_leader = 1;
       memcpy( stake_weights[ idx ].id_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
       idx++;
-    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, idx-1UL ) ) {
+    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
       stake_weights[ idx-1UL ].stake += stake;
     } else {
       stake_weights[ idx ].stake = stake;
+      stake_weights[ idx ].is_leader = 0;
       idx++;
     }
   }
-  fd_bank_set_stake_weights_cnt( bank->data, idx );
+  *fd_bank_get_stake_weights_cnt( bank->data ) = idx;
   fd_bank_vote_stakes_end_locking_modify( bank );
 }
 

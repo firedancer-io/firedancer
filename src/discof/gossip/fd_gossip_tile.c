@@ -36,7 +36,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t)                                                  );
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries, tile->gossip.entrypoints_cnt ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t)                                  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -282,8 +281,7 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
-  ulong stakes_cnt = compute_id_weights_from_vote_weights( ctx->stake_weights_converted, msg->weights, msg->staked_cnt );
-  fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights_converted, stakes_cnt );
+  fd_gossip_stakes_update( ctx->gossip, msg->weights, msg->staked_cnt );
 }
 
 static void
@@ -359,6 +357,8 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
         break;
       }
 
+      /* FIXME: Get rid of this and just use gossip's internal stake
+         map instead */
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
       ulong wfs_stakes_unconverted_cnt = 0UL;
@@ -372,7 +372,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
           fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
           fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = manifest->vote_accounts[ i ].stake;
+          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = (manifest->vote_accounts[ i ].stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
           wfs_stakes_unconverted_cnt++;
       }
       ctx->wfs_stakes_cnt = compute_id_weights_from_vote_weights( ctx->wfs_stakes, ctx->wfs_stakes_scratch, wfs_stakes_unconverted_cnt );
@@ -438,9 +438,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   void * _gossip             = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries, tile->gossip.entrypoints_cnt ) );
-  void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
-
-  ctx->stake_weights_converted = (fd_stake_weight_t *)_stake_weights;
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
 

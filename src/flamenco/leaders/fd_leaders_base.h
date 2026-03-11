@@ -5,8 +5,9 @@
 #include "../features/fd_features.h"
 
 #define MAX_SLOTS_PER_EPOCH   432000UL
-#define MAX_PUB_CNT           50000UL
 #define MAX_STAKED_LEADERS    40200UL
+#define MAX_LEADERS_IN_EPOCH  108000UL
+#define MAX_COMPRESSED_STAKE_WEIGHTS (MAX_SLOTS_PER_EPOCH/2UL)
 
 /* Follows message structure in fd_stake_ci_stake_msg_init.
    Frankendancer only */
@@ -46,7 +47,7 @@ struct fd_epoch_info_msg_t {
 typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
 
 #define FD_EPOCH_INFO_MSG_HEADER_SZ (sizeof(fd_epoch_info_msg_t))
-#define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_STAKED_LEADERS * sizeof(fd_vote_stake_weight_t))
+#define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t))
 #define FD_EPOCH_OUT_MTU            FD_EPOCH_INFO_MAX_MSG_SZ
 
 static inline ulong fd_epoch_info_msg_sz( ulong cnt ) {
