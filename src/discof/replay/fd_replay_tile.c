@@ -2228,15 +2228,17 @@ after_credit( fd_replay_tile_t *  ctx,
       mark_bank_dead( ctx, stem, bank->data->idx );
       fd_sched_block_abandon( ctx->sched, bank->data->idx );
 
-      /* evict it from reasm - we can guarantee this is a leaf because
-         no new bank is allocated until a slot boundary.  If a fec has
-         children that are of a different slot, then it would never be
-         evicted from banks because that means the bank finished
-         executing on that slot. */
+      /* evict it from reasm */
+
       fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->data->idx ];
       fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
-      FD_TEST( fec && fec->child == ULONG_MAX );
-      ctx->reasm_evicted = fd_reasm_remove( ctx->reasm, fec, ctx->store );
+      FD_TEST( fec );
+      fd_reasm_fec_t * evicted_head = fd_reasm_remove( ctx->reasm, fec, ctx->store );
+      if( FD_UNLIKELY( ctx->reasm_evicted ) ) {
+        /* already have a chain we are evicting. Prepend the new chain to the existing chain */
+        fec->child = fd_reasm_pool_idx( ctx->reasm, ctx->reasm_evicted );
+      }
+      ctx->reasm_evicted = evicted_head;
     }
   }
 

@@ -131,6 +131,7 @@ union fdctl_args {
 
   struct {
     char topo[ 64 ];
+    int  sort;
   } mem;
 
   struct {

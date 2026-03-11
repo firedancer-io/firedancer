@@ -11,7 +11,6 @@
    critical. Repair tile relies on this module to be able to re-request
    any shreds that it has sent, because policy next does not request any
    shred twice.
-   (TODO should this be rolled into policy.h?)
 
    Requests are key-ed by (slot, shred_idx, nonce) as in the current
    strategy (see fd_policy.h).  Since we generate the nonce based on the
@@ -86,6 +85,7 @@ struct fd_inflights {
   fd_inflight_map_t   * popped_map;
   fd_inflight_dlist_t   outstanding_dl[1];
   fd_inflight_dlist_t   popped_dl[1];
+  ulong                 popped_cnt;
 };
 typedef struct fd_inflights fd_inflights_t;
 
@@ -101,10 +101,10 @@ fd_inflights_footprint( void ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_inflights_t),   sizeof(fd_inflights_t)                             ),
-      fd_inflight_pool_align(),  fd_inflight_pool_footprint ( FD_INFLIGHT_REQ_MAX ) ),
-      fd_inflight_map_align(),   fd_inflight_map_footprint  ( chain_cnt           ) ),
-      fd_inflight_map_align(),   fd_inflight_map_footprint  ( chain_cnt           ) ),
+      alignof(fd_inflights_t),  sizeof(fd_inflights_t)                            ),
+      fd_inflight_pool_align(), fd_inflight_pool_footprint( FD_INFLIGHT_REQ_MAX ) ),
+      fd_inflight_map_align(),  fd_inflight_map_footprint ( chain_cnt           ) ),
+      fd_inflight_map_align(),  fd_inflight_map_footprint ( chain_cnt           ) ),
     fd_inflights_align() );
 }
 
@@ -139,6 +139,15 @@ fd_inflights_should_drain( fd_inflights_t * table, long now ) {
   return 0;
 }
 
+/* Returns the number of new outstanding requests that can be made
+   until the inflight pool is full, and there are no popped
+   requests to evict.  If this is 0, then the next insert would
+   evict an outstanding request. */
+
+static inline ulong
+fd_inflights_outstanding_free( fd_inflights_t * table ) {
+  return fd_inflight_pool_free( table->pool ) + table->popped_cnt;
+}
 
 void
 fd_inflights_print( fd_inflight_dlist_t * dlist, fd_inflight_t * pool );

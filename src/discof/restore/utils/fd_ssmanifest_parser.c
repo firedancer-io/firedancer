@@ -808,8 +808,8 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_BLOCKHASH_QUEUE_AGES_HASH_INDEX:                                                               return (uchar*)&manifest->blockhashes[ idx1 ].hash_index;
     case STATE_BLOCKHASH_QUEUE_AGES_TIMESTAMP:                                                                return (uchar*)&manifest->blockhashes[ idx1 ].timestamp;
     case STATE_BLOCKHASH_QUEUE_MAX_AGE:                                                                       return NULL;
-    case STATE_ANCESTORS_LENGTH:                                                                              return (uchar*)&manifest->ancestors_len;
-    case STATE_ANCESTORS_SLOT:                                                                                return (uchar*)&manifest->ancestors[ idx1 ];
+    case STATE_ANCESTORS_LENGTH:                                                                              return (uchar*)&parser->length1;
+    case STATE_ANCESTORS_SLOT:                                                                                return NULL;
     case STATE_ANCESTORS_VAL:                                                                                 return NULL;
     case STATE_HASH:                                                                                          return manifest->bank_hash;
     case STATE_PARENT_HASH:                                                                                   return manifest->parent_bank_hash;
@@ -1403,8 +1403,13 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_ANCESTORS_LENGTH: {
-      if( FD_UNLIKELY( !manifest->ancestors_len || manifest->ancestors_len>sizeof(manifest->ancestors)/sizeof(manifest->ancestors[0]) ) ) {
-        FD_LOG_WARNING(( "invalid ancestors length %lu", manifest->ancestors_len ));
+      /* Agave's bank now creates an ancestor set with a single entry
+         (the current slot), and the ancestors list is deprecated.
+         However, length must still be checked to keep it backward
+         compatible:
+         https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/runtime/src/bank.rs#L1846 */
+      if( FD_UNLIKELY( parser->length1>8192UL ) ) {
+        FD_LOG_WARNING(( "invalid ancestors length %lu", parser->length1 ));
         return -1;
       }
       break;
@@ -1443,6 +1448,15 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH: {
       if( FD_UNLIKELY( manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len>64UL ) ) {
         FD_LOG_WARNING(( "invalid vote_accounts value data current epoch credits length %lu", manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_LENGTH: {
+      if( FD_UNLIKELY( parser->epoch_stakes_len ) ) {
+        /* The epoch stakes in the bank is a deprecated, unused field.
+           https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L461 */
+        FD_LOG_WARNING(( "invalid bank epoch stakes length %lu, expected to be 0 because the bank epoch stakes field is deprecated", parser->epoch_stakes_len ));
         return -1;
       }
       break;
@@ -1584,8 +1598,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
 
 static inline int
 state_process( fd_ssmanifest_parser_t * parser,
-               acc_vec_map_t *         acc_vec_map,
-               acc_vec_t *             acc_vec_pool ) {
+               acc_vec_map_t *          acc_vec_map,
+               acc_vec_t *              acc_vec_pool ) {
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
   FD_TEST( parser->state!=STATE_DONE );
@@ -1633,19 +1647,6 @@ state_process( fd_ssmanifest_parser_t * parser,
 
   if( FD_UNLIKELY( parser->state==STATE_EPOCH ) ) {
     parser->manifest->epoch = parser->epoch;
-  }
-
-  if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_KEY ) ) {
-    /* The epoch_stakes in the bank is a deprecated, unused field.
-       TODO: remove this field and associated logic when agave fully
-       removes it.
-       https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L151 */
-    if( parser->epoch_stakes_epoch>=parser->epoch && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
-      parser->epoch_idx = parser->epoch_stakes_epoch-parser->epoch;
-    }
-    else {
-      parser->epoch_idx = ULONG_MAX;
-    }
   }
 
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_EPOCH ) ) {
@@ -1838,7 +1839,7 @@ state_process( fd_ssmanifest_parser_t * parser,
   int next_target = INT_MAX;
   switch( parser->state ) {
     case STATE_BLOCKHASH_QUEUE_AGES_LENGTH:                            length = manifest->blockhashes_len;   idx = &parser->idx1; next_target = STATE_BLOCKHASH_QUEUE_MAX_AGE;                                break;
-    case STATE_ANCESTORS_LENGTH:                                       length = manifest->ancestors_len;     idx = &parser->idx1; next_target = STATE_HASH;                                                   break;
+    case STATE_ANCESTORS_LENGTH:                                       length = parser->length1;             idx = &parser->idx1; next_target = STATE_HASH;                                                   break;
     case STATE_HARD_FORKS_LENGTH:                                      length = manifest->hard_forks_len;    idx = &parser->idx1; next_target = STATE_TRANSACTION_COUNT;                                      break;
     case STATE_STAKES_VOTE_ACCOUNTS_LENGTH:                            length = manifest->vote_accounts_len; idx = &parser->idx1; next_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH;                        break;
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH:                        length = manifest->stake_delegations_len;        idx = &parser->idx1; next_target = STATE_STAKES_UNUSED;                                          break;
@@ -1866,7 +1867,7 @@ state_process( fd_ssmanifest_parser_t * parser,
   int iter_target = INT_MAX;
   switch( parser->state ) {
     case STATE_BLOCKHASH_QUEUE_AGES_TIMESTAMP:                                   length = manifest->blockhashes_len;       idx = &parser->idx1; next_target = STATE_BLOCKHASH_QUEUE_MAX_AGE;                                iter_target = STATE_BLOCKHASH_QUEUE_AGES_LENGTH+1UL;                            break;
-    case STATE_ANCESTORS_VAL:                                                    length = manifest->ancestors_len;         idx = &parser->idx1; next_target = STATE_HASH;                                                   iter_target = STATE_ANCESTORS_LENGTH+1UL;                                       break;
+    case STATE_ANCESTORS_VAL:                                                    length = parser->length1;                 idx = &parser->idx1; next_target = STATE_HASH;                                                   iter_target = STATE_ANCESTORS_LENGTH+1UL;                                       break;
     case STATE_HARD_FORKS_VAL:                                                   length = manifest->hard_forks_len;        idx = &parser->idx1; next_target = STATE_TRANSACTION_COUNT;                                      iter_target = STATE_HARD_FORKS_LENGTH+1UL;                                      break;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                            length = manifest->vote_accounts_len;     idx = &parser->idx1; next_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH;                        iter_target = STATE_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;                            break;
     case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:                    length = manifest->stake_delegations_len; idx = &parser->idx1; next_target = STATE_STAKES_UNUSED;                                          iter_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH+1UL;                        break;

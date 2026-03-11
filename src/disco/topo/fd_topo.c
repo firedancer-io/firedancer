@@ -330,7 +330,7 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
 }
 
 FD_FN_PURE ulong
-fd_topo_normal_page_cnt( fd_topo_t * topo ) {
+fd_topo_normal_page_cnt( fd_topo_t const * topo ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     result += fd_topo_tile_extra_normal_pages( &topo->tiles[ i ] );
