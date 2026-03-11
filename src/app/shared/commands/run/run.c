@@ -441,18 +441,51 @@ main_pid_namespace( void * _args ) {
 
       char * tile_name = child_names[ i ];
       ulong  tile_idx = child_idxs[ i ];
-      ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
+
+      /* Non-topology child (e.g. agave) have no tile entry */
+      if( FD_UNLIKELY( tile_idx==ULONG_MAX ) ) {
+        if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+          FD_LOG_ERR_NOEXIT(( "child %s crashed with signal %d (%s)", tile_name, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+          fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+        } else {
+          int exit_code = WEXITSTATUS( wstatus );
+          FD_LOG_ERR_NOEXIT(( "child %s exited unexpectedly with code %d", tile_name, exit_code ));
+          fd_sys_util_exit_group( exit_code ? exit_code : 1 );
+        }
+      }
+
+      fd_topo_tile_t const * tile = &config->topo.tiles[ tile_idx ];
 
       if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-        FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-        fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+        if( FD_UNLIKELY( tile->allow_crash ) ) {
+          FD_LOG_ERR_NOEXIT(( "expendable tile %s:%lu crashed with signal %d (%s)", tile_name, tile->kind_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+
+          /* We need to make all reliable links unreliable by
+             setting a sentinel credits value to prevent the application
+             from stalling. */
+          for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+            if( FD_UNLIKELY( !tile->in_link_poll[ j ] || !tile->in_link_reliable[ j ] ) ) continue;
+
+            ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( &config->topo, tile->in_link_fseq_obj_id[ j ] ) );
+            if( FD_UNLIKELY( !fseq ) ) {
+              FD_LOG_ERR_NOEXIT(( "failed to join fseq" ));
+              fd_sys_util_exit_group( 1 );
+            }
+            fd_fseq_update( fseq, STEM_SHUTDOWN_SEQ );
+
+            fd_topo_link_t const * in_link = &config->topo.links[ tile->in_link_id[ j ] ];
+            FD_LOG_NOTICE(( "demoted reliable in-link %s(%lu)->%s to unreliable", in_link->name, in_link->kind_id, tile->name ));
+          }
+        } else {
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu crashed with signal %d (%s)", tile_name, tile->kind_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+          fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+        }
       } else {
         int exit_code = WEXITSTATUS( wstatus );
-        if( FD_LIKELY( !exit_code && tile_idx!=ULONG_MAX && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
-          found = 1;
-          FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
+        if( FD_LIKELY( !exit_code && tile->allow_shutdown ) ) {
+          FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile->kind_id, exit_code ));
         } else {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited unexpectedly with code %d", tile_name, tile->kind_id, exit_code ));
           fd_sys_util_exit_group( exit_code ? exit_code : 1 );
         }
       }
@@ -633,7 +666,16 @@ initialize_workspaces( config_t * config ) {
     }
     fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
     fd_topo_wksp_new( &config->topo, wksp, CALLBACKS );
-    fd_topo_leave_workspace( &config->topo, wksp );
+
+    /* Don't unmap fseq wksp for tile with allow_crash=1, since we need
+       to retain access in order to demote reliable links to unreliable. */
+    int is_crashable_fseq_wksp = 0;
+    for( ulong j=0UL; j<config->topo.tile_cnt; j++ ) {
+      fd_topo_tile_t * tile = &config->topo.tiles[ j ];
+      if( FD_LIKELY( !tile->allow_crash ) ) continue;
+      for( ulong k=0UL; k<tile->in_cnt; k++ ) is_crashable_fseq_wksp |= tile->in_link_poll[ k ] && tile->in_link_reliable[ k ] && i==config->topo.objs[ tile->in_link_fseq_obj_id[ k ] ].wksp_id;
+    }
+    if( FD_LIKELY( !is_crashable_fseq_wksp ) ) fd_topo_leave_workspace( &config->topo, wksp );
   }
 
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

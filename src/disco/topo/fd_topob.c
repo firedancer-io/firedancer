@@ -169,6 +169,8 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->in_cnt              = 0UL;
   tile->out_cnt             = 0UL;
   tile->uses_obj_cnt        = 0UL;
+  tile->allow_shutdown      = 0;
+  tile->allow_crash         = 0;
 
   fd_topo_obj_t * tile_obj = fd_topob_obj( topo, "tile", tile_wksp );
   tile->tile_obj_id = tile_obj->id;
@@ -662,6 +664,14 @@ fd_topob_finish( fd_topo_t *                topo,
                  fd_topo_obj_callbacks_t ** callbacks ) {
   for( ulong z=0UL; z<topo->tile_cnt; z++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ z ];
+
+    /* Expendable tiles must not have reliable downstream consumers,
+       since crashing would stall them in the typical case.  Any
+       exceptions should explicitly be made here (e.g. for links with
+       one-shot messages). */
+    if( FD_UNLIKELY( tile->allow_crash && fd_topo_tile_reliable_consumer_cnt( topo, tile )>0UL ) ) {
+      FD_LOG_ERR(( "tile %s:%lu has allow_crash==1 but has reliable downstream consumers.", tile->name, tile->kind_id ));
+    }
 
     ulong in_cnt = 0UL;
     for( ulong i=0UL; i<tile->in_cnt; i++ ) {
