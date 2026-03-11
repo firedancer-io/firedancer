@@ -431,7 +431,7 @@ fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
     return 0;
   }
 
-  while( !stakes_map_ele_query( stakes_map, &ele_idx, NULL, stakes_pool ) ) {
+  while( !stakes_map_ele_query_const( stakes_map, &ele_idx, NULL, stakes_pool ) ) {
     ele_idx = (uint)index_map_multi_idx_next_const( ele_idx, UINT_MAX, index_pool );
     if( FD_UNLIKELY( ele_idx==UINT_MAX ) ) {
       return 0;
