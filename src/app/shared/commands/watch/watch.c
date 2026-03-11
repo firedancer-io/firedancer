@@ -630,10 +630,14 @@ static uint
 write_gui( config_t const * config,
            ulong const *    cur_tile,
            ulong const *    prev_tile ) {
-  (void)cur_tile;
-
   ulong gui_tile_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
   if( gui_tile_idx==ULONG_MAX ) return 0U;
+
+  ulong gui_status = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, TILE, STATUS ) ];
+  if( FD_UNLIKELY( gui_status==3UL /* crashed */ ) ) {
+    PRINT( "👁  " BOLD RED "GUI........." RESET UNBOLD " DEAD" CLEARLN "\n" );
+    return 1U;
+  }
 
   ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, CONNECTION_COUNT ) ]+
                            cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, WEBSOCKET_CONNECTION_COUNT ) ];

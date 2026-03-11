@@ -243,9 +243,10 @@ before_credit( fd_diag_tile_t *    ctx,
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
     if( FD_LIKELY( -1!=ctx->stat_fds[ i ] ) ) continue;
 
-    /* The tile died, but it's a tile which is allowed to shutdown, so
-       just stop updating metrics for it. */
+    /* The tile died, but it's a tile which is allowed to crash or
+       shutdown, so just stop updating metrics for it. */
     if( FD_LIKELY( 2UL==ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) continue;
+    if( FD_LIKELY( 3UL==ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) continue;
 
     /* Supervisor is going to bring the whole process tree down if any
        of the target PIDs died, so we can ignore this and wait. */
@@ -303,18 +304,18 @@ privileged_init( fd_topo_t *      topo,
       FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/proc/%lu/task/%lu/stat", pid, tid ) );
       ctx->stat_fds[ i ] = open( path, O_RDONLY );
       if( FD_UNLIKELY( -1==ctx->stat_fds[ i ] ) ) {
-        /* Might be a tile that's allowed to shutdown already did so
-           before we got to here, due to a race condition.  Just
-           proceed, we will not be able to get metrics for the shut
-           down process. */
-        if( FD_LIKELY( 2UL!=ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) FD_LOG_ERR(( "open stat failed (%i-%s)", errno, strerror( errno ) ));
+        /* Might be a tile that's allowed to shutdown or crash that
+           already exited before we got here, due to a race
+           condition.  Just proceed; we will not be able to get
+           metrics for the dead process. */
+        if( FD_LIKELY( 2UL!=ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] && 3UL!=ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) FD_LOG_ERR(( "open stat failed (%i-%s)", errno, strerror( errno ) ));
         break;
       }
 
       FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/proc/%lu/task/%lu/sched", pid, tid ) );
       ctx->sched_fds[ i ] = open( path, O_RDONLY );
       if( FD_UNLIKELY( -1==ctx->sched_fds[ i ] ) ) {
-        if( FD_LIKELY( 2UL!=ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) FD_LOG_ERR(( "open sched failed (%i-%s)", errno, strerror( errno ) ));
+        if( FD_LIKELY( 2UL!=ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] && 3UL!=ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) FD_LOG_ERR(( "open sched failed (%i-%s)", errno, strerror( errno ) ));
         ctx->stat_fds[ i ] = -1;
       }
       break;

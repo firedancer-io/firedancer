@@ -1290,7 +1290,7 @@ fd_topo_initialize( config_t * config ) {
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"        );
 
-    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
+    /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 )->allow_crash = 1;
 
     /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,       link_kind_id, reliable,            polled */
     FOR(net_tile_cnt)      fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "net_gossvf",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */

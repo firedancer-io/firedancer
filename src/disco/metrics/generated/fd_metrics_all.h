@@ -181,7 +181,7 @@ enum {
 
 #define FD_METRICS_GAUGE_TILE_STATUS_NAME "tile_status"
 #define FD_METRICS_GAUGE_TILE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_TILE_STATUS_DESC "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown"
+#define FD_METRICS_GAUGE_TILE_STATUS_DESC "The current status of the tile. 0 is booting, 1 is running. 2 is shutdown. 3 is crashed."
 #define FD_METRICS_GAUGE_TILE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_TILE_HEARTBEAT_NAME "tile_heartbeat"
