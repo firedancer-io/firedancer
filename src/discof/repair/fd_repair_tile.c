@@ -183,12 +183,14 @@ typedef struct sign_req sign_req_t;
    FD_REPAIR_PEER_MAX), then doubled for good measure.
 
    There is a possibility that someone could try to DoS us with pings.
-   Overall this is low severity as the worst case is we do some wasted
-   work, and drop pings from other useful peers.  We would get a
-   new ping after sending those peers another request.
+   To mitigate this, we track the number of pongs currently living in
+   the sign queue that belong to each peer.  If a peer has more than 1
+   pong living in the sign queue, we drop the pings from that peer.
 
-   TODO: consider filtering pings if more than x number of pings from a
-   single peer live in the ping queue.
+   The peer could continue send us a new bogus ping everytime we pop the
+   ping from the sign queue, but there would be no way to prevent other
+   peers' pings from getting processed, so the wasted work and impact
+   would be minimal.
 
    Typical flow is that a pong will get added to the pong_queue during
    an after_frag call.  Then on the following after_credit will get
