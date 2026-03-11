@@ -94,10 +94,13 @@ fd_ipecho_server_new( void * shmem,
   server->pool = conn_pool_join( conn_pool_new( pool, max_connection_cnt ) );
   FD_TEST( server->pool );
 
+  server->sockfd = -1;
+
   for( ulong i=0UL; i<max_connection_cnt; i++ ) {
     server->pollfds[ i ].fd = -1;
     server->pollfds[ i ].events = POLLIN | POLLOUT;
   }
+  server->pollfds[ max_connection_cnt ].fd = -1;
 
   server->evict_idx = 0UL;
   server->max_connection_cnt = max_connection_cnt;
@@ -164,6 +167,29 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
   if( FD_UNLIKELY( -1==listen( server->sockfd, (int)server->max_connection_cnt ) ) ) FD_LOG_ERR(( "listen() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   server->pollfds[ server->max_connection_cnt ] = (struct pollfd){ .fd = server->sockfd, .events = POLLIN, .revents = 0 };
+}
+
+void
+fd_ipecho_server_fini( fd_ipecho_server_t * server ) {
+  fd_ipecho_server_close_conns( server );
+  if( FD_UNLIKELY( -1!=server->sockfd ) ) {
+    FD_TEST( -1!=close( server->sockfd ) );
+    server->sockfd = -1;
+    server->pollfds[ server->max_connection_cnt ].fd = -1;
+  }
+}
+
+void
+fd_ipecho_server_close_conns( fd_ipecho_server_t * server ) {
+  for( ulong i=0UL; i<server->max_connection_cnt; i++ ) {
+    if( FD_UNLIKELY( -1!=server->pollfds[ i ].fd ) ) {
+      FD_TEST( -1!=close( server->pollfds[ i ].fd ) );
+      server->pollfds[ i ].fd = -1;
+      conn_pool_ele_release( server->pool, &server->pool[ i ] );
+    }
+  }
+  server->metrics->connection_cnt = 0UL;
+  server->evict_idx               = 0UL;
 }
 
 void
