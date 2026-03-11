@@ -372,7 +372,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
           fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
           fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = (manifest->vote_accounts[ i ].stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
+          fd_vote_stake_weight_set_stake( &ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ], manifest->vote_accounts[ i ].stake );
           wfs_stakes_unconverted_cnt++;
       }
       ctx->wfs_stakes_cnt = compute_id_weights_from_vote_weights( ctx->wfs_stakes, ctx->wfs_stakes_scratch, wfs_stakes_unconverted_cnt );

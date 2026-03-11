@@ -301,9 +301,7 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
 static inline void
 handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
-  for( ulong i=0UL; i<ctx->stake.count; i++ ) {
-    stake_map_idx_remove_fast( ctx->stake.map, i, ctx->stake.pool );
-  }
+  stake_map_reset( ctx->stake.map );
   stake_pool_reset( ctx->stake.pool );
 
   for( ulong i=0UL; i<msg->staked_cnt; i++ ) {
@@ -311,7 +309,7 @@ handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
     stake_t * entry = stake_pool_ele_acquire( ctx->stake.pool );
     fd_memcpy( entry->pubkey.uc, msg->weights[i].id_key.uc, 32UL );
     entry->stake = msg->weights[i].stake;
-    stake_map_idx_insert( ctx->stake.map, i, ctx->stake.pool );
+    stake_map_ele_insert( ctx->stake.map, entry, ctx->stake.pool );
   }
   ctx->stake.count = stake_pool_used( ctx->stake.pool );
 }

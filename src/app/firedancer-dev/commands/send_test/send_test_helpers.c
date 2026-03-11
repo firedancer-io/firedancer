@@ -131,8 +131,8 @@ parse_stake_weight( char * line ) {
   }
 
   /* Set staked amount */
-  double sol_amount   = atof( sol_start ); FD_TEST( sol_amount > 0.0 );
-         weight.stake = (ulong)(sol_amount * 1000000000UL) & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+  double sol_amount = atof( sol_start ); FD_TEST( sol_amount > 0.0 );
+  fd_vote_stake_weight_set_stake( &weight, (ulong)(sol_amount * 1000000000UL) );
   return weight;
 }
 

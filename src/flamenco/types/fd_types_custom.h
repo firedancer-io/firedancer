@@ -95,6 +95,16 @@ struct fd_vote_stake_weight {
 };
 typedef struct fd_vote_stake_weight fd_vote_stake_weight_t;
 
+static inline void
+fd_vote_stake_weight_set_stake( fd_vote_stake_weight_t * self, ulong stake ) {
+  self->stake = stake & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+}
+
+static inline void
+fd_vote_stake_weight_accumulate_stake( fd_vote_stake_weight_t * self, ulong stake ) {
+  self->stake += (stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
+}
+
 #define SORT_NAME sort_vote_weights_by_stake_vote
 #define SORT_KEY_T fd_vote_stake_weight_t
 #define SORT_BEFORE(a,b) ((a).stake > (b).stake ? 1 : ((a).stake < (b).stake ? 0 : memcmp( (a).vote_key.uc, (b).vote_key.uc, 32UL )>0))

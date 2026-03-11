@@ -176,7 +176,7 @@ test_shred_dest_conformance(
     if( CLUSTER_NODES[i].stake > 0UL ) {
       memcpy( stake_msg->weights[staked_cnt].id_key.uc, pubkeys[i].uc, 32UL );
       memcpy( stake_msg->weights[staked_cnt].vote_key.uc, pubkeys[i].uc, 32UL );
-      stake_msg->weights[staked_cnt].stake = CLUSTER_NODES[i].stake & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+      fd_vote_stake_weight_set_stake( &stake_msg->weights[staked_cnt], CLUSTER_NODES[i].stake );
       staked_cnt++;
     }
   }
@@ -192,7 +192,7 @@ test_shred_dest_conformance(
   fd_shred_dest_weighted_t * dest_info = fd_stake_ci_dest_add_init( stake_ci );
   for( ulong i=0UL; i<20UL; i++ ) {
     memcpy( dest_info[i].pubkey.uc, pubkeys[i].uc, 32UL );
-    dest_info[i].stake_lamports = CLUSTER_NODES[i].stake & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+    dest_info[i].stake_lamports = CLUSTER_NODES[i].stake;
     dest_info[i].ip4 = (uint)(i+1);  /* Dummy IP */
     dest_info[i].port = (ushort)(8000 + i);  /* Dummy port */
   }

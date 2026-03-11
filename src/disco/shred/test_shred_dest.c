@@ -29,7 +29,7 @@ test_compute_first_matches_agave( void ) {
   fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
     stakes[i].id_key = info[i].pubkey;
     stakes[i].vote_key = info[i].pubkey;
-    stakes[i].stake = info[i].stake_lamports & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+    fd_vote_stake_weight_set_stake( &stakes[i], info[i].stake_lamports );
     staked += (info[i].stake_lamports>0UL);
   }
   FD_TEST( fd_shred_dest_footprint   ( staked, staked-cnt ) <= TEST_MAX_FOOTPRINT );
@@ -81,7 +81,7 @@ test_compute_children_matches_agave( void ) {
   for( ulong i=0UL; i<cnt; i++ ) {
     stakes[i].id_key = info[i].pubkey;
     stakes[i].vote_key = info[i].pubkey;
-    stakes[i].stake = info[i].stake_lamports & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+    fd_vote_stake_weight_set_stake( &stakes[i], info[i].stake_lamports );
     staked += (info[i].stake_lamports>0UL);
   }
 
@@ -187,7 +187,7 @@ test_batching( void ) {
       stakes[i].id_key.uc[0] = (uchar)(cnt-i);
       stakes[i].vote_key.uc[0] = (uchar)(cnt-i);
       info[i].stake_lamports = 1UL + fd_rng_ulong_roll( r, prev );
-      stakes[i].stake = info[i].stake_lamports & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+      fd_vote_stake_weight_set_stake( &stakes[i], info[i].stake_lamports );
       prev = info[i].stake_lamports+1UL;
       info[i].ip4 = (uint)i;
     }
@@ -259,14 +259,15 @@ test_vary_stake( void ) {
       stakes[i].id_key.uc[0] = (uchar)pubkey0;
       stakes[i].vote_key.uc[0] = (uchar)pubkey0;
       pubkey0 = (pubkey0*3UL)%31; /* Hits [1, 30] */
-      stakes[i].stake = (2UL + fd_rng_ulong_roll( r, prev )) & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+      fd_vote_stake_weight_set_stake( &stakes[i], (2UL + fd_rng_ulong_roll( r, prev )) );
       prev = stakes[i].stake;
     }
     stakes[30].id_key.uc[0] = 31;
     stakes[31].id_key.uc[0] = 0;
     stakes[30].vote_key.uc[0] = 31;
     stakes[31].vote_key.uc[0] = 0;
-    stakes[30].stake = stakes[31].stake = (prev-1UL) & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+    fd_vote_stake_weight_set_stake( &stakes[30], prev-1UL );
+    fd_vote_stake_weight_set_stake( &stakes[31], prev-1UL );
 
     fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL, vote_keyed_lsched ) );
     test_distribution_is_tree( info, 32UL, lsched, 6+fd_rng_ulong_roll(r, 25UL ), fd_rng_ulong_roll( r, 100UL ), fd_rng_int_roll( r, 2 ), fd_rng_ulong_roll( r, 100UL ) );
@@ -285,7 +286,7 @@ test_t1_vary_radix( void ) {
   for( ulong i=0UL; i<cnt; i++ ) {
     stakes[i].id_key = info[i].pubkey;
     stakes[i].vote_key = info[i].pubkey;
-    stakes[i].stake = info[i].stake_lamports & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+    fd_vote_stake_weight_set_stake( &stakes[i], info[i].stake_lamports );
     staked += (info[i].stake_lamports>0UL);
   }
 
@@ -308,7 +309,7 @@ test_change_contact( void ) {
   for( ulong i=0UL; i<cnt; i++ ) {
     stakes[i].id_key = info[i].pubkey;
     stakes[i].vote_key = info[i].pubkey;
-    stakes[i].stake = info[i].stake_lamports & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+    fd_vote_stake_weight_set_stake( &stakes[i], info[i].stake_lamports );
     staked += (info[i].stake_lamports>0UL);
   }
 
@@ -351,7 +352,7 @@ test_indeterminate( void ) {
   for( ulong i=0UL; i<cnt; i++ ) {
     stakes[i].id_key = info[i].pubkey;
     stakes[i].vote_key = info[i].pubkey;
-    stakes[i].stake = info[i].stake_lamports & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+    fd_vote_stake_weight_set_stake( &stakes[i], info[i].stake_lamports );
     staked_cnt += (info[i].stake_lamports>0UL);
   }
 
@@ -454,7 +455,7 @@ test_performance( void ) {
   for( ulong i=0UL; i<cnt; i++ ) {
     stakes[i].id_key = info[i].pubkey;
     stakes[i].vote_key = info[i].pubkey;
-    stakes[i].stake = info[i].stake_lamports & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+    fd_vote_stake_weight_set_stake( &stakes[i], info[i].stake_lamports );
     staked += (info[i].stake_lamports>0UL);
   }
 

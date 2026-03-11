@@ -243,7 +243,7 @@ fd_gossip_new( void *                           shmem,
   void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(),   fd_ping_tracker_footprint( entrypoints_len )              );
   void * prune_finder   = FD_SCRATCH_ALLOC_APPEND( l, fd_prune_finder_align(),   fd_prune_finder_footprint()                               );
   void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),        stake_pool_footprint( MAX_LEADERS_IN_EPOCH )              );
-  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),         stake_map_footprint( MAX_LEADERS_IN_EPOCH )               );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),         stake_map_footprint( stake_map_chain_cnt )                );
 
   gossip->gossip_net_out  = gossip_net_out;
 
@@ -397,14 +397,15 @@ fd_gossip_stakes_update( fd_gossip_t *                  gossip,
                          fd_vote_stake_weight_t const * stake_weights,
                          ulong                          stake_weights_cnt ) {
   stake_map_reset( gossip->stake.map );
+  stake_pool_reset( gossip->stake.pool );
 
   for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
     if( FD_UNLIKELY( !stake_weights[ i ].is_leader ) ) continue;
-    stake_t * entry = stake_pool_ele( gossip->stake.pool, i );
+    stake_t * entry = stake_pool_ele_acquire( gossip->stake.pool );
     fd_memcpy( entry->pubkey.uc, stake_weights[ i ].id_key.uc, 32UL );
     entry->stake = stake_weights[ i ].stake;
 
-    stake_map_idx_insert( gossip->stake.map, i, gossip->stake.pool );
+    stake_map_ele_insert( gossip->stake.map, entry, gossip->stake.pool );
   }
 
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
