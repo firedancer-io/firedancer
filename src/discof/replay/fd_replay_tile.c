@@ -671,7 +671,6 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
 
 static void
 replay_block_start( fd_replay_tile_t *  ctx,
-                    fd_stem_context_t * stem,
                     ulong               bank_idx,
                     ulong               parent_bank_idx,
                     ulong               slot ) {
@@ -945,8 +944,7 @@ static fd_bank_t *
 prepare_leader_bank( fd_replay_tile_t *  ctx,
                      ulong               slot,
                      long                now,
-                     fd_hash_t const *   parent_block_id,
-                     fd_stem_context_t * stem ) {
+                     fd_hash_t const *   parent_block_id ) {
   long before = fd_log_wallclock();
 
   /* Make sure that we are not already leader. */
@@ -1292,7 +1290,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   FD_LOG_INFO(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
   /* Acquires bank, sets up initial state, and refcnts it. */
-  fd_bank_t *       bank = prepare_leader_bank( ctx, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id, stem );
+  fd_bank_t *       bank = prepare_leader_bank( ctx, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id );
   fd_funk_txn_xid_t xid  = { .ul = { ctx->next_leader_slot, ctx->leader_bank->data->idx } };
 
   fd_bundle_crank_tip_payment_config_t config[1] = { 0 };
@@ -1801,7 +1799,7 @@ replay( fd_replay_tile_t *  ctx,
 
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
-      replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
+      replay_block_start( ctx, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
       break;
     }
