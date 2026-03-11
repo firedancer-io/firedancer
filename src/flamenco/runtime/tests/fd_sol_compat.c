@@ -268,7 +268,7 @@ sol_compat_gossip_message_deserialize_v1( uchar *       out,
                                           uchar const * in,
                                           ulong         in_sz ) {
   if( FD_UNLIKELY( *out_sz<1UL ) ) return 0;
-  out[0] = (uchar)fd_gossip_message_deserialize( gossip_msg, in, in_sz );
+  out[0] = !!fd_gossip_message_deserialize( gossip_msg, in, in_sz );
   *out_sz = 1UL;
   return 1;
 }
