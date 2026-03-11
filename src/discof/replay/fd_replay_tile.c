@@ -581,28 +581,26 @@ generate_epoch_info_msg( ulong                       slot,
   epoch_info_msg->vote_keyed_lsched = 1UL;
 
   ulong idx = 0UL;
-  if( FD_FEATURE_ACTIVE( slot, features, validator_admission_ticket ) ) {
-    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, vote_stakes_fork_idx, iter_mem );
-         !fd_vote_stakes_fork_iter_done( vote_stakes, vote_stakes_fork_idx, iter );
-         fd_vote_stakes_fork_iter_next( vote_stakes, vote_stakes_fork_idx, iter ) ) {
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, vote_stakes_fork_idx, iter_mem );
+        !fd_vote_stakes_fork_iter_done( vote_stakes, vote_stakes_fork_idx, iter );
+        fd_vote_stakes_fork_iter_next( vote_stakes, vote_stakes_fork_idx, iter ) ) {
 
-      fd_pubkey_t pubkey;
-      ulong       stake_t_1;
-      ulong       stake_t_2;
-      fd_pubkey_t node_account_t_1;
-      fd_pubkey_t node_account_t_2;
-      fd_vote_stakes_fork_iter_ele( vote_stakes, vote_stakes_fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+    fd_pubkey_t pubkey;
+    ulong       stake_t_1;
+    ulong       stake_t_2;
+    fd_pubkey_t node_account_t_1;
+    fd_pubkey_t node_account_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, vote_stakes_fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
 
-      ulong       stake        = current_epoch ? stake_t_1 : stake_t_2;
-      fd_pubkey_t node_account = current_epoch ? node_account_t_1 : node_account_t_2;
-      if( FD_UNLIKELY( !stake ) ) continue;
+    ulong       stake        = current_epoch ? stake_t_1 : stake_t_2;
+    fd_pubkey_t node_account = current_epoch ? node_account_t_1 : node_account_t_2;
+    if( FD_UNLIKELY( !stake ) ) continue;
 
-      stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
-      memcpy( stake_weights[ idx ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
-      idx++;
-    }
+    stake_weights[ idx ].stake = stake;
+    memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+    idx++;
   }
 
   sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
