@@ -1452,6 +1452,15 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
+    case STATE_EPOCH_STAKES_LENGTH: {
+      if( FD_UNLIKELY( parser->epoch_stakes_len ) ) {
+        /* The epoch stakes in the bank is a deprecated, unused field.
+           https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L461 */
+        FD_LOG_WARNING(( "invalid bank epoch stakes length %lu, expected to be 0 because the bank epoch stakes field is deprecated", parser->epoch_stakes_len ));
+        return -1;
+      }
+      break;
+    }
     case STATE_VERSIONED_EPOCH_STAKES_LENGTH: {
       if( FD_UNLIKELY( parser->epoch_stakes_len>6UL ) ) {
         FD_LOG_WARNING(( "invalid epoch_stakes_len %lu", parser->epoch_stakes_len ));
@@ -1589,8 +1598,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
 
 static inline int
 state_process( fd_ssmanifest_parser_t * parser,
-               acc_vec_map_t *         acc_vec_map,
-               acc_vec_t *             acc_vec_pool ) {
+               acc_vec_map_t *          acc_vec_map,
+               acc_vec_t *              acc_vec_pool ) {
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
   FD_TEST( parser->state!=STATE_DONE );
@@ -1638,19 +1647,6 @@ state_process( fd_ssmanifest_parser_t * parser,
 
   if( FD_UNLIKELY( parser->state==STATE_EPOCH ) ) {
     parser->manifest->epoch = parser->epoch;
-  }
-
-  if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_KEY ) ) {
-    /* The epoch_stakes in the bank is a deprecated, unused field.
-       TODO: remove this field and associated logic when agave fully
-       removes it.
-       https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L151 */
-    if( parser->epoch_stakes_epoch>=parser->epoch && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
-      parser->epoch_idx = parser->epoch_stakes_epoch-parser->epoch;
-    }
-    else {
-      parser->epoch_idx = ULONG_MAX;
-    }
   }
 
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_EPOCH ) ) {
