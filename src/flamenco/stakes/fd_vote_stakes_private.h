@@ -29,6 +29,7 @@ struct index_ele {
   uint        prev_multi;
   uint        next_multi;
   ushort      refcnt;
+  uchar       exists_t_1;
 };
 typedef struct index_ele index_ele_t;
 
@@ -123,39 +124,39 @@ struct fd_vote_stakes {
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 
 static inline index_ele_t *
-get_index_pool( fd_vote_stakes_t * vote_stakes ) {
+get_index_pool( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->index_pool_off );
 }
 
 static inline index_map_t *
-get_index_map( fd_vote_stakes_t * vote_stakes ) {
+get_index_map( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->index_map_off );
 }
 
 static inline index_map_multi_t *
-get_index_map_multi( fd_vote_stakes_t * vote_stakes ) {
+get_index_map_multi( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->index_map_multi_off );
 }
 
 static inline stake_t *
-get_stakes_pool( fd_vote_stakes_t * vote_stakes,
-                 ushort             fork_idx ) {
+get_stakes_pool( fd_vote_stakes_t const * vote_stakes,
+                 ushort                   fork_idx ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->stakes_pool_off[ fork_idx ] );
 }
 
 static inline stakes_map_t *
-get_stakes_map( fd_vote_stakes_t * vote_stakes,
-                ushort             fork_idx ) {
+get_stakes_map( fd_vote_stakes_t const * vote_stakes,
+                ushort                   fork_idx ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->stakes_map_off[ fork_idx ] );
 }
 
 static inline fork_t *
-get_fork_pool( fd_vote_stakes_t * vote_stakes ) {
+get_fork_pool( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->fork_pool_off );
 }
 
 static inline fork_dlist_t *
-get_fork_dlist( fd_vote_stakes_t * vote_stakes ) {
+get_fork_dlist( fd_vote_stakes_t const * vote_stakes ) {
   return fd_type_pun( (uchar *)vote_stakes + vote_stakes->fork_dlist_off );
 }
 

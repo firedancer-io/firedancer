@@ -172,7 +172,6 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   uint   fec_set_idx;   /* index of first shred in the FEC set */
   ushort parent_off;    /* offset for the parent slot of the FEC set */
   ushort data_cnt;      /* number of data shreds in the FEC set */
-  int    free;          /* Whether this FEC is currently in the pool */
   int    data_complete; /* whether this FEC completes an entry batch */
   int    slot_complete; /* whether this FEC completes the slot */
   int    is_leader;     /* whether this FEC was produced by us as leader */
@@ -294,10 +293,20 @@ fd_reasm_fec_t *
 fd_reasm_pop( fd_reasm_t * reasm );
 
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
-   inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
-   make one or more FEC sets available for in-order delivery.  Caller
-   can consume these FEC sets via fd_reasm_pop.  This function assumes
-   that the reasm is not full (fd_reasm_full() returns 0).
+   inserted fd_reasm_fec_t, NULL if unsuccessful.  Inserting this FEC
+   set may make one or more FEC sets available for in-order delivery.
+   Caller can consume these FEC sets via fd_reasm_pop.
+
+   If the reasm is full (fd_reasm_full() returns 1), reasm_insert will
+   evict a FEC set by the policy outlined in the evict function.  The
+   evicted FEC set(s) will be removed from reasm, but will remain in the
+   pool.  If no FEC set was able to be evicted and the reasm insert
+   fails, then evicted will be set to a pool element that is populated
+   with data of the failed insert.
+
+   It is the caller's responsibility to read, traverse, and release back
+   to the pool the evicted reasm_fec_t chain before the next
+   fd_reasm_insert or fd_reasm_remove call.
 
    See top-level documentation for further details on insertion. */
 
@@ -311,7 +320,41 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  ushort            data_cnt,
                  int               data_complete,
                  int               slot_complete,
-                 int               leader );
+                 int               leader,
+                 fd_store_t      * opt_store,
+                 fd_reasm_fec_t ** evicted );
+
+/* fd_reasm_remove removes a leaf node or a chain of nodes that
+   terminates with a leaf node from reasm.  Returns the start of the
+   chain of evicted fd_reasm_fec_t.  This function cannot return NULL.
+
+   It is assumed that the passed `head` is a leaf node, i.e. it has no
+   children.  If `head` is in orphans, only `head` will be cleared.  If
+   `head` is in ancestry, a chain of nodes will be cleared starting from
+   `head` and walking up the tree until one of the following conditions
+   is met: we reach fec_set_idx 0, we reach a fec set with an
+   equivocating sibling.
+
+   The evicted fd_reasm_fec_t will be returned as a pointer to a pool
+   element. At this point the evicted pool element will still be
+   acquired in the pool, but no longer in any map.  It is the caller's
+   responsibility to read, traverse, and release back to the pool the
+   evicted reasm_fec_t chain before the next fd_reasm_insert or
+   fd_reasm_remove call. */
+
+fd_reasm_fec_t *
+fd_reasm_remove( fd_reasm_t     * reasm,
+                 fd_reasm_fec_t * head,
+                 fd_store_t     * opt_store );
+
+/* fd_reasm_pool_release releases a reasm_fec element back to the pool.
+   Assumes ele is a valid pointer to a pool element inside reasm.  This
+   is exposed to the caller because eviction removes elements from the
+   maps, but leaves them in the pool for caller to release. */
+
+void
+fd_reasm_pool_release( fd_reasm_t *     reasm,
+                       fd_reasm_fec_t * ele   );
 
 /* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
    beginning from this FEC then becomes the canonical chain of FEC sets

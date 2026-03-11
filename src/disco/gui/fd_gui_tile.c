@@ -15,10 +15,10 @@
 static fd_http_static_file_t * STATIC_FILES;
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
-#include <stdlib.h>
 
 #include "generated/fd_gui_tile_seccomp.h"
 
+#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../disco/tiles.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -34,9 +34,6 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../util/clock/fd_clock.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
-#include "../../util/pod/fd_pod_format.h"
-
-#include "../../flamenco/runtime/fd_bank.h"
 
 #define IN_KIND_PLUGIN        ( 0UL)
 #define IN_KIND_POH_PACK      ( 1UL)
@@ -97,7 +94,6 @@ typedef struct fd_gui_out_ctx fd_gui_out_ctx_t;
 
 typedef struct {
   fd_topo_t * topo;
-  fd_banks_t  banks[1];
 
   int is_full_client;
   int snapshots_enabled;
@@ -148,8 +144,6 @@ typedef struct {
   fd_gui_in_ctx_t in[ 64UL ];
 
   fd_net_rx_bounds_t net_in_bounds[ 64UL ];
-
-  fd_gui_out_ctx_t replay_out[ 1 ];
 } fd_gui_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -349,6 +343,14 @@ after_frag( fd_gui_ctx_t *      ctx,
         long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
         long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
         fd_gui_handle_exec_txn_done( ctx->gui, msg->txn_exec->slot, msg->txn_exec->start_shred_idx, msg->txn_exec->end_shred_idx, tsorig_ns, tspub_ns );
+
+        int txn_succeeded = msg->txn_exec->is_committable && !msg->txn_exec->is_fees_only && !msg->txn_exec->txn_err;
+        if( FD_UNLIKELY( msg->txn_exec->vote.slot!=ULONG_MAX && txn_succeeded ) ) {
+          fd_gui_peers_handle_vote( ctx->peers,
+                                    msg->txn_exec->vote.vote_acct,
+                                    msg->txn_exec->vote.slot,
+                                    !memcmp(ctx->gui->summary.identity_key->uc, msg->txn_exec->vote.identity->uc, sizeof(fd_pubkey_t) ) );
+        }
       }
 
       break;
@@ -356,72 +358,11 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_REPLAY_OUT: {
       FD_TEST( ctx->is_full_client );
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
-        fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)src;
+        fd_replay_slot_completed_t const * slot_completed =  (fd_replay_slot_completed_t const *)src;
 
+        fd_gui_peers_update_delinquency( ctx->peers, fd_clock_now( ctx->clock ) );
 
-        /* bank should already have positive refcnt */
-        fd_bank_t bank[1];
-        FD_TEST( fd_banks_bank_query( bank, ctx->banks, replay->bank_idx ) );
-        FD_TEST( bank->data->refcnt!=0 );
-
-        fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-
-        ulong vote_count = 0UL;
-        uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-        for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, bank->data->vote_stakes_fork_id, iter_mem );
-             !fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id, iter );
-             fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id, iter ) ) {
-          fd_pubkey_t pubkey;
-          ulong       stake_t_1;
-          fd_pubkey_t node_account_t_1;
-          fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL );
-
-          ctx->peers->votes[ vote_count ].vote_account = pubkey;
-          ctx->peers->votes[ vote_count ].node_account = node_account_t_1;
-          ctx->peers->votes[ vote_count ].stake        = stake_t_1;
-
-          vote_count++;
-        }
-        fd_bank_vote_stakes_end_locking_modify( bank );
-
-        fd_gui_slot_completed_t slot_completed;
-        if( FD_LIKELY( replay->parent_bank_idx!=ULONG_MAX ) ) {
-          fd_bank_t parent_bank[1];
-          FD_TEST( fd_banks_bank_query( parent_bank, ctx->banks, replay->parent_bank_idx ) );
-
-          slot_completed.total_txn_cnt          = (uint)(fd_bank_txn_count_get( bank )                 - fd_bank_txn_count_get( parent_bank ));
-          slot_completed.vote_txn_cnt           = slot_completed.total_txn_cnt - (uint)(fd_bank_nonvote_txn_count_get( bank ) - fd_bank_nonvote_txn_count_get( parent_bank ));
-          slot_completed.failed_txn_cnt         = (uint)(fd_bank_failed_txn_count_get( bank )          - fd_bank_failed_txn_count_get( parent_bank ));
-          slot_completed.nonvote_failed_txn_cnt = (uint)(fd_bank_nonvote_failed_txn_count_get( bank )  - fd_bank_nonvote_failed_txn_count_get( parent_bank ));
-
-          fd_stem_publish( stem, ctx->replay_out->idx, replay->parent_bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-        } else {
-          slot_completed.total_txn_cnt          = (uint)fd_bank_txn_count_get( bank );
-          slot_completed.vote_txn_cnt           = slot_completed.total_txn_cnt - (uint)fd_bank_nonvote_txn_count_get( bank );
-          slot_completed.failed_txn_cnt         = (uint)fd_bank_failed_txn_count_get( bank );
-          slot_completed.nonvote_failed_txn_cnt = (uint)fd_bank_nonvote_failed_txn_count_get( bank );
-        }
-
-        slot_completed.slot              = fd_bank_slot_get( bank );
-        slot_completed.completed_time    = replay->completion_time_nanos;
-        slot_completed.parent_slot       = fd_bank_parent_slot_get( bank );
-        slot_completed.max_compute_units = fd_uint_if( replay->cost_tracker.block_cost_limit==0UL, UINT_MAX, (uint)replay->cost_tracker.block_cost_limit );
-        slot_completed.transaction_fee   = fd_bank_execution_fees_get( bank );
-        slot_completed.transaction_fee   = slot_completed.transaction_fee - (slot_completed.transaction_fee>>1); /* burn */
-        slot_completed.priority_fee      = fd_bank_priority_fees_get( bank );
-        slot_completed.tips              = fd_bank_tips_get( bank );
-        slot_completed.compute_units     = fd_uint_if( replay->cost_tracker.block_cost==0UL, UINT_MAX, (uint)replay->cost_tracker.block_cost );
-        slot_completed.shred_cnt         = (uint)fd_bank_shred_cnt_get( bank );
-
-        /* release shared ownership of bank and parent_bank */
-        fd_stem_publish( stem, ctx->replay_out->idx, replay->bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
-
-        /* update vote info */
-        fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, fd_clock_now( ctx->clock ), ctx->gui->summary.identity_key );
-
-        /* update slot data */
-        fd_gui_handle_replay_update( ctx->gui, &slot_completed, &replay->block_hash, ctx->peers->slot_voted, replay->storage_slot, replay->root_slot, replay->identity_balance, fd_clock_now( ctx->clock ) );
-
+        fd_gui_handle_replay_update( ctx->gui, slot_completed, ctx->peers->slot_voted, fd_clock_now( ctx->clock ) );
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t * became_leader = (fd_became_leader_t *)src;
         fd_gui_became_leader( ctx->gui, became_leader->slot, became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
@@ -435,6 +376,7 @@ after_frag( fd_gui_ctx_t *      ctx,
 
       fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
       fd_gui_handle_epoch_info( ctx->gui, epoch_info, fd_clock_now( ctx->clock ) );
+      fd_gui_peers_handle_epoch_info( ctx->peers, epoch_info, fd_clock_now( ctx->clock ) );
       break;
     }
     case IN_KIND_SNAPIN: {
@@ -533,6 +475,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_PACK_EXECLE: {
+      FD_TEST( sz>=sizeof(fd_microblock_execle_trailer_t) );
+      FD_TEST( (sz-sizeof(fd_microblock_execle_trailer_t))%sizeof(fd_txn_e_t)==0UL );
+
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
         fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
         long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
@@ -549,13 +494,17 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_EXECLE_POH: {
+      FD_TEST( sz>=sizeof(fd_microblock_trailer_t) );
+      FD_TEST( (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
+
       fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( src+sz-sizeof( fd_microblock_trailer_t ) );
       long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+      ulong txn_cnt = (sz-sizeof( fd_microblock_trailer_t ))/sizeof(fd_txn_p_t);
       fd_gui_microblock_execution_end( ctx->gui,
                                       now,
                                       ctx->in_bank_idx[ in_idx ],
                                       fd_disco_execle_sig_slot( sig ),
-                                      (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ),
+                                      txn_cnt,
                                       (fd_txn_p_t *)src,
                                       trailer->pack_txn_idx,
                                       trailer->txn_start_pct,
@@ -752,7 +701,7 @@ unprivileged_init( fd_topo_t *      topo,
     case 0: STATIC_FILES = STATIC_FILES_STABLE; break;
     case 1: STATIC_FILES = STATIC_FILES_ALPHA;  break;
     case 2: STATIC_FILES = STATIC_FILES_DEV;    break;
-    default: __builtin_unreachable();
+    default: FD_LOG_CRIT(( "invalid frontend_release_channel %d", gui_tile->gui.frontend_release_channel ));
   }
 
   fd_http_server_params_t http_param = derive_http_params( tile );
@@ -791,16 +740,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->idle_cnt = 0UL;
   ctx->in_cnt = tile->in_cnt;
-
-  ulong banks_obj_id       = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
-  ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
-
-  if( FD_UNLIKELY( ctx->is_full_client ) ) {
-    FD_TEST( banks_obj_id!=ULONG_MAX );
-    FD_TEST( banks_locks_obj_id!=ULONG_MAX );
-    FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
-    FD_TEST( ctx->banks );
-  }
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -842,13 +781,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mtu    = link->mtu;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-  }
-
-  if( FD_UNLIKELY( ctx->is_full_client ) ) {
-    ulong idx = fd_topo_find_tile_out_link( topo, tile, "gui_replay", 0UL );
-    FD_TEST( idx!=ULONG_MAX );
-    fd_gui_out_ctx_t * replay_out = ctx->replay_out;
-    replay_out->idx    = idx;
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );

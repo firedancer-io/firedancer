@@ -348,9 +348,10 @@ fd_gui_scheduler_counts_snap( fd_gui_t * gui, long now ) {
 
 static void
 fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
-  ulong total_txn_cnt          = 0UL;
-  ulong vote_txn_cnt           = 0UL;
-  ulong nonvote_failed_txn_cnt = 0UL;
+  ulong vote_failed     = 0UL;
+  ulong vote_success    = 0UL;
+  ulong nonvote_success = 0UL;
+  ulong nonvote_failed  = 0UL;
 
   if( FD_LIKELY( gui->summary.slot_completed==ULONG_MAX ) ) return;
   for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1UL, FD_GUI_SLOTS_CNT ); i++ ) {
@@ -360,15 +361,16 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
     if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) continue; /* Slot is on this fork but was never completed, must have been in root path on boot. */
     if( FD_UNLIKELY( slot->completed_time+FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS*1000L*1000L*1000L<gui->next_sample_400millis ) ) break; /* Slot too old. */
     if( FD_UNLIKELY( slot->skipped ) ) continue; /* Skipped slots don't count to TPS. */
-
-    total_txn_cnt          += slot->total_txn_cnt;
-    vote_txn_cnt           += slot->vote_txn_cnt;
-    nonvote_failed_txn_cnt += slot->nonvote_failed_txn_cnt;
+    vote_failed     += slot->vote_failed;
+    vote_success    += slot->vote_success;
+    nonvote_success += slot->nonvote_success;
+    nonvote_failed  += slot->nonvote_failed;
   }
 
-  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 0 ] = total_txn_cnt;
-  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 1 ] = vote_txn_cnt;
-  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ][ 2 ] = nonvote_failed_txn_cnt;
+  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ].vote_failed = vote_failed;
+  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ].vote_success = vote_success;
+  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ].nonvote_success = nonvote_success;
+  gui->summary.estimated_tps_history[ gui->summary.estimated_tps_history_idx ].nonvote_failed = nonvote_failed;
   gui->summary.estimated_tps_history_idx = (gui->summary.estimated_tps_history_idx+1UL) % FD_GUI_TPS_HISTORY_SAMPLE_CNT;
 }
 
@@ -1637,10 +1639,10 @@ fd_gui_clear_slot( fd_gui_t *      gui,
   slot->skipped                = 0;
   slot->must_republish         = 1;
   slot->level                  = FD_GUI_SLOT_LEVEL_INCOMPLETE;
-  slot->total_txn_cnt          = UINT_MAX;
-  slot->vote_txn_cnt           = UINT_MAX;
-  slot->failed_txn_cnt         = UINT_MAX;
-  slot->nonvote_failed_txn_cnt = UINT_MAX;
+  slot->vote_failed            = UINT_MAX;
+  slot->vote_success           = UINT_MAX;
+  slot->nonvote_success        = UINT_MAX;
+  slot->nonvote_failed         = UINT_MAX;
   slot->compute_units          = UINT_MAX;
   slot->transaction_fee        = ULONG_MAX;
   slot->priority_fee           = ULONG_MAX;
@@ -2184,10 +2186,12 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
       slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
     }
   }
-  slot->total_txn_cnt          = total_txn_count;
-  slot->vote_txn_cnt           = total_txn_count - nonvote_txn_count;
-  slot->failed_txn_cnt         = failed_txn_count;
-  slot->nonvote_failed_txn_cnt = nonvote_failed_txn_count;
+
+  slot->nonvote_success = nonvote_txn_count - nonvote_failed_txn_count;
+  slot->nonvote_failed  = nonvote_failed_txn_count;
+  slot->vote_success    = failed_txn_count - nonvote_failed_txn_count;
+  slot->vote_failed     = total_txn_count - nonvote_txn_count - slot->vote_success;
+
   slot->transaction_fee        = transaction_fee;
   slot->priority_fee           = priority_fee;
   slot->tips                   = tips;
@@ -2830,28 +2834,24 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
 }
 
 void
-fd_gui_handle_replay_update( fd_gui_t *                gui,
-                             fd_gui_slot_completed_t * slot_completed,
-                             fd_hash_t const *         block_hash,
-                             ulong                     vote_slot,
-                             ulong                     storage_slot,
-                             ulong                     rooted_slot,
-                             ulong                     identity_balance,
-                             long                      now ) {
+fd_gui_handle_replay_update( fd_gui_t *                         gui,
+                             fd_replay_slot_completed_t const * slot_completed,
+                             ulong                              vote_slot,
+                             long                               now ) {
   (void)now;
 
-  if( FD_LIKELY( rooted_slot!=ULONG_MAX && gui->summary.slot_rooted!=rooted_slot ) ) {
-    fd_gui_handle_rooted_slot( gui, rooted_slot );
+  if( FD_LIKELY( slot_completed->root_slot!=ULONG_MAX && gui->summary.slot_rooted!=slot_completed->root_slot ) ) {
+    fd_gui_handle_rooted_slot( gui, slot_completed->root_slot );
   }
 
-  if( FD_LIKELY( gui->summary.slot_storage!=storage_slot ) ) {
-    gui->summary.slot_storage = storage_slot;
+  if( FD_LIKELY( gui->summary.slot_storage!=slot_completed->storage_slot ) ) {
+    gui->summary.slot_storage = slot_completed->storage_slot;
     fd_gui_printf_storage_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
 
-  if( FD_UNLIKELY( identity_balance!=ULONG_MAX && gui->summary.identity_account_balance!=identity_balance ) ) {
-    gui->summary.identity_account_balance = identity_balance;
+  if( FD_UNLIKELY( slot_completed->identity_balance!=ULONG_MAX && gui->summary.identity_account_balance!=slot_completed->identity_balance ) ) {
+    gui->summary.identity_account_balance = slot_completed->identity_balance;
 
     fd_gui_printf_identity_balance( gui );
     fd_http_server_ws_broadcast( gui->http );
@@ -2873,12 +2873,12 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
 
   if( FD_UNLIKELY( slot->mine ) ) {
     fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, slot->slot );
-    if( FD_LIKELY( lslot ) ) fd_memcpy( lslot->block_hash.uc, block_hash->uc, sizeof(fd_hash_t) );
+    if( FD_LIKELY( lslot ) ) fd_memcpy( lslot->block_hash.uc, slot_completed->block_hash.uc, sizeof(fd_hash_t) );
   }
 
-  slot->completed_time    = slot_completed->completed_time;
+  slot->completed_time    = slot_completed->completion_time_nanos;
   slot->parent_slot       = slot_completed->parent_slot;
-  slot->max_compute_units = fd_uint_if( slot_completed->max_compute_units==UINT_MAX, slot->max_compute_units, slot_completed->max_compute_units );
+  slot->max_compute_units = fd_uint_if( slot_completed->cost_tracker.block_cost_limit==ULONG_MAX, slot->max_compute_units, (uint)slot_completed->cost_tracker.block_cost_limit );
   if( FD_LIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
     /* Typically a slot goes from INCOMPLETE to COMPLETED but it can
        happen that it starts higher.  One such case is when we
@@ -2893,15 +2893,16 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
       slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
     }
   }
-  slot->total_txn_cnt          = slot_completed->total_txn_cnt;
-  slot->vote_txn_cnt           = slot_completed->vote_txn_cnt;
-  slot->failed_txn_cnt         = slot_completed->failed_txn_cnt;
-  slot->nonvote_failed_txn_cnt = slot_completed->nonvote_failed_txn_cnt;
+  slot->vote_failed     = fd_uint_if( slot_completed->vote_failed==ULONG_MAX,     slot->vote_failed,     (uint)slot_completed->vote_failed     );
+  slot->vote_success    = fd_uint_if( slot_completed->vote_success==ULONG_MAX,    slot->vote_success,    (uint)slot_completed->vote_success    );
+  slot->nonvote_success = fd_uint_if( slot_completed->nonvote_success==ULONG_MAX, slot->nonvote_success, (uint)slot_completed->nonvote_success );
+  slot->nonvote_failed  = fd_uint_if( slot_completed->nonvote_failed==ULONG_MAX,  slot->nonvote_failed,  (uint)slot_completed->nonvote_failed  );
+
   slot->transaction_fee        = slot_completed->transaction_fee;
   slot->priority_fee           = slot_completed->priority_fee;
   slot->tips                   = slot_completed->tips;
-  slot->compute_units          = slot_completed->compute_units;
-  slot->shred_cnt              = slot_completed->shred_cnt;
+  slot->compute_units          = fd_uint_if( slot_completed->cost_tracker.block_cost==ULONG_MAX, slot->compute_units, (uint)slot_completed->cost_tracker.block_cost );
+  slot->shred_cnt              = fd_uint_if( slot_completed->shred_cnt==ULONG_MAX, slot->shred_cnt, (uint)slot_completed->shred_cnt );
   slot->vote_slot              = vote_slot;
 
   try_publish_vote_status( gui, slot_completed->slot );
@@ -2935,7 +2936,7 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
   fd_gui_slot_staged_shred_event_t * slot_complete_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
   gui->shreds.staged_tail++;
   slot_complete_event->event     = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
-  slot_complete_event->timestamp = slot_completed->completed_time;
+  slot_complete_event->timestamp = slot_completed->completion_time_nanos;
   slot_complete_event->shred_idx = USHORT_MAX;
   slot_complete_event->slot      = slot->slot;
 
@@ -3090,8 +3091,9 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     ulong requested_execution_cus             = ULONG_MAX;
     ulong precompile_sigs                     = ULONG_MAX;
     ulong requested_loaded_accounts_data_cost = ULONG_MAX;
+    ulong allocated_data                      = ULONG_MAX;
     uint _flags;
-    ulong cost_estimate = fd_pack_compute_cost( txn, txn_payload->payload, &_flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost );
+    ulong cost_estimate = fd_pack_compute_cost( txn, txn_payload->payload, &_flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost, &allocated_data );
     sig_rewards += FD_PACK_FEE_PER_SIGNATURE * precompile_sigs;
     sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
 

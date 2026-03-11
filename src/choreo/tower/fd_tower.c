@@ -354,6 +354,7 @@ threshold_check( fd_tower_t const *        tower,
                                    !fd_tower_voters_iter_done( accts, iter );
                              iter = fd_tower_voters_iter_next( accts, iter ) ) {
     fd_tower_voters_t const * acct = fd_tower_voters_iter_ele_const( accts, iter );
+
     fd_tower_remove_all( scratch_tower );
     fd_tower_from_vote_acc( scratch_tower, acct->data );
 

@@ -31,7 +31,8 @@ meta_query_fast( fd_vinyl_meta_t *      join,
     }
     return NULL;
   }
-  __builtin_unreachable();
+
+  FD_LOG_CRIT(( "unreachable" ));
 }
 
 uint

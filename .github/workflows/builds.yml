@@ -48,6 +48,18 @@ on:
         type: boolean
         description: Compile with optimizations disabled
         default: false
+      verbose:
+        type: boolean
+        description: Show output from failed builds
+        default: false
+      gcc_runner_labels:
+        type: string
+        description: Runner labels where gcc jobs will get scheduled
+        default: '["self-hosted", "X64", "rocky9"]'
+      clang_runner_labels:
+        type: string
+        description: Runner labels where clang jobs will get scheduled
+        default: '["self-hosted", "X64", "rocky9"]'
   workflow_dispatch:
     inputs:
       cid:
@@ -94,13 +106,25 @@ on:
         type: boolean
         description: Compile with optimizations disabled
         default: false
+      verbose:
+        type: boolean
+        description: Show output from failed builds
+        default: false
+      gcc_runner_labels:
+        type: string
+        description: Runner labels where gcc jobs will get scheduled
+        default: '["self-hosted", "X64", "rocky9"]'
+      clang_runner_labels:
+        type: string
+        description: Runner labels where clang jobs will get scheduled
+        default: '["self-hosted", "X64", "rocky9"]'
 concurrency:
   group: builds_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.cid }}
   cancel-in-progress: true
 jobs:
   build_gcc:
     runs-on:
-      labels: rocky9
+      labels: ${{ fromJSON(inputs.gcc_runner_labels) }}
       group: fd-public-repo
     if: ${{ inputs.gcc != 'none' }}
     steps:
@@ -143,6 +167,10 @@ jobs:
           if [ "${{ inputs.no_optimization }}" == "true" ]; then
             ARGS="$ARGS --no-optimization"
           fi
+          # verbose
+          if [ "${{ inputs.verbose }}" == "true" ]; then
+            ARGS="$ARGS --verbose"
+          fi
           # exceptions
           if [ ! -z "${{ inputs.gcc_exceptions }}" ] && [ "${{ inputs.gcc_exceptions }}" != "none" ]; then
             no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.gcc_exceptions }}")
@@ -159,7 +187,7 @@ jobs:
 
   build_clang:
     runs-on:
-      labels: rocky9
+      labels: ${{ fromJSON(inputs.clang_runner_labels) }}
       group: fd-public-repo
     if: ${{ inputs.clang != 'none' }}
     steps:
@@ -201,6 +229,10 @@ jobs:
           # no-optimization
           if [ "${{ inputs.no_optimization }}" == "true" ]; then
             ARGS="$ARGS --no-optimization"
+          fi
+          # verbose
+          if [ "${{ inputs.verbose }}" == "true" ]; then
+            ARGS="$ARGS --verbose"
           fi
           # exceptions
           if [ ! -z "${{ inputs.clang_exceptions }}" ] && [ "${{ inputs.clang_exceptions }}" != "none" ]; then

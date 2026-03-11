@@ -2,6 +2,7 @@
 #define HEADER_fd_src_choreo_tower_fd_tower_serdes_h
 
 #include "../fd_choreo_base.h"
+#include "../../ballet/txn/fd_txn.h"
 
 #define FD_VOTE_IX_KIND_TOWER_SYNC        (14)
 #define FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH (15)
@@ -140,5 +141,14 @@ fd_vote_acc_vote_slot( uchar const * vote_account_data );
 
 FD_FN_PURE ulong
 fd_vote_acc_root_slot( uchar const * vote_account_data );
+
+/* fd_txn_parse_simple_vote optionally extracts the vote account pubkey,
+   identity pubkey, and largest voted-for slot from a vote transaction. */
+int
+fd_txn_parse_simple_vote( fd_txn_t const * txn,
+                          uchar    const * payload,
+                          fd_pubkey_t *    opt_identity,
+                          fd_pubkey_t *    opt_vote_acct,
+                          ulong *          opt_vote_slot );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_serdes_h */

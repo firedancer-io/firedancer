@@ -85,7 +85,7 @@ struct fd_backt_tile {
   int in_kind[ 16UL ];
   fd_backt_in_t in[ 16UL ];
 
-  fd_backt_out_t shred_out[ 1 ];
+  fd_backt_out_t repair_out[ 1 ];
   fd_backt_out_t tower_out[ 1 ];
 
   ulong shreds_idx;
@@ -311,7 +311,7 @@ after_credit( fd_backt_tile_t *   ctx,
 
   int is_leader = 0;
 
-  uchar * out_buf = fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+  uchar * out_buf = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
   memcpy( out_buf, shred, FD_SHRED_DATA_HEADER_SZ );
   memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ, &mr, sizeof(fd_hash_t) );
   memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t), &cmr, sizeof(fd_hash_t) );
@@ -319,9 +319,9 @@ after_credit( fd_backt_tile_t *   ctx,
   ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
 
   ulong sig = fd_disco_shred_out_fec_sig( shred->slot, shred->fec_set_idx, 32, shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
-  fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, fec_complete_sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->repair_out->idx, sig, ctx->repair_out->chunk, fec_complete_sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
-  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, fec_complete_sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, fec_complete_sz, ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
   if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }
@@ -583,8 +583,8 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
   }
 
-  *ctx->shred_out = out1( topo, tile, "shred_out" );
-  *ctx->tower_out = out1( topo, tile, "tower_out" );
+  *ctx->repair_out = out1( topo, tile, "repair_out" );
+  *ctx->tower_out  = out1( topo, tile, "tower_out" );
 
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, fd_pod_query_ulong( topo->props, "store", ULONG_MAX ) ) );
 

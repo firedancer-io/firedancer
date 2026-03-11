@@ -1138,6 +1138,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   } else {
 
+
+    fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
@@ -1157,6 +1159,14 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
       if( txn_out->accounts.stake_update[i] ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
+      }
+      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_vote_program_id ) ) {
+        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_and_initialized( account->meta ) ) ) {
+          fd_top_votes_invalidate( top_votes, pubkey );
+        } else {
+          fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( account->meta ), account->meta->dlen );
+          fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
+        }
       }
 
       /* TODO: vote update is currently unused */
@@ -1355,8 +1365,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
      fees-only, we return early. */
   txn_out->err.txn_err = fd_runtime_pre_execute_check( runtime, bank, txn_in, txn_out );
   ulong cu_before = txn_out->details.compute_budget.compute_meter;
-
-  txn_out->details.exec_start_timestamp = fd_tickcount();
 
   /* Execute the transaction if eligible to do so. */
   if( FD_LIKELY( txn_out->err.is_committable ) ) {

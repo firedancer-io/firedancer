@@ -3,6 +3,7 @@
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
+#include "../reasm/fd_reasm.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
@@ -12,6 +13,7 @@
 #define REPLAY_SIG_BECAME_LEADER  (4)
 #define REPLAY_SIG_OC_ADVANCED    (5)
 #define REPLAY_SIG_TXN_EXECUTED   (6)
+#define REPLAY_SIG_REASM_EVICTED  (7)
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first
@@ -33,7 +35,7 @@ struct fd_replay_slot_completed {
   fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
   fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
-  ulong transaction_count;
+  ulong     transaction_count;   /* since genesis */
 
   struct {
     double initial;
@@ -53,7 +55,6 @@ struct fd_replay_slot_completed {
      eliminate non-timestamp fields and have consumers just use
      bank_idx. */
   ulong bank_idx;
-  ulong parent_bank_idx; /* ULONG_MAX if unavailable */
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */
   long preparation_begin_nanos;           /* timestamp when replay began preparing the state to begin execution of the slot */
@@ -63,6 +64,17 @@ struct fd_replay_slot_completed {
 
   int is_leader; /* whether we were leader for this slot */
   ulong identity_balance;
+
+  /* since slot start, default ULONG_MAX */
+  ulong vote_success;
+  ulong vote_failed;
+  ulong nonvote_success;
+  ulong nonvote_failed;
+
+  ulong transaction_fee;
+  ulong priority_fee;
+  ulong tips;
+  ulong shred_cnt;
 
   struct {
     ulong block_cost;
@@ -106,6 +118,15 @@ struct fd_replay_txn_executed {
 };
 typedef struct fd_replay_txn_executed fd_replay_txn_executed_t;
 
+struct fd_replay_fec_evicted {
+  fd_hash_t mr;
+  ulong     slot;
+  uint      fec_set_idx;
+  ulong     bank_idx;
+};
+typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
+
+
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
   fd_replay_root_advanced_t   root_advanced;
@@ -113,6 +134,7 @@ union fd_replay_message {
   fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
+  fd_replay_fec_evicted_t          reasm_evicted;
 };
 
 typedef union fd_replay_message fd_replay_message_t;
