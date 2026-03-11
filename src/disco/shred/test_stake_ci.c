@@ -28,7 +28,7 @@ generate_stake_msg( uchar *      _buf,
        (vote is not used, so it doesn't matter if it's repeated or not) */
     memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
     memset( buf->weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    buf->weights[i].stake = 1000UL/(i+1UL);
+    buf->weights[i].stake = 1000UL/(i+1UL) & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
   }
   return fd_type_pun( _buf );
 }
@@ -51,7 +51,7 @@ generate_epoch_msg( uchar *      _buf,
   for(; *stakers; stakers++, i++ ) {
     memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
     memset( buf->weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    buf->weights[i].stake = 1000UL/(i+1UL);
+    buf->weights[i].stake = 1000UL/(i+1UL) & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
   }
   return fd_type_pun( _buf );
 }
@@ -649,10 +649,10 @@ test_limits( void ) {
           FD_STORE( ulong, buf->weights[i].vote_key.uc, fd_ulong_bswap( i ) );
           FD_STORE( ulong, buf->weights[i].id_key.uc, fd_ulong_bswap( i ) );
         }
-        buf->weights[i].stake = stake;
+        buf->weights[i].stake = stake & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
         buf->staked_cnt++;
       } else {
-        buf->excluded_stake += stake;
+        buf->excluded_stake += stake & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
       }
     }
     fd_stake_ci_stake_msg_init( info, buf );
@@ -838,7 +838,7 @@ test_dest_update_overflow( void ) {
   for(ulong i = 0UL; i<buf->staked_cnt; i++ ) {
     FD_STORE( ulong, buf->weights[i].vote_key.uc, fd_ulong_bswap( i ) );
     FD_STORE( ulong, buf->weights[i].id_key.uc, fd_ulong_bswap( i ) );
-    buf->weights[i].stake = i+1UL;
+    buf->weights[i].stake = (i+1UL) & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
   }
 
   fd_stake_ci_epoch_msg_init( info, buf );  fd_stake_ci_epoch_msg_fini( info );
