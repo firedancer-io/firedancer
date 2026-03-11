@@ -49,6 +49,23 @@ Some code is auto-generated. Do not edit generated files directly — regenerate
   ```
   Regenerates `fd_types.h` and `fd_types.c`.
 
+## Fuzzing
+
+### build fuzzer
+make -j CC=clang EXTRAS=fuzz BUILDDIR=clang-fuzz
+
+### build coverage report
+make -j CC=clang EXTRAS=llvm-cov BUILDDIR=clang-cov
+
+### start fuzzing
+CORPUS=/data/corpus/my_fuzzer
+mkdir $CORPUS
+build/clang-fuzz/fuzz-test/my_fuzzer $CORPUS -timeout=3
+
+### look at coverage report
+./contrib/test/single_test_cov.sh build/clang-cov/fuzz-test/my_fuzzer $CORPUS
+python3 -m http.server 12000
+
 ## Code Style
 
 Follow the coding conventions in `CONTRIBUTING.md` when making code changes.
