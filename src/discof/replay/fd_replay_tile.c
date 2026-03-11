@@ -20,6 +20,7 @@
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
@@ -404,8 +405,9 @@ struct fd_replay_tile {
   double      slot_duration_ticks;
   fd_bank_t   leader_bank[1];
 
-  fd_pubkey_t      identity_pubkey[1];
   ulong            identity_idx;
+
+  fd_node_info_t * node_info;
 
   fd_keyswitch_t * keyswitch;
   int              halt_leader;
@@ -737,7 +739,7 @@ static ulong
 get_identity_balance( fd_replay_tile_t * ctx, fd_funk_txn_xid_t xid ) {
   ulong identity_balance = ULONG_MAX;
   fd_accdb_ro_t identity_acc[1];
-  if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, identity_acc, &xid, ctx->identity_pubkey ) ) ) {
+  if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, identity_acc, &xid, (fd_pubkey_t const *)ctx->node_info->identity_pubkey ) ) ) {
     identity_balance = identity_acc->meta->lamports;
     fd_accdb_close_ro( ctx->accdb, identity_acc );
   }
@@ -1002,14 +1004,14 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
 
   FD_LOG_DEBUG(( "keyswitch: switching identity" ));
 
-  memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
+  memcpy( ctx->node_info->identity_pubkey, ctx->keyswitch->bytes, 32UL );
   fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
 
   /* The next leader slot will be incorrect now that the identity has
      switched.  The next leader slot normally gets updated based on the
      reset slot returned by tower. */
   ulong min_leader_slot = fd_ulong_max( ctx->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, (fd_pubkey_t const *)ctx->node_info->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
     ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
   } else {
@@ -1470,7 +1472,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->reset_slot            = 0UL;
   fd_memcpy( ctx->reset_bank, bank, sizeof(fd_bank_t) );
   ctx->reset_timestamp_nanos = fd_log_wallclock();
-  ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+  ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, (fd_pubkey_t const *)ctx->node_info->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
     ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
   } else {
@@ -1587,7 +1589,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->reset_slot            = snapshot_slot;
     fd_memcpy( ctx->reset_bank, bank, sizeof(fd_bank_t) );
     ctx->reset_timestamp_nanos = fd_log_wallclock();
-    ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+    ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, (fd_pubkey_t const *)ctx->node_info->identity_pubkey );
     if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
       ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
     } else {
@@ -2299,7 +2301,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, msg->txn_exec->txn_idx );
 
         fd_pubkey_t * identity_pubkey_out = NULL;
-        if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
+        if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, (fd_pubkey_t const *)ctx->node_info->identity_pubkey ) ) {
           fd_bank_identity_vote_idx_set( bank, ctx->identity_idx );
         }
       }
@@ -2389,7 +2391,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
   ctx->reset_slot     = msg->reset_slot;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, (fd_pubkey_t const *)ctx->node_info->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {
     ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
   } else {
@@ -2631,6 +2633,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       ctx->has_genesis_timestamp = 1;
       ctx->genesis_timestamp = meta->creation_time_millis;
       *ctx->genesis_hash = meta->genesis_hash;
+      memcpy( ctx->node_info->genesis_hash, ctx->genesis_hash->uc, 32UL );
       if( FD_LIKELY( meta->bootstrap ) ) {
         boot_genesis( ctx, stem, meta );
       } else {
@@ -2757,7 +2760,11 @@ privileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( !strcmp( tile->replay.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
+  ulong node_info_obj_id = fd_pod_query_ulong( topo->props, "node_info", ULONG_MAX );
+  FD_TEST( node_info_obj_id!=ULONG_MAX );
+  ctx->node_info = fd_node_info_join( fd_topo_obj_laddr( topo, node_info_obj_id ) );
+  FD_TEST( ctx->node_info );
+  memcpy( ctx->node_info->identity_pubkey, fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ), 32UL );
   ctx->identity_idx         = 0UL;
 
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
@@ -2984,6 +2991,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
+
   ctx->halt_leader = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
