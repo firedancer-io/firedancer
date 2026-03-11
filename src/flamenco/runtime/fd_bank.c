@@ -26,46 +26,19 @@ fd_bank_stake_rewards_modify( fd_bank_t * bank ) {
 
 fd_epoch_leaders_t const *
 fd_bank_epoch_leaders_query( fd_bank_t const * bank ) {
-  /* If the pool element hasn't been setup yet, then return NULL */
-  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank->data );
-  if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {
-    FD_LOG_CRIT(( "NULL epoch leaders pool" ));
-  }
-  if( bank->data->epoch_leaders_pool_idx==fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool ) ) {
+  if( FD_UNLIKELY( bank->data->epoch_leaders_idx==ULONG_MAX ) ) {
     return NULL;
   }
-  fd_bank_epoch_leaders_t * bank_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->data->epoch_leaders_pool_idx );
-  return fd_type_pun_const( bank_epoch_leaders->data );
+  return (fd_epoch_leaders_t const *)fd_type_pun( fd_bank_get_epoch_leaders( bank->data ) + bank->data->epoch_leaders_idx * FD_EPOCH_LEADERS_MAX_FOOTPRINT );
 }
 
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
-  /* If the dirty flag is set, then we already have a pool element
-     that was copied over for the current bank. We can simply just
-     query the pool element and return it. */
-  fd_rwlock_write( &bank->locks->epoch_leaders_pool_lock );
-  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank->data );
-  if( FD_UNLIKELY( epoch_leaders_pool==NULL ) ) {
-    FD_LOG_CRIT(( "NULL epoch leaders pool" ));
-  }
-  if( bank->data->epoch_leaders_dirty ) {
-    fd_bank_epoch_leaders_t * bank_epoch_leaders = fd_bank_epoch_leaders_pool_ele( epoch_leaders_pool, bank->data->epoch_leaders_pool_idx );
-    fd_rwlock_unwrite( &bank->locks->epoch_leaders_pool_lock );
-    return fd_type_pun( bank_epoch_leaders->data );
-  }
-  if( FD_UNLIKELY( !fd_bank_epoch_leaders_pool_free( epoch_leaders_pool ) ) ) {
-    FD_LOG_CRIT(( "Failed to acquire epoch leaders pool element: pool is full" ));
-  }
-  fd_bank_epoch_leaders_t * child_epoch_leaders = fd_bank_epoch_leaders_pool_ele_acquire( epoch_leaders_pool );
-  fd_rwlock_unwrite( &bank->locks->epoch_leaders_pool_lock );
-  /* If the dirty flag has not been set yet, we need to allocated a
-     new pool element and set a dirty flag  There is intentionally no
-     CoW for epoch leaders since they are updated once an epoch and the
-     epoch leaders isn't based off of its parent. */
-  bank->data->epoch_leaders_pool_idx = fd_bank_epoch_leaders_pool_idx( epoch_leaders_pool, child_epoch_leaders );
-  bank->data->epoch_leaders_dirty    = 1;
-  return fd_type_pun( child_epoch_leaders->data );
+  ulong idx = fd_bank_epoch_get( bank ) % 2UL;
+  bank->data->epoch_leaders_idx = idx;
+  return (fd_epoch_leaders_t *)fd_type_pun( fd_bank_get_epoch_leaders( bank->data ) + idx * FD_EPOCH_LEADERS_MAX_FOOTPRINT );
 }
+
 
 fd_top_votes_t const *
 fd_bank_top_votes_query( fd_bank_t const * bank ) {
@@ -209,7 +182,6 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( max_stake_accounts, max_stake_accounts, max_fork_width ) );
@@ -249,7 +221,6 @@ fd_banks_new( void * shmem,
   fd_banks_data_t * banks_data                  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
   void *            pool_mem                    = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
   void *            dead_banks_deque_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
-  void *            epoch_leaders_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( max_fork_width ) );
   void *            top_votes_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( max_total_banks ) );
   void *            cost_tracker_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   void *            stake_rewards_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( max_stake_accounts, max_stake_accounts, max_fork_width ) );
@@ -297,13 +268,6 @@ fd_banks_new( void * shmem,
   /* Create the pools for the non-inlined fields.  Also new() and join()
      each of the elements in the pool as well as set up the lock for
      each of the pools. */
-
-  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_epoch_leaders_pool_join( fd_bank_epoch_leaders_pool_new( epoch_leaders_pool_mem, max_fork_width ) );
-  if( FD_UNLIKELY( !epoch_leaders_pool ) ) {
-    FD_LOG_WARNING(( "Failed to create epoch leaders pool" ));
-    return NULL;
-  }
-  fd_banks_set_epoch_leaders_pool( banks_data, epoch_leaders_pool );
 
   fd_bank_top_votes_t * top_votes_pool = fd_bank_top_votes_pool_join( fd_bank_top_votes_pool_new( top_votes_pool_mem, max_total_banks ) );
   if( FD_UNLIKELY( !top_votes_pool ) ) {
@@ -366,8 +330,7 @@ fd_banks_new( void * shmem,
 
     fd_bank_set_stake_rewards( bank, stake_rewards );
 
-    fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_banks_get_epoch_leaders_pool( banks_data );
-    fd_bank_set_epoch_leaders_pool( bank, epoch_leaders_pool );
+    fd_bank_set_epoch_leaders( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, epoch_leaders_mem) );
 
     fd_bank_top_votes_t * top_votes_pool = fd_banks_get_top_votes_pool( banks_data );
     fd_bank_set_top_votes_pool( bank, top_votes_pool );
@@ -434,7 +397,6 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   banks_data                         = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
   void * pool_mem                    = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( banks_data->max_total_banks ) );
   void * dead_banks_deque_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
-  void * epoch_leaders_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_epoch_leaders_pool_align(), fd_bank_epoch_leaders_pool_footprint( banks_data->max_fork_width ) );
   void * top_votes_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( banks_data->max_total_banks ) );
   void * cost_tracker_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
   void * stake_rewards_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_stake_accounts, banks_data->max_fork_width ) );
@@ -457,17 +419,6 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   fd_bank_idx_seq_t * banks_dead_deque = fd_banks_dead_join( dead_banks_deque_mem );
   if( FD_UNLIKELY( !banks_dead_deque ) ) {
     FD_LOG_WARNING(( "Failed to join banks dead deque" ));
-    return NULL;
-  }
-
-  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_banks_get_epoch_leaders_pool( banks_data );
-  if( FD_UNLIKELY( !epoch_leaders_pool ) ) {
-    FD_LOG_WARNING(( "Failed to join epoch leaders pool" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( epoch_leaders_pool!=fd_bank_epoch_leaders_pool_join( epoch_leaders_pool_mem ) ) ) {
-    FD_LOG_WARNING(( "Failed to join epoch leaders pool" ));
     return NULL;
   }
 
@@ -541,8 +492,7 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   bank_l->data  = bank;
   bank_l->locks = banks->locks;
 
-  bank->epoch_leaders_pool_idx = fd_bank_epoch_leaders_pool_idx_null( fd_banks_get_epoch_leaders_pool( banks->data ) );
-  bank->epoch_leaders_dirty    = 0;
+  bank->epoch_leaders_idx = ULONG_MAX;
 
   bank->top_votes_pool_idx = fd_bank_top_votes_pool_idx_null( fd_banks_get_top_votes_pool( banks->data ) );
   bank->top_votes_dirty    = 0;
@@ -622,8 +572,7 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   /* For the other fields reset the state from the parent bank. */
 
-  child_bank->epoch_leaders_dirty    = 0;
-  child_bank->epoch_leaders_pool_idx = parent_bank->epoch_leaders_pool_idx;
+  child_bank->epoch_leaders_idx = parent_bank->epoch_leaders_idx;
 
   child_bank->top_votes_dirty    = 0;
   child_bank->top_votes_pool_idx = parent_bank->top_votes_pool_idx;
@@ -832,17 +781,6 @@ fd_banks_advance_root( fd_banks_t * banks,
        it holds ownership of a pool element, we need to release it if
        the new root isn't using the same pool element.  If it is, we
        transfer ownership of this pool index to the new root. */
-
-    fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( new_root->data );
-    if( head->epoch_leaders_dirty ) {
-      if( head->epoch_leaders_pool_idx!=new_root->data->epoch_leaders_pool_idx ) {
-        fd_rwlock_write( &banks->locks->epoch_leaders_pool_lock );
-        fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, head->epoch_leaders_pool_idx );
-        fd_rwlock_unwrite( &banks->locks->epoch_leaders_pool_lock );
-      } else {
-        new_root->data->epoch_leaders_dirty = 1;
-      }
-    }
 
     fd_bank_top_votes_t * top_votes_pool = fd_bank_get_top_votes_pool( new_root->data );
     if( head->top_votes_dirty ) {
@@ -1193,13 +1131,6 @@ fd_banks_prune_dead_banks( fd_banks_t * banks ) {
       bank->cost_tracker_pool_idx = null_idx;
     }
 
-    if( FD_UNLIKELY( bank->epoch_leaders_dirty && bank->epoch_leaders_pool_idx!=null_idx ) ) {
-      fd_rwlock_write( &banks->locks->epoch_leaders_pool_lock );
-      fd_bank_epoch_leaders_pool_idx_release( fd_bank_get_epoch_leaders_pool( bank ), bank->epoch_leaders_pool_idx );
-      fd_rwlock_unwrite( &banks->locks->epoch_leaders_pool_lock );
-      bank->epoch_leaders_pool_idx = null_idx;
-    }
-
     fd_bank_top_votes_t * top_votes_pool = fd_bank_get_top_votes_pool( bank );
     ulong top_votes_null_idx = fd_bank_top_votes_pool_idx_null( top_votes_pool );
     if( FD_UNLIKELY( bank->top_votes_dirty && bank->top_votes_pool_idx!=top_votes_null_idx ) ) {
@@ -1284,13 +1215,6 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_bank_data_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank->data->parent_idx );
 
   fd_memset( &bank->data->non_cow, 0, sizeof(bank->data->non_cow) );
-
-  fd_bank_epoch_leaders_t * epoch_leaders_pool = fd_bank_get_epoch_leaders_pool( bank->data );
-  if( bank->data->epoch_leaders_dirty ) {
-    fd_bank_epoch_leaders_pool_idx_release( epoch_leaders_pool, bank->data->epoch_leaders_pool_idx );
-    bank->data->epoch_leaders_dirty = 0;
-    bank->data->epoch_leaders_pool_idx = parent_bank ? parent_bank->epoch_leaders_pool_idx : fd_bank_epoch_leaders_pool_idx_null( epoch_leaders_pool );
-  }
 
   fd_bank_top_votes_t * top_votes_pool = fd_bank_get_top_votes_pool( bank->data );
   if( bank->data->top_votes_dirty ) {

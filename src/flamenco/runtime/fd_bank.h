@@ -262,13 +262,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             epoch                    ) /* Epoch */                                              \
   X(ulong,                             identity_vote_idx        ) /* Identity vote index */
 
-/* Defining pools for any CoW fields. */
-
-struct fd_bank_epoch_leaders {
-  ulong next;
-  uchar data[FD_EPOCH_LEADERS_MAX_FOOTPRINT] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
-};
-typedef struct fd_bank_epoch_leaders fd_bank_epoch_leaders_t;
+/* Defining pooled fields. */
 
 struct fd_bank_cost_tracker {
   ulong next;
@@ -281,10 +275,6 @@ struct fd_bank_top_votes {
   uchar data[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
 typedef struct fd_bank_top_votes fd_bank_top_votes_t;
-
-#define POOL_NAME fd_bank_epoch_leaders_pool
-#define POOL_T    fd_bank_epoch_leaders_t
-#include "../../util/tmpl/fd_pool.c"
 
 #define POOL_NAME fd_bank_cost_tracker_pool
 #define POOL_T    fd_bank_cost_tracker_t
@@ -376,8 +366,8 @@ struct fd_bank_data {
   ulong stake_delegations_delta_offset;
 
   int   epoch_leaders_dirty;
-  ulong epoch_leaders_pool_idx;
-  ulong epoch_leaders_pool_offset;
+  ulong epoch_leaders_idx; /* always 0 or 1 based on % epoch */
+  ulong epoch_leaders_offset;
 
   int   top_votes_dirty;
   ulong top_votes_pool_idx;
@@ -424,17 +414,13 @@ struct fd_bank {
 typedef struct fd_bank fd_bank_t;
 
 static inline void
-fd_bank_set_epoch_leaders_pool( fd_bank_data_t * bank, fd_bank_epoch_leaders_t * epoch_leaders_pool ) {
-  void * epoch_leaders_pool_mem = fd_bank_epoch_leaders_pool_leave( epoch_leaders_pool );
-  if( FD_UNLIKELY( !epoch_leaders_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave epoch leaders pool" ));
-  }
-  bank->epoch_leaders_pool_offset = (ulong)epoch_leaders_pool_mem - (ulong)bank;
+fd_bank_set_epoch_leaders( fd_bank_data_t * bank, uchar * epoch_leaders_mem ) {
+  bank->epoch_leaders_offset = (ulong)bank - (ulong)epoch_leaders_mem;
 }
 
-static inline fd_bank_epoch_leaders_t *
-fd_bank_get_epoch_leaders_pool( fd_bank_data_t * bank ) {
-  return fd_bank_epoch_leaders_pool_join( (uchar *)bank + bank->epoch_leaders_pool_offset );
+static inline uchar *
+fd_bank_get_epoch_leaders( fd_bank_data_t * bank ) {
+  return (uchar *)bank - bank->epoch_leaders_offset;
 }
 
 /* Do the same setup for the cost tracker pool. */
@@ -574,9 +560,9 @@ struct fd_banks_data {
 
   uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
-  /* Layout all CoW pools. */
+  uchar epoch_leaders_mem[ 2UL ][ FD_EPOCH_LEADERS_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
 
-  ulong epoch_leaders_pool_offset;
+  /* Lay out pool offsets */
 
   ulong top_votes_pool_offset;
 };
@@ -705,20 +691,6 @@ static inline void
 fd_banks_set_dead_banks_deque( fd_banks_data_t *   banks_data,
                                fd_bank_idx_seq_t * dead_banks_deque ) {
   banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
-}
-
-static inline fd_bank_epoch_leaders_t *
-fd_banks_get_epoch_leaders_pool( fd_banks_data_t * banks_data ) {
-  return fd_bank_epoch_leaders_pool_join( (uchar *)banks_data + banks_data->epoch_leaders_pool_offset );
-}
-
-static inline void
-fd_banks_set_epoch_leaders_pool( fd_banks_data_t * banks_data, fd_bank_epoch_leaders_t * epoch_leaders_pool ) {
-  void * epoch_leaders_pool_mem = fd_bank_epoch_leaders_pool_leave( epoch_leaders_pool );
-  if( FD_UNLIKELY( !epoch_leaders_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave epoch leaders pool" ));
-  }
-  banks_data->epoch_leaders_pool_offset = (ulong)epoch_leaders_pool_mem - (ulong)banks_data;
 }
 
 static inline fd_bank_top_votes_t *
@@ -1033,7 +1005,7 @@ static inline int
 fd_banks_is_full( fd_banks_t * banks ) {
   return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL ||
          fd_bank_cost_tracker_pool_free( fd_banks_get_cost_tracker_pool( banks->data ) )==0UL ||
-         fd_bank_epoch_leaders_pool_free( fd_banks_get_epoch_leaders_pool( banks->data ) )==0UL;
+         fd_bank_top_votes_pool_free( fd_banks_get_top_votes_pool( banks->data ) )==0UL;
 }
 
 FD_PROTOTYPES_END

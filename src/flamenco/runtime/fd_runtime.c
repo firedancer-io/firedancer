@@ -141,17 +141,19 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
     ulong vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank );
     void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
-    fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
-        epoch_leaders_mem,
-        epoch,
-        slot0,
-        slot_cnt,
-        stake_weight_cnt,
-        epoch_weights,
-        0UL,
-        vote_keyed_lsched ) );
-    if( FD_UNLIKELY( !leaders ) ) {
-      FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
+    if( ((fd_epoch_leaders_t *)fd_type_pun( epoch_leaders_mem ))->epoch != epoch ) {
+      fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
+          epoch_leaders_mem,
+          epoch,
+          slot0,
+          slot_cnt,
+          stake_weight_cnt,
+          epoch_weights,
+          0UL,
+          vote_keyed_lsched ) );
+      if( FD_UNLIKELY( !leaders ) ) {
+        FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
+      }
     }
   }
 }

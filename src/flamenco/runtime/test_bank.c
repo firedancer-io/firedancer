@@ -670,11 +670,6 @@ main( int argc, char ** argv ) {
   FD_TEST( bank4->data->bank_seq==3UL );
   FD_TEST( fd_bank_capitalization_get( bank4 ) == 2000UL );
 
-  /* Trying to allocate a new epoch leaders should fail because the pool
-     now has no free elements. */
-
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank4->data ) ) == 2UL );
-
   fd_banks_mark_bank_frozen( banks, bank4 );
 
   fd_bank_t bank5[1];
@@ -821,12 +816,6 @@ main( int argc, char ** argv ) {
   FD_TEST( bank10->data->bank_seq==9UL );
   FD_TEST( fd_bank_capitalization_get( bank10 ) == 2100UL );
 
-  /* At this point, there should be an epoch leader pool element that is
-     freed up. */
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank10->data ) ) == 3UL );
-  fd_epoch_leaders_t * epoch_leaders3 = fd_bank_epoch_leaders_modify( bank10 );
-  FD_TEST( epoch_leaders3 );
-
   fd_banks_mark_bank_frozen( banks, bank10 );
 
   fd_bank_t bank11[1];
@@ -835,9 +824,6 @@ main( int argc, char ** argv ) {
   FD_TEST( bank11->data->bank_seq==10UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
   fd_bank_slot_set( bank11, 11UL );
-
-  /* Again, there are no free epoch leader pool elements. */
-  FD_TEST( fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank11->data ) ) == 2UL );
 
   /* Now there should be 3 forks:
      1. 7 (1234) -> 8
