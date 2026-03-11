@@ -1226,6 +1226,12 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
                        ulong             numa_idx,
                        int               include_anonymous );
 
+/* Returns the number of normal (4 KiB) pages needed by the topology
+   for extra allocations like private key storage and XSK rings. */
+
+FD_FN_PURE ulong
+fd_topo_normal_page_cnt( fd_topo_t * topo );
+
 /* Prints a message describing the topology to an output stream.  If
    stdout is true, will be written to stdout, otherwise will be written
    as a NOTICE log message to the log file. */
