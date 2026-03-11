@@ -1104,6 +1104,38 @@ test_proof_of_possession( FD_FN_UNUSED fd_rng_t * rng ) {
     log_bench( "fd_bls12_381_proof_of_possession", iter, dt );
   }
 }
+static void
+test_reject_flags( FD_FN_UNUSED fd_rng_t * rng ) {
+
+  /* Ensure that we disallow compressed/parity bits. If we didn't, then
+     blst would automatically try decompressing the point based off of the
+     encoding. This would allow the second half of the bytes to be garbage,
+     as they wouldn't be read, giving malleable points. */
+
+  {
+    /* Take a valid compressed point, and fill the second half with garbage. */
+    uchar g1[ 96 ];
+    fd_hex_decode( g1, "af9ff5448e60bc9a718f463ac102bd6f8772e6460c19076a6c89d5806e5a8ef44b6f3b8af09e37a4e564987a26b9deda", 48 );
+    fd_memset( g1+48UL, 0xAA, 48 );
+
+    /* Give it the compressed flag. */
+    g1[0] |= 0x80;
+
+    /* Make sure we fail. */
+    FD_TEST( fd_bls12_381_g1_validate_syscall( g1, 1 /*BE*/ )==0 );
+  }
+  {
+    /* Same test for G2 */
+    uchar g2[ 192 ];
+    fd_hex_decode( g2, "8f6a12dc289804e48b236892b34acdac92890b6a4a2a878935f940fbade830d17dde0dd179eeb9b36f6947df2730c3681718aa3b6f6aa733e7bae0b6ac490f12d38f3b0273bec4a36f0b24855660bc871025d8af47b6de1fcf9b10ff704ef26f", 96 );
+    fd_memset( g2+96UL, 0xAA, 96 );
+
+    /* Set the compressed flag. */
+    g2[0] |= 0x80;
+
+    FD_TEST( fd_bls12_381_g2_validate_syscall( g2, 1 /*BE*/ )==0 );
+  }
+}
 
 /**********************************************************************/
 
@@ -1128,6 +1160,8 @@ main( int     argc,
   test_pairing( rng );
 
   test_proof_of_possession( rng );
+
+  test_reject_flags( rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
