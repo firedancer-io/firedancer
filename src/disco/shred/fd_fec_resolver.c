@@ -5,6 +5,7 @@
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
 
+#define FD_FEC_SHRED_CNT 32UL
 
 typedef union {
   fd_ed25519_sig_t u;
@@ -362,20 +363,24 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
-  if( FD_UNLIKELY( shred->version!=resolver->expected_shred_version ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( shred_sz<fd_shred_sz( shred )                    ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( shred->idx>=resolver->max_shred_idx              ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->version!=resolver->expected_shred_version            ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred_sz<fd_shred_sz( shred )                               ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->idx>=resolver->max_shred_idx                         ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->fec_set_idx>resolver->max_shred_idx-FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->idx-shred->fec_set_idx>=FD_FEC_SHRED_CNT             ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( shred->fec_set_idx%FD_FEC_SHRED_CNT!=0UL                    ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   int is_data_shred = fd_shred_is_data( shred_type );
 
   if( !is_data_shred ) { /* Roughly 50/50 branch */
-    if( FD_UNLIKELY( (shred->code.data_cnt>FD_REEDSOL_DATA_SHREDS_MAX) | (shred->code.code_cnt>FD_REEDSOL_PARITY_SHREDS_MAX) ) )
+    if( FD_UNLIKELY( (shred->code.data_cnt!=FD_FEC_SHRED_CNT) | (shred->code.code_cnt!=FD_FEC_SHRED_CNT) ) )
       return FD_FEC_RESOLVER_SHRED_REJECTED;
-    if( FD_UNLIKELY( (shred->code.data_cnt==0UL) | (shred->code.code_cnt==0UL)                                               ) )
-      return FD_FEC_RESOLVER_SHRED_REJECTED;
-    if( FD_UNLIKELY( (ulong)shred->fec_set_idx+(ulong)shred->code.data_cnt>=resolver->max_shred_idx                          ) )
-      return FD_FEC_RESOLVER_SHRED_REJECTED;
-    if( FD_UNLIKELY( (ulong)shred->idx + (ulong)shred->code.code_cnt - (ulong)shred->code.idx>=resolver->max_shred_idx       ) )
+    if( FD_UNLIKELY( shred->code.idx>=FD_FEC_SHRED_CNT            ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( shred->code.idx!=shred->idx%FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  } else {
+    /* if it has slot complete, it must be the last one in the FEC. */
+    /* TODO: Plumb discard_unexpected_data_complete_shreds through */
+    if( FD_UNLIKELY( (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) && ((1UL+shred->idx) % FD_FEC_SHRED_CNT) ) )
       return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
@@ -408,8 +413,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   /* This, combined with the check on shred->code.data_cnt implies that
      shred_idx is in [0, DATA_SHREDS_MAX+PARITY_SHREDS_MAX). */
 
-  if( FD_UNLIKELY( tree_depth>FD_SHRED_MERKLE_LAYER_CNT-1UL          ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
-  if( FD_UNLIKELY( fd_bmtree_depth( shred_idx+1UL ) > tree_depth+1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( tree_depth!=FD_SHRED_MERKLE_LAYER_CNT-1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   if( FD_UNLIKELY( !ctx ) ) { /* This is the first shred in the FEC set */
 
@@ -657,6 +661,9 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   fd_shred_t const * base_parity_shred = fd_shred_parse( set->parity_shreds[ 0 ], FD_SHRED_MAX_SZ );
   int reject = (!base_data_shred) | (!base_parity_shred);
 
+  reject = reject || ((base_data_shred->idx!=base_data_shred->fec_set_idx) |
+                      (base_data_shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE));
+
   for( ulong i=1UL; (!reject) & (i<set->data_shred_cnt); i++ ) {
     /* Technically, we only need to re-parse the ones we recovered with
        Reedsol, but parsing is pretty cheap and the rest of the
@@ -668,6 +675,9 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     reject |= parsed->version         != base_data_shred->version;
     reject |= parsed->fec_set_idx     != base_data_shred->fec_set_idx;
     reject |= parsed->data.parent_off != base_data_shred->data.parent_off;
+    reject |= parsed->idx             != (uint)(base_data_shred->fec_set_idx+i);
+    /* TODO: Plumb discard_unexpected_data_complete_shreds through */
+    reject |= (i!=FD_FEC_SHRED_CNT-1UL) && (parsed->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
 
     reject |= fd_shred_is_chained( fd_shred_type( parsed->variant ) ) &&
                 !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),
@@ -682,6 +692,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     reject |= parsed->slot                           != base_data_shred->slot;
     reject |= parsed->version                        != base_data_shred->version;
     reject |= parsed->fec_set_idx                    != base_data_shred->fec_set_idx;
+    reject |= parsed->idx                            != (uint)(parity_idx0+i);
     reject |= parsed->code.data_cnt                  != base_parity_shred->code.data_cnt;
     reject |= parsed->code.code_cnt                  != base_parity_shred->code.code_cnt;
     reject |= parsed->code.idx                       != (ushort)i;
