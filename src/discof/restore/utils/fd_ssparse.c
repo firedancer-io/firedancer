@@ -615,7 +615,10 @@ advance_account_garbage( fd_ssparse_t *                ssparse,
                          fd_ssparse_advance_result_t * result ) {
   (void)data;
   ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
+    return FD_SSPARSE_ADVANCE_AGAIN;
+  }
 
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
