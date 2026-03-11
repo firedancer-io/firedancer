@@ -378,14 +378,9 @@ struct fd_snapshot_manifest {
   /* The fork_id in the status cache for the root slot. */
   ushort txncache_fork_id;
 
-  /* A list of ancestor slots. The bound comes from
-     https://github.com/anza-xyz/agave/blob/v3.0.6/accounts-db/src/ancestors.rs#L24
-     However in extreme conditons, the bound may be exceeded because
-     the ancestors data structure in agave contains an unbounded excess
-     field.  If the bound is exceeded, the snapshot is considered
-     malformed. */
-  ulong ancestors_len;
-  ulong ancestors[ 8192UL ];
+  /* A list of ancestor slots has been deprecated.  Agave's bank now
+     creates an ancestor set with a single entry (the current slot):
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/runtime/src/bank.rs#L1846 */
 
   /* A hard fork is a deliberate deviation from the canonical blockchain
      progression.  This contains the list of slots which have
