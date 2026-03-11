@@ -126,7 +126,6 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes_locking_modify( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
-  fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
@@ -143,6 +142,33 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   if( FD_UNLIKELY( !leaders ) ) {
     FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
+
+  /* Populate a compressed set of stake weights for a valid leader
+     schedule. */
+  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights( bank->data );
+  ulong idx = 0UL;
+  leaders = fd_bank_epoch_leaders_modify( bank );
+  for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
+    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
+
+    fd_pubkey_t node_account;
+    ulong       stake;
+    FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) == 1);
+
+    if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
+      stake_weights[ idx ].stake = stake;
+      memcpy( stake_weights[ idx ].id_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].vote_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
+      idx++;
+    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, idx-1UL ) ) {
+      stake_weights[ idx-1UL ].stake += stake;
+    } else {
+      stake_weights[ idx ].stake = stake;
+      idx++;
+    }
+  }
+  fd_bank_set_stake_weights_cnt( bank->data, idx );
+  fd_bank_vote_stakes_end_locking_modify( bank );
 }
 
 /******************************************************************************/

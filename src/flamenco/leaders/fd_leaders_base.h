@@ -4,8 +4,9 @@
 #include "../types/fd_types_custom.h"
 #include "../features/fd_features.h"
 
-#define MAX_SLOTS_PER_EPOCH 432000UL
-#define MAX_STAKED_LEADERS  108000UL
+#define MAX_SLOTS_PER_EPOCH   432000UL
+#define MAX_PUB_CNT           50000UL
+#define MAX_STAKED_LEADERS    40200UL
 
 /* Follows message structure in fd_stake_ci_stake_msg_init.
    Frankendancer only */

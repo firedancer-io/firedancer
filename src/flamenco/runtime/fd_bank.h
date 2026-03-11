@@ -371,6 +371,9 @@ struct fd_bank_data {
   int   top_votes_dirty;
   ulong top_votes_pool_idx;
   ulong top_votes_pool_offset;
+
+  ulong stake_weights_cnt;
+  ulong stake_weights_offset;
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
@@ -411,6 +414,26 @@ struct fd_bank {
   fd_banks_locks_t * locks;
 };
 typedef struct fd_bank fd_bank_t;
+
+static inline void
+fd_bank_set_stake_weights( fd_bank_data_t * bank, uchar * stake_weights_mem ) {
+  bank->stake_weights_offset = (ulong)bank - (ulong)stake_weights_mem;
+}
+
+static inline fd_vote_stake_weight_t *
+fd_bank_get_stake_weights( fd_bank_data_t * bank ) {
+  return (fd_vote_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->stake_weights_offset );
+}
+
+static inline void
+fd_bank_set_stake_weights_cnt( fd_bank_data_t * bank, ulong stake_weights_cnt ) {
+  *(ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_offset ) = stake_weights_cnt;
+}
+
+static inline ulong
+fd_bank_get_stake_weights_cnt( fd_bank_data_t * bank ) {
+  return *(ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_offset );
+}
 
 static inline void
 fd_bank_set_epoch_leaders( fd_bank_data_t * bank, uchar * epoch_leaders_mem ) {
@@ -560,6 +583,7 @@ struct fd_banks_data {
   uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
   uchar epoch_leaders_mem[ 2UL ][ FD_EPOCH_LEADERS_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
+  fd_vote_stake_weight_t stake_weights[ 432000UL / 4UL * 2UL ];
 
   /* Lay out pool offsets */
 

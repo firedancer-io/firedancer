@@ -564,7 +564,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
 }
 
 static inline ulong
-generate_epoch_info_msg( ulong                       slot,
+generate_epoch_info_msg( fd_bank_t *                 bank FD_PARAM_UNUSED,
+                         ulong                       slot,
                          ulong                       epoch,
                          fd_epoch_schedule_t const * epoch_schedule,
                          fd_vote_stakes_t *          vote_stakes,
@@ -580,33 +581,44 @@ generate_epoch_info_msg( ulong                       slot,
   epoch_info_msg->excluded_stake    = 0UL;
   epoch_info_msg->vote_keyed_lsched = 1UL;
 
-  ulong idx = 0UL;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, vote_stakes_fork_idx, iter_mem );
-        !fd_vote_stakes_fork_iter_done( vote_stakes, vote_stakes_fork_idx, iter );
-        fd_vote_stakes_fork_iter_next( vote_stakes, vote_stakes_fork_idx, iter ) ) {
+  if( current_epoch ) {
+    ulong idx = 0UL;
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, vote_stakes_fork_idx, iter_mem );
+          !fd_vote_stakes_fork_iter_done( vote_stakes, vote_stakes_fork_idx, iter );
+          fd_vote_stakes_fork_iter_next( vote_stakes, vote_stakes_fork_idx, iter ) ) {
 
-    fd_pubkey_t pubkey;
-    ulong       stake_t_1;
-    ulong       stake_t_2;
-    fd_pubkey_t node_account_t_1;
-    fd_pubkey_t node_account_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, vote_stakes_fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+      fd_pubkey_t pubkey;
+      ulong       stake_t_1;
+      ulong       stake_t_2;
+      fd_pubkey_t node_account_t_1;
+      fd_pubkey_t node_account_t_2;
+      fd_vote_stakes_fork_iter_ele( vote_stakes, vote_stakes_fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
 
-    ulong       stake        = current_epoch ? stake_t_1 : stake_t_2;
-    fd_pubkey_t node_account = current_epoch ? node_account_t_1 : node_account_t_2;
-    if( FD_UNLIKELY( !stake ) ) continue;
+      ulong       stake        = current_epoch ? stake_t_1 : stake_t_2;
+      fd_pubkey_t node_account = current_epoch ? node_account_t_1 : node_account_t_2;
+      if( FD_UNLIKELY( !stake ) ) continue;
 
-    stake_weights[ idx ].stake = stake;
-    memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ idx ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
-    idx++;
+      stake_weights[ idx ].stake = stake;
+      memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+      idx++;
+    }
+
+    sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
+    epoch_info_msg->staked_cnt     = FD_FEATURE_ACTIVE( slot, features, validator_admission_ticket ) ? fd_ulong_min( idx, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) : idx;
+    epoch_info_msg->epoch_schedule = *epoch_schedule;
+    epoch_info_msg->features       = *features;
+  } else {
+    fd_vote_stake_weight_t * compressed_stake_weights = fd_bank_get_stake_weights( bank->data );
+    ulong stake_weights_cnt = fd_bank_get_stake_weights_cnt( bank->data );
+    fd_memcpy( stake_weights, compressed_stake_weights, stake_weights_cnt * sizeof(fd_vote_stake_weight_t) );
+    epoch_info_msg->staked_cnt     = stake_weights_cnt;
+    epoch_info_msg->epoch_schedule = *epoch_schedule;
+    epoch_info_msg->features       = *features;
   }
 
-  sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
-  epoch_info_msg->staked_cnt     = FD_FEATURE_ACTIVE( slot, features, validator_admission_ticket ) ? fd_ulong_min( idx, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) : idx;
-  epoch_info_msg->epoch_schedule = *epoch_schedule;
-  epoch_info_msg->features       = *features;
+
 
   return fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt );
 }
@@ -624,7 +636,7 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-  ulong epoch_info_sz = generate_epoch_info_msg( fd_bank_slot_get( bank ), epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_stakes, bank->data->vote_stakes_fork_id, features, epoch_info_msg, current_epoch );
+  ulong epoch_info_sz = generate_epoch_info_msg( bank, fd_bank_slot_get( bank ), epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_stakes, bank->data->vote_stakes_fork_id, features, epoch_info_msg, current_epoch );
   fd_bank_vote_stakes_end_locking_modify( bank );
 
   ulong epoch_info_sig = 4UL;
@@ -1587,15 +1599,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
     fd_features_restore( bank, ctx->accdb, &xid );
 
-    /* Typically, when we cross an epoch boundary during normal
-       operation, we publish the stake weights for the new epoch.  But
-       since we are starting from a snapshot, we need to publish two
-       epochs worth of stake weights: the previous epoch (which is
-       needed for voting on the current epoch), and the current epoch
-       (which is needed for voting on the next epoch). */
-    publish_epoch_info( ctx, stem, bank, 0 );
-    publish_epoch_info( ctx, stem, bank, 1 );
-
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
     ctx->consensus_root_bank_idx = 0UL;
@@ -1616,6 +1619,15 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     FD_TEST( bank->data->idx==0UL );
 
     fd_runtime_update_leaders( bank, &ctx->runtime_stack );
+
+    /* Typically, when we cross an epoch boundary during normal
+       operation, we publish the stake weights for the new epoch.  But
+       since we are starting from a snapshot, we need to publish two
+       epochs worth of stake weights: the previous epoch (which is
+       needed for voting on the current epoch), and the current epoch
+       (which is needed for voting on the next epoch). */
+    publish_epoch_info( ctx, stem, bank, 0 );
+    publish_epoch_info( ctx, stem, bank, 1 );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
     block_id_ele->latest_mr      = manifest_block_id;
