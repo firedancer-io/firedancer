@@ -255,14 +255,20 @@ sol_compat_shred_parse_v1( uchar *       out,
     return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
 }
 
+/* Unlike the execute_v1 protobuf APIs above, this entrypoint uses raw
+   bytes for both input and output. Input is a gossip wire message
+   (up to 1232 bytes). Output is a single byte: 1 if deserialization
+   and validation succeeded, 0 otherwise. Returns 1 on success. */
+
+static fd_gossip_message_t gossip_msg[1];
+
 int
 sol_compat_gossip_message_deserialize_v1( uchar *       out,
                                           ulong *       out_sz,
                                           uchar const * in,
                                           ulong         in_sz ) {
   if( FD_UNLIKELY( *out_sz < 1UL ) ) return 0;
-  fd_gossip_message_t msg[1];
-  out[0] = (uchar)fd_gossip_message_deserialize( msg, in, in_sz );
+  out[0] = (uchar)fd_gossip_message_deserialize( gossip_msg, in, in_sz );
   *out_sz = 1UL;
   return 1;
 }
