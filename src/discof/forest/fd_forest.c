@@ -1527,7 +1527,7 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
     fd_forest_blk_t const * req_head = fd_forest_pool_ele_const( pool, fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx );
     ulong slot_iter     = ele_iter ? ele_iter->slot : 0;
     ulong slot_req_head = req_head ? req_head->slot : 0;
-    FD_LOG_CRIT(("Forest iterator slot %lu != head of request list slot %lu. Does forest have %lu? %p. Does forest have %lu? %p.", slot_iter, slot_req_head, ele_iter->slot, (void *)fd_forest_query( forest, ele_iter->slot ), req_head->slot, (void *)fd_forest_query( forest, req_head->slot )));
+    FD_LOG_CRIT(("Forest iterator slot %lu != head of request list slot %lu. Does forest have %lu? %p. Does forest have %lu? %p.", slot_iter, slot_req_head, slot_iter, (void *)fd_forest_query( forest, slot_iter ), req_head->slot, (void *)fd_forest_query( forest, slot_req_head )));
   }
 # endif
 
