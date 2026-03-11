@@ -2189,8 +2189,8 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
 
   slot->nonvote_success = nonvote_txn_count - nonvote_failed_txn_count;
   slot->nonvote_failed  = nonvote_failed_txn_count;
-  slot->vote_success    = failed_txn_count - nonvote_failed_txn_count;
-  slot->vote_failed     = total_txn_count - nonvote_txn_count - slot->vote_success;
+  slot->vote_failed     = failed_txn_count - nonvote_failed_txn_count;
+  slot->vote_success    = total_txn_count - nonvote_txn_count - slot->vote_failed;
 
   slot->transaction_fee        = transaction_fee;
   slot->priority_fee           = priority_fee;
