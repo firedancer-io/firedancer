@@ -100,6 +100,9 @@ struct fd_policy_peer {
   ulong stake;
 
   ulong pool_idx;
+
+  /* count of pongs currently living in our sign queue that belong to this peer */
+  uint ping_cnt;
 };
 typedef struct fd_policy_peer fd_policy_peer_t;
 

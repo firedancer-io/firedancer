@@ -577,7 +577,7 @@ after_sign( ctx_t             * ctx,
   sign_req_t   pending[1] = { *pending_ }; /* Make a copy of the pending request so we can sign_map_remove immediately. */
   sign_map_remove( ctx, pending_key );
 
-  /* Thhis is a pong message */
+  /* This is a pong message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_PONG ) ) {
     fd_memcpy( pending->msg.pong.sig, ctx->buffer, 64UL );
     send_packet( ctx, stem, 1, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -785,14 +785,18 @@ after_net( ctx_t * ctx,
     ctx->metrics->malformed_ping++;
     return;
   }
-  if( FD_UNLIKELY( fd_policy_peer_query( ctx->policy, &res->ping.from ) ) ) {
+
+  fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &res->ping.from );
+  if( FD_UNLIKELY( !peer ) ) {
     ctx->metrics->unknown_peer_ping++;
     return;
   }
+  if( FD_UNLIKELY( peer->ping_cnt ) ) return;
   /* TODO: we should sigverify the ping.sig */
   if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) return;
   fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &res->ping.hash );
   fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr } } );
+  peer->ping_cnt++;
 }
 
 static inline void
@@ -983,6 +987,12 @@ after_credit( ctx_t *             ctx,
 
   if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->pong_queue ) ) ) {
     sign_pending_t signable = fd_signs_queue_pop( ctx->pong_queue );
+
+    if( FD_UNLIKELY( signable.msg.kind == FD_REPAIR_KIND_PONG ) ) {
+      fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &signable.msg.pong.from );
+      if( FD_LIKELY( peer ) ) peer->ping_cnt--;
+    }
+
     fd_repair_send_sign_request( ctx, sign_out, &signable.msg, signable.msg.kind == FD_REPAIR_KIND_PONG ? &signable.pong_data : NULL );
     *charge_busy = 1;
     return;

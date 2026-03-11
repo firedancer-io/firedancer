@@ -264,7 +264,7 @@ struct fd_forest_ref {
 };
 typedef struct fd_forest_ref fd_forest_ref_t;
 
-#define MAP_NAME     fd_forest_requests  /* TODO this map could be redundant (i.e. we only need the deque).  Also this is awkwardly coupled between forest and policy */
+#define MAP_NAME     fd_forest_requests
 #define MAP_ELE_T    fd_forest_ref_t
 #define MAP_KEY      idx
 #define MAP_NEXT     hash
