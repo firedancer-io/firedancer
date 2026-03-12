@@ -803,16 +803,18 @@ after_frag( ctx_t *             ctx,
   in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
   uint             in_kind = ctx->in_kind[ in_idx ];
 
+  /* Unreliable frags */
   if( FD_UNLIKELY( in_kind==IN_KIND_NET ) ) {
     after_net( ctx, sz );
     return;
   }
-  
+
   if( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
     after_sign( ctx, in_idx, sig, stem );
     return;
   }
 
+  /* Reliable frags read directly from dcache */
   uchar * src = (uchar *)fd_chunk_to_laddr( in_ctx->mem, ctx->chunk );
 
   if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
