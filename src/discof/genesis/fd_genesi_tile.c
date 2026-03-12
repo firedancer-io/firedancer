@@ -230,6 +230,8 @@ after_credit( fd_genesi_tile_t *  ctx,
     *charge_busy = 1;
     FD_LOG_NOTICE(( "loaded local genesis.bin from file `%s`", ctx->genesis_path ));
 
+    abort();
+
     ctx->shutdown = 1;
   } else {
     uchar * buffer;

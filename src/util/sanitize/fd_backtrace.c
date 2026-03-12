@@ -1,11 +1,15 @@
 #include "fd_backtrace.h"
+#include "../fd_util_base.h"
 
-#include <execinfo.h>
+#if FD_HAS_BACKTRACE
+#include "../log/fd_backtrace.h"
+#endif
 
 void
 fd_backtrace_print( int fd ) {
-  void * bt[1024];
-  int bt_size;
-  bt_size = backtrace(bt, 1024);
-  backtrace_symbols_fd(bt, bt_size, fd);
+#if FD_HAS_BACKTRACE
+  fd_backtrace_log( fd );
+#else
+  (void)fd;
+#endif
 }

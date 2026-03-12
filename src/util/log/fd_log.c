@@ -8,20 +8,14 @@
 
 #if FD_LOG_STYLE==0 /* POSIX style */
 
-#if !defined(FD_HAS_BACKTRACE)
-#if __has_include( <execinfo.h> ) && !FD_HAS_ASAN && !FD_HAS_MSAN && FD_HAS_HOSTED
-#define FD_HAS_BACKTRACE 1
-#else
-#define FD_HAS_BACKTRACE 0
-#endif
-#endif
-
 /* FIXME: SANITIZE VARIOUS USER SET STRINGS */
 
 #define _GNU_SOURCE
 
 #include "fd_log.h"
+#if FD_HAS_BACKTRACE
 #include "fd_backtrace.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,10 +31,6 @@
 #include <syscall.h>
 #endif
 #include <sys/mman.h>
-
-#if FD_HAS_BACKTRACE
-#include <execinfo.h>
-#endif
 
 #if defined(__FreeBSD__)
 #include <sys/stat.h> /* S_IRUSR */
@@ -971,12 +961,7 @@ fd_log_private_sig_abort( int         sig,
 #undef FD_LOG_ERR_NOEXIT
 
 # if FD_HAS_BACKTRACE
-
-  void * btrace[ 128UL ];
-  int btrace_cnt = backtrace( btrace, 128 );
-
-  fd_backtrace_log( btrace, (ulong)btrace_cnt );
-
+  fd_backtrace_log( STDERR_FILENO );
 # endif
 
   /* Returning is going to cause SIGSYS since it's probably not allowed
@@ -1133,18 +1118,8 @@ fd_log_private_boot( int  *   pargc,
   if( log_backtrace || fd_log_private_signal_handler ) {
 
 #   if FD_HAS_BACKTRACE
-    /* If libgcc isn't already linked into the program when a trapped
-       signal is received by an application, calls to backtrace and
-       backtrace_symbols_fd within the signal handler can silently
-       invoke the dynamic linker, which in turn can do silent async
-       signal unsafe behavior behind our back.  We do dummy calls to
-       backtrace and backtrace_symbols_fd here to avoid dynamic linking
-       surprises in the signal handler.  (Hat tip to runtimeverification
-       for finding this.) */
-
-    void * btrace[128];
-    (void)backtrace( btrace, 128 );
-#   endif /* FD_HAS_BACKTRACE */
+    fd_backtrace_init();
+#   endif
 
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the
@@ -1259,9 +1234,7 @@ fd_log_private_boot_custom( ulong        app_id,
 
   if( FD_UNLIKELY( fd_log_private_signal_handler ) ) {
 #   if FD_HAS_BACKTRACE
-    /* See note above about needing to prime backtrace */
-    void * btrace[128];
-    (void)backtrace( btrace, 128 );
+    fd_backtrace_init();
 #   endif
 
     /* This is all overridable POSIX sigs whose default behavior is to

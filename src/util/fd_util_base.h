@@ -228,6 +228,15 @@
 #define FD_HAS_DEEPASAN 0
 #endif
 
+/* FD_HAS_BACKTRACE indicates that the build target should include
+   detailed backtrace support with DWARF line info resolution.  This
+   requires frame pointers and debug info to be useful, so it is only
+   enabled in debug builds (via config/extra/with-debug.mk). */
+
+#ifndef FD_HAS_BACKTRACE
+#define FD_HAS_BACKTRACE 0
+#endif
+
 /* Base development environment ***************************************/
 
 /* The functionality provided by these vanilla headers are always

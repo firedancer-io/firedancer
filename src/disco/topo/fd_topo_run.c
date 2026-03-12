@@ -3,6 +3,7 @@
 
 #include "../metrics/fd_metrics.h"
 #include "../../util/tile/fd_tile_private.h"
+#include "../../util/log/fd_backtrace.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -97,6 +98,14 @@ fd_topo_run_tile( fd_topo_t *          topo,
   if( tile_run->rlimit_file_cnt_fn ) {
     rlimit_file_cnt = tile_run->rlimit_file_cnt_fn( topo, tile );
   }
+
+#if FD_HAS_BACKTRACE
+  /* Pre-load and mmap all ELF files for DWARF line info before
+     entering the sandbox.  The mmap'd pages persist through
+     sandboxing, allowing the signal handler to resolve file:line
+     info without any syscalls. */
+  fd_backtrace_elf_preload();
+#endif
 
   if( FD_LIKELY( sandbox ) ) {
     int dumpable = core_dump_level == FD_TOPO_CORE_DUMP_LEVEL_DISABLED ? 0 : 1;
