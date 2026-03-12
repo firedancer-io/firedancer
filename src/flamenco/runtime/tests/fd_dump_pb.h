@@ -379,7 +379,8 @@ fd_dump_block_to_protobuf( fd_block_dump_ctx_t *       dump_block_ctx,
                            fd_banks_t *                banks,
                            fd_bank_t *                 bank,
                            fd_accdb_user_t *           accdb,
-                           fd_dump_proto_ctx_t const * dump_proto_ctx );
+                           fd_dump_proto_ctx_t const * dump_proto_ctx,
+                           fd_runtime_stack_t *        runtime_stack );
 
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
