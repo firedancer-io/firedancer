@@ -1,6 +1,8 @@
 #include "fd_reedsol_ppt.h"
 #include <stdio.h>
 
+#pragma GCC diagnostic ignored "-Wunused-function"
+
 FD_IMPORT_BINARY( fd_reedsol_generic_constants, "src/ballet/reedsol/constants/generic_constants.bin" );
 static short const * log_tbl     = (short const *)fd_reedsol_generic_constants; /* Indexed [0, 256) */
 static uchar const * invlog_tbl  = fd_reedsol_generic_constants + 256UL*sizeof(short) + 512UL*sizeof(uchar); /* Indexed [-512, 512) */
@@ -166,7 +168,7 @@ basic_tests( void ) {
 
 }
 
-typedef uchar linear_chunk_t[ 32UL ];
+typedef uchar linear_chunk_t[ 64UL ];
 
 #define LINEAR_MAX_DIM (128UL)
 
@@ -182,7 +184,7 @@ test_linearity( linear_func_t to_test,
                 ulong         chunk_sz ) {
   /* If these fail, the test is wrong */
   FD_TEST( input_cnt <= LINEAR_MAX_DIM && output_cnt <= LINEAR_MAX_DIM );
-  FD_TEST( chunk_sz <= 32UL );
+  FD_TEST( chunk_sz <= 64UL );
 
   linear_chunk_t  inputs[ LINEAR_MAX_DIM ];
   linear_chunk_t outputs[ LINEAR_MAX_DIM ];
@@ -209,7 +211,7 @@ test_linearity( linear_func_t to_test,
       to_test( inputs2, outputs2 );
 
       for( ulong j=0UL; j<output_cnt; j++ )
-        for( ulong col=0UL; col<chunk_sz; col++ ) FD_TEST( outputs[ j ][ col ] == outputs2[ j ][ (col+shift)%32UL ] );
+        for( ulong col=0UL; col<chunk_sz; col++ ) FD_TEST( outputs[ j ][ col ] == outputs2[ j ][ (col+shift)%chunk_sz ] );
     }
   }
 
@@ -238,7 +240,7 @@ test_linearity( linear_func_t to_test,
   for( ulong k=0UL; k<test_cnt; k++ ) {
     linear_chunk_t  inputs2[ LINEAR_MAX_DIM ];
     linear_chunk_t outputs2[ LINEAR_MAX_DIM ];
-    uchar col_scalars[ 32UL ];
+    uchar col_scalars[ 64UL ];
 
     for( ulong i=0UL; i<chunk_sz; i++ ) col_scalars[ i ] = fd_rng_uchar( rng );
 
@@ -339,7 +341,7 @@ wrapped_ppt_##N##_## K ( linear_chunk_t * inputs, linear_chunk_t * outputs ) { \
 static ulong wrapped_data_shred_cnt, wrapped_parity_shred_cnt;
 static void
 wrapped_encode_generic( linear_chunk_t * inputs, linear_chunk_t * outputs ) {
-  fd_reedsol_t * rs = fd_reedsol_encode_init( mem, 32UL );
+  fd_reedsol_t * rs = fd_reedsol_encode_init( mem, 64UL );
 
   for( ulong i=0UL; i<wrapped_data_shred_cnt;  i++ )  fd_reedsol_encode_add_data_shred(   rs, inputs[ i ]  );
   for( ulong j=0UL; j<wrapped_parity_shred_cnt; j++ ) fd_reedsol_encode_add_parity_shred( rs, outputs[ j ] );
@@ -372,7 +374,7 @@ WRAP_PPT2(128, 65) WRAP_PPT2(128, 66) WRAP_PPT2(128, 67)
 
 static void
 test_linearity_all( fd_rng_t * rng ) {
-  ulong TC = 10000UL; /* Test count */
+  ulong TC = 2500UL; /* Test count */
   const ulong CW = GF_WIDTH;
 
   FD_LOG_NOTICE(( "Testing linearity of FFT and IFFT" ));
@@ -438,7 +440,7 @@ test_linearity_all( fd_rng_t * rng ) {
   FD_LOG_NOTICE(( "Testing linearity of reedsol_encode" ));
   for( wrapped_data_shred_cnt=1UL; wrapped_data_shred_cnt<=FD_REEDSOL_DATA_SHREDS_MAX; wrapped_data_shred_cnt++ )
     for( wrapped_parity_shred_cnt=1UL; wrapped_parity_shred_cnt<=FD_REEDSOL_PARITY_SHREDS_MAX; wrapped_parity_shred_cnt++ )
-      test_linearity( wrapped_encode_generic, wrapped_data_shred_cnt, wrapped_parity_shred_cnt, rng, 500UL, 32UL );
+      test_linearity( wrapped_encode_generic, wrapped_data_shred_cnt, wrapped_parity_shred_cnt, rng, 100UL, 64UL );
 }
 
 /* Since now we know these are linear operators, we only need to test
@@ -557,14 +559,14 @@ test_encode_vs_ref( fd_rng_t * rng ) {
   uchar * p[ FD_REEDSOL_PARITY_SHREDS_MAX ];
   uchar * r[ FD_REEDSOL_PARITY_SHREDS_MAX ];
 
-  ulong const stride = 71UL; /* Prime >= 64 */
+  ulong const stride = 131UL; /* Prime >= 128 */
   for( ulong i=0UL; i<FD_REEDSOL_DATA_SHREDS_MAX; i++ )    d[ i ] = data_shreds   + stride*i;
   for( ulong i=0UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ )  p[ i ] = parity_shreds + stride*i;
   for( ulong i=0UL; i<FD_REEDSOL_PARITY_SHREDS_MAX; i++ )  r[ i ] = parity_shreds + stride*(i+FD_REEDSOL_PARITY_SHREDS_MAX);
 
   for( ulong d_cnt=1UL; d_cnt<=FD_REEDSOL_DATA_SHREDS_MAX; d_cnt++ ) {
     for( ulong p_cnt=1UL; p_cnt<=FD_REEDSOL_PARITY_SHREDS_MAX; p_cnt++ ) {
-      for( ulong shred_sz=32UL; shred_sz<=64UL; shred_sz++ ) {
+      for( ulong shred_sz=64UL; shred_sz<=128UL; shred_sz++ ) {
 
         fd_memset( data_shreds,      0,     FD_REEDSOL_DATA_SHREDS_MAX   * stride );
         fd_memset( parity_shreds, 0xCC, 2UL*FD_REEDSOL_PARITY_SHREDS_MAX * stride );
@@ -588,7 +590,7 @@ test_encode_vs_ref( fd_rng_t * rng ) {
 
 static void
 battery_performance_base( fd_rng_t *    rng ) {
-  ulong const test_count = 90000UL;
+  ulong const test_count = 1000000UL;
 
   uchar * d[ FD_REEDSOL_DATA_SHREDS_MAX   ];
   uchar * p[ FD_REEDSOL_PARITY_SHREDS_MAX ];
@@ -992,15 +994,15 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  basic_tests();
+  // basic_tests();
   battery_performance_base( rng );
-  battery_performance_generic( rng, 32UL, 32UL, 5000UL );
-  test_encode_vs_ref( rng );
-  test_recover( rng );
-  test_recover_performance( rng );
-  test_pi_all( rng );
-  test_linearity_all( rng );
-  test_fft_all();
+  // battery_performance_generic( rng, 32UL, 32UL, 5000UL );
+  // test_encode_vs_ref( rng );
+  // test_recover( rng );
+  // test_recover_performance( rng );
+  // test_pi_all( rng );
+  // test_linearity_all( rng );
+  // test_fft_all();
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

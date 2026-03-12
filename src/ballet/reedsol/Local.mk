@@ -1,6 +1,8 @@
 $(call add-hdrs,fd_reedsol.h)
 ifdef FD_HAS_GFNI
+ifdef FD_HAS_AVX512
 $(call add-asms,fd_reedsol_gfni_32,fd_reedsol)
+endif
 endif
 $(call add-objs,fd_reedsol,fd_reedsol)
 $(call add-objs,fd_reedsol_encode_16,fd_reedsol)
