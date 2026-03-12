@@ -569,7 +569,7 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
                     fd_bank_t *          bank,
                     int                  current_epoch ) {
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
-  ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL ) + fd_ulong_if( current_epoch, 1UL, 0UL);
+  ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL ) + fd_ulong_if( current_epoch, 1UL, 0UL );
 
   fd_features_t const * features = fd_bank_features_query( bank );
 

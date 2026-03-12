@@ -150,11 +150,11 @@ update_next_leaders( fd_bank_t *          bank,
 
     fd_pubkey_t node_account;
     ulong       stake;
-    FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) == 1);
+    FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) );
 
     if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
       stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
       idx++;
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
@@ -209,11 +209,11 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
     fd_pubkey_t node_account;
     ulong       stake;
-    FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) == 1);
+    FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) );
 
     if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
       stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
       idx++;
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {

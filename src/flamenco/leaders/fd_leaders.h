@@ -55,7 +55,8 @@
 
 /* FD_EPOCH_LEADERS_MAX_FOOTPRINT is the maximum footprint of a leader
    schedule object that the runtime can support given a constant
-   slots per epoch (432K) and a max number of vote accounts (108000). */
+   slots per epoch (432K) and a max number of vote accounts (108000).
+   FIXME: This needs to be bumped up */
 
 #define FD_EPOCH_LEADERS_MAX_FOOTPRINT (FD_EPOCH_LEADERS_FOOTPRINT(FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_SLOTS_PER_EPOCH))
 
@@ -173,7 +174,7 @@ fd_epoch_leaders_get( fd_epoch_leaders_t const * leaders,
 FD_FN_PURE static inline int
 fd_epoch_leaders_is_leader_idx( fd_epoch_leaders_t const * leaders,
                                 ulong                      idx ) {
-  if( FD_UNLIKELY( leaders==NULL      ) ) return 0;
+  if( FD_UNLIKELY( leaders==NULL ) ) return 0;
   if( FD_UNLIKELY( idx>leaders->pub_cnt ) ) return 0;
   ulong word_idx = idx>>6;
   if( FD_UNLIKELY( word_idx>=leaders->leader_bits_word_cnt ) ) return 0;

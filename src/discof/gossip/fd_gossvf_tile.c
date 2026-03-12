@@ -306,10 +306,15 @@ handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
 
   for( ulong i=0UL; i<msg->staked_cnt; i++ ) {
     if( FD_UNLIKELY( fd_pubkey_eq( &msg->weights[i].id_key, &FD_DUMMY_ACCOUNT_PUBKEY ) ) ) continue;
-    stake_t * entry = stake_pool_ele_acquire( ctx->stake.pool );
-    fd_memcpy( entry->pubkey.uc, msg->weights[i].id_key.uc, 32UL );
-    entry->stake = msg->weights[i].stake;
-    stake_map_ele_insert( ctx->stake.map, entry, ctx->stake.pool );
+    stake_t * entry;
+    if( FD_UNLIKELY( (entry = stake_map_ele_query( ctx->stake.map, &msg->weights[i].id_key, NULL, ctx->stake.pool )) ) ) {
+      entry->stake += msg->weights[i].stake;
+    } else {
+      entry = stake_pool_ele_acquire( ctx->stake.pool );
+      fd_memcpy( entry->pubkey.uc, msg->weights[i].id_key.uc, 32UL );
+      entry->stake = msg->weights[i].stake;
+      stake_map_ele_insert( ctx->stake.map, entry, ctx->stake.pool );
+    }
   }
   ctx->stake.count = stake_pool_used( ctx->stake.pool );
 }
@@ -981,8 +986,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake.pool  = stake_pool_join( stake_pool_new( _stake_pool, MAX_STAKED_LEADERS ) );
   FD_TEST( ctx->stake.pool );
 
-  ulong chain_cnt = stake_map_chain_cnt_est( MAX_STAKED_LEADERS );
-  ctx->stake.map = stake_map_join( stake_map_new( _stake_map, chain_cnt, ctx->seed ) );
+  ctx->stake.map = stake_map_join( stake_map_new( _stake_map, stake_map_chain_cnt_est( MAX_STAKED_LEADERS ), ctx->seed ) );
   FD_TEST( ctx->stake.map );
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );

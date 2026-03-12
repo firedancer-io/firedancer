@@ -232,18 +232,17 @@ fd_gossip_new( void *                           shmem,
     FD_LOG_WARNING(( "max_values must be a power of 2" ));
     return NULL;
   }
-  ulong stake_map_chain_cnt = stake_map_chain_cnt_est( MAX_STAKED_LEADERS );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),      sizeof(fd_gossip_t)                                       );
-  void * purged         = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_purged_align(),  fd_gossip_purged_footprint( max_values )                  );
-  void * wsample        = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_wsample_align(), fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
-  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),           fd_crds_footprint( max_values )                           );
-  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),     fd_active_set_footprint()                                 );
-  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(),   fd_ping_tracker_footprint( entrypoints_len )              );
-  void * prune_finder   = FD_SCRATCH_ALLOC_APPEND( l, fd_prune_finder_align(),   fd_prune_finder_footprint()                               );
-  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),        stake_pool_footprint( MAX_STAKED_LEADERS )                );
-  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),         stake_map_footprint( stake_map_chain_cnt )                );
+  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),      sizeof(fd_gossip_t)                                                  );
+  void * purged         = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_purged_align(),  fd_gossip_purged_footprint( max_values )                             );
+  void * wsample        = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_wsample_align(), fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )            );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),           fd_crds_footprint( max_values )                                      );
+  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),     fd_active_set_footprint()                                            );
+  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(),   fd_ping_tracker_footprint( entrypoints_len )                         );
+  void * prune_finder   = FD_SCRATCH_ALLOC_APPEND( l, fd_prune_finder_align(),   fd_prune_finder_footprint()                                          );
+  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),        stake_pool_footprint( MAX_STAKED_LEADERS )                           );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),         stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) ) );
 
   gossip->gossip_net_out  = gossip_net_out;
 
@@ -269,10 +268,10 @@ fd_gossip_new( void *                           shmem,
   FD_TEST( gossip->prune_finder );
 
   gossip->stake.count = 0UL;
-  gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
+  gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, MAX_STAKED_LEADERS ) );
   FD_TEST( gossip->stake.pool );
 
-  gossip->stake.map = stake_map_join( stake_map_new( stake_weights, stake_map_chain_cnt, fd_rng_ulong( rng ) ) );
+  gossip->stake.map = stake_map_join( stake_map_new( stake_weights, stake_map_chain_cnt_est( MAX_STAKED_LEADERS ), fd_rng_ulong( rng ) ) );
   FD_TEST( gossip->stake.map );
 
   FD_TEST( fd_sha256_join( fd_sha256_new( gossip->sha256 ) ) );
@@ -401,18 +400,22 @@ fd_gossip_stakes_update( fd_gossip_t *                  gossip,
 
   for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
     if( FD_UNLIKELY( fd_pubkey_eq( &stake_weights[i].id_key, &FD_DUMMY_ACCOUNT_PUBKEY ) ) ) continue;
-    stake_t * entry = stake_pool_ele_acquire( gossip->stake.pool );
-    fd_memcpy( entry->pubkey.uc, stake_weights[ i ].id_key.uc, 32UL );
-    entry->stake = stake_weights[ i ].stake;
-
-    stake_map_ele_insert( gossip->stake.map, entry, gossip->stake.pool );
+    stake_t * entry;
+    if( FD_UNLIKELY( (entry = stake_map_ele_query( gossip->stake.map, &stake_weights[i].id_key, NULL, gossip->stake.pool )) ) ) {
+      entry->stake += stake_weights[ i ].stake;
+    } else {
+      entry = stake_pool_ele_acquire( gossip->stake.pool );
+      fd_memcpy( entry->pubkey.uc, stake_weights[ i ].id_key.uc, 32UL );
+      entry->stake = stake_weights[ i ].stake;
+      stake_map_ele_insert( gossip->stake.map, entry, gossip->stake.pool );
+    }
   }
 
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
   fd_gossip_wsample_self_stake( gossip->wsample, gossip->identity_stake );
   fd_active_set_set_identity( gossip->active_set, gossip->identity_pubkey, gossip->identity_stake );
   fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
-  gossip->stake.count = stake_weights_cnt;
+  gossip->stake.count = stake_pool_used( gossip->stake.pool );
 }
 
 /* Outbound data budget constants (matching Agave's DataBudget for gossip).

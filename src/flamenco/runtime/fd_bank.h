@@ -605,9 +605,25 @@ struct fd_banks_data {
 
   uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
+  /* The set of epoch leaders for the current and previous epochs.  Only
+     two need to be stored because in the worst case we will have a root
+     that sits behind an epoch boundary, with leaf banks executing into
+     the next epoch.  All banks that execute behind the boundary, will
+     use the previous epoch's leader schedule, and all nodes after the
+     epoch boundary are guaranteed to produce identical leader
+     schedules. */
+
   uchar epoch_leaders_mem[ 2UL ][ FD_EPOCH_LEADERS_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
+
+  /* Set of compressed stake weights for the leader schedule for the
+     current epoch. */
+
   fd_vote_stake_weight_t stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  stake_weights_cnt;
+
+  /* Set of compressed stake weights for the leader schedule for the
+     next epoch. */
+
   fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  next_stake_weights_cnt;
 
