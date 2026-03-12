@@ -291,11 +291,11 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
                   fd_ip4_port_t                      addr,
                   fd_gossip_update_message_t const * msg ) {
   ulong         full_slot = msg->snapshot_hashes->full_slot;
-  ulong         incr_slot = 0UL;
+  ulong         incr_slot = ULONG_MAX;
   uchar const * incr_hash = NULL;
 
   for( ulong i=0UL; i<msg->snapshot_hashes->incremental_len; i++ ) {
-    if( FD_LIKELY( msg->snapshot_hashes->incremental[ i ].slot>incr_slot ) ) {
+    if( FD_LIKELY( incr_slot==ULONG_MAX || msg->snapshot_hashes->incremental[ i ].slot>incr_slot ) ) {
       incr_slot = msg->snapshot_hashes->incremental[ i ].slot;
       incr_hash = msg->snapshot_hashes->incremental[ i ].hash;
     }
