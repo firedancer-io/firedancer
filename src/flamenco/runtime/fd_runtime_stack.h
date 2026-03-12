@@ -27,17 +27,19 @@ typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
    computed fields for vote accounts during epoch boundary stake
    and rewards calculations. */
 
+struct fd_epoch_credits {
+  ulong  cnt;
+  ushort epoch       [ FD_EPOCH_CREDITS_MAX ];
+  ulong  credits     [ FD_EPOCH_CREDITS_MAX ];
+  ulong  prev_credits[ FD_EPOCH_CREDITS_MAX ];
+};
+typedef struct fd_epoch_credits fd_epoch_credits_t;
+
 struct fd_vote_rewards {
-  fd_pubkey_t pubkey;
-  uchar       commission;
-  ulong       vote_rewards;
-  uint        next;
-  struct {
-    ulong  cnt;
-    ushort epoch       [ FD_EPOCH_CREDITS_MAX ];
-    ulong  credits     [ FD_EPOCH_CREDITS_MAX ];
-    ulong  prev_credits[ FD_EPOCH_CREDITS_MAX ];
-  } epoch_credits;
+  fd_pubkey_t        pubkey;
+  ulong              vote_rewards;
+  uint               next;
+  uchar              commission;
 };
 typedef struct fd_vote_rewards fd_vote_rewards_t;
 
@@ -96,8 +98,10 @@ struct fd_runtime_stack {
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 
-    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ] __attribute__((aligned(128UL)));
     uchar             vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
+
+    fd_epoch_credits_t epoch_credits[ FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ];
 
   } stakes;
 };
