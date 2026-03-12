@@ -926,7 +926,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, bank->data->idx ) );
 
   /* Do hashing and other end-of-block processing. */
-  fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
+  fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx,
+                                     ctx->hard_forks, ctx->hard_forks_cnts, ctx->hard_forks_cnt );
 
   /* Copy out cost tracker fields before freezing */
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1077,7 +1078,8 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_sched_block_add_done( ctx->sched, ctx->leader_bank->data->idx, ctx->leader_bank->data->parent_idx, curr_slot );
 
-  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
+  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx,
+                                     ctx->hard_forks, ctx->hard_forks_cnts, ctx->hard_forks_cnt );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
@@ -1250,7 +1252,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     int is_epoch_boundary = 0;
     fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
     FD_TEST( !is_epoch_boundary );
-    fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
+    fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx,
+                                       ctx->hard_forks, ctx->hard_forks_cnts, ctx->hard_forks_cnt );
 
     snapshot_slot = 0UL;
   }
