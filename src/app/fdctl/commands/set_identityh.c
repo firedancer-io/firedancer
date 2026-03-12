@@ -152,7 +152,7 @@ poll_keyswitch( fd_topo_t * topo,
                 int         force_lock ) {
   switch( *state ) {
     case FD_SET_IDENTITY_STATE_UNLOCKED: {
-      fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
+      fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
       if( FD_LIKELY( FD_KEYSWITCH_STATE_UNLOCKED==FD_ATOMIC_CAS( &poh->state, FD_KEYSWITCH_STATE_UNLOCKED, FD_KEYSWITCH_STATE_LOCKED ) ) ) {
         *state = FD_SET_IDENTITY_STATE_LOCKED;
         FD_LOG_INFO(( "Locking validator identity for key switch..." ));
@@ -169,7 +169,7 @@ poll_keyswitch( fd_topo_t * topo,
       break;
     }
     case FD_SET_IDENTITY_STATE_LOCKED: {
-      fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
+      fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
       memcpy( poh->bytes, keypair, 64UL );
       poh->param = !!require_tower;
       FD_COMPILER_MFENCE();
@@ -180,7 +180,7 @@ poll_keyswitch( fd_topo_t * topo,
       break;
     }
     case FD_SET_IDENTITY_STATE_POH_HALT_REQUESTED: {
-      fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
+      fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
       if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         fd_memzero_explicit( poh->bytes, 64UL );
         FD_COMPILER_MFENCE();
@@ -252,7 +252,7 @@ poll_keyswitch( fd_topo_t * topo,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "sign" ) ||
-                       !strcmp( topo->tiles[ i ].name, "poh" ) ||
+                       !strcmp( topo->tiles[ i ].name, "pohh" ) ||
                        !strcmp( topo->tiles[ i ].name, "shred" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
@@ -270,7 +270,7 @@ poll_keyswitch( fd_topo_t * topo,
       ulong all_switched = 1UL;
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
-        if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "poh" ) ||
+        if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "pohh" ) ||
                        !strcmp( topo->tiles[ i ].name, "shred" ) ) ) continue;
 
         fd_keyswitch_t * tile_ks = fd_topo_obj_laddr( topo, topo->tiles[ i ].id_keyswitch_obj_id );
@@ -298,14 +298,14 @@ poll_keyswitch( fd_topo_t * topo,
       break;
     }
     case FD_SET_IDENTITY_STATE_ALL_SWITCHED: {
-      fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
+      fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
       poh->state = FD_KEYSWITCH_STATE_UNHALT_PENDING;
       FD_LOG_INFO(( "Requesting to unpause leader pipeline..." ));
       *state = FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED;
       break;
     }
     case FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED: {
-      fd_keyswitch_t * poh = find_keyswitch( topo, "poh" );
+      fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
       if( FD_LIKELY( poh->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
         FD_LOG_INFO(( "Leader pipeline unpaused..." ));
         poh->state = FD_KEYSWITCH_STATE_UNLOCKED;
