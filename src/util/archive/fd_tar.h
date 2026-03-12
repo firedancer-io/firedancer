@@ -23,6 +23,7 @@
 
 struct __attribute__((packed)) fd_tar_meta {
 # define FD_TAR_NAME_SZ 100
+# define FD_TAR_SIZE_SZ 12
   /* 0x000 */ char name    [ FD_TAR_NAME_SZ ];
   /* 0x064 */ char mode    [   8 ];
   /* 0x06c */ char uid     [   8 ];
