@@ -863,6 +863,7 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   }
   peers->epochs[ epoch_idx ].epoch      = epoch_info->epoch;
   peers->epochs[ epoch_idx ].stakes_cnt = stakes_cnt;
+  FD_TEST( stakes_cnt<=MAX_STAKED_LEADERS );
 
   /* sort for deduplication */
   fd_gui_peers_voter_sort_iden_desc_inplace( peers->epochs[ epoch_idx ].stakes, peers->epochs[ epoch_idx ].stakes_cnt );

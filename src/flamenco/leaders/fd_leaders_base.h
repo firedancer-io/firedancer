@@ -74,7 +74,7 @@ typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
 
    Regardless, this allows us to compress the set of stake weights into
    a much smaller, bounded set.  The worst case number of compressed
-   stake weights is 108000 + 108001 = 208001 keys.  The aggregated
+   stake weights is 108000 + 108001 = 216001 keys.  The aggregated
    weights will be stored as FD_DUMMY_ACCOUNT.  The consumer is
    responsible for post-processing the aggregated weights to make sure
    they aren't inserted into any downstream data structures. */
