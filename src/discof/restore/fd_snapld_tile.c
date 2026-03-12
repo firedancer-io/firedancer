@@ -485,7 +485,9 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
     /* FD_SNAPSHOT_MSG_DATA is not possible */
     default: {
-      FD_LOG_ERR(( "unexpected control sig %lu in state %lu", sig, (ulong)ctx->state ));
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
     }
   }
