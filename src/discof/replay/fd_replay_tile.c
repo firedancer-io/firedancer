@@ -2250,8 +2250,13 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( fd_banks_prune_dead_banks( ctx->banks ) ) ) {
-    // FIXME: anything pruned from banks should also be pruned from txncache and accdb
+  fd_banks_prune_cancel_info_t cancel_info[ 1 ];
+  int pruned = fd_banks_prune_one_dead_bank( ctx->banks, cancel_info );
+  if( FD_UNLIKELY( pruned==2 ) ) {
+    fd_txncache_cancel_fork( ctx->txncache, cancel_info->txncache_fork_id );
+    fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_idx } };
+    fd_accdb_cancel( ctx->accdb_admin, &xid );
+    fd_progcache_txn_cancel( ctx->progcache_admin, &xid );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
