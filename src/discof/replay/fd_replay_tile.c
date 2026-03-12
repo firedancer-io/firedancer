@@ -2331,7 +2331,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
       if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
-        publish_txn_executed( ctx, stem, msg->txn_exec->txn_idx );
+        publish_txn_executed( ctx, stem, msg->txn_sigverify->txn_idx );
       }
       break;
     }
