@@ -157,6 +157,7 @@ struct pong_data {
   fd_ip4_port_t  peer_addr;
   fd_hash_t      hash;
   uint           daddr;
+  fd_pubkey_t    key;
 };
 typedef struct pong_data pong_data_t;
 
@@ -284,6 +285,7 @@ struct ctx {
     ulong rerequest;
     ulong malformed_ping;
     ulong unknown_peer_ping;
+    ulong fail_sigverify_ping;
     fd_histf_t slot_compl_time[ 1 ];
     fd_histf_t response_latency[ 1 ];
     ulong blk_evicted;
@@ -568,6 +570,9 @@ after_sign( ctx_t             * ctx,
 
   /* This is a pong message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_PONG ) ) {
+    fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &pending->pong_data.key );
+    if( FD_LIKELY( peer && peer->ping ) ) peer->ping--; /* prevent underflow if the peer was removed/readded */
+
     fd_memcpy( pending->msg.pong.sig, ctx->sign_buf, 64UL );
     send_packet( ctx, stem, 1, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     return;
@@ -579,25 +584,22 @@ after_sign( ctx_t             * ctx,
 
   /* This is a warmup message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.slot == 0 ) ) {
-    fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
-    if( FD_UNLIKELY( active ) ) send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
+    if( FD_UNLIKELY( peer ) ) send_packet( ctx, stem, 1, peer->ip4, peer->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
     else { /* This is a warmup request for a peer that is no longer active.  There's no reason to pick another peer for a warmup rq, so just drop it. */ }
     return;
   }
 
   /* This is a regular repair shred request
 
-     TODO: anyways to make this less complicated? Essentially we need to
-     ensure we always send out any shred requests we have, because policy_next
-     has no way to revisit a shred.  But the fact that peers can drop out
-     of the active peer list makes this complicated.
+     We need to ensure we always send out any shred requests we have,
+     because policy_next has no way to revisit a shred.  But the fact
+     that peers can drop out of the peer list makes this complicated.
+     If the peer is still there (common), it's fine.  If the peer is not
+     there, we can add this request to the inflights table, pretend
+     we've sent it and let the inflight timeout request it down the
+     line. */
 
-     1. If the peer is still there (common), it's fine.
-     2. If the peer is not there, we can select another peer and send the request.
-     3. If the peer is not there, and we have no other peers, we can add
-        this request to the inflights table, pretend we've sent it and
-        let the inflight timeout request it down the line.
-  */
   fd_policy_peer_t * active         = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
   int                is_regular_req = pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.nonce > 0; // not a highest/orphan request
 
@@ -780,12 +782,25 @@ after_net( ctx_t * ctx,
     ctx->metrics->unknown_peer_ping++;
     return;
   }
-  if( FD_UNLIKELY( peer->ping_cnt ) ) return;
-  /* TODO: we should sigverify the ping.sig */
+  if( FD_UNLIKELY( peer->ping ) ) return;
   if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) return;
+
+  fd_sha512_t sha[1];
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( res->ping.hash.uc, 32UL, res->ping.sig, res->ping.from.uc, sha ) ) ) {
+    ctx->metrics->fail_sigverify_ping++;
+    return;
+  }
+
+  /* Note that anyone could theoretically send us many fake contact
+     infos that populate our peer map.  They could repeatedly send
+     pings, wait for the ping to exit the queue and then send another.
+     Needs investigation to see if this is a serious problem & how
+     feasible it actually is, especially considering upstream gossip
+     behavior. */
+
   fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &res->ping.hash );
-  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr } } );
-  peer->ping_cnt++;
+  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr, .key = res->ping.from } } );
+  peer->ping++;
 }
 
 static inline void
@@ -974,12 +989,6 @@ after_credit( ctx_t *             ctx,
 
   if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->pong_queue ) ) ) {
     sign_pending_t signable = fd_signs_queue_pop( ctx->pong_queue );
-
-    if( FD_UNLIKELY( signable.msg.kind == FD_REPAIR_KIND_PONG ) ) {
-      fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &signable.msg.pong.from );
-      if( FD_LIKELY( peer && peer->ping_cnt ) ) peer->ping_cnt--; /* prevent underflow if the peer was removed/readded */
-    }
-
     fd_repair_send_sign_request( ctx, sign_out, &signable.msg, signable.msg.kind == FD_REPAIR_KIND_PONG ? &signable.pong_data : NULL );
     *charge_busy = 1;
     return;
@@ -1301,6 +1310,7 @@ metrics_write( ctx_t * ctx ) {
 
   FD_MCNT_SET( REPAIR, UNKNOWN_PEER_PING, ctx->metrics->unknown_peer_ping );
   FD_MCNT_SET( REPAIR, MALFORMED_PING,    ctx->metrics->malformed_ping );
+  FD_MCNT_SET( REPAIR, FAIL_SIGVERIFY_PING, ctx->metrics->fail_sigverify_ping );
 }
 
 #undef DEBUG_LOGGING
