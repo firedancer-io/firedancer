@@ -22,25 +22,25 @@ fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed, fd_rno
   ulong footprint = fd_policy_footprint( dedup_max, peer_max );
   fd_memset( shmem, 0, footprint );
 
-  ulong peer_max_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
+  ulong peer_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_policy_t * policy     = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),            sizeof(fd_policy_t)                           );
   void *        dedup_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max   ) );
   void *        dedup_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max   ) );
   void *        dedup_lru  = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()               );
-  void *        peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_map_align(),   fd_policy_peer_map_footprint( peer_max_chain_cnt ) );
+  void *        peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_map_align(),   fd_policy_peer_map_footprint( peer_chain_cnt ) );
   void *        peers_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_pool_align(),  fd_policy_peer_pool_footprint( peer_max    ) );
   void *        peers_fast = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                     );
   void *        peers_slow = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                     );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_policy_align() ) == (ulong)shmem + footprint );
 
-  policy->dedup.map     = fd_policy_dedup_map_new ( dedup_map,  dedup_max,   seed );
-  policy->dedup.pool    = fd_policy_dedup_pool_new( dedup_pool, dedup_max         );
-  policy->dedup.lru     = fd_policy_dedup_lru_new ( dedup_lru                     );
-  policy->peers.map     = fd_policy_peer_map_new  ( peers,      peer_max_chain_cnt, seed );
-  policy->peers.pool    = fd_policy_peer_pool_new( peers_pool, peer_max          );
-  policy->peers.fast    = fd_policy_peer_dlist_new( peers_fast                    );
-  policy->peers.slow    = fd_policy_peer_dlist_new( peers_slow                    );
+  policy->dedup.map     = fd_policy_dedup_map_new ( dedup_map,  dedup_max,      seed );
+  policy->dedup.pool    = fd_policy_dedup_pool_new( dedup_pool, dedup_max            );
+  policy->dedup.lru     = fd_policy_dedup_lru_new ( dedup_lru                        );
+  policy->peers.map     = fd_policy_peer_map_new  ( peers,      peer_chain_cnt, seed );
+  policy->peers.pool    = fd_policy_peer_pool_new ( peers_pool, peer_max             );
+  policy->peers.fast    = fd_policy_peer_dlist_new( peers_fast                       );
+  policy->peers.slow    = fd_policy_peer_dlist_new( peers_slow                       );
   policy->turbine_slot0 = ULONG_MAX;
   policy->rnonce_ss[0]  = *rnonce_ss;
 
@@ -67,12 +67,12 @@ fd_policy_join( void * shpolicy ) {
     return NULL;
   }
 
-  policy->dedup.map  = fd_policy_dedup_map_join ( policy->dedup.map   );
-  policy->dedup.pool = fd_policy_dedup_pool_join( policy->dedup.pool  );
-  policy->dedup.lru  = fd_policy_dedup_lru_join ( policy->dedup.lru   );
-  policy->peers.map  = fd_policy_peer_map_join  ( policy->peers.map   );
-  policy->peers.pool = fd_policy_peer_pool_join( policy->peers.pool  );
-  policy->peers.fast = fd_policy_peer_dlist_join( policy->peers.fast  );
+  policy->dedup.map  = fd_policy_dedup_map_join ( policy->dedup.map  );
+  policy->dedup.pool = fd_policy_dedup_pool_join( policy->dedup.pool );
+  policy->dedup.lru  = fd_policy_dedup_lru_join ( policy->dedup.lru  );
+  policy->peers.map  = fd_policy_peer_map_join  ( policy->peers.map  );
+  policy->peers.pool = fd_policy_peer_pool_join ( policy->peers.pool );
+  policy->peers.fast = fd_policy_peer_dlist_join( policy->peers.fast );
   policy->peers.slow = fd_policy_peer_dlist_join( policy->peers.slow );
 
   policy->peers.select.iter  = fd_policy_peer_dlist_iter_fwd_init( policy->peers.slow, policy->peers.pool );

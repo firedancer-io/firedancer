@@ -130,10 +130,10 @@ typedef struct fd_policy_peer fd_policy_peer_t;
    selecting repair peers via round-robin. */
 
 struct fd_policy_peers {
-  fd_policy_peer_t * pool;  /* memory pool of repair peer pubkeys, contains entries of both dlist */
+  fd_policy_peer_t * pool;        /* memory pool of peers */
   fd_policy_peer_dlist_t * fast;  /* [0, FD_POLICY_LATENCY_THRESH]   ms latency group FD_POLICY_LATENCY_FAST */
   fd_policy_peer_dlist_t * slow;  /* (FD_POLICY_LATENCY_THRESH, inf) ms latency group FD_POLICY_LATENCY_SLOW */
-  fd_policy_peer_map_t * map;   /* map dynamic of pubkey->peer data */
+  fd_policy_peer_map_t * map;     /* map keyed by pubkey to peer data */
   struct {
      uint stage;                         /* < sizeof(bucket_stages)        */
      fd_policy_peer_dlist_iter_t iter;   /* round-robin index of next peer */
@@ -184,12 +184,12 @@ typedef struct fd_policy fd_policy_t;
 
 FD_FN_CONST static inline ulong
 fd_policy_align( void ) {
-  return alignof(fd_policy_t);
+  return 128UL;
 }
 
 FD_FN_CONST static inline ulong
 fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
-  ulong peer_max_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
+  ulong peer_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -200,14 +200,14 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_policy_t),         sizeof(fd_policy_t)                                 ),
-      fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max )         ),
-      fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max )         ),
-      fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()                     ),
-      fd_policy_peer_map_align(),   fd_policy_peer_map_footprint ( peer_max_chain_cnt ) ),
-      fd_policy_peer_pool_align(),  fd_policy_peer_pool_footprint( peer_max )           ),
-      fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                    ),
-      fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                    ),
+      fd_policy_align(),            sizeof(fd_policy_t)                             ),
+      fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max )     ),
+      fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max )     ),
+      fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()                 ),
+      fd_policy_peer_map_align(),   fd_policy_peer_map_footprint ( peer_chain_cnt ) ),
+      fd_policy_peer_pool_align(),  fd_policy_peer_pool_footprint( peer_max )       ),
+      fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                ),
+      fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                ),
     fd_policy_align() );
 }
 
