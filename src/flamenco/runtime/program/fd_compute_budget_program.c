@@ -142,8 +142,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_bank_t const *   ban
         compute_budget_program_instruction,
         instruction,
         data,
-        instr->data_sz,
-        NULL ) ) ) {
+        instr->data_sz ) ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( txn_out, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }

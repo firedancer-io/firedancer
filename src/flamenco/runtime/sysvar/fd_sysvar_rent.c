@@ -56,8 +56,7 @@ fd_sysvar_rent_read( fd_accdb_user_t *         accdb,
   rent = fd_bincode_decode_static(
       rent, rent,
       fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ),
-      NULL );
+      fd_accdb_ref_data_sz   ( ro ) );
   fd_accdb_close_ro( accdb, ro );
   return rent;
 }

@@ -95,8 +95,7 @@ fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
   fd_sol_sysvar_clock_t * res = fd_bincode_decode_static(
       sol_sysvar_clock, clock,
       fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ),
-      NULL );
+      fd_accdb_ref_data_sz   ( ro ) );
   fd_accdb_close_ro( accdb, ro );
   return res;
 }

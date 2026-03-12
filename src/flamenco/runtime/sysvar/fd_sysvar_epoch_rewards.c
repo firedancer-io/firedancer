@@ -44,8 +44,7 @@ fd_sysvar_epoch_rewards_read( fd_accdb_user_t *           accdb,
   out = fd_bincode_decode_static(
       sysvar_epoch_rewards, out,
       fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ),
-      NULL );
+      fd_accdb_ref_data_sz   ( ro ) );
   fd_accdb_close_ro( accdb, ro );
   return out;
 }

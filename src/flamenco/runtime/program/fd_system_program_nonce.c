@@ -146,8 +146,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
-      fd_borrowed_account_get_data_len( account ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( account ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -319,8 +318,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( &from ),
-      fd_borrowed_account_get_data_len( &from ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( &from ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -522,8 +520,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
-      fd_borrowed_account_get_data_len( account ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( account ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -695,8 +692,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
-      fd_borrowed_account_get_data_len( account ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( account ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -844,8 +840,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( &account ),
-      fd_borrowed_account_get_data_len( &account ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( &account ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -974,8 +969,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, state,
       fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ),
-      NULL ) ) ) {
+      fd_accdb_ref_data_sz   ( ro ) ) ) ) {
     fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }

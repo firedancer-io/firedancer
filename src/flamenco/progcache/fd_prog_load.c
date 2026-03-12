@@ -52,8 +52,7 @@ fd_prog_load_v3( fd_accdb_user_t *         accdb,
       bpf_upgradeable_loader_state,
       program_account_state,
       fd_accdb_ref_data_const( prog ),
-      fd_accdb_ref_data_sz   ( prog ),
-      NULL ) ) ) {
+      fd_accdb_ref_data_sz   ( prog ) ) ) ) {
     return NULL;
   }
   if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {

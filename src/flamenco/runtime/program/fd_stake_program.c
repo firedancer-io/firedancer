@@ -2563,8 +2563,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_stake_instruction_t * instruction = fd_bincode_decode_static(
       stake_instruction, instr_mem,
       ctx->instr->data,
-      ctx->instr->data_sz,
-      NULL );
+      ctx->instr->data_sz );
   if( FD_UNLIKELY( !instruction ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

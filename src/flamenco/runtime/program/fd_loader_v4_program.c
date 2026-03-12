@@ -828,19 +828,18 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497 */
     uchar __attribute__((aligned(FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN))) instruction_mem[ FD_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT ] = {0};
-    rc = 0;
     fd_loader_v4_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
         loader_v4_program_instruction,
         instruction_mem,
         instr_ctx->instr->data,
         instr_ctx->instr->data_sz,
-        FD_TXN_MTU,
-        &rc );
-    if( FD_UNLIKELY( rc ) ) {
+        FD_TXN_MTU );
+    if( FD_UNLIKELY( !instruction ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497-L518 */
+    rc = 0;
     switch( instruction->discriminant ) {
       case fd_loader_v4_program_instruction_enum_write: {
         /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L498-L500 */
