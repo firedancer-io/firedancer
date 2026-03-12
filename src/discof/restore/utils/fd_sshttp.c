@@ -418,12 +418,12 @@ follow_redirect( fd_sshttp_t *        http,
                   ulong               header_cnt,
                   long                now ) {
   if( FD_UNLIKELY( !http->hops ) ) {
-    FD_LOG_WARNING(( "too many redirects (remaining %d) from " FD_IP4_ADDR_FMT ":%hu", http->hops,
+    FD_LOG_WARNING(( "too many redirects (remaining %lu) from " FD_IP4_ADDR_FMT ":%hu", http->hops,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
-
+  /* The check above guarantees hops>0. */
   http->hops--;
 
   ulong        location_len = 0UL;
