@@ -826,7 +826,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_HASHES_PER_TICK:                                                                               return (uchar*)&manifest->hashes_per_tick;
     case STATE_TICKS_PER_SLOT:                                                                                return (uchar*)&manifest->ticks_per_slot;
     case STATE_NS_PER_SLOT:                                                                                   return (uchar*)&manifest->ns_per_slot;
-    case STATE_GENSIS_CREATION_TIME:                                                                          return (uchar*)&manifest->creation_time_millis;
+    case STATE_GENSIS_CREATION_TIME:                                                                          return (uchar*)&manifest->creation_time_seconds;
     case STATE_SLOTS_PER_YEAR:                                                                                return (uchar*)&manifest->slots_per_year;
     case STATE_ACCOUNTS_DATA_LEN:                                                                             return NULL;
     case STATE_SLOT:                                                                                          return (uchar*)&manifest->slot;

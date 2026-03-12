@@ -16,7 +16,7 @@ struct fd_genesis_meta {
   ulong has_lthash : 1;
 
   fd_hash_t         genesis_hash;
-  ulong             creation_time_millis;
+  ulong             creation_time_seconds;
   fd_lthash_value_t lthash;
 
   ulong blob_sz;

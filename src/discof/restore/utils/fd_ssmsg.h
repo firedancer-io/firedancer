@@ -266,8 +266,9 @@ typedef struct fd_snapshot_manifest_blockhash fd_snapshot_manifest_blockhash_t;
 
 struct fd_snapshot_manifest {
   /* The UNIX timestamp when the genesis block was for this chain
-     was created, in nanoseconds.  */
-  ulong creation_time_millis;
+     was created, in seconds.
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/runtime/src/bank.rs#L2108-L2114 */
+  ulong creation_time_seconds;
 
   /* At genesis, certain parameters can be set which control the
      inflation rewards going forward.  This includes what the initial
