@@ -250,6 +250,14 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      signature. */
   ulong seed;
 
+  /* discard_unexpected_data_complete_shreds: activation slot for
+     discard_unexpected_data_complete_shreds.
+
+     This feature rejects data shreds with the DATA_COMPLETE flag set
+     at the wrong position within an FEC set (i.e. not the last data
+     shred). */
+  ulong discard_unexpected_data_complete_shreds;
+
   /* sha512 and reedsol are used for calculations while adding a shred.
      Their state outside a call to add_shred is indeterminate. */
   fd_sha512_t   sha512[1];
@@ -356,17 +364,18 @@ fd_fec_resolver_new( void                    * shmem,
 
   fd_sha512_new( resolver->sha512 );
 
-  resolver->depth                  = depth;
-  resolver->partial_depth          = partial_depth;
-  resolver->complete_depth         = complete_depth;
-  resolver->done_depth             = done_depth;
-  resolver->expected_shred_version = 0;
-  resolver->free_list_cnt          = depth+partial_depth;
-  resolver->signer                 = signer;
-  resolver->sign_ctx               = sign_ctx;
-  resolver->max_shred_idx          = max_shred_idx;
-  resolver->slot_old               = 0UL;
-  resolver->seed                   = seed3;
+  resolver->depth                                   = depth;
+  resolver->partial_depth                           = partial_depth;
+  resolver->complete_depth                          = complete_depth;
+  resolver->done_depth                              = done_depth;
+  resolver->expected_shred_version                  = 0;
+  resolver->free_list_cnt                           = depth+partial_depth;
+  resolver->signer                                  = signer;
+  resolver->sign_ctx                                = sign_ctx;
+  resolver->max_shred_idx                           = max_shred_idx;
+  resolver->slot_old                                = 0UL;
+  resolver->seed                                    = seed3;
+  resolver->discard_unexpected_data_complete_shreds = ULONG_MAX;
   return shmem;
 }
 
@@ -409,6 +418,12 @@ void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version ) {
   resolver->expected_shred_version = expected_shred_version;
+}
+
+void
+fd_fec_resolver_set_discard_unexpected_data_complete_shreds( fd_fec_resolver_t * resolver,
+                                                             ulong               activation_slot ) {
+  resolver->discard_unexpected_data_complete_shreds = activation_slot;
 }
 
 void
@@ -563,9 +578,19 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   if( FD_UNLIKELY( ( shred->fec_set_idx % FD_FEC_SHRED_CNT ) != 0UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   if( FD_UNLIKELY( in_type_idx >= FD_FEC_SHRED_CNT ) )                  return FD_FEC_RESOLVER_SHRED_REJECTED;
   if( is_data_shred ) {
-    /* if it has data complete, it must be the last one in the FEC. */
-    if( FD_UNLIKELY( (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) && ((1UL+shred->idx) % FD_FEC_SHRED_CNT) ) )
+    /* if it has slot complete, it must be the last one in the FEC. */
+    if( FD_UNLIKELY( (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) && ((1UL+shred->idx) % FD_FEC_SHRED_CNT) ) ) {
       return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
+
+    /* discard_unexpected_data_complete_shreds:
+       if it has data complete, it must be the last data shred in the FEC set
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/ledger/src/shred.rs#L817-L825 */
+    if( FD_UNLIKELY( ( shred->slot >= resolver->discard_unexpected_data_complete_shreds ) &&
+                     ( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE )             &&
+                     ( shred->idx != ( shred->fec_set_idx + ( FD_FEC_SHRED_CNT - 1UL ) ) ) ) ) {
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
   }
 
   /* This, combined with the check on shred->code.data_cnt implies that
