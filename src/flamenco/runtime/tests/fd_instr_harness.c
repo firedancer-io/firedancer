@@ -167,19 +167,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-  /* If the program id is not in the set of accounts it must be added to the set of accounts. */
-  if( FD_UNLIKELY( !has_program_id ) ) {
-    fd_pubkey_t * program_key = &txn_out->accounts.keys[ txn_out->accounts.cnt ];
-    memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
-
-    fd_account_meta_t * meta = fd_spad_alloc( runner->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
-    fd_account_meta_init( meta );
-
-    txn_out->accounts.account[test_ctx->accounts_count].meta = meta;
-
-    info->program_id = (uchar)txn_out->accounts.cnt;
-    txn_out->accounts.cnt++;
-  }
+  /* Ensure the program id is in the set of accounts */
+  FD_TEST( has_program_id );
 
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
