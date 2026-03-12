@@ -40,7 +40,7 @@ typedef struct fd_policy_dedup fd_policy_dedup_t; /* forward decl */
 
 struct fd_policy_dedup_ele {
   ulong key;      /* compact encoding of fd_repair_req_t detailed above */
-  ulong prev;   /* reserved by lru */
+  ulong prev;     /* reserved by lru */
   ulong next;
   ulong hash;     /* reserved by pool and map_chain */
   long  req_ts;   /* timestamp when the request was sent */
@@ -250,8 +250,12 @@ fd_policy_delete( void * policy );
 fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy );
 
+/* fd_policy_peer_upsert upserts a peer into the policy.  If the peer
+   does not exist, it is created.  If the peer already exists, it is
+   updated.  Returns a pointer to the peer if a new peer was created,
+   otherwise NULL (including on updates). */
 fd_policy_peer_t const *
-fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );
+fd_policy_peer_upsert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );
 
 fd_policy_peer_t *
 fd_policy_peer_query( fd_policy_t * policy, fd_pubkey_t const * key );

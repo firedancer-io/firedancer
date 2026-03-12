@@ -2,8 +2,8 @@
 
 void
 test_peer_removal( fd_wksp_t * wksp ) {
-  ulong dedup_max = 1024;
   ulong peer_max  = 1024;
+  ulong dedup_max = 1024;
   fd_rnonce_ss_t rnonce[1];
   fd_memset( rnonce, '\xCC', sizeof(fd_rnonce_ss_t) );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_policy_align(), fd_policy_footprint( dedup_max, peer_max ), 1 );
@@ -15,7 +15,7 @@ test_peer_removal( fd_wksp_t * wksp ) {
   for( int i = 1; i < 64; i++ ){
     fd_pubkey_t key = { .key = { (uchar)i } };
     fd_ip4_port_t addr = { 0 };
-    fd_policy_peer_t const * peer = fd_policy_peer_insert( policy, &key, &addr );
+    fd_policy_peer_t const * peer = fd_policy_peer_upsert( policy, &key, &addr );
     fd_policy_peer_response_update( policy, &key, (long)(i*10e6L));
     if ( i <= 8 ) num_fast++;
     else          num_slow++;
@@ -68,7 +68,7 @@ test_peer_removal( fd_wksp_t * wksp ) {
 
   fd_pubkey_t key65 = { .key = { (uchar)65 } };
   fd_ip4_port_t addr65 = { 0 };
-  FD_TEST( fd_policy_peer_insert( policy, &key65, &addr65 ) );
+  FD_TEST( fd_policy_peer_upsert( policy, &key65, &addr65 ) );
   /* check this peer is in the slow dlist */
 
   int found = 0;
@@ -101,7 +101,7 @@ test_peer_removal( fd_wksp_t * wksp ) {
   /* put another peer in the slow -> fast dlist */
   fd_pubkey_t key66 = { .key = { (uchar)66 } };
   fd_ip4_port_t addr66 = { 0 };
-  FD_TEST( fd_policy_peer_insert( policy, &key66, &addr66 ) );
+  FD_TEST( fd_policy_peer_upsert( policy, &key66, &addr66 ) );
   /* update key66s latency to move it to the fast dlist */
   fd_policy_peer_response_update( policy, &key66, (long)(10e6L));
   peer = fd_policy_peer_dlist_ele_peek_tail( policy->peers.fast, policy->peers.pool );
