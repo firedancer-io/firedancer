@@ -180,7 +180,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     }
 
     default: {
-      FD_LOG_ERR(( "unexpected control sig %s (%lu) in state %s (%lu)",
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
                    fd_ssctrl_msg_ctrl_str( sig ), sig,
                    fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
