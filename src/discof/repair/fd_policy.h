@@ -104,8 +104,9 @@ struct fd_policy_peer {
   long  total_lat; /* total RTT over all responses in ns */
   ulong stake;
 
-  /* count of pongs currently living in our sign queue that belong to this peer */
-  uint ping_cnt;
+  /* count of ping/pong messages currently living in our sign queue that
+     belong to this peer. */
+  uint ping;
 };
 typedef struct fd_policy_peer fd_policy_peer_t;
 
