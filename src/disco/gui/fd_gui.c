@@ -1739,7 +1739,7 @@ void
 fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           fd_epoch_info_msg_t const * epoch_info,
                           long                        now ) {
-  FD_TEST( epoch_info->staked_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( epoch_info->staked_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
   FD_TEST( epoch_info->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = epoch_info->epoch % 2UL;
