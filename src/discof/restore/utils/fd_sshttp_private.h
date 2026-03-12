@@ -26,7 +26,7 @@ struct fd_sshttp_private {
   long  deadline;
   ulong empty_recvs;
 
-  int   hops;
+  ulong hops;
 
   char  location[ PATH_MAX ];
   ulong location_len;
