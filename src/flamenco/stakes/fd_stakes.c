@@ -181,6 +181,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       }
 
       if( FD_UNLIKELY( !exists_curr ) ) {
+        fd_accdb_close_ro( accdb, vote_ro );
+
         /* If the vote account does not exist going into the epoch
            boundary, and did not exist at the end of the last epoch
            boundary, then we can fully skip it. */
@@ -225,6 +227,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                                     &last_vote_slot,
                                     &last_vote_timestamp,
                                     epoch_credits );
+        fd_accdb_close_ro( accdb, vote_ro );
 
         /* If old_node_account_t_1 gets zero-initialized which means
            that it is still valid to use. */
@@ -245,8 +248,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
             old_stake_t_1,
             last_vote_slot,
             last_vote_timestamp );
-
-        fd_accdb_close_ro( accdb, vote_ro );
 
         fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
         vote_ele->pubkey             = stake_delegation->vote_account;
