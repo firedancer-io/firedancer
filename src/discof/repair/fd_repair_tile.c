@@ -53,14 +53,9 @@
 #define IN_KIND_REPLAY  (8)
 
 #define MAX_IN_LINKS    (32)
-
-#define MAX_REPAIR_PEERS   40200UL
-#define MAX_BUFFER_SIZE    ( MAX_REPAIR_PEERS * sizeof( fd_shred_dest_wire_t ) )
 #define MAX_SHRED_TILE_CNT ( 16UL )
 #define MAX_SIGN_TILE_CNT  ( 16UL )
 
-/* Maximum size of a network packet */
-#define FD_REPAIR_MAX_PACKET_SIZE 1232
 /* Max number of validators that can be actively queried */
 #define FD_REPAIR_PEER_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 /* Max number of pending shred requests */
@@ -239,8 +234,6 @@ struct ctx {
 
   out_ctx_t net_out_ctx[1];
 
-  ulong snap_out_chunk;
-
   out_ctx_t repair_out_ctx[1];
 
   /* repair_sign links (to sign tiles 1+) - for round-robin distribution */
@@ -257,7 +250,15 @@ struct ctx {
   sign_pending_t * pong_queue;  /* contains any pong or initial warmup request waiting to be dispatched to repair->sign. Size is 2*FD_REPAIR_PEER_MAX */
 
   ushort net_id;
-  uchar buffer[ MAX_BUFFER_SIZE ]; /* includes Ethernet, IP, UDP headers */
+
+  /* Buffers for incoming unreliable frags */
+  uchar net_buf[ FD_NET_MTU ];
+  uchar sign_buf[ sizeof(fd_ed25519_sig_t) ];
+
+  /* Store chunk for incoming reliable frags */
+  ulong chunk;
+  ulong snap_out_chunk; /* store second to last chunk for snap_out */
+
   fd_ip4_udp_hdrs_t intake_hdr[1];
   fd_ip4_udp_hdrs_t serve_hdr [1];
 
@@ -465,41 +466,23 @@ during_frag( ctx_t * ctx,
 
   uint             in_kind =  ctx->in_kind[ in_idx ];
   in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
+  ctx->chunk = chunk;
 
   if( FD_UNLIKELY( in_kind==IN_KIND_NET ) ) {
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
     uchar const * dcache_entry = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
-    fd_memcpy( ctx->buffer, dcache_entry, sz );
+    fd_memcpy( ctx->net_buf, dcache_entry, sz );
     return;
   }
+
   if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
     FD_TEST( sizeof(fd_genesis_meta_t)<=sig );
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_memcpy( ctx->buffer, dcache_entry, sizeof(fd_genesis_meta_t) );
     return;
   }
 
   if( FD_UNLIKELY( sz!=0UL && ( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>in_ctx->mtu ) ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] in kind %u", chunk, sz, in_ctx->chunk0, in_ctx->wmark, in_kind ));
-
-  if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_memcpy( ctx->buffer, dcache_entry, sz );
-    return;
-  }
-
-  if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP ) ) {
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_memcpy( ctx->buffer, dcache_entry, sz );
-    return;
-  }
-
-  if( FD_LIKELY  ( in_kind==IN_KIND_SHRED  ) ) {
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    if( FD_LIKELY( sz > 0 ) ) fd_memcpy( ctx->buffer, dcache_entry, sz );
-    return;
-  }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
     if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) ctx->snap_out_chunk = chunk;
@@ -507,18 +490,12 @@ during_frag( ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
+    /* sign_repair is unreliable, so we copy the frag for convention.
+       Theoretically impossible to overrun. */
     uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_memcpy( ctx->buffer, dcache_entry, sz );
+    fd_memcpy( ctx->sign_buf, dcache_entry, sz );
     return;
   }
-
-  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
-    fd_memcpy( ctx->buffer, dcache_entry, sz );
-    return;
-  }
-
-  FD_LOG_ERR(( "Frag from unknown link (kind=%u in_idx=%lu)", in_kind, in_idx ));
 }
 
 static inline void
@@ -581,13 +558,13 @@ after_sign( ctx_t             * ctx,
 
   /* This is a pong message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_PONG ) ) {
-    fd_memcpy( pending->msg.pong.sig, ctx->buffer, 64UL );
+    fd_memcpy( pending->msg.pong.sig, ctx->sign_buf, 64UL );
     send_packet( ctx, stem, 1, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     return;
   }
 
   /* Inject the signature into the pending request */
-  fd_memcpy( pending->buf + 4, ctx->buffer, 64UL );
+  fd_memcpy( pending->buf + 4, ctx->sign_buf, 64UL );
   uint  src_ip4 = 0U;
 
   /* This is a warmup message */
@@ -776,7 +753,7 @@ after_net( ctx_t * ctx,
            ulong   sz  ) {
   fd_eth_hdr_t * eth; fd_ip4_hdr_t * ip4; fd_udp_hdr_t * udp;
   uchar * data; ulong data_sz;
-  FD_TEST( fd_ip4_udp_hdr_strip( ctx->buffer, sz, &data, &data_sz, &eth, &ip4, &udp ) );
+  FD_TEST( fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &data, &data_sz, &eth, &ip4, &udp ) );
   fd_ip4_port_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
   if( FD_UNLIKELY( data_sz != sizeof(fd_repair_ping_t) ) ) {
     ctx->metrics->malformed_ping++;
@@ -823,143 +800,141 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
   ctx->stem = stem;
+  in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
+  uint             in_kind = ctx->in_kind[ in_idx ];
 
-  uint in_kind = ctx->in_kind[ in_idx ];
-  if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
-    fd_genesis_meta_t const * meta = fd_type_pun_const( ctx->buffer );
-    if( meta->bootstrap ) fd_forest_init( ctx->forest, 0 );
-    return;
-  }
-
-  if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP ) ) {
-    fd_gossip_update_message_t const * msg = fd_type_pun_const( ctx->buffer );
-    if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
-      after_contact( ctx, msg );
-    } else {
-      fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
+  switch( in_kind ) {
+    /* Unreliable frags */
+    case IN_KIND_NET:  {
+      after_net( ctx, sz );
+      break;
     }
-    return;
-  }
+    case IN_KIND_SIGN: {
+      after_sign( ctx, in_idx, sig, stem );
+      break;
+    }
+    /* Reliable frags read directly from dcache */
+    case IN_KIND_SNAP: {
+      after_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
+      break;
+    }
+    case IN_KIND_GENESIS: {
+      fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+      if( meta->bootstrap ) fd_forest_init( ctx->forest, 0 );
+      break;
+    }
+    case IN_KIND_GOSSIP: {
+      fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+      if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
+        after_contact( ctx, msg );
+      } else {
+        fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
+      }
+      break;
+    }
+    case IN_KIND_REPLAY: {
+      fd_replay_fec_evicted_t const * msg = (fd_replay_fec_evicted_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+      fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, FD_FEC_SHRED_CNT - 1 );
+      break;
+    }
+    case IN_KIND_TOWER: {
+      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+        fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+        if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
+      } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+        fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+        if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
+          fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
+          if( FD_UNLIKELY( !blk ) ) {
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
-    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
-      fd_tower_slot_done_t const * msg = fd_type_pun_const( ctx->buffer );
-      if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
-    } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-      fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( ctx->buffer );
-      if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
-        fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
-        if( FD_UNLIKELY( !blk ) ) {
+            /* If we receive a confirmation for a slot we don't have,
+               create a sentinel forest block that we can repair from. */
 
-          /* If we receive a confirmation for a slot we don't have,
-             create a sentinel forest block that we can repair from. */
-
-          ulong evicted = ULONG_MAX;
-          blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot, &evicted );
-          if( FD_LIKELY( blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) {
-            blk->confirmed_bid = msg->block_id;
-            check_confirmed( ctx, blk, &msg->block_id );
+            ulong evicted = ULONG_MAX;
+            blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot, &evicted );
+            if( FD_LIKELY( blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) {
+              blk->confirmed_bid = msg->block_id;
+              check_confirmed( ctx, blk, &msg->block_id );
+            }
           }
         }
       }
+      break;
     }
-    return;
-  }
+    case IN_KIND_SHRED: {
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
-    after_sign( ctx, in_idx, sig, stem );
-    return;
-  }
+      /* There are 3 message types from shred:
+          1. resolver evict - incomplete FEC set is evicted by resolver
+          2. fec complete   - FEC set is completed by resolver. Also contains a shred.
+          3. shred          - new shred
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
+          Msgs 2 and 3 have a shred header in the dcache.  Msg 1 is empty. */
 
-    /* There are 3 message types from shred:
-        1. resolver evict - incomplete FEC set is evicted by resolver
-        2. fec complete   - FEC set is completed by resolver. Also contains a shred.
-        3. shred          - new shred
-
-        Msgs 2 and 3 have a shred header in ctx->buffer */
-
-    int resolver_evicted = sz == 0;
-    int fec_completes    = fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC;
-    if( FD_UNLIKELY( resolver_evicted ) ) {
-      after_evict( ctx, sig );
-      return;
-    }
-
-    fd_shred_t * shred = (fd_shred_t *)fd_type_pun( ctx->buffer );
-    fd_hash_t  * mr    = (fd_hash_t *)(ctx->buffer + fd_shred_header_sz( shred->variant ));
-    fd_hash_t  * cmr   = (fd_hash_t *)(ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) );
-    uint         nonce = FD_LOAD(uint, ctx->buffer + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) + sizeof(fd_hash_t) ); /* gibberish if not shred msg */
-    if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
-      FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
-      return;
-    };
-
-    if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && ( shred->slot > ctx->turbine_slot0 ) ) ) return;
-#   if LOGGING
-    if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
-      FD_LOG_INFO(( "\n\n[Turbine]\n"
-                    "slot:             %lu\n"
-                    "root:             %lu\n",
-                    shred->slot,
-                    fd_forest_root_slot( ctx->forest ) ));
-    }
-#   endif
-    ctx->metrics->current_slot  = fd_ulong_max( shred->slot, ctx->metrics->current_slot );
-    if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
-
-      if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
-        /* we wait until the first turbine shred arrives to kick off
-           the profiler.  This is to let gossip peers accumulate similar
-           to a regular Firedancer run. */
-        fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot, NULL );
-        fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
-
-        ctx->turbine_slot0 = ctx->profiler.end_slot;
-        fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, ctx->profiler.end_slot );
-        fd_policy_set_turbine_slot0( ctx->policy, ctx->profiler.end_slot );
+      int resolver_evicted = sz == 0;
+      int fec_completes    = fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC;
+      if( FD_UNLIKELY( resolver_evicted ) ) {
+        after_evict( ctx, sig );
         return;
       }
 
-      ctx->turbine_slot0 = shred->slot;
-      fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
-      fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
+      uchar * src = fd_chunk_to_laddr( in_ctx->mem, ctx->chunk );
+      fd_shred_t * shred = (fd_shred_t *)fd_type_pun( src );
+      fd_hash_t  * mr    = (fd_hash_t *)(src + fd_shred_header_sz( shred->variant ));
+      fd_hash_t  * cmr   = (fd_hash_t *)(src + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) );
+      uint         nonce = FD_LOAD(uint, src + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) + sizeof(fd_hash_t) ); /* gibberish if not shred msg */
+      if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
+        FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
+        return;
+      };
+
+      if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && ( shred->slot > ctx->turbine_slot0 ) ) ) return;
+  #   if LOGGING
+      if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
+        FD_LOG_INFO(( "\n\n[Turbine]\n"
+                      "slot:             %lu\n"
+                      "root:             %lu\n",
+                      shred->slot,
+                      fd_forest_root_slot( ctx->forest ) ));
+      }
+  #   endif
+      ctx->metrics->current_slot  = fd_ulong_max( shred->slot, ctx->metrics->current_slot );
+      if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
+
+        if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
+          /* we wait until the first turbine shred arrives to kick off
+             the profiler.  This is to let gossip peers accumulate similar
+             to a regular Firedancer run. */
+          fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot, NULL );
+          fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
+
+          ctx->turbine_slot0 = ctx->profiler.end_slot;
+          fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, ctx->profiler.end_slot );
+          fd_policy_set_turbine_slot0( ctx->policy, ctx->profiler.end_slot );
+          return;
+        }
+
+        ctx->turbine_slot0 = shred->slot;
+        fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
+        fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
+      }
+
+      if( FD_UNLIKELY( fec_completes ) ) {
+        after_fec( ctx, shred, mr, cmr );
+
+        /* forward along to replay */
+        memcpy( fd_chunk_to_laddr( ctx->repair_out_ctx->mem, ctx->repair_out_ctx->chunk ), src, sz );
+        fd_stem_publish( ctx->stem, ctx->repair_out_ctx->idx, sig, ctx->repair_out_ctx->chunk, sz, 0UL, 0UL, tspub );
+        ctx->repair_out_ctx->chunk = fd_dcache_compact_next( ctx->repair_out_ctx->chunk, sz, ctx->repair_out_ctx->chunk0, ctx->repair_out_ctx->wmark );
+      } else {
+        after_shred( ctx, sig, shred, nonce, mr, cmr );
+      }
+
+      /* update metrics */
+      ctx->metrics->repaired_slots = fd_forest_highest_repaired_slot( ctx->forest );
+      return;
     }
-
-    if( FD_UNLIKELY( fec_completes ) ) {
-      after_fec( ctx, shred, mr, cmr );
-
-      /* forward along to replay */
-      memcpy( fd_chunk_to_laddr( ctx->repair_out_ctx->mem, ctx->repair_out_ctx->chunk ), ctx->buffer, sz );
-      fd_stem_publish( ctx->stem, ctx->repair_out_ctx->idx, sig, ctx->repair_out_ctx->chunk, sz, 0UL, 0UL, tspub );
-      ctx->repair_out_ctx->chunk = fd_dcache_compact_next( ctx->repair_out_ctx->chunk, sz, ctx->repair_out_ctx->chunk0, ctx->repair_out_ctx->wmark );
-    } else {
-      after_shred( ctx, sig, shred, nonce, mr, cmr );
-    }
-
-    /* update metrics */
-    ctx->metrics->repaired_slots = fd_forest_highest_repaired_slot( ctx->forest );
-    return;
+    default: FD_LOG_ERR(( "bad in_kind %u", in_kind )); /* Should never reach here since before_frag should have filtered out any unexpected frags. */
   }
-
-  if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
-    after_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
-    return;
-  }
-
-  if( FD_UNLIKELY( in_kind==IN_KIND_NET ) ) {
-    after_net( ctx, sz );
-    return;
-  }
-
-  if( FD_UNLIKELY( in_kind==IN_KIND_REPLAY ) ) {
-    fd_replay_fec_evicted_t const * msg = fd_type_pun_const( ctx->buffer );
-    fd_forest_fec_clear( ctx->forest, msg->slot, msg->fec_set_idx, FD_FEC_SHRED_CNT - 1 );
-    return;
-  }
-
-  /* Should never reach here since before_frag should have filtered out any unexpected frags. */
 }
 
 static inline void
@@ -1245,9 +1220,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
   ctx->repair_serve_addr.port  = fd_ushort_bswap( tile->repair.repair_serve_listen_port  );
 
+  /* TODO clean these up */
   ctx->net_id = (ushort)0;
-  fd_ip4_udp_hdr_init( ctx->intake_hdr, FD_REPAIR_MAX_PACKET_SIZE, 0, tile->repair.repair_intake_listen_port );
-  fd_ip4_udp_hdr_init( ctx->serve_hdr,  FD_REPAIR_MAX_PACKET_SIZE, 0, tile->repair.repair_serve_listen_port  );
+  fd_ip4_udp_hdr_init( ctx->intake_hdr, 0, 0, tile->repair.repair_intake_listen_port );
+  fd_ip4_udp_hdr_init( ctx->serve_hdr,  0, 0, tile->repair.repair_serve_listen_port  );
 
   /* Repair set up */
 
