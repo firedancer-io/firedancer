@@ -556,7 +556,8 @@ fd_vm_init(
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar                     is_deprecated,
    int                       direct_mapping,
-   int                       stricter_abi_and_runtime_constraints,
+   int                       syscall_parameter_address_restrictions,
+   int                       virtual_address_space_adjustments,
    int                       dump_syscall_to_pb,
    ulong                     r2_initial_value ) {
 
@@ -584,31 +585,34 @@ fd_vm_init(
   }
 
   // Set the vm fields
-  vm->instr_ctx                            = instr_ctx;
-  vm->heap_max                             = heap_max;
-  vm->entry_cu                             = entry_cu;
-  vm->rodata                               = rodata;
-  vm->rodata_sz                            = rodata_sz;
-  vm->text                                 = text;
-  vm->text_cnt                             = text_cnt;
-  vm->text_off                             = text_off;
-  vm->text_sz                              = text_sz;
-  vm->entry_pc                             = entry_pc;
-  vm->calldests                            = calldests;
-  vm->sbpf_version                         = sbpf_version;
-  vm->syscalls                             = syscalls;
-  vm->trace                                = trace;
-  vm->sha                                  = sha;
-  vm->input_mem_regions                    = mem_regions;
-  vm->input_mem_regions_cnt                = mem_regions_cnt;
-  vm->acc_region_metas                     = acc_region_metas;
-  vm->is_deprecated                        = is_deprecated;
-  vm->direct_mapping                       = direct_mapping;
-  vm->stricter_abi_and_runtime_constraints = stricter_abi_and_runtime_constraints;
-  vm->segv_vaddr                           = ULONG_MAX;
-  vm->segv_access_len                      = 0UL;
-  vm->segv_access_type                     = 0;
-  vm->dump_syscall_to_pb                   = dump_syscall_to_pb;
+  vm->instr_ctx                              = instr_ctx;
+  vm->heap_max                               = heap_max;
+  vm->entry_cu                               = entry_cu;
+  vm->rodata                                 = rodata;
+  vm->rodata_sz                              = rodata_sz;
+  vm->text                                   = text;
+  vm->text_cnt                               = text_cnt;
+  vm->text_off                               = text_off;
+  vm->text_sz                                = text_sz;
+  vm->entry_pc                               = entry_pc;
+  vm->calldests                              = calldests;
+  vm->sbpf_version                           = sbpf_version;
+  vm->syscalls                               = syscalls;
+  vm->trace                                  = trace;
+  vm->sha                                    = sha;
+  vm->input_mem_regions                      = mem_regions;
+  vm->input_mem_regions_cnt                  = mem_regions_cnt;
+  vm->acc_region_metas                       = acc_region_metas;
+  vm->is_deprecated                          = is_deprecated;
+  vm->direct_mapping                         = direct_mapping;
+  vm->syscall_parameter_address_restrictions = syscall_parameter_address_restrictions;
+  vm->virtual_address_space_adjustments      = virtual_address_space_adjustments;
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/program-runtime/src/vm.rs#L99-L103 */
+  vm->stack_frame_gaps_enabled               = !fd_sbpf_dynamic_stack_frames_enabled( sbpf_version ) && !virtual_address_space_adjustments;
+  vm->segv_vaddr                             = ULONG_MAX;
+  vm->segv_access_len                        = 0UL;
+  vm->segv_access_type                       = 0;
+  vm->dump_syscall_to_pb                     = dump_syscall_to_pb;
 
   /* Unpack input and rodata */
   fd_vm_mem_cfg( vm );

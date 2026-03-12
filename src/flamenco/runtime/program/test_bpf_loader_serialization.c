@@ -55,7 +55,7 @@ struct fixture_input {
   ulong                     num_instr_accounts;
   ulong                     instr_data_len;
   fd_pubkey_t               program_id;
-  uchar                     stricter_abi;
+  uchar                     virtual_address_space_adj;
   uchar                     direct_mapping;
   uchar                     is_deprecated;
 };
@@ -271,9 +271,9 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
     cJSON_Delete( root ); return -1;
   }
 
-  in->stricter_abi   = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "stricter_abi_and_runtime_constraints" ) ) ? 1U : 0U;
-  in->direct_mapping = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"          ) ) ? 1U : 0U;
-  in->is_deprecated  = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                 ) ) ? 1U : 0U;
+  in->virtual_address_space_adj = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "virtual_address_space_adjustments" ) ) ? 1U : 0U;
+  in->direct_mapping            = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"          ) ) ? 1U : 0U;
+  in->is_deprecated             = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                 ) ) ? 1U : 0U;
 
   cJSON * output = cJSON_GetObjectItemCaseSensitive( root, "output" );
   out->result = cJSON_GetObjectItemCaseSensitive( output, "result" )->valueint;
@@ -489,8 +489,8 @@ run_fixture( fd_alloc_t * alloc,
   int program_idx = find_program_index( in );
   FD_TEST( program_idx>=0 );
 
-  FD_LOG_NOTICE(( "  %s: %lu accounts, stricter=%d, dm=%d, deprecated=%d",
-                  in->name, in->num_accounts, in->stricter_abi, in->direct_mapping, in->is_deprecated ));
+  FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, is_deprecated=%d",
+                  in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping, in->is_deprecated ));
 
   uchar **           storage = NULL;
   fd_txn_out_t *     txn_out = NULL;
@@ -514,7 +514,7 @@ run_fixture( fd_alloc_t * alloc,
 
   int result = fd_bpf_loader_input_serialize_parameters(
       ctx, pre_lens, regions, &region_cnt, acc_metas,
-      in->stricter_abi, in->direct_mapping,
+      in->virtual_address_space_adj, in->direct_mapping,
       in->is_deprecated,
       &idata_offset, &serialized_sz );
 

@@ -214,8 +214,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   ulong magic;    /* ==FD_VM_MAGIC */
 
-  int   direct_mapping;                       /* If direct mapping feature flag is enabled */
-  int   stricter_abi_and_runtime_constraints; /* If stricter_abi_and_runtime_constraints feature flag is enabled */
+  int   direct_mapping;                         /* If direct mapping feature flag is enabled */
+  int   syscall_parameter_address_restrictions; /* If syscall_parameter_address_restrictions feature flag is enabled */
+  int   virtual_address_space_adjustments;      /* If virtual_address_space_adjustments feature flag is enabled */
+  int   stack_frame_gaps_enabled;               /* If fixed 4 KiB gaps exist between stack frames */
 
   /* Agave uses the segv vaddr in several different cases, including:
      - Determining whether or not to return a regular or stack access violation
@@ -242,7 +244,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527824UL)
+#define FD_VM_FOOTPRINT (527840UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -309,7 +311,8 @@ fd_vm_init(
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar                     is_deprecated,
    int                       direct_mapping,
-   int                       stricter_abi_and_runtime_constraints,
+   int                       syscall_parameter_address_restrictions,
+   int                       virtual_address_space_adjustments,
    int                       dump_syscall_to_pb,
    ulong                     r2_initial_value );
 
