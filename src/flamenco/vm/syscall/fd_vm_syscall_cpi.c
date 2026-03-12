@@ -292,7 +292,7 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                    vm,
                                         fd_borrowed_account_t *      borrowed_account ) {
   /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1141-L1148 */
   ulong address_space_reserved_for_account;
-  if( vm->stricter_abi_and_runtime_constraints && vm->is_deprecated ) {
+  if( vm->is_deprecated ) {
     address_space_reserved_for_account = caller_account->orig_data_len;
   } else {
     address_space_reserved_for_account = fd_ulong_sat_add( caller_account->orig_data_len, MAX_PERMITTED_DATA_INCREASE );
@@ -516,7 +516,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/program-runtime/src/cpi.rs#L363-L374 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
-    if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && acc_info->data_box_addr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                 \
+    if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && acc_info->data_box_addr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                 \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );                                                                          \
       return FD_VM_SYSCALL_ERR_INVALID_POINTER;                                                                                                    \
     }                                                                                                                                              \

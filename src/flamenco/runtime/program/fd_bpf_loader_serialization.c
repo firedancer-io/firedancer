@@ -39,13 +39,13 @@
   ==========================================
 
   This implementation supports three distinct serialization modes based on two
-  feature flags: stricter_abi_and_runtime_constraints and
+  feature flags: virtual_address_space_adjustments and
   account_data_direct_mapping.
 
   MODE 1
   --------------------------------------
-  stricter_abi_and_runtime_constraints = false
-  account_data_direct_mapping          = false
+  virtual_address_space_adjustments = false
+  account_data_direct_mapping       = false
 
   Memory Layout:
   - Single contiguous buffer in host memory
@@ -72,8 +72,8 @@
 
   MODE 2
   -------------------------------------------
-  stricter_abi_and_runtime_constraints = true
-  account_data_direct_mapping          = false
+  virtual_address_space_adjustments = true
+  account_data_direct_mapping       = false
 
   Memory Layout:
   - Still uses a single contiguous buffer, but organized into fragmented
@@ -97,12 +97,12 @@
   - 10KiB realloc buffer zeroed and appended (not direct mapped).
   - Data region created pointing to copied data in buffer.
 
-  MODE 3: Direct Mapping (requires stricter_abi_and_runtime_constraints)
+  MODE 3: Direct Mapping (requires virtual_address_space_adjustments)
   -----------------------------------------------
-  stricter_abi_and_runtime_constraints = true
-  account_data_direct_mapping          = true
+  virtual_address_space_adjustments = true
+  account_data_direct_mapping       = true
 
-  This is very similar to stricter_abi_and_runtime_constraints, but account
+  This is very similar to virtual_address_space_adjustments, but account
   data is NOT copied into the input region buffer.
 
   Instead, the data region points directly to the staging area for the
@@ -156,7 +156,7 @@ write_account( fd_borrowed_account_t *   account,
                uint *                    input_mem_regions_cnt,
                fd_vm_acc_region_meta_t * acc_region_metas,
                int                       is_loader_v1,
-               int                       stricter_abi_and_runtime_constraints,
+               int                       virtual_address_space_adjustments,
                int                       direct_mapping ) {
 
   uchar const * data = account ? fd_borrowed_account_get_data( account )     : NULL;
@@ -165,9 +165,9 @@ write_account( fd_borrowed_account_t *   account,
   acc_region_metas[instr_acc_idx].original_data_len = dlen;
   acc_region_metas[instr_acc_idx].meta              = account->meta;
 
-  /* Legacy behavior: no stricter_abi_and_runtime_constraints (also implies no direct mapping)
+  /* Legacy behavior: no virtual_address_space_adjustments (also implies no direct mapping)
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L131-L140 */
-  if( !stricter_abi_and_runtime_constraints ) {
+  if( !virtual_address_space_adjustments ) {
     /* Copy the account data into input region buffer */
     fd_memcpy( *serialized_params, data, dlen );
     *serialized_params += dlen;
@@ -179,7 +179,7 @@ write_account( fd_borrowed_account_t *   account,
       *serialized_params += MAX_PERMITTED_DATA_INCREASE + align_offset;
     }
     acc_region_metas[instr_acc_idx].region_idx = UINT_MAX;
-  } else { /* stricter_abi_and_runtime_constraints == true */
+  } else { /* virtual_address_space_adjustments == true */
 
     /* Set up account region metadata */
     acc_region_metas[instr_acc_idx].region_idx = *input_mem_regions_cnt;
@@ -261,7 +261,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                                        fd_vm_input_region_t *    input_mem_regions,
                                        uint *                    input_mem_regions_cnt,
                                        fd_vm_acc_region_meta_t * acc_region_metas,
-                                       int                       stricter_abi_and_runtime_constraints,
+                                       int                       virtual_address_space_adjustments,
                                        int                       direct_mapping,
                                        ulong *                   instr_data_offset,
                                        ulong *                   serialized_bytes_written ) {
@@ -384,7 +384,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
         input_mem_regions_cnt,
         acc_region_metas,
         0,
-        stricter_abi_and_runtime_constraints,
+        virtual_address_space_adjustments,
         direct_mapping );
 
       /* write_account may have pushed a new region(s) */
@@ -431,7 +431,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
                                          ulong const *         pre_lens,
                                          uchar *               buffer,
                                          ulong FD_FN_UNUSED    buffer_sz,
-                                         int                   stricter_abi_and_runtime_constraints,
+                                         int                   virtual_address_space_adjustments,
                                          int                   direct_mapping ) {
   /* TODO: An optimization would be to skip ahead through non-writable accounts */
   /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L573 */
@@ -492,7 +492,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
       }
 
       int can_data_be_changed_err = 0;
-      if( !stricter_abi_and_runtime_constraints ) {
+      if( !virtual_address_space_adjustments ) {
         /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L617-L627 */
 
         /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L618-L620 */
@@ -535,7 +535,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
       }
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L636-L644 */
-      if( !( stricter_abi_and_runtime_constraints && direct_mapping ) ) {
+      if( !( virtual_address_space_adjustments && direct_mapping ) ) {
         start += fd_ulong_sat_add( MAX_PERMITTED_DATA_INCREASE, fd_ulong_sat_add( pre_len, alignment_offset ) );
       } else {
         start += FD_BPF_ALIGN_OF_U128;
@@ -561,7 +561,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_input_region_t *    input_mem_regions,
                                          uint *                    input_mem_regions_cnt,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
-                                         int                       stricter_abi_and_runtime_constraints,
+                                         int                       virtual_address_space_adjustments,
                                          int                       direct_mapping,
                                          ulong *                   instr_data_offset,
                                          ulong *                   serialized_bytes_written ) {
@@ -644,7 +644,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
       write_account( &view_acc, (uchar)i,
         &serialized_params, &curr_serialized_params_start,
         input_mem_regions, input_mem_regions_cnt, acc_region_metas, 1,
-        stricter_abi_and_runtime_constraints, direct_mapping );
+        virtual_address_space_adjustments, direct_mapping );
 
       /* write_account may have pushed a new region(s) */
       curr_region_vaddr = *input_mem_regions_cnt == 0U ? 0UL :
@@ -695,7 +695,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t * ctx,
                                            ulong const *         pre_lens,
                                            uchar *               input,
                                            ulong                 input_sz,
-                                           int                   stricter_abi_and_runtime_constraints,
+                                           int                   virtual_address_space_adjustments,
                                            int                   direct_mapping ) {
   uchar *       input_cursor      = input;
   uchar         acc_idx_seen[256] = {0};
@@ -734,7 +734,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t * ctx,
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L436-L446 */
       int can_data_be_changed_err = 0;
-      if( !stricter_abi_and_runtime_constraints ) {
+      if( !virtual_address_space_adjustments ) {
         int can_data_be_resized_err = 0;
         if( fd_borrowed_account_can_data_be_resized( &view_acc, pre_len, &can_data_be_resized_err ) &&
             fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
@@ -761,7 +761,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t * ctx,
       }
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L455-L457 */
-      if( !( stricter_abi_and_runtime_constraints && direct_mapping ) ) {
+      if( !( virtual_address_space_adjustments && direct_mapping ) ) {
         input_cursor += pre_len;
       }
       input_cursor += sizeof(fd_pubkey_t) + /* owner */
@@ -784,7 +784,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           fd_vm_input_region_t *    input_mem_regions,
                                           uint *                    input_mem_regions_cnt,
                                           fd_vm_acc_region_meta_t * acc_region_metas,
-                                          int                       stricter_abi_and_runtime_constraints,
+                                          int                       virtual_address_space_adjustments,
                                           int                       direct_mapping,
                                           uchar                     is_deprecated,
                                           ulong *                   instr_data_offset,
@@ -800,12 +800,12 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
   if( FD_UNLIKELY( is_deprecated ) ) {
     return fd_bpf_loader_input_serialize_unaligned( instr_ctx, pre_lens,
                                                     input_mem_regions, input_mem_regions_cnt,
-                                                    acc_region_metas, stricter_abi_and_runtime_constraints,
+                                                    acc_region_metas, virtual_address_space_adjustments,
                                                     direct_mapping, instr_data_offset, serialized_bytes_written );
   } else {
     return fd_bpf_loader_input_serialize_aligned( instr_ctx, pre_lens,
                                                   input_mem_regions, input_mem_regions_cnt,
-                                                  acc_region_metas, stricter_abi_and_runtime_constraints,
+                                                  acc_region_metas, virtual_address_space_adjustments,
                                                   direct_mapping, instr_data_offset, serialized_bytes_written );
   }
 }
@@ -816,14 +816,14 @@ fd_bpf_loader_input_deserialize_parameters( fd_exec_instr_ctx_t * ctx,
                                             ulong const *         pre_lens,
                                             uchar *               input,
                                             ulong                 input_sz,
-                                            int                   stricter_abi_and_runtime_constraints,
+                                            int                   virtual_address_space_adjustments,
                                             int                   direct_mapping,
                                             uchar                 is_deprecated ) {
   if( FD_UNLIKELY( is_deprecated ) ) {
     return fd_bpf_loader_input_deserialize_unaligned(
-      ctx, pre_lens, input, input_sz, stricter_abi_and_runtime_constraints, direct_mapping );
+      ctx, pre_lens, input, input_sz, virtual_address_space_adjustments, direct_mapping );
   } else {
     return fd_bpf_loader_input_deserialize_aligned(
-      ctx, pre_lens, input, input_sz, stricter_abi_and_runtime_constraints, direct_mapping );
+      ctx, pre_lens, input, input_sz, virtual_address_space_adjustments, direct_mapping );
   }
 }
