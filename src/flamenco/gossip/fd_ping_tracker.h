@@ -145,6 +145,16 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
                              fd_ip4_port_t const ** out_peer_address,
                              uchar const **         out_token );
 
+/* fd_ping_tracker_remove removes a peer from the ping tracker.  If the
+   peer was active (VALID or VALID_REFRESHING), the change callback will
+   be fired with FD_PING_TRACKER_CHANGE_TYPE_INACTIVE.  If the peer is
+   not tracked, this is a no-op. */
+
+void
+fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
+                        uchar const *       peer_pubkey,
+                        long                now );
+
 fd_ping_tracker_metrics_t const *
 fd_ping_tracker_metrics( fd_ping_tracker_t const * ping_tracker );
 

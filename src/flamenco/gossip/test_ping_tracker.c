@@ -278,6 +278,110 @@ test_random( void ) {
 }
 
 void
+test_remove( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  FD_TEST( rng );
+
+  const ulong         entrypoints_len = 1UL;
+  const fd_ip4_port_t entrypoints[1]  = { {.addr=fd_rng_uint(rng), .port=fd_rng_ushort(rng)} };
+  void * bytes = aligned_alloc( fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len ) );
+  FD_TEST( bytes );
+
+  ping_tracker_change_ctx_t change_ctx[1] = {0};
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  FD_TEST( ping_tracker );
+
+  long now = fd_log_wallclock();
+
+  /* Removing a non-existent peer is a no-op */
+  peer_t ghost = generate_random_peer( rng );
+  fd_ping_tracker_remove( ping_tracker, ghost.pubkey, now );
+  FD_TEST( change_ctx->invoke_cnt==0UL );
+
+  /* Track a peer and validate it (UNPINGED -> INVALID -> VALID) */
+  peer_t p = generate_random_peer( rng );
+  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+
+  uchar const *         out_pubkey;
+  fd_ip4_port_t const * out_address;
+  uchar const *         out_token;
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now+seconds(1), &out_pubkey, &out_address, &out_token ) );
+
+  uchar valid_pong_token[ 32UL ];
+  fd_sha256_t sha[1];
+  FD_TEST( fd_sha256_join( fd_sha256_new( sha ) ) );
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, out_token, 32UL );
+  fd_sha256_fini( sha, valid_pong_token );
+
+  fd_ping_tracker_register( ping_tracker, p.pubkey, 0UL, p.address, valid_pong_token, now+seconds(2) );
+  FD_TEST( change_ctx->invoke_cnt==1UL );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
+  FD_TEST( fd_ping_tracker_active( ping_tracker, p.pubkey ) );
+
+  /* Remove the validated peer — should fire INACTIVE */
+  fd_ping_tracker_remove( ping_tracker, p.pubkey, now+seconds(3) );
+  FD_TEST( change_ctx->invoke_cnt==2UL );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
+  FD_TEST( !memcmp( change_ctx->last.pubkey, p.pubkey, 32UL ) );
+  FD_TEST( change_ctx->last.now==now+seconds(3) );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey ) );
+
+  /* Removing again is a no-op */
+  fd_ping_tracker_remove( ping_tracker, p.pubkey, now+seconds(4) );
+  FD_TEST( change_ctx->invoke_cnt==2UL );
+
+  /* Remove a peer still in UNPINGED state — no INACTIVE callback */
+  peer_t p2 = generate_random_peer( rng );
+  fd_ping_tracker_track( ping_tracker, p2.pubkey, 0UL, p2.address, now+seconds(5) );
+  FD_TEST( change_ctx->invoke_cnt==2UL );
+  fd_ping_tracker_remove( ping_tracker, p2.pubkey, now+seconds(6) );
+  FD_TEST( change_ctx->invoke_cnt==2UL );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p2.pubkey ) );
+
+  /* Remove a peer in INVALID state — no INACTIVE callback */
+  peer_t p3 = generate_random_peer( rng );
+  fd_ping_tracker_track( ping_tracker, p3.pubkey, 0UL, p3.address, now+seconds(7) );
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now+seconds(8), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( change_ctx->invoke_cnt==2UL );
+  fd_ping_tracker_remove( ping_tracker, p3.pubkey, now+seconds(9) );
+  FD_TEST( change_ctx->invoke_cnt==2UL );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p3.pubkey ) );
+
+  /* Remove a peer in VALID_REFRESHING state — should fire INACTIVE */
+  peer_t p4 = generate_random_peer( rng );
+  fd_ping_tracker_track( ping_tracker, p4.pubkey, 0UL, p4.address, now+seconds(10) );
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now+seconds(11), &out_pubkey, &out_address, &out_token ) );
+
+  uchar valid_pong_token2[ 32UL ];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, out_token, 32UL );
+  fd_sha256_fini( sha, valid_pong_token2 );
+
+  fd_ping_tracker_register( ping_tracker, p4.pubkey, 0UL, p4.address, valid_pong_token2, now+seconds(12) );
+  FD_TEST( change_ctx->invoke_cnt==3UL );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
+  FD_TEST( fd_ping_tracker_active( ping_tracker, p4.pubkey ) );
+
+  /* Advance past 18min to trigger VALID -> VALID_REFRESHING */
+  fd_ping_tracker_track( ping_tracker, p4.pubkey, 0UL, p4.address, now+seconds(18*60) );
+  fd_ping_tracker_pop_request( ping_tracker, now+seconds(18*60+4), &out_pubkey, &out_address, &out_token );
+  FD_TEST( change_ctx->invoke_cnt==3UL ); /* no callback for VALID -> VALID_REFRESHING */
+  FD_TEST( fd_ping_tracker_active( ping_tracker, p4.pubkey ) );
+
+  /* Remove while VALID_REFRESHING */
+  fd_ping_tracker_remove( ping_tracker, p4.pubkey, now+seconds(18*60+5) );
+  FD_TEST( change_ctx->invoke_cnt==4UL );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
+  FD_TEST( !memcmp( change_ctx->last.pubkey, p4.pubkey, 32UL ) );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p4.pubkey ) );
+
+  free( bytes );
+}
+
+void
 test_invalid_transitions( void ) {
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   FD_TEST( rng );
@@ -357,6 +461,9 @@ main( int     argc,
 
   test_change_address();
   FD_LOG_NOTICE(( "test_change_address() passed" ));
+
+  test_remove();
+  FD_LOG_NOTICE(( "test_remove() passed" ));
 
   test_invalid_transitions();
   FD_LOG_NOTICE(( "test_invalid_transitions() passed" ));
