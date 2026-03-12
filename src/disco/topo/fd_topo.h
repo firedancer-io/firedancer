@@ -365,6 +365,7 @@ struct fd_topo_tile {
 
       int websocket_compression;
       int frontend_release_channel;
+      ulong tile_cnt;
     } gui;
 
     struct {

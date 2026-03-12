@@ -1058,8 +1058,8 @@ void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "live_tile_timers" );
     jsonp_open_array( gui->http, "value" );
-      fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT ];
-      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-2UL))%FD_GUI_TILE_TIMER_SNAP_CNT ];
+      fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap + ((gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT) * gui->tile_cnt;
+      fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap + ((gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-2UL))%FD_GUI_TILE_TIMER_SNAP_CNT) * gui->tile_cnt;
       fd_gui_printf_tile_timers( gui, prev, cur );
     jsonp_close_array( gui->http );
   jsonp_close_envelope( gui->http );
@@ -1067,8 +1067,8 @@ fd_gui_printf_live_tile_timers( fd_gui_t * gui ) {
 
 void
 fd_gui_printf_live_tile_metrics( fd_gui_t * gui ) {
-  fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT ];
-  fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap[ (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-2UL))%FD_GUI_TILE_TIMER_SNAP_CNT ];
+  fd_gui_tile_timers_t * cur  = gui->summary.tile_timers_snap + ((gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT) * gui->tile_cnt;
+  fd_gui_tile_timers_t * prev = gui->summary.tile_timers_snap + ((gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-2UL))%FD_GUI_TILE_TIMER_SNAP_CNT) * gui->tile_cnt;
   jsonp_open_envelope( gui->http, "summary", "live_tile_metrics" );
       jsonp_open_object( gui->http, "value" );
         fd_gui_printf_tile_metrics( gui, prev, cur );
@@ -2115,9 +2115,9 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
         if( FD_LIKELY( lslot && lslot->unbecame_leader ) ) {
           jsonp_open_array( gui->http, "tile_timers" );
-            fd_gui_tile_timers_t const * prev_timer = lslot->tile_timers[ 0 ];
+            fd_gui_tile_timers_t const * prev_timer = lslot->tile_timers;
             for( ulong i=1UL; i<lslot->tile_timers_sample_cnt; i++ ) {
-              fd_gui_tile_timers_t const * cur_timer = lslot->tile_timers[ i ];
+              fd_gui_tile_timers_t const * cur_timer = lslot->tile_timers + i * gui->tile_cnt;
               fd_gui_printf_ts_tile_timers( gui, prev_timer, cur_timer );
               prev_timer = cur_timer;
             }
