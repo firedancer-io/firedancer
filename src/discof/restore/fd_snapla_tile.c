@@ -142,6 +142,7 @@ streamlined_hash( fd_snapla_tile_t * ctx,
 static int
 handle_data_frag( fd_snapla_tile_t *  ctx,
                   ulong               chunk,
+                  ulong               sig,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
@@ -153,7 +154,9 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
        we receive fail & init control messages to restart processing. */
     return 0;
   } else if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-    FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
+    FD_LOG_ERR(( "received unexpected data frag %s (%lu) in state %s (%lu)",
+                 fd_ssctrl_msg_ctrl_str( sig ), sig,
+                 fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
@@ -166,6 +169,7 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
     int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
     switch( res ) {
       case FD_SSPARSE_ADVANCE_ERROR:
+        FD_LOG_WARNING(( "error while parsing snapshot stream" ));
         transition_malformed( ctx, stem );
         return 0;
       case FD_SSPARSE_ADVANCE_AGAIN:
@@ -180,6 +184,7 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
           result->manifest.acc_vec_map,
           result->manifest.acc_vec_pool );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
         }
@@ -312,7 +317,9 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
     }
 
     default: {
-      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
     }
   }
@@ -334,7 +341,7 @@ returnable_frag( fd_snapla_tile_t *  ctx,
                  fd_stem_context_t *  stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sig, sz, stem );
   else                                           handle_control_frag( ctx, stem, sig );
 
   return 0;
