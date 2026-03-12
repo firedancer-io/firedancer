@@ -131,6 +131,8 @@ dedup_next( fd_policy_t * policy, ulong key, long now ) {
     fd_policy_dedup_lru_ele_push_tail( dedup->lru, ele, dedup->pool );
   }
   if( FD_LIKELY( now < ele->req_ts + (long)FD_POLICY_DEDUP_TIMEOUT ) ) {
+    fd_policy_dedup_lru_ele_remove( dedup->lru, ele, dedup->pool );
+    fd_policy_dedup_lru_ele_push_tail( dedup->lru, ele, dedup->pool );
     return 1;
   }
   ele->req_ts = now;

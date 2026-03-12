@@ -40,7 +40,7 @@ typedef struct fd_policy_dedup fd_policy_dedup_t; /* forward decl */
 
 struct fd_policy_dedup_ele {
   ulong key;      /* compact encoding of fd_repair_req_t detailed above */
-  ulong prev;   /* reserved by lru */
+  ulong prev;     /* reserved by lru */
   ulong next;
   ulong hash;     /* reserved by pool and map_chain */
   long  req_ts;   /* timestamp when the request was sent */
@@ -148,8 +148,15 @@ typedef struct fd_policy_peers fd_policy_peers_t;
 #define FD_POLICY_LATENCY_THRESH 80e6L /* less than this is a BEST peer, otherwise a WORST peer */
 #define FD_POLICY_DEDUP_TIMEOUT  80e6L /* how long wait to request the same shred */
 
-/* Max number of pending shred requests */
-#define FD_DEDUP_CACHE_MAX (1<<14) /* 16k */
+/* Max number of pending shred requests to keep track of.  Calculated
+   generally as we estimate around 50k/s/core to sign requests. Assuming
+   an over-provisioned 4 sign tiles just for repair, this means we can
+   make up to ~200k requests per second.  Assuming a dedup timeout of
+   80ms, this means we can make up to ~16k requests within the dedup
+   timeout window.  We round up to the next power of two.  Since we are
+   sizing the dedup cache for a generous margin, and this number not
+   particularly fragile or sensitive, we can leave it static. */
+#define FD_DEDUP_CACHE_MAX (1<<15)
 
 /* Round robins through ALL the worst peers once, then round robins
    through ALL the best peers once, then round robins through ALL the

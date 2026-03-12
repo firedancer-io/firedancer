@@ -2,12 +2,11 @@
 
 void
 test_peer_removal( fd_wksp_t * wksp ) {
-  ulong dedup_max = 1024;
   ulong peer_max  = 1024;
   fd_rnonce_ss_t rnonce[1];
   fd_memset( rnonce, '\xCC', sizeof(fd_rnonce_ss_t) );
-  void * mem = fd_wksp_alloc_laddr( wksp, fd_policy_align(), fd_policy_footprint( dedup_max, peer_max ), 1 );
-  fd_policy_t * policy = fd_policy_join( fd_policy_new( mem, dedup_max, peer_max, 0, rnonce ) );
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_policy_align(), fd_policy_footprint( peer_max ), 1 );
+  fd_policy_t * policy = fd_policy_join( fd_policy_new( mem, peer_max, 0, rnonce ) );
   FD_TEST( policy );
 
   int num_slow = 0;
