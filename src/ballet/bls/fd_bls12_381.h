@@ -26,7 +26,8 @@ FD_PROTOTYPES_BEGIN
    The big_endian parameter determines how the byte arrays are read
    and written: 1 for big endian, 0 for little endian.
 
-   Return value is 0 on success, -1 on failure. */
+   Return value is 0 on success, -1 on failure.
+   For *_validate_syscall functions, return value is 1 if the point is valid, 0 otherwise. */
 
 /* fd_bls12_381_g1_decompress_syscall decompresses the G1 point `a`
    into `r`.
@@ -73,7 +74,8 @@ fd_bls12_381_g1_sub_syscall( uchar       r[ 96 ], /* G1 point */
 /* fd_bls12_381_g1_mul_syscall computes r = n * a in G1.
    Inputs and output are expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
-   The function returns 0 on success, -1 if `a` is not in G1. */
+   The function returns 0 on success, -1 if `a` is not in G1 or
+   `n` is not a valid scalar. */
 int
 fd_bls12_381_g1_mul_syscall( uchar       r[ 96 ], /* G1 point */
                              uchar const n[ 32 ], /* Scalar */
@@ -125,7 +127,8 @@ fd_bls12_381_g2_sub_syscall( uchar       r[ 96*2 ], /* G2 point */
 /* fd_bls12_381_g2_mul_syscall computes r = n * a in G2.
    Inputs and output are expected to be big endian if big_endian==1,
    or little endian if big_endian==0.
-   The function returns 0 on success, -1 if `a` is not in G2. */
+   The function returns 0 on success, -1 if `a` is not in G2 or
+   `n` is not a valid scalar. */
 int
 fd_bls12_381_g2_mul_syscall( uchar       r[ 96*2 ], /* G2 point */
                              uchar const n[ 32 ],   /* Scalar */

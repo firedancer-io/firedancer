@@ -61,6 +61,34 @@ test_fd_vm_syscall_sol_curve_group_op( char const * test_case_name,
     return 1;
 }
 
+static int
+test_fd_vm_syscall_sol_curve_decompress( char const * test_case_name,
+                                         fd_vm_t *    vm,
+                                         ulong        curve_id,
+                                         ulong        point_vaddr,
+                                         ulong        result_vaddr,
+                                         ulong        result_sz,
+                                         ulong        expected_ret_code,
+                                         int          expected_syscall_ret,
+                                         void const * expected_result_host_ptr ) {
+    ulong ret_code = 0UL;
+    int   syscall_ret = fd_vm_syscall_sol_curve_decompress( (void *)vm, curve_id, point_vaddr, result_vaddr, 0UL, 0UL, &ret_code );
+    FD_TEST( syscall_ret == expected_syscall_ret );
+    if( syscall_ret==FD_VM_SUCCESS ) {
+      FD_TEST( ret_code == expected_ret_code );
+    }
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+
+    if( ret_code==0UL && syscall_ret==FD_VM_SUCCESS ) {
+      void const * result_host_addr = FD_VM_MEM_HADDR_LD( vm, result_vaddr, 1, result_sz );
+      FD_TEST( memcmp( result_host_addr, expected_result_host_ptr, result_sz ) == 0 );
+    }
+
+    FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+
+    return 1;
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -442,6 +470,52 @@ main( int     argc,
       0UL, // ret_code
       FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
+    ) );
+  }
+
+  {
+    uchar compressed[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ ];
+    fd_hex_decode( compressed, "dadeb9267a9864e5a4379ef08a3b6f4bf48e5a6e80d5896c6a07190c46e672876fbd02c13a468f719abc608e44f59faf", FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ );
+
+    uchar expected[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ ];
+    fd_hex_decode( expected, "dadeb9267a9864e5a4379ef08a3b6f4bf48e5a6e80d5896c6a07190c46e672876fbd02c13a468f719abc608e44f59f0f3a7b32648787e478caf1abf65f6b043ac82933a8eda04fb8351bc175f4b51f9efa0a682c55076d92eaa2233ef6014f12", FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ );
+
+    ulong point_off = vm->heap_max - FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ;
+    memcpy( &vm->heap[ point_off ], compressed, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ );
+
+    FD_TEST( test_fd_vm_syscall_sol_curve_decompress(
+      "fd_vm_syscall_sol_curve_decompress: bls12-381 g1, compressed input at heap end",
+      vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE,
+      FD_VM_MEM_MAP_HEAP_REGION_START + point_off,
+      FD_VM_MEM_MAP_HEAP_REGION_START,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ,
+      0UL, /* ret_code */
+      FD_VM_SUCCESS, /* syscall_ret */
+      expected
+    ) );
+  }
+
+  {
+    uchar compressed[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ ];
+    fd_hex_decode( compressed, "6ff24e70ff109bcf1fdeb647afd8251087bc605685240b6fa3c4be73023b8fd3120f49acb6e0bae733a76a6f3baa181768c33027df47696fb3b9ee79d10dde7dd130e8adfb40f93589872a4a6a0b8992accd4ab39268238be4049828dc126a8f", FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ );
+
+    uchar expected[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ ];
+    fd_hex_decode( expected, "6ff24e70ff109bcf1fdeb647afd8251087bc605685240b6fa3c4be73023b8fd3120f49acb6e0bae733a76a6f3baa181768c33027df47696fb3b9ee79d10dde7dd130e8adfb40f93589872a4a6a0b8992accd4ab39268238be4049828dc126a0f0537997d0bd6a8ea4076cd4bb2686bc0e0bb78807963ab0c1594c49057d94d38bf40b06a0f1fbb6cdb9f55aafb6f3b0d90ce38a4d6205c92ffae784a9df66fb2e40d394ab06093fd545c1b7a7e9f455f9d8255c776b7cdaba8b66fc953f4d90b", FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ );
+
+    ulong point_off = vm->heap_max - FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ;
+    memcpy( &vm->heap[ point_off ], compressed, FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ );
+
+    FD_TEST( test_fd_vm_syscall_sol_curve_decompress(
+      "fd_vm_syscall_sol_curve_decompress: bls12-381 g2, compressed input at heap end",
+      vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE,
+      FD_VM_MEM_MAP_HEAP_REGION_START + point_off,
+      FD_VM_MEM_MAP_HEAP_REGION_START,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ,
+      0UL, /* ret_code */
+      FD_VM_SUCCESS, /* syscall_ret */
+      expected
     ) );
   }
 
