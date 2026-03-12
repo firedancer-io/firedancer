@@ -517,10 +517,36 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk );
 
   if( FD_UNLIKELY( ctx->advertised_slot!=manifest->slot ) ) {
-    /* SnapshotError::MismatchedSlot:
+    /* SnapshotError::MismatchedSlot
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L472 */
     FD_LOG_WARNING(( "snapshot manifest bank slot %lu does not match advertised slot %lu from snapshot peer",
                      manifest->slot, ctx->advertised_slot ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
+  if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
+    /* The manifest must contain accounts lthash, irrespective of
+       whether lthash verification is disabled or not.
+       https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L482 */
+    FD_LOG_WARNING(( "snapshot manifest missing accounts lthash" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
+  uchar const * sum = manifest->accounts_lthash;
+  uchar hash32[32]; fd_blake3_hash( sum, FD_LTHASH_LEN_BYTES, hash32 );
+  FD_BASE58_ENCODE_32_BYTES( sum,    sum_enc    );
+  FD_BASE58_ENCODE_32_BYTES( hash32, hash32_enc );
+  FD_LOG_INFO(( "snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
+                manifest->slot, sum_enc, hash32_enc ));
+
+  if( FD_UNLIKELY( memcmp( ctx->advertised_hash, hash32, FD_HASH_FOOTPRINT ) ) ) {
+    /* SnapshotError::MismatchedHash
+        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L479 */
+    FD_BASE58_ENCODE_32_BYTES( ctx->advertised_hash, advertised_hash_enc );
+    FD_LOG_WARNING(( "snapshot manifest accounts lthash %s does not match advertised hash from snapshot peer %s",
+                     hash32_enc, advertised_hash_enc ));
     transition_malformed( ctx, ctx->stem );
     return;
   }
@@ -551,15 +577,6 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     return;
   }
 
-  if( manifest->has_accounts_lthash ) {
-    uchar const * sum = manifest->accounts_lthash;
-    uchar hash32[32]; fd_blake3_hash( sum, FD_LTHASH_LEN_BYTES, hash32 );
-    FD_BASE58_ENCODE_32_BYTES( sum,    sum_enc    );
-    FD_BASE58_ENCODE_32_BYTES( hash32, hash32_enc );
-    FD_LOG_INFO(( "snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
-                  manifest->slot, sum_enc, hash32_enc ));
-  }
-
   if( ctx->full ) {
     ctx->full_genesis_creation_time_millis = manifest->creation_time_millis;
   } else {
@@ -574,12 +591,6 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   if( FD_LIKELY( !ctx->lthash_disabled ) ) {
-    if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
-      FD_LOG_WARNING(( "snapshot manifest missing accounts lthash field" ));
-      transition_malformed( ctx, ctx->stem );
-      return;
-    }
-
     fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
     fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
     fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
@@ -784,6 +795,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          separate fd_ssctrl_meta_t message below. */
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
+      fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
       break;
     }
 
