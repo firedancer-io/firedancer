@@ -49,7 +49,9 @@ get_inflation_start_slot( fd_bank_t const * bank ) {
       ? fd_bank_features_query( bank )->devnet_and_testnet
       : ULONG_MAX;
 
-  ulong enable = fd_bank_features_query( bank )->full_inflation_enable;
+  ulong enable = FD_FEATURE_ACTIVE_BANK(bank, full_inflation_vote)
+      ? fd_bank_features_query( bank )->full_inflation_enable
+      : ULONG_MAX;
 
   ulong min_slot = fd_ulong_min( enable, devnet_and_testnet );
   if( min_slot == ULONG_MAX ) {
