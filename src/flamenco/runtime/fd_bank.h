@@ -606,11 +606,10 @@ struct fd_banks_data {
   uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
   uchar epoch_leaders_mem[ 2UL ][ FD_EPOCH_LEADERS_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
-  fd_vote_stake_weight_t stake_weights[ 432000UL / 4UL * 2UL ];
+  fd_vote_stake_weight_t stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  stake_weights_cnt;
-  fd_vote_stake_weight_t next_stake_weights[ 432000UL / 4UL * 2UL ];
+  fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  next_stake_weights_cnt;
-
 
   /* Lay out pool offsets */
 
