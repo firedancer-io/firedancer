@@ -171,7 +171,10 @@ advance_tar( fd_ssparse_t *                ssparse,
              ulong                         data_sz,
              fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, 512UL - ssparse->tar.header_bytes_consumed );
-  if( FD_LIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data in tar header, data_sz=%lu, header_bytes_consumed=%lu", data_sz, ssparse->tar.header_bytes_consumed ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   fd_memcpy( ssparse->tar.header+ssparse->tar.header_bytes_consumed, data, consume );
   ssparse->bytes_consumed            += consume;
@@ -214,7 +217,8 @@ advance_tar( fd_ssparse_t *                ssparse,
 
   ssparse->tar.file_bytes = fd_tar_meta_get_size( hdr );
   if( FD_UNLIKELY( ssparse->tar.file_bytes==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "invalid tar header size" ));
+    FD_LOG_WARNING(( "invalid tar header size %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_SIZE_SZ) "s "
+                     "for tar header name %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_NAME_SZ) "s", hdr->size, hdr->name ));
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
@@ -322,7 +326,10 @@ advance_version( fd_ssparse_t *                ssparse,
                  ulong                         data_sz,
                  fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing version file, data_sz=%lu, file_bytes_consumed=%lu, file_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->tar.file_bytes ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   fd_memcpy( ssparse->version+ssparse->tar.file_bytes_consumed, data, consume );
 
@@ -350,7 +357,10 @@ advance_status_cache( fd_ssparse_t *                 ssparse,
                        ulong                         data_sz,
                        fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing status cache, data_sz=%lu, file_bytes_consumed=%lu, file_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->tar.file_bytes ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
@@ -375,7 +385,10 @@ advance_manifest( fd_ssparse_t *                ssparse,
                   ulong                         data_sz,
                   fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing manifest, data_sz=%lu, file_bytes_consumed=%lu, file_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->tar.file_bytes ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
@@ -406,7 +419,10 @@ advance_next_tar( fd_ssparse_t *               ssparse,
   ulong bytes_remaining    = fd_ulong_align_up( ssparse->bytes_consumed, 512UL ) - ssparse->bytes_consumed;
   ulong pad_sz             = bytes_remaining;
         pad_sz             = fd_ulong_min( pad_sz, data_sz );
-  if( FD_UNLIKELY( !pad_sz && bytes_remaining ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !pad_sz && bytes_remaining ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing tar header padding, data_sz=%lu, bytes_consumed=%lu, bytes_remaining=%lu", data_sz, ssparse->bytes_consumed, bytes_remaining ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->bytes_consumed += pad_sz;
   result->bytes_consumed   = pad_sz;
@@ -489,6 +505,7 @@ advance_account_header( fd_ssparse_t *                ssparse,
       ssparse->state = FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE;
       return FD_SSPARSE_ADVANCE_AGAIN;
     } else {
+      FD_LOG_WARNING(( "unexpected end of data while advancing account header, data_sz=%lu, file_bytes_consumed=%lu, acc_vec_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->acc_vec_bytes ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
   }
@@ -557,7 +574,10 @@ advance_account_data( fd_ssparse_t *                ssparse,
   }
 
   consume = fd_ulong_min( consume, ssparse->account.data_len-ssparse->account.data_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing account data, data_sz=%lu, data_bytes_consumed=%lu, data_len=%lu", data_sz, ssparse->account.data_bytes_consumed, ssparse->account.data_len ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->tar.file_bytes_consumed     += consume;
   ssparse->bytes_consumed              += consume;
@@ -594,7 +614,10 @@ advance_account_padding( fd_ssparse_t *                ssparse,
   }
 
   ulong consume = fd_ulong_min( data_sz, pad_sz );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing account padding, data_sz=%lu, file_bytes_consumed=%lu, acc_vec_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->acc_vec_bytes ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
@@ -621,7 +644,7 @@ advance_account_garbage( fd_ssparse_t *                ssparse,
   }
 
   if( FD_UNLIKELY( !data_sz ) ) {
-    FD_LOG_WARNING(( "advance_account_garbage called with no input data! Snapshot file is likely malformed." ));
+    FD_LOG_WARNING(( "unexpected end of data while parsing append vec garbage, data_sz=%lu, remaining_bytes=%lu", data_sz, rem ));
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
