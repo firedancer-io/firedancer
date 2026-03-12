@@ -132,25 +132,24 @@ fd_runtime_stack_new( void * shmem,
                       ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) return NULL;
 
+  ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_runtime_stack_t *     runtime_stack = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_runtime_stack_t),     sizeof(fd_runtime_stack_t) );
   ts_est_ele_t *           staked_ts     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ts_est_ele_t),           sizeof(ts_est_ele_t) * max_vote_accounts );
   fd_vote_stake_weight_t * stake_weights = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t), sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
   fd_vote_rewards_t *      vote_ele      = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                           sizeof(fd_vote_rewards_t) * max_vote_accounts );
-  void *                   vote_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, FD_VOTE_ELE_MAP_ALIGN,           fd_vote_ele_map_footprint( FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) );
+  void *                   vote_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, FD_VOTE_ELE_MAP_ALIGN,           fd_vote_ele_map_footprint( chain_cnt ) );
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_runtime_stack_align() )!=(ulong)shmem + fd_runtime_stack_footprint( max_vote_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_runtime_stack_new: bad layout" ));
     return NULL;
   }
 
-  fd_memset( runtime_stack, 0, sizeof(fd_runtime_stack_t) );
   runtime_stack->max_vote_accounts      = max_vote_accounts;
   runtime_stack->clock_ts.staked_ts     = staked_ts;
   runtime_stack->stakes.stake_weights   = stake_weights;
   runtime_stack->stakes.vote_ele        = vote_ele;
   runtime_stack->stakes.vote_map_mem    = vote_map_mem;
 
-  ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
   if( FD_UNLIKELY( !fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, chain_cnt, seed ) ) ) ) {
     FD_LOG_WARNING(( "fd_runtime_stack_new: bad map" ));
     return NULL;
