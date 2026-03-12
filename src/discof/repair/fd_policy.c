@@ -281,7 +281,7 @@ fd_policy_peer_upsert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_por
     peer->last_resp_ts  = 0;
     peer->total_lat     = 0;
     peer->stake         = 0;
-    peer->ping_cnt      = 0;
+    peer->ping          = 0;
 
     fd_policy_peer_map_ele_insert( peer_map, peer, pool );
     fd_policy_peer_dlist_ele_push_tail( policy->peers.slow, peer, pool );
