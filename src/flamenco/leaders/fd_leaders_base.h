@@ -53,7 +53,7 @@ typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
 
    In order to do something more clever consider some protocol/message
    invariants:
-   1. the set of stake weights that  is passed around is sorted based on
+   1. the set of stake weights that is passed around is sorted based on
       stake and then tiebroken on lexicographic order of the vote key.
    2. There are 108,000 leaders per epoch in the worst case (432000
       slots per epoch / 4 leaders per slot).
@@ -69,15 +69,15 @@ typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
    The worst case number of these non-selected pubkeys is 108001 (if
    the non-selected keys are perfectly interleaved with the selected
    keys with the first and last key also being non-selected).  In
-   practice, this bound is probably tigher because the higher staked
+   practice, this bound is probably tighter because the higher staked
    nodes are almost guaranteed to be selected.
 
    Regardless, this allows us to compress the set of stake weights into
    a much smaller, bounded set.  The worst case number of compressed
    stake weights is 108000 + 108001 = 208001 keys.  The aggregated
-   weights will be stored as FD_DUMMY_ACCOUNT_PUBKEYS.  The consumer
-   is responsible for post-processing the aggregated weights to make
-   sure they aren't inserted into any downstream data structures. */
+   weights will be stored as FD_DUMMY_ACCOUNT.  The consumer is
+   responsible for post-processing the aggregated weights to make sure
+   they aren't inserted into any downstream data structures. */
 
 #define FD_EPOCH_INFO_MSG_HEADER_SZ (sizeof(fd_epoch_info_msg_t))
 #define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t))

@@ -160,7 +160,9 @@ update_next_leaders( fd_bank_t *          bank,
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
       stake_weights[ idx-1UL ].stake += stake;
     } else {
-      stake_weights[ idx ].stake = stake;
+      stake_weights[ idx ].id_key   = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].vote_key = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].stake    = stake;
       idx++;
     }
   }
@@ -221,7 +223,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     } else {
       stake_weights[ idx ].id_key   = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
       stake_weights[ idx ].vote_key = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
-      stake_weights[ idx ].stake = stake;
+      stake_weights[ idx ].stake    = stake;
       idx++;
     }
   }
