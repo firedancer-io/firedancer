@@ -609,6 +609,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
+    FD_LOG_WARNING(( "received unexpected data frag while in finishing state" ));
     transition_malformed( ctx, stem );
     return 0;
   }
@@ -638,6 +639,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
     switch( res ) {
       case FD_SSPARSE_ADVANCE_ERROR:
+        FD_LOG_WARNING(( "error while parsing snapshot stream" ));
         transition_malformed( ctx, stem );
         return 0;
       case FD_SSPARSE_ADVANCE_AGAIN:
@@ -649,6 +651,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                                                 result->manifest.acc_vec_map,
                                                 result->manifest.acc_vec_pool );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
         } else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
@@ -666,6 +669,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                                                   bytes_remaining,
                                                   sd_result );
           if( FD_UNLIKELY( res<0 ) ) {
+            FD_LOG_WARNING(( "error while parsing slot deltas in status cache" ));
             transition_malformed( ctx, stem );
             return 0;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
