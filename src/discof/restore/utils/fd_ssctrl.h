@@ -159,4 +159,31 @@ typedef struct fd_snapshot_full_account fd_snapshot_full_account_t;
 #define FD_SNAPSHOT_MAX_SNAPLA_TILES (8UL)
 #define FD_SNAPSHOT_MAX_SNAPLH_TILES (8UL)
 
+static inline const char *
+fd_ssctrl_state_str( ulong state ) {
+  switch( state ) {
+    case FD_SNAPSHOT_STATE_IDLE:        return "idle";
+    case FD_SNAPSHOT_STATE_PROCESSING:  return "processing";
+    case FD_SNAPSHOT_STATE_FINISHING:   return "finishing";
+    case FD_SNAPSHOT_STATE_ERROR:       return "error";
+    case FD_SNAPSHOT_STATE_SHUTDOWN:    return "shutdown";
+    default:                            return "unknown";
+  }
+}
+
+static inline const char *
+fd_ssctrl_msg_ctrl_str( ulong sig ) {
+  switch( sig ) {
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:  return "init_full";
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:  return "init_incr";
+    case FD_SNAPSHOT_MSG_CTRL_FAIL:       return "fail";
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:       return "next";
+    case FD_SNAPSHOT_MSG_CTRL_DONE:       return "done";
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:   return "shutdown";
+    case FD_SNAPSHOT_MSG_CTRL_ERROR:      return "error";
+    case FD_SNAPSHOT_MSG_CTRL_FINI:       return "fini";
+    default:                              return "unknown";
+  }
+}
+
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */
