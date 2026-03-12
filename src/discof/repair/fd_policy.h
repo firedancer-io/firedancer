@@ -148,6 +148,9 @@ typedef struct fd_policy_peers fd_policy_peers_t;
 #define FD_POLICY_LATENCY_THRESH 80e6L /* less than this is a BEST peer, otherwise a WORST peer */
 #define FD_POLICY_DEDUP_TIMEOUT  80e6L /* how long wait to request the same shred */
 
+/* Max number of pending shred requests */
+#define FD_DEDUP_CACHE_MAX (1<<14) /* 16k */
+
 /* Round robins through ALL the worst peers once, then round robins
    through ALL the best peers once, then round robins through ALL the
    best peers again, etc. All peers are initially added to the worst
@@ -188,7 +191,7 @@ fd_policy_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
+fd_policy_footprint( ulong peer_max ) {
   ulong peer_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -200,9 +203,9 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      fd_policy_align(),            sizeof(fd_policy_t)                             ),
-      fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max )     ),
-      fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max )     ),
+      fd_policy_align(),            sizeof(fd_policy_t)                                 ),
+      fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( FD_DEDUP_CACHE_MAX ) ),
+      fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( FD_DEDUP_CACHE_MAX ) ),
       fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()                 ),
       fd_policy_peer_map_align(),   fd_policy_peer_map_footprint ( peer_chain_cnt ) ),
       fd_policy_peer_pool_align(),  fd_policy_peer_pool_footprint( peer_max )       ),
@@ -218,7 +221,7 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
    returns. */
 
 void *
-fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss );
+fd_policy_new( void * shmem, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss );
 
 /* fd_policy_join joins the caller to the policy.  policy points to the
    first byte of the memory region backing the policy in the caller's

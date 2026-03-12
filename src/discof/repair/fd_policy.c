@@ -7,7 +7,7 @@
 #define MS_PER_TICK          (400.0 / TARGET_TICK_PER_SLOT)
 
 void *
-fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss ) {
+fd_policy_new( void * shmem, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -19,14 +19,14 @@ fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed, fd_rno
     return NULL;
   }
 
-  ulong footprint = fd_policy_footprint( dedup_max, peer_max );
+  ulong footprint = fd_policy_footprint( peer_max );
   fd_memset( shmem, 0, footprint );
 
   ulong peer_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_policy_t * policy     = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),            sizeof(fd_policy_t)                           );
-  void *        dedup_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max   ) );
-  void *        dedup_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max   ) );
+  void *        dedup_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( FD_DEDUP_CACHE_MAX ) );
+  void *        dedup_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( FD_DEDUP_CACHE_MAX ) );
   void *        dedup_lru  = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()               );
   void *        peers      = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_map_align(),   fd_policy_peer_map_footprint( peer_chain_cnt ) );
   void *        peers_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_pool_align(),  fd_policy_peer_pool_footprint( peer_max    ) );
@@ -34,8 +34,8 @@ fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed, fd_rno
   void *        peers_slow = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                     );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_policy_align() ) == (ulong)shmem + footprint );
 
-  policy->dedup.map     = fd_policy_dedup_map_new ( dedup_map,  dedup_max,      seed );
-  policy->dedup.pool    = fd_policy_dedup_pool_new( dedup_pool, dedup_max            );
+  policy->dedup.map     = fd_policy_dedup_map_new ( dedup_map,  FD_DEDUP_CACHE_MAX, seed );
+  policy->dedup.pool    = fd_policy_dedup_pool_new( dedup_pool, FD_DEDUP_CACHE_MAX       );
   policy->dedup.lru     = fd_policy_dedup_lru_new ( dedup_lru                        );
   policy->peers.map     = fd_policy_peer_map_new  ( peers,      peer_chain_cnt, seed );
   policy->peers.pool    = fd_policy_peer_pool_new ( peers_pool, peer_max             );
