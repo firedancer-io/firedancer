@@ -5,7 +5,8 @@
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/fd_system_ids.h"
 
-#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
 
 #define FD_SSPARSE_STATE_TAR_HEADER             (0)
 #define FD_SSPARSE_STATE_SCROLL_TAR_HEADER      (1)
@@ -166,6 +167,50 @@ fd_ssparse_reset( fd_ssparse_t * ssparse ) {
 }
 
 static int
+parse_tar_header_name( char const * name,
+                       ulong *      id,
+                       ulong *      slot ) {
+  char name_buf[ FD_TAR_NAME_SZ ];
+  fd_memcpy( name_buf, name, FD_TAR_NAME_SZ );
+  name_buf[ FD_TAR_NAME_SZ-1 ] = '\0';
+
+  char const * ptr = name_buf;
+
+  if( FD_UNLIKELY( strncmp( ptr, "accounts/", 9UL ) ) ) {
+    *id   = ULONG_MAX;
+    *slot = ULONG_MAX;
+    return -1;
+  }
+
+  ptr += 9UL;
+  char const * next = strchr( ptr, '.' );
+  if( FD_UNLIKELY( !next ) ) {
+    *id   = ULONG_MAX;
+    *slot = ULONG_MAX;
+    return -1;
+  }
+  errno = 0;
+  char * endptr;
+  *slot = strtoul( ptr, &endptr, 10 );
+  if( FD_UNLIKELY( errno==ERANGE || *endptr!='.' || endptr==ptr ) ) {
+    *id   = ULONG_MAX;
+    *slot = ULONG_MAX;
+    return -1;
+  }
+
+  errno = 0;
+  ptr = next + 1;
+  *id = strtoul( ptr, &endptr, 10 );
+  if( FD_UNLIKELY( errno==ERANGE || *endptr!='\0' || endptr==ptr ) ) {
+    *id   = ULONG_MAX;
+    *slot = ULONG_MAX;
+    return -1;
+  }
+
+  return 0;
+}
+
+static int
 advance_tar( fd_ssparse_t *                ssparse,
              uchar const *                 data,
              ulong                         data_sz,
@@ -246,7 +291,7 @@ advance_tar( fd_ssparse_t *                ssparse,
     ssparse->account.header_bytes_consumed = 0UL;
     desired_state = FD_SSPARSE_STATE_ACCOUNT_HEADER;
     ulong id, slot;
-    if( FD_UNLIKELY( sscanf( hdr->name, "accounts/%lu.%lu", &slot, &id )!=2 ) ) {
+    if( FD_UNLIKELY( -1==parse_tar_header_name( hdr->name, &id, &slot ) ) ) {
       FD_LOG_WARNING(( "invalid account append vec name %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_NAME_SZ) "s", hdr->name ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
