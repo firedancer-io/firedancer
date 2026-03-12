@@ -1409,7 +1409,10 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) fd_topo_configure_tile( &topo->tiles[ i ], config );
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_configure_tile( &topo->tiles[ i ], config );
+    if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, "gui" ) ) ) topo->tiles[ i ].gui.tile_cnt = topo->tile_cnt;
+  }
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
   fd_topob_finish( topo, CALLBACKS );
