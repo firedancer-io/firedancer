@@ -103,7 +103,7 @@ reconstruct_topo( fd_config_t * config,
   if( !topo_name[0] ) return; /* keep default action topo */
 
   action_t const * selected = NULL;
-  for( action_t ** a=ACTIONS; a!=NULL; a++ ) {
+  for( action_t ** a=ACTIONS; *a!=NULL; a++ ) {
     action_t const * action = *a;
     if( 0==strcmp( action->name, topo_name ) ) {
       selected = action;
