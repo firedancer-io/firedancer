@@ -174,15 +174,24 @@ fd_ssctrl_state_str( ulong state ) {
 static inline const char *
 fd_ssctrl_msg_ctrl_str( ulong sig ) {
   switch( sig ) {
-    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:  return "init_full";
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:  return "init_incr";
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:       return "fail";
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:       return "next";
-    case FD_SNAPSHOT_MSG_CTRL_DONE:       return "done";
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:   return "shutdown";
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:      return "error";
-    case FD_SNAPSHOT_MSG_CTRL_FINI:       return "fini";
-    default:                              return "unknown";
+    case FD_SNAPSHOT_MSG_DATA:                return "data";
+    case FD_SNAPSHOT_MSG_META:                return "meta";
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:      return "init_full";
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:      return "init_incr";
+    case FD_SNAPSHOT_MSG_CTRL_FAIL:           return "fail";
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:           return "next";
+    case FD_SNAPSHOT_MSG_CTRL_DONE:           return "done";
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:       return "shutdown";
+    case FD_SNAPSHOT_MSG_CTRL_ERROR:          return "error";
+    case FD_SNAPSHOT_MSG_CTRL_FINI:           return "fini";
+    case FD_SNAPSHOT_HASH_MSG_EXPECTED:       return "hash_expected";
+    case FD_SNAPSHOT_HASH_MSG_SUB:            return "hash_sub";
+    case FD_SNAPSHOT_HASH_MSG_SUB_HDR:        return "hash_sub_hdr";
+    case FD_SNAPSHOT_HASH_MSG_SUB_DATA:       return "hash_sub_data";
+    case FD_SNAPSHOT_HASH_MSG_RESULT_SUB:     return "hash_result_sub";
+    case FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH: return "hash_sub_meta_batch";
+    case FD_SNAPSHOT_HASH_MSG_RESULT_ADD:     return "hash_result_add";
+    default:                                  return "unknown";
   }
 }
 
