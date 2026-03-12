@@ -53,12 +53,12 @@ typedef struct fd_vote_rewards fd_vote_rewards_t;
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* The footprint of a map chain is the size of the map struct (always
-   24 bytes followed by the size of the chain idx (always a uint in
-   this case) multiplied by the number of map chains which will be the
-   expected number of vote accounts. */
-#define FD_VOTE_ELE_MAP_FOOTPRINT (sizeof(fd_vote_rewards_map_t) + FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS * sizeof(uint))
 #define FD_VOTE_ELE_MAP_ALIGN     (128UL)
+
+FD_FN_PURE static inline ulong
+fd_vote_ele_map_footprint( ulong max_vote_accounts ) {
+  return sizeof(fd_vote_rewards_map_t) + max_vote_accounts * sizeof(uint);
+}
 
 /* fd_runtime_stack_t serves as stack memory to store temporary data
    for the runtime.  This object should only be used and owned by the
@@ -66,10 +66,12 @@ typedef struct fd_vote_rewards fd_vote_rewards_t;
    more specifically, for slot level calculations. */
 struct fd_runtime_stack {
 
+  ulong max_vote_accounts;
+
   struct {
     /* Staging memory to sort vote accounts by last vote timestamp for
        clock sysvar calculation. */
-    ts_est_ele_t staked_ts[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    ts_est_ele_t * staked_ts;
   } clock_ts;
 
   struct {
@@ -96,15 +98,69 @@ struct fd_runtime_stack {
 
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
-    fd_vote_stake_weight_t stake_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    fd_vote_stake_weight_t * stake_weights;
 
-    fd_vote_rewards_t vote_ele[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ] __attribute__((aligned(128UL)));
-    uchar             vote_map_mem[ FD_VOTE_ELE_MAP_FOOTPRINT ] __attribute__((aligned(FD_VOTE_ELE_MAP_ALIGN)));
+    fd_vote_rewards_t * vote_ele;
+    void *              vote_map_mem;
 
     fd_epoch_credits_t epoch_credits[ FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ];
 
   } stakes;
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;
+
+FD_FN_CONST static inline ulong
+fd_runtime_stack_align( void ) {
+  return alignof(fd_runtime_stack_t);
+}
+
+FD_FN_PURE static inline ulong
+fd_runtime_stack_footprint( ulong max_vote_accounts ) {
+  ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_runtime_stack_t),     sizeof(fd_runtime_stack_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(ts_est_ele_t),           sizeof(ts_est_ele_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t), sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, 128UL,                           sizeof(fd_vote_rewards_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, FD_VOTE_ELE_MAP_ALIGN,           fd_vote_ele_map_footprint( chain_cnt ) );
+  return FD_LAYOUT_FINI( l, fd_runtime_stack_align() );
+}
+
+static inline void *
+fd_runtime_stack_new( void * shmem,
+                      ulong  max_vote_accounts,
+                      ulong  seed ) {
+  if( FD_UNLIKELY( !shmem ) ) return NULL;
+
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_runtime_stack_t *     runtime_stack = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_runtime_stack_t),     sizeof(fd_runtime_stack_t) );
+  ts_est_ele_t *           staked_ts     = FD_SCRATCH_ALLOC_APPEND( l, alignof(ts_est_ele_t),           sizeof(ts_est_ele_t) * max_vote_accounts );
+  fd_vote_stake_weight_t * stake_weights = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t), sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
+  fd_vote_rewards_t *      vote_ele      = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                           sizeof(fd_vote_rewards_t) * max_vote_accounts );
+  void *                   vote_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, FD_VOTE_ELE_MAP_ALIGN,           fd_vote_ele_map_footprint( FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) );
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_runtime_stack_align() )!=(ulong)shmem + fd_runtime_stack_footprint( max_vote_accounts ) ) ) {
+    FD_LOG_WARNING(( "fd_runtime_stack_new: bad layout" ));
+    return NULL;
+  }
+
+  fd_memset( runtime_stack, 0, sizeof(fd_runtime_stack_t) );
+  runtime_stack->max_vote_accounts      = max_vote_accounts;
+  runtime_stack->clock_ts.staked_ts     = staked_ts;
+  runtime_stack->stakes.stake_weights   = stake_weights;
+  runtime_stack->stakes.vote_ele        = vote_ele;
+  runtime_stack->stakes.vote_map_mem    = vote_map_mem;
+
+  ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
+  if( FD_UNLIKELY( !fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, chain_cnt, seed ) ) ) ) {
+    FD_LOG_WARNING(( "fd_runtime_stack_new: bad map" ));
+    return NULL;
+  }
+  return shmem;
+}
+
+FD_FN_CONST static inline fd_runtime_stack_t *
+fd_runtime_stack_join( void * shruntime_stack ) {
+  return (fd_runtime_stack_t *)shruntime_stack;
+}
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h */

@@ -467,8 +467,8 @@ struct fd_replay_tile {
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
-  ulong              runtime_stack_seed;
-  fd_runtime_stack_t runtime_stack;
+  ulong                runtime_stack_seed;
+  fd_runtime_stack_t * runtime_stack;
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;
@@ -483,6 +483,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),    sizeof(fd_replay_tile_t) );
+  l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),     fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
@@ -656,7 +657,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_bank_block_height_set( bank, fd_bank_block_height_get( bank ) + 1UL );
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 0 );
 
   ulong max_tick_height;
@@ -947,7 +948,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_bank_block_height_set( ctx->leader_bank, fd_bank_block_height_get( ctx->leader_bank ) + 1UL );
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, ctx->leader_bank, 0 );
 
   ulong max_tick_height;
@@ -1160,7 +1161,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb, &xid, &ctx->runtime_stack, ctx->capture_ctx );
+  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb, &xid, ctx->runtime_stack, ctx->capture_ctx );
 
   ulong snapshot_slot = fd_bank_slot_get( bank );
   if( FD_UNLIKELY( !snapshot_slot ) ) {
@@ -1168,7 +1169,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     /* FIXME: This branch does not set up a new block exec ctx
        properly. Needs to do whatever prepare_new_block_execution
        does, but just hacking that in breaks stuff. */
-    fd_runtime_update_leaders( bank, &ctx->runtime_stack );
+    fd_runtime_update_leaders( bank, ctx->runtime_stack );
 
     ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
     fd_hash_t * poh = fd_bank_poh_modify( bank );
@@ -1177,7 +1178,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     }
 
     int is_epoch_boundary = 0;
-    fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, &ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
+    fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
     FD_TEST( !is_epoch_boundary );
     fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
 
@@ -1423,7 +1424,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_funk_txn_xid_t root_xid = { .ul = { LONG_MAX, LONG_MAX } };
   fd_funk_txn_xid_t target_xid = { .ul = { 0UL, 0UL } };
   fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &target_xid );
-  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &xid, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, &ctx->runtime_stack );
+  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &xid, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
   fd_accdb_advance_root( ctx->accdb_admin, &target_xid );
 
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
@@ -1572,7 +1573,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_sched_block_add_done( ctx->sched, bank->data->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->data->idx==0UL );
 
-    fd_runtime_update_leaders( bank, &ctx->runtime_stack );
+    fd_runtime_update_leaders( bank, ctx->runtime_stack );
 
     /* Typically, when we cross an epoch boundary during normal
        operation, we publish the stake weights for the new epoch.  But
@@ -1627,7 +1628,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                          ctx->banks,
                          fd_banks_bank_query( bank, ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
-                         &ctx->runtime_stack,
+                         ctx->runtime_stack,
                          msg==FD_SSMSG_MANIFEST_INCREMENTAL );
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
@@ -2784,6 +2785,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
+  void * runtime_stack_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),    fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
@@ -2800,7 +2802,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 # endif
 
-  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( ctx->runtime_stack.stakes.vote_map_mem, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, ctx->runtime_stack_seed ) ) );
+  ctx->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( runtime_stack_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS, ctx->runtime_stack_seed ) );
+  FD_TEST( ctx->runtime_stack );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
