@@ -16,8 +16,7 @@
 void
 fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                 fd_exec_instr_ctx_t *                ctx,
-                                fd_exec_test_instr_context_t const * test_ctx,
-                                bool                                 is_syscall ) {
+                                fd_exec_test_instr_context_t const * test_ctx ) {
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
@@ -134,7 +133,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                  (ulong)test_ctx->accounts_count, (ulong)MAX_TX_ACCOUNT_LOCKS ));
   }
 
-  /* Load accounts into database */
+  /* Load accounts from input */
 
   fd_account_meta_t * metas[MAX_TX_ACCOUNT_LOCKS] = {0};
   txn_out->accounts.cnt = test_ctx->accounts_count;
@@ -162,8 +161,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     txn_out->accounts.keys[j] = *acc_key;
 
     if( !memcmp( acc_key, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
-      has_program_id = 1;
-      info->program_id = (uchar)txn_out->accounts.cnt;
+      has_program_id   = 1;
+      info->program_id = (uchar)j;
     }
   }
 
@@ -302,24 +301,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                        test_ctx->instr_accounts[j].is_writable,
                                        test_ctx->instr_accounts[j].is_signer );
   }
-  info->acct_cnt = (ushort)test_ctx->instr_accounts_count;
-
-  /* The remaining checks enforce that the program is in the accounts list. */
-  bool found_program_id = false;
-  for( uint i = 0; i < test_ctx->accounts_count; i++ ) {
-    if( 0 == memcmp( test_ctx->accounts[i].address, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
-      info->program_id = (uchar) i;
-      found_program_id = true;
-      break;
-    }
-  }
-
-  /* For non-syscalls (instruction execution), program_id must be in the input accounts.
-     For syscalls, we skip this check because the program_id was already added to
-     txn_out->accounts at lines 169-181 if it wasn't in the input. */
-  if( !is_syscall && !found_program_id ) {
-    FD_LOG_ERR(( "invariant violation: Unable to find program_id in accounts" ));
-  }
+  info->acct_cnt          = (ushort)test_ctx->instr_accounts_count;
 
   ctx->instr              = info;
   ctx->runtime->progcache = runner->progcache;
@@ -356,7 +338,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
-  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false );
+  fd_solfuzz_pb_instr_ctx_create( runner, ctx, input );
 
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
