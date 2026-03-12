@@ -279,7 +279,7 @@ enum {
 #define FD_METRICS_COUNTER_PACK_DELETE_HIT_DESC "Count of attempts to delete a transaction that was found and deleted"
 #define FD_METRICS_COUNTER_PACK_DELETE_HIT_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_PACK_TOTAL (79UL)
+#define FD_METRICS_PACK_TOTAL (80UL)
 extern const fd_metrics_meta_t FD_METRICS_PACK[FD_METRICS_PACK_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_pack_h */
