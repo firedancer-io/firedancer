@@ -1226,7 +1226,7 @@ fd_gui_peers_viewport_log( fd_gui_peers_ctx_t *  peers,
 
     p = fd_cstr_append_printf( p,
                                "| %5lu | %14ld | %14ld | %14ld | %14ld | %-50s | %-15s |\n",
-                               peers->client_viewports[ ws_conn_id ].start_row + j,
+                               j,
                                cur_ingress_push_bps,
                                cur_ingress_pull_response_bps,
                                cur_egress_push_bps,
