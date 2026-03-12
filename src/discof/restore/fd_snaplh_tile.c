@@ -247,7 +247,7 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
       int test = !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz );
       if( FD_LIKELY( test ) ) break;
     }
-    FD_LOG_WARNING(( "phdr mismatch! - this should not happen under bstream_seq" ));
+    FD_LOG_WARNING(( "phdr mismatch! this should not happen under bstream_seq, continue ..." ));
     FD_SPIN_PAUSE();
   }
 
@@ -491,7 +491,8 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
       }
 
       default:
-        FD_LOG_CRIT(( "unexpected vinyl bstream block ctl=%016lx", ctl ));
+        FD_LOG_CRIT(( "unexpected vinyl bstream block ctl %016lx for %s snapshot",
+                      ctl, ctx->full?"full":"incremental" ));
     }
   }
 
@@ -507,6 +508,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
 static void
 handle_lv_data_frag( fd_snaplh_t * ctx,
                      ulong         in_idx,
+                     ulong         sig,
                      ulong         chunk ) { /* compressed input pointer */
 
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
@@ -514,7 +516,9 @@ handle_lv_data_frag( fd_snaplh_t * ctx,
     return;
   }
   if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING  ) ) {
-    FD_LOG_ERR(( "invalid state for lv data frag %u", ctx->state ));
+    FD_LOG_ERR(( "received snaplv data frag %s (%lu) in state %s (%lu)",
+                 fd_ssctrl_msg_ctrl_str( sig ), sig,
+                 fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
     return;
   }
 
@@ -615,7 +619,9 @@ handle_control_frag( fd_snaplh_t * ctx,
       break;
 
     default: {
-      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
+      FD_LOG_ERR(( "received unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
     }
   }
@@ -636,7 +642,7 @@ returnable_frag( fd_snaplh_t *       ctx,
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) )          handle_wh_data_frag( ctx, in_idx, chunk, tsorig, stem );
-  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) handle_lv_data_frag( ctx, in_idx, chunk );
+  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH ) ) handle_lv_data_frag( ctx, in_idx, sig, chunk );
   else                                                               handle_control_frag( ctx, sig, tsorig, tspub, stem );
 
   /* Because fd_stem may not return flow control credits fast enough,
@@ -654,7 +660,7 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
                       fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "incorrect out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
