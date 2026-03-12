@@ -87,23 +87,15 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
 
 FD_PROTOTYPES_END
 
+#define FD_DUMMY_ACCOUNT { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF }
+static const fd_pubkey_t FD_DUMMY_ACCOUNT_PUBKEY = { .uc = FD_DUMMY_ACCOUNT };
+
 struct fd_vote_stake_weight {
-  fd_pubkey_t vote_key;      /* vote account pubkey */
-  fd_pubkey_t id_key;        /* validator identity pubkey */
-  ulong       stake : 63;    /* total stake by vote account */
-  ulong       is_leader : 1; /* 1 if the vote account is a leader, 0 otherwise */
+  fd_pubkey_t vote_key; /* vote account pubkey */
+  fd_pubkey_t id_key;   /* validator identity pubkey */
+  ulong       stake;    /* total stake by vote account */
 };
 typedef struct fd_vote_stake_weight fd_vote_stake_weight_t;
-
-static inline void
-fd_vote_stake_weight_set_stake( fd_vote_stake_weight_t * self, ulong stake ) {
-  self->stake = stake & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
-}
-
-static inline void
-fd_vote_stake_weight_accumulate_stake( fd_vote_stake_weight_t * self, ulong stake ) {
-  self->stake += (stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
-}
 
 #define SORT_NAME sort_vote_weights_by_stake_vote
 #define SORT_KEY_T fd_vote_stake_weight_t

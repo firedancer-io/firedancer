@@ -242,7 +242,7 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
     ulong stake = epoch_stakes->vote_stakes[ i ].stake;
     if( FD_UNLIKELY( !stake ) ) continue;
-    fd_vote_stake_weight_set_stake( &stake_weights[ idx ], epoch_stakes->vote_stakes[ i ].stake );
+    stake_weights[ idx ].stake = stake;
     memcpy( stake_weights[ idx ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
     memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
     idx++;

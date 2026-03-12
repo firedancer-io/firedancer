@@ -153,16 +153,14 @@ update_next_leaders( fd_bank_t *          bank,
     FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) == 1);
 
     if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
-      fd_vote_stake_weight_set_stake( &stake_weights[ idx ], stake );
-      stake_weights[ idx ].is_leader = 1;
+      stake_weights[ idx ].stake = stake;
       memcpy( stake_weights[ idx ].id_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
       idx++;
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
-      fd_vote_stake_weight_accumulate_stake( &stake_weights[ idx-1UL ], stake );
+      stake_weights[ idx-1UL ].stake += stake;
     } else {
-      fd_vote_stake_weight_set_stake( &stake_weights[ idx ], stake );
-      stake_weights[ idx ].is_leader = 0;
+      stake_weights[ idx ].stake = stake;
       idx++;
     }
   }
@@ -214,16 +212,16 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) == 1);
 
     if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
-      fd_vote_stake_weight_set_stake( &stake_weights[ idx ], stake );
-      stake_weights[ idx ].is_leader = 1;
+      stake_weights[ idx ].stake = stake;
       memcpy( stake_weights[ idx ].id_key.uc, &leaders->pub[i], sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
       idx++;
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
-      fd_vote_stake_weight_accumulate_stake( &stake_weights[ idx-1UL ], stake );
+      stake_weights[ idx-1UL ].stake += stake;
     } else {
-      fd_vote_stake_weight_set_stake( &stake_weights[ idx ], stake );
-      stake_weights[ idx ].is_leader = 0;
+      stake_weights[ idx ].id_key   = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].vote_key = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].stake = stake;
       idx++;
     }
   }

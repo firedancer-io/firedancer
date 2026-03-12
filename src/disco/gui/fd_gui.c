@@ -1262,7 +1262,7 @@ static void
 fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
   if( FD_UNLIKELY( gui->validator_info.info_cnt == FD_GUI_MAX_PEER_CNT ) ) {
-    FD_LOG_DEBUG(("validator info cnt exceeds 40200 %lu, ignoring additional entries", gui->validator_info.info_cnt ));
+    FD_LOG_DEBUG(("validator info cnt exceeds 108000 %lu, ignoring additional entries", gui->validator_info.info_cnt ));
     return;
   }
   uchar const * data = (uchar const *)fd_type_pun_const( msg );

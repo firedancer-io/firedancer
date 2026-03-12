@@ -52,7 +52,7 @@ main( int     argc,
   fd_stake_weight_t const * id_based_e454_stakes = (fd_stake_weight_t const *)e454_stakes;
   fd_vote_stake_weight_t vote_based_e454_stakes[ 3373UL ] = { 0 };
   for( ulong i=0; i<pub_cnt; i++ ) {
-    fd_vote_stake_weight_set_stake( &vote_based_e454_stakes[ i ], id_based_e454_stakes[ i ].stake );
+    vote_based_e454_stakes[ i ].stake = id_based_e454_stakes[ i ].stake;
     memcpy( vote_based_e454_stakes[ i ].id_key.uc, id_based_e454_stakes[ i ].key.uc, sizeof(fd_pubkey_t) );
     memcpy( vote_based_e454_stakes[ i ].vote_key.uc, id_based_e454_stakes[ i ].key.uc, sizeof(fd_pubkey_t) );
   }

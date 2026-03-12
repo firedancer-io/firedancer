@@ -54,7 +54,7 @@
 
 #define MAX_IN_LINKS    (32)
 
-#define MAX_REPAIR_PEERS   40200UL
+#define MAX_REPAIR_PEERS   108000UL
 #define MAX_BUFFER_SIZE    ( MAX_REPAIR_PEERS * sizeof( fd_shred_dest_wire_t ) )
 #define MAX_SHRED_TILE_CNT ( 16UL )
 #define MAX_SIGN_TILE_CNT  ( 16UL )

@@ -55,7 +55,7 @@
 
 /* FD_EPOCH_LEADERS_MAX_FOOTPRINT is the maximum footprint of a leader
    schedule object that the runtime can support given a constant
-   slots per epoch (432K) and a max number of vote accounts (40200). */
+   slots per epoch (432K) and a max number of vote accounts (108000). */
 
 #define FD_EPOCH_LEADERS_MAX_FOOTPRINT (FD_EPOCH_LEADERS_FOOTPRINT(FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_SLOTS_PER_EPOCH))
 

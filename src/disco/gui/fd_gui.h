@@ -21,7 +21,7 @@
 #include "../../waltz/http/fd_http_server.h"
 
 /* frankendancer only */
-#define FD_GUI_MAX_PEER_CNT ( 40200UL)
+#define FD_GUI_MAX_PEER_CNT (108000UL)
 
 /* frankendancer only */
 #define FD_GUI_START_PROGRESS_TYPE_INITIALIZING                       ( 0)

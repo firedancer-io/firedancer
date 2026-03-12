@@ -25,7 +25,7 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
 
     fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
     fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
-    fd_vote_stake_weight_set_stake( &weights[ weights_cnt ], stake_t_2 );
+    weights[ weights_cnt ].stake = stake_t_2;
     weights_cnt++;
   }
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
@@ -50,7 +50,7 @@ fd_stake_weights_by_node_next( fd_vote_stakes_t *       vote_stakes,
 
     fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
     fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
-    fd_vote_stake_weight_set_stake( &weights[ weights_cnt ], stake_t_1 );
+    weights[ weights_cnt ].stake = stake_t_1;
     weights_cnt++;
   }
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );

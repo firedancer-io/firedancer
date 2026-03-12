@@ -14,7 +14,7 @@ FD_PROTOTYPES_BEGIN
    that are used to determine the max amount of memory that various
    data structures require. */
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS         (40200UL)
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS         (40201UL)
 #define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS    (2048UL)
 
 #define FD_RUNTIME_MAX_STAKE_ACCOUNTS (3000000UL) /* 3M stake accounts */

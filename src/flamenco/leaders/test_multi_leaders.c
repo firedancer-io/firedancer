@@ -26,7 +26,7 @@ generate_stake_msg( uchar *      _buf,
   for(; *stakers; stakers++, i++ ) {
     memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
     memset( buf->weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    fd_vote_stake_weight_set_stake( &buf->weights[i], 1000UL/(i+1UL) );
+    buf->weights[i].stake = 1000UL/(i+1UL);
   }
   return fd_type_pun( _buf );
 }
@@ -246,7 +246,7 @@ test_limits( void ) {
         memset( buf->weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
         FD_STORE( ulong, buf->weights[i].vote_key.uc, fd_ulong_bswap( i ) );
         FD_STORE( ulong, buf->weights[i].id_key.uc, fd_ulong_bswap( i ) );
-        fd_vote_stake_weight_set_stake( &buf->weights[i], stake );
+        buf->weights[i].stake = stake;
         buf->staked_cnt++;
       } else {
         buf->excluded_stake += stake;

@@ -176,7 +176,7 @@ test_shred_dest_conformance(
     if( CLUSTER_NODES[i].stake > 0UL ) {
       memcpy( stake_msg->weights[staked_cnt].id_key.uc, pubkeys[i].uc, 32UL );
       memcpy( stake_msg->weights[staked_cnt].vote_key.uc, pubkeys[i].uc, 32UL );
-      fd_vote_stake_weight_set_stake( &stake_msg->weights[staked_cnt], CLUSTER_NODES[i].stake );
+      stake_msg->weights[staked_cnt].stake = CLUSTER_NODES[i].stake;
       staked_cnt++;
     }
   }
