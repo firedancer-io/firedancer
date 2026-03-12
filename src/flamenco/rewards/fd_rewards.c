@@ -423,7 +423,7 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
 
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
-    if( FD_UNLIKELY( stake_delegation->idx>=FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) ) {
+    if( FD_UNLIKELY( stake_delegation->idx>=runtime_stack->expected_stake_accounts ) ) {
       stake_points_result = stake_points_result_;
     } else {
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation->idx ];
@@ -431,7 +431,7 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
 
     fd_epoch_credits_t   epoch_credits_;
     fd_epoch_credits_t * epoch_credits = NULL;
-    if( idx>=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) {
+    if( idx>=runtime_stack->expected_vote_accounts ) {
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ idx ];
       fd_accdb_ro_t vote_ro[1];
       FD_TEST( fd_accdb_open_ro( accdb, vote_ro, xid, &vote_ele->pubkey ) );
@@ -518,7 +518,7 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
     }
 
     fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
-    if( stake_delegation->idx>=FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) {
+    if( stake_delegation->idx>=runtime_stack->expected_stake_accounts ) {
       calculated_stake_rewards = calculated_stake_rewards_;
     } else {
       calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation->idx ];
@@ -532,12 +532,12 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
 
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
-    if( is_recalculation || FD_UNLIKELY( stake_delegation->idx>=FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) ) {
+    if( is_recalculation || FD_UNLIKELY( stake_delegation->idx>=runtime_stack->expected_stake_accounts ) ) {
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ idx ];
 
       fd_epoch_credits_t   epoch_credits_;
       fd_epoch_credits_t * epoch_credits = NULL;
-      if( idx<FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) {
+      if( idx<runtime_stack->expected_vote_accounts ) {
         epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
       } else {
         fd_accdb_ro_t vote_ro[1];
@@ -625,7 +625,7 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
     fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
     fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
 
-    if( FD_UNLIKELY( stake_delegation->idx>=FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) ) {
+    if( FD_UNLIKELY( stake_delegation->idx>=runtime_stack->expected_stake_accounts ) ) {
 
       calculated_stake_rewards = calculated_stake_rewards_;
 
@@ -651,7 +651,7 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
 
       fd_epoch_credits_t   epoch_credits_;
       fd_epoch_credits_t * epoch_credits = NULL;
-      if( idx>=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ) {
+      if( idx>=runtime_stack->expected_vote_accounts ) {
         fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ idx ];
         fd_accdb_ro_t vote_ro[1];
         FD_TEST( fd_accdb_open_ro( accdb, vote_ro, xid, &vote_ele->pubkey ) );

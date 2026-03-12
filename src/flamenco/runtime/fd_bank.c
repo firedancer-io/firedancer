@@ -185,7 +185,7 @@ fd_banks_footprint( ulong max_total_banks,
   l = FD_LAYOUT_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( max_stake_accounts, max_stake_accounts, max_fork_width ) );
-  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, max_fork_width ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_vote_accounts, fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ), max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( max_stake_accounts, max_total_banks ) );
   return FD_LAYOUT_FINI( l, fd_banks_align() );
 }
@@ -224,7 +224,7 @@ fd_banks_new( void * shmem,
   void *            top_votes_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( max_total_banks ) );
   void *            cost_tracker_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
   void *            stake_rewards_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( max_stake_accounts, max_stake_accounts, max_fork_width ) );
-  void *            vote_stakes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, max_fork_width ) );
+  void *            vote_stakes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( max_vote_accounts, fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ), max_fork_width ) );
   void *            stake_delegations_delta_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( max_stake_accounts, max_total_banks ) );
 
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() ) != (ulong)banks_data + fd_banks_footprint( max_total_banks, max_fork_width, max_stake_accounts, max_vote_accounts ) ) ) {
@@ -305,7 +305,7 @@ fd_banks_new( void * shmem,
   }
 
   fd_banks_set_stake_rewards( banks_data, stake_rewards );
-  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, max_fork_width, seed ) );
+  fd_vote_stakes_t * vote_stakes = fd_vote_stakes_join( fd_vote_stakes_new( vote_stakes_mem, max_vote_accounts, fd_ulong_min( max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ), max_fork_width, seed ) );
   if( FD_UNLIKELY( !vote_stakes ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes" ));
     return NULL;
@@ -405,7 +405,7 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   void * top_votes_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( banks_data->max_total_banks ) );
   void * cost_tracker_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(),  fd_bank_cost_tracker_pool_footprint( banks_data->max_fork_width ) );
   void * stake_rewards_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(),           fd_stake_rewards_footprint( banks_data->max_stake_accounts, banks_data->max_stake_accounts, banks_data->max_fork_width ) );
-  void * vote_stakes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( banks_data->max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, banks_data->max_fork_width ) );
+  void * vote_stakes_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),             fd_vote_stakes_footprint( banks_data->max_vote_accounts, fd_ulong_min( banks_data->max_vote_accounts, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ), banks_data->max_fork_width ) );
   void * stake_delegations_delta_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_delta_align(), fd_stake_delegations_delta_footprint( banks_data->max_stake_accounts, banks_data->max_total_banks ) );
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
