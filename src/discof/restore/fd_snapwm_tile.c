@@ -108,8 +108,7 @@ verify_slot_deltas_with_slot_history( fd_snapwm_tile_t * ctx ) {
           slot_history,
           &decoded.o,
           data,
-          meta.dlen,
-          NULL )
+          meta.dlen )
   ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
     return -1;

@@ -284,8 +284,7 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
   fd_bpf_upgradeable_loader_state_t state[1];
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       bpf_upgradeable_loader_state, state,
-      acc->data, BUFFER_METADATA_SIZE,
-      NULL ) ) ) {
+      acc->data, BUFFER_METADATA_SIZE ) ) ) {
     return NULL;
   }
 
@@ -363,8 +362,7 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
       bpf_upgradeable_loader_state,
       &state,
       source->data,
-      buffer_metadata_sz,
-      NULL ) )
+      buffer_metadata_sz ) )
     return NULL;
 
   if( FD_UNLIKELY( state.discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) )

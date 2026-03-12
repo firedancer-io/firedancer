@@ -1755,8 +1755,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       vote_instruction_mem,
       ctx->instr->data,
       ctx->instr->data_sz,
-      FD_TXN_MTU,
-      NULL );
+      FD_TXN_MTU );
   if( FD_UNLIKELY( !instruction ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

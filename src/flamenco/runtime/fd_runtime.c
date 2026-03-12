@@ -1525,8 +1525,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       fd_stake_state_v2_t stake_state = {0};
       if( FD_UNLIKELY( !fd_bincode_decode_static(
           stake_state_v2, &stake_state,
-          acc_data, account->meta.dlen,
-          NULL ) ) ) {
+          acc_data, account->meta.dlen ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 );
         FD_LOG_ERR(( "Failed to deserialize genesis stake account %s", stake_b58 ));
       }
