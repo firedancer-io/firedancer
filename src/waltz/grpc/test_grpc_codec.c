@@ -253,6 +253,30 @@ test_read_response_hdrs( void ) {
     PARSE( buf, off );
     FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
 
+  /* :status: " 200" (leading whitespace, strtoul would accept) */
+  { off = hpack_literal( buf, ":status", 7, " 200", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: +200 (leading plus sign, strtoul would accept) */
+  { off = hpack_literal( buf, ":status", 7, "+200", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: " 0" (leading whitespace) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, " 0", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: +0 (leading plus) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "+0", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
   /* Corrupt HPACK payload */
   { uchar corrupt[] = { 0xff, 0xff, 0xff };
     PARSE( corrupt, sizeof(corrupt) );

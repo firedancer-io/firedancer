@@ -2,6 +2,8 @@
 #include "../h2/fd_hpack.h"
 #include "../h2/fd_hpack_wr.h"
 
+#include <limits.h>
+
 static int
 fd_hpack_wr_content_type_grpc( fd_h2_rbuf_t * rbuf_tx ) {
   static char const code[] =
@@ -37,22 +39,21 @@ fd_grpc_h2_gen_request_hdrs( fd_grpc_req_hdrs_t const * req,
   return 1;
 }
 
-/* fd_grpc_h2_parse_num parses a decimal unsigned integer from a
-   header value.  Returns the parsed value, or UINT_MAX on failure
-   (empty, non-decimal characters such as hex prefixes or trailing
-   junk, or overflow beyond UINT_MAX). */
+/* fd_grpc_h2_parse_num parses a strictly-decimal unsigned integer from
+   a header value.  Every byte must be in ['0','9'].  Returns the parsed
+   value, or UINT_MAX on failure (empty, any non-digit character
+   including whitespace/sign/hex prefix, or overflow). */
 
 static uint
 fd_grpc_h2_parse_num( char const * num,
                       ulong        num_len ) {
-  if( FD_UNLIKELY( !num_len ) ) return UINT_MAX;
-  num_len = fd_ulong_min( num_len, 10 );
-  char num_cstr[ 11 ];
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( num_cstr ), num, num_len ) );
-  char * endptr;
-  ulong val = strtoul( num_cstr, &endptr, 10 );
-  if( FD_UNLIKELY( endptr==num_cstr ) ) return UINT_MAX;
-  if( FD_UNLIKELY( *endptr!='\0'    ) ) return UINT_MAX;
+  if( FD_UNLIKELY( !num_len || num_len>10UL ) ) return UINT_MAX;
+  ulong val = 0;
+  for( ulong i=0; i<num_len; i++ ) {
+    uint d = (uint)( (uchar)num[i] - '0' );
+    if( FD_UNLIKELY( d>9U ) ) return UINT_MAX;
+    val = val*10UL + d;
+  }
   if( FD_UNLIKELY( val>(ulong)UINT_MAX ) ) return UINT_MAX;
   return (uint)val;
 }
