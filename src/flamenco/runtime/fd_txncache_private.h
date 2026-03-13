@@ -128,7 +128,6 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   ushort txnpages_per_blockhash_max;
   ushort max_txnpages;
 
-  uint blockcache_generation; /* Incremented for every blockcache. */
   ushort txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
 
   ulong root_cnt;
