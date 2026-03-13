@@ -99,10 +99,10 @@ FD_PROTOTYPES_BEGIN
 
   Currently, there is a delta-based field, fd_stake_delegations_t.
   Each bank stores a delta-based representation in the form of an
-  aligned uchar buffer.  The full state is stored in fd_banks_t also as
-  a uchar buffer which corresponds to the full state of stake
-  delegations for the current root.  fd_banks_t also reserves another
-  buffer which can store the full state of the stake delegations.
+  aligned uchar buffer.  The full state is stored in fd_banks_t in
+  out-of-line memory sized using max_stake_accounts, and fd_banks_t
+  also reserves another out-of-line buffer which can store the full
+  state of the stake delegations for frontier queries.
 
   The cost tracker is allocated from a pool.  The lifetime of a cost
   tracker element starts when the bank is linked to a parent with a
@@ -611,7 +611,7 @@ struct fd_banks_data {
         delegation deltas from each of the banks that are about to be
         published.  */
 
-  uchar stake_delegations_root[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+  ulong stake_delegations_root_offset;
 
   /* stake_delegations_frontier is reserved memory that can represent
      the full state of stake delegations for the current frontier. This
@@ -619,7 +619,7 @@ struct fd_banks_data {
      the deltas from the current bank and all of its ancestors up to the
      root bank. */
 
-  uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+  ulong stake_delegations_frontier_offset;
 
   /* Set of compressed stake weights for the leader schedule for the
      current epoch. */
@@ -775,6 +775,28 @@ fd_banks_set_epoch_leaders( fd_banks_data_t * banks_data,
                             ulong             epoch_leaders_footprint ) {
   banks_data->epoch_leaders_offset    = (ulong)epoch_leaders_mem - (ulong)banks_data;
   banks_data->epoch_leaders_footprint = epoch_leaders_footprint;
+}
+
+static inline uchar *
+fd_banks_get_stake_delegations_root_mem( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_root_offset );
+}
+
+static inline void
+fd_banks_set_stake_delegations_root_mem( fd_banks_data_t * banks_data,
+                                         uchar *           stake_delegations_root_mem ) {
+  banks_data->stake_delegations_root_offset = (ulong)stake_delegations_root_mem - (ulong)banks_data;
+}
+
+static inline uchar *
+fd_banks_get_stake_delegations_frontier_mem( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_frontier_offset );
+}
+
+static inline void
+fd_banks_set_stake_delegations_frontier_mem( fd_banks_data_t * banks_data,
+                                             uchar *           stake_delegations_frontier_mem ) {
+  banks_data->stake_delegations_frontier_offset = (ulong)stake_delegations_frontier_mem - (ulong)banks_data;
 }
 
 static inline fd_bank_top_votes_t *
