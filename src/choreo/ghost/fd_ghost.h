@@ -306,13 +306,41 @@ fd_ghost_verify( fd_ghost_t * ghost );
      fd_ghost_to_cstr( ghost, fd_ghost_parent( fd_ghost_parent( ele ) ) ); // print from ele's grandparent
 
    */
-
 char *
 fd_ghost_to_cstr( fd_ghost_t const *     ghost,
                   fd_ghost_blk_t const * root,
                   char *                 cstr,
                   ulong                  cstr_max,
                   ulong *                cstr_len );
+
+/* fd_ghost_bfs_iter_{init,next} exposes an API to level-order traverse
+   the ghost tree starting from a given head.  During traversal, each
+   node is visited once and removed from the map while it is in the BFS
+   queue.  This is done to reuse the .next pointer of the node while it
+   is in the queue.  After each node is visited, it is re-inserted into
+   the map.  As such, the caller cannot early exit from the BFS loop to
+   ensure all nodes are re-inserted into the map, or they must manually
+   re-insert the nodes into the map.
+
+   Usage:
+
+   fd_ghost_blk_t * head = fd_ghost_bfs_iter_init( ghost, head );
+   fd_ghost_blk_t * tail = head; // must be initialized to head
+
+   while( FD_LIKELY( head ) ) {
+     // do something with head //
+     head = fd_ghost_bfs_iter_next( ghost, head, &tail );
+   }
+*/
+fd_ghost_blk_t *
+fd_ghost_bfs_iter_init( fd_ghost_t     * ghost,
+                        fd_ghost_blk_t * head );
+
+fd_ghost_blk_t *
+fd_ghost_bfs_iter_next( fd_ghost_t     *  ghost,
+                        fd_ghost_blk_t *  head,
+                        fd_ghost_blk_t ** tail );
+
 
 FD_PROTOTYPES_END
 

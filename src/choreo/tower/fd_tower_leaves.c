@@ -93,11 +93,7 @@ fd_tower_leaves_upsert( fd_tower_leaves_t * leaves,
                         ulong               slot,
                         ulong               parent_slot ) {
 
-  fd_tower_leaf_t * parent = fd_tower_leaves_map_ele_remove( leaves->map, &parent_slot, NULL, leaves->pool );
-  if( ( FD_LIKELY( parent ) ) ) { /* optimize for one fork */
-    fd_tower_leaves_dlist_ele_remove( leaves->dlist, parent, leaves->pool );
-    fd_tower_leaves_pool_ele_release( leaves->pool,  parent );
-  }
+  fd_tower_leaves_remove( leaves, parent_slot );
   if( FD_UNLIKELY( fd_tower_leaves_map_ele_query( leaves->map, &slot, NULL, leaves->pool ) ) ) {
     FD_LOG_WARNING(( "[%s] slot %lu already in leaves. ignoring.", __func__, slot )); /* FIXME equivocation cases https://github.com/firedancer-io/firedancer/issues/8743 */
   }

@@ -239,6 +239,7 @@ switch_check( fd_tower_t const  * tower,
     fd_tower_leaf_t  * leaf           = fd_tower_leaves_dlist_iter_ele( iter, leaves->dlist, leaves->pool );
     ulong              candidate_slot = leaf->slot;
     ulong              lca            = fd_tower_blocks_lowest_common_ancestor( blocks, candidate_slot, last_vote_slot );
+    if( FD_UNLIKELY( candidate_slot == last_vote_slot ) ) continue;
     if( FD_UNLIKELY( lca==ULONG_MAX ) ) continue; /* unlikely but this leaf is an already pruned minority fork */
 
     if( FD_UNLIKELY( fd_tower_blocks_is_slot_descendant( blocks, lca, switch_slot ) ) ) {
