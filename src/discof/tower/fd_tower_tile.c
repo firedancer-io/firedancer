@@ -689,6 +689,56 @@ refresh_tower_voters( fd_tower_tile_t * ctx,
 }
 
 static void
+update_tower_leaves( fd_tower_leaves_t * tower_leaves,
+                     fd_tower_blocks_t * tower_blocks,
+                     fd_ghost_t        * ghost,
+                     ulong               slot,
+                     ulong               parent_slot ) {
+  fd_tower_blk_t * tower_blk = fd_tower_blocks_query( tower_blocks, slot );
+  if( FD_LIKELY( !tower_blk ) ) {
+    /* first replay of slot */
+    fd_tower_leaves_upsert( tower_leaves, slot, parent_slot );
+    return;
+  }
+
+  /* second replay of this slot. Needs 4 updates to tower_leaves:
+     1. Remove any children of the slot from the leaves.  Agave dumps
+        the entire subtree starting from this slot, so any children of
+        this slot shouldn't be accounted for in switch check.
+     2. Original parent_slot may need to become a leaf if the parent of
+        the slot changed and the old_parent has only 1 child
+     3. Remove parent_slot from leaves if it exists.
+     4. Add slot to leaves if it isn't already. */
+
+  /* 1. BFS down children of this subtree and remove from tower_leaves */
+  fd_ghost_blk_t * head = fd_ghost_bfs_iter_init( ghost, fd_ghost_query( ghost, &tower_blk->replayed_block_id ) );
+  fd_ghost_blk_t * tail = head;
+  while( FD_LIKELY( head ) ) {
+    if( FD_LIKELY( head->child == ULONG_MAX ) ) {
+      // this is a leaf, remove from tower_leaves
+      fd_tower_leaves_remove( tower_leaves, head->slot );
+    }
+    head = fd_ghost_bfs_iter_next( ghost, head, &tail );
+  }
+
+  /* 2. Check if the old parent slot needs to be removed from leaves */
+  ulong old_parent_slot = tower_blk->parent_slot;
+  if( FD_UNLIKELY( old_parent_slot != parent_slot ) ) {
+    /* TODO: document why we can use canonical block id here vs.
+       replayed block id */
+    fd_tower_blk_t * old_parent_blk = fd_tower_blocks_query( tower_blocks, old_parent_slot );
+    /* old_parent must for sure have at least 1 child, which is the first version of this slot */
+    fd_ghost_blk_t * first_version = fd_ghost_query( ghost, &tower_blk->replayed_block_id );
+    if( first_version->sibling == ULONG_MAX /* btw equivocating sibling shouldn't exist in the ghost yet but TODO makeexplicit */ ) {
+      fd_tower_leaves_upsert( tower_leaves, old_parent_slot, old_parent_blk->parent_slot );
+    }
+  }
+
+  /* 3 & 4. Make slot a leaf again if it isn't, and remove parent_slot from leaves */
+  fd_tower_leaves_upsert( tower_leaves, slot, parent_slot );
+}
+
+static void
 replay_slot_completed( fd_tower_tile_t *            ctx,
                        fd_replay_slot_completed_t * slot_completed,
                        ulong                        tsorig,
@@ -749,6 +799,9 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* Check for equivocation (already received a replay_slot_completed
      for this slot). */
 
+  /* Upsert tower_{...} structures. */
+  update_tower_leaves( ctx->tower_leaves, ctx->tower_blocks, ctx->ghost, slot_completed->slot, slot_completed->parent_slot );
+
   fd_tower_blk_t * eqvoc_tower_blk = NULL;
   if( FD_UNLIKELY( eqvoc_tower_blk = fd_tower_blocks_query( ctx->tower_blocks, slot_completed->slot ) ) ) {
 
@@ -767,24 +820,9 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
        version of the slot . */
 
     FD_TEST( eqvoc_tower_blk->confirmed ); /* check the confirmed bit is set (second replay_slot_completed version must be confirmed) */
-    fd_tower_leaves_remove( ctx->tower_leaves, slot_completed->slot );
     fd_tower_lockos_remove( ctx->tower_lockos, slot_completed->slot );
     fd_tower_stakes_remove( ctx->tower_stakes, slot_completed->slot );
-
-    /* If the previous equivocating version had a different parent than
-       the new version, then we need to ensure the original equivocating
-       block's parent is restored as a tower leaf.
-
-       TODO check agave doesn't have equivocating? */
-
-    if( FD_UNLIKELY( eqvoc_tower_blk->parent_slot != slot_completed->parent_slot &&
-                     !fd_tower_leaves_map_ele_query( ctx->tower_leaves->map, &eqvoc_tower_blk->parent_slot, NULL, ctx->tower_leaves->pool ) /* added by another leaf */ ) ) {
-      fd_tower_leaf_t * leaf = fd_tower_leaves_pool_ele_acquire( ctx->tower_leaves->pool );
-      leaf->slot             = eqvoc_tower_blk->parent_slot;
-      fd_tower_leaves_map_ele_insert( ctx->tower_leaves->map, leaf, ctx->tower_leaves->pool );
-      fd_tower_leaves_dlist_ele_push_tail( ctx->tower_leaves->dlist, leaf, ctx->tower_leaves->pool );
-      eqvoc_tower_blk->parent_slot = slot_completed->parent_slot;
-    }
+    eqvoc_tower_blk->parent_slot = slot_completed->parent_slot;
 
     ctx->metrics.slot_eqvoced_cnt++;
     ctx->metrics.slot_eqvoced_gauge = slot_completed->slot;
@@ -802,10 +840,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     tower_blk->confirmed         = 0;
     tower_blk->bank_idx          = slot_completed->bank_idx;
   }
-
-  /* Upsert tower_{...} structures. */
-
-  fd_tower_leaves_upsert( ctx->tower_leaves, slot_completed->slot, slot_completed->parent_slot );
 
   /* Insert into ghost */
 

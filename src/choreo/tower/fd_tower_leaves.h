@@ -10,7 +10,29 @@
    1-- 2
         \-- 5      (B)
 
-   In the above example, fd_tower_leaves will contain [4, 5]. */
+   In the above example, fd_tower_leaves will contain [4, 5].
+
+   At a more granular level, fd_tower_leaves maintains candidate slots
+   for the switch check.  While this is usually just the latest executed
+   slot on each fork, it can be different if there are equivocating
+   blocks.
+
+   An invariant Firedancer maintains is that any slot can only be
+   replayed up to twice, and the second replayed version of the slot
+   must be the confirmed version of the slot.
+
+   If block 4 equivocated, then the candidate slots would be [4', 5],
+   not [4, 4', 5].  This is because the protocol (as defined by Agave)
+   does not allow for multiple versions of the same block to count
+   towards the switch check.
+
+   Similarly, if block 3 equivocated, and the second replayed version of
+   it was 3' (duplicate confirmed), then the candidate slots would be
+   [3', 5]. 4 is no longer a candidate.
+
+   Now let's say block 4 equivocated, and the second replayed version 4'
+   had a different parent -- instead of slot 3, it was slot 2.  Then the
+   candidate slots would be [3, 4', 5]. */
 
 struct fd_tower_leaf {
   ulong slot; /* map key */
@@ -103,6 +125,8 @@ void *
 fd_tower_leaves_delete( void * leaves );
 
 
+/* fd_tower_leaves_upsert removes the old parent_slot from leaves if it
+   exists, and adds the new parent_slot to leaves if it isn't already. */
 void
 fd_tower_leaves_upsert( fd_tower_leaves_t * leaves,
                         ulong               slot,

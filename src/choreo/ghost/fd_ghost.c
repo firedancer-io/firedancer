@@ -423,6 +423,35 @@ fd_ghost_publish( fd_ghost_t     * ghost,
   ghost->root  = blk_pool_idx( blk_pool( ghost ), newr ); /* replace with new root */
 }
 
+fd_ghost_blk_t *
+fd_ghost_bfs_iter_init( fd_ghost_t     * ghost,
+                        fd_ghost_blk_t * head ) {
+
+  blk_pool_t *     pool   = blk_pool( ghost );
+  ulong            null   = blk_pool_idx_null( pool );
+  fd_ghost_blk_t * remove = blk_map_ele_remove( blk_map( ghost ), &head->id, NULL, pool ); /* remove ele from map to reuse `.next` */
+  remove->next = null;
+  return head;
+}
+
+fd_ghost_blk_t *
+fd_ghost_bfs_iter_next( fd_ghost_t     *  ghost,
+                        fd_ghost_blk_t *  head,
+                        fd_ghost_blk_t ** tail ) {
+  blk_pool_t * pool = blk_pool( ghost );
+
+  fd_ghost_blk_t * child = blk_pool_ele( pool, head->child );
+  while( FD_LIKELY( child ) ) {
+    FD_TEST( blk_map_ele_remove( blk_map( ghost ), &child->id, NULL, pool ) ); /* in the tree so must be in the map */
+    (*tail)->next = blk_pool_idx( pool, child );
+    *tail         = blk_pool_ele( pool, (*tail)->next );
+    (*tail)->next = blk_pool_idx_null( pool );
+    child      = blk_pool_ele( pool, child->sibling ); /* next sibling */
+  }
+  fd_ghost_blk_t * next = blk_pool_ele( pool, head->next ); /* pop prune queue head */
+  blk_map_ele_insert( blk_map( ghost ), head, pool );       /* re-insert head into map */
+  return next;
+}
 int
 fd_ghost_verify( fd_ghost_t * ghost ) {
   if( FD_UNLIKELY( !ghost ) ) {
