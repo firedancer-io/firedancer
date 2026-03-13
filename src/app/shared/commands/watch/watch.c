@@ -578,10 +578,13 @@ static uint
 write_gui( config_t const * config,
            ulong const *    cur_tile,
            ulong const *    prev_tile ) {
-  (void)cur_tile;
-
   ulong gui_tile_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
   if( gui_tile_idx==ULONG_MAX ) return 0U;
+
+  /* Skip printing if the GUI tile has crashed */
+  ulong gui_heartbeat = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, TILE, HEARTBEAT ) ];
+  long  now           = fd_log_wallclock();
+  if( FD_UNLIKELY( gui_heartbeat && now-(long)gui_heartbeat>10L*1000L*1000L*1000L ) ) return 0U;
 
   ulong connection_count = cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, CONNECTION_COUNT ) ]+
                            cur_tile[ gui_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GUI, WEBSOCKET_CONNECTION_COUNT ) ];
