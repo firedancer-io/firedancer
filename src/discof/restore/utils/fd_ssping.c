@@ -223,7 +223,10 @@ fd_ssping_add( fd_ssping_t * ssping,
                fd_ip4_port_t addr ) {
   fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
   if( FD_LIKELY( !peer ) ) {
-    if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) return;
+    if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) {
+      FD_LOG_WARNING(( "ping peer pool exhausted" ));
+      return;
+    }
     peer = peer_pool_ele_acquire( ssping->pool );
     memset( peer, 0, sizeof(fd_ssping_peer_t) );
     peer->refcnt        = 0UL;

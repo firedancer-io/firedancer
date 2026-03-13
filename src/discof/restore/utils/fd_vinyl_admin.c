@@ -1,4 +1,5 @@
 #include "fd_vinyl_admin.h"
+#include "../../../util/log/fd_log.h"
 
 ulong
 fd_vinyl_admin_align( void ) {
@@ -28,8 +29,21 @@ fd_vinyl_admin_new( void * mem ) {
 
 fd_vinyl_admin_t *
 fd_vinyl_admin_join( void * _admin ) {
+  if( FD_UNLIKELY( !_admin ) ) {
+    FD_LOG_WARNING(( "vinyl admin join NULL" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)_admin, fd_vinyl_admin_align() ) ) ) {
+    FD_LOG_WARNING(( "vinyl admin join misaligned %p", _admin ));
+    return NULL;
+  }
+
   fd_vinyl_admin_t * admin = (fd_vinyl_admin_t *)_admin;
-  if( FD_UNLIKELY( admin->magic!=FD_VINYL_ADMIN_MAGIC ) ) return NULL;
+  if( FD_UNLIKELY( admin->magic!=FD_VINYL_ADMIN_MAGIC ) ) {
+    FD_LOG_WARNING(( "vinyl admin invalid magic %016lx", admin->magic ));
+    return NULL;
+  }
   return admin;
 }
 
