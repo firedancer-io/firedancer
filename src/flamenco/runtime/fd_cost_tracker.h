@@ -73,6 +73,8 @@ FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==321280UL, "Incorrec
 #define FD_COST_TRACKER_ALIGN (128UL)
 
 struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
+  fd_rwlock_t lock;
+
   ulong block_cost;
   ulong vote_cost;
   ulong allocated_accounts_data_size;
