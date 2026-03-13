@@ -408,6 +408,7 @@ fd_topo_initialize( config_t * config ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
+    if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile->gui.tile_cnt = topo->tile_cnt;
   }
 
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 1 );

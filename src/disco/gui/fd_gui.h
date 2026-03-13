@@ -100,7 +100,6 @@ struct fd_gui_validator_info {
 #define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT      (50UL)  /* 500ms / 10ms */
 #define FD_GUI_SCHEDULER_COUNT_SNAP_CNT              (512UL)
 #define FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT (50UL)  /* 500ms / 10ms */
-#define FD_GUI_TILE_TIMER_TILE_CNT                   (256UL)
 
 #define FD_GUI_VOTE_STATE_NON_VOTING (0)
 #define FD_GUI_VOTE_STATE_VOTING     (1)
@@ -225,7 +224,7 @@ struct fd_gui_validator_info {
    Ideally, we have enough space to store an epoch's worth of events,
    but we are limited by realistic memory consumption.  Instead, we pick
    bound heuristically. */
-#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
+#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 12UL)
 
 #define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
 #define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
@@ -304,9 +303,12 @@ struct fd_gui_leader_slot {
      downsampled to be at most FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT
      samples (e.g. if there was an unusually long leader slot) and
      inserted into historical storage with capacity FD_GUI_LEADER_CNT.
-     FD_GUI_TILE_TIMER_TILE_CNT is the maximum number of tiles supported. */
-  fd_gui_tile_timers_t tile_timers[ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
-  ulong                tile_timers_sample_cnt;
+
+     The tile_timers pointer references trailing storage allocated
+     in fd_gui_footprint, with gui->tile_cnt elements per sample.
+     Sized as tile_timers[ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ tile_cnt ]. */
+  fd_gui_tile_timers_t * tile_timers;
+  ulong                  tile_timers_sample_cnt;
 
   fd_gui_scheduler_counts_t scheduler_counts[ FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT ][ 1 ];
   ulong                     scheduler_counts_sample_cnt;
@@ -536,6 +538,8 @@ struct fd_gui {
   fd_http_server_t * http;
   fd_topo_t * topo;
 
+  ulong tile_cnt;
+
   long next_sample_400millis;
   long next_sample_100millis;
   long next_sample_50millis;
@@ -674,10 +678,12 @@ struct fd_gui {
     fd_gui_tile_stats_t tile_stats_reference[ 1 ];
     fd_gui_tile_stats_t tile_stats_current[ 1 ];
 
-    ulong                tile_timers_snap_idx;
-    ulong                tile_timers_snap_idx_slot_start;
-    /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
-    fd_gui_tile_timers_t tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
+    ulong                  tile_timers_snap_idx;
+    ulong                  tile_timers_snap_idx_slot_start;
+    /* Temporary storage for samples.  Will be downsampled into
+       leader history on slot end.  Sized as
+       tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ tile_cnt ] */
+    fd_gui_tile_timers_t * tile_timers_snap;
 
     ulong                     scheduler_counts_snap_idx;
     ulong                     scheduler_counts_snap_idx_slot_start;
@@ -761,9 +767,8 @@ struct fd_gui {
     ulong history_tail;          /* history_tail % FD_GUI_SHREDS_HISTORY_SZ is one past the last valid event in history */
     fd_gui_slot_history_shred_event_t history[ FD_GUI_SHREDS_HISTORY_SZ ];
 
-    /* scratch space for stable sorts */
+    /* scratch space for archiving staged events */
     fd_gui_slot_staged_shred_event_t _staged_scratch [ FD_GUI_SHREDS_STAGING_SZ ];
-    fd_gui_slot_staged_shred_event_t _staged_scratch2[ FD_GUI_SHREDS_STAGING_SZ ];
   } shreds; /* full client */
 };
 
@@ -775,7 +780,7 @@ FD_FN_CONST ulong
 fd_gui_align( void );
 
 FD_FN_CONST ulong
-fd_gui_footprint( void );
+fd_gui_footprint( ulong tile_cnt );
 
 void *
 fd_gui_new( void *                shmem,

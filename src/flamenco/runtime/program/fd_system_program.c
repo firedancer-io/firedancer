@@ -642,16 +642,14 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, 150UL );
   uchar instr_mem[ FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT ] __attribute__((aligned(alignof(fd_system_program_instruction_t))));
 
-  int decode_err;
   fd_system_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
       system_program_instruction,
       instr_mem,
       ctx->instr->data,
       ctx->instr->data_sz,
-      FD_TXN_MTU,
-      &decode_err
+      FD_TXN_MTU
   );
-  if( FD_UNLIKELY( decode_err ) ) {
+  if( FD_UNLIKELY( !instruction ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -755,8 +753,7 @@ fd_get_system_account_kind( fd_account_meta_t const * meta ) {
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_account_data( meta ),
-      meta->dlen,
-      NULL ) ) ) {
+      meta->dlen ) ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
   }
 

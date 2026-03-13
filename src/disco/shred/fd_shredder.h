@@ -25,7 +25,7 @@
 
 typedef void (fd_shredder_sign_fn)( void * ctx, uchar * sig, uchar const * merkle_root );
 
-#define FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT      (2UL)
+#define FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT      (3UL)
 #define FD_SHRED_FEATURES_ACTIVATION_SLOT_SZ       (8UL)
 #define FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED (ULONG_MAX)
 
@@ -35,6 +35,7 @@ union fd_shred_features_activation_private {
    struct {
       /* 0 */ ulong enforce_fixed_fec_set;
       /* 1 */ ulong switch_to_chacha8_turbine;
+      /* 2 */ ulong discard_unexpected_data_complete_shreds;
    };
 };
 typedef union fd_shred_features_activation_private fd_shred_features_activation_t;

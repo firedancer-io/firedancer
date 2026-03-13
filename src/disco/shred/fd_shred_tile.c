@@ -489,6 +489,11 @@ during_frag( fd_shred_ctx_t * ctx,
       epoch_msg->features.enforce_fixed_fec_set, ctx );
     ctx->features_activation->switch_to_chacha8_turbine = fd_shred_get_feature_activation_slot0(
       epoch_msg->features.switch_to_chacha8_turbine, ctx );
+    ctx->features_activation->discard_unexpected_data_complete_shreds = fd_shred_get_feature_activation_slot0(
+      epoch_msg->features.discard_unexpected_data_complete_shreds, ctx );
+
+    fd_fec_resolver_set_discard_unexpected_data_complete_shreds( ctx->resolver,
+      ctx->features_activation->discard_unexpected_data_complete_shreds );
 
     return;
   }
@@ -518,6 +523,10 @@ during_frag( fd_shred_ctx_t * ctx,
 
       fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
       memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
+
+      /* TODO: call fd_fec_resolver_set_discard_unexpected_data_complete_shreds
+         when discard_unexpected_data_complete_shreds is added to
+         the features of interest in the Rust shim. */
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending

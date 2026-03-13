@@ -80,8 +80,10 @@ struct fd_snapin_tile {
 
   ulong advertised_slot;
   ulong bank_slot;
+  ulong epoch;
 
-  ulong full_genesis_creation_time_millis;
+  ulong full_genesis_creation_time_seconds;
+  uchar advertised_hash[ FD_HASH_FOOTPRINT ];
 
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;

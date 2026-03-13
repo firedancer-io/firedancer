@@ -79,8 +79,7 @@ fd_sysvar_last_restart_slot_read(
   out = fd_bincode_decode_static(
       sol_sysvar_last_restart_slot, out,
       fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ),
-      NULL );
+      fd_accdb_ref_data_sz   ( ro ) );
   fd_accdb_close_ro( accdb, ro );
   return out;
 }

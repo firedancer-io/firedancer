@@ -32,6 +32,19 @@ struct fd_vinyl_admin {
 };
 typedef struct fd_vinyl_admin fd_vinyl_admin_t;
 
+static inline const char *
+fd_vinyl_admin_status_str( ulong status ) {
+  switch( status ) {
+    case FD_VINYL_ADMIN_STATUS_INIT_PENDING:  return "init_pending";
+    case FD_VINYL_ADMIN_STATUS_INIT_DONE:     return "init_done";
+    case FD_VINYL_ADMIN_STATUS_UPDATING:      return "updating";
+    case FD_VINYL_ADMIN_STATUS_SNAPSHOT_FULL: return "snapshot_full";
+    case FD_VINYL_ADMIN_STATUS_SNAPSHOT_INCR: return "snapshot_incr";
+    case FD_VINYL_ADMIN_STATUS_ERROR:         return "error";
+    default:                                  return "unknown";
+  }
+}
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_vinyl_admin_{align, footprint} return align and footprint */

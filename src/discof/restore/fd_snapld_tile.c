@@ -115,6 +115,8 @@ privileged_init( fd_topo_t *      topo,
   int incr_is_zstd = 0;
   char full_path[ PATH_MAX ] = { 0 };
   char incr_path[ PATH_MAX ] = { 0 };
+  uchar full_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
+  uchar incr_snapshot_hash[ FD_HASH_FOOTPRINT ] = { 0 };
   ctx->local_full_fd = -1;
   ctx->local_incr_fd = -1;
   /* fd_ssarchive_latest_pair needs to be invoked here, irrespective
@@ -122,9 +124,10 @@ privileged_init( fd_topo_t *      topo,
      needed here during privileged_init. */
   if( FD_LIKELY( -1!=fd_ssarchive_latest_pair( tile->snapld.snapshots_path,
                                                tile->snapld.incremental_snapshots,
-                                               &full_slot,    &incr_slot,
-                                                full_path,     incr_path,
-                                               &full_is_zstd, &incr_is_zstd ) ) ) {
+                                               &full_slot,         &incr_slot,
+                                               full_path,          incr_path,
+                                               &full_is_zstd,      &incr_is_zstd,
+                                               full_snapshot_hash, incr_snapshot_hash ) ) ) {
     FD_TEST( full_slot!=ULONG_MAX );
 
     ctx->local_full_fd = open( full_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
@@ -256,8 +259,10 @@ check_download_progress( fd_snapld_tile_t *  ctx,
       /* cancel the download if the download progress speed in the last
          window is less than the minimum download speed. */
       double download_speed_mibs = (double)ctx->bytes_in_window / (double)(FD_SNAPLD_DOWNLOAD_WINDOW_NS / 1e9) / (double)(1<<20UL);
-      FD_LOG_WARNING(( "download progress of %.2f mibs in the last %lu seconds is below the minimum download speed %u mibs. cancelling download.",
-                       download_speed_mibs, FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9, ctx->config.min_download_speed_mibs ));
+      FD_LOG_WARNING(( "download progress of %.2f MiB/s in the last %lu seconds for %s snapshot "
+                       "is below the minimum download speed %u MiB/s, cancelling download",
+                       download_speed_mibs, FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9,
+                       ctx->load_full ? "full" : "incremental", ctx->config.min_download_speed_mibs ));
       transition_malformed(ctx, stem );
       fd_sshttp_cancel( ctx->sshttp );
       return -1;
@@ -293,9 +298,11 @@ after_credit( fd_snapld_tile_t *  ctx,
   if( ctx->load_file ) {
     long result = read( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, out, ctx->out_dc.mtu );
     if( FD_UNLIKELY( result<=0L ) ) {
-      if( result==0L ) ctx->state = FD_SNAPSHOT_STATE_FINISHING;
-      else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
-        FD_LOG_WARNING(( "read() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( result==0L ) {
+        FD_LOG_NOTICE(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
+        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      } else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
+        FD_LOG_WARNING(( "read() failed on %s snapshot file (%i-%s)", ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
         ctx->state = FD_SNAPSHOT_STATE_ERROR;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
         return; /* verbose return */
@@ -330,7 +337,9 @@ after_credit( fd_snapld_tile_t *  ctx,
           ulong next_chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
           memmove( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
           meta->total_sz = fd_sshttp_content_len( ctx->sshttp );
-          FD_TEST( meta->total_sz!=ULONG_MAX );
+          if( FD_UNLIKELY( meta->total_sz==ULONG_MAX ) ) {
+            FD_LOG_ERR(( "HTTP response for %s snapshot is missing Content-Length header", ctx->load_full ? "full" : "incremental" ));
+          }
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
         }
@@ -342,13 +351,18 @@ after_credit( fd_snapld_tile_t *  ctx,
           /* measure download speed every 100 MiB */
           if(ctx->bytes_in_batch>=100<<20UL) {
             ctx->end_batch = fd_log_wallclock();
+            /* as a precaution, make sure elapsed_batch is positive
+               and larger than zero (to avoid division by zero). */
+            long elapsed_batch = fd_long_if( ctx->end_batch > ctx->start_batch, ctx->end_batch - ctx->start_batch, 1L );
             /* download speed in MiB/s = bytes/nanoseconds * 1e9/(1 second) * 1/(1MiB = 1<<20UL) = 1e9/(1024*1024) ~= 954 */
-            ctx->download_speed_mibs = (double)(ctx->bytes_in_batch*954) / (double)(ctx->end_batch - ctx->start_batch);
+            ctx->download_speed_mibs = (double)(ctx->bytes_in_batch*954) / (double)elapsed_batch;
             if( FD_UNLIKELY( ctx->download_speed_mibs<ctx->config.min_download_speed_mibs ) ) {
               /* cancel the snapshot load if the download speed is less
                  than the minimum download speed. */
-              FD_LOG_WARNING(( "download speed %.2f MiB/s is below the minimum threshold %.2f MiB/s, cancelling snapshot download",
-                               ctx->download_speed_mibs, (double)(ctx->config.min_download_speed_mibs) ));
+              FD_LOG_WARNING(( "download speed %.2f MiB/s on a batch of %lu MiB for %s snapshot is below the minimum threshold %.2f MiB/s. "
+                               "cancelling snapshot download",
+                               ctx->download_speed_mibs, ctx->bytes_in_batch>>20UL, ctx->load_full ? "full" : "incremental",
+                               (double)(ctx->config.min_download_speed_mibs) ));
               transition_malformed(ctx, stem );
             }
             ctx->start_batch    = ctx->end_batch;
@@ -359,13 +373,17 @@ after_credit( fd_snapld_tile_t *  ctx,
         break;
       }
       case FD_SSHTTP_ADVANCE_DONE:
+        FD_LOG_NOTICE(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
       case FD_SSHTTP_ADVANCE_ERROR:
+        FD_LOG_WARNING(( "HTTP advance error during %s snapshot download, entering error state",
+                         ctx->load_full ? "full" : "incremental" ));
         transition_malformed( ctx, stem );
         fd_sshttp_cancel( ctx->sshttp );
         break;
-      default: FD_LOG_ERR(( "unexpected fd_sshttp_advance result %d", result ));
+      default: FD_LOG_ERR(( "unexpected fd_sshttp_advance result %d for %s snapshot",
+                            result, ctx->load_full ? "full" : "incremental" ));
     }
   }
 }
@@ -411,7 +429,8 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       long now = fd_log_wallclock();
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
-          FD_LOG_ERR(( "lseek(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
+                       ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
       } else {
         if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, now );
         else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, now );
@@ -466,7 +485,9 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
     /* FD_SNAPSHOT_MSG_DATA is not possible */
     default: {
-      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
     }
   }

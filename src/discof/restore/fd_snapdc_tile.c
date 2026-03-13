@@ -145,7 +145,8 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       if( FD_UNLIKELY( ctx->is_zstd && ctx->dirty ) ) {
-        FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame" ));
+        FD_LOG_WARNING(( "encountered end-of-file in the middle of a compressed frame for %s snapshot",
+                         ctx->full ? "full" : "incremental" ));
         transition_malformed( ctx, stem );
         forward_msg = 0;
         break;
@@ -179,7 +180,9 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     }
 
     default: {
-      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
     }
   }
@@ -201,7 +204,8 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
     return 0;
   }
   if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-    FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
+    FD_LOG_ERR(( "received unexpected data frag in state %s (%lu)",
+                 fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu && sz>=ctx->in.frag_pos );
@@ -241,7 +245,9 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
       sz-ctx->in.frag_pos,
       &in_consumed );
   if( FD_UNLIKELY( ZSTD_isError( frame_res ) ) ) {
-    FD_LOG_WARNING(( "error while decompressing snapshot (%u-%s)", ZSTD_getErrorCode( frame_res ), ZSTD_getErrorName( frame_res ) ));
+    FD_LOG_WARNING(( "error while decompressing %s snapshot (%u-%s)",
+                     ctx->full ? "full" : "incremental",
+                     ZSTD_getErrorCode( frame_res ), ZSTD_getErrorName( frame_res ) ));
     ctx->state = FD_SNAPSHOT_STATE_ERROR;
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
     return 0;

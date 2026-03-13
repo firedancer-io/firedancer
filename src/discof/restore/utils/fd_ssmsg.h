@@ -266,8 +266,9 @@ typedef struct fd_snapshot_manifest_blockhash fd_snapshot_manifest_blockhash_t;
 
 struct fd_snapshot_manifest {
   /* The UNIX timestamp when the genesis block was for this chain
-     was created, in nanoseconds.  */
-  ulong creation_time_millis;
+     was created, in seconds.
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/runtime/src/bank.rs#L2108-L2114 */
+  ulong creation_time_seconds;
 
   /* At genesis, certain parameters can be set which control the
      inflation rewards going forward.  This includes what the initial
@@ -300,13 +301,6 @@ struct fd_snapshot_manifest {
 
   /* The slot number for this snapshot */
   ulong slot;
-
-  /* The epoch for this slot.  Epochs are a time period measured by a
-     fixed number of slots (432,000 slots).  At the epoch boundary,
-     where one epoch ends and another begins, validators
-     activate/deactivate stake, distribute rewards and calculate the
-     next leader schedule rotation. */
-  ulong epoch;
 
   /* The number of blocks that have been built since genesis.  This is
      kind of like the slot number, in that it increments by 1 for every

@@ -213,7 +213,7 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     fd_genesis_meta_t * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk0 );
     memset( dst, 0, sizeof(fd_genesis_meta_t) );
-    dst->creation_time_millis = ctx->genesis->creation_time;
+    dst->creation_time_seconds = ctx->genesis->creation_time;
     dst->genesis_hash = *ctx->genesis_hash;
 
     if( FD_UNLIKELY( ctx->bootstrap ) ) {
@@ -311,7 +311,7 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     fd_genesis_meta_t * dst = fd_chunk_to_laddr( ctx->out.mem, ctx->out.chunk0 );
     memset( dst, 0, sizeof(fd_genesis_meta_t) );
-    dst->creation_time_millis = genesis->creation_time;
+    dst->creation_time_seconds = genesis->creation_time;
     dst->genesis_hash = *hash;
 
     uchar * dst_blob = (uchar *)( dst+1 );

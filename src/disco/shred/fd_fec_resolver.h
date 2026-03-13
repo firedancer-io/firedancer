@@ -172,6 +172,13 @@ void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version );
 
+/* fd_fec_resolver_set_discard_unexpected_data_complete_shreds updates
+   the activation slot used by the FEC resolver for the
+   discard_unexpected_data_complete_shreds feature. */
+void
+fd_fec_resolver_set_discard_unexpected_data_complete_shreds( fd_fec_resolver_t * resolver,
+                                                             ulong               activation_slot );
+
 /* fd_fec_resolver_advance_slot_old advances slot_old, discarding any
    in progress FEC sets with a slot strictly less than slot_old.
    Additionally, causes the FEC resolver to ignore any future shreds

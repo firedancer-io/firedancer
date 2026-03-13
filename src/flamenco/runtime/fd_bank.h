@@ -13,6 +13,7 @@
 #include "../../ballet/lthash/fd_lthash.h"
 #include "fd_txncache_shmem.h"
 
+
 FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
@@ -198,7 +199,7 @@ FD_PROTOTYPES_BEGIN
   fd_banks_mark_bank_dead( banks, dead_bank_idx );
 
   To actually prune away any dead banks, the caller should call:
-  fd_banks_prune_dead_banks( banks )
+  fd_banks_prune_one_dead_bank( banks, cancel_info )
 
   The locks and data used by an fd_bank_t or an fd_banks_t are stored as
   separate objects.  The locks are stored in an fd_banks_locks_t struct
@@ -417,6 +418,13 @@ struct fd_bank {
   fd_banks_locks_t * locks;
 };
 typedef struct fd_bank fd_bank_t;
+
+struct fd_banks_prune_cancel_info {
+  fd_txncache_fork_id_t txncache_fork_id;
+  ulong                 slot;
+  ulong                 bank_idx;
+};
+typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 
 static inline void
 fd_bank_set_stake_weights( fd_bank_data_t * bank, uchar * stake_weights_mem ) {
@@ -1011,13 +1019,16 @@ void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
                          ulong        bank_idx );
 
-/* fd_banks_prune_dead_banks will try to prune away any banks that were
-   marked as dead.  It will not prune away any dead banks that have a
-   non-zero reference count.  Returns 1 if any banks were pruned away
-   and 0 otherwise. */
+/* fd_banks_prune_one_dead_bank will try to prune one bank that was
+   marked as dead.  It will not prune a dead bank that has a non-zero
+   reference count.  Returns 0 if nothing was pruned, 1 if a bank was
+   pruned but no accdb/txncache cancellation is needed, or 2 if a bank
+   was pruned and cancellation is needed, in which case opt_cancel will
+   be populated if non-NULL. */
 
 int
-fd_banks_prune_dead_banks( fd_banks_t * banks );
+fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
+                              fd_banks_prune_cancel_info_t * cancel );
 
 /* fd_banks_mark_bank_frozen marks the current bank as frozen.  This
    should be done when the bank is no longer being updated: it should be

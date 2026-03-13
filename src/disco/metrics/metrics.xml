@@ -440,6 +440,7 @@ metric introduced.
 
 <enum name="PackTxnInsertReturn">
     <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
+    <int value="-15" name="InstrAcctCnt" label="Transaction has an instruction that references too many accounts" />
     <int value="-14" name="NonceConflict" label="Bundle with two conflicting durable nonce transactions" />
     <int value="-13" name="BundleBlacklist" label="Transaction uses an account on the bundle blacklist" />
     <int value="-12" name="InvalidNonce" label="Transaction is an invalid durable nonce transaction" />
@@ -843,6 +844,7 @@ metric introduced.
     <counter name="EagerRepairAggresses" summary="How many times we pass eager repair threshold" />
     <counter name="RerequestQueue" summary="How many times we re-request a shred from the inflights queue" />
     <counter name="MalformedPing" summary="How many times we received a malformed ping" />
+    <counter name="UnknownPeerPing" summary="How many times we received a ping from an unknown peer" />
     <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
       <summary>Time in seconds it took to complete a slot</summary>
     </histogram>

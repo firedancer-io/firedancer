@@ -273,14 +273,9 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
 int
 fd_bpf_loader_program_get_state( fd_account_meta_t const *           meta,
                                  fd_bpf_upgradeable_loader_state_t * state ) {
-
-  int err = 0;
-  fd_bincode_decode_static( bpf_upgradeable_loader_state,
-                            state,
-                            fd_account_data( meta ),
-                            meta->dlen,
-                            &err );
-  if( FD_UNLIKELY( err ) ) {
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      bpf_upgradeable_loader_state, state,
+      fd_account_data( meta ), meta->dlen ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -941,8 +936,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       instruction_mem,
       instr_ctx->instr->data,
       instr_ctx->instr->data_sz,
-      FD_TXN_MTU,
-      NULL );
+      FD_TXN_MTU );
   if( FD_UNLIKELY( !instruction ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

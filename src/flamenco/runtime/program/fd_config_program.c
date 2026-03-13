@@ -34,14 +34,12 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  int decode_result;
   uchar key_list_mem[ CONFIG_INSTRUCTION_KEYS_FOOTPRINT ] __attribute__((aligned(FD_CONFIG_KEYS_ALIGN)));
   fd_config_keys_t * key_list = fd_bincode_decode_static(
       config_keys, key_list_mem,
       ctx->instr->data,
-      ctx->instr->data_sz,
-      &decode_result );
-  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
+      ctx->instr->data_sz );
+  if( FD_UNLIKELY( !key_list ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -72,9 +70,8 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   fd_config_keys_t * current_data = fd_bincode_decode_static(
       config_keys, current_data_mem,
       fd_borrowed_account_get_data( &config_acc_rec ),
-      fd_borrowed_account_get_data_len( &config_acc_rec ),
-      &decode_result );
-  if( FD_UNLIKELY( decode_result!=FD_BINCODE_SUCCESS ) ) {
+      fd_borrowed_account_get_data_len( &config_acc_rec ) );
+  if( FD_UNLIKELY( !current_data ) ) {
     //TODO: full log, including err
     fd_log_collector_msg_literal( ctx, "Unable to deserialize config account" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;

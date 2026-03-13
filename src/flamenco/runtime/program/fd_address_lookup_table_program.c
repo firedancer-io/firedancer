@@ -1074,8 +1074,7 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
       addrlut_instruction,
       instr_mem,
       instr_data,
-      instr_data_sz,
-      NULL );
+      instr_data_sz );
   if( FD_UNLIKELY( !instr ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

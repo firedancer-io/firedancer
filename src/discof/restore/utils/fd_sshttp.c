@@ -16,8 +16,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-/* FIXME: Cleanup / standardize all the error logging. */
-
 _Bool fd_sshttp_fuzz = 0;
 
 FD_FN_CONST ulong
@@ -110,19 +108,19 @@ http_init_ssl( fd_sshttp_t * http ) {
 
   http->ssl = SSL_new( http->ssl_ctx );
   if( FD_UNLIKELY( !http->ssl ) ) {
-    FD_LOG_ERR(( "SSL_new failed" ));
+    FD_LOG_ERR(( "SSL_new failed for %s", http->hostname ));
   }
 
   static uchar const alpn_protos[] = { 8, 'h', 't', 't', 'p', '/', '1', '.', '1' };
   int alpn_res = SSL_set_alpn_protos( http->ssl, alpn_protos, sizeof(alpn_protos) );
   if( FD_UNLIKELY( alpn_res!=0 ) ) {
-    FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d)", alpn_res ));
+    FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d) for %s", alpn_res, http->hostname ));
   }
 
   /* set SNI */
   int set1_host_res = SSL_set1_host( http->ssl, http->hostname );
   if( FD_UNLIKELY( !set1_host_res ) ) {
-    FD_LOG_ERR(( "SSL_set1_host failed (%d)", set1_host_res ));
+    FD_LOG_ERR(( "SSL_set1_host failed (%d) for %s", set1_host_res, http->hostname ));
   }
 }
 #endif
@@ -175,7 +173,8 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   http->addr   = addr;
   http->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
-  if( FD_UNLIKELY( -1==http->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==http->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                                                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
@@ -185,7 +184,15 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   if( FD_LIKELY( -1==connect( http->sockfd, fd_type_pun_const( &addr_in ), sizeof(addr_in) ) ) ) {
     if( FD_UNLIKELY( errno!=EINPROGRESS ) ) {
-      if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_WARNING(( "connect() failed (%d-%s) to " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                                                                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      http->sockfd = -1;
+#if FD_HAS_OPENSSL
+      if( FD_LIKELY( http->ssl ) ) { SSL_free( http->ssl ); http->ssl = NULL; }
+#endif
+      return;
     }
   }
 
@@ -206,7 +213,8 @@ static int
 http_connect_ssl( fd_sshttp_t * http,
                   long          now ) {
   if( FD_UNLIKELY( now>http->deadline ) ) {
-    FD_LOG_WARNING(("deadline exceeded during connect"));
+    FD_LOG_WARNING(( "deadline exceeded during connect to " FD_IP4_ADDR_FMT ":%hu",
+                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -216,7 +224,8 @@ http_connect_ssl( fd_sshttp_t * http,
   if( FD_UNLIKELY( ssl_err!=1 ) ) {
     int ssl_err_code = SSL_get_error( http->ssl, ssl_err );
     if( FD_UNLIKELY( ssl_err_code!=SSL_ERROR_WANT_READ && ssl_err_code!=SSL_ERROR_WANT_WRITE ) ) {
-      FD_LOG_WARNING(( "SSL_connect failed (%d)", ssl_err ));
+      FD_LOG_WARNING(( "SSL_connect failed (%d-%s) to " FD_IP4_ADDR_FMT ":%hu", ssl_err_code, fd_openssl_ssl_strerror( ssl_err_code ),
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
       SSL_free( http->ssl );
       http->ssl = NULL;
       return FD_SSHTTP_ADVANCE_ERROR;
@@ -234,7 +243,8 @@ static int
 http_shutdown_ssl( fd_sshttp_t * http,
                    long          now ) {
   if( FD_UNLIKELY( now>http->deadline ) ) {
-    FD_LOG_WARNING(("deadline exceeded during shutdown"));
+    FD_LOG_WARNING(( "deadline exceeded during shutdown for " FD_IP4_ADDR_FMT ":%hu",
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -243,7 +253,8 @@ http_shutdown_ssl( fd_sshttp_t * http,
   if( FD_LIKELY( res<=0 ) ) {
     int ssl_err_code = SSL_get_error( http->ssl, res );
     if( FD_UNLIKELY( ssl_err_code!=SSL_ERROR_WANT_READ && ssl_err_code!=SSL_ERROR_WANT_WRITE && res!=0 ) ) {
-      FD_LOG_WARNING(( "SSL_shutdown failed (%d)", ssl_err_code ));
+      FD_LOG_WARNING(( "SSL_shutdown failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", ssl_err_code, fd_openssl_ssl_strerror( ssl_err_code ),
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
       SSL_free( http->ssl );
       http->ssl = NULL;
       return FD_SSHTTP_ADVANCE_ERROR;
@@ -265,7 +276,8 @@ http_recv_ssl( fd_sshttp_t * http,
     int ssl_err = SSL_get_error( http->ssl, read_res );
 
     if( FD_UNLIKELY( ssl_err!=SSL_ERROR_WANT_READ && ssl_err!=SSL_ERROR_WANT_WRITE ) ) {
-      FD_LOG_WARNING(( "SSL_read failed (%d)", ssl_err ));
+      FD_LOG_WARNING(( "SSL_read failed (%d-%s) from " FD_IP4_ADDR_FMT ":%hu", ssl_err, fd_openssl_ssl_strerror( ssl_err ),
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
       return FD_SSHTTP_ADVANCE_ERROR;
     }
 
@@ -284,7 +296,8 @@ http_send_ssl( fd_sshttp_t * http,
     int ssl_err = SSL_get_error( http->ssl, write_res );
 
     if( FD_UNLIKELY( ssl_err!=SSL_ERROR_WANT_READ && ssl_err!=SSL_ERROR_WANT_WRITE ) ) {
-      FD_LOG_WARNING(( "SSL_write failed (%d)", ssl_err ));
+      FD_LOG_WARNING(( "SSL_write failed (%d-%s) to " FD_IP4_ADDR_FMT ":%hu", ssl_err, fd_openssl_ssl_strerror( ssl_err ),
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
       return FD_SSHTTP_ADVANCE_ERROR;
     }
 
@@ -307,7 +320,8 @@ setup_redirect( fd_sshttp_t * http,
 void
 fd_sshttp_cancel( fd_sshttp_t * http ) {
   if( FD_LIKELY( http->state!=FD_SSHTTP_STATE_INIT && -1!=http->sockfd ) ) {
-    if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                                                                FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     http->sockfd = -1;
   }
   http->state = FD_SSHTTP_STATE_INIT;
@@ -331,7 +345,8 @@ http_send( fd_sshttp_t * http,
   long sent = sendto( http->sockfd, buf, bufsz, MSG_NOSIGNAL, NULL, 0 );
   if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==sent ) ) {
-    FD_LOG_WARNING(( "sendto() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "sendto() failed (%d-%s) to " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -358,12 +373,14 @@ http_recv( fd_sshttp_t * http,
         .events = POLLIN,
       };
       if( -1==fd_syscall_poll( &pfd, 1 /*fds*/, 1 /*ms*/ ) ) {
-        FD_LOG_ERR(("fd_syscall_poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        FD_LOG_ERR(( "fd_syscall_poll() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
       }
     }
     return FD_SSHTTP_ADVANCE_AGAIN;
   } else if( FD_UNLIKELY( -1==read ) ) {
-    FD_LOG_WARNING(( "recvfrom() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "recvfrom() failed (%d-%s) from " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -376,7 +393,8 @@ static int
 send_request( fd_sshttp_t * http,
               long          now ) {
   if( FD_UNLIKELY( now>http->deadline ) ) {
-    FD_LOG_WARNING(( "timeout sending request" ));
+    FD_LOG_WARNING(( "timeout sending request to " FD_IP4_ADDR_FMT ":%hu",
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -400,11 +418,12 @@ follow_redirect( fd_sshttp_t *        http,
                   ulong               header_cnt,
                   long                now ) {
   if( FD_UNLIKELY( !http->hops ) ) {
-    FD_LOG_WARNING(( "too many redirects" ));
+    FD_LOG_WARNING(( "too many redirects (remaining %lu) from " FD_IP4_ADDR_FMT ":%hu", http->hops,
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
-
+  /* The check above guarantees hops>0. */
   http->hops--;
 
   ulong        location_len = 0UL;
@@ -413,7 +432,8 @@ follow_redirect( fd_sshttp_t *        http,
   for( ulong i=0UL; i<header_cnt; i++ ) {
     if( FD_UNLIKELY( headers[ i ].name_len == 8 && !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
       if( FD_UNLIKELY( !headers [ i ].value_len || headers[ i ].value[ 0 ]!='/' ) ) {
-        FD_LOG_WARNING(( "invalid location header `%.*s`", (int)headers[ i ].value_len, headers[ i ].value ));
+        FD_LOG_WARNING(( "invalid location header `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)headers[ i ].value_len, headers[ i ].value,
+                         FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
         fd_sshttp_cancel( http );
         return FD_SSHTTP_ADVANCE_ERROR;
       }
@@ -422,7 +442,8 @@ follow_redirect( fd_sshttp_t *        http,
       location     = headers[ i ].value;
 
       if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) {
-        FD_LOG_WARNING(( "location header too long `%.*s`", (int)location_len, location ));
+        FD_LOG_WARNING(( "location header too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
+                         FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
         fd_sshttp_cancel( http );
         return FD_SSHTTP_ADVANCE_ERROR;
       }
@@ -437,7 +458,8 @@ follow_redirect( fd_sshttp_t *        http,
       int err = fd_ssarchive_parse_filename( snapshot_name, &full_entry_slot, &incremental_entry_slot, decoded_hash, &is_zstd );
 
       if( FD_UNLIKELY( err || !is_zstd ) ) {
-        FD_LOG_WARNING(( "unrecognized snapshot file `%s` in redirect location header", snapshot_name ));
+        FD_LOG_WARNING(( "unrecognized snapshot file `%s` in redirect location header from " FD_IP4_ADDR_FMT ":%hu", snapshot_name,
+                         FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
         fd_sshttp_cancel( http );
         return FD_SSHTTP_ADVANCE_ERROR;
       }
@@ -455,7 +477,8 @@ follow_redirect( fd_sshttp_t *        http,
   }
 
   if( FD_UNLIKELY( !location_len ) ) {
-    FD_LOG_WARNING(( "no location header in redirect response" ));
+    FD_LOG_WARNING(( "no location header in redirect response from " FD_IP4_ADDR_FMT ":%hu",
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -467,13 +490,14 @@ follow_redirect( fd_sshttp_t *        http,
     "Accept-Encoding: identity\r\n"
     "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
     (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) ) ) ) {
-    FD_LOG_WARNING(( "location header too long `%.*s`", (int)location_len, location ));
+    FD_LOG_WARNING(( "redirect request too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  FD_LOG_NOTICE(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s",
-                  http->is_https ? "https" : "http", FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
+  FD_LOG_NOTICE(( "following redirect to %s://" FD_IP4_ADDR_FMT ":%hu%.*s", http->is_https ? "https" : "http",
+                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
                   (int)location_len, location ));
 
   if( FD_UNLIKELY( http->is_https ) ) {
@@ -502,7 +526,8 @@ read_response( fd_sshttp_t * http,
                uchar *       data,
                long          now ) {
   if( FD_UNLIKELY( now>http->deadline ) ) {
-    FD_LOG_WARNING(( "timeout reading response" ));
+    FD_LOG_WARNING(( "timeout reading response from " FD_IP4_ADDR_FMT ":%hu",
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -528,7 +553,8 @@ read_response( fd_sshttp_t * http,
                                     &header_cnt,
                                     http->response_len - (ulong)read );
   if( FD_UNLIKELY( parsed==-1 ) ) {
-    FD_LOG_WARNING(( "malformed response body" ));
+    FD_LOG_WARNING(( "malformed response headers from " FD_IP4_ADDR_FMT ":%hu",
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   } else if( parsed==-2 ) {
@@ -541,7 +567,8 @@ read_response( fd_sshttp_t * http,
   }
 
   if( FD_UNLIKELY( status!=200 ) ) {
-    FD_LOG_WARNING(( "unexpected response status %d", status ));
+    FD_LOG_WARNING(( "unexpected response status %d %.*s from " FD_IP4_ADDR_FMT ":%hu", status, (int)message_len, message,
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -557,16 +584,22 @@ read_response( fd_sshttp_t * http,
   }
 
   if( FD_UNLIKELY( http->content_len==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "no content-length header in response" ));
+    FD_LOG_WARNING(( "no content-length header in response from " FD_IP4_ADDR_FMT ":%hu",
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
   http->state = FD_SSHTTP_STATE_DL;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
-    if( FD_UNLIKELY( *data_len<http->response_len-(ulong)parsed ) ) FD_LOG_ERR(( "data buffer too small %lu %lu %lu", *data_len, http->response_len, (ulong)parsed ));
-    FD_TEST( *data_len>=http->response_len-(ulong)parsed );
-    *data_len = http->response_len - (ulong)parsed;
+    ulong need_len = http->response_len - (ulong)parsed;
+    if( FD_UNLIKELY( *data_len<need_len ) ) {
+      FD_LOG_WARNING(( "data buffer too small (data_len=%lu required=%lu response_len=%lu parsed=%lu)",
+                       *data_len, need_len, http->response_len, (ulong)parsed ));
+      fd_sshttp_cancel( http );
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
+    *data_len = need_len;
     fd_memcpy( data, http->response+parsed, *data_len );
     http->content_read += *data_len;
     return FD_SSHTTP_ADVANCE_DATA;

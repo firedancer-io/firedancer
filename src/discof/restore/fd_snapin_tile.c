@@ -12,6 +12,7 @@
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -138,8 +139,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
           slot_history,
           &decoded.o,
           data,
-          meta.dlen,
-          NULL )
+          meta.dlen )
   ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
     return -1;
@@ -196,9 +196,18 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
 /* verification of epoch stakes from manifest
    https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
 static int
-verify_epoch_stakes( fd_snapin_tile_t * ctx, fd_snapshot_manifest_t const * manifest ) {
-  ulong min_required_epoch = manifest->epoch;
-  ulong max_required_epoch = fd_ssmanifest_parser_leader_schedule_epoch( ctx->manifest_parser );
+verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+
+  ulong min_required_epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong max_required_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
 
   /* ensure all required epochs are present in epoch stakes */
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
@@ -229,7 +238,10 @@ verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
     /* VerifySlotDeltasError::SlotGreaterThanMaxRoot
        https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L138
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L550 */
-    if( FD_UNLIKELY( entry->slot>bank_slot ) ) return -1;
+    if( FD_UNLIKELY( entry->slot>bank_slot ) ) {
+      FD_LOG_WARNING(( "entry slot %lu is greater than bank slot %lu", entry->slot, bank_slot ));
+      return -1;
+    }
   }
   return 0;
 }
@@ -239,13 +251,13 @@ verify_bank_hash( fd_snapin_tile_t const *       ctx,
                   fd_snapshot_manifest_t const * manifest ) {
   if( FD_UNLIKELY( manifest->blockhashes_len==0UL ) ) {
     FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu has no blockhashes",
-                     ctx->full?"full":"incr", manifest->epoch, manifest->slot ));
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot ));
     return -1;
   }
 
   if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
     FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu is missing accounts lthash",
-                     ctx->full?"full":"incr", manifest->epoch, manifest->slot ));
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot ));
     return -1;
   }
 
@@ -274,7 +286,7 @@ verify_bank_hash( fd_snapin_tile_t const *       ctx,
     FD_BASE58_ENCODE_32_BYTES( computed_bank_hash->hash, computed_bank_hash_enc );
     FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash, manifest_bank_hash_enc );
     FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu bank hash verification failed: computed %s does not match manifest %s",
-                     ctx->full?"full":"incr", manifest->epoch, manifest->slot,
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot,
                      computed_bank_hash_enc, manifest_bank_hash_enc ));
     return -1;
   }
@@ -517,7 +529,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk );
 
   if( FD_UNLIKELY( ctx->advertised_slot!=manifest->slot ) ) {
-    /* SnapshotError::MismatchedSlot:
+    /* SnapshotError::MismatchedSlot
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L472 */
     FD_LOG_WARNING(( "snapshot manifest bank slot %lu does not match advertised slot %lu from snapshot peer",
                      manifest->slot, ctx->advertised_slot ));
@@ -525,7 +537,41 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     return;
   }
 
+  if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
+    /* The manifest must contain accounts lthash, irrespective of
+       whether lthash verification is disabled or not.
+       https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L482 */
+    FD_LOG_WARNING(( "snapshot manifest missing accounts lthash" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
+  uchar const * sum = manifest->accounts_lthash;
+  uchar hash32[32]; fd_blake3_hash( sum, FD_LTHASH_LEN_BYTES, hash32 );
+  FD_BASE58_ENCODE_32_BYTES( sum,    sum_enc    );
+  FD_BASE58_ENCODE_32_BYTES( hash32, hash32_enc );
+  FD_LOG_INFO(( "snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
+                manifest->slot, sum_enc, hash32_enc ));
+
+  if( FD_UNLIKELY( memcmp( ctx->advertised_hash, hash32, FD_HASH_FOOTPRINT ) ) ) {
+    /* SnapshotError::MismatchedHash
+        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L479 */
+    FD_BASE58_ENCODE_32_BYTES( ctx->advertised_hash, advertised_hash_enc );
+    FD_LOG_WARNING(( "snapshot manifest accounts lthash %s does not match advertised hash from snapshot peer %s",
+                     hash32_enc, advertised_hash_enc ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
   ctx->bank_slot = manifest->slot;
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+  ctx->epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
 
   if( FD_UNLIKELY( verify_bank_hash( ctx, manifest ) ) ) {
     /* https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/bank.rs#L4682 */
@@ -539,7 +585,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     return;
   }
 
-  if( FD_UNLIKELY( verify_epoch_stakes( ctx, manifest ) ) ) {
+  if( FD_UNLIKELY( verify_epoch_stakes( manifest ) ) ) {
     FD_LOG_WARNING(( "epoch stakes verification failed" ));
     transition_malformed( ctx, ctx->stem );
     return;
@@ -551,21 +597,12 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     return;
   }
 
-  if( manifest->has_accounts_lthash ) {
-    uchar const * sum = manifest->accounts_lthash;
-    uchar hash32[32]; fd_blake3_hash( sum, FD_LTHASH_LEN_BYTES, hash32 );
-    FD_BASE58_ENCODE_32_BYTES( sum,    sum_enc    );
-    FD_BASE58_ENCODE_32_BYTES( hash32, hash32_enc );
-    FD_LOG_INFO(( "snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
-                  manifest->slot, sum_enc, hash32_enc ));
-  }
-
   if( ctx->full ) {
-    ctx->full_genesis_creation_time_millis = manifest->creation_time_millis;
+    ctx->full_genesis_creation_time_seconds = manifest->creation_time_seconds;
   } else {
-    if( FD_UNLIKELY( manifest->creation_time_millis!=ctx->full_genesis_creation_time_millis ) ) {
-      FD_LOG_WARNING(( "snapshot manifest genesis creation time millis %lu does not match full snapshot genesis creation time millis %lu",
-                       manifest->creation_time_millis, ctx->full_genesis_creation_time_millis ));
+    if( FD_UNLIKELY( manifest->creation_time_seconds!=ctx->full_genesis_creation_time_seconds ) ) {
+      FD_LOG_WARNING(( "snapshot manifest genesis creation time seconds %lu does not match full snapshot genesis creation time seconds %lu",
+                       manifest->creation_time_seconds, ctx->full_genesis_creation_time_seconds ));
       transition_malformed( ctx, ctx->stem );
       return;
     }
@@ -574,12 +611,6 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   if( FD_LIKELY( !ctx->lthash_disabled ) ) {
-    if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
-      FD_LOG_WARNING(( "snapshot manifest missing accounts lthash field" ));
-      transition_malformed( ctx, ctx->stem );
-      return;
-    }
-
     fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
     fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
     fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
@@ -599,6 +630,8 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
+    FD_LOG_WARNING(( "received unexpected data frag while in state %s (%lu)",
+                     fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state  ));
     transition_malformed( ctx, stem );
     return 0;
   }
@@ -608,7 +641,8 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     return 0;
   }
   if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-    FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
+    FD_LOG_ERR(( "received data frag during invalid state %s (%lu)",
+                 fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
@@ -628,6 +662,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
     switch( res ) {
       case FD_SSPARSE_ADVANCE_ERROR:
+        FD_LOG_WARNING(( "error while parsing snapshot stream" ));
         transition_malformed( ctx, stem );
         return 0;
       case FD_SSPARSE_ADVANCE_AGAIN:
@@ -639,6 +674,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                                                 result->manifest.acc_vec_map,
                                                 result->manifest.acc_vec_pool );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
         } else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
@@ -656,6 +692,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                                                   bytes_remaining,
                                                   sd_result );
           if( FD_UNLIKELY( res<0 ) ) {
+            FD_LOG_WARNING(( "error while parsing slot deltas in status cache" ));
             transition_malformed( ctx, stem );
             return 0;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
@@ -765,7 +802,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
         ctx->metrics.full_bytes_read   = 0UL;
         ctx->metrics.incremental_bytes_read = 0UL;
-        ctx->full_genesis_creation_time_millis = 0UL;
+        ctx->full_genesis_creation_time_seconds = 0UL;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
@@ -784,6 +821,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
          separate fd_ssctrl_meta_t message below. */
       fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       ctx->advertised_slot = msg->slot;
+      fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
       break;
     }
 
@@ -883,7 +921,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     }
 
     default: {
-      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
     }
   }
@@ -920,7 +960,7 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
                       fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
@@ -1075,8 +1115,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->advertised_slot = 0UL;
   ctx->bank_slot       = 0UL;
+  ctx->epoch           = 0UL;
 
-  ctx->full_genesis_creation_time_millis = 0UL;
+  ctx->full_genesis_creation_time_seconds = 0UL;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 

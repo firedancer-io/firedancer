@@ -227,7 +227,7 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
     /* There is no need for rw_lock here, since every other consumer
        is waiting for the completion of this initialization step and
        this can be done without a lock. */
-    fd_snapwm_vinyl_init_admin( ctx, 0/*do_rwlock*/ );
+    FD_TEST( fd_snapwm_vinyl_init_admin( ctx, 0/*do_rwlock*/ ) );
   }
 
   ctx->vinyl.txn_active = 0;
@@ -808,9 +808,16 @@ fd_snapwm_vinyl_init_admin( fd_snapwm_tile_t * ctx,
   if( FD_UNLIKELY( !!do_rwlock ) ) fd_rwlock_write( &ctx->vinyl.admin->lock );
 
   ulong status = fd_vinyl_admin_ulong_query( &ctx->vinyl.admin->status );
-  if( FD_UNLIKELY( status!=FD_VINYL_ADMIN_STATUS_INIT_PENDING ) ) goto init_admin_error;
+  if( FD_UNLIKELY( status!=FD_VINYL_ADMIN_STATUS_INIT_PENDING ) ) {
+    FD_LOG_WARNING(( "vinyl admin unexpected status %s (%lu) during initialization",
+                     fd_vinyl_admin_status_str( status ), status ));
+    goto init_admin_error;
+  }
 
-  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt ) ) goto init_admin_error;
+  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt ) ) {
+    FD_LOG_WARNING(( "vinyl admin sees unexpected write tile count %lu", ctx->vinyl.wr_cnt ));
+    goto init_admin_error;
+  }
   fd_vinyl_admin_ulong_update( &ctx->vinyl.admin->wr_cnt, ctx->vinyl.wr_cnt );
 
   for( ulong i=0UL; i<ctx->vinyl.wr_cnt; i++ ) {
@@ -1020,7 +1027,7 @@ fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx ) {
           ulong full_slot = fd_snapin_vinyl_pair_info_slot( &full_phdr.info );
 
           if( FD_UNLIKELY( full_slot>=incr_slot ) ) {
-            FD_LOG_CRIT(( "revert incr snapshot full_slot %lu >= incr_slot %lu", full_slot, incr_slot ));
+            FD_LOG_CRIT(( "revert incremental snapshot full_slot %lu >= incr_slot %lu", full_slot, incr_slot ));
           }
 
           /* Update meta map element. */

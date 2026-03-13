@@ -884,7 +884,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* If enabled, dump the block to a file and reset the dumping
      context state */
   if( FD_UNLIKELY( ctx->dump_proto_ctx && ctx->dump_proto_ctx->dump_block_to_pb ) ) {
-    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->dump_proto_ctx );
+    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb, ctx->dump_proto_ctx, &ctx->runtime_stack );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
 # endif
@@ -1637,7 +1637,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
         ctx->hard_forks_cnts[ i ] = manifest->hard_forks_cnts[ i ];
       }
       ctx->has_expected_genesis_timestamp = 1;
-      ctx->expected_genesis_timestamp     = manifest->creation_time_millis;
+      ctx->expected_genesis_timestamp     = manifest->creation_time_seconds;
       break;
     }
     default: {
@@ -2179,8 +2179,13 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  if( FD_UNLIKELY( fd_banks_prune_dead_banks( ctx->banks ) ) ) {
-    // FIXME: anything pruned from banks should also be pruned from txncache and accdb
+  fd_banks_prune_cancel_info_t cancel_info[ 1 ];
+  int pruned = fd_banks_prune_one_dead_bank( ctx->banks, cancel_info );
+  if( FD_UNLIKELY( pruned==2 ) ) {
+    fd_txncache_cancel_fork( ctx->txncache, cancel_info->txncache_fork_id );
+    fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_idx } };
+    fd_accdb_cancel( ctx->accdb_admin, &xid );
+    fd_progcache_txn_cancel( ctx->progcache_admin, &xid );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2613,7 +2618,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       fd_genesis_meta_t const * meta = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->has_genesis_hash = 1;
       ctx->has_genesis_timestamp = 1;
-      ctx->genesis_timestamp = meta->creation_time_millis;
+      ctx->genesis_timestamp = meta->creation_time_seconds;
       *ctx->genesis_hash = meta->genesis_hash;
       if( FD_LIKELY( meta->bootstrap ) ) {
         boot_genesis( ctx, stem, meta );

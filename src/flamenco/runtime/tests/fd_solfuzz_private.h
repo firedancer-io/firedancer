@@ -33,6 +33,38 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
                             fd_exec_test_acct_state_t const * state,
                             ulong                             acc_idx );
 
+/* Restores the fee rate governor in the bank from the given protobuf
+   fee rate governor. */
+void
+fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
+                                         fd_exec_test_fee_rate_governor_t const * fee_rate_governor );
+
+/* Restores the epoch schedule in the bank from the given protobuf
+   epoch schedule. */
+void
+fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank,
+                                      fd_exec_test_epoch_schedule_t const * epoch_schedule );
+
+/* Restores the rent parameters in the bank from the given protobuf
+   rent. */
+void
+fd_solfuzz_pb_restore_rent( fd_bank_t *                 bank,
+                            fd_exec_test_rent_t const * rent );
+
+/* Initializes the blockhash queue in the bank from the given protobuf
+   blockhash queue entries. */
+void
+fd_solfuzz_pb_restore_blockhash_queue( fd_bank_t *                                    bank,
+                                       fd_exec_test_blockhash_queue_entry_t const *   entries,
+                                       ulong                                          entries_cnt );
+
+/* Retrieves the slot number from the clock sysvar account within the
+   given account states list.  Throws FD_LOG_ERR if the clock sysvar
+   is not found or is malformed. */
+ulong
+fd_solfuzz_pb_get_slot( fd_exec_test_acct_state_t const * acct_states,
+                        ulong                             acct_states_cnt );
+
 /* Activates features in the runtime given an input feature set.  Fails
    if a passed-in feature is unknown / not supported. */
 int

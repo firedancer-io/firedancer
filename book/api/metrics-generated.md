@@ -499,6 +499,7 @@
 | <span class="metrics-name">pack_&#8203;total_&#8203;transactions_&#8203;per_&#8203;microblock_&#8203;count</span> | histogram | Count of transactions in a scheduled microblock, including both votes and non-votes |
 | <span class="metrics-name">pack_&#8203;votes_&#8203;per_&#8203;microblock_&#8203;count</span> | histogram | Count of simple vote transactions in a scheduled microblock |
 | <span class="metrics-name">pack_&#8203;normal_&#8203;transaction_&#8203;received</span> | counter | Count of transactions received via the normal TPU path |
+| <span class="metrics-name">pack_&#8203;transaction_&#8203;inserted</span><br/>{pack_&#8203;txn_&#8203;insert_&#8203;return="<span class="metrics-enum">instr_&#8203;acct_&#8203;cnt</span>"} | counter | Result of inserting a transaction into the pack object (Transaction has an instruction that references too many accounts) |
 | <span class="metrics-name">pack_&#8203;transaction_&#8203;inserted</span><br/>{pack_&#8203;txn_&#8203;insert_&#8203;return="<span class="metrics-enum">nonce_&#8203;conflict</span>"} | counter | Result of inserting a transaction into the pack object (Bundle with two conflicting durable nonce transactions) |
 | <span class="metrics-name">pack_&#8203;transaction_&#8203;inserted</span><br/>{pack_&#8203;txn_&#8203;insert_&#8203;return="<span class="metrics-enum">bundle_&#8203;blacklist</span>"} | counter | Result of inserting a transaction into the pack object (Transaction uses an account on the bundle blacklist) |
 | <span class="metrics-name">pack_&#8203;transaction_&#8203;inserted</span><br/>{pack_&#8203;txn_&#8203;insert_&#8203;return="<span class="metrics-enum">invalid_&#8203;nonce</span>"} | counter | Result of inserting a transaction into the pack object (Transaction is an invalid durable nonce transaction) |
@@ -885,6 +886,7 @@
 | <span class="metrics-name">repair_&#8203;eager_&#8203;repair_&#8203;aggresses</span> | counter | How many times we pass eager repair threshold |
 | <span class="metrics-name">repair_&#8203;rerequest_&#8203;queue</span> | counter | How many times we re-request a shred from the inflights queue |
 | <span class="metrics-name">repair_&#8203;malformed_&#8203;ping</span> | counter | How many times we received a malformed ping |
+| <span class="metrics-name">repair_&#8203;unknown_&#8203;peer_&#8203;ping</span> | counter | How many times we received a ping from an unknown peer |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;time</span> | histogram | Time in seconds it took to complete a slot |
 | <span class="metrics-name">repair_&#8203;response_&#8203;latency</span> | histogram | Time in nanoseconds it took to receive a repair request response |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |

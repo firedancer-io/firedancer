@@ -19,9 +19,13 @@ fd_gui_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_gui_footprint( void ) {
+fd_gui_footprint( ulong tile_cnt ) {
+  FD_TEST( tile_cnt && tile_cnt <=FD_TOPO_MAX_TILES );
+
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_gui_align(), sizeof( fd_gui_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_align(),                sizeof(fd_gui_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_TILE_TIMER_SNAP_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_LEADER_CNT * FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
@@ -50,16 +54,24 @@ fd_gui_new( void *                shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( topo->tile_cnt>FD_GUI_TILE_TIMER_TILE_CNT ) ) {
+  if( FD_UNLIKELY( topo->tile_cnt>FD_TOPO_MAX_TILES ) ) {
     FD_LOG_WARNING(( "too many tiles" ));
     return NULL;
   }
 
-  FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_gui_t * gui                = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),                sizeof(fd_gui_t) );
+  ulong tile_cnt = topo->tile_cnt;
 
-  gui->http = http;
-  gui->topo = topo;
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_gui_t *             gui                  = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),                sizeof(fd_gui_t) );
+  fd_gui_tile_timers_t * tile_timers_snap_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_TILE_TIMER_SNAP_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
+  fd_gui_tile_timers_t * leader_tt_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_LEADER_CNT * FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
+
+  gui->http     = http;
+  gui->topo     = topo;
+  gui->tile_cnt = tile_cnt;
+
+  gui->summary.tile_timers_snap = tile_timers_snap_mem;
+  for( ulong i=0UL; i<FD_GUI_LEADER_CNT; i++ ) gui->leader_slots[ i ]->tile_timers = leader_tt_mem + i * FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT * tile_cnt;
 
   gui->leader_slot = ULONG_MAX;
   gui->summary.schedule_strategy = schedule_strategy;
@@ -156,8 +168,8 @@ fd_gui_new( void *                shmem,
   memset( gui->summary.tile_stats_reference, 0, sizeof(gui->summary.tile_stats_reference) );
   memset( gui->summary.tile_stats_current, 0, sizeof(gui->summary.tile_stats_current) );
 
-  memset( gui->summary.tile_timers_snap[ 0 ], 0, sizeof(gui->summary.tile_timers_snap[ 0 ]) );
-  memset( gui->summary.tile_timers_snap[ 1 ], 0, sizeof(gui->summary.tile_timers_snap[ 1 ]) );
+  memset( gui->summary.tile_timers_snap,            0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
+  memset( gui->summary.tile_timers_snap + tile_cnt, 0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   gui->summary.tile_timers_snap_idx    = 2UL;
 
   memset( gui->summary.scheduler_counts_snap[ 0 ], 0, sizeof(gui->summary.scheduler_counts_snap[ 0 ]) );
@@ -289,7 +301,7 @@ fd_gui_ws_open( fd_gui_t * gui,
 
 static void
 fd_gui_tile_timers_snap( fd_gui_t * gui ) {
-  fd_gui_tile_timers_t * cur = gui->summary.tile_timers_snap[ gui->summary.tile_timers_snap_idx ];
+  fd_gui_tile_timers_t * cur = gui->summary.tile_timers_snap + gui->summary.tile_timers_snap_idx * gui->tile_cnt;
   gui->summary.tile_timers_snap_idx = (gui->summary.tile_timers_snap_idx+1UL)%FD_GUI_TILE_TIMER_SNAP_CNT;
   for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
@@ -511,7 +523,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
       + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
 
     cur->out.pack_invalid =
-        pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_CONFLICT ) ]
+        pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_INSTR_ACCT_CNT ) ]
+      + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_CONFLICT ) ]
       + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ]
       + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_INVALID_NONCE ) ]
       + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ]
@@ -1835,13 +1848,14 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
     fd_rng_t rng[ 1 ];
     fd_rng_new( rng, 0UL, 0UL);
 
-#define DOWNSAMPLE( a, a_start, a_end, a_capacity, b, b_sz ) (__extension__({  \
+#define DOWNSAMPLE( a, a_start, a_end, a_capacity, b, b_sz, stride ) (__extension__({  \
   ulong __cnt = 0UL; \
+  ulong __rsz = (stride); \
   ulong __a_sz = (fd_ulong_if( a_end<a_start, a_end+a_capacity, a_end )-a_start); \
   if( FD_UNLIKELY( __a_sz && b_sz ) ) { \
     for( ulong a_idx=0UL; a_idx<__a_sz && __cnt<b_sz; a_idx++ ) { \
       if( FD_UNLIKELY( fd_rng_float_robust( rng ) > (float)(b_sz-__cnt) / (float)(__a_sz-__cnt) ) ) continue; \
-      fd_memcpy( b[ __cnt ], a[ ((a_start+a_idx)%a_capacity) ], sizeof(b[ __cnt ]) ); \
+      fd_memcpy( (b) + __cnt * __rsz, (a) + ((a_start+a_idx)%a_capacity) * __rsz, __rsz * sizeof(*(b)) ); \
       __cnt++; \
     } \
   } \
@@ -1853,7 +1867,8 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
       gui->summary.tile_timers_snap_idx,
       FD_GUI_TILE_TIMER_SNAP_CNT,
       lslot->tile_timers,
-      FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT );
+      FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT,
+      gui->tile_cnt );
 
     lslot->scheduler_counts_sample_cnt = DOWNSAMPLE(
       gui->summary.scheduler_counts_snap,
@@ -1861,7 +1876,8 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
       gui->summary.scheduler_counts_snap_idx,
       FD_GUI_SCHEDULER_COUNT_SNAP_CNT,
       lslot->scheduler_counts,
-      FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT );
+      FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT,
+      1UL );
 #undef DOWNSAMPLE
   }
 
@@ -2611,14 +2627,9 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
   }
 }
 
-#define SORT_NAME fd_gui_slot_staged_shred_event_evict_sort
-#define SORT_KEY_T fd_gui_slot_staged_shred_event_t
-#define SORT_BEFORE(a,b) (__extension__({ (void)(b); (a).slot==ULONG_MAX; }))
-#include "../../util/tmpl/fd_sort.c"
-
 #define SORT_NAME fd_gui_slot_staged_shred_event_slot_sort
 #define SORT_KEY_T fd_gui_slot_staged_shred_event_t
-#define SORT_BEFORE(a,b) ((a).slot<(b).slot)
+#define SORT_BEFORE(a,b) (((a).slot<(b).slot) || (((a).slot==(b).slot) && ((a).timestamp<(b).timestamp)))
 #include "../../util/tmpl/fd_sort.c"
 
 static void
@@ -2676,8 +2687,8 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
 
   /* archive root shred events.  We want to avoid n^2 iteration here
      since it can significantly slow things down.  Instead, we copy
-     over all rooted shreds to a scratch space, stable sort by slot,
-     copy the sorted arrays to the shred history. */
+     over all rooted shreds to a scratch space, sort by (slot,
+     timestamp) and copy the sorted arrays to the shred history. */
   ulong archive_cnt          = 0UL;
   ulong kept_cnt             = 0UL;
   ulong kept_before_next_cnt = 0UL;
@@ -2692,24 +2703,17 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
       continue;
     }
 
-    /* The entries from the staging area are evicted by setting their
-    slot field to ULONG MAX, then sorting the staging area.
-
-    IMPORTANT: this sort needs to be stable since we always keep
-    valid un-broadcast events at the end of the ring buffer */
     if( FD_UNLIKELY( i<gui->shreds.staged_next_broadcast ) ) kept_before_next_cnt++;
-    gui->shreds._staged_scratch2[ kept_cnt++ ] = *src;
+    gui->shreds.staged[ (gui->shreds.staged_head + kept_cnt) % FD_GUI_SHREDS_STAGING_SZ ] = *src;
+    kept_cnt++;
   }
 
-  /* copy shred events to archive */
-  for( ulong j=0UL; j<kept_cnt; j++ ) gui->shreds.staged[ (gui->shreds.staged_head + j) % FD_GUI_SHREDS_STAGING_SZ ] = gui->shreds._staged_scratch2[ j ];
   gui->shreds.staged_tail = gui->shreds.staged_head + kept_cnt;
   /* Remap next_broadcast to preserve continuity after compaction */
   gui->shreds.staged_next_broadcast = gui->shreds.staged_head + kept_before_next_cnt;
 
-  /* sort scratch by slot increasing */
   if( FD_LIKELY( archive_cnt ) ) {
-    fd_gui_slot_staged_shred_event_slot_sort_stable( gui->shreds._staged_scratch, archive_cnt, gui->shreds._staged_scratch2 );
+    fd_gui_slot_staged_shred_event_slot_sort_inplace( gui->shreds._staged_scratch, archive_cnt );
 
     for( ulong i=0UL; i<archive_cnt; i++ ) {
       if( FD_UNLIKELY( gui->shreds._staged_scratch[ i ].slot!=gui->shreds.history_slot ) ) {
