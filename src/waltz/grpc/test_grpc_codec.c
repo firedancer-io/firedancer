@@ -205,7 +205,7 @@ test_read_response_hdrs( void ) {
   /* content-type: application/grpc; charset=utf-8 => is_grpc_proto==0 (params rejected) */
   { off = 0;
     buf[off++] = 0x88;
-    off += hpack_literal( buf+off, "content-type", 12, "application/grpc; charset=utf-8", 30 );
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc; charset=utf-8", sizeof("application/grpc; charset=utf-8")-1 );
     PARSE( buf, off );
     FD_TEST( rc==FD_H2_SUCCESS );
     FD_TEST( resp.is_grpc_proto==0 ); }
