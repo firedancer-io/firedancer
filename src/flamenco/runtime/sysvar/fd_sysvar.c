@@ -14,13 +14,20 @@ fd_sysvar_account_update( fd_bank_t *               bank,
                           fd_pubkey_t const *       address,
                           void const *              data,
                           ulong                     sz ) {
+  long ts0 = fd_log_wallclock();
+
   fd_rent_t const * rent    = fd_bank_rent_query( bank );
   ulong     const   min_bal = fd_rent_exempt_minimum_balance( rent, sz );
 
   fd_accdb_rw_t rw[1];
   fd_accdb_open_rw( accdb, rw, xid, address, sz, FD_ACCDB_FLAG_CREATE );
+
+  long ts1 = fd_log_wallclock(); /* after open_rw */
+
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash( address, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
+
+  long ts2 = fd_log_wallclock(); /* after prev lthash */
 
   ulong const lamports_before = fd_accdb_ref_lamports( rw->ro );
   ulong const lamports_after  = fd_ulong_max( lamports_before, min_bal );
@@ -40,13 +47,34 @@ fd_sysvar_account_update( fd_bank_t *               bank,
     fd_bank_capitalization_set( bank, cap+lamports_minted );
   }
 
+  long ts3 = fd_log_wallclock(); /* after data_set + lamports */
+
   fd_hashes_update_lthash( fd_accdb_ref_address( rw->ro ), rw->meta, prev_hash, bank, capture_ctx );
+
+  long ts4 = fd_log_wallclock(); /* after lthash update */
+
   fd_accdb_close_rw( accdb, rw );
+
+  long ts5 = fd_log_wallclock(); /* after close_rw */
 
   if( FD_UNLIKELY( fd_log_level_logfile()<=0 || fd_log_level_stderr()<=0 ) ) {
     char name[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( address->uc, NULL, name );
     FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu lamports=%lu lamports_minted=%lu",
                    name, sz, lamports_after, lamports_minted ));
+  }
+
+  long total_ns = ts5 - ts0;
+  if( FD_UNLIKELY( total_ns > 10L*1000L*1000L ) ) { /* > 10 ms */
+    char name[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( address->uc, NULL, name );
+    FD_LOG_WARNING(( "sysvar_account_update slow: total=%.3f ms  open_rw=%.3f ms  prev_lthash=%.3f ms  data_set=%.3f ms  update_lthash=%.3f ms  close_rw=%.3f ms  address=%s data_sz=%lu slot=%lu",
+                     (double)total_ns/1e6,
+                     (double)(ts1 - ts0)/1e6,
+                     (double)(ts2 - ts1)/1e6,
+                     (double)(ts3 - ts2)/1e6,
+                     (double)(ts4 - ts3)/1e6,
+                     (double)(ts5 - ts4)/1e6,
+                     name, sz,
+                     fd_bank_slot_get( bank ) ));
   }
 }
 
