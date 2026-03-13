@@ -226,7 +226,10 @@ fd_ssresolve_send_request( fd_ssresolve_t * ssresolve ) {
   } else {
     sent = sendto( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, MSG_NOSIGNAL, NULL, 0 );
     if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
-    else if( FD_UNLIKELY( -1==sent ) )             return FD_SSRESOLVE_ADVANCE_ERROR;
+    else if( FD_UNLIKELY( -1==sent ) ) {
+      FD_LOG_WARNING(( "sendto() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      return FD_SSRESOLVE_ADVANCE_ERROR;
+    }
   }
 
   ssresolve->request_sent += (ulong)sent;
@@ -264,7 +267,10 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
-  if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) return FD_SSRESOLVE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) {
+    FD_LOG_WARNING(( "redirect location header too long (%lu)", location_len ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
 
   char snapshot_name[ PATH_MAX ];
   fd_memcpy( snapshot_name, location+1UL, location_len-1UL );

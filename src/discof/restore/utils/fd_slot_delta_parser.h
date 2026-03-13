@@ -92,6 +92,21 @@ fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
 #define FD_SLOT_DELTA_PARSER_ADVANCE_GROUP                            ( 2)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_DONE                             ( 3)
 
+static inline const char *
+fd_slot_delta_parser_advance_str( int err ) {
+  switch( err ) {
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT:           return "error_slot_is_not_root";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES: return "error_slot_hash_multiple_entries";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES:           return "error_too_many_entries";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER:      return "error_excess_data_in_buffer";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN:                            return "again";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY:                            return "entry";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_GROUP:                            return "group";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_DONE:                             return "done";
+    default:                                                            return "unknown";
+  }
+}
+
 struct fd_slot_delta_parser_advance_result {
   ulong bytes_consumed;
   union {

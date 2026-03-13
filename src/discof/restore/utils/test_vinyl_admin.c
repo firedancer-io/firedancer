@@ -284,6 +284,7 @@ main( int     argc,
   void * vinyl_admin_shmem = shmem_join( fd_vinyl_admin_align(), fd_vinyl_admin_footprint() );
   tile_argv[ 0 ] = vinyl_admin_shmem;
   fd_vinyl_admin_t * admin = fd_vinyl_admin_join( fd_vinyl_admin_new( vinyl_admin_shmem ) );
+  FD_TEST( admin );
 
   /* Other tiles's exec context. */
   fd_tile_exec_t * exec[FD_VINYL_ADMIN_WR_SEQ_CNT_MAX] = { NULL };

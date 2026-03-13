@@ -248,6 +248,9 @@ fd_http_resolver_add( fd_http_resolver_t *   resolver,
   ulong score = fd_sspeer_selector_add( selector, &peer->key, addr, ULONG_MAX, ULONG_MAX, ULONG_MAX, NULL, NULL );
   if( FD_UNLIKELY( score==ULONG_MAX ) ) {
     /* If unable to add, then release the element back to the pool. */
+    FD_LOG_WARNING(( "failed to add peer to selector (hostname \"%s\" addr=" FD_IP4_ADDR_FMT ":%hu score=%lu)",
+                     peer->key.url.hostname[ 0 ] ? peer->key.url.hostname : "(none)",
+                     FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), score ));
     peer_pool_ele_release( resolver->pool, peer );
     return -1;
   }
