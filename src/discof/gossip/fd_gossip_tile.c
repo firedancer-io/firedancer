@@ -357,8 +357,8 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
         break;
       }
 
-      /* FIXME: Get rid of this and just use gossip's internal stake
-         map instead */
+      /* FIXME: Replace handling for this when manifest supports larger
+         vote and stake account bounds. */
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
       ulong wfs_stakes_unconverted_cnt = 0UL;

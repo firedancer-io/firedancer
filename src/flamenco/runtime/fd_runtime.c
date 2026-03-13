@@ -145,16 +145,15 @@ update_next_leaders( fd_bank_t *          bank,
      schedule. */
   fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights_next( bank->data );
   ulong idx = 0UL;
-  for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
-    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
 
-    fd_pubkey_t node_account;
-    ulong       stake;
-    FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) );
+  for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
+    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
+    fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
+    ulong               stake       = epoch_weights[i].stake;
 
     if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
       stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
       idx++;
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
@@ -208,14 +207,12 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong idx = 0UL;
   for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
     fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
-
-    fd_pubkey_t node_account;
-    ulong       stake;
-    FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_pubkey, &stake, &node_account ) );
+    fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
+    ulong               stake       = epoch_weights[i].stake;
 
     if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
       stake_weights[ idx ].stake = stake;
-      memcpy( stake_weights[ idx ].id_key.uc, &node_account, sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
       idx++;
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
