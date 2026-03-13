@@ -1,7 +1,6 @@
-$(call add-hdrs,fd_tower.h fd_tower_blocks.h fd_tower_leaves.h fd_tower_lockos.h fd_tower_serdes.h fd_tower_stakes.h fd_tower_voters.h)
+$(call add-hdrs,fd_tower.h fd_tower_blocks.h fd_tower_lockos.h fd_tower_serdes.h fd_tower_stakes.h fd_tower_voters.h)
 $(call add-objs,fd_tower,fd_choreo)
 $(call add-objs,fd_tower_blocks,fd_choreo)
-$(call add-objs,fd_tower_leaves,fd_choreo)
 $(call add-objs,fd_tower_lockos,fd_choreo)
 $(call add-objs,fd_tower_serdes,fd_choreo)
 $(call add-objs,fd_tower_stakes,fd_choreo)

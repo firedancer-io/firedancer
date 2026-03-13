@@ -155,10 +155,10 @@ fd_ghost_best( fd_ghost_t     * ghost,
 
         /* When stake is equal, tie-break by lower slot.  Two valid
            children with equal stake and equal slot (ie. equivocating
-           blocks) cannot occur: equivocating blocks are marked eqvoc=1
-           and valid=0, so at most one of them would be valid unless
-           multiple blocks for that slot are duplicate confirmed, which
-           is a consensus invariant violation. */
+           blocks) cannot occur: equivocating blocks are marked valid=0,
+           so at most one of them would be valid unless multiple blocks
+           for that slot are duplicate confirmed, which is a consensus
+           invariant violation. */
 
         best = fd_ptr_if(
           fd_int_if(
@@ -259,13 +259,12 @@ fd_ghost_insert( fd_ghost_t      * ghost,
   blk->sibling     = null;
   blk->stake       = 0;
   blk->total_stake = 0;
-  blk->eqvoc       = 0;
-  blk->conf        = 0;
   blk->valid       = 1;
   blk_map_ele_insert( blk_map( ghost ), blk, pool );
 
   if( FD_UNLIKELY( !parent_block_id ) ) {
     ghost->root = blk_pool_idx( pool, blk );
+    ghost->active_fork_cnt = 1;
     return blk;
   }
 
@@ -278,6 +277,7 @@ fd_ghost_insert( fd_ghost_t      * ghost,
     fd_ghost_blk_t * sibling = blk_pool_ele( pool, parent->child );
     while( sibling->sibling != null ) sibling = blk_pool_ele( pool, sibling->sibling );
     sibling->sibling = blk_pool_idx( pool, blk ); /* right-sibling */
+    ghost->active_fork_cnt++;
   }
 
   return blk;
@@ -420,6 +420,7 @@ fd_ghost_publish( fd_ghost_t     * ghost,
         tail->next = blk_pool_idx_null( blk_pool( ghost ) );
       }
       child = blk_pool_ele( blk_pool( ghost ), child->sibling ); /* next sibling */
+      if( FD_UNLIKELY( child ) ) ghost->active_fork_cnt--; /* has a sibling == a fork to be pruned */
     }
     fd_ghost_blk_t * next = blk_pool_ele( blk_pool( ghost ), head->next ); /* pop prune queue head */
     blk_pool_ele_release( blk_pool( ghost ), head );                       /* free prune queue head */
@@ -427,6 +428,52 @@ fd_ghost_publish( fd_ghost_t     * ghost,
   }
   newr->parent = null;                                    /* unlink old root */
   ghost->root  = blk_pool_idx( blk_pool( ghost ), newr ); /* replace with new root */
+}
+
+ulong
+fd_ghost_active_fork_cnt( fd_ghost_t * ghost ) {
+  return ghost->active_fork_cnt;
+}
+
+fd_ghost_blk_t *
+fd_ghost_blk_map_remove( fd_ghost_t     * ghost,
+                         fd_ghost_blk_t * blk ) {
+  return blk_map_ele_remove( blk_map( ghost ), &blk->id, NULL, blk_pool( ghost ) );
+}
+
+void
+fd_ghost_blk_map_insert( fd_ghost_t     * ghost,
+                         fd_ghost_blk_t * blk ) {
+  blk_map_ele_insert( blk_map( ghost ), blk, blk_pool( ghost ) );
+}
+
+fd_ghost_blk_t *
+fd_ghost_blk_child( fd_ghost_t     * ghost,
+                    fd_ghost_blk_t * blk ) {
+  return blk_pool_ele( blk_pool( ghost ), blk->child );
+}
+
+fd_ghost_blk_t *
+fd_ghost_blk_sibling( fd_ghost_t     * ghost,
+                      fd_ghost_blk_t * blk ) {
+  return blk_pool_ele( blk_pool( ghost ), blk->sibling );
+}
+
+fd_ghost_blk_t *
+fd_ghost_blk_next( fd_ghost_t     * ghost,
+                   fd_ghost_blk_t * blk ) {
+  return blk_pool_ele( blk_pool( ghost ), blk->next );
+}
+
+ulong
+fd_ghost_blk_idx( fd_ghost_t     * ghost,
+                  fd_ghost_blk_t * blk ) {
+  return blk_pool_idx( blk_pool( ghost ), blk );
+}
+
+ulong
+fd_ghost_blk_idx_null( fd_ghost_t * ghost ) {
+  return blk_pool_idx_null( blk_pool( ghost ) );
 }
 
 int

@@ -6,7 +6,6 @@
 #include "../../shared_dev/commands/dev.h"
 #include "../../../discof/tower/fd_tower_tile.c"
 #include "../../../choreo/tower/fd_tower_blocks.h"
-#include "../../../choreo/tower/fd_tower_leaves.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -77,33 +76,6 @@ print_all_forks( fd_wksp_t * wksp, fd_tower_tile_t * tower_ctx, fd_tower_blocks_
   }
 
   printf( "Total slots: %lu\n", slot_count );
-
-  printf( "\n[Tower Leaves]\n" );
-  printf( "==============\n" );
-
-  ulong tower_leaves_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->tower_leaves );
-  fd_tower_leaves_t * leaves = (fd_tower_leaves_t *)fd_wksp_laddr_fast( wksp, tower_leaves_gaddr );
-
-  ulong tower_leaves_dlist_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, leaves->dlist );
-  fd_tower_leaves_dlist_t * leaves_dlist = (fd_tower_leaves_dlist_t *)fd_wksp_laddr_fast( wksp, tower_leaves_dlist_gaddr );
-  ulong tower_leaves_pool_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, leaves->pool );
-  fd_tower_leaf_t * leaves_pool = (fd_tower_leaf_t *)fd_wksp_laddr_fast( wksp, tower_leaves_pool_gaddr );
-
-  ulong leaf_count = 0;
-  for( fd_tower_leaves_dlist_iter_t iter = fd_tower_leaves_dlist_iter_fwd_init( leaves_dlist, leaves_pool );
-                                          !fd_tower_leaves_dlist_iter_done( iter, leaves_dlist, leaves_pool );
-                                    iter = fd_tower_leaves_dlist_iter_fwd_next( iter, leaves_dlist, leaves_pool ) ) {
-    fd_tower_leaf_t * leaf = fd_tower_leaves_dlist_iter_ele( iter, leaves_dlist, leaves_pool );
-    if( FD_LIKELY( leaf ) ) {
-      fd_tower_blk_t * fork = fd_tower_blk_query( map, leaf->slot, NULL );
-      printf( "Leaf slot: %lu", leaf->slot );
-      if( fork && fork->voted )     printf( " [voted]"     );
-      if( fork && fork->confirmed ) printf( " [confirmed]" );
-      printf( "\n" );
-      leaf_count++;
-    }
-  }
-  printf( "\nTotal leaves: %lu\n", leaf_count );
   printf( "\n" );
 }
 
