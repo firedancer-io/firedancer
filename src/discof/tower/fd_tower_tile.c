@@ -21,6 +21,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_accdb_pipe.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../util/pod/fd_pod.h"
@@ -147,8 +148,8 @@ struct fd_tower_tile {
   fd_tower_voters_t * tower_voters; /* deque of (pubkey, stake, vote account data) */
   fd_tower_stakes_t * tower_stakes; /* tracks the stakes for each voter in the epoch per fork */
 
-  publish_t *     publishes; /* deque of slot_confirmed msgs queued for publishing */
-  fd_stake_ci_t * stake_ci;  /* stake ci from replay_epoch */
+  publish_t *                publishes; /* deque of slot_confirmed msgs queued for publishing */
+  fd_multi_epoch_leaders_t * mleaders; /* multi-epoch leaders */
 
   /* external joins */
 
@@ -162,6 +163,8 @@ struct fd_tower_tile {
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
   ulong                         notar_reindex[ FD_VOTER_MAX ];
   fd_hash_t                     notar_removed[ FD_VOTER_MAX ];
+
+  uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
   /* consensus metadata */
 
@@ -1039,7 +1042,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_align(),  fd_tower_stakes_footprint( slot_max )                 );
   l = FD_LAYOUT_APPEND( l, fd_tower_voters_align(),  fd_tower_voters_footprint( FD_VOTER_MAX )             );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                        );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),      fd_stake_ci_footprint()                               );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1179,8 +1181,8 @@ returnable_frag( fd_tower_tile_t *   ctx,
     return 0;
   }
   case IN_KIND_EPOCH: {
-    fd_stake_ci_epoch_msg_init( ctx->stake_ci, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
-    fd_stake_ci_epoch_msg_fini( ctx->stake_ci );
+    fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
+    fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
     return 0;
   }
   case IN_KIND_GOSSIP: {
@@ -1191,7 +1193,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
 
       FD_BASE58_ENCODE_32_BYTES( from->uc, from_b58 );
 
-      fd_eqvoc_set_leader_schedule( ctx->eqvoc, fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, duplicate_shred->slot ) );
+      fd_eqvoc_set_leader_schedule( ctx->eqvoc, fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, duplicate_shred->slot ) );
 
       /* Agave drops msgs where num_chunks /= 3. https://github.com/anza-xyz/agave/blob/v3.1/gossip/src/duplicate_shred.rs#L262-L268 */
 
@@ -1322,7 +1324,6 @@ unprivileged_init( fd_topo_t *      topo,
   void  * tower_stakes  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max )                 );
   void  * tower_voters  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_voters_align(), fd_tower_voters_footprint( FD_VOTER_MAX )             );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),       publishes_footprint( pub_max )                        );
-  void  * stake_ci      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()                               );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ctx->wksp               = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
@@ -1341,7 +1342,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower_stakes       = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes, slot_max, ctx->seed )                                     );
   ctx->tower_voters       = fd_tower_voters_join( fd_tower_voters_new( tower_voters, FD_VOTER_MAX )                                            );
   ctx->publishes          = publishes_join      ( publishes_new      ( publishes, pub_max )                                                    );
-  ctx->stake_ci           = fd_stake_ci_join    ( fd_stake_ci_new    ( stake_ci, ctx->identity_key )                                           );
+  ctx->mleaders           = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
 
   FD_TEST( ctx->wksp  );
   FD_TEST( ctx->identity_keyswitch );
@@ -1359,7 +1360,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->tower_stakes );
   FD_TEST( ctx->tower_voters );
   FD_TEST( ctx->publishes );
-  FD_TEST( ctx->stake_ci );
 
   ctx->halt_signing = 0;
 

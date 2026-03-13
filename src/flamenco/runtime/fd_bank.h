@@ -372,6 +372,12 @@ struct fd_bank_data {
   int   top_votes_dirty;
   ulong top_votes_pool_idx;
   ulong top_votes_pool_offset;
+
+  ulong stake_weights_cnt_off;
+  ulong stake_weights_off;
+
+  ulong stake_weights_cnt_next_off;
+  ulong stake_weights_next_off;
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
@@ -419,6 +425,46 @@ struct fd_banks_prune_cancel_info {
   ulong                 bank_idx;
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
+
+static inline void
+fd_bank_set_stake_weights( fd_bank_data_t * bank, uchar * stake_weights_mem ) {
+  bank->stake_weights_off = (ulong)bank - (ulong)stake_weights_mem;
+}
+
+static inline fd_vote_stake_weight_t *
+fd_bank_get_stake_weights( fd_bank_data_t * bank ) {
+  return (fd_vote_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->stake_weights_off );
+}
+
+static inline void
+fd_bank_set_stake_weights_cnt_off( fd_bank_data_t * bank, uchar * stake_weights_cnt_mem ) {
+  bank->stake_weights_cnt_off = (ulong)bank - (ulong)stake_weights_cnt_mem;
+}
+
+static inline ulong *
+fd_bank_get_stake_weights_cnt( fd_bank_data_t * bank ) {
+  return (ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_cnt_off );
+}
+
+static inline void
+fd_bank_set_stake_weights_next( fd_bank_data_t * bank, uchar * stake_weights_mem ) {
+  bank->stake_weights_next_off = (ulong)bank - (ulong)stake_weights_mem;
+}
+
+static inline fd_vote_stake_weight_t *
+fd_bank_get_stake_weights_next( fd_bank_data_t * bank ) {
+  return (fd_vote_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->stake_weights_next_off );
+}
+
+static inline void
+fd_bank_set_stake_weights_cnt_next_off( fd_bank_data_t * bank, uchar * stake_weights_cnt_next_mem ) {
+  bank->stake_weights_cnt_next_off = (ulong)bank - (ulong)stake_weights_cnt_next_mem;
+}
+
+static inline ulong *
+fd_bank_get_stake_weights_cnt_next( fd_bank_data_t * bank ) {
+  return (ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_cnt_next_off );
+}
 
 static inline void
 fd_bank_set_epoch_leaders( fd_bank_data_t * bank, uchar * epoch_leaders_mem ) {
@@ -567,7 +613,27 @@ struct fd_banks_data {
 
   uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
 
+  /* The set of epoch leaders for the current and previous epochs.  Only
+     two need to be stored because in the worst case we will have a root
+     that sits behind an epoch boundary, with leaf banks executing into
+     the next epoch.  All banks that execute behind the boundary, will
+     use the previous epoch's leader schedule, and all nodes after the
+     epoch boundary are guaranteed to produce identical leader
+     schedules. */
+
   uchar epoch_leaders_mem[ 2UL ][ FD_EPOCH_LEADERS_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
+
+  /* Set of compressed stake weights for the leader schedule for the
+     current epoch. */
+
+  fd_vote_stake_weight_t stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+  ulong                  stake_weights_cnt;
+
+  /* Set of compressed stake weights for the leader schedule for the
+     next epoch. */
+
+  fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+  ulong                  next_stake_weights_cnt;
 
   /* Lay out pool offsets */
 

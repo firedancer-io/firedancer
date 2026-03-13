@@ -33,6 +33,31 @@ fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
   return weights_cnt;
 }
 
+ulong
+fd_stake_weights_by_node_next( fd_vote_stakes_t *       vote_stakes,
+                               ushort                   fork_idx,
+                               fd_vote_stake_weight_t * weights ) {
+  ulong weights_cnt = 0;
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter  );
+       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+    fd_pubkey_t pubkey;
+    ulong       stake_t_1;
+    fd_pubkey_t node_account_t_1;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL );
+    if( FD_UNLIKELY( !stake_t_1 ) ) continue;
+
+    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
+    weights[ weights_cnt ].stake = stake_t_1;
+    weights_cnt++;
+  }
+  sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
+
+  return weights_cnt;
+}
+
 static void
 get_vote_credits_commission( uchar const *       account_data,
                              ulong               account_data_len,

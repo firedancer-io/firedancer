@@ -85,6 +85,7 @@ fd_epoch_leaders_new( void  *                  shmem,
      (up to 60 bytes of padding to align to 64)
      list of pubkeys          (align=32, footprint=32*pub_cnt)
      the indeterminate pubkey (align=32, footprint=32)
+     leader membership bitset (align=8, footprint=8*ceil((pub_cnt+1)/64))
      (possibly 32 bytes of padding to align to 64)
 
      but in order to generate the list of indices, we want to use
@@ -97,6 +98,8 @@ fd_epoch_leaders_new( void  *                  shmem,
      done with the wsample object.  There's a lot of type punning going
      on here, so watch out. */
   ulong sched_cnt = (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION;
+
+  ulong leader_bits_word_cnt = FD_EPOCH_LEADERS_BITSET_WORD_CNT( pub_cnt );
 
   fd_epoch_leaders_t * leaders = (fd_epoch_leaders_t *)fd_type_pun( (void *)laddr );
   laddr += sizeof(fd_epoch_leaders_t);
@@ -140,14 +143,23 @@ fd_epoch_leaders_new( void  *                  shmem,
   static const uchar fd_indeterminate_leader[32] = { FD_INDETERMINATE_LEADER };
   memcpy( pubkeys+pub_cnt, fd_indeterminate_leader, 32UL );
 
+  ulong leader_bits_laddr = fd_ulong_align_up( (ulong)(pubkeys+pub_cnt+1UL), alignof(ulong) );
+  ulong * leader_bits = (ulong *)fd_type_pun( (void *)leader_bits_laddr );
+
+  FD_TEST( leader_bits_laddr + leader_bits_word_cnt*sizeof(ulong) <= (ulong)shmem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
+  for( ulong i=0UL; i<leader_bits_word_cnt; i++ ) leader_bits[i] = 0UL;
+  for( ulong i=0UL; i<sched_cnt; i++ ) leader_bits[ sched[i]>>6 ] |= (1UL<<(sched[i]&63UL));
+
   /* Construct the final struct */
-  leaders->epoch     = epoch;
-  leaders->slot0     = slot0;
-  leaders->slot_cnt  = slot_cnt;
-  leaders->pub       = pubkeys;
-  leaders->pub_cnt   = pub_cnt;
-  leaders->sched     = sched;
-  leaders->sched_cnt = sched_cnt;
+  leaders->epoch                = epoch;
+  leaders->slot0                = slot0;
+  leaders->slot_cnt             = slot_cnt;
+  leaders->pub                  = pubkeys;
+  leaders->pub_cnt              = pub_cnt;
+  leaders->sched                = sched;
+  leaders->sched_cnt            = sched_cnt;
+  leaders->leader_bits          = leader_bits;
+  leaders->leader_bits_word_cnt = leader_bits_word_cnt;
 
   return (void *)shmem;
 }

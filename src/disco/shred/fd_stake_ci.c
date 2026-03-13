@@ -75,9 +75,9 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
 void
 fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
                             fd_epoch_info_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_cnt > MAX_SHRED_DESTS ) )
+  if( FD_UNLIKELY( msg->staked_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_cnt, MAX_SHRED_DESTS ));
+                 " but the maximum allowed is %lu", msg->staked_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
 
   info->scratch->epoch             = msg->epoch;
   info->scratch->start_slot        = msg->start_slot;
@@ -113,13 +113,16 @@ compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weigh
                                       fd_vote_stake_weight_t const * vote_stake_weight,
                                       ulong                          staked_cnt ) {
 
-  if( FD_UNLIKELY( staked_cnt > MAX_SHRED_DESTS ) )
-    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));
+  if( FD_UNLIKELY( staked_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu compressed stakes in it,"
+                 " but the maximum allowed is %lu", staked_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
   /* Copy from input message [(vote, id, stake)] into old format [(id, stake)]. */
+  ulong idx = 0UL;
   for( ulong i=0UL; i<staked_cnt; i++ ) {
-    memcpy( stake_weight[ i ].key.uc, vote_stake_weight[ i ].id_key.uc, sizeof(fd_pubkey_t) );
-    stake_weight[ i ].stake = vote_stake_weight[ i ].stake;
+    if( FD_UNLIKELY( fd_pubkey_eq( &vote_stake_weight[ i ].id_key, &FD_DUMMY_ACCOUNT_PUBKEY ) ) ) continue;
+    memcpy( stake_weight[ idx ].key.uc, vote_stake_weight[ i ].id_key.uc, sizeof(fd_pubkey_t) );
+    stake_weight[ idx ].stake = vote_stake_weight[ i ].stake;
+    idx++;
   }
 
   /* Sort [(id, stake)] by id, so we can dedup */
@@ -176,7 +179,14 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   unhit_set_t * unhit = unhit_set_join( unhit_set_new( _unhit ) );
   unhit_set_full( unhit );
 
+  /* This function will remove any dummy stakes from the list.  After
+     this point, there will only be actual stakes that correspond to
+     selected leader nodes. */
   staked_cnt = compute_id_weights_from_vote_weights( info->stake_weight, info->vote_stake_weight, staked_cnt );
+  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
+                 " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));
+  }
 
   for( ulong i=0UL; i<staked_cnt; i++ ) {
     fd_shred_dest_idx_t old_idx = fd_shred_dest_pubkey_to_idx( existing_sdest, &(info->stake_weight[ i ].key) );

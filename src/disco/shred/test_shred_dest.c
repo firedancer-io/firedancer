@@ -259,14 +259,15 @@ test_vary_stake( void ) {
       stakes[i].id_key.uc[0] = (uchar)pubkey0;
       stakes[i].vote_key.uc[0] = (uchar)pubkey0;
       pubkey0 = (pubkey0*3UL)%31; /* Hits [1, 30] */
-      stakes[i].stake = 2UL + fd_rng_ulong_roll( r, prev );
+      stakes[i].stake = (2UL + fd_rng_ulong_roll( r, prev ));
       prev = stakes[i].stake;
     }
     stakes[30].id_key.uc[0] = 31;
     stakes[31].id_key.uc[0] = 0;
     stakes[30].vote_key.uc[0] = 31;
     stakes[31].vote_key.uc[0] = 0;
-    stakes[30].stake = stakes[31].stake = prev-1UL;
+    stakes[30].stake = prev-1UL;
+    stakes[31].stake = prev-1UL;
 
     fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 100UL, cnt, stakes, 0UL, vote_keyed_lsched ) );
     test_distribution_is_tree( info, 32UL, lsched, 6+fd_rng_ulong_roll(r, 25UL ), fd_rng_ulong_roll( r, 100UL ), fd_rng_int_roll( r, 2 ), fd_rng_ulong_roll( r, 100UL ) );

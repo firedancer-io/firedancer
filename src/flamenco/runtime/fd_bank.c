@@ -332,6 +332,11 @@ fd_banks_new( void * shmem,
 
     fd_bank_set_epoch_leaders( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, epoch_leaders_mem) );
 
+    fd_bank_set_stake_weights( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights) );
+    fd_bank_set_stake_weights_cnt_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights_cnt) );
+    fd_bank_set_stake_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights) );
+    fd_bank_set_stake_weights_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights_cnt) );
+
     fd_bank_top_votes_t * top_votes_pool = fd_banks_get_top_votes_pool( banks_data );
     fd_bank_set_top_votes_pool( bank, top_votes_pool );
     bank->top_votes_pool_idx = fd_bank_top_votes_pool_idx_null( top_votes_pool );
@@ -514,8 +519,8 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
 
   bank->stake_delegations_fork_id = USHORT_MAX;
 
-  fd_vote_stakes_t * vote_stakes   = fd_banks_get_vote_stakes( banks->data );
-  bank->vote_stakes_fork_id        = fd_vote_stakes_get_root_idx( vote_stakes );
+  fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
+  bank->vote_stakes_fork_id      = fd_vote_stakes_get_root_idx( vote_stakes );
 
   /* Now that the node is inserted, update the root */
 

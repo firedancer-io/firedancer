@@ -623,15 +623,15 @@ test_changing_contact_info( void ) {
 
 static void
 test_limits( void ) {
-  /* Cluster info cannot include more than 40,199 validators.  Any
+  /* Cluster info cannot include more than 107,999 validators.  Any
      beyond that get truncated.
 
-     Stake weights cannot include more than 40,200 public keys.  Any
+     Stake weights cannot include more than 108,000 public keys.  Any
      beyond that get truncated and counted as excluded stake.  more than
-     40,200. */
+     108,000. */
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
-  for( ulong stake_weight_cnt=40198UL; stake_weight_cnt<=40201UL; stake_weight_cnt++ ) {
+  for( ulong stake_weight_cnt=107998UL; stake_weight_cnt<=108001UL; stake_weight_cnt++ ) {
     fd_stake_weight_msg_t * buf = fd_type_pun( stake_msg );
     buf->epoch                  = stake_weight_cnt;
     buf->start_slot             = stake_weight_cnt * SLOTS_PER_EPOCH;
@@ -642,7 +642,7 @@ test_limits( void ) {
 
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
-      if( FD_LIKELY( i<40200UL ) ) {
+      if( FD_LIKELY( i<108000UL ) ) {
         memset( buf->weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
         memset( buf->weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
         if( FD_LIKELY( 127UL-i!=(ulong)'I' ) ) {
@@ -658,15 +658,15 @@ test_limits( void ) {
     fd_stake_ci_stake_msg_init( info, buf );
     fd_stake_ci_stake_msg_fini( info );
 
-    for( ulong cluster_info_cnt=40198UL; cluster_info_cnt<=40201UL; cluster_info_cnt++ ) {
+    for( ulong cluster_info_cnt=107998UL; cluster_info_cnt<=108001UL; cluster_info_cnt++ ) {
       fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( info );
       for( ulong j=0UL; j<cluster_info_cnt; j++ ) {
-        if( FD_LIKELY( j<40199UL ) ) {
+        if( FD_LIKELY( j<107999UL ) ) {
           memset( dests[j].pubkey.uc, 127-((int)j%96), sizeof(fd_pubkey_t) );
           FD_STORE( ulong, dests[j].pubkey.uc, fd_ulong_bswap( j ) );
         }
       }
-      fd_stake_ci_dest_add_fini( info, fd_ulong_min( cluster_info_cnt, 40199UL ) );
+      fd_stake_ci_dest_add_fini( info, fd_ulong_min( cluster_info_cnt, 107999UL ) );
 
       FD_TEST( fd_stake_ci_get_sdest_for_slot ( info, stake_weight_cnt*SLOTS_PER_EPOCH ) );
       FD_TEST( fd_stake_ci_get_lsched_for_slot( info, stake_weight_cnt*SLOTS_PER_EPOCH ) );

@@ -384,7 +384,7 @@ struct fd_gui_peers_ctx {
     ulong epoch;
 
     ulong                stakes_cnt;
-    fd_gui_peers_voter_t stakes[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+    fd_gui_peers_voter_t stakes[ MAX_STAKED_LEADERS ];
   } epochs[ 2 ];
 
   union {
