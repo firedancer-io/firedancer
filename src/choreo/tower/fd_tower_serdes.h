@@ -32,13 +32,15 @@ typedef struct fd_compact_tower_sync_serde fd_compact_tower_sync_serde_t;
 
 /* fd_compact_tower_sync_ser serializes fd_compact_tower_sync_serde_t
    into a buffer.  Returns 0 on success, -1 if the lockouts_cnt is
-   greater than FD_TOWER_VOTE_MAX or buf_sz is too small to fit the
-   serialized data. */
+   greater than FD_TOWER_VOTE_MAX or buf_max is too small to fit the
+   serialized data.  On success, sets *buf_sz to the number of bytes
+   written if buf_sz is non-NULL. */
+
 int
 fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
                            uchar *                               buf,
-                           ulong                                 buf_sz,
-                           ulong *                               out_sz );
+                           ulong                                 buf_max,
+                           ulong *                               buf_sz );
 
 /* fd_compact_tower_sync_de deserializes at most buf_sz of buf into
    fd_compact_tower_sync_serde_t.  Assumes buf is at least of size
@@ -56,23 +58,22 @@ FD_STATIC_ASSERT( FD_VOTE_ACC_V2==fd_vote_state_versioned_enum_v1_14_11, FD_VOTE
 FD_STATIC_ASSERT( FD_VOTE_ACC_V3==fd_vote_state_versioned_enum_v3,       FD_VOTE_ACC_V3 );
 FD_STATIC_ASSERT( FD_VOTE_ACC_V4==fd_vote_state_versioned_enum_v4,       FD_VOTE_ACC_V4 );
 
-/* TODO: Update for vote state v4
-
-   fd_vote_acc describes the layout of a vote state stored in a vote
+/* fd_vote_acc describes the layout of a vote state stored in a vote
    account.  These structs are used to support zero-copy access (direct
    casts) of byte arrays containing the vote account data.
 
-   fd_vote_acc is versioned, and the serialized formats differ depending on
-   this.  They correspond to Agave's VoteState0_23_5, VoteState1_14_11
-   and VoteState structs.
+   fd_vote_acc is versioned, and the serialized formats differ depending
+   on this.  They correspond to Agave's VoteState0_23_5,
+   VoteState1_14_11 and VoteState structs.
 
    VoteStatev0_23_5 is deprecated and there are no longer vote accounts
    of that version on testnet / mainnet.  VoteState1_14_11 corresponds
-   to FD_VOTE_ACC_V2 and VoteState corresponds to FD_VOTE_ACC_V3.  The only
-   difference between the two is the votes in V3 contain an additional
-   uchar field `latency`.
+   to FD_VOTE_ACC_V2 and VoteState corresponds to FD_VOTE_ACC_V3.  The
+   only difference between the two is the votes in V3 contain an
+   additional uchar field `latency`.
 
-   The binary layout begins with metadata in the vote account, followed by the voter's votes (tower), and terminates with the root. */
+   The binary layout begins with metadata in the vote account, followed
+   by the voter's votes (tower), and terminates with the root. */
 
 struct __attribute__((packed)) fd_vote_acc_vote {
   uchar latency;
@@ -117,7 +118,7 @@ struct __attribute__((packed)) fd_vote_acc {
       ulong           pending_delegator_rewards;
       uchar           has_bls_pubkey_compressed;
       uchar           bls_pubkey_compressed[48];
-      /* ulong           votes_cnt; */
+      /* ulong              votes_cnt; */
       /* fd_vote_acc_vote_t votes[31]; */
       /* uchar root_option */
       /* ulong root */
@@ -127,23 +128,25 @@ struct __attribute__((packed)) fd_vote_acc {
 typedef struct fd_vote_acc fd_vote_acc_t;
 
 FD_FN_PURE ulong
-fd_vote_acc_vote_cnt( uchar const * vote_account_data );
+fd_vote_acc_vote_cnt( uchar const * buf );
 
-/* fd_vote_acc_vote_slot takes a voter's vote account data and returns the
-   voter's most recent vote slot in the tower.  Returns ULONG_MAX if
-   they have an empty tower. */
-
-FD_FN_PURE ulong
-fd_vote_acc_vote_slot( uchar const * vote_account_data );
-
-/* fd_vote_acc_root_slot takes a voter's vote account data and returns the
-   voter's root slot.  Returns ULONG_MAX if they don't have a root. */
+/* fd_vote_acc_vote_slot takes a voter's vote account data and returns
+   the voter's most recent vote slot in the tower.  Returns ULONG_MAX
+   if they have an empty tower or buf_sz is too small. */
 
 FD_FN_PURE ulong
-fd_vote_acc_root_slot( uchar const * vote_account_data );
+fd_vote_acc_vote_slot( uchar const * buf );
+
+/* fd_vote_acc_root_slot takes a voter's vote account data and returns
+   the voter's root slot.  Returns ULONG_MAX if they don't have a root
+   or buf_sz is too small. */
+
+FD_FN_PURE ulong
+fd_vote_acc_root_slot( uchar const * buf );
 
 /* fd_txn_parse_simple_vote optionally extracts the vote account pubkey,
    identity pubkey, and largest voted-for slot from a vote transaction. */
+
 int
 fd_txn_parse_simple_vote( fd_txn_t const * txn,
                           uchar    const * payload,

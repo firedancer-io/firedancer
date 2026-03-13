@@ -29,30 +29,98 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-/* The tower tile is responsible for two things:
+/* The Tower tile broadly processes three classes of frags, leading to
+   three distinct kinds of frag processing:
 
-   1. running the fork choice (fd_ghost) and TowerBFT (fd_tower) rules
-      after replaying a block.
-   2. listening to gossip (duplicate shred and vote messages) and
-      monitoring for duplicate or duplicate confirmed blocks (fd_notar).
+   1. Processing vote _accounts_ (after replaying a block)
+
+      When Replay finishes executing a block, Rower reads back the vote
+      account state for every staked validator.  This is deterministic:
+      the vote account state is the result of executing all vote txns in
+      the block through the vote program, so it is guaranteed to
+      converge with Agave's view of the same accounts.  Tower uses these
+      accounts to run the fork choice rule (fd_ghost) and TowerBFT
+      (fd_tower).
+
+   2. Processing vote _transactions_ (at arbitrary points in time)
+
+      Tower also receives vote txns from Gossip and TPU.  These arrive
+      at arbitrary, nondeterministic times because Gossip and TPU are
+      both unreliable mediums: there's no guarantee we observe all the
+      same vote txns as Agave (nor another Firedancer, for that matter).
+
+      Tower is stricter than Agave when validating these vote txns (e.g.
+      we use is_simple_vote which requires at most two signers, whereas
+      Agave's Gossip vote parser does not).  Being stricter is
+      acceptable given vote txns from Gossip and TPU are inherently
+      unreliable, so dropping a small number of votes that Agave allows
+      but Firedancer does not is not significant to convergence.
+
+      However, these same vote txns are (redundantly) transmitted as
+      part of a block as well ie. through Replay.  The validation of
+      these Replay-sourced vote txns _is_ one-to-one with Agave (namely
+      the Vote Program), and critical for convergence.  Specifically, we
+      only process Replay vote txns that have been successfully executed
+      when counting them towards confirmations.
+
+      This provides an "eventually-consistent" model, specifically that
+      even though individual Gossip or TPU vote txns may be lost, we are
+      guaranteed to "eventually" confirm a block and converge with Agave
+      as long as we replay the block and its descendants, because our
+      vote programs match 1-1.  Gossip / TPU provide an optimization for
+      earlier confirmations as well as a source of security via
+      redundancy, in case we are not receiving block data from the rest
+      of the network.
+
+      The processing of vote txns is important to (as already alluded)
+      confirmations (fd_notar) and hard fork detection (fd_hfork).
+
+  3. Processing "other" frags.  Vote account and vote transaction
+     processing (1 and 2 above) is the meat and potatoes, but Tower also
+     processes several auxiliary frag types:
+
+      a. Shreds (from the shred tile): Tower checks incoming shreds for
+         equivocation via fd_eqvoc.  If two conflicting shreds are
+         detected for the same FEC set, Tower constructs a duplicate
+         proof and publishes it (FD_TOWER_SIG_SLOT_DUPLICATE).
+
+      b. Duplicate shred gossip messages (from the gossip tile): Tower
+         receives duplicate shred proofs from other validators via
+         gossip.  These proofs arrive in chunks (fd_eqvoc_chunk_insert)
+         and are reassembled and cryptographically verified before being
+         accepted.
+
+      c. Epoch stake updates (from the replay tile): Tower receives
+         epoch stake information to maintain the leader schedule via
+         fd_stake_ci, which is needed by eqvoc for signature
+         verification of shred proofs.
+
+      d. Shred version (from the ipecho tile): Tower receives the shred
+         version from ipecho to configure eqvoc's shred version
+         filtering for proof verification.
+
+      e. Slot dead (from the replay tile): Tower records a NULL bank
+         hash for dead slots in the hard fork detector (fd_hfork).
 
    Tower signals to other tiles about events that occur as a result of
-   those two above events, such as what block to vote on, what block to
-   reset onto as leader, what block got rooted, what blocks are
-   duplicates and what blocks are confirmed.
+   those two modes, such as what block to vote on, what block to reset
+   onto as leader, what block got rooted, what blocks are duplicates,
+   and what blocks are confirmed.
 
-   In general, tower uses the block_id as the identifier for blocks. The
-   block_id is the merkle root of the last FEC set for a block.  This is
-   guaranteed to be unique for a given block and is the canonical
-   identifier over the slot number because unlike slot numbers, if a
-   leader equivocates (produces multiple blocks for the same slot) the
-   block_id can disambiguate the blocks.
+   In general, Tower uses "block_id" as the identifier for a block.  The
+   block_id is the merkle root of the last FEC set for a block.  Unlike
+   slot numbers, this is guaranteed to be unique for a given block and
+   is therefore a canonical identifier because slot numbers can identify
+   multiple blocks, if a leader equivocates (produces multiple blocks
+   for the same slot), whereas it is not feasible for a leader to
+   produce block_id collisions.
 
    However, the block_id was only introduced into the Solana protocol
    recently, and TowerBFT still uses the "legacy" identifier of slot
    numbers for blocks.  So the tile (and relevant modules) will use
    block_id when possible to interface with the protocol but otherwise
-   falling back to slot number when block_id is unsupported. */
+   fallback to slot number when block_id is unsupported due to limits of
+   the protocol. */
 
 #define LOGGING 0
 
