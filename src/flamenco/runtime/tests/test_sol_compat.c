@@ -464,7 +464,7 @@ main( int     argc,
     FD_LOG_INFO(( "Attaching to --wksp %s", wksp_name ));
     wksp = fd_wksp_attach( wksp_name );
   } else if( !page_cnt ) {
-    ulong data_max = worker_cnt*(7UL<<30);
+    ulong data_max = worker_cnt*(8UL<<30);
     ulong part_max = fd_wksp_part_max_est( data_max, 64UL<<10 );
     FD_LOG_INFO(( "--wksp not specified, using anonymous demand-paged memory --part-max %lu --data-max %lu", part_max, data_max ));
     wksp = fd_wksp_demand_paged_new( "solfuzz", wksp_seed, part_max, data_max );

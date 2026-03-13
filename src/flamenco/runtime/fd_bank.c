@@ -29,14 +29,14 @@ fd_bank_epoch_leaders_query( fd_bank_t const * bank ) {
   if( FD_UNLIKELY( bank->data->epoch_leaders_idx==ULONG_MAX ) ) {
     return NULL;
   }
-  return (fd_epoch_leaders_t const *)fd_type_pun( fd_bank_get_epoch_leaders( bank->data ) + bank->data->epoch_leaders_idx * FD_EPOCH_LEADERS_MAX_FOOTPRINT );
+  return (fd_epoch_leaders_t const *)fd_type_pun( fd_bank_get_epoch_leaders( bank->data ) + bank->data->epoch_leaders_idx * bank->data->epoch_leaders_footprint );
 }
 
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
   ulong idx = fd_bank_epoch_get( bank ) % 2UL;
   bank->data->epoch_leaders_idx = idx;
-  return (fd_epoch_leaders_t *)fd_type_pun( fd_bank_get_epoch_leaders( bank->data ) + idx * FD_EPOCH_LEADERS_MAX_FOOTPRINT );
+  return (fd_epoch_leaders_t *)fd_type_pun( fd_bank_get_epoch_leaders( bank->data ) + idx * bank->data->epoch_leaders_footprint );
 }
 
 
@@ -178,8 +178,11 @@ fd_banks_footprint( ulong max_total_banks,
 
   /* max_fork_width is used in the macro below. */
 
+  ulong epoch_leaders_footprint = FD_EPOCH_LEADERS_FOOTPRINT( max_vote_accounts, FD_RUNTIME_SLOTS_PER_EPOCH );
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
+  l = FD_LAYOUT_APPEND( l, FD_EPOCH_LEADERS_ALIGN,             2UL * epoch_leaders_footprint );
   l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( max_total_banks ) );
@@ -217,8 +220,11 @@ fd_banks_new( void * shmem,
     return NULL;
   }
 
+  ulong epoch_leaders_footprint = FD_EPOCH_LEADERS_FOOTPRINT( max_vote_accounts, FD_RUNTIME_SLOTS_PER_EPOCH );
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_banks_data_t * banks_data                  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
+  void *            epoch_leaders_mem           = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,             2UL * epoch_leaders_footprint );
   void *            pool_mem                    = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( max_total_banks ) );
   void *            dead_banks_deque_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   void *            top_votes_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( max_total_banks ) );
@@ -260,6 +266,7 @@ fd_banks_new( void * shmem,
     return NULL;
   }
   fd_banks_set_dead_banks_deque( banks_data, banks_dead_deque );
+  fd_banks_set_epoch_leaders( banks_data, epoch_leaders_mem, epoch_leaders_footprint );
 
   /* Assign offset of the bank pool to the banks object. */
 
@@ -330,7 +337,7 @@ fd_banks_new( void * shmem,
 
     fd_bank_set_stake_rewards( bank, stake_rewards );
 
-    fd_bank_set_epoch_leaders( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, epoch_leaders_mem) );
+    fd_bank_set_epoch_leaders( bank, fd_banks_get_epoch_leaders( banks_data ), banks_data->epoch_leaders_footprint );
 
     fd_bank_set_stake_weights( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights) );
     fd_bank_set_stake_weights_cnt_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights_cnt) );
@@ -400,6 +407,7 @@ fd_banks_join( fd_banks_t * banks_ljoin,
 
   FD_SCRATCH_ALLOC_INIT( l, banks_data );
   banks_data                         = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                   sizeof(fd_banks_data_t) );
+  void * epoch_leaders_mem           = FD_SCRATCH_ALLOC_APPEND( l, FD_EPOCH_LEADERS_ALIGN,             2UL * banks_data->epoch_leaders_footprint );
   void * pool_mem                    = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),              fd_banks_pool_footprint( banks_data->max_total_banks ) );
   void * dead_banks_deque_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_dead_align(),              fd_banks_dead_footprint() );
   void * top_votes_pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_top_votes_pool_align(),     fd_bank_top_votes_pool_footprint( banks_data->max_total_banks ) );
@@ -424,6 +432,11 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   fd_bank_idx_seq_t * banks_dead_deque = fd_banks_dead_join( dead_banks_deque_mem );
   if( FD_UNLIKELY( !banks_dead_deque ) ) {
     FD_LOG_WARNING(( "Failed to join banks dead deque" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( fd_banks_get_epoch_leaders( banks_data )!=epoch_leaders_mem ) ) {
+    FD_LOG_WARNING(( "Failed to join epoch leaders mem" ));
     return NULL;
   }
 

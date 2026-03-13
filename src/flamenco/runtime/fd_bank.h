@@ -367,6 +367,7 @@ struct fd_bank_data {
 
   ulong epoch_leaders_idx; /* always 0 or 1 based on % epoch */
   ulong epoch_leaders_offset;
+  ulong epoch_leaders_footprint;
 
   int   top_votes_dirty;
   ulong top_votes_pool_idx;
@@ -459,8 +460,11 @@ fd_bank_get_stake_weights_cnt_next( fd_bank_data_t * bank ) {
 }
 
 static inline void
-fd_bank_set_epoch_leaders( fd_bank_data_t * bank, uchar * epoch_leaders_mem ) {
-  bank->epoch_leaders_offset = (ulong)bank - (ulong)epoch_leaders_mem;
+fd_bank_set_epoch_leaders( fd_bank_data_t * bank,
+                           uchar *          epoch_leaders_mem,
+                           ulong            epoch_leaders_footprint ) {
+  bank->epoch_leaders_offset    = (ulong)bank - (ulong)epoch_leaders_mem;
+  bank->epoch_leaders_footprint = epoch_leaders_footprint;
 }
 
 static inline uchar *
@@ -586,6 +590,18 @@ struct fd_banks_data {
 
   ulong dead_banks_deque_offset;
 
+  /* The set of epoch leaders for the current and previous epochs is
+     allocated out-of-line and tracked by epoch_leaders_offset.  Only
+     two need to be stored because in the worst case we will have a root
+     that sits behind an epoch boundary, with leaf banks executing into
+     the next epoch.  All banks that execute behind the boundary, will
+     use the previous epoch's leader schedule, and all nodes after the
+     epoch boundary are guaranteed to produce identical leader
+     schedules. */
+
+  ulong epoch_leaders_offset;
+  ulong epoch_leaders_footprint;
+
   /* stake_delegations_root will be the full state of stake delegations
      for the current root. It can get updated in two ways:
      1. On boot the snapshot will be directly read into the rooted
@@ -604,16 +620,6 @@ struct fd_banks_data {
      root bank. */
 
   uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-
-  /* The set of epoch leaders for the current and previous epochs.  Only
-     two need to be stored because in the worst case we will have a root
-     that sits behind an epoch boundary, with leaf banks executing into
-     the next epoch.  All banks that execute behind the boundary, will
-     use the previous epoch's leader schedule, and all nodes after the
-     epoch boundary are guaranteed to produce identical leader
-     schedules. */
-
-  uchar epoch_leaders_mem[ 2UL ][ FD_EPOCH_LEADERS_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
 
   /* Set of compressed stake weights for the leader schedule for the
      current epoch. */
@@ -756,6 +762,19 @@ static inline void
 fd_banks_set_dead_banks_deque( fd_banks_data_t *   banks_data,
                                fd_bank_idx_seq_t * dead_banks_deque ) {
   banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
+}
+
+static inline uchar *
+fd_banks_get_epoch_leaders( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset );
+}
+
+static inline void
+fd_banks_set_epoch_leaders( fd_banks_data_t * banks_data,
+                            uchar *           epoch_leaders_mem,
+                            ulong             epoch_leaders_footprint ) {
+  banks_data->epoch_leaders_offset    = (ulong)epoch_leaders_mem - (ulong)banks_data;
+  banks_data->epoch_leaders_footprint = epoch_leaders_footprint;
 }
 
 static inline fd_bank_top_votes_t *
