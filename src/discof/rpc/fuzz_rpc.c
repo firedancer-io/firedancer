@@ -107,7 +107,7 @@ LLVMFuzzerInitialize( int  *   argc,
 
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
-  putenv( "FD_LOG_PATH=" );
+  setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( argc, argv );
   fd_log_level_core_set(5);  /* abort on FD_LOG_ERR */
 
