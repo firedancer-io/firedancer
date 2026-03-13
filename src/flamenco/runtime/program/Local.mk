@@ -55,6 +55,9 @@ $(call run-unit-test,test_bpf_loader_serialization)
 
 $(call make-unit-test,test_vote_program,test_vote_program,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_vote_program)
+
+$(call make-unit-test,test_create_account_allow_prefund,test_create_account_allow_prefund,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_create_account_allow_prefund)
 endif
 endif
 endif
