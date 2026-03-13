@@ -78,6 +78,8 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx ) {
+  long ts_start = fd_log_wallclock();
+
   uchar __attribute__((aligned(FD_SYSVAR_SLOT_HASHES_ALIGN))) slot_hashes_mem[FD_SYSVAR_SLOT_HASHES_FOOTPRINT];
   fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( accdb, xid, slot_hashes_mem );
   fd_slot_hash_t *          hashes             = NULL;
@@ -86,6 +88,8 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
     slot_hashes_global = fd_sysvar_slot_hashes_new( slot_hashes_mem, FD_SYSVAR_SLOT_HASHES_CAP );
   }
   slot_hashes_global = fd_sysvar_slot_hashes_join( slot_hashes_global, &hashes );
+
+  long ts_after_read = fd_log_wallclock();
 
   uchar found = 0;
   for( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
@@ -112,8 +116,23 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
     deq_fd_slot_hash_t_push_head( hashes, slot_hash );
   }
 
+  long ts_after_deq = fd_log_wallclock();
+
   fd_sysvar_slot_hashes_write( bank, accdb, xid, capture_ctx, slot_hashes_global );
+
+  long ts_after_write = fd_log_wallclock();
+
   fd_sysvar_slot_hashes_leave( slot_hashes_global, hashes );
+
+  long total_ns = ts_after_write - ts_start;
+  if( FD_UNLIKELY( total_ns > 10L*1000L*1000L ) ) { /* > 10 ms */
+    FD_LOG_WARNING(( "slot_hashes_update slow: total=%.3f ms  read=%.3f ms  deq_update=%.3f ms  write=%.3f ms  slot=%lu",
+                     (double)total_ns/1e6,
+                     (double)(ts_after_read  - ts_start)/1e6,
+                     (double)(ts_after_deq   - ts_after_read)/1e6,
+                     (double)(ts_after_write - ts_after_deq)/1e6,
+                     fd_bank_slot_get( bank ) ));
+  }
 }
 
 fd_slot_hashes_global_t *

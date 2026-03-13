@@ -81,17 +81,28 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
                           fd_bank_t               * bank,
                           fd_capture_ctx_t        * capture_ctx ) {
 
+  long ts0 = fd_log_wallclock();
+
   /* Hash the new version of the account */
   fd_hashes_account_lthash( pubkey, meta, fd_account_data( meta ), lthash_post );
 
+  long ts1 = fd_log_wallclock(); /* after blake3 hash */
+
   /* Subtract the old hash of the account from the bank lthash */
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
+
+  long ts2 = fd_log_wallclock(); /* after lock acquire */
+
   fd_lthash_sub( bank_lthash, lthash_prev );
 
   /* Add the new hash of the account to the bank lthash */
   fd_lthash_add( bank_lthash, lthash_post );
 
+  long ts3 = fd_log_wallclock(); /* after add/sub */
+
   fd_bank_lthash_end_locking_modify( bank );
+
+  long ts4 = fd_log_wallclock(); /* after lock release */
 
   if( capture_ctx && capture_ctx->capture_solcap &&
       fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
@@ -110,5 +121,20 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
       fd_bank_slot_get( bank ),
       fd_account_data( meta ),
       meta->dlen );
+  }
+
+  long ts5 = fd_log_wallclock(); /* after solcap */
+
+  long total_ns = ts5 - ts0;
+  if( FD_UNLIKELY( total_ns > 400L*1000L*1000L ) ) { /* > 400 ms */
+    FD_LOG_WARNING(( "update_lthash1 slow: total=%.3f ms  blake3=%.3f ms  lock_acquire=%.3f ms  add_sub=%.3f ms  lock_release=%.3f ms  solcap=%.3f ms  data_sz=%u slot=%lu",
+                     (double)total_ns/1e6,
+                     (double)(ts1 - ts0)/1e6,
+                     (double)(ts2 - ts1)/1e6,
+                     (double)(ts3 - ts2)/1e6,
+                     (double)(ts4 - ts3)/1e6,
+                     (double)(ts5 - ts4)/1e6,
+                     meta->dlen,
+                     fd_bank_slot_get( bank ) ));
   }
 }
