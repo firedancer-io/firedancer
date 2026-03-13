@@ -39,7 +39,8 @@ fd_grpc_h2_gen_request_hdrs( fd_grpc_req_hdrs_t const * req,
 
 /* fd_grpc_h2_parse_num parses a decimal unsigned integer from a
    header value.  Returns the parsed value, or UINT_MAX on failure
-   (empty, non-numeric, hex/octal, overflow). */
+   (empty, non-decimal characters such as hex prefixes or trailing
+   junk, or overflow beyond UINT_MAX). */
 
 static uint
 fd_grpc_h2_parse_num( char const * num,
