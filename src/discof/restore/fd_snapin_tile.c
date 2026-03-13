@@ -564,6 +564,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   }
 
   ctx->bank_slot = manifest->slot;
+  ctx->manifest_capitalization = manifest->capitalization;
   fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
     .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
     .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
@@ -615,6 +616,13 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
     fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
     ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+
+    if( FD_LIKELY( ctx->use_vinyl ) ) {
+      fd_ssctrl_capitalization_t * cap = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+      cap->capitalization = manifest->capitalization;
+      fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_EXP_CAPITALIZATION, ctx->hash_out.chunk, sizeof(fd_ssctrl_capitalization_t), 0UL, 0UL, 0UL );
+      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_ssctrl_capitalization_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    }
   }
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
@@ -786,8 +794,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->txncache_entries_len  = 0UL;
-      ctx->blockhash_offsets_len = 0UL;
+      ctx->txncache_entries_len    = 0UL;
+      ctx->blockhash_offsets_len   = 0UL;
+      ctx->manifest_capitalization = 0UL;
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
@@ -803,6 +812,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.full_bytes_read   = 0UL;
         ctx->metrics.incremental_bytes_read = 0UL;
         ctx->full_genesis_creation_time_seconds = 0UL;
+        ctx->capitalization                     = 0UL;
+        ctx->dup_capitalization                 = 0UL;
+        ctx->recovery.capitalization            = 0UL;
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
@@ -812,6 +824,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
         fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
         fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
+
+        ctx->capitalization     = ctx->recovery.capitalization;
+        ctx->dup_capitalization = 0UL;
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
@@ -845,6 +860,19 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
           forward_msg = 0;
           break;
         }
+
+        ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
+        if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
+          /* SnapshotError::MismatchedCapitalization
+             https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
+          FD_LOG_WARNING(( "snapshot manifest capitalization %lu does not match computed capitalization %lu",
+                           ctx->manifest_capitalization, ctx->capitalization ));
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
+
+        ctx->recovery.capitalization = ctx->capitalization;
       }
 
       /* Backup metric counters */
@@ -862,6 +890,17 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
           if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
           else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
+
+        ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
+        if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
+          /* SnapshotError::MismatchedCapitalization
+             https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
+          FD_LOG_WARNING(( "snapshot manifest capitalization %lu does not match computed capitalization %lu",
+                           ctx->manifest_capitalization, ctx->capitalization ));
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;
@@ -1118,6 +1157,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->epoch           = 0UL;
 
   ctx->full_genesis_creation_time_seconds = 0UL;
+  ctx->manifest_capitalization            = 0UL;
+  ctx->capitalization                     = 0UL;
+  ctx->dup_capitalization                 = 0UL;
+  ctx->recovery.capitalization            = 0UL;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 
