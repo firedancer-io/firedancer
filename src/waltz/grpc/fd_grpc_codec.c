@@ -51,6 +51,7 @@ fd_grpc_h2_parse_num( char const * num,
   char * endptr;
   ulong val = strtoul( num_cstr, &endptr, 10 );
   if( FD_UNLIKELY( endptr==num_cstr ) ) return UINT_MAX;
+  if( FD_UNLIKELY( *endptr!='\0'    ) ) return UINT_MAX;
   if( FD_UNLIKELY( val>(ulong)UINT_MAX ) ) return UINT_MAX;
   return (uint)val;
 }
