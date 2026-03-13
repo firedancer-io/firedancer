@@ -37,15 +37,22 @@ fd_grpc_h2_gen_request_hdrs( fd_grpc_req_hdrs_t const * req,
   return 1;
 }
 
-/* fd_grpc_h2_parse_num parses a decimal number in [1,999]. */
+/* fd_grpc_h2_parse_num parses a decimal unsigned integer from a
+   header value.  Returns the parsed value, or UINT_MAX on failure
+   (empty, non-numeric, hex/octal, overflow). */
 
 static uint
 fd_grpc_h2_parse_num( char const * num,
                       ulong        num_len ) {
+  if( FD_UNLIKELY( !num_len ) ) return UINT_MAX;
   num_len = fd_ulong_min( num_len, 10 );
   char num_cstr[ 11 ];
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( num_cstr ), num, num_len ) );
-  return fd_cstr_to_uint( num_cstr );
+  char * endptr;
+  ulong val = strtoul( num_cstr, &endptr, 10 );
+  if( FD_UNLIKELY( endptr==num_cstr ) ) return UINT_MAX;
+  if( FD_UNLIKELY( val>(ulong)UINT_MAX ) ) return UINT_MAX;
+  return (uint)val;
 }
 
 int
@@ -67,9 +74,15 @@ fd_grpc_h2_read_response_hdrs( fd_grpc_resp_hdrs_t *       resp,
 
     int hdr_idx = fd_h2_hdr_match( matcher, hdr->name, hdr->name_len, hdr->hint );
     switch( hdr_idx ) {
-    case FD_H2_HDR_STATUS:
-      resp->h2_status = fd_grpc_h2_parse_num( hdr->value, hdr->value_len );
+    case FD_H2_HDR_STATUS: {
+      uint h2_status = fd_grpc_h2_parse_num( hdr->value, hdr->value_len );
+      if( FD_UNLIKELY( h2_status<100U || h2_status>599U ) ) {
+        FD_LOG_WARNING(( "Invalid HTTP status %u", h2_status ));
+        return FD_H2_ERR_PROTOCOL;
+      }
+      resp->h2_status = h2_status;
       break;
+    }
     case FD_H2_HDR_CONTENT_TYPE:
       resp->is_grpc_proto =
         ( ( hdr->value_len==(sizeof("application/grpc")-1UL) &&
@@ -77,9 +90,15 @@ fd_grpc_h2_read_response_hdrs( fd_grpc_resp_hdrs_t *       resp,
           ( hdr->value_len==(sizeof("application/grpc+proto")-1UL) &&
             fd_memeq( hdr->value, "application/grpc+proto", sizeof("application/grpc+proto")-1UL ) ) );
       break;
-    case FD_GRPC_HDR_STATUS:
-      resp->grpc_status = fd_grpc_h2_parse_num( hdr->value, hdr->value_len );
+    case FD_GRPC_HDR_STATUS: {
+      uint grpc_status = fd_grpc_h2_parse_num( hdr->value, hdr->value_len );
+      if( FD_UNLIKELY( grpc_status>FD_GRPC_STATUS_UNAUTHENTICATED ) ) {
+        FD_LOG_WARNING(( "Invalid grpc-status %u", grpc_status ));
+        return FD_H2_ERR_PROTOCOL;
+      }
+      resp->grpc_status = grpc_status;
       break;
+    }
     case FD_GRPC_HDR_MESSAGE:
       resp->grpc_msg_len = (uint)fd_ulong_min( hdr->value_len, sizeof(resp->grpc_msg) );
       if( resp->grpc_msg_len ) {

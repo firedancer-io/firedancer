@@ -60,12 +60,12 @@ typedef struct fd_grpc_req_hdrs fd_grpc_req_hdrs_t;
 struct fd_grpc_resp_hdrs {
   /* Headers */
 
-  uint h2_status;   /* 0 implies invalid */
+  uint h2_status;   /* 0 if absent, else HTTP status in [100,599] */
   uint is_grpc_proto : 1;
 
   /* Trailers */
 
-  uint grpc_status; /* 0 implies invalid */
+  uint grpc_status; /* default FD_GRPC_STATUS_UNKNOWN, 0 is FD_GRPC_STATUS_OK */
   char grpc_msg[ 1008 ];
   uint grpc_msg_len;
 };
