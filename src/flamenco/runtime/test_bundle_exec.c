@@ -149,9 +149,9 @@ init_rent_sysvar( test_env_t * env,
 
     FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
-    env->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), env->tag );
+    env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
     FD_TEST( env->runtime_stack );
-    fd_memset( env->runtime_stack, 0, sizeof(fd_runtime_stack_t) );
+    FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) );
 
     fd_funk_txn_xid_t root[1];
     fd_funk_txn_xid_set_root( root );
