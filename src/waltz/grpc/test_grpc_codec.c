@@ -82,10 +82,10 @@ hpack_literal( uchar * out, char const * name, ulong name_len,
                              char const * val,  ulong val_len ) {
   uchar * p = out;
   *p++ = 0x00;
-  FD_TEST( name_len<128UL );
+  FD_TEST( name_len<127UL );
   *p++ = (uchar)name_len;
   fd_memcpy( p, name, name_len ); p += name_len;
-  FD_TEST( val_len <128UL );
+  FD_TEST( val_len <127UL );
   *p++ = (uchar)val_len;
   fd_memcpy( p, val, val_len );   p += val_len;
   return (ulong)(p - out);
@@ -151,7 +151,7 @@ test_read_response_hdrs( void ) {
     FD_TEST( rc==FD_H2_SUCCESS );
     FD_TEST( resp.h2_status==599 ); }
 
-  /* No :status or grpc-status headers → success with defaults */
+  /* No :status or grpc-status headers => success with defaults */
   { uchar empty[] = "";
     PARSE( empty, 0 );
     FD_TEST( rc==FD_H2_SUCCESS );
@@ -167,6 +167,55 @@ test_read_response_hdrs( void ) {
     FD_TEST( rc==FD_H2_SUCCESS );
     FD_TEST( resp.grpc_msg_len==15 );
     FD_TEST( fd_memeq( resp.grpc_msg, "something broke", 15 ) ); }
+
+  /* ---- content-type cases ---- */
+
+  /* content-type: application/grpc => is_grpc_proto==1 */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc", 16 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==1 ); }
+
+  /* content-type: application/grpc+proto => is_grpc_proto==1 */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc+proto", 22 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==1 ); }
+
+  /* content-type: application/grpc+json => is_grpc_proto==0 (not supported) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc+json", 21 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==0 ); }
+
+  /* content-type: text/plain => is_grpc_proto==0 */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "text/plain", 10 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==0 ); }
+
+  /* content-type: application/grpc; charset=utf-8 => is_grpc_proto==0 (params rejected) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc; charset=utf-8", 30 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==0 ); }
+
+  /* no content-type header => is_grpc_proto==0 (default from memset) */
+  { off = 0;
+    buf[off++] = 0x88;
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==0 ); }
 
   /* ---- h2_status rejection cases ---- */
 
@@ -200,11 +249,25 @@ test_read_response_hdrs( void ) {
     PARSE( buf, off );
     FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
 
-  /* :status: 0310 (leading zero, parses as 310 decimal with base 10) */
+  /* :status: 0310 (4 digits, rejected per HTTP/2 3-digit requirement) */
   { off = hpack_literal( buf, ":status", 7, "0310", 4 );
     PARSE( buf, off );
-    FD_TEST( rc==FD_H2_SUCCESS );
-    FD_TEST( resp.h2_status==310 ); }
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 0200 (non-canonical encoding of 200, must be rejected) */
+  { off = hpack_literal( buf, ":status", 7, "0200", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 20 (2 digits, too short) */
+  { off = hpack_literal( buf, ":status", 7, "20", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 2000 (4 digits, too long) */
+  { off = hpack_literal( buf, ":status", 7, "2000", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
 
   /* :status: 200abc (trailing junk) */
   { off = hpack_literal( buf, ":status", 7, "200abc", 6 );

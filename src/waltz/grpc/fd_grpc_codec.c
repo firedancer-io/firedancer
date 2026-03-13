@@ -78,6 +78,10 @@ fd_grpc_h2_read_response_hdrs( fd_grpc_resp_hdrs_t *       resp,
     int hdr_idx = fd_h2_hdr_match( matcher, hdr->name, hdr->name_len, hdr->hint );
     switch( hdr_idx ) {
     case FD_H2_HDR_STATUS: {
+      if( FD_UNLIKELY( hdr->value_len!=3 ) ) {
+        FD_LOG_WARNING(( "Invalid HTTP status length %u", hdr->value_len ));
+        return FD_H2_ERR_PROTOCOL;
+      }
       uint h2_status = fd_grpc_h2_parse_num( hdr->value, hdr->value_len );
       if( FD_UNLIKELY( h2_status<100U || h2_status>599U ) ) {
         FD_LOG_WARNING(( "Invalid HTTP status %u", h2_status ));
