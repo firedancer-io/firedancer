@@ -221,26 +221,42 @@ lockout_check( fd_tower_t const * tower,
 static int
 switch_check( fd_tower_t const  * tower,
               fd_tower_blocks_t * blocks,
-              fd_tower_leaves_t * leaves,
               fd_tower_lockos_t * lockos,
               fd_tower_stakes_t * stakes,
+              fd_ghost_t        * ghost,
               ulong               total_stake,
               ulong               switch_slot ) {
 
   ulong switch_stake   = 0;
   ulong last_vote_slot = fd_tower_peek_tail_const( tower )->slot;
   ulong root_slot      = fd_tower_peek_head_const( tower )->slot;
-  for ( fd_tower_leaves_dlist_iter_t iter = fd_tower_leaves_dlist_iter_fwd_init( leaves->dlist, leaves->pool );
-                                           !fd_tower_leaves_dlist_iter_done( iter, leaves->dlist, leaves->pool );
-                                     iter = fd_tower_leaves_dlist_iter_fwd_next( iter, leaves->dlist, leaves->pool ) ) {
 
-    /* Iterate over all the leaves of all forks */
+  fd_ghost_blk_t * head = fd_ghost_bfs_iter_init( ghost, fd_ghost_root( ghost ) );
+  fd_ghost_blk_t * tail = head;
 
-    fd_tower_leaf_t  * leaf           = fd_tower_leaves_dlist_iter_ele( iter, leaves->dlist, leaves->pool );
-    ulong              candidate_slot = leaf->slot;
-    ulong              lca            = fd_tower_blocks_lowest_common_ancestor( blocks, candidate_slot, last_vote_slot );
+#define iter_next { head = next; continue; }
+
+  while( FD_LIKELY( head ) ) {
+    fd_ghost_blk_t * blk = head;
+
+    /* Because agave has particular behavior where if they replay a equivocating
+       version of a slot, and then the correct version, the original version
+       and all of it's children get purged from all structures.  None of
+       the nodes on this subtree can be considered for the switch proof. */
+
+    if( FD_LIKELY( memcmp( &fd_tower_blocks_query( blocks, blk->slot )->replayed_block_id, &blk->id, sizeof(fd_hash_t) )
+                   && !blk->conf ) ) { /* equivocating block & most recently replayed version is not this version. */
+      head = fd_ghost_bfs_iter_next( ghost, head, 0 /* do not add children to the queue */, &tail );
+      continue;
+    }
+
+    head = fd_ghost_bfs_iter_next( ghost, head, 1, &tail );
+
+    if( FD_LIKELY( blk->child != ULONG_MAX ) ) continue; /* only consider leaves */
+    ulong candidate_slot = blk->slot;
+    ulong lca = fd_tower_blocks_lowest_common_ancestor( blocks, candidate_slot, last_vote_slot );
     if( FD_UNLIKELY( candidate_slot == last_vote_slot ) ) continue;
-    if( FD_UNLIKELY( lca==ULONG_MAX ) ) continue; /* unlikely but this leaf is an already pruned minority fork */
+    if( FD_UNLIKELY( lca==ULONG_MAX ) ) continue;       /* unlikely but this leaf is an already pruned minority fork */
 
     if( FD_UNLIKELY( fd_tower_blocks_is_slot_descendant( blocks, lca, switch_slot ) ) ) {
 
@@ -405,7 +421,6 @@ propagated_check( fd_notar_t * notar,
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
                          fd_tower_blocks_t * blocks,
-                         fd_tower_leaves_t * leaves,
                          fd_tower_lockos_t * lockos,
                          fd_tower_stakes_t * stakes,
                          fd_tower_voters_t * voters,
@@ -436,8 +451,8 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
     };
   }
 
-  ulong              prev_vote_slot     = fd_tower_peek_tail_const( tower )->slot;
-  fd_tower_blk_t * prev_vote_fork     = fd_tower_blocks_query( blocks, prev_vote_slot );
+  ulong            prev_vote_slot = fd_tower_peek_tail_const( tower )->slot;
+  fd_tower_blk_t * prev_vote_fork = fd_tower_blocks_query( blocks, prev_vote_slot );
 
 
   if( FD_UNLIKELY( !prev_vote_fork->voted ) ) {
@@ -552,7 +567,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L443-L445 */
 
-  else if( FD_LIKELY( switch_check( tower, blocks, leaves, lockos, stakes, best_blk->total_stake, best_blk->slot ) ) ) {
+  else if( FD_LIKELY( switch_check( tower, blocks, lockos, stakes, ghost, best_blk->total_stake, best_blk->slot ) ) ) {
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
     reset_blk = best_blk;
     vote_blk  = best_blk;

@@ -142,7 +142,6 @@ struct fd_tower_tile {
 
   fd_tower_t *        scratch_tower; /* spare tower used during processing */
   fd_tower_blocks_t * tower_blocks;
-  fd_tower_leaves_t * tower_leaves;
   fd_tower_lockos_t * tower_lockos;
   fd_tower_voters_t * tower_voters; /* deque of (pubkey, stake, vote account data) */
   fd_tower_stakes_t * tower_stakes; /* tracks the stakes for each voter in the epoch per fork */
@@ -689,56 +688,6 @@ refresh_tower_voters( fd_tower_tile_t * ctx,
 }
 
 static void
-update_tower_leaves( fd_tower_leaves_t * tower_leaves,
-                     fd_tower_blocks_t * tower_blocks,
-                     fd_ghost_t        * ghost,
-                     ulong               slot,
-                     ulong               parent_slot ) {
-  fd_tower_blk_t * tower_blk = fd_tower_blocks_query( tower_blocks, slot );
-  if( FD_LIKELY( !tower_blk ) ) {
-    /* first replay of slot */
-    fd_tower_leaves_upsert( tower_leaves, slot, parent_slot );
-    return;
-  }
-
-  /* second replay of this slot. Needs 4 updates to tower_leaves:
-     1. Remove any children of the slot from the leaves.  Agave dumps
-        the entire subtree starting from this slot, so any children of
-        this slot shouldn't be accounted for in switch check.
-     2. Original parent_slot may need to become a leaf if the parent of
-        the slot changed and the old_parent has only 1 child
-     3. Remove parent_slot from leaves if it exists.
-     4. Add slot to leaves if it isn't already. */
-
-  /* 1. BFS down children of this subtree and remove from tower_leaves */
-  fd_ghost_blk_t * head = fd_ghost_bfs_iter_init( ghost, fd_ghost_query( ghost, &tower_blk->replayed_block_id ) );
-  fd_ghost_blk_t * tail = head;
-  while( FD_LIKELY( head ) ) {
-    if( FD_LIKELY( head->child == ULONG_MAX ) ) {
-      // this is a leaf, remove from tower_leaves
-      fd_tower_leaves_remove( tower_leaves, head->slot );
-    }
-    head = fd_ghost_bfs_iter_next( ghost, head, &tail );
-  }
-
-  /* 2. Check if the old parent slot needs to be removed from leaves */
-  ulong old_parent_slot = tower_blk->parent_slot;
-  if( FD_UNLIKELY( old_parent_slot != parent_slot ) ) {
-    /* TODO: document why we can use canonical block id here vs.
-       replayed block id */
-    fd_tower_blk_t * old_parent_blk = fd_tower_blocks_query( tower_blocks, old_parent_slot );
-    /* old_parent must for sure have at least 1 child, which is the first version of this slot */
-    fd_ghost_blk_t * first_version = fd_ghost_query( ghost, &tower_blk->replayed_block_id );
-    if( first_version->sibling == ULONG_MAX /* btw equivocating sibling shouldn't exist in the ghost yet but TODO makeexplicit */ ) {
-      fd_tower_leaves_upsert( tower_leaves, old_parent_slot, old_parent_blk->parent_slot );
-    }
-  }
-
-  /* 3 & 4. Make slot a leaf again if it isn't, and remove parent_slot from leaves */
-  fd_tower_leaves_upsert( tower_leaves, slot, parent_slot );
-}
-
-static void
 replay_slot_completed( fd_tower_tile_t *            ctx,
                        fd_replay_slot_completed_t * slot_completed,
                        ulong                        tsorig,
@@ -798,9 +747,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* Check for equivocation (already received a replay_slot_completed
      for this slot). */
-
-  /* Upsert tower_{...} structures. */
-  update_tower_leaves( ctx->tower_leaves, ctx->tower_blocks, ctx->ghost, slot_completed->slot, slot_completed->parent_slot );
 
   fd_tower_blk_t * eqvoc_tower_blk = NULL;
   if( FD_UNLIKELY( eqvoc_tower_blk = fd_tower_blocks_query( ctx->tower_blocks, slot_completed->slot ) ) ) {
@@ -892,7 +838,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* Determine reset, vote, and root slots.  There may not be a vote or
      root slot but there is always a reset slot. */
 
-  fd_tower_out_t out = fd_tower_vote_and_reset( ctx->tower, ctx->tower_blocks, ctx->tower_leaves, ctx->tower_lockos, ctx->tower_stakes, ctx->tower_voters, ctx->ghost, ctx->notar );
+  fd_tower_out_t out = fd_tower_vote_and_reset( ctx->tower, ctx->tower_blocks, ctx->tower_lockos, ctx->tower_stakes, ctx->tower_voters, ctx->ghost, ctx->notar );
 
   /* Update forks if there is a vote slot. */
 
@@ -938,7 +884,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
     for( ulong slot = ctx->root_slot; slot < out.root_slot; slot++ ) {
       fd_tower_blocks_remove( ctx->tower_blocks, slot );
-      fd_tower_leaves_remove( ctx->tower_leaves, slot );
       fd_tower_lockos_remove( ctx->tower_lockos, slot );
       fd_tower_stakes_remove( ctx->tower_stakes, slot );
     }
@@ -971,7 +916,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   msg->replay_slot           = slot_completed->slot;
-  msg->active_fork_cnt       = fd_tower_leaves_pool_used( ctx->tower_leaves->pool );
+  msg->active_fork_cnt       = 1;
   msg->vote_slot             = out.vote_slot;
   msg->reset_slot            = out.reset_slot;
   msg->reset_block_id        = out.reset_block_id;
@@ -1068,7 +1013,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint()                                  );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint()                                  );
   l = FD_LAYOUT_APPEND( l, fd_tower_blocks_align(),  fd_tower_blocks_footprint( slot_max )                 );
-  l = FD_LAYOUT_APPEND( l, fd_tower_leaves_align(),  fd_tower_leaves_footprint( slot_max )                 );
   l = FD_LAYOUT_APPEND( l, fd_tower_lockos_align(),  fd_tower_lockos_footprint( slot_max, FD_VOTER_MAX )   );
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_align(),  fd_tower_stakes_footprint( slot_max )                 );
   l = FD_LAYOUT_APPEND( l, fd_tower_voters_align(),  fd_tower_voters_footprint( FD_VOTER_MAX )             );
@@ -1351,7 +1295,6 @@ unprivileged_init( fd_topo_t *      topo,
   void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                  );
   void  * scratch_tower = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),        fd_tower_footprint()                                  );
   void  * tower_blocks  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max )                 );
-  void  * tower_leaves  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_leaves_align(), fd_tower_leaves_footprint( slot_max )                 );
   void  * tower_lockos  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, FD_VOTER_MAX )   );
   void  * tower_stakes  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max )                 );
   void  * tower_voters  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_voters_align(), fd_tower_voters_footprint( FD_VOTER_MAX )             );
@@ -1370,7 +1313,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower              = fd_tower_join       ( fd_tower_new       ( tower )                                                                 );
   ctx->scratch_tower      = fd_tower_join       ( fd_tower_new       ( scratch_tower )                                                         );
   ctx->tower_blocks       = fd_tower_blocks_join( fd_tower_blocks_new( tower_blocks, slot_max, ctx->seed )                                     );
-  ctx->tower_leaves       = fd_tower_leaves_join( fd_tower_leaves_new( tower_leaves, slot_max, ctx->seed )                                     );
   ctx->tower_lockos       = fd_tower_lockos_join( fd_tower_lockos_new( tower_lockos, slot_max, FD_VOTER_MAX, ctx->seed )                       );
   ctx->tower_stakes       = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes, slot_max, ctx->seed )                                     );
   ctx->tower_voters       = fd_tower_voters_join( fd_tower_voters_new( tower_voters, FD_VOTER_MAX )                                            );
@@ -1388,7 +1330,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->tower );
   FD_TEST( ctx->scratch_tower );
   FD_TEST( ctx->tower_blocks );
-  FD_TEST( ctx->tower_leaves );
   FD_TEST( ctx->tower_lockos );
   FD_TEST( ctx->tower_stakes );
   FD_TEST( ctx->tower_voters );

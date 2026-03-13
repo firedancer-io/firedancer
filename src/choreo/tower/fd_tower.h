@@ -443,7 +443,6 @@ typedef struct fd_tower_out fd_tower_out_t;
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
                          fd_tower_blocks_t * blocks,
-                         fd_tower_leaves_t * leaves,
                          fd_tower_lockos_t * lockos,
                          fd_tower_stakes_t * stakes,
                          fd_tower_voters_t * voters,

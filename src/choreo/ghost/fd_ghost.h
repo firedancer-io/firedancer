@@ -105,7 +105,6 @@ struct __attribute__((aligned(128UL))) fd_ghost_blk {
   ulong     sibling;     /* pool idx of the right-sibling */
   ulong     stake;       /* sum of stake that has voted for this slot or any of its descendants */
   ulong     total_stake; /* total stake for this blk */
-  int       eqvoc;       /* whether this block is equivocating. if so, it is invalid for fork choice unless duplicate confirmed */
   int       conf;        /* whether this block is "duplicate confirmed" via gossip votes (>= 52% of stake) */
   int       valid;       /* whether this block is valid for fork choice. an equivocating block is valid iff duplicate confirmed */
 };
@@ -339,6 +338,7 @@ fd_ghost_bfs_iter_init( fd_ghost_t     * ghost,
 fd_ghost_blk_t *
 fd_ghost_bfs_iter_next( fd_ghost_t     *  ghost,
                         fd_ghost_blk_t *  head,
+                        int               include_subtree,
                         fd_ghost_blk_t ** tail );
 
 

@@ -253,7 +253,6 @@ fd_ghost_insert( fd_ghost_t      * ghost,
   blk->sibling     = null;
   blk->stake       = 0;
   blk->total_stake = 0;
-  blk->eqvoc       = 0;
   blk->conf        = 0;
   blk->valid       = 1;
   blk_map_ele_insert( blk_map( ghost ), blk, pool );
@@ -437,11 +436,12 @@ fd_ghost_bfs_iter_init( fd_ghost_t     * ghost,
 fd_ghost_blk_t *
 fd_ghost_bfs_iter_next( fd_ghost_t     *  ghost,
                         fd_ghost_blk_t *  head,
+                        int               include_subtree,
                         fd_ghost_blk_t ** tail ) {
   blk_pool_t * pool = blk_pool( ghost );
 
   fd_ghost_blk_t * child = blk_pool_ele( pool, head->child );
-  while( FD_LIKELY( child ) ) {
+  while( FD_LIKELY( child && include_subtree ) ) {
     FD_TEST( blk_map_ele_remove( blk_map( ghost ), &child->id, NULL, pool ) ); /* in the tree so must be in the map */
     (*tail)->next = blk_pool_idx( pool, child );
     *tail         = blk_pool_ele( pool, (*tail)->next );
@@ -452,6 +452,7 @@ fd_ghost_bfs_iter_next( fd_ghost_t     *  ghost,
   blk_map_ele_insert( blk_map( ghost ), head, pool );       /* re-insert head into map */
   return next;
 }
+
 int
 fd_ghost_verify( fd_ghost_t * ghost ) {
   if( FD_UNLIKELY( !ghost ) ) {
