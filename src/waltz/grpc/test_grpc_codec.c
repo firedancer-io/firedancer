@@ -82,8 +82,10 @@ hpack_literal( uchar * out, char const * name, ulong name_len,
                              char const * val,  ulong val_len ) {
   uchar * p = out;
   *p++ = 0x00;
+  FD_TEST( name_len<128UL );
   *p++ = (uchar)name_len;
   fd_memcpy( p, name, name_len ); p += name_len;
+  FD_TEST( val_len <128UL );
   *p++ = (uchar)val_len;
   fd_memcpy( p, val, val_len );   p += val_len;
   return (ulong)(p - out);
