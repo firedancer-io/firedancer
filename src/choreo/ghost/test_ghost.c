@@ -109,9 +109,13 @@ test_publish_left( fd_wksp_t * wksp ) {
   fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
   fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
 
+  FD_TEST( ghost->active_fork_cnt == 2 );
+
   fd_ghost_blk_t * blk2 = fd_ghost_query( ghost, &block_ids[2] );
   FD_TEST( blk2 );
   fd_ghost_publish( ghost, blk2 );
+
+  FD_TEST( ghost->active_fork_cnt == 1 );
 
   FD_TEST( !fd_ghost_query( ghost, &block_ids[0] ) );
   FD_TEST( !fd_ghost_query( ghost, &block_ids[1] ) );
@@ -158,9 +162,13 @@ test_publish_right( fd_wksp_t * wksp ) {
   fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
   fd_hash_t block_ids[7]; setup_block_ids( block_ids, 7 );
 
+  FD_TEST( ghost->active_fork_cnt == 2 );
+
   fd_ghost_blk_t * blk3 = fd_ghost_query( ghost, &block_ids[3] );
   FD_TEST( blk3 );
   fd_ghost_publish( ghost, blk3 );
+
+  FD_TEST( ghost->active_fork_cnt == 1 );
 
   FD_TEST( !fd_ghost_query( ghost, &block_ids[0] ) );
   FD_TEST( !fd_ghost_query( ghost, &block_ids[1] ) );

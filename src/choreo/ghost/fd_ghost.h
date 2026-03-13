@@ -105,8 +105,6 @@ struct __attribute__((aligned(128UL))) fd_ghost_blk {
   ulong     sibling;     /* pool idx of the right-sibling */
   ulong     stake;       /* sum of stake that has voted for this slot or any of its descendants */
   ulong     total_stake; /* total stake for this blk */
-  int       eqvoc;       /* whether this block is equivocating. if so, it is invalid for fork choice unless duplicate confirmed */
-  int       conf;        /* whether this block is "duplicate confirmed" via gossip votes (>= 52% of stake) */
   int       valid;       /* whether this block is valid for fork choice. an equivocating block is valid iff duplicate confirmed */
 };
 typedef struct fd_ghost_blk fd_ghost_blk_t;
@@ -283,6 +281,9 @@ void
 fd_ghost_publish( fd_ghost_t     * ghost,
                   fd_ghost_blk_t * newr );
 
+ulong
+fd_ghost_active_fork_cnt( fd_ghost_t * ghost );
+
 /* Misc */
 
 /* fd_ghost_verify checks the ghost is not obviously corrupt.  Returns 0
@@ -306,13 +307,60 @@ fd_ghost_verify( fd_ghost_t * ghost );
      fd_ghost_to_cstr( ghost, fd_ghost_parent( fd_ghost_parent( ele ) ) ); // print from ele's grandparent
 
    */
-
 char *
 fd_ghost_to_cstr( fd_ghost_t const *     ghost,
                   fd_ghost_blk_t const * root,
                   char *                 cstr,
                   ulong                  cstr_max,
                   ulong *                cstr_len );
+
+/* fd_ghost_blk_map_remove removes blk from the ghost map.  Assumes blk
+   is in the map.  Returns blk. */
+
+fd_ghost_blk_t *
+fd_ghost_blk_map_remove( fd_ghost_t     * ghost,
+                         fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_map_insert inserts a ghost blk into the ghost map. */
+
+void
+fd_ghost_blk_map_insert( fd_ghost_t     * ghost,
+                         fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_child returns the left-most child of blk, or NULL if
+   blk has no children. */
+
+fd_ghost_blk_t *
+fd_ghost_blk_child( fd_ghost_t     * ghost,
+                    fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_sibling returns the next sibling of blk, or NULL if
+   blk has no more siblings. */
+
+fd_ghost_blk_t *
+fd_ghost_blk_sibling( fd_ghost_t     * ghost,
+                      fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_next returns the block linked via blk->next (used for
+   traversing a temporary linked list built from removed map elements),
+   or NULL if at the end of the list. */
+
+fd_ghost_blk_t *
+fd_ghost_blk_next( fd_ghost_t     * ghost,
+                   fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_idx returns the pool index corresponding to blk. */
+
+ulong
+fd_ghost_blk_idx( fd_ghost_t     * ghost,
+                  fd_ghost_blk_t * blk );
+
+/* fd_ghost_blk_idx_null returns the sentinel null index for the ghost
+   block pool. */
+
+ulong
+fd_ghost_blk_idx_null( fd_ghost_t * ghost );
+
 
 FD_PROTOTYPES_END
 

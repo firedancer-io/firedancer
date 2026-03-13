@@ -219,9 +219,16 @@ lockout_check( fd_tower_t const * tower,
    Specifically: FD_TOWER_OPT_CONF_PCT + FD_TOWER_SWITCH_PCT >= 1. */
 
 static int
+is_purged( fd_tower_blocks_t * blocks,
+           fd_ghost_blk_t * blk ) {
+  fd_tower_blk_t * tower_blk = fd_tower_blocks_query( blocks, blk->slot );
+  return tower_blk->confirmed && memcmp( &tower_blk->confirmed_block_id, &blk->id, sizeof(fd_hash_t) );
+}
+
+static int
 switch_check( fd_tower_t const  * tower,
+              fd_ghost_t        * ghost,
               fd_tower_blocks_t * blocks,
-              fd_tower_leaves_t * leaves,
               fd_tower_lockos_t * lockos,
               fd_tower_stakes_t * stakes,
               ulong               total_stake,
@@ -230,16 +237,46 @@ switch_check( fd_tower_t const  * tower,
   ulong switch_stake   = 0;
   ulong last_vote_slot = fd_tower_peek_tail_const( tower )->slot;
   ulong root_slot      = fd_tower_peek_head_const( tower )->slot;
-  for ( fd_tower_leaves_dlist_iter_t iter = fd_tower_leaves_dlist_iter_fwd_init( leaves->dlist, leaves->pool );
-                                           !fd_tower_leaves_dlist_iter_done( iter, leaves->dlist, leaves->pool );
-                                     iter = fd_tower_leaves_dlist_iter_fwd_next( iter, leaves->dlist, leaves->pool ) ) {
 
-    /* Iterate over all the leaves of all forks */
+  ulong            null = fd_ghost_blk_idx_null( ghost );
+  fd_ghost_blk_t * head = fd_ghost_blk_map_remove( ghost, fd_ghost_root( ghost ) );
+  fd_ghost_blk_t * tail = head;
+  head->next = null;
 
-    fd_tower_leaf_t  * leaf           = fd_tower_leaves_dlist_iter_ele( iter, leaves->dlist, leaves->pool );
-    ulong              candidate_slot = leaf->slot;
-    ulong              lca            = fd_tower_blocks_lowest_common_ancestor( blocks, candidate_slot, last_vote_slot );
-    if( FD_UNLIKELY( lca==ULONG_MAX ) ) continue; /* unlikely but this leaf is an already pruned minority fork */
+  while( FD_LIKELY( head ) ) {
+    fd_ghost_blk_t * blk = head; /* guaranteed to not be purged */
+
+    /* Because agave has particular behavior where if they replay a
+       equivocating version of a slot and then the correct version, the
+       original version and all of it's children get purged from all
+       structures.  None of the nodes on this subtree can be considered
+       for the switch proof.  Note that this means as we BFS, a node
+       can be considered a "valid leaf" if either it has no children,
+       or if all of it's children are purged/superseded slots.  We
+       detect this by comparing against tower_blocks confirmed. */
+
+    int is_valid_leaf = 1;
+    fd_ghost_blk_t * child = fd_ghost_blk_child( ghost, head );
+    while( FD_LIKELY( child ) ) {
+      if( FD_LIKELY( !is_purged( blocks, child ) ) ) {
+        fd_ghost_blk_map_remove( ghost, child );
+        tail->next    = fd_ghost_blk_idx( ghost, child );
+        tail          = child;
+        tail->next    = null;
+        is_valid_leaf = 0;
+      }
+      child = fd_ghost_blk_sibling( ghost, child );
+    }
+
+    head = fd_ghost_blk_next( ghost, blk );  /* pop queue head */
+    fd_ghost_blk_map_insert( ghost, blk );   /* re-insert into map */
+
+    if( FD_UNLIKELY( !is_valid_leaf ) ) continue;  /* not a real candidate */
+
+    ulong candidate_slot = blk->slot;
+    ulong lca = fd_tower_blocks_lowest_common_ancestor( blocks, candidate_slot, last_vote_slot );
+    if( FD_UNLIKELY( candidate_slot == last_vote_slot ) ) continue;
+    if( FD_UNLIKELY( lca==ULONG_MAX ) ) continue;       /* unlikely but this leaf is an already pruned minority fork */
 
     if( FD_UNLIKELY( fd_tower_blocks_is_slot_descendant( blocks, lca, switch_slot ) ) ) {
 
@@ -289,6 +326,11 @@ switch_check( fd_tower_t const  * tower,
             if( FD_LIKELY( (double)switch_stake >= (double)total_stake * SWITCH_RATIO ) ) {
               fd_used_acc_scratch_null( stakes->used_acc_scratch );
               FD_LOG_INFO(( "[%s] switch? 1. last_vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, last_vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
+              while( FD_LIKELY( head ) ) { /* cleanup: re-insert remaining BFS queue into map */
+                fd_ghost_blk_t * next = fd_ghost_blk_next( ghost, head );
+                fd_ghost_blk_map_insert( ghost, head );
+                head = next;
+              }
               return 1;
             }
           }
@@ -405,7 +447,6 @@ propagated_check( fd_tower_t        * tower FD_PARAM_UNUSED,
 fd_tower_out_t
 fd_tower_vote_and_reset( fd_tower_t        * tower,
                          fd_tower_blocks_t * blocks,
-                         fd_tower_leaves_t * leaves,
                          fd_tower_lockos_t * lockos,
                          fd_tower_stakes_t * stakes,
                          fd_tower_voters_t * voters,
@@ -551,7 +592,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L443-L445 */
 
-  else if( FD_LIKELY( switch_check( tower, blocks, leaves, lockos, stakes, best_blk->total_stake, best_blk->slot ) ) ) {
+  else if( FD_LIKELY( switch_check( tower, ghost, blocks, lockos, stakes, best_blk->total_stake, best_blk->slot ) ) ) {
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
     reset_blk = best_blk;
     vote_blk  = best_blk;

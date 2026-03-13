@@ -127,7 +127,7 @@ struct fd_votes_blk {
     ulong next;
   } dlist;
   ulong stake;
-  uchar flags;
+  uchar flags; /* first 4 bits: confirmation levels, last 4 bits: forward confirmation levels */
 };
 typedef struct fd_votes_blk fd_votes_blk_t;
 

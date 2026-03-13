@@ -50,6 +50,7 @@ struct __attribute__((aligned(128UL))) fd_ghost {
   ulong blk_map_gaddr;  /* memory offset of the blk_map */
   ulong vtr_pool_gaddr; /* memory offset of the vtr_pool */
   ulong vtr_map_gaddr;  /* memory offset of the vtr_map */
+  ulong active_fork_cnt; /* incrementally updated number of active forks. cosmetic. */
 };
 typedef struct fd_ghost fd_ghost_t;
 

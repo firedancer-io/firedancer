@@ -1,4 +1,5 @@
 #include "fd_tower.c"
+#include "fd_tower_voters.h"
 
 FD_IMPORT_BINARY( vote_acc_v2, "src/choreo/tower/fixtures/vote_acc_v2.bin" );
 FD_IMPORT_BINARY( vote_acc_v3, "src/choreo/tower/fixtures/vote_acc_v3.bin" );
@@ -6,15 +7,15 @@ FD_IMPORT_BINARY( vote_acc_v3, "src/choreo/tower/fixtures/vote_acc_v3.bin" );
 static uchar scratch[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN)));
 
 void
-mock( fd_tower_leaves_t * leaves,
+mock( fd_ghost_t *        ghost,
       fd_tower_blk_t *    blk,
-      ulong               bank_idx,
-      fd_hash_t *         replayed_block_id ) {
+      ulong               bank_idx FD_PARAM_UNUSED,
+      fd_hash_t *         replayed_block_id,
+      fd_hash_t *         parent_block_id ) {
   blk->epoch = 1;
   blk->replayed = 1;
   blk->replayed_block_id = *replayed_block_id;
-  blk->bank_idx = bank_idx;
-  fd_tower_leaves_upsert( leaves, blk->slot, blk->parent_slot );
+  FD_TEST( fd_ghost_insert( ghost, replayed_block_id, parent_block_id, blk->slot ) );
 }
 
 void
@@ -272,21 +273,20 @@ test_switch_simple( fd_wksp_t * wksp ) {
 
   void * tower_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 1UL );
   void * forks_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max ), 1UL );
-  void * leaves_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_leaves_align(), fd_tower_leaves_footprint( slot_max ), 1UL );
   void * lockos_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
   void * stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max, voter_max ), 1UL );
+  void * ghost_mem  = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( slot_max, voter_max ), 1UL );
 
   fd_tower_t *        tower  = fd_tower_join       ( fd_tower_new       ( tower_mem                            ) );
   fd_tower_blocks_t * blocks = fd_tower_blocks_join( fd_tower_blocks_new( forks_mem,  slot_max,            0UL ) );
-  fd_tower_leaves_t * leaves = fd_tower_leaves_join( fd_tower_leaves_new( leaves_mem, slot_max,            0UL ) );
   fd_tower_lockos_t * lockos = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
   fd_tower_stakes_t * stakes = fd_tower_stakes_join( fd_tower_stakes_new( stakes_mem, slot_max, voter_max, 0UL ) );
-
+  fd_ghost_t *        ghost  = fd_ghost_join       ( fd_ghost_new       ( ghost_mem,  slot_max, voter_max, 0UL ) );
   FD_TEST( tower );
   FD_TEST( blocks );
-  FD_TEST( leaves );
   FD_TEST( lockos );
   FD_TEST( stakes );
+  FD_TEST( ghost );
 
   push_vote( tower, 1 );
   push_vote( tower, 2 );
@@ -302,11 +302,11 @@ test_switch_simple( fd_wksp_t * wksp ) {
   */
 
   /* add all the executed slots to forks */
-  mock( leaves, fd_tower_blocks_insert( blocks, 1, ULONG_MAX ), 0, &(fd_hash_t){.ul = {1}} );
-  mock( leaves, fd_tower_blocks_insert( blocks, 2, 1 ), 1, &(fd_hash_t){.ul = {2}} );
-  mock( leaves, fd_tower_blocks_insert( blocks, 3, 1 ), 2, &(fd_hash_t){.ul = {3}} );
-  mock( leaves, fd_tower_blocks_insert( blocks, 4, 2 ), 3, &(fd_hash_t){.ul = {4}} );
-  mock( leaves, fd_tower_blocks_insert( blocks, 5, 3 ), 4, &(fd_hash_t){.ul = {5}} );
+  mock( ghost, fd_tower_blocks_insert( blocks, 1, ULONG_MAX ), 0, &(fd_hash_t){.ul = {1}}, NULL );
+  mock( ghost, fd_tower_blocks_insert( blocks, 2, 1 ), 1,         &(fd_hash_t){.ul = {2}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( blocks, 3, 1 ), 2,         &(fd_hash_t){.ul = {3}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( blocks, 4, 2 ), 3,         &(fd_hash_t){.ul = {4}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( blocks, 5, 3 ), 4,         &(fd_hash_t){.ul = {5}}, &(fd_hash_t){.ul = {3}} );
 
   fd_tower_voters_t acct;
 
@@ -326,7 +326,7 @@ test_switch_simple( fd_wksp_t * wksp ) {
   fd_tower_lockos_insert( lockos, 5, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( stakes, 5, &acct.vote_acc, acct.stake, prev );
 
-  FD_TEST( switch_check( tower, blocks, leaves, lockos, stakes, total_stake, 5 ) == 1 );
+  FD_TEST( switch_check( tower, ghost, blocks, lockos, stakes, total_stake, 5 ) == 1 );
 }
 
 void
@@ -338,20 +338,21 @@ test_switch_threshold( fd_wksp_t * wksp ) {
 
   void * tower_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 1UL );
   void * forks_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max ), 1UL );
-  void * leaves_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_leaves_align(), fd_tower_leaves_footprint( slot_max ), 1UL );
   void * lockos_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
   void * tower_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max, voter_max ), 1UL );
+  void * ghost_mem        = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( slot_max, voter_max ), 1UL );
 
   fd_tower_t *        tower        = fd_tower_join       ( fd_tower_new       ( tower_mem ) );
   fd_tower_blocks_t * forks        = fd_tower_blocks_join( fd_tower_blocks_new( forks_mem, slot_max, 0UL ) );
-  fd_tower_leaves_t * leaves       = fd_tower_leaves_join( fd_tower_leaves_new( leaves_mem, slot_max, 0UL ) );
   fd_tower_lockos_t * lockos       = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
   fd_tower_stakes_t * tower_stakes = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes_mem, slot_max, voter_max, 0UL ) );
+  fd_ghost_t *        ghost        = fd_ghost_join       ( fd_ghost_new       ( ghost_mem, slot_max, voter_max, 0UL ) );
 
   FD_TEST( tower );
   FD_TEST( forks );
   FD_TEST( tower_stakes );
   FD_TEST( tower );
+  FD_TEST( ghost );
 
   /* create tower forks tree like this
           // Create the tree of banks
@@ -368,27 +369,27 @@ test_switch_threshold( fd_wksp_t * wksp ) {
                         / tr(112))));
   */
 
-  mock( leaves, fd_tower_blocks_insert( forks, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 1, 0 ), 1, &(fd_hash_t){.ul = {1}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 2, 1 ), 2, &(fd_hash_t){.ul = {2}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 10, 2 ), 3, &(fd_hash_t){.ul = {10}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 11, 10 ), 4, &(fd_hash_t){.ul = {11}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 12, 11 ), 5, &(fd_hash_t){.ul = {12}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 13, 12 ), 6, &(fd_hash_t){.ul = {13}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 14, 13 ), 7, &(fd_hash_t){.ul = {14}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}}, NULL );
+  mock( ghost, fd_tower_blocks_insert( forks, 1, 0 ), 1, &(fd_hash_t){.ul = {1}}, &(fd_hash_t){.ul = {0}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 2, 1 ), 2, &(fd_hash_t){.ul = {2}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 10, 2 ), 3, &(fd_hash_t){.ul = {10}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 11, 10 ), 4, &(fd_hash_t){.ul = {11}}, &(fd_hash_t){.ul = {10}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 12, 11 ), 5, &(fd_hash_t){.ul = {12}}, &(fd_hash_t){.ul = {11}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 13, 12 ), 6, &(fd_hash_t){.ul = {13}}, &(fd_hash_t){.ul = {12}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 14, 13 ), 7, &(fd_hash_t){.ul = {14}}, &(fd_hash_t){.ul = {13}} );
 
-  mock( leaves, fd_tower_blocks_insert( forks, 43, 2 ), 8, &(fd_hash_t){.ul = {43}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 44, 43 ), 9, &(fd_hash_t){.ul = {44}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 45, 44 ), 10, &(fd_hash_t){.ul = {45}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 46, 45 ), 11, &(fd_hash_t){.ul = {46}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 47, 46 ), 12, &(fd_hash_t){.ul = {47}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 48, 47 ), 13, &(fd_hash_t){.ul = {48}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 49, 48 ), 14, &(fd_hash_t){.ul = {49}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 50, 49 ), 15, &(fd_hash_t){.ul = {50}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 43, 2 ), 8, &(fd_hash_t){.ul = {43}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 44, 43 ), 9, &(fd_hash_t){.ul = {44}}, &(fd_hash_t){.ul = {43}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 45, 44 ), 10, &(fd_hash_t){.ul = {45}}, &(fd_hash_t){.ul = {44}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 46, 45 ), 11, &(fd_hash_t){.ul = {46}}, &(fd_hash_t){.ul = {45}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 47, 46 ), 12, &(fd_hash_t){.ul = {47}}, &(fd_hash_t){.ul = {46}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 48, 47 ), 13, &(fd_hash_t){.ul = {48}}, &(fd_hash_t){.ul = {47}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 49, 48 ), 14, &(fd_hash_t){.ul = {49}}, &(fd_hash_t){.ul = {48}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 50, 49 ), 15, &(fd_hash_t){.ul = {50}}, &(fd_hash_t){.ul = {49}} );
 
-  mock( leaves, fd_tower_blocks_insert( forks, 110, 44 ), 16, &(fd_hash_t){.ul = {110}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 110, 44 ), 16, &(fd_hash_t){.ul = {110}}, &(fd_hash_t){.ul = {44}} );
 
-  mock( leaves, fd_tower_blocks_insert( forks, 112, 43 ), 17, &(fd_hash_t){.ul = {112}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 112, 43 ), 17, &(fd_hash_t){.ul = {112}}, &(fd_hash_t){.ul = {43}} );
 
   /* our last vote is 47 */
   push_vote( tower, 1 );
@@ -401,7 +402,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
 
   /* Pretend we want to switch to 110, which is the heaviest fork */
 
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 110 ) == 0 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 110 ) == 0 );
 
   fd_tower_voters_t acct;
   mock_vote_acc( &(fd_hash_t){.ul = {1}}, 100, 49, 6, &acct ); /* interval is 49 -> 114 */
@@ -409,7 +410,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   ulong prev = fd_tower_stakes_insert( tower_stakes, 50, &acct.vote_acc, acct.stake, ULONG_MAX );
 
   /* Trying to switch to another fork at 110 should fail */
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 110 ) == 0 );
+  FD_TEST( switch_check( tower, ghost,forks, lockos, tower_stakes, total_stake, 110 ) == 0 );
 
   // Adding another validator lockout on an ancestor of last vote should
   // not count toward the switch threshold
@@ -417,7 +418,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   fd_tower_lockos_insert( lockos, 50, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( tower_stakes, 50, &acct.vote_acc, acct.stake, prev );
 
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 110 ) == 0 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 110 ) == 0 );
 
   // Adding another validator lockout on a different fork, but the lockout
   // doesn't cover the last vote, should not satisfy the switch threshold
@@ -426,7 +427,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   fd_tower_lockos_insert( lockos, 14, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( tower_stakes, 14, &acct.vote_acc, acct.stake, ULONG_MAX );
 
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 110 ) == 0 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 110 ) == 0 );
 
 
   // Adding another validator lockout on a different fork, and the lockout
@@ -437,7 +438,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   fd_tower_lockos_insert( lockos, 13, &acct.vote_acc, &acct );
   fd_tower_stakes_insert( tower_stakes, 13, &acct.vote_acc, acct.stake, ULONG_MAX );
 
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 110 ) == 0 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 110 ) == 0 );
 
   // Adding another validator lockout on a different fork, and the lockout
   // covers the last vote, should satisfy the switch threshold
@@ -449,7 +450,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   prev = fd_tower_stakes_insert( tower_stakes, 14, &acct.vote_acc, acct.stake, prev );
   fd_tower_stakes_insert( tower_stakes, 110, &acct.vote_acc, acct.stake, ULONG_MAX );
 
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 110 ) == 1 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 110 ) == 1 );
   /* Simulate adding a lockout */
 }
 
@@ -462,20 +463,21 @@ test_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
 
   void * tower_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 1UL );
   void * forks_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max ), 1UL );
-  void * leaves_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_leaves_align(), fd_tower_leaves_footprint( slot_max ), 1UL );
   void * lockos_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
   void * tower_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max, voter_max ), 1UL );
+  void * ghost_mem        = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( slot_max, voter_max ), 1UL );
 
   fd_tower_t *        tower        = fd_tower_join       ( fd_tower_new       ( tower_mem ) );
   fd_tower_blocks_t * forks        = fd_tower_blocks_join( fd_tower_blocks_new( forks_mem, slot_max, 0UL ) );
-  fd_tower_leaves_t * leaves       = fd_tower_leaves_join( fd_tower_leaves_new( leaves_mem, slot_max, 0UL ) );
   fd_tower_lockos_t * lockos       = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
   fd_tower_stakes_t * tower_stakes = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes_mem, slot_max, voter_max, 0UL ) );
+  fd_ghost_t *        ghost        = fd_ghost_join       ( fd_ghost_new       ( ghost_mem, slot_max, voter_max, 0UL ) );
 
   FD_TEST( tower );
   FD_TEST( forks );
   FD_TEST( tower_stakes );
   FD_TEST( tower );
+  FD_TEST( ghost );
 
   // Create the tree of banks
   //                                       /- 50
@@ -484,28 +486,28 @@ test_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
   //                   \- 110 - 111 - 112
   //                    \- 113
 
-  mock( leaves, fd_tower_blocks_insert( forks, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 1, 0 ), 1, &(fd_hash_t){.ul = {1}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 2, 1 ), 2, &(fd_hash_t){.ul = {2}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 43, 2 ), 3, &(fd_hash_t){.ul = {43}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 44, 43 ), 4, &(fd_hash_t){.ul = {44}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 45, 44 ), 5, &(fd_hash_t){.ul = {45}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 46, 45 ), 6, &(fd_hash_t){.ul = {46}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 47, 46 ), 7, &(fd_hash_t){.ul = {47}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 48, 47 ), 8, &(fd_hash_t){.ul = {48}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 49, 48 ), 9, &(fd_hash_t){.ul = {49}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}}, NULL );
+  mock( ghost, fd_tower_blocks_insert( forks, 1, 0 ),   1,       &(fd_hash_t){.ul = {1}}, &(fd_hash_t){.ul = {0}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 2, 1 ),   2,       &(fd_hash_t){.ul = {2}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 43, 2 ),  3,       &(fd_hash_t){.ul = {43}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 44, 43 ), 4,       &(fd_hash_t){.ul = {44}}, &(fd_hash_t){.ul = {43}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 45, 44 ), 5,       &(fd_hash_t){.ul = {45}}, &(fd_hash_t){.ul = {44}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 46, 45 ), 6,       &(fd_hash_t){.ul = {46}}, &(fd_hash_t){.ul = {45}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 47, 46 ), 7,       &(fd_hash_t){.ul = {47}}, &(fd_hash_t){.ul = {46}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 48, 47 ), 8,       &(fd_hash_t){.ul = {48}}, &(fd_hash_t){.ul = {47}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 49, 48 ), 9,       &(fd_hash_t){.ul = {49}}, &(fd_hash_t){.ul = {48}} );
 
-  mock( leaves, fd_tower_blocks_insert( forks, 50, 48 ), 10, &(fd_hash_t){.ul = {50}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 50, 48 ), 10, &(fd_hash_t){.ul = {50}}, &(fd_hash_t){.ul = {48}} );
 
-  mock( leaves, fd_tower_blocks_insert( forks, 51, 2 ), 11, &(fd_hash_t){.ul = {51}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 51, 2 ), 11, &(fd_hash_t){.ul = {51}}, &(fd_hash_t){.ul = {2}} );
 
-  mock( leaves, fd_tower_blocks_insert( forks, 110, 44 ), 11, &(fd_hash_t){.ul = {110}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 111, 110 ), 12, &(fd_hash_t){.ul = {111}} );
-  mock( leaves, fd_tower_blocks_insert( forks, 112, 111 ), 13, &(fd_hash_t){.ul = {112}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 110, 44 ), 11, &(fd_hash_t){.ul = {110}}, &(fd_hash_t){.ul = {44}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 111, 110 ), 12, &(fd_hash_t){.ul = {111}}, &(fd_hash_t){.ul = {110}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 112, 111 ), 13, &(fd_hash_t){.ul = {112}}, &(fd_hash_t){.ul = {111}} );
 
-  mock( leaves, fd_tower_blocks_insert( forks, 113, 44 ), 14, &(fd_hash_t){.ul = {113}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 113, 44 ), 14, &(fd_hash_t){.ul = {113}}, &(fd_hash_t){.ul = {44}} );
 
-  /* 43 -> 49 is our tower */
+  // 43 -> 49 is our tower
   push_vote( tower, 43 );
   push_vote( tower, 44 );
   push_vote( tower, 45 );
@@ -526,23 +528,23 @@ test_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
   fd_tower_stakes_insert( tower_stakes, 50, &acct.vote_acc, acct.stake, ULONG_MAX );
   fd_tower_stakes_insert( tower_stakes, 111, &acct.vote_acc, acct.stake, ULONG_MAX ); // the switch slot
 
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 111 ) == 0 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 111 ) == 0 );
 
   // 51, 111, 112, and 113 are all valid
 
   fd_tower_lockos_insert( lockos, 51, &acct.vote_acc, &acct );
   fd_tower_stakes_insert( tower_stakes, 51, &acct.vote_acc, acct.stake, ULONG_MAX );
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 111 ) == 1 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 111 ) == 1 );
   fd_tower_lockos_remove( lockos, 51 );
 
   fd_tower_lockos_insert( lockos, 112, &acct.vote_acc, &acct );
   fd_tower_stakes_insert( tower_stakes, 112, &acct.vote_acc, acct.stake, ULONG_MAX );
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 111 ) == 1 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 111 ) == 1 );
   fd_tower_lockos_remove( lockos, 112 );
 
   fd_tower_lockos_insert( lockos, 113, &acct.vote_acc, &acct );
   fd_tower_stakes_insert( tower_stakes, 113, &acct.vote_acc, acct.stake, ULONG_MAX );
-  FD_TEST( switch_check( tower, forks, leaves, lockos, tower_stakes, total_stake, 111 ) == 1 );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 111 ) == 1 );
   fd_tower_lockos_remove( lockos, 113 );
 }
 
@@ -578,6 +580,89 @@ test_tower_stakes_npow2_init( fd_wksp_t * wksp ) {
   }
 }
 
+void
+test_switch_eqvoc( fd_wksp_t * wksp ) {
+  (void)scratch;
+  ulong slot_max    = 64;
+  ulong voter_max   = 16;
+  ulong total_stake = 100;
+
+  void * tower_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 1UL );
+  void * forks_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max ), 1UL );
+  void * lockos_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
+  void * tower_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max, voter_max ), 1UL );
+  void * ghost_mem        = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( slot_max, voter_max ), 1UL );
+
+  fd_tower_t *        tower        = fd_tower_join       ( fd_tower_new       ( tower_mem ) );
+  fd_tower_blocks_t * forks        = fd_tower_blocks_join( fd_tower_blocks_new( forks_mem, slot_max, 0UL ) );
+  fd_tower_lockos_t * lockos       = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
+  fd_tower_stakes_t * tower_stakes = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes_mem, slot_max, voter_max, 0UL ) );
+  fd_ghost_t *        ghost        = fd_ghost_join       ( fd_ghost_new       ( ghost_mem, slot_max, voter_max, 0UL ) );
+
+  FD_TEST( tower );
+  FD_TEST( forks );
+  FD_TEST( tower_stakes );
+  FD_TEST( tower );
+  FD_TEST( ghost );
+
+  /*
+         7 (switch slot)
+        /
+   1 - 2 - 3 - 5 (last vote)
+        \
+         6 - 8
+
+    Only 8 should be a candidate here.
+
+    Now let's say 6 was actually equivocating, and 6' was the correct version.
+
+         7 (switch slot)
+        /
+   1 - 2 - 3 - 5 (last vote)
+    \   \
+    6'   6 - 8
+
+    Now only 6' should be a candidate here */
+
+  mock( ghost, fd_tower_blocks_insert( forks, 1, ULONG_MAX ), 1, &(fd_hash_t){.ul = {1}}, NULL );
+  mock( ghost, fd_tower_blocks_insert( forks, 2, 1 ), 2, &(fd_hash_t){.ul = {2}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 3, 2 ), 3, &(fd_hash_t){.ul = {3}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 5, 3 ), 4, &(fd_hash_t){.ul = {5}}, &(fd_hash_t){.ul = {3}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 6, 2 ), 5, &(fd_hash_t){.ul = {6}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 8, 6 ), 6, &(fd_hash_t){.ul = {8}}, &(fd_hash_t){.ul = {6}} );
+  mock( ghost, fd_tower_blocks_insert( forks, 7, 2 ), 7, &(fd_hash_t){.ul = {7}}, &(fd_hash_t){.ul = {2}} );
+
+  // 1 -> 5 is our tower
+  push_vote( tower, 1 );
+  push_vote( tower, 2 );
+  push_vote( tower, 3 );
+  push_vote( tower, 5 );
+
+
+  fd_tower_voters_t acct;
+  mock_vote_acc( &(fd_hash_t){.ul = {2}}, 100, 6, 6, &acct );
+  fd_tower_stakes_insert( tower_stakes, 7, &acct.vote_acc, acct.stake, ULONG_MAX ); // the switch slot
+
+  fd_tower_lockos_insert( lockos, 8, &acct.vote_acc, &acct );
+  fd_tower_stakes_insert( tower_stakes, 8, &acct.vote_acc, acct.stake, ULONG_MAX );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 7 ) == 1 );
+
+  /* Now add 6' */
+  fd_tower_blk_t * blk6 = fd_tower_blocks_query( forks, 6 );
+  blk6->confirmed = 1;
+  blk6->confirmed_block_id = (fd_hash_t){.ul = {6, 1}};
+  blk6->parent_slot = 1;
+  blk6->replayed_block_id = (fd_hash_t){.ul = {6, 1}};
+  fd_ghost_insert( ghost, &(fd_hash_t){.ul = {6, 1}}, &(fd_hash_t){.ul = {1}}, 6 );
+
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 7 ) == 0 ); /* would fail since 8 is not a candidate anymore */
+
+  /* add lockouts for 6', allow switching */
+  fd_tower_lockos_insert( lockos, 6, &acct.vote_acc, &acct );
+  fd_tower_stakes_insert( tower_stakes, 6, &acct.vote_acc, acct.stake, ULONG_MAX );
+  FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 7 ) == 1 );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -597,6 +682,8 @@ main( int argc, char ** argv ) {
   test_switch_threshold( wksp );
   test_switch_threshold_common_ancestor( wksp );
   test_tower_stakes_npow2_init( wksp );
+
+  test_switch_eqvoc( wksp );
 
   fd_halt();
   return 0;
