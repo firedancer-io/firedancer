@@ -217,7 +217,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         fd_pubkey_t curr_node_account_t_1;
         ulong       last_vote_slot;
         long        last_vote_timestamp;
-        fd_epoch_credits_t * epoch_credits = vote_ele_cnt<FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS ? &runtime_stack->stakes.epoch_credits[ vote_ele_cnt ] : NULL;
+        fd_epoch_credits_t * epoch_credits = vote_ele_cnt<runtime_stack->expected_vote_accounts ? &runtime_stack->stakes.epoch_credits[ vote_ele_cnt ] : NULL;
 
         get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
                                     fd_accdb_ref_data_sz( vote_ro ),
