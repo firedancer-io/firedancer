@@ -19,6 +19,7 @@ int
 LLVMFuzzerInitialize( int *    pargc,
                       char *** pargv ) {
   putenv( "FD_LOG_BACKTRACE=0" );
+  setenv( "FD_LOG_PATH", "", 0 );
 
   fd_boot( pargc, pargv );
 

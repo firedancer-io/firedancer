@@ -13,7 +13,7 @@ LLVMFuzzerInitialize( int  *   argc,
                       char *** argv ) {
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
-  putenv( "FD_LOG_PATH=" );
+  setenv( "FD_LOG_PATH", "", 0 );
   fd_boot( argc, argv );
   fd_log_level_core_set(0); /* crash on debug log */
   return 0;
