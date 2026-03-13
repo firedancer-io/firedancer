@@ -50,29 +50,6 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary. */
 
-/* The static footprint of the vote states assumes that there are
-   FD_RUNTIME_MAX_STAKE_ACCOUNTS. It also assumes worst case alignment
-   for each struct. fd_stake_delegations_t is laid out as first the
-   fd_stake_delegations_t struct, followed by a pool of
-   fd_stake_delegation_t structs, followed by a map of
-   fd_stake_delegation_map_ele_t structs. The pool has
-   FD_RUNTIME_MAX_STAKE_ACCOUNTS elements, and the map has a chain count
-   determined by a call to fd_stake_delegations_chain_cnt_est.
-   NOTE: the footprint is validated to be at least as large as the
-   actual runtime-determined footprint (see test_stake_delegations.c) */
-
-#define FD_STAKE_DELEGATIONS_CHAIN_CNT_EST (2097152UL)
-#define FD_STAKE_DELEGATIONS_FOOTPRINT                                                         \
-  /* First, layout the struct with alignment */                                                \
-  sizeof(fd_stake_delegations_t) + alignof(fd_stake_delegations_t) +                           \
-  /* Now layout the pool's data footprint */                                                   \
-  FD_STAKE_DELEGATIONS_ALIGN + sizeof(fd_stake_delegation_t) * FD_RUNTIME_MAX_STAKE_ACCOUNTS + \
-  /* Now layout the pool's meta footprint */                                                   \
-  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* POOL_ALIGN */ +                                        \
-  /* Now layout the map.  We must make assumptions about the chain */                          \
-  /* count to be equivalent to chain_cnt_est. */                                               \
-  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* MAP_ALIGN */ + (FD_STAKE_DELEGATIONS_CHAIN_CNT_EST * sizeof(ulong))
-
 #define FD_STAKE_DELEGATIONS_ALIGN (128UL)
 
 /* The warmup cooldown rate can only be one of two values: 0.25 or 0.09.
