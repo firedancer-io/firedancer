@@ -216,7 +216,7 @@ get_write_lock_cost( ulong num_write_locks ) {
 
    https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L367-L386 */
 static inline ulong
-calculate_allocated_accounts_data_size( fd_txn_in_t const * txn_in ) {
+calculate_allocated_accounts_data_size( fd_bank_t * bank, fd_txn_in_t const * txn_in ) {
   fd_txn_t const * txn     = TXN( txn_in->txn );
   void const *     payload = txn_in->txn->payload;
 
@@ -262,6 +262,15 @@ calculate_allocated_accounts_data_size( fd_txn_in_t const * txn_in ) {
         space = instruction->inner.allocate_with_seed.space;
         break;
       }
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/cost-model/src/cost_model.rs#L238-L243 */
+      case fd_system_program_instruction_enum_create_account_allow_prefund: {
+        if( !FD_FEATURE_ACTIVE_BANK( bank, create_account_allow_prefund ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/cost-model/src/cost_model.rs#L295-L300 */
+          return 0UL;
+        }
+        space = instruction->inner.create_account_allow_prefund.space;
+        break;
+      }
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L373-L380 */
@@ -289,7 +298,7 @@ calculate_non_vote_transaction_cost( fd_bank_t *          bank,
   ulong write_lock_cost = get_write_lock_cost( fd_txn_account_cnt( TXN( txn_in->txn ), FD_TXN_ACCT_CAT_WRITABLE ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L135-L136 */
-  ulong allocated_accounts_data_size = calculate_allocated_accounts_data_size( txn_in );
+  ulong allocated_accounts_data_size = calculate_allocated_accounts_data_size( bank, txn_in );
 
   return (fd_transaction_cost_t) {
     .type = FD_TXN_COST_TYPE_TRANSACTION,

@@ -5754,6 +5754,9 @@ FD_FN_PURE uchar fd_system_program_instruction_is_transfer_with_seed(fd_system_p
 FD_FN_PURE uchar fd_system_program_instruction_is_upgrade_nonce_account(fd_system_program_instruction_t const * self) {
   return self->discriminant == 12;
 }
+FD_FN_PURE uchar fd_system_program_instruction_is_create_account_allow_prefund(fd_system_program_instruction_t const * self) {
+  return self->discriminant == 13;
+}
 void fd_system_program_instruction_inner_new( fd_system_program_instruction_inner_t * self, uint discriminant );
 int fd_system_program_instruction_inner_decode_footprint( uint discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   int err;
@@ -5817,6 +5820,11 @@ int fd_system_program_instruction_inner_decode_footprint( uint discriminant, fd_
     return FD_BINCODE_SUCCESS;
   }
   case 12: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 13: {
+    err = fd_system_program_instruction_create_account_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   default: return FD_BINCODE_ERR_ENCODING;
@@ -5889,6 +5897,10 @@ static void fd_system_program_instruction_inner_decode_inner( fd_system_program_
   case 12: {
     break;
   }
+  case 13: {
+    fd_system_program_instruction_create_account_decode_inner( &self->create_account_allow_prefund, alloc_mem, ctx );
+    break;
+  }
   }
 }
 static void fd_system_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -5953,6 +5965,10 @@ void fd_system_program_instruction_inner_new( fd_system_program_instruction_inne
   case 12: {
     break;
   }
+  case 13: {
+    fd_system_program_instruction_create_account_new( &self->create_account_allow_prefund );
+    break;
+  }
   default: break; // FD_LOG_ERR(( "unhandled type"));
   }
 }
@@ -6011,6 +6027,10 @@ ulong fd_system_program_instruction_size( fd_system_program_instruction_t const 
   }
   case 11: {
     size += fd_system_program_instruction_transfer_with_seed_size( &self->inner.transfer_with_seed );
+    break;
+  }
+  case 13: {
+    size += fd_system_program_instruction_create_account_size( &self->inner.create_account_allow_prefund );
     break;
   }
   }
@@ -6072,6 +6092,11 @@ int fd_system_program_instruction_inner_encode( fd_system_program_instruction_in
   }
   case 11: {
     err = fd_system_program_instruction_transfer_with_seed_encode( &self->transfer_with_seed, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  case 13: {
+    err = fd_system_program_instruction_create_account_encode( &self->create_account_allow_prefund, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     break;
   }
