@@ -74,6 +74,8 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP      ( cstr,   snapshots.path                                   );
   CFG_POP      ( cstr,   snapshots.incremental_path                       );
 
+  CFG_POP      ( cstr,   geyser.plugin_config                             );
+
   return config;
 }
 

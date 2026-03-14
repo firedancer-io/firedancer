@@ -147,6 +147,10 @@ agave_boot( config_t const * config ) {
   if( config->frankendancer.rpc.pubsub_enable_vote_subscription ) ADD1( "--rpc-pubsub-enable-vote-subscription" );
   if( config->frankendancer.rpc.bigtable_ledger_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
 
+  /* geyser plugin */
+  if( strcmp( config->frankendancer.geyser.plugin_config, "" ) )
+    ADD( "--geyser-plugin-config", config->frankendancer.geyser.plugin_config );
+
   /* snapshots */
   if( !config->frankendancer.snapshots.enabled ) {
     ADD1( "--no-snapshots" );

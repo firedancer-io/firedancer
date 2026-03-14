@@ -354,6 +354,15 @@ dynamic_port_range = "8900-9000"
     # `--enable-rpc-bigtable-ledger-storage` argument.
     bigtable_ledger_storage = false
 
+# Geyser plugins allow the Agave validator to stream account, slot,
+# block, and transaction data to external systems (e.g. indexers,
+# databases).  The config file is JSON5 format; see Solana docs for
+# the schema.  This option is passed to the Agave client with the
+# `--geyser-plugin-config` argument.  If empty, no Geyser plugin is loaded.
+[geyser]
+    # Absolute path to the Geyser plugin config file (JSON5).
+    plugin_config = ""
+
 # The Agave client periodically takes and stores snapshots of the
 # chain's state.  Other clients, especially as they bootstrap or catch
 # up to the head of the chain, may request a snapshot.
