@@ -421,7 +421,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
   /* If all of the transactions in the bundle executed successfully, we
      can commit the transactions in order.  At this point, we cann also
      accumulate unused CUs to the rebate.  Otherwise, if any transaction
-     fails, we need to exclude all the bundle transcations and rebate
+     fails, we need to exclude all the bundle transactions and rebate
      all of the CUs. */
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {

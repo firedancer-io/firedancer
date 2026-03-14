@@ -9,7 +9,6 @@
 struct test_env {
   fd_wksp_t *          wksp;
 
-  fd_progcache_admin_t progcache_admin[1];
   fd_progcache_t       progcache[1];
   fd_accdb_admin_t     accdb_admin[1];
   fd_accdb_user_t      accdb[1];
@@ -21,8 +20,8 @@ struct test_env {
 typedef struct test_env test_env_t;
 
 /* test_env_create allocates a new account database (funk) and loaded
-   program cache (also funk) from a wksp.  Joins an admin and user
-   client to the program cache, as well as a database client. */
+   program cache from a wksp.  Joins an admin and user client to the
+   program cache, as well as a database client. */
 
 static test_env_t *
 test_env_create( fd_wksp_t * wksp ) {
@@ -36,18 +35,15 @@ test_env_create( fd_wksp_t * wksp ) {
   FD_TEST( fd_funk_shmem_new( accdb_mem, wksp_tag, 1UL, txn_max, accdb_rec_max ) );
   FD_TEST( fd_funk_locks_new( accdb_locks, txn_max, accdb_rec_max ) );
 
-  void * progcache_mem   = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
-  void * progcache_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, progcache_rec_max ), wksp_tag );
-  FD_TEST( fd_funk_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
-  FD_TEST( fd_funk_locks_new( progcache_locks, txn_max, progcache_rec_max ) );
+  void * progcache_mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
+  FD_TEST( fd_progcache_shmem_new( progcache_mem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
 
   test_env_t * env = fd_wksp_alloc_laddr( wksp, alignof(test_env_t), sizeof(test_env_t), wksp_tag );
   FD_TEST( env );
   memset( env, 0, sizeof(test_env_t) );
 
   env->wksp = wksp;
-  FD_TEST( fd_progcache_admin_join( env->progcache_admin, progcache_mem, progcache_locks ) );
-  FD_TEST( fd_progcache_join      ( env->progcache, progcache_mem, progcache_locks, env->scratch, sizeof(env->scratch) ) );
+  FD_TEST( fd_progcache_join      ( env->progcache, progcache_mem, env->scratch, sizeof(env->scratch) ) );
   FD_TEST( fd_accdb_admin_v1_init ( env->accdb_admin, accdb_mem, accdb_locks ) );
   FD_TEST( fd_accdb_user_v1_init  ( env->accdb,       accdb_mem, accdb_locks, txn_max ) );
 
@@ -58,14 +54,9 @@ test_env_create( fd_wksp_t * wksp ) {
 
 static void
 test_env_destroy( test_env_t * env ) {
-  fd_progcache_verify( env->progcache_admin );
-
-  void * progcache_mem   = NULL;
-  void * progcache_locks = NULL;
-  FD_TEST( fd_progcache_admin_leave( env->progcache_admin, &progcache_mem, &progcache_locks ) );
-  FD_TEST( fd_progcache_leave      ( env->progcache,       &progcache_mem, &progcache_locks ) );
-  fd_wksp_free_laddr( progcache_locks );
-  fd_wksp_free_laddr( fd_funk_delete( progcache_mem ) );
+  fd_progcache_shmem_t * progcache_mem = NULL;
+  FD_TEST( fd_progcache_leave( env->progcache, &progcache_mem ) );
+  fd_wksp_free_laddr( fd_progcache_shmem_delete( progcache_mem ) );
 
   void * accdb_funk  = fd_accdb_user_v1_funk( env->accdb )->shmem;
   void * accdb_locks = (void *)fd_accdb_user_v1_funk( env->accdb )->txn_lock;
@@ -90,7 +81,7 @@ test_env_txn_prepare( test_env_t *              env,
     parent = root;
   }
   fd_accdb_attach_child        ( env->accdb_admin,     parent, xid );
-  fd_progcache_txn_attach_child( env->progcache_admin, parent, xid );
+  fd_progcache_txn_attach_child( env->progcache->join, parent, xid );
 }
 
 /* test_env_txn_cancel destroys a subtree of in-prep funk transactions
@@ -100,7 +91,7 @@ static void
 test_env_txn_cancel( test_env_t *              env,
                      fd_funk_txn_xid_t const * xid ) {
   fd_accdb_cancel        ( env->accdb_admin,     xid );
-  fd_progcache_txn_cancel( env->progcache_admin, xid );
+  fd_progcache_txn_cancel( env->progcache->join, xid );
 }
 
 /* test_env_txn_publish publishes (i.e. roots) a subtree of in-prep funk
@@ -110,7 +101,7 @@ FD_FN_UNUSED static void
 test_env_txn_publish( test_env_t *              env,
                       fd_funk_txn_xid_t const * xid ) {
   fd_accdb_advance_root( env->accdb_admin, xid );
-  fd_progcache_txn_advance_root( env->progcache_admin, xid );
+  fd_progcache_txn_advance_root( env->progcache->join, xid );
 }
 
 static fd_funk_rec_key_t

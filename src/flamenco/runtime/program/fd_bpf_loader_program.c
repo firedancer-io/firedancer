@@ -445,19 +445,21 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong r2_initial_value = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
 
   /* TODO: (topointon): correctly set check_size in vm setup */
+  fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->wksp;
+  void const * rodata = fd_progcache_rec_rodata( cache_entry, progcache_wksp );
   vm = fd_vm_init(
     /* vm                                   */ vm,
     /* instr_ctx                            */ instr_ctx,
     /* heap_max                             */ heap_size,
     /* entry_cu                             */ instr_ctx->txn_out->details.compute_budget.compute_meter,
-    /* rodata                               */ fd_progcache_rec_rodata( cache_entry ),
+    /* rodata                               */ rodata,
     /* rodata_sz                            */ cache_entry->rodata_sz,
-    /* text (note: text_off is byte offset) */ (ulong *)((ulong)fd_progcache_rec_rodata( cache_entry ) + (ulong)cache_entry->text_off),
+    /* text (note: text_off is byte offset) */ (ulong *)( (ulong)rodata + cache_entry->text_off ),
     /* text_cnt                             */ cache_entry->text_cnt,
     /* text_off                             */ cache_entry->text_off,
     /* text_sz                              */ cache_entry->text_sz,
     /* entry_pc                             */ cache_entry->entry_pc,
-    /* calldests                            */ fd_progcache_rec_calldests( cache_entry ),
+    /* calldests                            */ fd_progcache_rec_calldests( cache_entry, progcache_wksp ),
     /* sbpf_version                         */ cache_entry->sbpf_version,
     /* syscalls                             */ syscalls,
     /* trace                                */ NULL,
@@ -2576,8 +2578,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), ctx->bank->data->idx } };
-  fd_progcache_rec_t const * cache_entry =
-      fd_progcache_pull( ctx->runtime->progcache,
+  fd_progcache_t * progcache = ctx->runtime->progcache;
+  fd_progcache_rec_t * cache_entry =
+      fd_progcache_pull( progcache,
                          ctx->runtime->accdb,
                          &xid,
                          program_id,
@@ -2589,6 +2592,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   /* The program may be in the cache but could have failed verification in the current epoch. */
   if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
+    fd_progcache_rec_close( progcache, cache_entry );
     fd_log_collector_msg_literal( ctx, "Program is not deployed" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
@@ -2596,5 +2600,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L446 */
   fd_borrowed_account_drop( &program_account );
 
-  return fd_bpf_execute( ctx, cache_entry, is_deprecated );
+  int exec_err = fd_bpf_execute( ctx, cache_entry, is_deprecated );
+  fd_progcache_rec_close( progcache, cache_entry );
+  return exec_err;
 }
