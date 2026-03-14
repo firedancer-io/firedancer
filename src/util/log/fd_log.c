@@ -595,9 +595,7 @@ fd_log_private_fprintf_0( int          fd,
        fd_log_printf?
      - Is msg better to have on stack or in thread local storage?
      - Is msg even necessary given shared lock? (probably still useful to
-       keep the message write to be a single-system-call best effort)
-     - Allow partial write to fd_io_write?  (e.g. src_min=0 such that
-       the fd_io_write below is guaranteed to be a single system call) */
+       keep the message write to be a single-system-call best effort) */
 
   char msg[ FD_LOG_BUF_SZ ];
 
@@ -609,14 +607,33 @@ fd_log_private_fprintf_0( int          fd,
   msg[ len ] = '\0';
   va_end( ap );
 
+  char * src = msg;
+  ulong  rem = (ulong)len;
+
 # if FD_HAS_ATOMIC
   FD_COMPILER_MFENCE();
   while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
   FD_COMPILER_MFENCE();
 # endif
 
-  ulong wsz;
-  fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
+  while( rem ) {
+    ulong wsz;
+    int err = fd_io_write( fd, src, 0UL, rem, &wsz );
+    if( FD_LIKELY( !err ) ) { src += wsz; rem -= wsz; continue; }
+    if( FD_UNLIKELY( err!=EAGAIN ) ) break; /* I/O error, give up */
+
+    /* Sleep for 10us */
+#   if FD_HAS_ATOMIC
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *fd_log_private_shared_lock ) = 0;
+    FD_COMPILER_MFENCE();
+    long deadline = fd_log_wallclock() + 10000L;
+    while( fd_log_wallclock() < deadline ) FD_SPIN_PAUSE();
+    FD_COMPILER_MFENCE();
+    while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
+    FD_COMPILER_MFENCE();
+#   endif
+  }
 
 # if FD_HAS_ATOMIC
   FD_COMPILER_MFENCE();
