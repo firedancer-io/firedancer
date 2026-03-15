@@ -380,6 +380,7 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx,
   }
 
   /* Replay incremental account updates */
+  /* FIXME remove deprecated fd_snapwm_vinyl_duplicate_accounts_lthash */
   fd_snapwm_vinyl_duplicate_accounts_batch_init( ctx, stem );
   fd_snapwm_vinyl_duplicate_accounts_lthash_init( ctx, stem );
   ulong dup_batch_cnt = 0UL;
