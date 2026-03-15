@@ -105,6 +105,7 @@ fd_tower_stakes_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_tower_stakes_footprint( ulong slot_max ) {
+  ulong vtr_stake_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( FD_VOTER_MAX * slot_max );
   int lg_slot_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( slot_max ) ) + 1;
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -114,9 +115,9 @@ fd_tower_stakes_footprint( ulong slot_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_tower_stakes_t),       sizeof(fd_tower_stakes_t)                                     ),
-      fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( FD_VOTER_MAX * slot_max ) ),
+      fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint( vtr_stake_chain_cnt )      ),
       fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( FD_VOTER_MAX * slot_max ) ),
-      fd_tower_stakes_slot_align(),      fd_tower_stakes_slot_footprint( lg_slot_cnt )                  ),
+      fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( lg_slot_cnt )                 ),
       fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( FD_VOTER_MAX * slot_max )      ),
     fd_tower_stakes_align() );
 }
