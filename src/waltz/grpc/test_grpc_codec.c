@@ -75,11 +75,287 @@ test_h2_gen_request_hdr( void ) {
 # undef EXPECT_HDR
 }
 
+/* Build an HPACK literal-without-indexing header (new name).
+   Returns number of bytes written. */
+static ulong
+hpack_literal( uchar * out, char const * name, ulong name_len,
+                             char const * val,  ulong val_len ) {
+  uchar * p = out;
+  *p++ = 0x00;
+  FD_TEST( name_len<127UL );
+  *p++ = (uchar)name_len;
+  fd_memcpy( p, name, name_len ); p += name_len;
+  FD_TEST( val_len <127UL );
+  *p++ = (uchar)val_len;
+  fd_memcpy( p, val, val_len );   p += val_len;
+  return (ulong)(p - out);
+}
+
+static void
+test_read_response_hdrs( void ) {
+  fd_h2_hdr_matcher_t matcher[1];
+  FD_TEST( fd_h2_hdr_matcher_init( matcher, 1UL )==matcher );
+  fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_HDR_STATUS,  "grpc-status"  );
+  fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_HDR_MESSAGE, "grpc-message" );
+
+  /* Helper: parse HPACK payload into resp_hdrs */
+# define PARSE( payload, payload_sz ) do {                            \
+    memset( &resp, 0, sizeof(resp) );                                 \
+    resp.grpc_status = FD_GRPC_STATUS_UNKNOWN;                        \
+    rc = fd_grpc_h2_read_response_hdrs( &resp, matcher,               \
+                                        (payload), (payload_sz) );    \
+  } while(0)
+
+  fd_grpc_resp_hdrs_t resp;
+  int rc;
+  uchar buf[ 256 ];
+  ulong off;
+
+  /* ---- Valid cases ---- */
+
+  /* :status: 200 via indexed representation (static table index 8) */
+  { uchar hpack[] = { 0x88 };
+    PARSE( hpack, sizeof(hpack) );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.h2_status==200 ); }
+
+  /* :status: 200 + grpc-status: 0 */
+  { off = 0;
+    uchar indexed_200[] = { 0x88 };
+    fd_memcpy( buf, indexed_200, 1 ); off += 1;
+    off += hpack_literal( buf+off, "grpc-status", 11, "0", 1 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.h2_status==200 );
+    FD_TEST( resp.grpc_status==FD_GRPC_STATUS_OK ); }
+
+  /* :status: 200 + grpc-status: 16 (UNAUTHENTICATED, max valid) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "16", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.grpc_status==FD_GRPC_STATUS_UNAUTHENTICATED ); }
+
+  /* :status: 100 (lowest valid HTTP status) */
+  { off = 0;
+    off += hpack_literal( buf, ":status", 7, "100", 3 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.h2_status==100 ); }
+
+  /* :status: 599 (highest valid HTTP status) */
+  { off = 0;
+    off += hpack_literal( buf, ":status", 7, "599", 3 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.h2_status==599 ); }
+
+  /* No :status or grpc-status headers => success with defaults */
+  { uchar empty[] = "";
+    PARSE( empty, 0 );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.h2_status==0 );
+    FD_TEST( resp.grpc_status==FD_GRPC_STATUS_UNKNOWN ); }
+
+  /* grpc-message preserved on success */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "2", 1 );
+    off += hpack_literal( buf+off, "grpc-message", 12, "something broke", 15 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.grpc_msg_len==15 );
+    FD_TEST( fd_memeq( resp.grpc_msg, "something broke", 15 ) ); }
+
+  /* ---- content-type cases ---- */
+
+  /* content-type: application/grpc => is_grpc_proto==1 */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc", 16 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==1 ); }
+
+  /* content-type: application/grpc+proto => is_grpc_proto==1 */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc+proto", 22 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==1 ); }
+
+  /* content-type: application/grpc+json => is_grpc_proto==0 (not supported) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc+json", 21 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==0 ); }
+
+  /* content-type: text/plain => is_grpc_proto==0 */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "text/plain", 10 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==0 ); }
+
+  /* content-type: application/grpc; charset=utf-8 => is_grpc_proto==0 (params rejected) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "content-type", 12, "application/grpc; charset=utf-8", sizeof("application/grpc; charset=utf-8")-1 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==0 ); }
+
+  /* no content-type header => is_grpc_proto==0 (default from memset) */
+  { off = 0;
+    buf[off++] = 0x88;
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_SUCCESS );
+    FD_TEST( resp.is_grpc_proto==0 ); }
+
+  /* ---- h2_status rejection cases ---- */
+
+  /* :status: 0 (below 100) */
+  { off = hpack_literal( buf, ":status", 7, "0", 1 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 99 (below 100) */
+  { off = hpack_literal( buf, ":status", 7, "99", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 600 (above 599) */
+  { off = hpack_literal( buf, ":status", 7, "600", 3 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: (empty) */
+  { off = hpack_literal( buf, ":status", 7, "", 0 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: OK (non-numeric) */
+  { off = hpack_literal( buf, ":status", 7, "OK", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 0x1F4 (hex, must be rejected under strict decimal parsing) */
+  { off = hpack_literal( buf, ":status", 7, "0x1F4", 5 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 0310 (4 digits, rejected per HTTP/2 3-digit requirement) */
+  { off = hpack_literal( buf, ":status", 7, "0310", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 0200 (non-canonical encoding of 200, must be rejected) */
+  { off = hpack_literal( buf, ":status", 7, "0200", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 20 (2 digits, too short) */
+  { off = hpack_literal( buf, ":status", 7, "20", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 2000 (4 digits, too long) */
+  { off = hpack_literal( buf, ":status", 7, "2000", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: 200abc (trailing junk) */
+  { off = hpack_literal( buf, ":status", 7, "200abc", 6 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* ---- grpc_status rejection cases ---- */
+
+  /* grpc-status: 17 (above UNAUTHENTICATED=16) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "17", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: (empty) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "", 0 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: OK (non-numeric, would silently become 0 with old code) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "OK", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: 0x10 (hex for 16, trailing junk after '0') */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "0x10", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: -1 (negative, not a digit) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "-1", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: 999999 (large number) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "999999", 6 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: " 200" (leading whitespace, strtoul would accept) */
+  { off = hpack_literal( buf, ":status", 7, " 200", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* :status: +200 (leading plus sign, strtoul would accept) */
+  { off = hpack_literal( buf, ":status", 7, "+200", 4 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: " 0" (leading whitespace) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, " 0", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* grpc-status: +0 (leading plus) */
+  { off = 0;
+    buf[off++] = 0x88;
+    off += hpack_literal( buf+off, "grpc-status", 11, "+0", 2 );
+    PARSE( buf, off );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+  /* Corrupt HPACK payload */
+  { uchar corrupt[] = { 0xff, 0xff, 0xff };
+    PARSE( corrupt, sizeof(corrupt) );
+    FD_TEST( rc==FD_H2_ERR_PROTOCOL ); }
+
+# undef PARSE
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   test_h2_gen_request_hdr();
+  test_read_response_hdrs();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
