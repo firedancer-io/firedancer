@@ -837,6 +837,9 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->first_transaction_scheduled_nanos = bank->data->first_transaction_scheduled_nanos;
   slot_info->last_transaction_finished_nanos   = bank->data->last_transaction_finished_nanos;
   slot_info->completion_time_nanos             = fd_log_wallclock();
+  if( !slot_info->first_transaction_scheduled_nanos ) { /* edge case: empty slot */
+    slot_info->first_transaction_scheduled_nanos = slot_info->last_transaction_finished_nanos;
+  }
 
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
