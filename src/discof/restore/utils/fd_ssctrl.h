@@ -82,9 +82,9 @@
 #define FD_SNAPSHOT_MSG_CTRL_FINI              (9UL) /* Current snapshot has been fully loaded, finish processing */
 
 /* snapin -> snapls */
+#define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Hash result sent from snapin to snapls */
 /* snapin -> snapwm -> snaplv */
-#define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Hash result sent from snapin to snapls or from snapin to snapwm to snaplv */
-#define FD_SNAPSHOT_MSG_EXP_CAPITALIZATION    (11UL) /* Capitalization sent from snapin to snapwm in vinyl mode to verify capitalization */
+#define FD_SNAPSHOT_HASH_MSG_EXP_AND_CAPITAL  (11UL) /* Combined expected hash and capitalization message sent from snapin to snapwm to snaplv */
 
 /* snapin -> snapls */
 #define FD_SNAPSHOT_HASH_MSG_SUB              (12UL) /* Duplicate account sent from snapin to snapls, includes account header and data */
@@ -118,10 +118,6 @@ typedef struct fd_ssctrl_init {
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
 } fd_ssctrl_meta_t;
-
-typedef struct fd_ssctrl_capitalization {
-  ulong capitalization;
-} fd_ssctrl_capitalization_t;
 
 typedef struct fd_ssctrl_hash_result {
   fd_lthash_value_t lthash;
@@ -185,25 +181,25 @@ fd_ssctrl_state_str( ulong state ) {
 static inline const char *
 fd_ssctrl_msg_ctrl_str( ulong sig ) {
   switch( sig ) {
-    case FD_SNAPSHOT_MSG_DATA:                return "data";
-    case FD_SNAPSHOT_MSG_META:                return "meta";
-    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:      return "init_full";
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:      return "init_incr";
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:           return "fail";
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:           return "next";
-    case FD_SNAPSHOT_MSG_CTRL_DONE:           return "done";
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:       return "shutdown";
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:          return "error";
-    case FD_SNAPSHOT_MSG_CTRL_FINI:           return "fini";
-    case FD_SNAPSHOT_HASH_MSG_EXPECTED:       return "hash_expected";
-    case FD_SNAPSHOT_MSG_EXP_CAPITALIZATION:  return "exp_capitalization";
-    case FD_SNAPSHOT_HASH_MSG_SUB:            return "hash_sub";
-    case FD_SNAPSHOT_HASH_MSG_SUB_HDR:        return "hash_sub_hdr";
-    case FD_SNAPSHOT_HASH_MSG_SUB_DATA:       return "hash_sub_data";
-    case FD_SNAPSHOT_HASH_MSG_RESULT_SUB:     return "hash_result_sub";
-    case FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH: return "hash_sub_meta_batch";
-    case FD_SNAPSHOT_HASH_MSG_RESULT_ADD:     return "hash_result_add";
-    default:                                  return "unknown";
+    case FD_SNAPSHOT_MSG_DATA:                  return "data";
+    case FD_SNAPSHOT_MSG_META:                  return "meta";
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:        return "init_full";
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:        return "init_incr";
+    case FD_SNAPSHOT_MSG_CTRL_FAIL:             return "fail";
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:             return "next";
+    case FD_SNAPSHOT_MSG_CTRL_DONE:             return "done";
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:         return "shutdown";
+    case FD_SNAPSHOT_MSG_CTRL_ERROR:            return "error";
+    case FD_SNAPSHOT_MSG_CTRL_FINI:             return "fini";
+    case FD_SNAPSHOT_HASH_MSG_EXPECTED:         return "hash_expected";
+    case FD_SNAPSHOT_HASH_MSG_EXP_AND_CAPITAL:  return "hash_exp_and_capital";
+    case FD_SNAPSHOT_HASH_MSG_SUB:              return "hash_sub";
+    case FD_SNAPSHOT_HASH_MSG_SUB_HDR:          return "hash_sub_hdr";
+    case FD_SNAPSHOT_HASH_MSG_SUB_DATA:         return "hash_sub_data";
+    case FD_SNAPSHOT_HASH_MSG_RESULT_SUB:       return "hash_result_sub";
+    case FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH:   return "hash_sub_meta_batch";
+    case FD_SNAPSHOT_HASH_MSG_RESULT_ADD:       return "hash_result_add";
+    default:                                    return "unknown";
   }
 }
 
