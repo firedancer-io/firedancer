@@ -112,3 +112,27 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
       meta->dlen );
   }
 }
+
+void
+fd_hashes_apply_hard_forks( fd_hash_t *   hash,
+                            ulong         slot,
+                            ulong         parent_slot,
+                            ulong const * hard_forks,
+                            ulong const * hard_forks_cnts,
+                            ulong         hard_forks_cnt ) {
+  ulong sum = 0UL;
+  for( ulong i=0UL; i<hard_forks_cnt; i++ ) {
+    if( FD_UNLIKELY( parent_slot<hard_forks[ i ] && hard_forks[ i ]<=slot ) ) sum += hard_forks_cnts[ i ];
+  }
+
+  if( FD_UNLIKELY( !sum ) ) return;
+
+  ulong sum_le[ 1 ];
+  FD_STORE( ulong, sum_le, sum );
+
+  fd_sha256_t sha;
+  fd_sha256_init( &sha );
+  fd_sha256_append( &sha, hash->hash, sizeof(fd_hash_t) );
+  fd_sha256_append( &sha, sum_le,     sizeof(ulong)     );
+  fd_sha256_fini( &sha, hash->hash );
+}
