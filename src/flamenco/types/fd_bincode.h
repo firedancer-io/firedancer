@@ -21,6 +21,12 @@ struct fd_bincode_decode_ctx {
 };
 typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
 
+static inline fd_bincode_decode_ctx_t
+fd_bincode_decode_ctx( void const * data,
+                       ulong        sz ) {
+  return (fd_bincode_decode_ctx_t) { .data=data, .dataend=(void *)( (ulong)data+sz ) };
+}
+
 #define FD_BINCODE_SUCCESS         (    0)
 #define FD_BINCODE_ERR_UNDERFLOW   (-1001) /* Attempted to read past end of buffer */
 #define FD_BINCODE_ERR_OVERFLOW    (-1002) /* Attempted to write past end of buffer */

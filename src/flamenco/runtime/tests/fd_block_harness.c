@@ -12,6 +12,7 @@
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../accdb/fd_accdb_sync.h"
+#include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
 #include "../../types/fd_types.h"
@@ -123,13 +124,13 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   }
 
   fd_accdb_v1_clear( runner->accdb_admin );
-  fd_progcache_clear( runner->progcache_admin );
+  fd_progcache_clear( runner->progcache->join );
 
   /* In order to check for leaks in the workspace, we need to compact the
      allocators. Without doing this, empty superblocks may be retained
      by the fd_alloc instance, which mean we cannot check for leaks. */
   fd_alloc_compact( fd_accdb_user_v1_funk( runner->accdb )->alloc );
-  fd_alloc_compact( runner->progcache_admin->funk->alloc );
+  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Sets up block execution context from an input test case to execute
@@ -156,7 +157,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child( runner->accdb_admin, &parent_xid, xid );
-  fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, xid );
+  fd_progcache_txn_attach_child( runner->progcache->join, &parent_xid, xid );
 
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );
@@ -329,7 +330,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, 0UL } };
   fd_accdb_attach_child        ( runner->accdb_admin,     xid, &fork_xid );
-  fd_progcache_txn_attach_child( runner->progcache_admin, xid, &fork_xid );
+  fd_progcache_txn_attach_child( runner->progcache->join, xid, &fork_xid );
   xid[0] = fork_xid;
 
   /* Set the initial lthash from the input since we're in a new Funk txn */

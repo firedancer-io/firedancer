@@ -926,8 +926,6 @@
 | <span class="metrics-name">replay_&#8203;leader_&#8203;bid_&#8203;wait</span> | counter | Times where replay is blocked by the PoH tile not sending an end of leader message |
 | <span class="metrics-name">replay_&#8203;banks_&#8203;full</span> | counter | Times where banks are full and a FEC set can't be processed |
 | <span class="metrics-name">replay_&#8203;storage_&#8203;root_&#8203;behind</span> | counter | Times where the storage root is behind the consensus root and can't be advanced |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
@@ -939,6 +937,13 @@
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">db</span>"} | counter | Total time in seconds spent rooting accounts (Waiting on database server) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">copy</span>"} | counter | Total time in seconds spent rooting accounts (Copying account data) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;parts</span> | gauge | Number of program cache heap partitions free |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;bytes</span> | gauge | Program cache heap utilization (free bytes) |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;size_&#8203;bytes</span> | gauge | Program cache heap utilization (total size) |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;part_&#8203;size_&#8203;max_&#8203;bytes</span> | gauge | Program cache heap utilization (largest free partition) |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;time_&#8203;seconds</span> | counter | Total time in seconds spent doing program cache tasks |
 
 </div>
 
@@ -948,13 +953,6 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;misses</span> | counter | Number of program cache misses |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;hits</span> | counter | Number of program cache hits |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fill_&#8203;tot_&#8203;sz</span> | counter | Total number of bytes inserted into program cache |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fill_&#8203;fails</span> | counter | Number of program cache load fails (tombstones inserted) |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction execution (includes VM setup/execution)) |
@@ -970,6 +968,19 @@
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">modify</span>"} | counter | Transaction account change event counters (Account modified) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged</span>"} | counter | Transaction account change event counters (Account unchanged) |
 | <span class="metrics-name">execrp_&#8203;compute_&#8203;units_&#8203;total</span> | counter | Estimated number of compute units executed since tile start |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;lookups</span> | counter | Program cache lookup counter |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;hits</span> | counter | Program cache hit counter |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;misses</span> | counter | Program cache miss counter |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;oom_&#8203;heap</span> | counter | Program cache out-of-memory event counter (heap) |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;oom_&#8203;desc</span> | counter | Program cache out-of-memory event counter (descriptor table) |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;fill_&#8203;bytes</span> | counter | Number of bytes inserted into program cache |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;spills</span> | counter | Program cache spill counter (OOM fallback mechanism) |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;spill_&#8203;bytes</span> | counter | Number of bytes spilled from program cache (OOM fallback mechanism) |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;evictions</span> | counter | Program cache eviction counter |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Number of bytes evicted from program cache |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;total_&#8203;seconds</span> | counter | Total time in seconds spent on program cache operations |
+| <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;load_&#8203;seconds</span> | counter | Total time in seconds spent loading programs |
 
 </div>
 

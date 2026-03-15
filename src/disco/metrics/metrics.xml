@@ -797,9 +797,6 @@ metric introduced.
   <counter name="BanksFull" summary="Times where banks are full and a FEC set can't be processed" />
   <counter name="StorageRootBehind" summary="Times where the storage root is behind the consensus root and can't be advanced" />
 
-  <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
-  <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
-
   <counter name="AccdbCreated" summary="Number of account database records created" />
   <counter name="AccdbReverted" summary="Number of account database records reverted" />
   <counter name="AccdbRooted" summary="Number of account database entries rooted" />
@@ -816,6 +813,16 @@ metric introduced.
   </histogram>
 
   <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
+
+  <!-- extensive program cache metrics.  Useful for development, will be
+       cut down with time -->
+  <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
+  <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
+  <gauge name="ProgcacheFreeParts" summary="Number of program cache heap partitions free" />
+  <gauge name="ProgcacheFreeBytes" summary="Program cache heap utilization (free bytes)" />
+  <gauge name="ProgcacheSizeBytes" summary="Program cache heap utilization (total size)" />
+  <gauge name="ProgcachePartSizeMaxBytes" summary="Program cache heap utilization (largest free partition)" />
+  <counter name="ProgcacheTimeSeconds" converter="seconds" summary="Total time in seconds spent doing program cache tasks" />
 </tile>
 
 <enum name="RepairSentRequestTypes">
@@ -1166,13 +1173,6 @@ metric introduced.
 </enum>
 
 <tile name="execrp">
-    <counter name="ProgcacheMisses" summary="Number of program cache misses" />
-    <counter name="ProgcacheHits" summary="Number of program cache hits" />
-    <counter name="ProgcacheFills" summary="Number of program cache insertions" />
-    <counter name="ProgcacheFillTotSz" summary="Total number of bytes inserted into program cache" />
-    <counter name="ProgcacheFillFails" summary="Number of program cache load fails (tombstones inserted)" />
-    <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
-    <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
     <counter name="AccdbCreated" summary="Number of account database records created" />
 
     <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes" />
@@ -1180,6 +1180,22 @@ metric introduced.
 
     <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
     <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
+
+  <!-- extensive program cache metrics.  Useful for development, will be
+       cut down with time -->
+  <counter name="ProgcacheLookups" summary="Program cache lookup counter" />
+  <counter name="ProgcacheHits" summary="Program cache hit counter" />
+  <counter name="ProgcacheMisses" summary="Program cache miss counter" />
+  <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory event counter (heap)" />
+  <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory event counter (descriptor table)" />
+  <counter name="ProgcacheFills" summary="Number of program cache insertions" />
+  <counter name="ProgcacheFillBytes" summary="Number of bytes inserted into program cache" />
+  <counter name="ProgcacheSpills" summary="Program cache spill counter (OOM fallback mechanism)" />
+  <counter name="ProgcacheSpillBytes" summary="Number of bytes spilled from program cache (OOM fallback mechanism)" />
+  <counter name="ProgcacheEvictions" summary="Program cache eviction counter" />
+  <counter name="ProgcacheEvictionBytes" summary="Number of bytes evicted from program cache" />
+  <counter name="ProgcacheDurationTotalSeconds" converter="seconds" summary="Total time in seconds spent on program cache operations" />
+  <counter name="ProgcacheDurationLoadSeconds" converter="seconds" summary="Total time in seconds spent loading programs" />
 </tile>
 
 <tile name="benchs" telemetry="false">

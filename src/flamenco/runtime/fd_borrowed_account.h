@@ -387,6 +387,12 @@ fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
   return 1;
 }
 
+static inline fd_accdb_ro_t *
+fd_borrowed_account_ro( fd_borrowed_account_t * b,
+                        fd_accdb_ro_t *         ro ) {
+  return fd_accdb_ro_init_nodb( ro, b->pubkey, b->meta );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h */

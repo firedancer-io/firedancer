@@ -98,10 +98,8 @@ backtest_topo( config_t * config ) {
                                 config->firedancer.runtime.program_cache.mean_cache_entry_size ),
       config->firedancer.runtime.max_live_slots,
       config->firedancer.runtime.program_cache.heap_size_mib<<20 );
-  ulong progcache_obj_id;       FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
-  ulong progcache_locks_obj_id; FD_TEST( (progcache_locks_obj_id = fd_pod_query_ulong( topo->props, "progcache_locks", ULONG_MAX ) )!=ULONG_MAX );
-  fd_topob_tile_uses( topo, replay_tile, &topo->objs[ progcache_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, replay_tile, &topo->objs[ progcache_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+  ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ) )!=ULONG_MAX );
+  fd_topob_tile_uses( topo, replay_tile, &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */

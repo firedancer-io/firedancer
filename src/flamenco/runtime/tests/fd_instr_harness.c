@@ -10,6 +10,7 @@
 #include "../program/fd_precompiles.h"
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
+#include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include <assert.h>
 
@@ -28,7 +29,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, xid );
-  fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, xid );
+  fd_progcache_txn_attach_child( runner->progcache->join, &parent_xid, xid );
 
   fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
@@ -86,7 +87,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_out->accounts.cnt     = 0UL;
   runtime->accounts.executable_cnt   = 0UL;
 
-  txn_out->details.programs_to_reverify_cnt  = 0UL;
   txn_out->details.loaded_accounts_data_size = 0UL;
   txn_out->details.accounts_resize_delta     = 0L;
 
@@ -222,19 +222,19 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
     FD_SPAD_FRAME_BEGIN( runner->spad ) {
       uchar * scratch = fd_spad_alloc( runner->spad, FD_FUNK_REC_ALIGN, meta->dlen );
-      fd_progcache_inject_rec( runner->progcache_admin,
-                                &txn_out->accounts.keys[i],
-                                meta,
-                                features,
-                                fd_bank_slot_get( runner->bank ),
-                                scratch,
-                                meta->dlen );
+      fd_progcache_inject_rec( runner->progcache->join,
+                               &txn_out->accounts.keys[i],
+                               meta,
+                               features,
+                               fd_bank_slot_get( runner->bank ),
+                               scratch,
+                               meta->dlen );
     } FD_SPAD_FRAME_END;
   }
 
   fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ fd_bank_slot_get( runner->bank ), runner->bank->data->idx } }};
   fd_accdb_attach_child        ( runner->accdb_admin,     xid, exec_xid );
-  fd_progcache_txn_attach_child( runner->progcache_admin, xid, exec_xid );
+  fd_progcache_txn_attach_child( runner->progcache->join, xid, exec_xid );
 
   /* Load instruction accounts */
 
@@ -316,13 +316,13 @@ fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
   fd_accdb_v1_clear( runner->accdb_admin );
-  fd_progcache_clear( runner->progcache_admin );
+  fd_progcache_clear( runner->progcache->join );
 
   /* In order to check for leaks in the workspace, we need to compact the
      allocators. Without doing this, empty superblocks may be retained
      by the fd_alloc instance, which mean we cannot check for leaks. */
   fd_alloc_compact( fd_accdb_admin_v1_funk( runner->accdb_admin )->alloc );
-  fd_alloc_compact( runner->progcache_admin->funk->alloc );
+  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 ulong
