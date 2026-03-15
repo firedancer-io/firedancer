@@ -2,7 +2,6 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
 
-#include "../../tango/cnc/fd_cnc.h"
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../tango/fseq/fd_fseq.h"
@@ -10,6 +9,7 @@
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/node_info/fd_node_info.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -227,6 +227,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_keyswitch = {
   .footprint = keyswitch_footprint,
   .align     = keyswitch_align,
   .new       = keyswitch_new,
+};
+
+static ulong
+node_info_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_node_info_footprint();
+}
+
+static ulong
+node_info_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_node_info_align();
+}
+
+static void
+node_info_new( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_node_info_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_node_info = {
+  .name      = "node_info",
+  .footprint = node_info_footprint,
+  .align     = node_info_align,
+  .new       = node_info_new,
 };
 
 fd_topo_run_tile_t

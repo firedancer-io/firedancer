@@ -3,6 +3,9 @@
 
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../disco/node_info/fd_node_info.h"
+#include "../../../../disco/genesis/fd_genesis_cluster.h"
+#include "../../../../util/pod/fd_pod.h"
 #include "../../../../util/tile/fd_tile.h"
 
 #include <errno.h>
@@ -677,12 +680,88 @@ write_event( config_t const * config,
   return 1U;
 }
 
+
+static uint
+write_node_info( config_t const *       config,
+                 ulong const *          cur_tile,
+                 fd_node_info_t const * node_info ) {
+  static uchar all_zeros_32[ 32 ];
+  char identity_str[ FD_BASE58_ENCODED_32_SZ ];
+  if( FD_LIKELY( node_info && memcmp( node_info->identity_pubkey, all_zeros_32, 32UL ) ) ) {
+    fd_base58_encode_32( node_info->identity_pubkey, NULL, identity_str );
+  } else {
+    fd_cstr_printf_check( identity_str, sizeof(identity_str), NULL, "???" );
+  }
+
+  char shred_ver_str[ 16 ];
+  ulong ipecho_idx = fd_topo_find_tile( &config->topo, "ipecho", 0UL );
+  FD_TEST( ipecho_idx!=ULONG_MAX );
+  ushort shred_version = (ushort)cur_tile[ ipecho_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, IPECHO, CURRENT_SHRED_VERSION ) ];
+  if( shred_version ) {
+    fd_cstr_printf_check( shred_ver_str, sizeof(shred_ver_str), NULL, "%hu", shred_version );
+  } else if( config->consensus.expected_shred_version ) {
+    fd_cstr_printf_check( shred_ver_str, sizeof(shred_ver_str), NULL, "(%hu)", config->consensus.expected_shred_version );
+  } else {
+    fd_cstr_printf_check( shred_ver_str, sizeof(shred_ver_str), NULL, "???" );
+  }
+
+  char genesis_str[ FD_BASE58_ENCODED_32_SZ+2 ];
+  char genesis_hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+  int  has_genesis_b58 = 0;
+  if( FD_LIKELY( node_info && memcmp( node_info->genesis_hash, all_zeros_32, 32UL ) ) ) {
+    fd_base58_encode_32( node_info->genesis_hash, NULL, genesis_hash_b58 );
+    fd_cstr_printf_check( genesis_str, sizeof(genesis_str), NULL, "%s", genesis_hash_b58 );
+    has_genesis_b58 = 1;
+  } else if( config->consensus.expected_genesis_hash[0] ) {
+    fd_cstr_printf_check( genesis_str, sizeof(genesis_str), NULL, "(%s)", config->consensus.expected_genesis_hash );
+    fd_memcpy( genesis_hash_b58, config->consensus.expected_genesis_hash, sizeof(genesis_hash_b58) );
+    has_genesis_b58 = 1;
+  } else {
+    fd_cstr_printf_check( genesis_str, sizeof(genesis_str), NULL, "???" );
+  }
+
+  char const * cluster_str = "unknown";
+  if( has_genesis_b58 ) {
+    ulong cluster_id = fd_genesis_cluster_identify( genesis_hash_b58 );
+    cluster_str = fd_genesis_cluster_name( cluster_id );
+  }
+
+  char uptime_str[ 32UL ];
+  long now = fd_log_wallclock();
+  if( FD_LIKELY( config->boot_timestamp_nanos>0L && now>config->boot_timestamp_nanos ) ) {
+    ulong elapsed_s = (ulong)( (now - config->boot_timestamp_nanos) / (long)1e9 );
+    ulong days  = elapsed_s / 86400UL;
+    ulong hours = (elapsed_s % 86400UL) / 3600UL;
+    ulong mins  = (elapsed_s % 3600UL) / 60UL;
+    ulong secs  = elapsed_s % 60UL;
+    if( days ) fd_cstr_printf_check( uptime_str, sizeof(uptime_str), NULL, "%lud %luh %lum", days, hours, mins );
+    else if( hours ) fd_cstr_printf_check( uptime_str, sizeof(uptime_str), NULL, "%luh %lum %lus", hours, mins, secs );
+    else fd_cstr_printf_check( uptime_str, sizeof(uptime_str), NULL, "%lum %lus", mins, secs );
+  } else {
+    fd_cstr_printf_check( uptime_str, sizeof(uptime_str), NULL, "???" );
+  }
+
+  PRINT( "🔑 " BOLD CYAN "NODE........" RESET UNBOLD
+         " " BOLD "ID"      UNBOLD " %s"
+         " " BOLD "SHRED"   UNBOLD " %s"
+         " " BOLD "GENESIS" UNBOLD " %s"
+         " " BOLD "CLUSTER" UNBOLD " %s"
+         " " BOLD "UPTIME"  UNBOLD " %s" CLEARLN "\n",
+    identity_str,
+    shred_ver_str,
+    genesis_str,
+    cluster_str,
+    uptime_str );
+  return 1U;
+}
+
 static void
-write_summary( config_t const * config,
-               ulong const *    cur_tile,
-               ulong const *    prev_tile,
-               ulong const *    cur_link,
-               ulong const *    prev_link ) {
+write_summary( config_t const *       config,
+               fd_node_info_t const * node_info,
+               ulong const *          cur_tile,
+               ulong const *          prev_tile,
+               ulong const *          cur_link,
+               ulong const *          prev_link ) {
   (void)config;
   (void)prev_tile;
   (void)cur_tile;
@@ -701,6 +780,8 @@ write_summary( config_t const * config,
   if( FD_UNLIKELY( snap_shutdown_time==1L && shutdown  ) ) snap_shutdown_time = fd_log_wallclock();
 
   lines_printed = 1UL;
+
+  lines_printed += write_node_info( config, cur_tile, node_info );
 
   if( FD_UNLIKELY( write_bench( config, cur_tile, prev_tile ) ) ) lines_printed++;
 
@@ -767,6 +848,11 @@ run( config_t const * config,
   (void)config;
   (void)drain_output_fd;
 
+  ulong node_info_obj_id = fd_pod_query_ulong( config->topo.props, "node_info", ULONG_MAX );
+  FD_TEST( node_info_obj_id!=ULONG_MAX );
+  fd_node_info_t * node_info = fd_node_info_join( fd_topo_obj_laddr( &config->topo, node_info_obj_id ) );
+  FD_TEST( node_info );
+
   ulong tile_cnt = config->topo.tile_cnt;
 
   ulong cons_cnt = 0UL;
@@ -788,7 +874,7 @@ run( config_t const * config,
   ulong last_snap = 1UL;
 
   frame_len = 0UL;
-  write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+  write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
   flush_frame();
 
   long next = fd_log_wallclock()+(long)1e9;
@@ -796,7 +882,7 @@ run( config_t const * config,
     if( FD_UNLIKELY( drain_output_fd>=0 ) ) {
       if( FD_UNLIKELY( drain( drain_output_fd ) ) ) {
         frame_len = 0UL;
-        write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+        write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
         flush_frame();
       }
     }
@@ -854,7 +940,7 @@ run( config_t const * config,
       } else {
         PRINT( "\033[%luA\r", lines_printed );
       }
-      write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+      write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
       PRINT( "\033[0J" );    /* clear any leftover lines below */
       PRINT( "\033[?25h" ); /* show cursor */
       flush_frame();

@@ -1219,6 +1219,13 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, rnonce_ss_obj->id, "rnonce_ss" ) );
   }
 
+  /* The node_info object holds 32-byte values (identity pubkey, genesis
+     hash) that can't be represented as scalar metrics.  The replay tile
+     writes it, and the watch command reads it. */
+  fd_topo_obj_t * node_info_obj = fd_topob_obj( topo, "node_info", "replay" );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], node_info_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, node_info_obj->id, "node_info" ) );
+
   setup_topo_funk( topo,
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots,
