@@ -113,6 +113,8 @@ void
 fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
                       fd_features_t const * features,
                       ulong                 slot ) {
+  fd_rwlock_new( &cost_tracker->lock );
+
   if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_100m ) ) {
     cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0286;
     cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
@@ -471,6 +473,8 @@ int
 fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,
                               fd_txn_out_t *      txn_out ) {
 
+  fd_rwlock_write( &cost_tracker->lock );
+
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L167 */
   int err = would_fit( cost_tracker, txn_out, &txn_out->details.txn_cost );
   if( FD_UNLIKELY( err!=FD_COST_TRACKER_SUCCESS ) ) {
@@ -486,5 +490,8 @@ fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,
   /* Note: We purposely omit signature counts updates since they're not relevant to cost calculations right now. */
   cost_tracker->allocated_accounts_data_size += get_allocated_accounts_data_size( &txn_out->details.txn_cost );
   add_transaction_execution_cost( cost_tracker, txn_out, transaction_cost_sum( &txn_out->details.txn_cost ) );
+
+  fd_rwlock_unwrite( &cost_tracker->lock );
+
   return FD_COST_TRACKER_SUCCESS;
 }
