@@ -367,6 +367,14 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
   int identity_changed = memcmp( gossip->identity_pubkey, identity_pubkey, 32UL );
   if( FD_UNLIKELY( !identity_changed ) ) return;
 
+  /* Remove the old identity from the ping tracker before changing
+     identity_pubkey.  ping_tracker_change filters callbacks where
+     peer_pubkey == identity_pubkey, so an ACTIVE for the old identity
+     was suppressed.  If we don't remove it here, a later INACTIVE
+     would pass through (identity_pubkey has changed) and crash gossvf
+     which never received the corresponding ACTIVE. */
+  fd_ping_tracker_remove( gossip->ping_tracker, gossip->identity_pubkey, now );
+
   ulong new_ci_idx = fd_crds_ci_idx( gossip->crds, identity_pubkey );
 
   /* The new identity may already exist in CRDS as a normal peer (active
@@ -374,6 +382,13 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
      must deactivate it before updating identity_pubkey to maintain the
      invariant that our own identity is never sampleable. */
   if( FD_UNLIKELY( new_ci_idx!=ULONG_MAX ) ) fd_active_set_remove_peer( gossip->active_set, new_ci_idx );
+
+  /* Also remove the new identity from the ping tracker.  It may have
+     been tracked as a peer and received an ACTIVE callback.  After
+     identity change, ping_tracker_change would suppress future
+     callbacks for it (it's now self), but it would remain in gossvf's
+     ping map forever, leaking a slot. */
+  fd_ping_tracker_remove( gossip->ping_tracker, identity_pubkey, now );
 
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
   gossip->identity_stake = get_stake( gossip, identity_pubkey );
