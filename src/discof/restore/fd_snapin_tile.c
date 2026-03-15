@@ -572,6 +572,13 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   ctx->bank_slot = manifest->slot;
   ctx->manifest_capitalization = manifest->capitalization;
+  if( FD_UNLIKELY( ctx->manifest_capitalization>LONG_MAX ) ) {
+    /* Calculations downstream require capitalization to be treated
+       as long (to handle addition and subtraction). */
+    FD_LOG_WARNING(( "snapshot manifest capitalization %lu exceeds LONG_MAX", ctx->manifest_capitalization ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
   fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
     .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
     .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
@@ -619,16 +626,21 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   if( FD_LIKELY( !ctx->lthash_disabled ) ) {
-    fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-    fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
-    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-
     if( FD_LIKELY( ctx->use_vinyl ) ) {
-      fd_ssctrl_capitalization_t * cap = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-      cap->capitalization = manifest->capitalization;
-      fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_EXP_CAPITALIZATION, ctx->hash_out.chunk, sizeof(fd_ssctrl_capitalization_t), 0UL, 0UL, 0UL );
-      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_ssctrl_capitalization_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+      fd_ssctrl_hash_result_t * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+      /* There is padding in this struct, due to alignment, requiring
+         initialization to zero.  This message is infrequent, so the
+         overhead is negligible. */
+      fd_memset( data, 0, sizeof(fd_ssctrl_hash_result_t) );
+      fd_memcpy( &data->lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
+      data->capitalization = (long)manifest->capitalization;
+      fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXP_AND_CAPITAL, ctx->hash_out.chunk, sizeof(fd_ssctrl_hash_result_t), 0UL, 0UL, 0UL );
+      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_ssctrl_hash_result_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    } else {
+      fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+      fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
+      fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
+      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
     }
   }
 
@@ -1150,6 +1162,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( ( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) ||
       ( 0==strcmp( snapin_out_link->name, "snapin_wm" ) ) ) {
     ctx->hash_out = out1( topo, tile, snapin_out_link->name );
+    FD_TEST( ctx->hash_out.idx==out_link_ct_idx );
   }
 
   fd_ssparse_reset( ctx->ssparse );
@@ -1185,10 +1198,19 @@ unprivileged_init( fd_topo_t *      topo,
   }
 }
 
-/* Control fragments can result in one extra publish to forward the
-   message down the pipeline, in addition to the result / malformed
-   message. Can send one duplicate account message as well. */
-#define STEM_BURST 3UL
+/* There are 3 output links that affect the calculation of STEM_BURST:
+    1. topology-dependent link:
+    | 1a. snapin_ct (no lthash verification)
+    | 1b. snapin_ls (with lthash verification, funk)
+    | 1c. snapin_wm (with lthash verification, vinyl)
+    | - worst case: 2 messages, e.g. process_manifest (lthash) +
+    |            FD_SSPARSE_ADVANCE_ACCOUNT_{HEADER,DATA,BATCH,ERROR}
+    2. snapin_manif - worst case: 1 message
+    3. snapin_gui   - worst case: 1 message (config program account)
+   The STEM_BURST is the max value across these 3 links (not the sum).
+   Note that snapin_txn is excluded from this calculation, since it is
+   an unreliable link, working as a dcache place holder. */
+#define STEM_BURST 2UL
 
 #define STEM_LAZY  1000L
 
