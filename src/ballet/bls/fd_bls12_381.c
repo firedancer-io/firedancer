@@ -64,6 +64,12 @@ fd_bls12_381_g1_frombytes_unchecked( fd_bls12_381_g1aff_t * r,
     fd_bls12_381_g1_bswap( (uchar *)be, _in );
     in = (uchar *)be;
   }
+
+  /* Reject the point if the compressed or parity flag is set. */
+  if( FD_UNLIKELY( in[ 0 ] & 0xA0 ) ) {
+    return NULL;
+  }
+
   if( FD_UNLIKELY( blst_p1_deserialize( r, in )!=BLST_SUCCESS ) ) {
     return NULL;
   }
@@ -232,6 +238,12 @@ fd_bls12_381_g2_frombytes_unchecked( fd_bls12_381_g2aff_t * r,
     fd_bls12_381_g2_bswap( (uchar *)be, _in );
     in = (uchar *)be;
   }
+
+  /* Reject the point if the compressed or parity flag is set. */
+  if( FD_UNLIKELY( in[ 0 ] & 0xA0 ) ) {
+    return NULL;
+  }
+
   if( FD_UNLIKELY( blst_p2_deserialize( r, in )!=BLST_SUCCESS ) ) {
     return NULL;
   }
