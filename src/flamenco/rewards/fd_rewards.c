@@ -301,7 +301,7 @@ calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   
   FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year ));
 }
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/lib.rs#L29 */
+/* https://github.com/anza-xyz/agave/blob/be166fdbf8960d47062a5e7fe7df75ae79beab48/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L377 */
 static ulong
 get_minimum_stake_delegation( fd_bank_t * bank ) {
   if( !FD_FEATURE_ACTIVE_BANK( bank, stake_minimum_delegation_for_rewards ) ) {
@@ -312,7 +312,7 @@ get_minimum_stake_delegation( fd_bank_t * bank ) {
     return LAMPORTS_PER_SOL;
   }
 
-  return 1;
+  return LAMPORTS_PER_SOL;
 }
 
 /* Calculate the number of blocks required to distribute rewards to all stake accounts.
