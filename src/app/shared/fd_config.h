@@ -94,6 +94,11 @@ struct fd_configh {
     char agave_affinity[ AFFINITY_SZ ];
     uint agave_unified_scheduler_handler_threads;
   } layout;
+
+  /* Geyser plugin: path to JSON5 config file, passed to Agave as --geyser-plugin-config */
+  struct {
+    char plugin_config[ PATH_MAX ];
+  } geyser;
 };
 
 typedef struct fd_configh fd_configh_t;
