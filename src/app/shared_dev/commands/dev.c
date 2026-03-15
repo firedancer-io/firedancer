@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
@@ -134,9 +135,11 @@ run_firedancer_threaded( config_t * config,
      tiles maps it in as read-only, later tiles will reuse the same cached shmem
      join (the key is only on shmem name, when it should be (name, mode)). */
 
+#ifdef __linux__
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
+#endif
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, config->development.core_dump_level );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
@@ -214,7 +217,11 @@ dev_cmd_fn( args_t *   args,
       if( FD_UNLIKELY( close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
       int wstatus;
+#ifdef __linux__
       pid_t exited_pid = wait4( -1, &wstatus, (int)__WALL, NULL );
+#else
+      pid_t exited_pid = wait4( -1, &wstatus, 0, NULL );
+#endif
       if( FD_UNLIKELY( exited_pid == -1 ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
       char * exited_child = exited_pid == firedancer_pid ? "firedancer" : exited_pid == watch_pid ? "watch" : "unknown";

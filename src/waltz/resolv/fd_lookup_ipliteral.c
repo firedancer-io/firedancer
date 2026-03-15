@@ -17,7 +17,7 @@ fd_lookup_ipliteral( struct address buf[ static 1 ],
                      int            family ) {
   struct in_addr a4;
   struct in6_addr a6;
-  if( inet_aton( name, &a4 ) > 0 ) {
+  if( inet_pton( AF_INET, name, &a4 ) > 0 ) {
     if( family == AF_INET6 ) /* wrong family */
       return FD_EAI_NODATA;
     memcpy( &buf[0].addr, &a4, sizeof(a4) );

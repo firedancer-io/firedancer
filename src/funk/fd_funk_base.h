@@ -45,7 +45,9 @@
 #include "../util/fd_util.h"
 
 #if FD_HAS_X86
+#if defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
+#endif
 #endif
 
 /* FD_FUNK_SUCCESS is used by various APIs to indicate the operation

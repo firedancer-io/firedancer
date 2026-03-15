@@ -6,6 +6,7 @@ OUTPUT_DIRECTORY = $(OUTPUT_DIRECTORY)
 
 FILE_PATTERNS = *.md fd_*.h
 INPUT = README.md \
+  doc/glossary.md \
   src \
   src/ballet \
   src/ballet/bn254 \

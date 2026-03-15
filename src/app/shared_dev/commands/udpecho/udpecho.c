@@ -105,9 +105,11 @@ udpecho_cmd_fn( args_t *   args,
   /* FIXME this allocates lots of memory unnecessarily */
   initialize_workspaces( config );
   initialize_stacks( config );
+#ifdef __linux__
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
+#endif
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* FIXME allow running sandboxed/multiprocess */

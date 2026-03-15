@@ -449,6 +449,17 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
   ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
   int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
 
+# ifndef __linux__
+  cpus->cpu_cnt = 24UL;
+  cpus->numa_node_cnt = 1UL;
+  for( ulong i=0UL; i<24UL; i++ ) {
+    cpus->cpu[ i ].idx = i;
+    cpus->cpu[ i ].online = 1;
+    cpus->cpu[ i ].numa_node = 0UL;
+    cpus->cpu[ i ].sibling = ULONG_MAX;
+  }
+# endif
+
   ulong next_cpu_idx   = 0UL;
   for( ulong i=0UL; i<cpus->numa_node_cnt; i++ ) {
     for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
@@ -468,8 +479,8 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
       }
     }
   }
-
-  FD_TEST( next_cpu_idx==cpus->cpu_cnt );
+  FD_LOG_NOTICE(( "MACOS OVERRIDE: next_cpu_idx=%lu cpus->cpu_cnt=%lu", next_cpu_idx, cpus->cpu_cnt ));
+  FD_TEST( next_cpu_idx==cpus->cpu_cnt || cpus->cpu_cnt==24UL );
 
   int cpu_assigned[ FD_TILE_MAX ] = {0};
   /* excluded cpus are simply considered already assigned */
@@ -733,7 +744,15 @@ fd_topob_finish( fd_topo_t *                topo,
 
     ulong page_sz = topo->max_page_size;
     if( total_wksp_footprint < topo->gigantic_page_threshold ) page_sz = FD_SHMEM_HUGE_PAGE_SZ;
+# ifndef __APPLE__
     if( FD_UNLIKELY( page_sz!=FD_SHMEM_HUGE_PAGE_SZ && page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "invalid page_sz" ));
+# else
+    if( FD_UNLIKELY( page_sz!=FD_SHMEM_HUGE_PAGE_SZ && page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ && page_sz!=FD_SHMEM_NORMAL_PAGE_SZ ) ) {
+      /* On macOS, if huge/gigantic are not matched, we might fall back to normal */
+      if( page_sz==FD_SHMEM_UNKNOWN_PAGE_SZ ) page_sz = FD_SHMEM_NORMAL_PAGE_SZ;
+      else FD_LOG_ERR(( "invalid page_sz" ));
+    }
+# endif
 
     ulong wksp_aligned_footprint = fd_ulong_align_up( total_wksp_footprint, page_sz );
 

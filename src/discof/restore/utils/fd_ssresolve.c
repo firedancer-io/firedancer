@@ -338,9 +338,9 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
   int               minor_version;
   int               status;
   const char *      message;
-  ulong             message_len;
+  size_t            message_len;
   struct phr_header headers[ 128UL ];
-  ulong             header_cnt = 128UL;
+  size_t            header_cnt = 128UL;
   int parsed = phr_parse_response( ssresolve->response,
                                     ssresolve->response_len,
                                     &minor_version,

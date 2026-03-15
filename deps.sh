@@ -126,7 +126,7 @@ checkout_llvm () {
 }
 
 fetch () {
-  git submodule update --init
+# git submodule update --init
 
   mkdir -pv "$PREFIX/git"
 

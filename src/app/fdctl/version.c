@@ -17,3 +17,11 @@ ulong const fdctl_patch_version     = FDCTL_PATCH_VERSION;
 uint  const fdctl_commit_ref        = FDCTL_COMMIT_REF_U32;
 char  const fdctl_commit_ref_string[] = FDCTL_COMMIT_REF_CSTR;
 char  const fdctl_version_string[]  = FD_EXPAND_THEN_STRINGIFY(FDCTL_MAJOR_VERSION) "." FD_EXPAND_THEN_STRINGIFY(FDCTL_MINOR_VERSION) "." FD_EXPAND_THEN_STRINGIFY(FDCTL_PATCH_VERSION);
+
+/* Standard Firedancer version symbols for shared code */
+ulong const firedancer_major_version     = FDCTL_MAJOR_VERSION;
+ulong const firedancer_minor_version     = FDCTL_MINOR_VERSION;
+ulong const firedancer_patch_version     = FDCTL_PATCH_VERSION;
+uint  const firedancer_commit_ref        = FDCTL_COMMIT_REF_U32;
+char  const firedancer_commit_ref_string[] = FDCTL_COMMIT_REF_CSTR;
+char  const firedancer_version_string[]  = FD_EXPAND_THEN_STRINGIFY(FDCTL_MAJOR_VERSION) "." FD_EXPAND_THEN_STRINGIFY(FDCTL_MINOR_VERSION) "." FD_EXPAND_THEN_STRINGIFY(FDCTL_PATCH_VERSION);

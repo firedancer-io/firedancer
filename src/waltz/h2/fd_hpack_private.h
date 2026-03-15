@@ -4,7 +4,9 @@
 #include "fd_hpack.h"
 
 #if FD_HAS_X86
+#if defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
+#endif
 #endif
 
 /* Simple HPACK static table.

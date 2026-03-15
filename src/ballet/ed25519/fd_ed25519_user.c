@@ -235,6 +235,7 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
                                         uchar const   pubkeys[ static 32 ],    /* 32 * batch_sz */
                                         fd_sha512_t * shas[ 1 ],               /* batch_sz */
                                         uchar const   batch_sz ) {
+#undef MAX
 #define MAX 16
   if( FD_UNLIKELY( batch_sz == 0 || batch_sz > MAX ) ) {
     return FD_ED25519_ERR_SIG;

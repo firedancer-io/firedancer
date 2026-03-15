@@ -12,7 +12,9 @@
 
 #include <errno.h>
 #include <sys/random.h>
+#ifdef __linux__
 #include <linux/capability.h>
+#endif
 
 FD_IMPORT_BINARY(sample_transaction, "src/waltz/quic/tests/quic_txn.bin");
 

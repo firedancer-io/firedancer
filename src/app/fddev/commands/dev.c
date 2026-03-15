@@ -17,7 +17,14 @@ spawn_agave( config_t const * config ) {
   pthread_t pthread;
   int err = pthread_create( &pthread, NULL, agave_main1, (void *)config );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", err, fd_io_strerror( err ) ));
+#ifdef __linux__
   err = pthread_setname_np( pthread, "fdSolMain" );
+#elif defined(__MACH__)
+  (void)pthread;
+  /* macOS pthread_setname_np only works on the current thread.
+     We should call it from within agave_main1 if we want to name that thread. */
+  err = 0;
+#endif
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_setname_np() failed (%i-%s)", err, fd_io_strerror( err ) ));
 }
 

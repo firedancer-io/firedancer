@@ -52,7 +52,7 @@ main( int     argc,
   if( FD_UNLIKELY( !S_ISREG( bin_stat.st_mode ) ) )
     FD_LOG_ERR(( "File \"%s\" not a regular file", bin_path ));
   if( FD_UNLIKELY( bin_stat.st_size<0L ) )
-    FD_LOG_ERR(( "File \"%s\" has invalid size %ld", bin_path, bin_stat.st_size ));
+    FD_LOG_ERR(( "File \"%s\" has invalid size %ld", bin_path, (long)bin_stat.st_size ));
 
   /* Read file into memory */
 

@@ -76,7 +76,7 @@ service_quic( fd_benchs_ctx_t * ctx,
     /* Publishes to mcache via callbacks */
 
     /* receive from socket, and pass to quic */
-    int poll_rc = poll( ctx->poll_fd, ctx->conn_cnt, 0 );
+    int poll_rc = poll( ctx->poll_fd, (nfds_t)ctx->conn_cnt, 0 );
     if( FD_LIKELY( poll_rc == 0 ) ) {
       return;
     } if( FD_UNLIKELY( poll_rc == -1 ) ) {

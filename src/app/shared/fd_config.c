@@ -291,7 +291,12 @@ fd_config_fill( fd_config_t * config,
     config->hugetlbfs.mount_path ) );
 
   ulong max_page_sz = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+# ifndef __APPLE__
   if( FD_UNLIKELY( max_page_sz!=FD_SHMEM_HUGE_PAGE_SZ && max_page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "[hugetlbfs.max_page_size] must be \"huge\" or \"gigantic\"" ));
+# else
+  if( FD_UNLIKELY( max_page_sz!=FD_SHMEM_HUGE_PAGE_SZ && max_page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ && max_page_sz!=FD_SHMEM_NORMAL_PAGE_SZ ) )
+    FD_LOG_ERR(( "[hugetlbfs.max_page_size] must be \"huge\", \"gigantic\", or \"normal\"" ));
+# endif
 
   replace( config->log.path, "{user}", config->user );
   replace( config->log.path, "{name}", config->name );

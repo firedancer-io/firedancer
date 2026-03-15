@@ -442,7 +442,7 @@ link_sibling( fd_forest_t * forest, fd_forest_blk_t * sibling, fd_forest_blk_t *
 /* link child to the tree via its parent. */
 
 static void
-link( fd_forest_t * forest, fd_forest_blk_t * parent, fd_forest_blk_t * child ) {
+fd_link( fd_forest_t * forest, fd_forest_blk_t * parent, fd_forest_blk_t * child ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
   ulong             null = fd_forest_pool_idx_null( pool );
   if( FD_LIKELY( parent->child == null ) ) parent->child = fd_forest_pool_idx( pool, child ); /* left-child */
@@ -961,7 +961,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
     requests_insert( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), fd_forest_pool_idx( pool, ele ) );
   }
 
-  if( FD_LIKELY( parent ) ) link( forest, parent, ele );
+  if( FD_LIKELY( parent ) ) fd_link( forest, parent, ele );
 
   /* Iterate subtrees and connect ones where the parent slot matches up
      to the new ele.*/
@@ -976,7 +976,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
   while( FD_LIKELY( fd_forest_deque_cnt( bfs ) ) ) {
     fd_forest_blk_t * orphan = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( bfs ) );
     if( FD_UNLIKELY( orphan->parent_slot == ele->slot ) ) {
-      link( forest, ele, orphan );
+      fd_link( forest, ele, orphan );
       fd_forest_subtrees_ele_remove( subtrees, &orphan->slot, NULL, pool );
       fd_forest_subtlist_ele_remove( fd_forest_subtlist( forest ), orphan, pool );
       requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, orphan ) );

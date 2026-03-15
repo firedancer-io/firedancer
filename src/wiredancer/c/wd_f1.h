@@ -6,7 +6,9 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <sys/mman.h>
+#if defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
+#endif
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"

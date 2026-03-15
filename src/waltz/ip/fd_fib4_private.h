@@ -5,7 +5,9 @@
 #include "../../util/fd_util.h"
 
 #if FD_HAS_X86
+#if defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
+#endif
 #endif
 
 struct __attribute__((aligned(16))) fd_fib4_key {

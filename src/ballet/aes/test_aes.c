@@ -241,7 +241,7 @@ test_aes_128_ecb( void ) {
 /* AEAD Decrypt *******************************************************/
 
 void
-test_aes_128_gcm_bounds( fd_rng_t * rng ) {
+test_aes_128_gcm_bounds( fd_rng_t * rng FD_PARAM_UNUSED ) {
 # if defined(__linux__)
 
   /* Execute AES-GCM ops just before unmapped memory to trap

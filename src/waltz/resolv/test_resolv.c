@@ -4,6 +4,18 @@
 #include "fd_lookup.h"
 #include "../../util/fd_util.h"
 
+#if defined(__APPLE__)
+#include <stdio.h>
+#include <stdlib.h>
+static int memfd_create( const char * name, unsigned int flags ) {
+  (void)name; (void)flags;
+  char path[] = "/tmp/fd-test-XXXXXX";
+  int fd = mkstemp( path );
+  if( fd != -1 ) unlink( path );
+  return fd;
+}
+#endif
+
 FD_IMPORT_BINARY( test_resolvconf, "src/waltz/resolv/test_resolvconf.txt" );
 
 int

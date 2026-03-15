@@ -9,8 +9,10 @@
 
 /* Select a varint coding strategy */
 
-#if defined(__BMI2__) && __LZCNT__
+#if FD_HAS_X86 && defined(__BMI2__) && defined(__LZCNT__)
+#if defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
+#endif
 #define FD_PB_VARINT_CORE 1 /* x86 PDEP and LZCNT */
 #else
 #define FD_PB_VARINT_CORE 0 /* portable */

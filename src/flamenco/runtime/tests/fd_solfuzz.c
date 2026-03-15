@@ -35,11 +35,13 @@ fd_wksp_demand_paged_new( char const * name,
 
   /* Indicate to kernel that hugepages are a fine backing store
      (Transparent Huge Pages) */
+#ifdef MADV_HUGEPAGE
   if( FD_UNLIKELY( 0!=madvise( mem, footprint, MADV_HUGEPAGE ) ) ) {
-    FD_LOG_WARNING(( "madvise() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "madvise(MADV_HUGEPAGE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     munmap( mem, footprint );
     return NULL;
   }
+#endif
 
   /* Create workspace */
   fd_wksp_t * wksp = fd_wksp_join( fd_wksp_new( mem, name, seed, part_max, data_max ) );

@@ -2,13 +2,13 @@
 #include "fd_wsample.h"
 #include <math.h>
 
-#define MAX 1024UL
-#define MAX_FOOTPRINT (128UL + 128UL*(MAX*9UL+7UL)/8UL)
+#define TEST_MAX 1024UL
+#define MAX_FOOTPRINT (128UL + 128UL*(TEST_MAX*9UL+7UL)/8UL)
 
 uchar _shmem [MAX_FOOTPRINT] __attribute__((aligned(128)));
 uchar _shmem2[MAX_FOOTPRINT] __attribute__((aligned(128)));
-ulong weights[MAX];
-ulong counts[MAX];
+ulong weights[TEST_MAX];
+ulong counts[TEST_MAX];
 
 uchar seed[32] = { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31 };
 
@@ -76,7 +76,7 @@ test_probability_dist_replacement( void ) {
     ulong weight_sum = 0UL;
     for( ulong i=0UL; i<sz; i++ ) weight_sum += weights[i];
 
-    memset( counts, 0, MAX*sizeof(ulong) );
+    memset( counts, 0, TEST_MAX*sizeof(ulong) );
     for( ulong j=0UL; j<weight_sum; j++ ) {
       ulong sample = fd_wsample_sample( tree );
       FD_TEST( sample<sz );
@@ -84,7 +84,7 @@ test_probability_dist_replacement( void ) {
     }
     chi_squared_test( counts, weights, sz );
 
-    memset( counts, 0, MAX*sizeof(ulong) );
+    memset( counts, 0, TEST_MAX*sizeof(ulong) );
     for( ulong j=0UL; j<weight_sum; j+=100UL ) {
       ulong round_count = fd_ulong_min( 100UL, weight_sum-j );
       ulong samples[100];
@@ -108,7 +108,7 @@ test_probability_dist_noreplacement( void ) {
     for( ulong i=0UL; i<sz; i++ ) partial = fd_wsample_new_add( partial, 2000000UL / (i+1UL) );
     fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
 
-    memset( counts, 0, MAX*sizeof(ulong) );
+    memset( counts, 0, TEST_MAX*sizeof(ulong) );
     for( ulong j=0UL; j<sz; j++ ) {
       ulong sample = fd_wsample_sample_and_remove( tree );
       FD_TEST( sample<sz );
@@ -119,7 +119,7 @@ test_probability_dist_noreplacement( void ) {
 
     fd_wsample_restore_all( tree );
 
-    memset( counts, 0, MAX*sizeof(ulong) );
+    memset( counts, 0, TEST_MAX*sizeof(ulong) );
     for( ulong j=0UL; j<sz; j+=100UL ) {
       ulong samples[100];
       fd_wsample_sample_and_remove_many( tree, samples, 100UL );
@@ -137,7 +137,7 @@ test_probability_dist_noreplacement( void ) {
   void * partial = fd_wsample_new_init( _shmem, rng, 4UL, 1, FD_WSAMPLE_HINT_FLAT );
   partial = fd_wsample_new_add( fd_wsample_new_add( fd_wsample_new_add( fd_wsample_new_add( partial, 40UL ), 30UL ), 20UL ), 10UL );
   fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial, 0UL ) );
-  memset( counts, 0, MAX*sizeof(ulong) );
+  memset( counts, 0, TEST_MAX*sizeof(ulong) );
 
   for( ulong sample=0UL; sample<302400UL; sample++ ) {
     ulong tuple = 0UL;
@@ -460,8 +460,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  FD_TEST( fd_wsample_footprint( MAX,      1 )                );
-  FD_TEST( fd_wsample_footprint( MAX,      1 )<MAX_FOOTPRINT  );
+  FD_TEST( fd_wsample_footprint( TEST_MAX,      1 )                );
+  FD_TEST( fd_wsample_footprint( TEST_MAX,      1 )<MAX_FOOTPRINT  );
 
   test_matches_solana();
   test_map();

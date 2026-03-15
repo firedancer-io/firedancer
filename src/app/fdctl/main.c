@@ -30,6 +30,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   NULL,
 };
 
+# ifndef __APPLE__
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
@@ -40,6 +41,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_loopback,
   NULL,
 };
+# endif
 
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;

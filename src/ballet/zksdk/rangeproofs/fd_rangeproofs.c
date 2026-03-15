@@ -122,6 +122,7 @@ fd_rangeproofs_verify(
      at runtime can verify u64, u128 and u256 range proofs. */
 #define LOGN 8
 #define N (1 << LOGN)
+#undef MAX
 #define MAX (2*N + 2*LOGN + 5 + FD_RANGEPROOFS_MAX_COMMITMENTS)
 
   const ulong logn = ipp_proof->logn;

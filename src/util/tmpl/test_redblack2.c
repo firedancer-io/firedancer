@@ -6,8 +6,8 @@
 #include <assert.h>
 #include "../fd_util.h"
 
-#define MIN INT_MIN
-#define MAX INT_MAX
+#define TEST_MIN INT_MIN
+#define TEST_MAX INT_MAX
 #define CHARS "ABCDEFGHIJ"
 
 int mu_tests= 0, mu_fails = 0;
@@ -78,7 +78,7 @@ static int unit_test_min( void );
       FD_LOG_INFO(("PASSED"));                        \
       if (correct_free != rb_free(pool))              \
         FD_LOG_WARNING(("INCORRECT FREES"));          \
-    } else {                                          \
+    } else {                                         \
       FD_LOG_WARNING(("FAILED"));                     \
       mu_fails++;                                     \
     }                                                 \
@@ -132,10 +132,12 @@ int main(int argc, char **argv)
     FD_LOG_ERR(( "*** %d/%d TESTS FAILED ***", mu_fails, mu_tests ));
   } else {
     FD_LOG_NOTICE(( "pass" ));
+    fd_halt();
     return 0;
   }
 
   fd_halt();
+  return 1;
 }
 
 rbtree *tree_create( void )
@@ -165,7 +167,7 @@ rbnode *tree_insert(rbtree **rbt, int key)
   rbnode *node;
   rbnode *data;
 
-  if (key < MIN || key > MAX) {
+  if (key < TEST_MIN || key > TEST_MAX) {
     FD_LOG_WARNING(("tree_insert: invalid key %d", key));
     return NULL;
   }
@@ -174,7 +176,7 @@ rbnode *tree_insert(rbtree **rbt, int key)
   data->key = key;
   if ((node = rb_insert(pool, rbt, data)) == NULL) {
     FD_LOG_WARNING(("tree_insert: insert %d failed", key));
-    free(data);
+    /* rb_release(pool, data); */
     return NULL;
   }
 
@@ -636,7 +638,7 @@ int unit_test_permutation_insertion( void )
   char a[] = CHARS;
 
   permutation_error = 0;
-  permute(a, 0, strlen(a) - 1, permutation_insert);
+  permute(a, 0, (size_t)(strlen(a) - 1), permutation_insert);
   return (permutation_error == 0);
 }
 
@@ -645,7 +647,7 @@ int unit_test_permutation_deletion( void )
   char a[] = CHARS;
 
   permutation_error = 0;
-  permute(a, 0, strlen(a) - 1, permutation_delete);
+  permute(a, 0, (size_t)(strlen(a) - 1), permutation_delete);
   return (permutation_error == 0);
 }
 

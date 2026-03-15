@@ -116,14 +116,14 @@ fd_bn254_fp_eq( fd_bn254_fp_t const * r,
 static inline fd_bn254_fp_t *
 fd_bn254_fp_from_mont( fd_bn254_fp_t * r,
                        fd_bn254_fp_t const * a ) {
-  fiat_bn254_from_montgomery( r->limbs, a->limbs );
+  fiat_bn254_from_montgomery( (uint64_t *)r->limbs, (uint64_t const *)a->limbs );
   return r;
 }
 
 static inline fd_bn254_fp_t *
 fd_bn254_fp_to_mont( fd_bn254_fp_t * r,
                      fd_bn254_fp_t const * a ) {
-  fiat_bn254_to_montgomery( r->limbs, a->limbs );
+  fiat_bn254_to_montgomery( (uint64_t *)r->limbs, (uint64_t const *)a->limbs );
   return r;
 }
 
@@ -159,7 +159,7 @@ INLINE fd_bn254_fp_t *
 fd_bn254_fp_add( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
-  fiat_bn254_add( r->limbs, a->limbs, b->limbs );
+  fiat_bn254_add( (uint64_t *)r->limbs, (uint64_t const *)a->limbs, (uint64_t const *)b->limbs );
   return r;
 }
 
@@ -167,14 +167,14 @@ INLINE fd_bn254_fp_t *
 fd_bn254_fp_sub( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
-  fiat_bn254_sub( r->limbs, a->limbs, b->limbs );
+  fiat_bn254_sub( (uint64_t *)r->limbs, (uint64_t const *)a->limbs, (uint64_t const *)b->limbs );
   return r;
 }
 
 INLINE fd_bn254_fp_t *
 fd_bn254_fp_neg( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a ) {
-  fiat_bn254_opp( r->limbs, a->limbs );
+  fiat_bn254_opp( (uint64_t *)r->limbs, (uint64_t const *)a->limbs );
   return r;
 }
 

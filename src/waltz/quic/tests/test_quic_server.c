@@ -2,7 +2,7 @@
 #include "fd_quic_test_helpers.h"
 #include "../../../tango/tempo/fd_tempo.h"
 
-static fd_clock_t clock[1];
+static fd_clock_t qclock[1];
 static fd_clock_shmem_t clock_shmem[1];
 
 int
@@ -12,7 +12,7 @@ main( int argc, char ** argv ) {
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  fd_clock_default_init( clock, clock_shmem );
+  fd_clock_default_init( qclock, clock_shmem );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -89,7 +89,7 @@ main( int argc, char ** argv ) {
   /* do general processing */
   FD_LOG_NOTICE(( "Running" ));
   while(1) {
-    fd_quic_service( quic, fd_clock_now( clock ) );
+    fd_quic_service( quic, fd_clock_now( qclock ) );
     fd_quic_udpsock_service( udpsock );
   }
 
@@ -98,7 +98,7 @@ main( int argc, char ** argv ) {
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
   fd_quic_udpsock_destroy( udpsock );
   fd_wksp_delete_anonymous( wksp );
-  fd_clock_leave( clock );
+  fd_clock_leave( qclock );
   fd_clock_delete( clock_shmem );
   fd_rng_delete( fd_rng_leave( rng ) );
 

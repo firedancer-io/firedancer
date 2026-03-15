@@ -144,7 +144,7 @@ sol_compat_decode( void *               decoded,
     pb_release( decode_type, decoded );
     return NULL;
   }
-  ulong size;
+  size_t size;
   if( FD_UNLIKELY( !pb_get_encoded_size( &size, decode_type, decoded ) ) ) {
     pb_release( decode_type, decoded );
     return NULL;

@@ -34,6 +34,7 @@ extern configure_stage_t fd_cfg_stage_genesis;
 extern configure_stage_t fd_cfg_stage_keys;
 extern configure_stage_t fd_cfg_stage_blockstore;
 
+# ifndef __APPLE__
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
   &fd_cfg_stage_hugetlbfs,
@@ -48,6 +49,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_blockstore,
   NULL,
 };
+# endif
 
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;

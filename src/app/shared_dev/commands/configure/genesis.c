@@ -303,7 +303,11 @@ check( config_t const * config,
   if( FD_UNLIKELY( -1==err && errno!=ENOENT ) ) FD_LOG_ERR(( "could not stat genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
   else if( FD_UNLIKELY( -1==err ) ) NOT_CONFIGURED( "`%s` does not exist", genesis_path );
 
+#ifdef __APPLE__
+  if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( config->frankendancer.paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH ) );
+#else
   if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( config->frankendancer.paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+#endif
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
   static uchar buffer[ 1UL<<24UL ]; /* 16 MiB buffer should be enough for genesis */

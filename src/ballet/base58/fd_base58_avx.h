@@ -1,5 +1,8 @@
+#if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
+#if defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
+#endif
 
 /* This is not a proper header and so should not be included from
    anywhere besides fd_base58.c and test_base58_avx.c.  As such, it has
@@ -120,6 +123,7 @@ intermediate_to_raw( wl_t intermediate ) {
 /* Converts each byte in the AVX2 register from raw base58 [0,58) to
    base58 digits ('1'-'z', with some skips).  Anything not in the range
    [0, 58) will be mapped arbitrarily, but won't affect other bytes. */
+#endif
 
 static inline wuc_t raw_to_base58( wuc_t in ) {
 

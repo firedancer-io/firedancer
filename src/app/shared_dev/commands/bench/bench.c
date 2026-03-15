@@ -13,8 +13,10 @@
 #include <sched.h>
 #include <fcntl.h>
 #include <pthread.h>
+#ifdef __linux__
 #include <linux/capability.h>
 #include <linux/futex.h>
+#endif
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
@@ -185,16 +187,24 @@ bench_cmd_fn( args_t *   args,
 
   run_firedancer_init( config, 1, 1 );
 
+#ifdef __linux__
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
+#endif
 
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   if( watch ) {
     int pipefd[2];
+#ifdef __linux__
     if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+#else
+    if( FD_UNLIKELY( pipe( pipefd ) ) ) FD_LOG_ERR(( "pipe() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( fcntl( pipefd[0], F_SETFL, O_NONBLOCK ) ) ) FD_LOG_ERR(( "fcntl(pipefd[0], F_SETFL, O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( fcntl( pipefd[1], F_SETFL, O_NONBLOCK ) ) ) FD_LOG_ERR(( "fcntl(pipefd[1], F_SETFL, O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+#endif
 
     args_t watch_args;
     watch_args.watch.drain_output_fd = pipefd[0];

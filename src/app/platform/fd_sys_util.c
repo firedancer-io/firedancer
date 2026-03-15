@@ -12,7 +12,11 @@
 
 void __attribute__((noreturn))
 fd_sys_util_exit_group( int code ) {
+#ifdef __linux__
   syscall( SYS_exit_group, code );
+#else
+  _exit( code );
+#endif
   for(;;);
 }
 

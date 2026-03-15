@@ -1,5 +1,9 @@
-ifneq ($(CROSS),)
-$(error "native build not supported when cross-compiling.  Try setting MACHINE=linux_clang_zen2")
+ifeq ($(shell uname -s),Darwin)
+  FD_HAS_DARWIN:=1
+  CC:=clang
+  CXX:=clang++
+  LD:=clang++
+  MACHINE:=apple_silicon
 endif
 
 define _map-define
@@ -42,6 +46,11 @@ else ifdef FD_USING_CLANG
 include config/extra/with-clang.mk
 endif
 
+# Link with C++ by default on macOS to support rocksdb and other C++ deps
+ifdef FD_HAS_DARWIN
+  LD:=$(CXX)
+endif
+$(info LD=$(LD))
 BUILDDIR?=native/$(notdir $(CC))
 CPPFLAGS+=-march=native -mtune=native
 RUSTFLAGS+=-C target-cpu=native
@@ -56,7 +65,22 @@ $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
 FD_HAS_DOUBLE:=1
 CPPFLAGS+=-DFD_HAS_DOUBLE=1
 $(call map-define,FD_HAS_ALLOCA, __linux__)
+ifdef FD_HAS_DARWIN
+CPPFLAGS+=-DFD_HAS_ALLOCA=1
+FD_HAS_ALLOCA:=1
+CPPFLAGS+=-DFD_HAS_THREADS=1
+FD_HAS_THREADS:=1
+LDFLAGS+=-framework Security -framework CoreFoundation -framework SystemConfiguration -Wl,-all_load
+LDFLAGS+=-L/opt/homebrew/lib -lrocksdb -lsnappy -lbz2
+CPPFLAGS+=-I/opt/homebrew/include
+FD_HAS_LZ4:=1
+FD_HAS_ZSTD:=1
+FD_HAS_ROCKSDB:=1
+ROCKSDB_LIBS:=-L/opt/homebrew/lib -lrocksdb -lsnappy -lbz2 -lz -lpthread
+CPPFLAGS+=-DFD_HAS_LZ4=1 -DFD_HAS_ZSTD=1 -DFD_HAS_ROCKSDB=1
+endif
 $(call map-define,FD_HAS_THREADS, __linux__)
+$(call map-define,FD_HAS_ARM, __aarch64__)
 $(call map-define,FD_HAS_X86, __x86_64__)
 $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)

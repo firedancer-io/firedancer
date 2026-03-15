@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "../fd_util.h"
 #include "fd_tile_private.h"
+
+#ifdef __linux__
 #include <sched.h>
 
 /* Test fd_cpuset_t replacements for the cpu_set_t API.
@@ -170,21 +172,24 @@ test_cpu_set( fd_rng_t * rng ) {
   FD_TEST( fd_cpuset_eq( foo_or , pun_or  ) );
   FD_TEST( fd_cpuset_eq( foo_xor, pun_xor ) );
 
-  FD_TEST( CPU_EQUAL   ( &bar0, &bar0 ) );
+  FD_TEST( CPU_EQUAL   ( bar0, bar0 ) );
   FD_TEST( fd_cpuset_eq(  foo0,  foo0 ) );
 
   CPU_CLR( 0, bar0 );  fd_cpuset_remove( foo0, 0 );
   CPU_SET( 0, bar1 );  fd_cpuset_insert( foo1, 0 );
 
-  FD_TEST( !CPU_EQUAL   ( &bar0, &bar1 ) );
+  FD_TEST( !CPU_EQUAL   ( bar0, bar1 ) );
   FD_TEST( !fd_cpuset_eq(  foo0,  foo1 ) );
 
 }
+#endif
 
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+#ifdef __linux__
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   FD_TEST( fd_cpuset_footprint() >= sizeof(cpu_set_t) );
@@ -196,7 +201,10 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );
+#else
+  FD_LOG_NOTICE(( "skip: test_cpuset only supported on Linux" ));
+#endif
+
   fd_halt();
   return 0;
 }
-

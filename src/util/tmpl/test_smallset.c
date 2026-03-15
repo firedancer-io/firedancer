@@ -5,12 +5,12 @@
 #include <unistd.h>
 #endif
 
-#define MAX   63
+#define TEST_MAX   63
 #define IDX_T int
 
 #define SET_NAME  set
 #define SET_TYPE  ulong
-#define SET_MAX   MAX
+#define SET_MAX   TEST_MAX
 #define SET_IDX_T IDX_T
 #include "fd_smallset.c"
 
@@ -21,7 +21,7 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  IDX_T max = set_max(); FD_TEST( max==(IDX_T)MAX );
+  IDX_T max = set_max(); FD_TEST( max==(IDX_T)TEST_MAX );
 
   ulong sum_full = 0UL; for( IDX_T idx=(IDX_T)0; idx<max; idx++ ) sum_full += (ulong)idx+1UL;
 
@@ -298,11 +298,11 @@ main( int     argc,
     FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );         \
     } while( 0 )
 
-  FD_EXPECT_LOG_CRIT( set_ele      (        MAX ) );
-  FD_EXPECT_LOG_CRIT( set_ele_if   ( 1,     MAX ) );
-  FD_EXPECT_LOG_CRIT( set_test     (    f1, MAX ) );
-  FD_EXPECT_LOG_CRIT( set_insert_if( 1, f1, MAX ) );
-  FD_EXPECT_LOG_CRIT( set_remove_if( 1, f1, MAX ) );
+  FD_EXPECT_LOG_CRIT( set_ele      (        TEST_MAX ) );
+  FD_EXPECT_LOG_CRIT( set_ele_if   ( 1,     TEST_MAX ) );
+  FD_EXPECT_LOG_CRIT( set_test     (    f1, TEST_MAX ) );
+  FD_EXPECT_LOG_CRIT( set_insert_if( 1, f1, TEST_MAX ) );
+  FD_EXPECT_LOG_CRIT( set_remove_if( 1, f1, TEST_MAX ) );
 
 #else
   FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));

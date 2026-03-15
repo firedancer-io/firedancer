@@ -9,9 +9,11 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sys/syscall.h>
+#ifdef __linux__
 #include <linux/futex.h>
-#include <sys/resource.h>
 #include <sys/prctl.h>
+#endif
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <net/if.h>
@@ -75,7 +77,11 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_run_tile_t * tile_run ) {
   char thread_name[ 20 ];
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile->name, tile->kind_id ) );
+#ifdef __linux__
   if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+#elif defined(__APPLE__)
+  pthread_setname_np( thread_name );
+#endif
 
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */

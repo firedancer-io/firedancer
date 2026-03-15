@@ -1,5 +1,5 @@
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_LINUX
+ifneq (,$(filter 1,$(FD_HAS_LINUX) $(FD_HAS_DARWIN)))
 
 $(call make-lib,fddev_shared)
 

@@ -82,44 +82,120 @@ has_capability( uint capability ) {
 FD_FN_CONST static char const *
 cap_cstr( uint capability ) {
   switch( capability ) {
+#ifdef CAP_CHOWN
     case CAP_CHOWN:              return "CAP_CHOWN";
+#endif
+#ifdef CAP_DAC_OVERRIDE
     case CAP_DAC_OVERRIDE:       return "CAP_DAC_OVERRIDE";
+#endif
+#ifdef CAP_DAC_READ_SEARCH
     case CAP_DAC_READ_SEARCH:    return "CAP_DAC_READ_SEARCH";
+#endif
+#ifdef CAP_FOWNER
     case CAP_FOWNER:             return "CAP_FOWNER";
+#endif
+#ifdef CAP_FSETID
     case CAP_FSETID:             return "CAP_FSETID";
+#endif
+#ifdef CAP_KILL
     case CAP_KILL:               return "CAP_KILL";
+#endif
+#ifdef CAP_SETGID
     case CAP_SETGID:             return "CAP_SETGID";
+#endif
+#ifdef CAP_SETUID
     case CAP_SETUID:             return "CAP_SETUID";
+#endif
+#ifdef CAP_SETPCAP
     case CAP_SETPCAP:            return "CAP_SETPCAP";
+#endif
+#ifdef CAP_LINUX_IMMUTABLE
     case CAP_LINUX_IMMUTABLE:    return "CAP_LINUX_IMMUTABLE";
+#endif
+#ifdef CAP_NET_BIND_SERVICE
     case CAP_NET_BIND_SERVICE:   return "CAP_NET_BIND_SERVICE";
+#endif
+#ifdef CAP_NET_BROADCAST
     case CAP_NET_BROADCAST:      return "CAP_NET_BROADCAST";
+#endif
+#ifdef CAP_NET_ADMIN
     case CAP_NET_ADMIN:          return "CAP_NET_ADMIN";
+#endif
+#ifdef CAP_NET_RAW
     case CAP_NET_RAW:            return "CAP_NET_RAW";
+#endif
+#ifdef CAP_IPC_LOCK
     case CAP_IPC_LOCK:           return "CAP_IPC_LOCK";
+#endif
+#ifdef CAP_IPC_OWNER
     case CAP_IPC_OWNER:          return "CAP_IPC_OWNER";
+#endif
+#ifdef CAP_SYS_MODULE
     case CAP_SYS_MODULE:         return "CAP_SYS_MODULE";
+#endif
+#ifdef CAP_SYS_RAWIO
     case CAP_SYS_RAWIO:          return "CAP_SYS_RAWIO";
+#endif
+#ifdef CAP_SYS_CHROOT
     case CAP_SYS_CHROOT:         return "CAP_SYS_CHROOT";
+#endif
+#ifdef CAP_SYS_PTRACE
     case CAP_SYS_PTRACE:         return "CAP_SYS_PTRACE";
+#endif
+#ifdef CAP_SYS_PACCT
     case CAP_SYS_PACCT:          return "CAP_SYS_PACCT";
+#endif
+#ifdef CAP_SYS_ADMIN
     case CAP_SYS_ADMIN:          return "CAP_SYS_ADMIN";
+#endif
+#ifdef CAP_SYS_BOOT
     case CAP_SYS_BOOT:           return "CAP_SYS_BOOT";
+#endif
+#ifdef CAP_SYS_NICE
     case CAP_SYS_NICE:           return "CAP_SYS_NICE";
+#endif
+#ifdef CAP_SYS_RESOURCE
     case CAP_SYS_RESOURCE:       return "CAP_SYS_RESOURCE";
+#endif
+#ifdef CAP_SYS_TIME
     case CAP_SYS_TIME:           return "CAP_SYS_TIME";
+#endif
+#ifdef CAP_SYS_TTY_CONFIG
     case CAP_SYS_TTY_CONFIG:     return "CAP_SYS_TTY_CONFIG";
+#endif
+#ifdef CAP_MKNOD
     case CAP_MKNOD:              return "CAP_MKNOD";
+#endif
+#ifdef CAP_LEASE
     case CAP_LEASE:              return "CAP_LEASE";
+#endif
+#ifdef CAP_AUDIT_WRITE
     case CAP_AUDIT_WRITE:        return "CAP_AUDIT_WRITE";
+#endif
+#ifdef CAP_AUDIT_CONTROL
     case CAP_AUDIT_CONTROL:      return "CAP_AUDIT_CONTROL";
+#endif
+#ifdef CAP_SETFCAP
     case CAP_SETFCAP:            return "CAP_SETFCAP";
+#endif
+#ifdef CAP_MAC_OVERRIDE
     case CAP_MAC_OVERRIDE:       return "CAP_MAC_OVERRIDE";
+#endif
+#ifdef CAP_MAC_ADMIN
     case CAP_MAC_ADMIN:          return "CAP_MAC_ADMIN";
+#endif
+#ifdef CAP_SYSLOG
     case CAP_SYSLOG:             return "CAP_SYSLOG";
+#endif
+#ifdef CAP_WAKE_ALARM
     case CAP_WAKE_ALARM:         return "CAP_WAKE_ALARM";
+#endif
+#ifdef CAP_BLOCK_SUSPEND
     case CAP_BLOCK_SUSPEND:      return "CAP_BLOCK_SUSPEND";
+#endif
+#ifdef CAP_AUDIT_READ
     case CAP_AUDIT_READ:         return "CAP_AUDIT_READ";
+#endif
 #ifdef CAP_PERFMON
     case CAP_PERFMON:            return "CAP_PERFMON";
 #endif
@@ -150,18 +226,36 @@ rlimit_cstr( int resource ) {
     case RLIMIT_DATA:       return "RLIMIT_DATA";
     case RLIMIT_STACK:      return "RLIMIT_STACK";
     case RLIMIT_CORE:       return "RLIMIT_CORE";
+#if RLIMIT_RSS != RLIMIT_AS
     case RLIMIT_RSS:        return "RLIMIT_RSS";
+#endif
     case RLIMIT_NOFILE:     return "RLIMIT_NOFILE";
     case RLIMIT_AS:         return "RLIMIT_AS";
+#ifdef RLIMIT_NPROC
     case RLIMIT_NPROC:      return "RLIMIT_NPROC";
+#endif
     case RLIMIT_MEMLOCK:    return "RLIMIT_MEMLOCK";
+#ifdef RLIMIT_LOCKS
     case RLIMIT_LOCKS:      return "RLIMIT_LOCKS";
+#endif
+#ifdef RLIMIT_SIGPENDING
     case RLIMIT_SIGPENDING: return "RLIMIT_SIGPENDING";
+#endif
+#ifdef RLIMIT_MSGQUEUE
     case RLIMIT_MSGQUEUE:   return "RLIMIT_MSGQUEUE";
+#endif
+#ifdef RLIMIT_NICE
     case RLIMIT_NICE:       return "RLIMIT_NICE";
+#endif
+#ifdef RLIMIT_RTPRIO
     case RLIMIT_RTPRIO:     return "RLIMIT_RTPRIO";
+#endif
+#ifdef RLIMIT_RTTIME
     case RLIMIT_RTTIME:     return "RLIMIT_RTTIME";
+#endif
+#ifdef RLIMIT_NLIMITS
     case RLIMIT_NLIMITS:    return "RLIMIT_NLIMITS";
+#endif
     default:                return "UNKNOWN";
   }
 }
@@ -184,47 +278,43 @@ fd_cap_chk_raise_rlimit( fd_cap_chk_t *  chk,
   if( FD_UNLIKELY( getrlimit( resource, &rlim ) ) ) FD_LOG_ERR(( "getrlimit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( rlim.rlim_cur>=limit ) ) return;
 
+#ifdef __linux__
   if( FD_LIKELY( !has_capability( CAP_SYS_RESOURCE ) ) ) {
-    if( FD_LIKELY( resource==RLIMIT_NICE && has_capability( CAP_SYS_NICE ) ) ) {
-        /* Special case, if we have CAP_SYS_NICE we can set any nice
-           value without raising the limit with CAP_SYS_RESOURCE. */
-        return;
-    }
+    int is_nice = 0;
+#ifdef RLIMIT_NICE
+    if( resource==RLIMIT_NICE && has_capability( CAP_SYS_NICE ) ) is_nice = 1;
+#endif
 
-    if( FD_UNLIKELY( resource==RLIMIT_NICE ) ) {
-      fd_cap_chk_add_error( chk,
-                            "%s ... process requires capability `%s` or `%s` to %s",
-                            name,
-                            cap_cstr( CAP_SYS_RESOURCE ),
-                            cap_cstr( CAP_SYS_NICE ),
-                            reason );
+    if( is_nice ) return;
+
+#ifdef RLIMIT_NICE
+    if( resource==RLIMIT_NICE ) {
+      fd_cap_chk_add_error( chk, "%s ... process requires capability `CAP_SYS_RESOURCE` or `CAP_SYS_NICE` to %s", name, reason );
     } else {
-      fd_cap_chk_add_error( chk,
-                            "%s ... process requires capability `%s` to %s",
-                            name,
-                            cap_cstr( CAP_SYS_RESOURCE ),
-                            reason );
+#endif
+      fd_cap_chk_add_error( chk, "%s ... process requires capability `CAP_SYS_RESOURCE` to %s", name, reason );
+#ifdef RLIMIT_NICE
     }
+#endif
   } else {
     if( FD_UNLIKELY( resource==RLIMIT_NOFILE ) ) {
-      /* If we have CAP_SYS_RESOURCE, it may not be enough to increase
-         RLIMIT_NOFILE.  Will still result in EPERM if /proc/sys/fs/nr_open
-         is below the desired number. */
       uint file_nr;
       if( FD_UNLIKELY( -1==fd_file_util_read_uint( "/proc/sys/fs/nr_open", &file_nr ) ) ) {
         FD_LOG_ERR(( "failed to read `/proc/sys/fs/nr_open` (%i-%s)", errno, fd_io_strerror( errno ) ));
       }
-
       if( FD_UNLIKELY( file_nr<limit ) )
-        FD_LOG_ERR(( "Firedancer requires `/proc/sys/fs/nr_open` to be at least %lu "
-                     "to raise RLIMIT_NOFILE, but it is %u. Please either increase "
-                     "the sysctl or run `fdctl configure init sysctl` which will do "
-                     "it for you.", limit, file_nr ));
+        FD_LOG_ERR(( "Firedancer requires `/proc/sys/fs/nr_open` to be at least %lu to raise RLIMIT_NOFILE, but it is %u.", limit, file_nr ));
     }
     rlim.rlim_cur = limit;
     rlim.rlim_max = limit;
     if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) ) FD_LOG_ERR(( "setrlimit failed (%i-%s) for resource %s", errno, fd_io_strerror( errno ), rlimit_cstr( _resource ) ));
   }
+#else
+  (void)chk; (void)name; (void)reason;
+  rlim.rlim_cur = limit;
+  rlim.rlim_max = limit;
+  if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) ) FD_LOG_ERR(( "setrlimit failed (%i-%s) for resource %s", errno, fd_io_strerror( errno ), rlimit_cstr( _resource ) ));
+#endif
 }
 
 ulong

@@ -45,7 +45,7 @@ FD_SPAD_FRAME_BEGIN( spad ) {
   }
 
   if( out_sz!=exp_sz ) {
-    FD_LOG_WARNING(( "Binary cmp failed: different size. out_sz=%lu exp_sz=%lu", out_sz, exp_sz  ));
+    FD_LOG_WARNING(( "Binary cmp failed: different size. out_sz=%lu exp_sz=%lu", (ulong)out_sz, (ulong)exp_sz  ));
     return 0;
   }
   if( !fd_memeq( out, exp, out_sz ) ) {
@@ -66,7 +66,7 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
 
   /* AcctState -> lamports */
   if( expected->lamports != actual->lamports ) {
-    FD_LOG_WARNING(( "Lamports mismatch: expected=%lu actual=%lu", expected->lamports, actual->lamports ));
+    FD_LOG_WARNING(( "Lamports mismatch: expected=%lu actual=%lu", (ulong)expected->lamports, (ulong)actual->lamports ));
     return 0;
   }
 
@@ -226,7 +226,7 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
 
   /* TxnResult -> executed_units */
   if( expected->executed_units != actual->executed_units ) {
-    FD_LOG_WARNING(( "Executed units mismatch: expected=%lu actual=%lu", expected->executed_units, actual->executed_units ));
+    FD_LOG_WARNING(( "Executed units mismatch: expected=%lu actual=%lu", (ulong)expected->executed_units, (ulong)actual->executed_units ));
     return 0;
   }
 
@@ -238,19 +238,19 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
 
   if( expected->has_fee_details ) {
     if( expected->fee_details.transaction_fee != actual->fee_details.transaction_fee ) {
-      FD_LOG_WARNING(( "Transaction fee mismatch: expected=%lu actual=%lu", expected->fee_details.transaction_fee, actual->fee_details.transaction_fee ));
+      FD_LOG_WARNING(( "Transaction fee mismatch: expected=%lu actual=%lu", (ulong)expected->fee_details.transaction_fee, (ulong)actual->fee_details.transaction_fee ));
       return 0;
     }
 
     if( expected->fee_details.prioritization_fee != actual->fee_details.prioritization_fee ) {
-      FD_LOG_WARNING(( "Priority fee mismatch: expected=%lu actual=%lu", expected->fee_details.prioritization_fee, actual->fee_details.prioritization_fee ));
+      FD_LOG_WARNING(( "Priority fee mismatch: expected=%lu actual=%lu", (ulong)expected->fee_details.prioritization_fee, (ulong)actual->fee_details.prioritization_fee ));
       return 0;
     }
   }
 
   /* TxnResult -> loaded_accounts_data_size */
   if( expected->loaded_accounts_data_size != actual->loaded_accounts_data_size ) {
-    FD_LOG_WARNING(( "Loaded accounts data size mismatch: expected=%lu actual=%lu", expected->loaded_accounts_data_size, actual->loaded_accounts_data_size ));
+    FD_LOG_WARNING(( "Loaded accounts data size mismatch: expected=%lu actual=%lu", (ulong)expected->loaded_accounts_data_size, (ulong)actual->loaded_accounts_data_size ));
     return 0;
   }
 
@@ -377,31 +377,31 @@ sol_compat_fb_cmp_elf_loader( SOL_COMPAT_NS(ELFLoaderEffects_table_t) expected,
     FD_LOG_WARNING(( "Rodata hash presence mismatch: expected=%p actual=%p", (void*)exp_rodata_hash, (void*)act_rodata_hash ));
     return 0;
   } else if( FD_UNLIKELY( memcmp( &exp_rodata_hash->hash, &act_rodata_hash->hash, sizeof(exp_rodata_hash->hash) ) ) ) {
-    FD_LOG_WARNING(( "Rodata hash mismatch: expected=%lu actual=%lu", *((ulong*)exp_rodata_hash->hash), *((ulong*)act_rodata_hash->hash) ));
+    FD_LOG_WARNING(( "Rodata hash mismatch: expected=%lu actual=%lu", (ulong)*((ulong*)exp_rodata_hash->hash), (ulong)*((ulong*)act_rodata_hash->hash) ));
     return 0;
   }
 
   /* Compare text_cnt */
   if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( expected ))!=SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( actual )) ) ) {
     FD_LOG_WARNING(( "Text cnt mismatch: expected=%lu actual=%lu",
-        SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( expected )),
-        SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( actual )) ));
+        (ulong)SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( expected )),
+        (ulong)SOL_COMPAT_NS(ELFLoaderEffects_text_cnt( actual )) ));
     return 0;
   }
 
   /* Compare text_off */
   if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_text_off( expected ))!=SOL_COMPAT_NS(ELFLoaderEffects_text_off( actual )) ) ) {
     FD_LOG_WARNING(( "Text off mismatch: expected=%lu actual=%lu",
-        SOL_COMPAT_NS(ELFLoaderEffects_text_off( expected )),
-        SOL_COMPAT_NS(ELFLoaderEffects_text_off( actual )) ));
+        (ulong)SOL_COMPAT_NS(ELFLoaderEffects_text_off( expected )),
+        (ulong)SOL_COMPAT_NS(ELFLoaderEffects_text_off( actual )) ));
     return 0;
   }
 
   /* Compare entry_pc */
   if( FD_UNLIKELY( SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( expected )) != SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( actual )) ) ) {
     FD_LOG_WARNING(( "Entry pc mismatch: expected=%lu actual=%lu",
-        SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( expected )),
-        SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( actual )) ));
+        (ulong)SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( expected )),
+        (ulong)SOL_COMPAT_NS(ELFLoaderEffects_entry_pc( actual )) ));
     return 0;
   }
 
@@ -415,7 +415,7 @@ sol_compat_fb_cmp_elf_loader( SOL_COMPAT_NS(ELFLoaderEffects_table_t) expected,
     FD_LOG_WARNING(( "Calldests hash presence mismatch: expected=%p actual=%p", (void*)exp_calldests_hash, (void*)act_calldests_hash ));
     return 0;
   } else if( FD_UNLIKELY( memcmp( &exp_calldests_hash->hash, &act_calldests_hash->hash, sizeof(exp_calldests_hash->hash) ) ) ) {
-    FD_LOG_WARNING(( "Calldests hash mismatch: expected=%lu actual=%lu", *((ulong*)exp_calldests_hash->hash), *((ulong*)act_calldests_hash->hash) ));
+    FD_LOG_WARNING(( "Calldests hash mismatch: expected=%lu actual=%lu", (ulong)*((ulong*)exp_calldests_hash->hash), (ulong)*((ulong*)act_calldests_hash->hash) ));
     return 0;
   }
 

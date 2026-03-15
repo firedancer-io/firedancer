@@ -15,6 +15,7 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <fcntl.h>
 
 #if FD_HAS_ZSTD
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
@@ -381,6 +382,12 @@ is_expected_network_error( int err ) {
     err==EPROTO ||
     err==ENOPROTOOPT ||
     err==EHOSTDOWN ||
+#ifndef ENONET
+#define ENONET 64 /* Standard Linux value, not on macOS */
+#endif
+#ifndef ENONET
+#define ENONET 64 /* Standard Linux value, not on macOS */
+#endif
     err==ENONET ||
     err==EHOSTUNREACH ||
     err==EOPNOTSUPP ||
@@ -395,7 +402,23 @@ is_expected_network_error( int err ) {
 static void
 accept_conns( fd_http_server_t * http ) {
   for(;;) {
+#ifdef __APPLE__
+    int fd = accept( http->socket_fd, NULL, NULL );
+    if( fd >= 0 ) {
+      fcntl( fd, F_SETFD, FD_CLOEXEC );
+      fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
+    }
+#else
+#ifdef __APPLE__
+    int fd = accept( http->socket_fd, NULL, NULL );
+    if( fd >= 0 ) {
+      fcntl( fd, F_SETFD, FD_CLOEXEC );
+      fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
+    }
+#else
     int fd = accept4( http->socket_fd, NULL, NULL, SOCK_NONBLOCK|SOCK_CLOEXEC );
+#endif
+#endif
 
     if( FD_UNLIKELY( -1==fd ) ) {
       if( FD_LIKELY( EAGAIN==errno ) ) break;
@@ -460,12 +483,12 @@ read_conn_http( fd_http_server_t * http,
   }
 
   char const * method;
-  ulong method_len;
+  size_t method_len;
   char const * path;
-  ulong path_len;
+  size_t path_len;
   int minor_version;
   struct phr_header headers[ 32 ];
-  ulong num_headers = 32UL;
+  size_t num_headers = 32UL;
   int result = phr_parse_request( conn->request_bytes,
                                   conn->request_bytes_read,
                                   &method, &method_len,
@@ -1114,7 +1137,7 @@ write_conn_ws( fd_http_server_t * http,
 
   struct mmsghdr msg = {0};
   msg.msg_hdr.msg_iov = iovecs;
-  msg.msg_hdr.msg_iovlen = out_idx;
+  msg.msg_hdr.msg_iovlen = (int)out_idx;
 
   int result = sendmmsg( http->pollfds[ conn_idx ].fd, &msg, 1U, MSG_NOSIGNAL );
   if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) return; /* No data was written, continue. */

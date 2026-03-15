@@ -15,9 +15,14 @@
 static void
 init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
+# ifndef __APPLE__
   fd_cap_chk_root( chk, NAME, "check all open file descriptors in `/proc/`" );
+# else
+  (void)chk;
+# endif
 }
 
+# ifndef __APPLE__
 static void
 cmdline( char * buf,
          size_t len,
@@ -138,9 +143,11 @@ wait_dead( long  started,
       FD_LOG_ERR(( "waited too long for process to exit" ));
   }
 }
+# endif
 
 static void
 init( config_t const * config ) {
+# ifndef __APPLE__
   DIR * dir = opendir( "/proc" );
   if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "error opening `/proc` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -167,12 +174,25 @@ init( config_t const * config ) {
 
   long started = fd_log_wallclock();
   for( ulong i=0; i<wait_killed_cnt; i++ ) wait_dead( started, wait_killed[ i ] );
+# else
+  (void)config;
+# endif
+}
+
+static int
+fini( config_t const * config FD_PARAM_UNUSED,
+      int              pre_init FD_PARAM_UNUSED ) {
+  return 0;
 }
 
 static configure_result_t
 check( config_t const * config     FD_PARAM_UNUSED,
        int              check_type FD_PARAM_UNUSED ) {
+# ifndef __APPLE__
   PARTIALLY_CONFIGURED( "kill existing instances" );
+# else
+  CONFIGURE_OK();
+# endif
 }
 
 configure_stage_t fd_cfg_stage_kill = {
@@ -182,7 +202,7 @@ configure_stage_t fd_cfg_stage_kill = {
   .init_perm       = init_perm,
   .fini_perm       = NULL,
   .init            = init,
-  .fini            = NULL,
+  .fini            = fini,
   .check           = check,
 };
 

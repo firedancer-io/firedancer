@@ -2,8 +2,10 @@ CPPFLAGS+=-fPIC
 LDFLAGS_EXE+=-pie
 LDFLAGS_SO+=-fPIC
 
+ifneq ($(MACHINE),apple_silicon)
 CPPFLAGS+=-Wl,-z,relro,-z,now
 LDFLAGS+=-Wl,-z,relro,-z,now
+endif
 
 CPPFLAGS+=-fstack-protector-strong
 LDFLAGS+=-fstack-protector-strong

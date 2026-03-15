@@ -9,6 +9,28 @@
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <fcntl.h>
+
+#ifdef __APPLE__
+static inline int
+accept4( int                  sockfd,
+         struct sockaddr *    addr,
+         socklen_t *          addrlen,
+         int                  flags ) {
+  int fd = accept( sockfd, addr, addrlen );
+  if( FD_LIKELY( fd>=0 ) ) {
+    if( flags & SOCK_NONBLOCK ) fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
+    if( flags & SOCK_CLOEXEC  ) fcntl( fd, F_SETFD, FD_CLOEXEC );
+  }
+  return fd;
+}
+#ifndef SOCK_NONBLOCK
+#define SOCK_NONBLOCK 0x800
+#endif
+#ifndef SOCK_CLOEXEC
+#define SOCK_CLOEXEC 0x80000
+#endif
+#endif
 
 #define STATE_READING (0)
 #define STATE_WRITING (1)
@@ -205,7 +227,9 @@ is_expected_network_error( int err ) {
     err==EPROTO ||
     err==ENOPROTOOPT ||
     err==EHOSTDOWN ||
+#ifdef ENONET
     err==ENONET ||
+#endif
     err==EHOSTUNREACH ||
     err==EOPNOTSUPP ||
     err==ENETUNREACH ||

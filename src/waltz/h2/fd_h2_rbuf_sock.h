@@ -65,7 +65,7 @@ fd_h2_rbuf_recvmsg( fd_h2_rbuf_t * rbuf,
 
   struct msghdr msg = {
     .msg_iov    = iov,
-    .msg_iovlen = iov_cnt
+    .msg_iovlen = (int)iov_cnt
   };
   ssize_t sz = recvmsg( sock, &msg, flags );
   if( sz<0 ) {
@@ -136,7 +136,7 @@ fd_h2_rbuf_sendmsg( fd_h2_rbuf_t * rbuf,
 
   struct msghdr msg = {
     .msg_iov    = iov,
-    .msg_iovlen = iov_cnt
+    .msg_iovlen = (int)iov_cnt
   };
   ssize_t sz = sendmsg( sock, &msg, flags );
   if( sz<0 ) {

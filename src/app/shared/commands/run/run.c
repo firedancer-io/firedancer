@@ -1,12 +1,18 @@
 #define _GNU_SOURCE
 #include "run.h"
 
+#include <signal.h>
 #include <sys/wait.h>
+#ifndef __WALL
+#define __WALL 0
+#endif
+#ifdef __linux__
 #include "generated/main_seccomp.h"
 #if defined(__aarch64__)
 #include "generated/pidns_arm64_seccomp.h"
 #else
 #include "generated/pidns_seccomp.h"
+#endif
 #endif
 
 #include "../../../platform/fd_sys_util.h"
@@ -49,9 +55,12 @@ run_cmd_perm( args_t *         args,
   ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
 
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+#ifdef __linux__
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
+#endif
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
                                                                        "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
+#ifdef __linux__
   fd_cap_chk_cap(          chk, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
   fd_cap_chk_cap(          chk, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
   if( fd_sandbox_requires_cap_sys_admin( config->uid, config->gid ) )
@@ -64,6 +73,7 @@ run_cmd_perm( args_t *         args,
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
     fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+#endif
 }
 
 struct pidns_clone_args {
@@ -247,8 +257,10 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( !config->development.sandbox ) ) {
     /* If no sandbox, then there's no actual PID namespace so we can't
        wait() grandchildren for the exit code.  Do this as a workaround. */
+#ifdef __linux__
     if( FD_UNLIKELY( -1==prctl( PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0 ) ) )
       FD_LOG_ERR(( "prctl(PR_SET_CHILD_SUBREAPER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+#endif
   }
 
   /* Save the current affinity, it will be restored after creating any child tiles */
@@ -288,23 +300,28 @@ main_pid_namespace( void * _args ) {
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+#ifdef __linux__
   int need_xdp = 0==strcmp( config->net.provider, "xdp" );
+#endif
+#ifdef __linux__
   fd_xdp_fds_t xdp_fds[ FD_TOPO_XDP_FDS_MAX ];
   uint         xdp_fds_cnt = FD_TOPO_XDP_FDS_MAX;
   if( need_xdp ) {
     fd_topo_install_xdp( &config->topo, xdp_fds, &xdp_fds_cnt, config->net.bind_address_parsed, 0 );
   }
+#endif
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
+#ifdef __linux__
     if( need_xdp ) {
       if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
         for( uint i=0U; i<xdp_fds_cnt; i++ ) {
           /* close XDP related file descriptors */
           if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, f_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
       } else {
         for( uint i=0U; i<xdp_fds_cnt; i++ ) {
@@ -313,6 +330,7 @@ main_pid_namespace( void * _args ) {
         }
       }
     }
+#endif
 
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -336,12 +354,14 @@ main_pid_namespace( void * _args ) {
 
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+#ifdef __linux__
   if( need_xdp ) {
     for( uint i=0U; i<xdp_fds_cnt; i++ ) {
       if( FD_UNLIKELY( close( xdp_fds[i].xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( close( xdp_fds[i].prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
+#endif
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
@@ -352,6 +372,7 @@ main_pid_namespace( void * _args ) {
   for( ulong i=0UL; i<child_cnt; i++ )
     allow_fds[ allow_fds_cnt++ ] = fds[ i ].fd; /* read end of child pipes */
 
+#ifdef __linux__
   struct sock_filter seccomp_filter[ 128UL ];
   unsigned int instr_cnt;
   #if defined(__aarch64__)
@@ -361,8 +382,10 @@ main_pid_namespace( void * _args ) {
   populate_sock_filter_policy_pidns( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
   instr_cnt = sock_filter_policy_pidns_instr_cnt;
   #endif
+#endif
 
   if( FD_LIKELY( config->development.sandbox ) ) {
+#ifdef __linux__
     fd_sandbox_enter( config->uid,
                       config->gid,
                       0,
@@ -378,6 +401,7 @@ main_pid_namespace( void * _args ) {
                       allow_fds,
                       instr_cnt,
                       seccomp_filter );
+#endif
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
@@ -419,7 +443,7 @@ main_pid_namespace( void * _args ) {
      a group.  The parent process will also die if this process dies,
      due to getting SIGHUP on the pipe. */
   while( 1 ) {
-    if( FD_UNLIKELY( -1==poll( fds, 1UL+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==poll( fds, (nfds_t)(1UL+child_cnt), -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     /* Parent process died, probably SIGINT, exit gracefully. */
     if( FD_UNLIKELY( fds[ child_cnt ].revents ) ) fd_sys_util_exit_group( 0 );
@@ -478,12 +502,24 @@ clone_firedancer( config_t const * config,
   if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC | O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* clone into a pid namespace */
+#ifdef __linux__
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
+#else
+  int flags = 0;
+#endif
   struct pidns_clone_args args = { .config = config, .closefd = close_fd, .pipefd = pipefd, };
 
+#ifdef __linux__
   void * stack = create_clone_stack();
-
   int pid_namespace = clone( main_pid_namespace, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
+#else
+  (void)flags;
+  int pid_namespace = fork();
+  if( !pid_namespace ) {
+    /* child */
+    exit( main_pid_namespace( &args ) );
+  }
+#endif
   if( FD_UNLIKELY( pid_namespace<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -839,11 +875,13 @@ run_firedancer( config_t * config,
 #endif
 
 #endif
+#ifdef __linux__
   long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
   if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) {
     FD_LOG_WARNING(( "The Landlock access control system is not supported by your Linux kernel. Firedancer uses landlock to "
                      "provide an additional layer of security to the sandbox, but it is not required." ));
   }
+#endif
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fd_log_private_logfile_fd()!=1 && close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -860,8 +898,10 @@ run_firedancer( config_t * config,
 
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+#ifdef __linux__
   struct sock_filter seccomp_filter[ 128UL ];
   populate_sock_filter_policy_main( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), (uint)pid_namespace );
+#endif
 
   int allow_fds[ 4 ];
   ulong allow_fds_cnt = 0;
@@ -886,8 +926,13 @@ run_firedancer( config_t * config,
                       0UL,
                       allow_fds_cnt,
                       allow_fds,
+#ifdef __linux__
                       sock_filter_policy_main_instr_cnt,
                       seccomp_filter );
+#else
+                      0,
+                      NULL );
+#endif
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }

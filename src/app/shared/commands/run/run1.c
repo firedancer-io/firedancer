@@ -101,8 +101,17 @@ run1_cmd_fn( args_t *   args,
 
   /* Also clone tiles into PID namespaces so they cannot signal each
      other or the parent. */
+#ifdef __linux__
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_t clone_pid = clone( tile_main, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &clone_args );
+#else
+  (void)stack;
+  pid_t clone_pid = fork();
+  if( !clone_pid ) {
+    /* child */
+    exit( tile_main( &clone_args ) );
+  }
+#endif
   if( FD_UNLIKELY( clone_pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( args->run1.pipe_fd!=-1 ) ) {

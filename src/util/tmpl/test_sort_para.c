@@ -1,7 +1,7 @@
 #include "../fd_util.h"
 
 #define TYPE float
-#define MAX  65536UL
+#define TEST_MAX  65536UL
 
 #define SORT_NAME        mysort
 #define SORT_KEY_T       TYPE
@@ -25,9 +25,9 @@ shuffle( fd_rng_t *   rng,
   return y;
 }
 
-static TYPE ref[ MAX ];
-static TYPE tst[ MAX ];
-static TYPE tmp[ MAX ];
+static TYPE ref[ TEST_MAX ];
+static TYPE tst[ TEST_MAX ];
+static TYPE tmp[ TEST_MAX ];
 
 int
 main( int     argc,
@@ -61,7 +61,7 @@ main( int     argc,
     ulong t1 = fd_rng_ulong_roll( rng, thread_cnt ); fd_swap_if( t1<t0, t0, t1 );
     t1++;
 
-    ulong cnt  = fd_rng_ulong_roll( rng, MAX+1UL );
+    ulong cnt  = fd_rng_ulong_roll( rng, TEST_MAX+1UL );
     ulong zcnt = fd_rng_ulong_roll( rng, cnt+1UL );
 
     if( FD_UNLIKELY( !diag_rem ) ) {

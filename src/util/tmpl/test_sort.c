@@ -4,7 +4,7 @@
 /* FIXME: USE PYTH SORT TEST METHODOLOGY INSTEAD? */
 
 #define TYPE float
-#define MAX  1024UL
+#define TEST_MAX  1024UL
 
 #define SORT_NAME        sort_up
 #define SORT_KEY_T       TYPE
@@ -39,9 +39,9 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  TYPE ref[ MAX ];
-  TYPE tst[ MAX ];
-  TYPE tmp[ MAX ];
+  TYPE ref[ TEST_MAX ];
+  TYPE tst[ TEST_MAX ];
+  TYPE tmp[ TEST_MAX ];
 
   for( ulong cnt=0UL; cnt<32UL; cnt++ ) {
     for( ulong i=0UL; i<cnt; i++ ) ref[i] = (TYPE)i;
@@ -182,7 +182,7 @@ main( int     argc,
   }
 
   for( ulong trial=0UL; trial<1000UL; trial++ ) {
-    ulong cnt = fd_rng_ulong( rng ) % (MAX+1UL);
+    ulong cnt = fd_rng_ulong( rng ) % (TEST_MAX+1UL);
 
     for( ulong i=0UL; i<cnt; i++ ) ref[i] = (TYPE)(fd_rng_ulong( rng ) % cnt);
     sort_up_insert( ref, cnt );
@@ -218,4 +218,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-

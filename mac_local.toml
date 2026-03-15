@@ -1,0 +1,46 @@
+# Firedancer macOS Local Development Configuration
+# Optimized for M3 Mac Studio Ultra (16P + 8E cores)
+
+name = "mac-local"
+user = "8tcap"
+scratch_directory = "/Users/8tcap/firedancer-apple/.fd/{name}"
+
+[log]
+    path = "/Users/8tcap/firedancer-apple/.fd/{name}/firedancer.log"
+    level_stderr = "INFO"
+
+[ledger]
+    path = "/Users/8tcap/firedancer-apple/.fd/{name}/ledger"
+    accounts_path = "/Users/8tcap/firedancer-apple/.fd/{name}/accounts"
+
+[hugetlbfs]
+    # macOS doesn't support hugetlbfs, point to a standard directory
+    mount_path = "/Users/8tcap/firedancer-apple/.fd"
+    max_page_size = "normal"
+
+[layout]
+    # M3 Ultra has 24 logical cores.
+    # 0-15: Performance, 16-23: Efficiency
+    # We'll use a simple range for now.
+    affinity = "auto"
+    agave_affinity = "auto"
+    
+    # Increase tile counts if needed for M3 Ultra capacity
+    verify_tile_count = 4
+    bank_tile_count = 2
+
+[net]
+    # macOS uses standard socket networking
+    interface = "lo0"
+    provider = "socket"
+
+[development]
+    # Disable Linux-specific sandboxing and process cloning
+    sandbox = false
+    no_clone = true
+    no_agave = false
+    bootstrap = true
+
+[consensus]
+    identity_path = "/Users/8tcap/firedancer-apple/.fd/{name}/identity.json"
+    vote_account_path = "/Users/8tcap/firedancer-apple/.fd/{name}/vote-account.json"

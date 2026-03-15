@@ -10,7 +10,9 @@
 #define FD_HPACK_INDEXED_SHORT( val ) ((uchar)( 0x80|(val) ))
 
 #if FD_HAS_X86
+#if defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
+#endif
 #endif
 
 FD_PROTOTYPES_BEGIN

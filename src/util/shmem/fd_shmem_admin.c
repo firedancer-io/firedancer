@@ -124,6 +124,7 @@ fd_shmem_numa_validate( void const * mem,
     return EINVAL;
   }
 
+#ifdef __linux__
   if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
     FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
     return EINVAL;
@@ -133,6 +134,9 @@ fd_shmem_numa_validate( void const * mem,
     FD_LOG_WARNING(( "misaligned mem" ));
     return EINVAL;
   }
+#else
+  (void)page_sz;
+#endif
 
   if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
     FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
@@ -277,6 +281,7 @@ fd_shmem_create_multi_flags( char const *  name,
 
   /* Validate the mapping */
 
+#ifdef __linux__
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, page_sz ) ) ) {
     FD_LOG_WARNING(( "misaligned memory mapping for \"%s\"\n\t"
                      "This thread group's hugetlbfs mount path (--shmem-path / FD_SHMEM_PATH):\n\t"
@@ -287,6 +292,7 @@ fd_shmem_create_multi_flags( char const *  name,
     errno = EFAULT; /* ENOMEM is arguable */
     ERROR( unmap );
   }
+#endif
 
   /* For each subregion */
 

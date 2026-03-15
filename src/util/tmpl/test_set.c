@@ -5,10 +5,10 @@
 #include <unistd.h>
 #endif
 
-#define MAX 12345
+#define TEST_MAX 12345
 
 #define SET_NAME set
-#define SET_MAX  MAX
+#define SET_MAX  TEST_MAX
 #include "fd_set.c"
 
 int
@@ -18,7 +18,7 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  ulong max = set_max( NULL ); FD_TEST( max==(ulong)MAX );
+  ulong max = set_max( NULL ); FD_TEST( max==(ulong)TEST_MAX );
 
   ulong sum_full = 0UL; for( ulong idx=0UL; idx<max; idx++ ) sum_full += idx+1UL;
 
@@ -345,11 +345,11 @@ main( int     argc,
 
   FD_EXPECT_LOG_CRIT( set_new( (void*)((char*)_t+1) ) );
 
-  FD_EXPECT_LOG_CRIT( set_insert   ( t,    MAX ) );
-  FD_EXPECT_LOG_CRIT( set_remove   ( t,    MAX ) );
-  FD_EXPECT_LOG_CRIT( set_insert_if( t, 1, MAX ) );
-  FD_EXPECT_LOG_CRIT( set_remove_if( t, 1, MAX ) );
-  FD_EXPECT_LOG_CRIT( set_test     ( t,    MAX ) );
+  FD_EXPECT_LOG_CRIT( set_insert   ( t,    TEST_MAX ) );
+  FD_EXPECT_LOG_CRIT( set_remove   ( t,    TEST_MAX ) );
+  FD_EXPECT_LOG_CRIT( set_insert_if( t, 1, TEST_MAX ) );
+  FD_EXPECT_LOG_CRIT( set_remove_if( t, 1, TEST_MAX ) );
+  FD_EXPECT_LOG_CRIT( set_test     ( t,    TEST_MAX ) );
 #else
   FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
 #endif

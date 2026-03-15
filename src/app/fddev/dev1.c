@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <sched.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 extern fd_topo_run_tile_t * TILES[];
 

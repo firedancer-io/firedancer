@@ -1,5 +1,7 @@
 #include "watch.h"
+#ifdef __linux__
 #include "generated/watch_seccomp.h"
+#endif
 
 #include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../discof/gossip/fd_gossip_tile.h"
@@ -12,6 +14,8 @@
 #ifdef __linux__
 #include <linux/capability.h>
 #endif
+
+/* Stubs removed, using those in fd_util_base.h */
 
 void
 watch_cmd_perm( args_t *         args FD_PARAM_UNUSED,

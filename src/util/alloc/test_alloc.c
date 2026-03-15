@@ -65,7 +65,7 @@ test_main( int     argc,
     #if !FD_HAS_DEEPASAN
     if( (i & print_mask)==print_interval )  {
       char * info    = NULL;
-      ulong  info_sz = 0UL;
+      size_t info_sz = 0;
       FILE * stream = open_memstream( &info, &info_sz );
       FD_TEST( stream );
       int print_sz = fd_alloc_fprintf( alloc, stream );

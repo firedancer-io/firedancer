@@ -1,6 +1,8 @@
 #include "monitor_gossip.h"
 #include "gossip_diag.h"
+#ifdef __linux__
 #include "generated/monitor_gossip_seccomp.h"
+#endif
 
 #include "../../../shared/commands/monitor/monitor.h" /* reconstruct_topo */
 #include "../../../../disco/metrics/fd_metrics.h"
@@ -11,7 +13,9 @@
 #include <signal.h>
 #include <stdio.h>
 #include <sys/resource.h>
+#ifdef __linux__
 #include <linux/capability.h>
+#endif
 
 void
 monitor_gossip_cmd_args( int *    pargc,

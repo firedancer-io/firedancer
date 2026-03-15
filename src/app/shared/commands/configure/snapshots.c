@@ -22,10 +22,16 @@ check( config_t const * config,
   CONFIGURE_OK();
 }
 
+static int
+fini( config_t const * config FD_PARAM_UNUSED,
+      int              pre_init FD_PARAM_UNUSED ) {
+  return 0;
+}
+
 configure_stage_t fd_cfg_stage_snapshots = {
   .name            = "snapshots",
   .always_recreate = 0,
   .init            = init,
-  .fini            = NULL,
+  .fini            = fini,
   .check           = check,
 };

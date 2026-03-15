@@ -63,8 +63,16 @@ init_log_memfd( void ) {
   int memfd = memfd_create( "fd_log_lock_page", 0U );
   if( FD_UNLIKELY( -1==memfd) ) FD_LOG_ERR(( "memfd_create(\"fd_log_lock_page\",0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 # else
-  int memfd = shm_open( SHM_ANON, O_RDWR | O_CREAT | O_EXCL, 0600 );
-  if( FD_UNLIKELY( -1==memfd) ) FD_LOG_ERR(( "shm_open(SHM_ANON) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  /* macOS SHM_ANON might fail with EFAULT for unknown reasons in some environments.
+     Using a named segment as fallback. */
+  int memfd = shm_open( "/fd_log_lock", O_RDWR | O_CREAT | O_EXCL, 0600 );
+  if( FD_UNLIKELY( -1==memfd ) ) {
+    /* If it already exists, try opening it. */
+    memfd = shm_open( "/fd_log_lock", O_RDWR, 0600 );
+  }
+  if( FD_UNLIKELY( -1==memfd ) ) FD_LOG_ERR(( "shm_open(/fd_log_lock) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  /* We should ideally shm_unlink it immediately so it behaves like SHM_ANON */
+  shm_unlink( "/fd_log_lock" );
 # endif
   if( FD_UNLIKELY( -1==ftruncate( memfd, 4096 ) ) ) FD_LOG_ERR(( "ftruncate(memfd,4096) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return memfd;

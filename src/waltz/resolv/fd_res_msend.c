@@ -14,6 +14,7 @@
 #ifdef __linux__
 #include <sys/syscall.h>
 #endif
+#include <fcntl.h>
 #include "fd_lookup.h"
 #include "../../util/fd_util.h"
 
@@ -46,6 +47,8 @@ start_tcp( struct pollfd * pfd,
            socklen_t       sl,
            uchar const *   q,
            int             ql ) {
+  (void)q; (void)ql;
+# ifdef TCP_FASTOPEN_CONNECT
   struct msghdr mh = {
     .msg_name    = (void *)sa,
     .msg_namelen = sl,
@@ -57,6 +60,7 @@ start_tcp( struct pollfd * pfd,
     .msg_controllen = 0,
     .msg_flags      = 0
   };
+# endif
 # ifdef __linux__
   int fd = socket( family, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0 );
 # else
@@ -68,13 +72,19 @@ start_tcp( struct pollfd * pfd,
 # endif
   pfd->fd = fd;
   pfd->events = POLLOUT;
+# ifdef TCP_FASTOPEN_CONNECT
   if( !setsockopt( fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT,
       &(int){1}, sizeof(int) ) ) {
+#ifdef MSG_FASTOPEN
     int r = sendmsg( fd, &mh, MSG_FASTOPEN|MSG_NOSIGNAL );
+#else
+    int r = sendmsg( fd, &mh, MSG_NOSIGNAL );
+#endif
     if( r == ql+2 ) pfd->events = POLLIN;
     if( r >= 0 ) return r;
     if( errno == EINPROGRESS ) return 0;
   }
+# endif
   int r = connect( fd, sa, sl );
   if( !r || errno == EINPROGRESS ) return 0;
   close( fd );

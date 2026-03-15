@@ -33,7 +33,7 @@ uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0 ) ] __attribute__((aligned(FD_MET
 fd_shredder_t _shredder[ 1 ];
 
 #define SHRED_VER   (ushort)6051 /* An arbitary value */
-#define MAX         (32UL*1024UL)
+#define TEST_MAX         (32UL*1024UL)
 #define SEED        10388431120836828144UL
 
 struct signer_ctx {
@@ -120,9 +120,9 @@ test_one_batch( void ) {
 
   ulong foot = fd_fec_resolver_footprint( 4UL, 1UL, 1UL, 1UL );
   fd_fec_resolver_t *r1, *r2, *r3;
-  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets,     MAX, SEED ) );
-  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, MAX, SEED ) );
-  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, MAX, SEED ) );
+  r1 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+0UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets,     TEST_MAX, SEED ) );
+  r2 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+1UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+4UL, TEST_MAX, SEED ) );
+  r3 = fd_fec_resolver_join( fd_fec_resolver_new( res_mem+2UL*foot, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets+8UL, TEST_MAX, SEED ) );
 
   fd_fec_resolver_set_shred_version( r1, SHRED_VER );
   fd_fec_resolver_set_shred_version( r2, SHRED_VER );
@@ -189,7 +189,7 @@ test_interleaved( void ) {
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];
 
-  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX, SEED ) );
+  fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, TEST_MAX, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
   for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) {
     ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
@@ -230,7 +230,7 @@ test_rolloff( void ) {
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, MAX, SEED ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, TEST_MAX, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
   for( ulong j=0UL; j<FD_FEC_SHRED_CNT-1UL; j++ ) { ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY ); }
 
@@ -298,7 +298,7 @@ test_new_formats( void ) {
 
 
   fd_fec_resolver_t * resolver;
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, test_signer, signer_ctx, 5UL, 1UL, 5UL, 4UL, out_sets, MAX, SEED ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, test_signer, signer_ctx, 5UL, 1UL, 5UL, 4UL, out_sets, TEST_MAX, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, 27350 );
 
   uchar leader[32];
@@ -382,7 +382,7 @@ test_shred_version( void ) {
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX, SEED ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, TEST_MAX, SEED ) );
   fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
@@ -447,7 +447,7 @@ test_shred_reject( void ) {
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 2UL, meta ) );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX, SEED ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, TEST_MAX, SEED ) );
   fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
@@ -479,9 +479,9 @@ test_shred_reject( void ) {
   SIGN_ACCEPT( shred );
 
   shred = set->data_shreds[ 2 ].s;
-  shred->idx = MAX-1UL;  shred->fec_set_idx = MAX-32UL;  SIGN_ACCEPT( shred );
-  shred->idx = MAX;      shred->fec_set_idx = MAX-32UL;  SIGN_REJECT( shred );
-  shred->idx = MAX+1UL;  shred->fec_set_idx = MAX-32UL;  SIGN_REJECT( shred );
+  shred->idx = TEST_MAX-1UL;  shred->fec_set_idx = TEST_MAX-32UL;  SIGN_ACCEPT( shred );
+  shred->idx = TEST_MAX;      shred->fec_set_idx = TEST_MAX-32UL;  SIGN_REJECT( shred );
+  shred->idx = TEST_MAX+1UL;  shred->fec_set_idx = TEST_MAX-32UL;  SIGN_REJECT( shred );
 
   shred = set->data_shreds[ 3 ].s;
   shred->data.flags = 0x80;    SIGN_REJECT( shred );/* block complete but not batch complete */
@@ -549,7 +549,7 @@ test_merkle_root( void ) {
 
   FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 2UL, meta ) );
 
-  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, MAX, SEED ) );
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 1UL, out_sets, TEST_MAX, SEED ) );
   fd_fec_resolver_set_shred_version( r, SHRED_VER );
 
   fd_fec_set_t const * out_fec[1];
@@ -634,7 +634,7 @@ test_chained_merkle_shreds( void ) {
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];
 
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, MAX, SEED ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, TEST_MAX, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
 
 #define MAX_SLOTS (4UL)
@@ -699,7 +699,7 @@ test_slot_old( void ) {
   fd_bmtree_node_t     out_merkle_root[1];
   uchar                chained_merkle_root[32] = { 0 };
 
-  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, MAX, SEED ) );
+  resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, TEST_MAX, SEED ) );
   fd_fec_resolver_set_shred_version( resolver, SHRED_VER );
 
   fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, meta );

@@ -25,12 +25,16 @@ ifdef FD_HAS_HOSTED
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 
 # fdctl core
-$(call add-objs,topology,fd_fdctl)
-$(call add-objs,config,fd_fdctl)
+$(call add-objs,topology config,fd_fdctl)
+ifdef FD_HAS_DARWIN
+$(call add-objs,stubs_macos,fd_fdctl)
+endif
 
 ifdef FD_HAS_THREADS
 
-.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-agave-hash
+cargo-validator: update-rust-toolchain
+cargo-solana: update-rust-toolchain
+cargo-ledger-tool: update-rust-toolchain
 
 # fdctl commands
 $(call add-objs,commands/run_agave,fd_fdctl)
@@ -40,15 +44,8 @@ $(call add-objs,commands/set_identityh,fd_fdctl)
 $(call make-lib,fdctl_version)
 $(call add-objs,version,fdctl_version)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco fd_choreo agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco fd_choreo agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_vinyl fd_util fdctl_version)
 
-check-agave-hash:
-	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))
-	@$(eval AGAVE_COMMIT_SUBMODULE=$(shell git --git-dir=agave/.git --work-tree=agave rev-parse HEAD))
-	@if [ "$(AGAVE_COMMIT_LS_TREE)" != "$(AGAVE_COMMIT_SUBMODULE)" ]; then \
-		echo "Error: agave submodule is not up to date. Please run \`git submodule update\` before building"; \
-		exit 1; \
-	fi
 
 update-rust-toolchain:
 	@$(eval TOOLCHAIN_VERSION=$(shell sed -n 's/^channel = "\(.*\)"$$/\1/p' agave/rust-toolchain.toml))
@@ -60,9 +57,9 @@ update-rust-toolchain:
 
 # Phony target to always rerun cargo build ... it will detect if anything
 # changed on the library side.
-cargo-validator: check-agave-hash update-rust-toolchain
-cargo-solana: check-agave-hash update-rust-toolchain
-cargo-ledger-tool: check-agave-hash update-rust-toolchain
+cargo-validator: update-rust-toolchain
+cargo-solana: update-rust-toolchain
+cargo-ledger-tool: update-rust-toolchain
 
 # Currently, rocksdb does not compile with GCC 15. This hack will not be
 # necessary once https://github.com/facebook/rocksdb/issues/13365 is fixed.

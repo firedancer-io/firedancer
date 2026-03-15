@@ -37,6 +37,18 @@
 #define IOSQE_CQE_SKIP_SUCCESS (1U<<6)
 #endif
 
+#ifndef IORING_OP_READ
+#define IORING_OP_READ 22
+#endif
+
+#ifndef IORING_OP_WRITE
+#define IORING_OP_WRITE 23
+#endif
+
+#ifndef IOSQE_FIXED_FILE
+#define IOSQE_FIXED_FILE (1U<<0)
+#endif
+
 struct fd_io_uring_restriction {
   ushort opcode;
   union {
@@ -95,8 +107,9 @@ typedef struct fd_io_uring_params fd_io_uring_params_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_io_uring_enter wraps the fd_io_uring_enter(2) syscall. */
+#if defined(__linux__)
 
+/* fd_io_uring_enter wraps the fd_io_uring_enter(2) syscall. */
 int
 fd_io_uring_enter( int    ring_fd,
                    uint   to_submit,
@@ -106,7 +119,6 @@ fd_io_uring_enter( int    ring_fd,
                    ulong  arg_sz );
 
 /* fd_io_uring_register wraps the io_uring_register(2) syscall. */
-
 int
 fd_io_uring_register( int          ring_fd,
                       uint         opcode,
@@ -114,10 +126,17 @@ fd_io_uring_register( int          ring_fd,
                       uint         arg_cnt );
 
 /* fd_io_uring_setup wraps the io_uring_setup(2) syscall. */
-
 int
 fd_io_uring_setup( uint                   entry_cnt,
                    fd_io_uring_params_t * p );
+
+#else /* !__linux__ */
+
+static inline int fd_io_uring_enter( int ring_fd, uint to_submit, uint min_complete, uint flags, void * arg, ulong arg_sz ) { (void)ring_fd; (void)to_submit; (void)min_complete; (void)flags; (void)arg; (void)arg_sz; return -1; }
+static inline int fd_io_uring_register( int ring_fd, uint opcode, void const * arg, uint arg_cnt ) { (void)ring_fd; (void)opcode; (void)arg; (void)arg_cnt; return -1; }
+static inline int fd_io_uring_setup( uint entry_cnt, fd_io_uring_params_t * p ) { (void)entry_cnt; (void)p; return -1; }
+
+#endif /* __linux__ */
 
 FD_PROTOTYPES_END
 

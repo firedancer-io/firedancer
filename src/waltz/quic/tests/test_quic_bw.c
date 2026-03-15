@@ -1,7 +1,7 @@
 #include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
 
-static fd_clock_t clock[1];
+static fd_clock_t qclock[1];
 static fd_clock_shmem_t clock_shmem[1];
 
 uchar conn_final_cnt = 0;
@@ -66,14 +66,14 @@ void my_handshake_complete( fd_quic_conn_t * conn,
 __attribute__((noinline)) int
 service_client( fd_quic_t * quic ) {
   uchar buf[16] = {0}; FD_COMPILER_UNPREDICTABLE( buf[0] );
-  fd_quic_service( quic, fd_clock_now( clock ) );
+  fd_quic_service( quic, fd_clock_now( qclock ) );
   return 0;
 }
 
 __attribute__((noinline)) int
 service_server( fd_quic_t * quic ) {
   uchar buf[16] = {0}; FD_COMPILER_UNPREDICTABLE( buf[0] );
-  fd_quic_service( quic, fd_clock_now( clock ) );
+  fd_quic_service( quic, fd_clock_now( qclock ) );
   return 0;
 }
 
@@ -86,7 +86,7 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  fd_clock_default_init( clock, clock_shmem );
+  fd_clock_default_init( qclock, clock_shmem );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -169,10 +169,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
-  fd_quic_get_state( client_quic )->now = fd_quic_get_state( server_quic )->now = fd_clock_now( clock );
+  fd_quic_get_state( client_quic )->now = fd_quic_get_state( server_quic )->now = fd_clock_now( qclock );
 
   /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, fd_clock_now( clock ) );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, fd_clock_now( qclock ) );
 
   FD_TEST( conn_final_cnt==0 );
 
@@ -208,13 +208,13 @@ main( int     argc,
   int rc = fd_quic_stream_send( client_stream, buf, sz, 1 );
   FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
 
-  long last_ts = fd_clock_now( clock );
+  long last_ts = fd_clock_now( qclock );
   long rprt_ts = last_ts + (long)1e9;
 
   long start_ts = last_ts;
   long end_ts   = start_ts + (long)(duration * 1e9f);
   while(1) {
-    long t = fd_clock_now( clock ); fd_quic_get_state( client_quic )->now = fd_quic_get_state( server_quic )->now = t;
+    long t = fd_clock_now( qclock ); fd_quic_get_state( client_quic )->now = fd_quic_get_state( server_quic )->now = t;
     service_client( client_quic );
     service_server( server_quic );
 
@@ -278,7 +278,7 @@ main( int     argc,
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );
-  fd_clock_leave( clock );
+  fd_clock_leave( qclock );
   fd_clock_delete( clock_shmem );
   fd_rng_delete( fd_rng_leave( rng ) );
 

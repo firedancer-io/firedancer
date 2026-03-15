@@ -17,13 +17,17 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/io_uring/fd_io_uring_setup.h"
 #include "../../util/io_uring/fd_io_uring_register.h"
+#ifdef __linux__
 #include "generated/fd_accdb_tile_seccomp.h"
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
 #include <lz4.h>
 #include <sys/stat.h>
+#ifdef __linux__
 #include <linux/io_uring.h>
+#endif
 
 #define NAME "accdb"
 #define MAX_INS 8
@@ -234,8 +238,13 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_vinyl_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vinyl_tile_t), sizeof(fd_vinyl_tile_t) );
 
+#ifdef __linux__
   populate_sock_filter_policy_fd_accdb_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->bstream_fd, (uint)ctx->ring->ioring_fd );
   return sock_filter_policy_fd_accdb_tile_instr_cnt;
+#else
+  (void)topo; (void)tile; (void)out_cnt; (void)out; (void)ctx;
+  return 0;
+#endif
 }
 
 static void

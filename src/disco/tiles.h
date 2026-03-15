@@ -17,12 +17,15 @@
 #ifdef __MACH__
 #include <net/bpf.h>
 /* Shim sock_filter for macOS compilation of Disco headers */
+#ifndef HEADER_fd_src_util_fd_util_base_h_sock_filter
+#define HEADER_fd_src_util_fd_util_base_h_sock_filter
 struct sock_filter {
   unsigned short code;
   unsigned char  jt;
   unsigned char  jf;
   unsigned int   k;
 };
+#endif
 #endif
 
 struct fd_became_leader {

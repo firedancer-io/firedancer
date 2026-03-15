@@ -16,7 +16,7 @@
 
 static _Bool g_unreliable;
 
-static fd_clock_t clock[1];
+static fd_clock_t quic_clock[1];
 static fd_clock_shmem_t clock_shmem[1];
 
 int
@@ -27,7 +27,7 @@ my_stream_rx_cb( fd_quic_conn_t * conn,
                  ulong            data_sz,
                  int              fin ) {
   (void)conn; (void)stream_id; (void)fin;
-  FD_LOG_DEBUG(( "received data from peer (size=%lu offset=%lu)", data_sz, offset ));
+  FD_LOG_DEBUG(( "received data from peer (size=%llu offset=%llu)", (unsigned long long)data_sz, (unsigned long long)offset ));
   FD_LOG_HEXDUMP_DEBUG(( "stream data", data, data_sz ));
   return FD_QUIC_SUCCESS;
 }
@@ -84,11 +84,11 @@ run_quic_client(
     FD_LOG_NOTICE(( "Starting QUIC client" ));
 
     /* make a connection from client to the server */
-    client_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0, fd_clock_now( clock ) );
+    client_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0, fd_clock_now( quic_clock ) );
+    if( FD_UNLIKELY( !client_conn ) ) FD_LOG_ERR(( "fd_quic_connect failed" ));
 
-    /* do general processing */
-    while( !client_complete ) {
-      fd_quic_service( quic, fd_clock_now( clock ) );
+    while( ( !client_complete ) ) {
+      fd_quic_service( quic, fd_clock_now( quic_clock ) );
       fd_quic_udpsock_service( udpsock );
     }
 
@@ -150,74 +150,72 @@ run_quic_client(
       batches[msg_sz - MSG_SZ_MIN]->buf_sz = (ushort)msg_sz;
     }
 
-    fd_sha512_delete ( fd_sha512_leave( sha    ) );
-    fd_rng_delete    ( fd_rng_leave   ( rng    ) );
-  } while(0);
+    ulong stream_cnt     = 0UL;
+    ulong tot_sz         = 0UL;
+    long  t0             = fd_clock_now( quic_clock );
+    ulong msg_sz_current = MSG_SZ_MIN;
 
-  ulong stream_cnt = 0;
-  ulong tot_sz     = 0;
-  long  t0         = fd_clock_now( clock );
-  ulong msg_sz     = MSG_SZ_MIN;
-
-  /* Continually send data while we have a valid connection */
-  while(1) {
-    if( !client_conn ) {
-      break;
-    }
-
-    fd_quic_service( quic, fd_clock_now( clock ) );
-    fd_quic_udpsock_service( udpsock );
-
-    /* obtain a free stream */
-    for( ulong j = 0; j < batch_sz; ++j ) {
+    /* Continually send data while we have a valid connection */
+    while(1) {
       if( !client_conn ) break;
-      fd_quic_stream_t * stream = fd_quic_conn_new_stream( client_conn );
-      if( !stream ) break;
 
-      fd_aio_pkt_info_t * chunk = batches[msg_sz - MSG_SZ_MIN];
-      int res = fd_quic_stream_send( stream, chunk->buf, chunk->buf_sz, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
-      stream_cnt += res==FD_QUIC_SUCCESS;
-      tot_sz     += fd_ulong_if( res==FD_QUIC_SUCCESS, chunk->buf_sz, 0 );
+      fd_quic_service( quic, fd_clock_now( quic_clock ) );
+      fd_quic_udpsock_service( udpsock );
 
-      msg_sz++;
-      msg_sz = fd_ulong_if( msg_sz>MSG_SZ_MAX, MSG_SZ_MIN, msg_sz );
-    }
+      /* obtain a free stream */
+      for( ulong j = 0; j < batch_sz; ++j ) {
+        if( !client_conn ) break;
+        fd_quic_stream_t * stream = fd_quic_conn_new_stream( client_conn );
+        if( !stream ) break;
 
-    long t1 = fd_clock_now( clock );
-    if( t1 >= t0 ) {
-      printf( "streams=%lu sz=%g\n", stream_cnt, (double)tot_sz );
-      stream_cnt = 0;
-      tot_sz     = 0;
-      t0 = t1 + (long)1e9;
-    }
+        fd_aio_pkt_info_t * chunk = batches[msg_sz_current - MSG_SZ_MIN];
+        int res = fd_quic_stream_send( stream, chunk->buf, chunk->buf_sz, 1 /* fin */ );
+        stream_cnt += (ulong)(res==FD_QUIC_SUCCESS);
+        tot_sz     += fd_ulong_if( res==FD_QUIC_SUCCESS, chunk->buf_sz, 0UL );
 
-    /* Reclaim packet metas */
-    if ( g_unreliable ) {
-      /* treat all packets as ACKed (freeing handshake data, etc.) */
-      static const uint            enc_level  =  fd_quic_enc_level_appdata_id;
-      fd_quic_pkt_meta_tracker_t * tracker   =  &client_conn->pkt_meta_tracker;
-      fd_quic_pkt_meta_ds_t      * sent       =  &tracker->sent_pkt_metas[enc_level];
-      fd_quic_pkt_meta_t         * pool       =  fd_quic_get_state( quic )->pkt_meta_pool;
+        msg_sz_current++;
+        msg_sz_current = fd_ulong_if( msg_sz_current>MSG_SZ_MAX, MSG_SZ_MIN, msg_sz_current );
+      }
 
-      fd_quic_pkt_meta_t* prev = NULL;
+      long t1 = fd_clock_now( quic_clock );
+      if( t1 >= t0 ) {
+        printf( "streams=%llu sz=%g\n", (unsigned long long)stream_cnt, (double)tot_sz );
+        stream_cnt = 0UL;
+        tot_sz     = 0UL;
+        t0 = t1 + (long)1e9;
+      }
 
-      for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
-                                                 !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
-                                                 iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
+      /* Reclaim packet metas */
+      if ( g_unreliable ) {
+        /* treat all packets as ACKed (freeing handshake data, etc.) */
+        static const uint            enc_level  =  fd_quic_enc_level_appdata_id;
+        fd_quic_pkt_meta_tracker_t * tracker   =  &client_conn->pkt_meta_tracker;
+        fd_quic_pkt_meta_ds_t      * sent       =  &tracker->sent_pkt_metas[enc_level];
+        fd_quic_pkt_meta_t         * pool       =  fd_quic_get_state( quic )->pkt_meta_pool;
+
+        fd_quic_pkt_meta_t* prev = NULL;
+
+        for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
+                                                  !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
+                                                  iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
+          if( FD_LIKELY( prev ) ) {
+            fd_quic_pkt_meta_pool_ele_release( pool, prev );
+          }
+          fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
+          fd_quic_reclaim_pkt_meta( client_conn, e, enc_level );
+          prev = e;
+        }
         if( FD_LIKELY( prev ) ) {
           fd_quic_pkt_meta_pool_ele_release( pool, prev );
         }
-        fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
-        fd_quic_reclaim_pkt_meta( client_conn, e, enc_level );
-        prev = e;
-      }
-      if( FD_LIKELY( prev ) ) {
-        fd_quic_pkt_meta_pool_ele_release( pool, prev );
-      }
 
-      fd_quic_pkt_meta_ds_clear( tracker, enc_level );
+        fd_quic_pkt_meta_ds_clear( tracker, enc_level );
+      }
     }
-  }
+
+    fd_sha512_delete ( fd_sha512_leave( sha    ) );
+    fd_rng_delete    ( fd_rng_leave   ( rng    ) );
+  } while(0);
 
   do {
     /* close the connections */
@@ -237,7 +235,7 @@ main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  fd_clock_default_init( clock, clock_shmem );
+  fd_clock_default_init( quic_clock, clock_shmem );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -265,7 +263,7 @@ main( int argc, char ** argv ) {
   uint dst_ip;
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( _dst_ip, &dst_ip  ) ) ) FD_LOG_ERR(( "invalid --dst-ip" ));
 
-  FD_LOG_NOTICE(( "Creating workspace with --page-cnt %lu --page-sz %s pages on --numa-idx %lu", page_cnt, _page_sz, numa_idx ));
+  FD_LOG_NOTICE(( "Creating workspace with --page-cnt %llu --page-sz %s pages on --numa-idx %llu", (unsigned long long)page_cnt, _page_sz, (unsigned long long)numa_idx ));
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
@@ -275,7 +273,7 @@ main( int argc, char ** argv ) {
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
-  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
+  FD_LOG_NOTICE(( "QUIC footprint: %llu bytes", (unsigned long long)quic_footprint ));
 
   FD_LOG_NOTICE(( "Creating client QUIC" ));
   fd_quic_t * quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
@@ -300,7 +298,7 @@ main( int argc, char ** argv ) {
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
   fd_quic_udpsock_destroy( udpsock );
   fd_wksp_delete_anonymous( wksp );
-  fd_clock_leave( clock );
+  fd_clock_leave( quic_clock );
   fd_clock_delete( clock_shmem );
   fd_rng_delete( fd_rng_leave( rng ) );
 

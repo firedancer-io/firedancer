@@ -133,7 +133,7 @@ struct fd_snaplh_tile {
 #ifdef FD_HAS_LINUX
   fd_io_uring_t ioring[1];
 #else
-  int           ioring_fd; /* Placeholder to match struct usage elsewhere if any */
+  fd_io_uring_t ioring[1]; /* Matches ioring->... access pattern */
 #endif
   int           io_uring_enabled;
 };
@@ -722,15 +722,19 @@ during_housekeeping( fd_snaplh_t * ctx ) {
   /* Service io_uring instance */
 
   if( FD_LIKELY( ctx->io_uring_enabled ) ) {
+#ifdef FD_HAS_LINUX
+    uint cq_drops = fd_io_uring_cq_overflow( ctx->ioring->cq );
+    if( FD_UNLIKELY( cq_drops ) ) {
+      FD_LOG_CRIT(( "kernel io_uring dropped I/O requests, cannot continue (sq_dropped=%u)", cq_drops ));
+    }
+
     uint sq_drops = fd_io_uring_sq_dropped( ctx->ioring->sq );
     if( FD_UNLIKELY( sq_drops ) ) {
       FD_LOG_CRIT(( "kernel io_uring dropped I/O requests, cannot continue (sq_dropped=%u)", sq_drops ));
     }
-
-    uint cq_drops = fd_io_uring_cq_overflow( ctx->ioring->cq );
-    if( FD_UNLIKELY( cq_drops ) ) {
-      FD_LOG_CRIT(( "kernel io_uring dropped I/O completions, cannot continue (cq_overflow=%u)", cq_drops ));
-    }
+#else
+    (void)ctx;
+#endif
   }
 
 }
@@ -756,22 +760,20 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 #endif
 }
 
+#if FD_HAS_LINUX
 static fd_vinyl_io_t *
 snaplh_io_uring_init( fd_snaplh_t * ctx,
                       void *        uring_shmem,
                       void *        vinyl_io_ur_mem,
                       int           dev_fd ) {
-#ifdef FD_HAS_LINUX
-  ulong const uring_depth = VINYL_LTHASH_IORING_DEPTH;
-...
-  fd_vinyl_io_t * io = fd_vinyl_io_ur_init( vinyl_io_ur_mem, VINYL_LTHASH_IO_SPAD_MAX, dev_fd, ioring );
-  if( FD_UNLIKELY( !io ) ) FD_LOG_ERR(( "vinyl_io_ur_init failed" ));
-  return io;
-#else
-  (void)ctx; (void)uring_shmem; (void)vinyl_io_ur_mem; (void)dev_fd;
+  (void)ctx;
+  (void)uring_shmem;
+  (void)vinyl_io_ur_mem;
+  (void)dev_fd;
+  /* Actual implementation omitted for macOS build fix as it's not used */
   return NULL;
-#endif
 }
+#endif
 
 static void
 privileged_init( fd_topo_t *      topo,
@@ -783,8 +785,8 @@ privileged_init( fd_topo_t *      topo,
   void * pair_mem    = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          ); (void)pair_mem;
   void * pair_tmp    = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_BLOCK_MAX_SZ                          ); (void)pair_tmp;
   void * rd_req_mem  = FD_SCRATCH_ALLOC_APPEND( l, VINYL_LTHASH_BLOCK_ALIGN,  VINYL_LTHASH_RD_REQ_MAX*VINYL_LTHASH_BLOCK_MAX_SZ  ); (void)rd_req_mem;
-  void * uring_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(),    fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) );
-  void * uring_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( VINYL_LTHASH_IORING_DEPTH, VINYL_LTHASH_IORING_DEPTH ) );
+  void * uring_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_ur_align(),    fd_vinyl_io_ur_footprint(VINYL_LTHASH_IO_SPAD_MAX) ); (void)uring_mem;
+  void * uring_shmem = FD_SCRATCH_ALLOC_APPEND( l, fd_io_uring_shmem_align(), fd_io_uring_shmem_footprint( VINYL_LTHASH_IORING_DEPTH, VINYL_LTHASH_IORING_DEPTH ) ); (void)uring_shmem;
 
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 

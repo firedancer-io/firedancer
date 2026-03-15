@@ -323,23 +323,25 @@
 //#pragma GCC diagnostic push
 //#pragma GCC diagnostic ignored "-Wpedantic"
 
-typedef signed char schar; /* See above note of sadness */
-
+typedef signed char schar;
 typedef unsigned char  uchar;
 typedef unsigned short ushort;
 typedef unsigned int   uint;
-#ifdef __MACH__
-typedef unsigned long long ulong;
-#else
+#ifdef __APPLE__
 typedef unsigned long      ulong;
+#else
+typedef unsigned long long ulong;
 #endif
+
+#include <unistd.h>
+#include <sys/types.h>
 
 #ifdef __MACH__
 typedef unsigned char  u_char;
 typedef unsigned short u_short;
 typedef unsigned int   u_int;
 typedef unsigned long  u_long;
-
+#endif
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS 0x1000 /* MAP_ANON on macOS */
 #endif
@@ -366,11 +368,189 @@ typedef unsigned long  u_long;
 #endif
 
 #ifndef SOL_TCP
-#define SOL_TCP IPPROTO_TCP
+#define SOL_TCP 6
+#endif
+
+#ifndef MSG_DONTWAIT
+#define MSG_DONTWAIT 0x80
+#endif
+
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
 #endif
 
 /* Seccomp Stubs */
-struct sock_filter;
+#ifdef __MACH__
+#include <net/bpf.h>
+/* Shim sock_filter for macOS compilation of Disco headers */
+#ifndef HEADER_fd_src_util_fd_util_base_h_sock_filter
+#define HEADER_fd_src_util_fd_util_base_h_sock_filter
+struct sock_filter {
+  unsigned short code;
+  unsigned char  jt;
+  unsigned char  jf;
+  unsigned int   k;
+};
+#endif
+
+struct sock_fprog {
+  unsigned short      len;
+  struct sock_filter *filter;
+};
+
+#ifndef BPF_STMT
+#define BPF_STMT(code, k) { (unsigned short)(code), 0, 0, (unsigned int)(k) }
+#endif
+#ifndef BPF_JUMP
+#define BPF_JUMP(code, k, jt, jf) { (unsigned short)(code), (unsigned char)(jt), (unsigned char)(jf), (unsigned int)(k) }
+#endif
+
+#define BPF_ABS 0x20
+#define BPF_LD  0x00
+#define BPF_W   0x00
+#define BPF_JMP 0x05
+#define BPF_K   0x00
+#define BPF_RET 0x06
+#endif
+
+#ifndef IPV6_ADD_MEMBERSHIP
+#define IPV6_ADD_MEMBERSHIP IPV6_JOIN_GROUP
+#endif
+
+#ifndef IPV6_DROP_MEMBERSHIP
+#define IPV6_DROP_MEMBERSHIP IPV6_LEAVE_GROUP
+#endif
+
+#if !defined(O_DIRECT) && defined(__APPLE__)
+#define O_DIRECT 0
+#endif
+
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
+#ifdef __APPLE__
+/* TTY ioctls */
+#ifndef TCGETS
+#define TCGETS TIOCGETA
+#endif
+#ifndef TCSETS
+#define TCSETS TIOCSETA
+#endif
+
+/* Sandboxing and capabilities stubs */
+#ifndef CAP_SYS_ADMIN
+#define CAP_SYS_ADMIN       (21)
+#endif
+#ifndef CAP_SETUID
+#define CAP_SETUID          (7)
+#endif
+#ifndef CAP_SETGID
+#define CAP_SETGID          (6)
+#endif
+#ifndef CAP_NET_BIND_SERVICE
+#define CAP_NET_BIND_SERVICE (10)
+#endif
+
+static inline int  fd_sandbox_enter( ulong a, ulong b, int c, int d, int e, int f, int g, ulong h, ulong i, ulong j, ulong k, ulong l, int * m, ulong n, void * o ) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; (void)h; (void)i; (void)j; (void)k; (void)l; (void)m; (void)n; (void)o; return 0; }
+static inline void fd_sandbox_switch_uid_gid( ulong u, ulong g ) { (void)u; (void)g; }
+static inline ulong fd_sandbox_getpid( void ) { return (ulong)getpid(); }
+static inline ulong fd_sandbox_gettid( void ) { return (ulong)getpid(); }
+static inline int   fd_sandbox_requires_cap_sys_admin( uint u, uint g ) { (void)u; (void)g; return 0; }
+
+#ifndef PR_SET_CHILD_SUBREAPER
+#define PR_SET_CHILD_SUBREAPER (36)
+#endif
+static inline int prctl( int a, ... ) { (void)a; return 0; }
+
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+#ifndef MAP_STACK
+#define MAP_STACK 0
+#endif
+#ifndef MAP_HUGETLB
+#define MAP_HUGETLB 0
+#endif
+static inline int pipe2( int fds[2], int flags ) { (void)flags; return pipe( fds ); }
+
+#define sock_filter_policy_monitor_instr_cnt 0
+#define sock_filter_policy_watch_instr_cnt   0
+#define sock_filter_policy_run_instr_cnt     0
+
+static inline void populate_sock_filter_policy_monitor( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+static inline void populate_sock_filter_policy_watch( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+static inline void populate_sock_filter_policy_run( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+#endif
+
+/* Seccomp Policy Stubs */
+#define sock_filter_policy_fd_snapwr_tile_instr_cnt 0
+#define sock_filter_policy_fd_snapls_tile_instr_cnt 0
+#define sock_filter_policy_fd_snaplh_tile_instr_cnt 0
+#define sock_filter_policy_fd_snapwh_tile_instr_cnt 0
+#define sock_filter_policy_fd_poh_tile_instr_cnt 0
+#define sock_filter_policy_fd_gossip_tile_instr_cnt 0
+#define sock_filter_policy_fd_txsend_tile_instr_cnt 0
+#define sock_filter_policy_fd_snaplv_tile_instr_cnt 0
+#define sock_filter_policy_fd_shredcap_tile_instr_cnt 0
+#define sock_filter_policy_fd_resolv_tile_instr_cnt 0
+#define sock_filter_policy_fd_tower_tile_instr_cnt 0
+#define sock_filter_policy_fd_execrp_tile_instr_cnt 0
+#define sock_filter_policy_fd_execle_tile_instr_cnt 0
+#define sock_filter_policy_fd_repair_tile_instr_cnt 0
+#define sock_filter_policy_fd_ipecho_tile_instr_cnt 0
+#define sock_filter_policy_fd_snapla_tile_instr_cnt 0
+#define sock_filter_policy_fd_gossvf_tile_instr_cnt 0
+#define sock_filter_policy_fd_solcap_tile_instr_cnt 0
+#define sock_filter_policy_monitor_gossip_instr_cnt   0
+#define sock_filter_policy_fd_accdb_tile_instr_cnt    0
+
+static inline void populate_sock_filter_policy_fd_txsend_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_snaplv_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_shredcap_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e, uint f, uint g ) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; }
+static inline void populate_sock_filter_policy_fd_resolv_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_tower_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e ) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+static inline void populate_sock_filter_policy_fd_execrp_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_execle_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_repair_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_pack_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_bundle_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e, uint f ) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
+static inline void populate_sock_filter_policy_fd_archiver_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e ) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+static inline void populate_sock_filter_policy_fd_gui_tile( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+static inline void populate_sock_filter_policy_fd_snapls_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_snaplh_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_snapwh_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_poh_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_gossip_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_ipecho_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_snapla_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_gossvf_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_solcap_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e ) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+static inline void populate_sock_filter_policy_fd_snapwr_tile( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+static inline void populate_sock_filter_policy_pidns_arm64( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_pidns( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_main( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+static inline void populate_sock_filter_policy_monitor_gossip( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_accdb_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e ) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+static inline void populate_sock_filter_policy_test_sandbox( ulong a, struct sock_filter * b ) { (void)a; (void)b; }
+static inline void populate_sock_filter_policy_fd_dedup_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_sign_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_quic( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+static inline void populate_sock_filter_policy_fd_shred_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_event_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e ) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+static inline void populate_sock_filter_policy_archiver_playback( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+static inline void populate_sock_filter_policy_fd_ipecho_server( ulong a, struct sock_filter * b, uint c, uint d, uint e ) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+static inline void populate_sock_filter_policy_fd_netlink_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_plugin_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_verify_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_metric_tile( ulong a, struct sock_filter * b, uint c, uint d ) { (void)a; (void)b; (void)c; (void)d; }
+static inline void populate_sock_filter_policy_fd_diag_tile( ulong a, struct sock_filter * b, uint c ) { (void)a; (void)b; (void)c; }
+static inline void populate_sock_filter_policy_fd_sock_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e, uint f ) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
+static inline void populate_sock_filter_policy_fd_xdp_tile( ulong a, struct sock_filter * b, uint c, uint d, uint e ) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+
+/* uring stubs */
+static inline uint fd_io_uring_cq_overflow( void * a ) { (void)a; return 0; }
+static inline uint fd_io_uring_sq_dropped( void * a ) { (void)a; return 0; }
 
 /* Clock Shims */
 #ifndef CLOCK_BOOTTIME
@@ -390,6 +570,26 @@ static inline long getrandom( void * buf, size_t buflen, unsigned int flags ) {
 
 #include <time.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+
+#ifdef __APPLE__
+struct icmphdr {
+  uint8_t  type;
+  uint8_t  code;
+  uint16_t checksum;
+  union {
+    struct {
+      uint16_t id;
+      uint16_t sequence;
+    } echo;
+    uint32_t gateway;
+    struct {
+      uint16_t unused_reserved;
+      uint16_t mtu;
+    } frag;
+  } un;
+};
+#endif
 
 static inline int
 clock_nanosleep( clockid_t               clock_id,
@@ -401,10 +601,12 @@ clock_nanosleep( clockid_t               clock_id,
 }
 
 /* Networking Shims */
+#if !FD_HAS_LINUX
 struct mmsghdr {
   struct msghdr msg_hdr;
   unsigned int   msg_len;
 };
+#endif
 
 static inline int
 recvmmsg( int              sockfd,
@@ -443,7 +645,6 @@ sendmmsg( int              sockfd,
   }
   return (int)vlen;
 }
-#endif
 
 #if FD_HAS_INT128
 

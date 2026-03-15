@@ -26,9 +26,11 @@ CPPFLAGS+=-DFD_HAS_ALLOCA=1
 
 # Architecture support (ARM64)
 FD_HAS_ARM:=1
+FD_HAS_NEON:=1
 FD_HAS_INT128:=1
 FD_HAS_DOUBLE:=1
 CPPFLAGS+=-DFD_HAS_ARM=1
+CPPFLAGS+=-DFD_HAS_NEON=1
 CPPFLAGS+=-DFD_HAS_INT128=1
 CPPFLAGS+=-DFD_HAS_DOUBLE=1
 
@@ -40,8 +42,10 @@ RUSTFLAGS+=-C target-cpu=native
 CPPFLAGS+=-D__MACH__=1
 CPPFLAGS+=-D_DARWIN_C_SOURCE
 CPPFLAGS+=-Wno-format
+LDFLAGS+=-framework Security -framework CoreFoundation -framework SystemConfiguration
 
 # Informational
 $(info Using MACHINE=apple_silicon)
 $(info Using FD_HAS_ARM=1)
+$(info Using FD_HAS_NEON=1)
 $(info Using FD_HAS_THREADS=1)

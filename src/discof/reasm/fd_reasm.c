@@ -290,9 +290,9 @@ eqvoc( fd_reasm_t     * reasm,
 }
 
 static void
-link( fd_reasm_t     * reasm,
-      fd_reasm_fec_t * parent,
-      fd_reasm_fec_t * child ) {
+fd_link( fd_reasm_t     * reasm,
+         fd_reasm_fec_t * parent,
+         fd_reasm_fec_t * child ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
   child->parent = pool_idx( pool, parent );
   if( FD_LIKELY( parent->child == pool_idx_null( pool ) ) ) {
@@ -792,7 +792,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     subtreel_ele_push_tail( subtreel, fec, pool );
   }
 
-  if( FD_LIKELY( parent ) ) link( reasm, parent, fec );
+  if( FD_LIKELY( parent ) ) fd_link( reasm, parent, fec );
 
   /* Second, we search for children of this new FEC and link them to it.
      By definition any children must be orphaned (a child cannot be part
@@ -813,7 +813,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     FD_TEST( orphan_root ); // `overwrite_invalid_cmr` relies on orphan_root being non-null
     overwrite_invalid_cmr( reasm, orphan_root ); /* case 2: received child before parent */
     if( FD_LIKELY( 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
-      link( reasm, fec, orphan_root );
+      fd_link( reasm, fec, orphan_root );
       subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
       subtreel_ele_remove( subtreel,  orphan_root,            pool );
       orphaned_ele_insert( orphaned,  orphan_root,            pool );

@@ -29,3 +29,9 @@ $(call run-unit-test,test_avx512_16x32)
 $(call run-unit-test,test_avx512_8x64)
 $(call run-unit-test,test_avx512_64x8)
 endif
+
+$(call add-hdrs,fd_neon.h fd_neon_vi.h fd_neon_vu.h)
+ifdef FD_HAS_NEON
+$(call make-unit-test,test_neon_4x32,test_neon_4x32 test_neon_common,fd_util)
+$(call run-unit-test,test_neon_4x32)
+endif

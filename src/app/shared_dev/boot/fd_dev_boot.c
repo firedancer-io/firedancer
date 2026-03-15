@@ -19,6 +19,7 @@ extern action_t * ACTIONS[];
 
 #define MAX_ARGC 32
 
+# ifndef __APPLE__
 /* Rerun the currently executing process as root. This will never return,
    instead it replaces the currently executing process with a new one. */
 static void
@@ -53,6 +54,7 @@ execve_as_root( int     argc,
   execve( "/usr/bin/sudo", args, envp );
   FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
+# endif
 
 config_t config;
 
@@ -62,11 +64,13 @@ fd_dev_main( int                        argc,
              int                        is_firedancer,
              fd_config_file_t * const * configs,
              void (* topo_init )( config_t * config ) ) {
+# ifndef __APPLE__
   /* save original arguments list in case we need to respawn the process
      as privileged */
   int    orig_argc = argc;
   char * orig_argv[ MAX_ARGC+1 ] = {0};
   for( int i=0; i<fd_int_min( MAX_ARGC, argc ); i++ ) orig_argv[ i ] = _argv[ i ];
+# endif
 
   if( FD_UNLIKELY( argc >= MAX_ARGC ) ) FD_LOG_ERR(( "too many arguments (%i)", argc ));
   char ** argv = _argv;
@@ -141,6 +145,7 @@ fd_dev_main( int                        argc,
   /* Check if we are appropriately permissioned to run the desired
      command. */
   if( FD_LIKELY( action->perm ) ) {
+#   ifndef __APPLE__
     fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
     action->perm( &args, chk, &config );
     ulong err_cnt = fd_cap_chk_err_cnt( chk );
@@ -153,6 +158,7 @@ fd_dev_main( int                        argc,
       FD_LOG_INFO(( "insufficient permissions to execute command `%s`, rerunning as root", action_name ));
       execve_as_root( orig_argc, orig_argv );
     }
+#   endif
   }
 
   /* run the command */

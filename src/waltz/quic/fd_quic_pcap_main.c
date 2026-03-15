@@ -6,6 +6,22 @@
 #include <unistd.h> /* pread */
 
 #include "fd_quic.h"
+
+#if defined(__APPLE__)
+static void *
+memmem( const void * haystack, size_t haystacklen,
+        const void * needle,   size_t needlelen ) {
+  if( !needlelen ) return (void *)haystack;
+  if( haystacklen < needlelen ) return NULL;
+  char * cur = (char *)haystack;
+  char * last = cur + haystacklen - needlelen;
+  for( ; cur <= last; cur++ ) {
+    if( ( *cur == *(char *)needle ) && !memcmp( cur, needle, needlelen ) )
+      return (void *)cur;
+  }
+  return NULL;
+}
+#endif
 #include "../../ballet/hex/fd_hex.h"
 #include "../../waltz/quic/fd_quic_proto.h"
 #include "../../waltz/quic/fd_quic_proto.c"

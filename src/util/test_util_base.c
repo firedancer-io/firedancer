@@ -19,12 +19,14 @@ FD_STATIC_ASSERT( !(FD_HAS_GFNI   && !FD_HAS_AVX), devenv );
    then further imply sizeof and alignof return a ulong and that
    pointers can be interchangeably treated as a ulong or long). */
 
+#ifndef __APPLE__
 FD_STATIC_ASSERT( __builtin_types_compatible_p( ulong, size_t    ), devenv );
 FD_STATIC_ASSERT( __builtin_types_compatible_p( ulong, uintptr_t ), devenv );
 FD_STATIC_ASSERT( __builtin_types_compatible_p( long,  intptr_t  ), devenv );
 #if FD_HAS_HOSTED
 FD_STATIC_ASSERT( __builtin_types_compatible_p( long,  ptrdiff_t ), devenv );
 FD_STATIC_ASSERT( __builtin_types_compatible_p( long,  ssize_t   ), devenv );
+#endif
 #endif
 
 /* 8-bit chars, 64-bit pointers, char/short/int/long are 8/16/32/64-bit

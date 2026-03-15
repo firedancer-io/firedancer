@@ -24,6 +24,7 @@ read_uint_file( char const * path,
   return value;
 }
 
+# ifdef __linux__
 static ulong
 fd_topo_cpu_cnt( void ) {
   char path[ PATH_MAX ];
@@ -56,9 +57,23 @@ fd_topo_cpus_online( ulong cpu_idx ) {
   FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/sys/devices/system/cpu/cpu%lu/online", cpu_idx ) );
   return (int)read_uint_file( path, "error reading cpu online status" );
 }
+# else
+#include <sys/sysctl.h>
+static ulong
+fd_topo_cpu_cnt( void ) {
+  return 24UL; /* Hardcoded for M3 Ultra to unblock development */
+}
+
+static int
+fd_topo_cpus_online( ulong cpu_idx ) {
+  (void)cpu_idx;
+  return 1;
+}
+# endif
 
 void
 fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
+  FD_LOG_NOTICE(( "FORCING 24 CORES ON MACOS" ));
   cpus->numa_node_cnt = fd_numa_node_cnt();
   cpus->cpu_cnt = fd_topo_cpu_cnt();
 
@@ -66,8 +81,12 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
     cpus->cpu[ i ].idx = i;
     cpus->cpu[ i ].online = fd_topo_cpus_online( i );
     cpus->cpu[ i ].numa_node = fd_numa_node_idx( i );
+#   ifdef __linux__
     if( FD_LIKELY( cpus->cpu[ i ].online ) ) cpus->cpu[ i ].sibling = fd_tile_private_sibling_idx( i );
     else                                     cpus->cpu[ i ].sibling = ULONG_MAX;
+#   else
+    cpus->cpu[ i ].sibling = ULONG_MAX; /* No HT discovery on macOS yet */
+#   endif
   }
 }
 

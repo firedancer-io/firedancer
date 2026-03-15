@@ -23,8 +23,8 @@ $(call add-objs,commands/monitor/monitor commands/monitor/helper,fdctl_shared)
 $(call add-objs,commands/watch/watch,fdctl_shared)
 $(call add-objs,commands/run/run commands/run/run1,fdctl_shared)
 
-ifdef FD_HAS_LINUX
 $(call add-objs,commands/configure/configure,fdctl_shared)
+ifdef FD_HAS_LINUX
 $(call add-objs,commands/configure/bonding,fdctl_shared)
 $(call add-objs,commands/configure/ethtool-channels,fdctl_shared)
 $(call add-objs,commands/configure/ethtool-offloads,fdctl_shared)
