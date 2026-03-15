@@ -865,6 +865,11 @@
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter | Total wire bytes of CRDS sent out in pull response messages (Contact Info V2) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter | Total wire bytes of CRDS sent out in pull response messages (Restart Last Voted Fork Slots) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter | Total wire bytes of CRDS sent out in pull response messages (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;wfs_&#8203;staked_&#8203;peers_&#8203;online</span> | gauge | Number of staked peers with recent gossip activity |
+| <span class="metrics-name">gossip_&#8203;wfs_&#8203;staked_&#8203;peers_&#8203;total</span> | gauge | Total number of staked peers being tracked |
+| <span class="metrics-name">gossip_&#8203;wfs_&#8203;stake_&#8203;online</span> | gauge | Lamports of stake from peers with recent gossip activity |
+| <span class="metrics-name">gossip_&#8203;wfs_&#8203;stake_&#8203;total</span> | gauge | Total lamports of stake being tracked |
+| <span class="metrics-name">gossip_&#8203;wfs_&#8203;state</span> | gauge | Wait for supermajority state. 1=INIT, 2=WAIT, 3=PUBLISH, 4=DONE |
 
 </div>
 
