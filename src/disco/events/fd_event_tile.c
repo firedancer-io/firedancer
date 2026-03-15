@@ -423,6 +423,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
+#if FD_HAS_LINUX
   fd_event_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   populate_sock_filter_policy_fd_event_tile(
@@ -431,6 +432,10 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
       (uint)ctx->netdb_fds->etc_hosts,
       (uint)ctx->netdb_fds->etc_resolv_conf );
   return sock_filter_policy_fd_event_tile_instr_cnt;
+#else
+  (void)topo; (void)tile; (void)out_cnt; (void)out;
+  return 0UL;
+#endif
 }
 
 static ulong

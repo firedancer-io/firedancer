@@ -33,7 +33,7 @@ crypto_malloc( ulong        num,
   (void)file;
   (void)line;
   ulong alloc_sz;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( num, 8UL, &alloc_sz ) ) ) {
+  if( FD_UNLIKELY( __builtin_add_overflow( num, 8UL, &alloc_sz ) ) ) {
     fd_ossl_alloc_errors++;
     return NULL;
   }
@@ -72,7 +72,7 @@ crypto_realloc( void *       addr,
   }
 
   ulong alloc_sz;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( num, 8UL, &alloc_sz ) ) ) {
+  if( FD_UNLIKELY( __builtin_add_overflow( num, 8UL, &alloc_sz ) ) ) {
     fd_ossl_alloc_errors++;
     return NULL;
   }

@@ -9,8 +9,8 @@ static ulong g_initialized;
 static FD_TL fd_alloc_t * cjson_alloc_ctx;
 
 static void *
-cjson_alloc( ulong sz ) {
-  return fd_alloc_malloc( cjson_alloc_ctx, alignof(max_align_t), sz );
+cjson_alloc( size_t sz ) {
+  return fd_alloc_malloc( cjson_alloc_ctx, alignof(max_align_t), (ulong)sz );
 }
 
 static void

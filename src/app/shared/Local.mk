@@ -1,6 +1,5 @@
-ifdef FD_HAS_HOSTED
-ifdef FD_HAS_LINUX
 ifdef FD_HAS_INT128
+ifdef FD_HAS_HOSTED
 
 $(call make-lib,fdctl_shared)
 
@@ -20,6 +19,11 @@ $(call add-objs,commands/netconf,fdctl_shared)
 $(call add-objs,commands/ready,fdctl_shared)
 $(call add-objs,commands/get_identity,fdctl_shared)
 $(call add-objs,commands/version,fdctl_shared)
+$(call add-objs,commands/monitor/monitor commands/monitor/helper,fdctl_shared)
+$(call add-objs,commands/watch/watch,fdctl_shared)
+$(call add-objs,commands/run/run commands/run/run1,fdctl_shared)
+
+ifdef FD_HAS_LINUX
 $(call add-objs,commands/configure/configure,fdctl_shared)
 $(call add-objs,commands/configure/bonding,fdctl_shared)
 $(call add-objs,commands/configure/ethtool-channels,fdctl_shared)
@@ -30,10 +34,7 @@ $(call add-objs,commands/configure/hugetlbfs,fdctl_shared)
 $(call add-objs,commands/configure/hyperthreads,fdctl_shared)
 $(call add-objs,commands/configure/sysctl,fdctl_shared)
 $(call add-objs,commands/configure/snapshots,fdctl_shared)
-$(call add-objs,commands/monitor/monitor commands/monitor/helper,fdctl_shared)
-$(call add-objs,commands/watch/watch,fdctl_shared)
-$(call add-objs,commands/run/run commands/run/run1,fdctl_shared)
-
 endif
+
 endif
 endif

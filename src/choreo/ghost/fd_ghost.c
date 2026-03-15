@@ -324,7 +324,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
 
     fd_ghost_blk_t * ancestor = blk_map_ele_query( blk_map( ghost ), &vtr->prev_block_id, NULL, blk_pool( ghost ) );
     while( FD_LIKELY( ancestor ) ) {
-      int cf = __builtin_usubl_overflow( ancestor->stake, vtr->prev_stake, &ancestor->stake );
+      int cf = __builtin_sub_overflow( ancestor->stake, vtr->prev_stake, &ancestor->stake );
       if( FD_UNLIKELY( cf ) ) {
         FD_BASE58_ENCODE_32_BYTES( ancestor->id.key, ancestor_id_b58 );
         FD_LOG_CRIT(( "[%s] overflow (after): %lu. subtracted: %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, vtr->prev_stake, ancestor->slot, ancestor_id_b58 ));
@@ -341,7 +341,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
 
   fd_ghost_blk_t * ancestor = blk;
   while( FD_LIKELY( ancestor ) ) {
-    int cf = __builtin_uaddl_overflow( ancestor->stake, stake, &ancestor->stake );
+    int cf = __builtin_add_overflow( ancestor->stake, stake, &ancestor->stake );
     if( FD_UNLIKELY( cf ) ) {
       FD_BASE58_ENCODE_32_BYTES( ancestor->id.key, ancestor_id_b58 );
       FD_LOG_CRIT(( "[%s] overflow (after): %lu. added: %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, stake, ancestor->slot, ancestor_id_b58 ));

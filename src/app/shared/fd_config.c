@@ -12,8 +12,11 @@
 #include <stdlib.h> /* strtoul */
 #include <sys/utsname.h>
 #include <sys/mman.h>
+#include <fcntl.h>
 
-/* TODO: Rewrite this ... */
+#ifndef SHM_ANON
+#define SHM_ANON ((char *)-1)
+#endif
 
 static inline void
 replace( char *       in,
@@ -636,7 +639,11 @@ fd_config_load( int           is_firedancer,
 
 int
 fd_config_to_memfd( fd_config_t const * config ) {
+# ifdef __linux__
   int config_memfd = memfd_create( "fd_config", 0 );
+# else
+  int config_memfd = shm_open( SHM_ANON, O_RDWR | O_CREAT | O_EXCL, 0600 );
+# endif
   if( FD_UNLIKELY( -1==config_memfd ) ) return -1;
   if( FD_UNLIKELY( -1==ftruncate( config_memfd, sizeof( config_t ) ) ) ) {
     if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_WARNING(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

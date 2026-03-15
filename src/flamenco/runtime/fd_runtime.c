@@ -259,7 +259,7 @@ fd_runtime_validate_fee_collector( fd_bank_t const *     bank,
   fd_rent_t const * rent = &bank->f.rent;
   ulong minbal  = fd_rent_exempt_minimum_balance( rent, fd_accdb_ref_data_sz( collector ) );
   ulong balance = fd_accdb_ref_lamports( collector );
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( balance, fee, &balance ) ) ) {
+  if( FD_UNLIKELY( __builtin_add_overflow( balance, fee, &balance ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_address( collector ), addr_b58 );
     FD_LOG_EMERG(( "integer overflow while crediting %lu fee reward lamports to %s (previous balance %lu)",
                    fee, addr_b58, fd_accdb_ref_lamports( collector ) ));

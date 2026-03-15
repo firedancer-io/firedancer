@@ -21,9 +21,9 @@ fd_vinyl_req_pool_footprint( ulong batch_max,
 
   /* Check for integer overflow / oversized params */
   ulong req_max;
-  if( FD_UNLIKELY( __builtin_umull_overflow( batch_max, batch_key_max, &req_max ) ) ) return 0UL;
+  if( FD_UNLIKELY( __builtin_mul_overflow( batch_max, batch_key_max, &req_max ) ) ) return 0UL;
   ulong ignored_;
-  if( FD_UNLIKELY( __builtin_umull_overflow( req_max, 1024UL, &ignored_ ) ) ) return 0UL;
+  if( FD_UNLIKELY( __builtin_mul_overflow( req_max, 1024UL, &ignored_ ) ) ) return 0UL;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, FD_VINYL_REQ_POOL_ALIGN, sizeof(fd_vinyl_req_pool_t)     );

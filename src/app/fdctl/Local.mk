@@ -92,25 +92,25 @@ endif
 # grained.
 ifeq ($(RUST_PROFILE),release)
 cargo-validator:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --lib -p agave-validator
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --lib -p agave-validator
 cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --bin solana
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --bin solana
 cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --release --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
 else ifeq ($(RUST_PROFILE),release-with-debug)
 cargo-validator:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --lib -p agave-validator
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --lib -p agave-validator
 cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --bin solana
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --bin solana
 cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --profile=release-with-debug --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
 else
 cargo-validator:
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --lib -p agave-validator
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --lib -p agave-validator
 cargo-solana: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin solana
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin solana
 cargo-ledger-tool: $(OBJDIR)/lib/libfdctl_version.a
-	cd ./agave && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
+	cd ./agave && env -u LDFLAGS RUSTFLAGS="$(RUSTFLAGS) -L $(realpath $(OBJDIR)/lib) -l fdctl_version" CXXFLAGS="$(RUST_CXXFLAGS)" ./cargo build --bin agave-ledger-tool --manifest-path ./dev-bins/Cargo.toml
 endif
 
 # We sleep as a workaround for a bizarre problem where the build system

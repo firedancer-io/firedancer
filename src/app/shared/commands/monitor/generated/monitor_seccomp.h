@@ -6,12 +6,20 @@
 
 #include "../../../../../../src/util/fd_util_base.h"
 #include <linux/audit.h>
+#ifdef __linux__
 #include <linux/capability.h>
+#endif
+#ifdef __linux__
 #include <linux/filter.h>
+#endif
+#ifdef __linux__
 #include <linux/seccomp.h>
+#endif
 #include <linux/bpf.h>
 #include <linux/unistd.h>
+#ifdef __linux__
 #include <sys/syscall.h>
+#endif
 #include <signal.h>
 #include <stddef.h>
 

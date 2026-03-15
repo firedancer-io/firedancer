@@ -8,12 +8,15 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#ifdef __linux__
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#endif
 #include <netinet/in.h>
 
 int
 fd_net_util_internet_ifindex( uint * ifindex ) {
+#ifdef __linux__
   int sock = socket( AF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE );
   if( FD_UNLIKELY( -1==sock ) ) return -1;
 
@@ -80,6 +83,12 @@ fd_net_util_internet_ifindex( uint * ifindex ) {
     errno = ENODEV;
     return -1;
   }
+#else
+  (void)ifindex;
+  /* On macOS, we don't have netlink. Stub to index 1 (usually lo0 or en0). */
+  *ifindex = 1;
+  return 0;
+#endif
 }
 
 int

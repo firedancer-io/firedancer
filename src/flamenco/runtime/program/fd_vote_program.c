@@ -1617,7 +1617,7 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
     fd_lockout_offset_t * lock_offset = &compact_update->lockouts[i];
 
     ulong next_slot;
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( slot, lock_offset->offset, &next_slot ) ) )
+    if( FD_UNLIKELY( __builtin_add_overflow( slot, lock_offset->offset, &next_slot ) ) )
       return 0;
 
     elem->slot = slot        = next_slot;

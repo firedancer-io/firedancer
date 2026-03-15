@@ -302,7 +302,7 @@ after_credit( fd_genesi_tile_t *  ctx,
       verify_cluster_type( genesis, hash, ctx->genesis_path );
     }
 
-    ulong msg_sz; FD_TEST( !__builtin_uaddl_overflow( sizeof(fd_genesis_meta_t), blob_sz, &msg_sz ) );
+    ulong msg_sz; FD_TEST( !__builtin_add_overflow( sizeof(fd_genesis_meta_t), blob_sz, &msg_sz ) );
     if( FD_UNLIKELY( msg_sz>FD_GENESIS_TILE_MTU ) ) {
       FD_LOG_ERR(( "The genesis blob downloaded from peer at `http://" FD_IP4_ADDR_FMT ":%hu` is too large for this Firedancer build (msg_sz=%lu exceeds FD_GENESIS_TILE_MTU=%lu).\n"
                    "Cannot start Firedancer. Please use a different genesis config or increase FD_GENESIS_TILE_MTU.",

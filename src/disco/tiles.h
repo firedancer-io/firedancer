@@ -10,7 +10,20 @@
 #include "bundle/fd_bundle_crank.h"
 #include "../disco/metrics/generated/fd_metrics_pack.h"
 
+#ifdef __linux__
 #include <linux/filter.h>
+#endif
+
+#ifdef __MACH__
+#include <net/bpf.h>
+/* Shim sock_filter for macOS compilation of Disco headers */
+struct sock_filter {
+  unsigned short code;
+  unsigned char  jt;
+  unsigned char  jf;
+  unsigned int   k;
+};
+#endif
 
 struct fd_became_leader {
    ulong slot;

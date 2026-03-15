@@ -81,7 +81,11 @@ struct fd_vinyl_io_ur {
   fd_vinyl_io_ur_rd_t *    rc_head;      /* Pointer to queue head */
   fd_vinyl_io_ur_rd_t **   rc_tail_next; /* Pointer to queue &tail->next or &rc_head if empty. */
 
+#ifdef FD_HAS_LINUX
   fd_io_uring_t * ring;
+#else
+  void * ring;
+#endif
   ulong sqe_prep_cnt;        /* SQEs prepared */
   ulong sqe_sent_cnt;        /* SQEs submitted */
   ulong cqe_cnt;             /* CQEs received */

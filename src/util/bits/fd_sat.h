@@ -41,28 +41,28 @@ fd_uint128_sat_sub( __uint128_t x, __uint128_t y ) {
 FD_FN_CONST static inline ulong
 fd_ulong_sat_add( ulong x, ulong y ) {
   ulong res;
-  int cf = __builtin_uaddl_overflow ( x, y, &res );
+  int cf = __builtin_add_overflow ( x, y, &res );
   return fd_ulong_if( cf, ULONG_MAX, res );
 }
 
 FD_FN_CONST static inline ulong
 fd_ulong_sat_mul( ulong x, ulong y ) {
   ulong res;
-  int cf = __builtin_umull_overflow ( x, y, &res );
+  int cf = __builtin_mul_overflow ( x, y, &res );
   return fd_ulong_if( cf, ULONG_MAX, res );
 }
 
 FD_FN_CONST static inline ulong
 fd_ulong_sat_sub( ulong x, ulong y ) {
   ulong res;
-  int cf = __builtin_usubl_overflow ( x, y, &res );
+  int cf = __builtin_sub_overflow ( x, y, &res );
   return fd_ulong_if( cf, 0UL, res );
 }
 
 FD_FN_CONST static inline long
 fd_long_sat_add( long x, long y ) {
   long res;
-  int cf = __builtin_saddl_overflow ( x, y, &res );
+  int cf = __builtin_add_overflow ( x, y, &res );
   /* https://stackoverflow.com/a/56531252
      x + y overflows => x, y have the same sign
      we can use either to determine the result,
@@ -74,14 +74,14 @@ fd_long_sat_add( long x, long y ) {
 FD_FN_CONST static inline long
 fd_long_sat_sub( long x, long y ) {
   long res;
-  int cf = __builtin_ssubl_overflow ( x, y, &res );
+  int cf = __builtin_sub_overflow ( x, y, &res );
   return fd_long_if( cf, (long)((ulong)x >> 63) + LONG_MAX, res );
 }
 
 FD_FN_CONST static inline long
 fd_long_sat_mul( long x, long y ) {
   long res;
-  int cf = __builtin_smull_overflow ( x, y, &res );
+  int cf = __builtin_mul_overflow ( x, y, &res );
   return fd_long_if( cf, (long)((ulong)((x ^ y) >> 63)) + LONG_MAX, res );
 }
 

@@ -10,7 +10,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#ifdef __linux__
 #include <sys/random.h>
+#endif
+#ifdef __MACH__
+#include <sys/random.h> /* macOS has this too but getrandom is slightly different */
+#endif
 
 /* fd_shmem_private_key converts the cstr pointed to by name into a
    valid key and stores it at the location pointed to by key assumed
@@ -109,8 +114,13 @@ fd_shmem_private_map_rand( ulong size,
 
   /* Failure is unlikely, 1000 iterations should guarantee success */
   for( ulong i = 0; i < 1000; i++ ) {
+#ifdef __linux__
     long n = getrandom( &ret_addr, sizeof(ret_addr), 0 );
     if( FD_UNLIKELY( n!=sizeof(ret_addr) ) ) FD_LOG_ERR(( "could not generate random address, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+#elif defined(__MACH__)
+    int n = getentropy( &ret_addr, sizeof(ret_addr) );
+    if( FD_UNLIKELY( n!=0 ) ) FD_LOG_ERR(( "could not generate random address, getentropy() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+#endif
 
     /* Assume 47-bit virtual addressing */
     ret_addr &= 0x00007FFFFFFFFFFFUL;

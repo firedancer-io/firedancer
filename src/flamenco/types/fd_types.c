@@ -1837,7 +1837,7 @@ static int fd_vote_state_1_14_11_decode_footprint_inner( fd_bincode_decode_ctx_t
   ulong votes_max = fd_ulong_max( votes_len, 32 );
   *total_sz += deq_fd_vote_lockout_t_align() + deq_fd_vote_lockout_t_footprint( votes_max );
   ulong votes_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( votes_len, 12, &votes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( votes_len, 12, &votes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( votes_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   {
@@ -1859,7 +1859,7 @@ static int fd_vote_state_1_14_11_decode_footprint_inner( fd_bincode_decode_ctx_t
   ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
   *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max );
   ulong epoch_credits_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( epoch_credits_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_vote_block_timestamp_decode_footprint_inner( ctx, total_sz );
@@ -2023,7 +2023,7 @@ static int fd_vote_state_v3_decode_footprint_inner( fd_bincode_decode_ctx_t * ct
   ulong votes_max = fd_ulong_max( votes_len, 32 );
   *total_sz += deq_fd_landed_vote_t_align() + deq_fd_landed_vote_t_footprint( votes_max );
   ulong votes_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( votes_len, 13, &votes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( votes_len, 13, &votes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( votes_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   {
@@ -2045,7 +2045,7 @@ static int fd_vote_state_v3_decode_footprint_inner( fd_bincode_decode_ctx_t * ct
   ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
   *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max );
   ulong epoch_credits_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( epoch_credits_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_vote_block_timestamp_decode_footprint_inner( ctx, total_sz );
@@ -2238,7 +2238,7 @@ static int fd_vote_state_v4_decode_footprint_inner( fd_bincode_decode_ctx_t * ct
   ulong votes_max = fd_ulong_max( votes_len, 32 );
   *total_sz += deq_fd_landed_vote_t_align() + deq_fd_landed_vote_t_footprint( votes_max );
   ulong votes_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( votes_len, 13, &votes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( votes_len, 13, &votes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( votes_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   {
@@ -2258,7 +2258,7 @@ static int fd_vote_state_v4_decode_footprint_inner( fd_bincode_decode_ctx_t * ct
   ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
   *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max );
   ulong epoch_credits_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( epoch_credits_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_vote_block_timestamp_decode_footprint_inner( ctx, total_sz );
@@ -2584,7 +2584,7 @@ static int fd_vote_state_update_decode_footprint_inner( fd_bincode_decode_ctx_t 
   ulong lockouts_max = fd_ulong_max( lockouts_len, 32 );
   *total_sz += deq_fd_vote_lockout_t_align() + deq_fd_vote_lockout_t_footprint( lockouts_max );
   ulong lockouts_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( lockouts_len, 12, &lockouts_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( lockouts_len, 12, &lockouts_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( lockouts_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   {
@@ -3301,7 +3301,7 @@ static int fd_slot_hashes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx,
   ulong hashes_max = fd_ulong_max( hashes_len, 512 );
   *total_sz += deq_fd_slot_hash_t_align() + deq_fd_slot_hash_t_footprint( hashes_max );
   ulong hashes_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( hashes_len, 40, &hashes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( hashes_len, 40, &hashes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( hashes_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return 0;
@@ -3461,7 +3461,7 @@ static int fd_recent_block_hashes_decode_footprint_inner( fd_bincode_decode_ctx_
   ulong hashes_max = fd_ulong_max( hashes_len, 151 );
   *total_sz += deq_fd_block_block_hash_entry_t_align() + deq_fd_block_block_hash_entry_t_footprint( hashes_max );
   ulong hashes_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( hashes_len, 40, &hashes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( hashes_len, 40, &hashes_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( hashes_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return 0;
@@ -4007,7 +4007,7 @@ static int fd_vote_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong 
   ulong slots_max = slots_len == 0 ? 1 : slots_len;
   *total_sz += deq_ulong_align() + deq_ulong_footprint( slots_max ) ;
   ulong slots_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( slots_len, 8, &slots_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
+  if( FD_UNLIKELY( __builtin_mul_overflow( slots_len, 8, &slots_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( slots_sz, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );

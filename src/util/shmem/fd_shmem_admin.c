@@ -66,10 +66,24 @@ fd_shmem_page_sz_to_cstr( ulong page_sz ) {
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#ifdef __linux__
 #include <linux/mempolicy.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/mman.h>
+#endif
+
+#ifdef __MACH__
+#include <sys/mman.h>
+#include <sys/stat.h>
+/* macOS doesn't have linux/mempolicy.h or linux/mman.h */
+#ifndef MPOL_BIND
+#define MPOL_BIND 0
+#define MPOL_F_STATIC_NODES 0
+#define MPOL_MF_MOVE 0
+#define MPOL_MF_STRICT 0
+#endif
+#endif
 
 #if FD_HAS_THREADS
 pthread_mutex_t fd_shmem_private_lock[1];
@@ -524,8 +538,10 @@ fd_shmem_acquire_multi( ulong         page_sz,
   }
 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+# ifdef __linux__
   if( page_sz==FD_SHMEM_HUGE_PAGE_SZ     ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_2MB;
   if( page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) flags |= (int)MAP_HUGETLB | (int)MAP_HUGE_1GB;
+# endif
 
   /* See fd_shmem_create_multi for details on the locking, mempolicy
      and what not tricks */
@@ -723,8 +739,12 @@ fd_shmem_private_boot( int *    pargc,
   }
 
   /* Determine the shared memory domain for this thread group */
-
-  char const * shmem_base = fd_env_strip_cmdline_cstr( pargc, pargv, "--shmem-path", "FD_SHMEM_PATH", "/mnt/.fd" );
+# ifdef __linux__
+  char const * shmem_default = "/mnt/.fd";
+# else
+  char const * shmem_default = "/tmp/.fd";
+# endif
+  char const * shmem_base = fd_env_strip_cmdline_cstr( pargc, pargv, "--shmem-path", "FD_SHMEM_PATH", shmem_default );
 
   ulong len = strlen( shmem_base );
   while( (len>1UL) && (shmem_base[len-1UL]=='/') ) len--; /* lop off any trailing slashes */

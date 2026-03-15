@@ -48,14 +48,14 @@ fd_bn254_scalar_validate( fd_bn254_scalar_t const * s ) {
 static inline fd_bn254_scalar_t *
 fd_bn254_scalar_from_mont( fd_bn254_scalar_t *       r,
                            fd_bn254_scalar_t const * a ) {
-  fiat_bn254_scalar_from_montgomery( r->limbs, a->limbs );
+  fiat_bn254_scalar_from_montgomery( (uint64_t *)r->limbs, (uint64_t const *)a->limbs );
   return r;
 }
 
 static inline fd_bn254_scalar_t *
 fd_bn254_scalar_to_mont( fd_bn254_scalar_t *       r,
                          fd_bn254_scalar_t const * a ) {
-  fiat_bn254_scalar_to_montgomery( r->limbs, a->limbs );
+  fiat_bn254_scalar_to_montgomery( (uint64_t *)r->limbs, (uint64_t const *)a->limbs );
   return r;
 }
 
@@ -63,7 +63,7 @@ static inline fd_bn254_scalar_t *
 fd_bn254_scalar_add( fd_bn254_scalar_t *       r,
                      fd_bn254_scalar_t const * a,
                      fd_bn254_scalar_t const * b ) {
-  fiat_bn254_scalar_add( r->limbs, a->limbs, b->limbs );
+  fiat_bn254_scalar_add( (uint64_t *)r->limbs, (uint64_t const *)a->limbs, (uint64_t const *)b->limbs );
   return r;
 }
 
@@ -73,14 +73,14 @@ static inline fd_bn254_scalar_t *
 fd_bn254_scalar_mul( fd_bn254_scalar_t *       r,
                      fd_bn254_scalar_t const * a,
                      fd_bn254_scalar_t const * b ) {
-  fiat_bn254_scalar_mul( r->limbs, a->limbs, b->limbs );
+  fiat_bn254_scalar_mul( (uint64_t *)r->limbs, (uint64_t const *)a->limbs, (uint64_t const *)b->limbs );
   return r;
 }
 
 static inline fd_bn254_scalar_t *
 fd_bn254_scalar_sqr( fd_bn254_scalar_t *       r,
                      fd_bn254_scalar_t const * a ) {
-  fiat_bn254_scalar_square( r->limbs, a->limbs );
+  fiat_bn254_scalar_square( (uint64_t *)r->limbs, (uint64_t const *)a->limbs );
   return r;
 }
 

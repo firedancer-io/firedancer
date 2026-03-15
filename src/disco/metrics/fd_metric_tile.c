@@ -135,12 +135,17 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
+#if FD_HAS_LINUX
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
   populate_sock_filter_policy_fd_metric_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_http_server_fd( ctx->metrics_server ) );
   return sock_filter_policy_fd_metric_tile_instr_cnt;
+#else
+  (void)topo; (void)tile; (void)out_cnt; (void)out;
+  return 0UL;
+#endif
 }
 
 static ulong

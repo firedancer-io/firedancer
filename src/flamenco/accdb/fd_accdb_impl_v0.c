@@ -10,9 +10,9 @@ fd_accdb_v0_align( void ) {
 ulong
 fd_accdb_v0_footprint( ulong rec_cnt ) {
   ulong rec_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( rec_cnt, sizeof(fd_accdb_v0_rec_t), &rec_sz ) ) ) return 0UL;
+  if( FD_UNLIKELY( __builtin_mul_overflow( rec_cnt, sizeof(fd_accdb_v0_rec_t), &rec_sz ) ) ) return 0UL;
   ulong sz;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( sizeof(fd_accdb_v0_t), rec_sz, &sz ) ) ) return 0UL;
+  if( FD_UNLIKELY( __builtin_add_overflow( sizeof(fd_accdb_v0_t), rec_sz, &sz ) ) ) return 0UL;
   return sz;
 }
 

@@ -80,9 +80,11 @@ fd_racesan_async_yield( fd_racesan_async_t * async ) {
   FD_COMPILER_MFENCE();
   fd_racesan_async_exit_start( async );
   FD_COMPILER_MFENCE();
+#ifndef __MACH__
   if( FD_UNLIKELY( 0!=swapcontext( &async->ctx, &async->caller ) ) ) {
     FD_LOG_ERR(( "failed to yield from async fn: swapcontext failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+#endif
   FD_COMPILER_MFENCE();
   fd_racesan_async_enter_finish( async );
   FD_COMPILER_MFENCE();
@@ -104,6 +106,7 @@ fd_racesan_async_hook( void * ctx,
 /* fd_racesan_async_target is a long-lived / async function with its own
    stack. */
 
+#ifndef __MACH__
 static void
 fd_racesan_async_target( fd_racesan_async_t * async ) {
   fd_racesan_async_enter_finish( async );
@@ -112,6 +115,7 @@ fd_racesan_async_target( fd_racesan_async_t * async ) {
   fd_racesan_exit();
   fd_racesan_async_yield( async );
 }
+#endif
 
 fd_racesan_async_t *
 fd_racesan_async_new( fd_racesan_async_t *    async,
@@ -142,12 +146,17 @@ fd_racesan_async_new( fd_racesan_async_t *    async,
   async->fn_ctx = ctx;
   async->fn     = async_fn;
 
+#ifndef __MACH__
   if( FD_UNLIKELY( 0!=getcontext( &async->ctx ) ) ) {
     FD_LOG_ERR(( "getcontext failed" ));
   }
   async->ctx.uc_stack.ss_sp   = async->stack_bottom;
   async->ctx.uc_stack.ss_size = async->stack_sz;
   makecontext( &async->ctx, (void (*)( void ))fd_racesan_async_target, 1, async );
+#else
+  (void)async_fn; (void)ctx;
+  FD_LOG_WARNING(( "fd_racesan_async is stubbed on macOS (uses deprecated ucontext)" ));
+#endif
 
   return async;
 }
@@ -164,9 +173,11 @@ fd_racesan_async_step_private( fd_racesan_async_t * async ) {
 
   fd_racesan_enter( async->racesan );
   fd_racesan_async_enter_start( async );
+#ifndef __MACH__
   if( FD_UNLIKELY( 0!=swapcontext( &async->caller, &async->ctx ) ) ) {
     FD_LOG_ERR(( "failed to step into async fn: swapcontext failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+#endif
   fd_racesan_async_exit_finish( async );
 
   return async->done ? FD_RACESAN_ASYNC_RET_EXIT : FD_RACESAN_ASYNC_RET_HOOK;
@@ -196,6 +207,8 @@ fd_racesan_async_step_until( fd_racesan_async_t * async,
 
 void
 fd_racesan_async_reset( fd_racesan_async_t * async ) {
+#ifndef __MACH__
   makecontext( &async->ctx, (void (*)( void ))fd_racesan_async_target, 1, async );
+#endif
   async->done = 0;
 }

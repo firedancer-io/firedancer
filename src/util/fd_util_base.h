@@ -1,6 +1,12 @@
 #ifndef HEADER_fd_src_util_fd_util_base_h
 #define HEADER_fd_src_util_fd_util_base_h
 
+#ifdef __MACH__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
+#endif
+
 /* Base development environment */
 
 /* Compiler checks ****************************************************/
@@ -322,7 +328,122 @@ typedef signed char schar; /* See above note of sadness */
 typedef unsigned char  uchar;
 typedef unsigned short ushort;
 typedef unsigned int   uint;
-typedef unsigned long  ulong;
+#ifdef __MACH__
+typedef unsigned long long ulong;
+#else
+typedef unsigned long      ulong;
+#endif
+
+#ifdef __MACH__
+typedef unsigned char  u_char;
+typedef unsigned short u_short;
+typedef unsigned int   u_int;
+typedef unsigned long  u_long;
+
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS 0x1000 /* MAP_ANON on macOS */
+#endif
+
+#ifndef MADV_DONTDUMP
+#define MADV_DONTDUMP 0
+#endif
+
+#ifndef MADV_DONTFORK
+#define MADV_DONTFORK 0
+#endif
+
+#ifndef SIGPOLL
+#define SIGPOLL 7 /* Standard value is 7, matches SIGEMT on macOS */
+#endif
+
+/* Networking Shims */
+#ifndef SOCK_CLOEXEC
+#define SOCK_CLOEXEC 0x10000000 /* Dummy value, will use fcntl later if needed */
+#endif
+
+#ifndef SOCK_NONBLOCK
+#define SOCK_NONBLOCK 0x20000000 /* Dummy value, will use fcntl later if needed */
+#endif
+
+#ifndef SOL_TCP
+#define SOL_TCP IPPROTO_TCP
+#endif
+
+/* Seccomp Stubs */
+struct sock_filter;
+
+/* Clock Shims */
+#ifndef CLOCK_BOOTTIME
+#define CLOCK_BOOTTIME CLOCK_UPTIME_RAW
+#endif
+
+#if !FD_HAS_LINUX
+#include <sys/random.h>
+#include <unistd.h>
+static inline long getrandom( void * buf, size_t buflen, unsigned int flags ) {
+  (void)flags;
+  int res = getentropy( buf, buflen );
+  if( res==-1 ) return -1;
+  return (long)buflen;
+}
+#endif
+
+#include <time.h>
+#include <sys/socket.h>
+
+static inline int
+clock_nanosleep( clockid_t               clock_id,
+                 int                     flags,
+                 struct timespec const * rqtp,
+                 struct timespec *       rmtp ) {
+  (void)clock_id; (void)flags;
+  return nanosleep( rqtp, rmtp );
+}
+
+/* Networking Shims */
+struct mmsghdr {
+  struct msghdr msg_hdr;
+  unsigned int   msg_len;
+};
+
+static inline int
+recvmmsg( int              sockfd,
+          struct mmsghdr * msgvec,
+          unsigned int     vlen,
+          int              flags,
+          struct timespec *timeout ) {
+  (void)timeout;
+  for( unsigned int i=0; i<vlen; i++ ) {
+    ssize_t n = recvmsg( sockfd, &msgvec[i].msg_hdr, flags );
+    if( n<0 ) {
+      if( i==0 ) return -1;
+      return (int)i;
+    }
+    msgvec[i].msg_len = (unsigned int)n;
+    if( (flags & MSG_DONTWAIT) && i+1<vlen ) {
+       /* Optional: check for more packets without blocking?
+          For now, just return what we got if it's non-blocking. */
+       return (int)i+1;
+    }
+  }
+  return (int)vlen;
+}
+
+static inline int
+sendmmsg( int              sockfd,
+          struct mmsghdr * msgvec,
+          unsigned int     vlen,
+          int              flags ) {
+  for( unsigned int i=0; i<vlen; i++ ) {
+    ssize_t n = sendmsg( sockfd, &msgvec[i].msg_hdr, flags );
+    if( n<0 ) {
+      if( i==0 ) return -1;
+      return (int)i;
+    }
+  }
+  return (int)vlen;
+}
+#endif
 
 #if FD_HAS_INT128
 

@@ -9,7 +9,9 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/resource.h>
+#ifdef __linux__
 #include <linux/capability.h>
+#endif
 
 void
 watch_cmd_perm( args_t *         args FD_PARAM_UNUSED,

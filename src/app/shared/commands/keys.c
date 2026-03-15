@@ -8,7 +8,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include <sys/random.h>
+#ifndef GRND_RANDOM
+#define GRND_RANDOM 0x0002
+#endif
 
 typedef enum {
   CMD_NEW_KEY,

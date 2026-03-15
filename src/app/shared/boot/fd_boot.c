@@ -16,6 +16,10 @@ extern fd_topo_run_tile_t * TILES[];
 
 extern int * fd_log_private_shared_lock;
 
+#ifndef SHM_ANON
+#define SHM_ANON ((char *)-1)
+#endif
+
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile ) {
   for( ulong i=0UL; TILES[ i ]; i++ ) {
@@ -55,8 +59,13 @@ map_log_memfd( int log_memfd ) {
    we can pass it through `execve` calls. */
 static int
 init_log_memfd( void ) {
+# ifdef __linux__
   int memfd = memfd_create( "fd_log_lock_page", 0U );
   if( FD_UNLIKELY( -1==memfd) ) FD_LOG_ERR(( "memfd_create(\"fd_log_lock_page\",0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+# else
+  int memfd = shm_open( SHM_ANON, O_RDWR | O_CREAT | O_EXCL, 0600 );
+  if( FD_UNLIKELY( -1==memfd) ) FD_LOG_ERR(( "shm_open(SHM_ANON) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+# endif
   if( FD_UNLIKELY( -1==ftruncate( memfd, 4096 ) ) ) FD_LOG_ERR(( "ftruncate(memfd,4096) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return memfd;
 }
@@ -209,7 +218,7 @@ fd_main_init( int *                      pargc,
   int     argc = 2;
 
   int * log_lock = map_log_memfd( config->log.lock_fd );
-  ulong pid = fd_sandbox_getpid(); /* Need to read /proc since we might be in a PID namespace now */;
+  ulong pid = (ulong)getpid(); /* Need to read /proc since we might be in a PID namespace now */;
 
   log_path = config->log.path;
   if( FD_LIKELY( config->log.path[ 0 ]=='\0' ) ) log_path = NULL;

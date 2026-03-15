@@ -29,7 +29,7 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   fd_accdb_ref_data_set    ( accdb, rw, data, sz );
 
   ulong lamports_minted;
-  if( FD_UNLIKELY( __builtin_usubl_overflow( lamports_after, lamports_before, &lamports_minted ) ) ) {
+  if( FD_UNLIKELY( __builtin_sub_overflow( lamports_after, lamports_before, &lamports_minted ) ) ) {
     char name[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( address->uc, NULL, name );
     FD_LOG_CRIT(( "fd_sysvar_account_update: lamports overflowed: address=%s lamports_before=%lu lamports_after=%lu",
                   name, lamports_before, lamports_after ));

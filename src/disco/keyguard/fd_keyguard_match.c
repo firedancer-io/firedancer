@@ -138,7 +138,7 @@ fd_keyguard_payload_matches_txn_msg( uchar const * data,
 
   /* Check if signatures exceed txn size limit */
   ulong sig_sz;
-  if( __builtin_umull_overflow( sig_cnt, 64UL, &sig_sz ) ) return 0;
+  if( __builtin_mul_overflow( sig_cnt, 64UL, &sig_sz ) ) return 0;
   if( sig_sz > (FD_TXN_MTU-txn_msg_min_sz) ) return 0;
 
   /* Skip other fields */
@@ -190,8 +190,8 @@ fd_keyguard_payload_matches_prune_data( uchar const * data,
 
   ulong prune_cnt = FD_LOAD( ulong, data+58UL );
   ulong expected_sz;
-  if( __builtin_umull_overflow( prune_cnt,   32UL,      &expected_sz ) ) return 0;
-  if( __builtin_uaddl_overflow( expected_sz, static_sz, &expected_sz ) ) return 0;
+  if( __builtin_mul_overflow( prune_cnt,   32UL,      &expected_sz ) ) return 0;
+  if( __builtin_add_overflow( expected_sz, static_sz, &expected_sz ) ) return 0;
   if( sz != expected_sz ) return 0;
 
   return 1;

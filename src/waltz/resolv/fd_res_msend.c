@@ -11,7 +11,9 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
-#include "syscall.h"
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 #include "fd_lookup.h"
 #include "../../util/fd_util.h"
 
@@ -23,7 +25,7 @@ static void
 cleanup( struct pollfd * pfd ) {
   for( int i=0; pfd[i].fd >= -1; i++ ) {
     if( pfd[i].fd >= 0 ) {
-      syscall( SYS_close, pfd[i].fd );
+      close( pfd[i].fd );
     }
   }
 }
@@ -55,7 +57,15 @@ start_tcp( struct pollfd * pfd,
     .msg_controllen = 0,
     .msg_flags      = 0
   };
+# ifdef __linux__
   int fd = socket( family, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0 );
+# else
+  int fd = socket( family, SOCK_STREAM, 0 );
+  if( fd >= 0 ) {
+    fcntl( fd, F_SETFD, FD_CLOEXEC );
+    fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
+  }
+# endif
   pfd->fd = fd;
   pfd->events = POLLOUT;
   if( !setsockopt( fd, IPPROTO_TCP, TCP_FASTOPEN_CONNECT,
@@ -132,7 +142,15 @@ fd_res_msend_rc( int                     nqueries,
   }
 
   /* Get local address and open/bind a socket */
+# ifdef __linux__
   fd = socket( family, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0 );
+# else
+  fd = socket( family, SOCK_DGRAM, 0 );
+  if( fd >= 0 ) {
+    fcntl( fd, F_SETFD, FD_CLOEXEC );
+    fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
+  }
+# endif
 
   /* Handle case where system lacks IPv6 support */
   if( fd < 0 && family == AF_INET6 && errno == EAFNOSUPPORT ) {
@@ -140,7 +158,15 @@ fd_res_msend_rc( int                     nqueries,
     if( i==nns ) {
       return -1;
     }
+# ifdef __linux__
     fd = socket( AF_INET, SOCK_DGRAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0 );
+# else
+    fd = socket( AF_INET, SOCK_DGRAM, 0 );
+    if( fd >= 0 ) {
+      fcntl( fd, F_SETFD, FD_CLOEXEC );
+      fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
+    }
+# endif
     family = AF_INET;
     sl = sizeof sa.sin;
   }
@@ -315,7 +341,7 @@ fd_res_msend_rc( int                     nqueries,
          Immediately close TCP socket so as not to consume
          resources we no longer need. */
       alens[i] = alen;
-      syscall( SYS_close, pfd[i].fd );
+      close( pfd[i].fd );
       pfd[i].fd = -1;
     }
   }

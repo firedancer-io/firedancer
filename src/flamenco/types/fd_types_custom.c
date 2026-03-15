@@ -51,7 +51,7 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
     fd_bincode_decode_ctx_t lockout_ctx = { .data = start_data, .dataend = start_data+sizeof(fd_lockout_offset_t) };
     if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
     fd_lockout_offset_decode_inner( &lockout_offset, NULL, &lockout_ctx );
-    err = __builtin_uaddl_overflow( root, lockout_offset.offset, &root );
+    err = __builtin_add_overflow( root, lockout_offset.offset, &root );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -165,7 +165,7 @@ fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
   if( nanoseconds < 1000000000U )
     return FD_BINCODE_SUCCESS;
   ulong out;
-  if( __builtin_uaddl_overflow( seconds, nanoseconds/1000000000U, &out ) )
+  if( __builtin_add_overflow( seconds, nanoseconds/1000000000U, &out ) )
     return FD_BINCODE_ERR_ENCODING;
   return FD_BINCODE_SUCCESS;
 }

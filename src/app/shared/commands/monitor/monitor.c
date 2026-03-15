@@ -14,9 +14,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#ifdef __linux__
 #include <sys/syscall.h>
+#endif
 #include <sys/resource.h>
+#ifdef __linux__
 #include <linux/capability.h>
+#endif
 #include <sys/ioctl.h>
 #include <termios.h>
 #include "generated/monitor_seccomp.h"

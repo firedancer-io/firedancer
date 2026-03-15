@@ -10,7 +10,9 @@
 #include <errno.h>
 #include <sys/syscall.h>
 #include <sys/resource.h>
+#ifdef __linux__
 #include <linux/capability.h>
+#endif
 
 #define MAX_ERROR_ENTRIES (16UL)
 #define MAX_ERROR_MSG_LEN (256UL)
@@ -57,6 +59,7 @@ fd_cap_chk_root( fd_cap_chk_t * chk,
 
 static int
 has_capability( uint capability ) {
+#ifdef __linux__
   struct __user_cap_data_struct   capdata[2];
   struct __user_cap_header_struct capheader = {
     .pid = 0,
@@ -69,6 +72,11 @@ has_capability( uint capability ) {
   uint bit = capability % 32U;
   if( FD_UNLIKELY( idx>=2 ) ) return 0;
   return !!(capdata[ idx ].effective & (1U << bit));
+#else
+  (void)capability;
+  /* On macOS, we don't have POSIX capabilities. We assume the user has the necessary permissions (e.g. root for mlock). */
+  return 1; 
+#endif
 }
 
 FD_FN_CONST static char const *

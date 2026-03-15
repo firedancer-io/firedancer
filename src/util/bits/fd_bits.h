@@ -999,7 +999,7 @@ fd_ulong_svw_dec_tail( uchar const * b,
     ulong _align = (align);                                                                         \
     ulong _sz    = (sz);                                                                            \
     ulong _scratch_alloc = fd_ulong_align_up( _##layout, (_align) );                                \
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( _scratch_alloc, _sz, &_##layout ) ) )                \
+    if( FD_UNLIKELY( __builtin_add_overflow( _scratch_alloc, _sz, &_##layout ) ) )                \
       FD_LOG_CRIT(( "FD_SCRATCH_ALLOC_APPEND( "#layout", %lu, %lu ) overflowed ("#layout"=0x%lx)",  \
         _align, _sz, _scratch_alloc ));                                                             \
     (void *)_scratch_alloc;                                                                         \

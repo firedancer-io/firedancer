@@ -207,7 +207,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L205-L208 */
   ulong offset_length;
-  int err = fd_int_if( __builtin_uaddl_overflow( offset, sz, &offset_length ), FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW, FD_EXECUTOR_INSTR_SUCCESS );
+  int err = fd_int_if( __builtin_add_overflow( offset, sz, &offset_length ), FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW, FD_EXECUTOR_INSTR_SUCCESS );
   if( FD_UNLIKELY( err ) ) {
     FD_VM_ERR_FOR_LOG_INSTR( vm, err );
     return FD_VM_SYSCALL_ERR_ABORT;

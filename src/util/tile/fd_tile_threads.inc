@@ -2,15 +2,40 @@
 #define _GNU_SOURCE
 #endif
 
+#ifdef __MACH__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
+#endif
+
 #include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
+#ifdef __linux__
 #include <sched.h>
 #include <syscall.h>
-#include <sys/resource.h>
-#include <sys/mman.h>
 #include <sys/prctl.h>
+#endif
+
+#ifdef __MACH__
+#include <pthread.h>
+#include <pthread/qos.h>
+#include <mach/mach_init.h>
+#include <mach/thread_policy.h>
+#include <mach/thread_act.h>
+#include <sys/mman.h>
+#include <sys/resource.h>
+
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
+/* macOS doesn't support MADV_DONTFORK. We stub it out for now. */
+#ifndef MADV_DONTFORK
+#define MADV_DONTFORK 0
+#endif
+#endif
 
 #include "../sanitize/fd_sanitize.h"
 #include "fd_tile_private.h"
@@ -54,6 +79,7 @@ fd_tile_private_cpu_config( fd_tile_private_cpu_config_t * save,
     save->prio = INT_MIN;
   }
 
+#ifdef __linux__
   if( FD_UNLIKELY( prio!=-19 ) && FD_UNLIKELY( setpriority( PRIO_PROCESS, (id_t)0, -19 ) ) ) {
     FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s)\n\t"
                      "Unable to configure this tile for high scheduler priority.  Attempting\n\t"
@@ -66,6 +92,17 @@ fd_tile_private_cpu_config( fd_tile_private_cpu_config_t * save,
     save->prio = INT_MIN;
     return;
   }
+#endif
+
+#ifdef __MACH__
+  /* On macOS, use QoS classes to prefer performance cores */
+  pthread_set_qos_class_self_np( QOS_CLASS_USER_INTERACTIVE, 0 );
+  
+  if( FD_UNLIKELY( prio!=-19 ) && FD_UNLIKELY( setpriority( PRIO_PROCESS, (id_t)0, -19 ) ) ) {
+      /* Log warning but allow QoS to handle prioritization if setpriority fails */
+      FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s); using QoS hint instead", errno, fd_io_strerror( errno ) ));
+  }
+#endif
 
   save->prio = prio;
 }
@@ -247,7 +284,7 @@ static void *
 fd_tile_private_manager( void * _args ) {
   fd_tile_private_manager_args_t * args = (fd_tile_private_manager_args_t *)_args;
 
-# if !__GLIBC__
+# if !__GLIBC__ && !defined(__MACH__)
   if( args->cpu_idx<65535UL ) {
     FD_CPUSET_DECL( cpu_set );
     fd_cpuset_insert( cpu_set, args->cpu_idx );
@@ -261,7 +298,15 @@ fd_tile_private_manager( void * _args ) {
                        "allowed cpus that have been reserved for this thread group on this host\n\t"
                        "to eliminate this warning.", err, fd_io_strerror( err ), args->idx, args->cpu_idx ));
   }
-# endif /* !__GLIBC__ */
+# endif /* !__GLIBC__ && !__MACH__ */
+
+# if defined(__MACH__)
+  if( args->cpu_idx<65535UL ) {
+    thread_affinity_policy_data_t policy = { (int)args->cpu_idx };
+    thread_policy_set( mach_thread_self(), THREAD_AFFINITY_POLICY, (thread_policy_t)&policy, THREAD_AFFINITY_POLICY_COUNT );
+    pthread_set_qos_class_self_np( QOS_CLASS_USER_INTERACTIVE, 0 );
+  }
+# endif
 
   ulong  id       = args->id;
   ulong  idx      = args->idx;
@@ -270,7 +315,11 @@ fd_tile_private_manager( void * _args ) {
 
   char thread_name[ 20 ];
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "tile:%lu", idx ) );
+# ifdef __linux__
   if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+# elif defined(__MACH__)
+  pthread_setname_np( thread_name );
+# endif
 
   if( FD_UNLIKELY( !( (id ==fd_log_thread_id()                                       ) &
                       (idx==(id-fd_tile_private_id0)                                 ) &
@@ -637,7 +686,9 @@ fd_tile_private_map_boot( ushort * tile_to_cpu,
                                                  tile_idx ));
 
     ulong stack_sz;
-    err = pthread_attr_getstacksize( attr, &stack_sz );
+    size_t _stack_sz;
+    err = pthread_attr_getstacksize( attr, &_stack_sz );
+    stack_sz = (ulong)_stack_sz;
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_tile: pthread_attr_getstacksize failed (%i-%s) for tile %lu.\n\t",
                                           err, fd_io_strerror( err ), tile_idx ));
 

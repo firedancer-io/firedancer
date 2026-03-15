@@ -282,7 +282,7 @@ static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   ulong line_footprint;
-  if( FD_UNLIKELY( !tile->accdb.line_max || __builtin_umull_overflow( tile->accdb.line_max, sizeof(fd_vinyl_line_t), &line_footprint ) ) ) {
+  if( FD_UNLIKELY( !tile->accdb.line_max || __builtin_mul_overflow( tile->accdb.line_max, sizeof(fd_vinyl_line_t), &line_footprint ) ) ) {
     FD_LOG_ERR(( "invalid vinyl_line_max %lu", tile->accdb.line_max ));
   }
 

@@ -37,9 +37,9 @@ fd_io_uring_shmem_layout( fd_io_uring_shmem_layout_t * layout,
   if( FD_UNLIKELY( cq_depth>UINT_MAX             ) ) return 0UL;
 
   ulong cq_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( cq_depth, sizeof(struct io_uring_cqe), &cq_sz ) ) ) return 0UL;
+  if( FD_UNLIKELY( __builtin_mul_overflow( cq_depth, sizeof(struct io_uring_cqe), &cq_sz ) ) ) return 0UL;
   ulong sqa_sz;
-  if( FD_UNLIKELY( __builtin_umull_overflow( sq_depth, sizeof(uint), &sqa_sz ) ) ) return 0UL;
+  if( FD_UNLIKELY( __builtin_mul_overflow( sq_depth, sizeof(uint), &sqa_sz ) ) ) return 0UL;
 
   /* io_uring CQ region
 

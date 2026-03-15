@@ -95,10 +95,16 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
-  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd, (uint)ctx->prober->sock_fd );
-  return sock_filter_policy_netlink_instr_cnt;
+#if FD_HAS_LINUX
+  (void)topo;
+  (void)tile;
+
+  populate_sock_filter_policy_fd_netlink_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_netlink_tile_instr_cnt;
+#else
+  (void)topo; (void)tile; (void)out_cnt; (void)out;
+  return 0UL;
+#endif
 }
 
 static ulong

@@ -11,7 +11,9 @@
    - fd_vinyl_io_ur_wb.c: write path (write back cache) */
 
 #include "../fd_vinyl_io.h"
+#ifdef FD_HAS_LINUX
 #include "../../../util/io_uring/fd_io_uring.h"
+#endif
 
 FD_PROTOTYPES_BEGIN
 
@@ -25,7 +27,12 @@ fd_vinyl_io_t *
 fd_vinyl_io_ur_init( void *          mem,
                      ulong           spad_max,
                      int             dev_fd,
-                     fd_io_uring_t * ring );
+#ifdef FD_HAS_LINUX
+                     fd_io_uring_t * ring
+#else
+                     void *          ring
+#endif
+                     );
 
 FD_PROTOTYPES_END
 

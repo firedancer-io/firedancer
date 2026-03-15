@@ -29,8 +29,8 @@ genesis_accounts_check( fd_genesis_t const * genesis,
     ulong owner_off  = genesis->account[ i ].owner_off;
 
     assert( pubkey_off >= prev_off );
-    ulong data_off; assert( !__builtin_uaddl_overflow( pubkey_off, 48UL, &data_off ) );
-    ulong end_off;  assert( !__builtin_uaddl_overflow( owner_off,  41UL, &end_off  ) );
+    ulong data_off; assert( !__builtin_add_overflow( pubkey_off, 48UL, &data_off ) );
+    ulong end_off;  assert( !__builtin_add_overflow( owner_off,  41UL, &end_off  ) );
     assert( data_off <= end_off );
     assert( end_off  <= bin_sz  );
     prev_off = end_off;
@@ -46,12 +46,12 @@ genesis_accounts_check( fd_genesis_t const * genesis,
     ulong pubkey_off   = genesis->builtin[ i ].pubkey_off;
 
     assert( data_len_off >= prev_off );
-    ulong data_off; assert( !__builtin_uaddl_overflow( data_len_off, 8UL, &data_off ) );
+    ulong data_off; assert( !__builtin_add_overflow( data_len_off, 8UL, &data_off ) );
     assert( data_off <= bin_sz );
     ulong data_len = FD_LOAD( ulong, bin+data_len_off );
     assert( data_len<=FD_RUNTIME_ACC_SZ_MAX );
     assert( data_off+data_len==pubkey_off );
-    ulong end_off; assert( !__builtin_uaddl_overflow( pubkey_off, 32UL, &end_off ) );
+    ulong end_off; assert( !__builtin_add_overflow( pubkey_off, 32UL, &end_off ) );
     assert( end_off <= bin_sz );
     prev_off = end_off;
   }

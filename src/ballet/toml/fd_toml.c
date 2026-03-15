@@ -977,8 +977,8 @@ fd_toml_parse_zero_prefixable_int( fd_toml_parser_t * parser,
     } else {
       int digit = (uchar)parser->c.data[0];
       if( FD_UNLIKELY(
-          __builtin_umull_overflow( digits, 10, &digits ) ||
-          __builtin_uaddl_overflow( digits, (ulong)( digit - '0' ), &digits ) ) ) {
+          __builtin_mul_overflow( digits, 10, &digits ) ||
+          __builtin_add_overflow( digits, (ulong)( digit - '0' ), &digits ) ) ) {
         parser->error = FD_TOML_ERR_RANGE;
         return 0;
       }

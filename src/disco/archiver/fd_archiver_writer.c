@@ -66,11 +66,16 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
+#if FD_HAS_LINUX
   populate_sock_filter_policy_archiver_writer( out_cnt,
                                                out,
                                                (uint)fd_log_private_logfile_fd(),
                                                (uint)tile->archiver.archive_fd );
   return sock_filter_policy_archiver_writer_instr_cnt;
+#else
+  (void)topo; (void)tile; (void)out_cnt; (void)out;
+  return 0UL;
+#endif
 }
 
 static ulong
@@ -112,7 +117,11 @@ privileged_init( fd_topo_t *      topo,
     ctx->out_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096, FD_ARCHIVER_WRITER_OUT_BUF_SZ );
     FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
+#if FD_HAS_LINUX
     tile->archiver.archive_fd = open( tile->archiver.rocksdb_path, O_RDWR | O_CREAT | O_DIRECT, 0666 );
+#else
+    tile->archiver.archive_fd = open( tile->archiver.rocksdb_path, O_RDWR | O_CREAT, 0666 );
+#endif
     if ( FD_UNLIKELY( tile->archiver.archive_fd == -1 ) ) {
       FD_LOG_ERR(( "failed to open or create archive file %s %d %d %s", tile->archiver.rocksdb_path, tile->archiver.archive_fd, errno, strerror(errno) ));
     }

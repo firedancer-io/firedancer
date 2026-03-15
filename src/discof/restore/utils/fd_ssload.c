@@ -23,7 +23,7 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
     seq_min = fd_ulong_min( seq_min, ages[ i ].hash_index );
   }
   ulong seq_max;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, age_cnt, &seq_max ) ) ) {
+  if( FD_UNLIKELY( __builtin_add_overflow( seq_min, age_cnt, &seq_max ) ) ) {
     /* TODO: Move to snapin validations so we can retry */
     FD_LOG_ERR(( "Corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, age_cnt ));
   }
@@ -40,7 +40,7 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
   for( ulong i=0UL; i<age_cnt; i++ ) {
     fd_snapshot_manifest_blockhash_t const * elem = &ages[ i ];
     ulong idx;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( elem->hash_index, seq_min, &idx ) ) ) {
+    if( FD_UNLIKELY( __builtin_sub_overflow( elem->hash_index, seq_min, &idx ) ) ) {
       /* TODO: Move to snapin validations so we can retry */
       FD_LOG_ERR(( "Corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) idx=%lu)",
                    seq_min, seq_max, elem->hash_index ));

@@ -39,11 +39,16 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
+#if FD_HAS_LINUX
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_sock_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sock_tile_t), sizeof(fd_sock_tile_t) );
 
   populate_sock_filter_policy_fd_sock_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->tx_sock, RX_SOCK_FD_MIN, RX_SOCK_FD_MIN+(uint)ctx->sock_cnt );
   return sock_filter_policy_fd_sock_tile_instr_cnt;
+#else
+  (void)topo; (void)tile; (void)out_cnt; (void)out;
+  return 0UL;
+#endif
 }
 
 static ulong
@@ -249,7 +254,10 @@ privileged_init( fd_topo_t *      topo,
 
   /* Create transmit socket */
 
-  int tx_sock = socket( AF_INET, SOCK_RAW|SOCK_CLOEXEC, FD_IP4_HDR_PROTOCOL_UDP );
+  int tx_sock = socket( AF_INET, SOCK_RAW, FD_IP4_HDR_PROTOCOL_UDP );
+#ifdef __MACH__
+  if( FD_LIKELY( tx_sock >= 0 ) ) fcntl( tx_sock, F_SETFD, FD_CLOEXEC );
+#endif
   if( FD_UNLIKELY( tx_sock<0 ) ) {
     FD_LOG_ERR(( "socket(AF_INET,SOCK_RAW|SOCK_CLOEXEC,17) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -492,7 +500,9 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
         case EHOSTUNREACH:
           ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_UNREACH_IDX ]++;
           break;
+#if FD_HAS_LINUX
         case ENONET:
+#endif
         case ENETDOWN:
         case EHOSTDOWN:
           ctx->metrics.sys_sendmmsg_cnt[ FD_METRICS_ENUM_SOCK_ERR_V_DOWN_IDX ]++;

@@ -5,7 +5,11 @@
 #include <string.h>
 #include <pthread.h>
 #include <unistd.h>
+#ifdef __linux__
 #include <endian.h>
+#elif defined(__MACH__)
+#include <machine/endian.h>
+#endif
 #include "fd_lookup.h"
 #include "../../util/io/fd_io.h"
 

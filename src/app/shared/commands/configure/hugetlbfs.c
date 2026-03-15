@@ -10,7 +10,13 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
+#ifdef FD_HAS_LINUX
+#ifdef __linux__
 #include <linux/capability.h>
+#endif
+#else
+#define CAP_SYS_ADMIN 0
+#endif
 
 static void
 init_perm( fd_cap_chk_t *   chk,
@@ -442,6 +448,7 @@ check( config_t const * config,
   CONFIGURE_OK();
 }
 
+#ifdef FD_HAS_LINUX
 configure_stage_t fd_cfg_stage_hugetlbfs = {
   .name            = "hugetlbfs",
   .always_recreate = 0,
@@ -452,3 +459,17 @@ configure_stage_t fd_cfg_stage_hugetlbfs = {
   .fini            = fini,
   .check           = check,
 };
+#else
+static void init_macos( config_t const * config FD_PARAM_UNUSED ) {}
+static configure_result_t check_macos( config_t const * config FD_PARAM_UNUSED, int check_type FD_PARAM_UNUSED ) { CONFIGURE_OK(); }
+configure_stage_t fd_cfg_stage_hugetlbfs = {
+  .name            = "hugetlbfs",
+  .always_recreate = 0,
+  .enabled         = NULL,
+  .init_perm       = init_perm,
+  .fini_perm       = NULL,
+  .init            = init_macos,
+  .fini            = NULL,
+  .check           = check_macos,
+};
+#endif

@@ -858,7 +858,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     fd_lthash_value_t prev_hash[1];
     fd_hashes_account_lthash( vote_pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
     ulong acc_lamports = fd_accdb_ref_lamports( rw->ro );
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( acc_lamports, rewards, &acc_lamports ) ) ) {
+    if( FD_UNLIKELY( __builtin_add_overflow( acc_lamports, rewards, &acc_lamports ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( vote_pubkey->key, addr_b58 );
       FD_LOG_EMERG(( "integer overflow while crediting %lu vote reward lamports to %s (previous balance %lu)",
                      rewards, addr_b58, fd_accdb_ref_lamports( rw->ro ) ));
@@ -912,7 +912,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
 
   /* Credit rewards to stake account */
   ulong acc_lamports = fd_accdb_ref_lamports( rw->ro );
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( acc_lamports, reward_lamports, &acc_lamports ) ) ) {
+  if( FD_UNLIKELY( __builtin_add_overflow( acc_lamports, reward_lamports, &acc_lamports ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( stake_pubkey->key, addr_b58 );
     FD_LOG_EMERG(( "integer overflow while crediting %lu stake reward lamports to %s (previous balance %lu)",
                     reward_lamports, addr_b58, fd_accdb_ref_lamports( rw->ro ) ));

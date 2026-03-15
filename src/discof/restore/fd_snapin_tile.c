@@ -399,7 +399,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   for( ulong i=0UL; i<blockhashes_len; i++ ) seq_min = fd_ulong_min( seq_min, blockhashes[ i ].hash_index );
 
   ulong seq_max;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, blockhashes_len, &seq_max ) ) ) {
+  if( FD_UNLIKELY( __builtin_add_overflow( seq_min, blockhashes_len, &seq_max ) ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, blockhashes_len ));
     transition_malformed( ctx, ctx->stem );
     return 1;
@@ -418,7 +418,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   for( ulong i=0UL; i<blockhashes_len; i++ ) {
     fd_snapshot_manifest_blockhash_t const * elem = &blockhashes[ i ];
     ulong idx;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( elem->hash_index, seq_min, &idx ) ) ) {
+    if( FD_UNLIKELY( __builtin_sub_overflow( elem->hash_index, seq_min, &idx ) ) ) {
       FD_LOG_WARNING(( "corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) idx=%lu)", seq_min, seq_max, blockhashes[ i ].hash_index ));
       transition_malformed( ctx, ctx->stem );
       return 1;

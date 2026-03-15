@@ -687,8 +687,10 @@ fd_io_strsignal( int sig ) {
 #if defined(SIGWINCH)
   case SIGWINCH       : return "SIGWINCH-Window changed";
 #endif
-#if defined(SIGPOLL)
+#if defined(SIGPOLL) && (SIGPOLL!=SIGEMT)
   case SIGPOLL        : return "SIGPOLL-I/O possible";
+#elif defined(SIGPOLL) && (SIGPOLL==SIGEMT)
+  /* SIGPOLL and SIGEMT share value 7 on macOS */
 #endif
 #if defined(SIGPWR)
   case SIGPWR         : return "SIGPWR-Power failure";

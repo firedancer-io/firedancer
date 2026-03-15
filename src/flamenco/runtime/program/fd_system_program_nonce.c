@@ -404,7 +404,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
       ulong min_balance = fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &from ) );
 
       ulong amount;
-      if( FD_UNLIKELY( __builtin_uaddl_overflow( requested_lamports, min_balance, &amount ) ) )
+      if( FD_UNLIKELY( __builtin_add_overflow( requested_lamports, min_balance, &amount ) ) )
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L121-L129 */

@@ -111,7 +111,12 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   uint const ip4_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr;
   ctx->server_ip4_addr = ip4_addr;
 
-  int tcp_sock = socket( AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0 );
+  int tcp_sock = socket( AF_INET, SOCK_STREAM, 0 );
+#ifdef __MACH__
+  if( FD_LIKELY( tcp_sock >= 0 ) ) fcntl( tcp_sock, F_SETFD, FD_CLOEXEC );
+#else
+  /* Original code would have used SOCK_CLOEXEC in socket() call if available */
+#endif
   if( FD_UNLIKELY( tcp_sock<0 ) ) {
     FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -753,7 +758,7 @@ fd_bundle_client_handle_builder_fee_info(
   }
   if( FD_UNLIKELY( res.commission > 100 ) ) {
     ctx->metrics.decode_fail_cnt++;
-    FD_LOG_WARNING(( "BlockBuilderFeeInfoResponse commission out of range (0-100): %lu", res.commission ));
+    FD_LOG_WARNING(( "BlockBuilderFeeInfoResponse commission out of range (0-100): %ju", (uintmax_t)res.commission ));
     return;
   }
 

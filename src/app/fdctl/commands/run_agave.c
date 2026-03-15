@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 #define NAME "run-agave"
 
@@ -232,7 +233,7 @@ agave_main( void * args ) {
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
-      FD_LOG_WARNING(( "waiting for debugger to attach to tile agave pid:%lu", fd_sandbox_getpid() ));
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile agave pid:%lu", (ulong)getpid() ));
       if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
         FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fd_log_private_shared_lock[1] = 0;
@@ -243,13 +244,15 @@ agave_main( void * args ) {
 
   clone_labs_memory_space_tiles( config );
 
-  ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
+  ulong pid = (ulong)getpid(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_tid_set( pid );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_NOTICE(( "booting agave pid:%lu", fd_log_group_id() ));
 
+# ifdef __linux__
   fd_sandbox_switch_uid_gid( config->uid, config->gid );
+# endif
 
   agave_boot( config );
   return 0;
@@ -260,13 +263,24 @@ run_agave_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                   config_t * config ) {
   fd_log_thread_set( "agave" );
 
+# ifdef __linux__
   void * stack = create_clone_stack();
+# endif
 
   /* Also clone Agave into PID namespaces so it cannot signal
      other tile or the parent. */
+# ifdef __linux__
+  void * stack = create_clone_stack();
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_t clone_pid = clone( agave_main, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, config );
   if( FD_UNLIKELY( clone_pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+# else
+  pid_t fork_pid = fork();
+  if( FD_UNLIKELY( fork_pid<0 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !fork_pid ) ) {
+    exit( agave_main( config ) );
+  }
+# endif
 }
 
 action_t fd_action_run_agave = {

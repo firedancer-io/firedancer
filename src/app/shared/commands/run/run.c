@@ -24,11 +24,15 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#ifdef __linux__
 #include <sys/prctl.h>
+#endif
 #include <sys/resource.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#ifdef __linux__
 #include <linux/capability.h>
+#endif
 
 #include "../../../../util/tile/fd_tile_private.h"
 

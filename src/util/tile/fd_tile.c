@@ -14,6 +14,12 @@ fd_cpuset_getaffinity( ulong         pid,
                        fd_cpuset_t * mask ) {
 # if defined(__linux__)
   return sched_getaffinity( (int)pid, fd_cpuset_word_cnt<<3, (cpu_set_t *)fd_type_pun( mask ) );
+# elif defined(__MACH__)
+  (void)pid;
+  /* On macOS, we don't have a direct syscall for this that is stable. 
+     Return a full mask for now. */
+  fd_cpuset_full( mask );
+  return 0;
 # else
   (void)pid; (void)mask;
   errno = ENOTSUP;
@@ -26,6 +32,10 @@ fd_cpuset_setaffinity( ulong               pid,
                        fd_cpuset_t const * mask ) {
 # if defined(__linux__)
   return sched_setaffinity( (int)pid, fd_cpuset_word_cnt<<3, (cpu_set_t const *)fd_type_pun_const( mask ) );
+# elif defined(__MACH__)
+  (void)pid; (void)mask;
+  /* Hard affinity is not supported on macOS userland. We rely on the thread affinity hints in fd_tile_threads.inc */
+  return 0; 
 # else
   (void)pid; (void)mask;
   errno = ENOTSUP;
