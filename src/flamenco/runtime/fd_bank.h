@@ -249,9 +249,6 @@ typedef struct fd_bank_top_votes fd_bank_top_votes_t;
    FD_BANK_FLAGS_INIT is set, but not necessarily
    FD_BANK_FLAGS_REPLAYABLE. */
 #define FD_BANK_FLAGS_DEAD       (0x00000008UL)
- /* Rooted.  Part of the consnensus root fork.  Implies that
-    FD_BANK_FLAGS_FROZEN is also set. */
-#define FD_BANK_FLAGS_ROOTED     (0x00000010UL)
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management
@@ -277,6 +274,11 @@ struct fd_bank_data {
   ulong sibling_idx; /* index of the right-sibling in the node pool */
   ulong flags;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
+
+  int reserved;
+  int replayable;
+  int completed;
+  int dead;
 
   ulong refcnt; /* reference count on the bank, see replay for more details */
 
@@ -665,11 +667,6 @@ fd_banks_stake_delegations_root_query( fd_banks_t * banks );
 static inline ulong
 fd_banks_get_used_cnt( fd_banks_t * banks ) {
   return fd_banks_pool_used( fd_type_pun( (uchar *)banks->data + banks->data->pool_offset ) );
-}
-
-static inline fd_bank_idx_seq_t *
-fd_banks_get_dead_banks_deque( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->dead_banks_deque_offset );
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */

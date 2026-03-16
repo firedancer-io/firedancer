@@ -52,6 +52,11 @@ fd_banks_get_stake_delegations_delta( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
 }
 
+static inline fd_bank_idx_seq_t *
+fd_banks_get_dead_banks_deque( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->dead_banks_deque_offset );
+}
+
 ulong
 fd_bank_align( void ) {
   return alignof(fd_bank_t);
@@ -564,6 +569,9 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
 
   fd_rwlock_new( &bank_l->locks->lthash_lock[ bank->idx ] );
 
+  bank->reserved   = 1;
+  bank->replayable = 1;
+  bank->completed  = 1;
   bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
 
@@ -606,6 +614,9 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   if( FD_UNLIKELY( !child_bank ) ) {
     FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu does not exist", child_bank_idx ));
   }
+  if( FD_UNLIKELY( child_bank->reserved == 0 ) ) {
+    FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu is reserved", child_bank_idx ));
+  }
   if( FD_UNLIKELY( !(child_bank->flags&FD_BANK_FLAGS_INIT) ) ) {
     FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu is not initialized", child_bank_idx ));
   }
@@ -613,6 +624,10 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   /* If the bank has been marked as dead from the time that it was
      initialized, don't bother copying over any data and return NULL. */
   if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
+    fd_rwlock_unwrite( &banks->locks->banks_lock );
+    return NULL;
+  }
+  if( FD_UNLIKELY( child_bank->dead==1 ) ) {
     fd_rwlock_unwrite( &banks->locks->banks_lock );
     return NULL;
   }
@@ -625,6 +640,9 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   }
   if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_FROZEN) ) ) {
     FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is not frozen", child_bank->parent_idx ));
+  }
+  if( FD_UNLIKELY( parent_bank->completed!=1 ) ) {
+    FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is dead", child_bank->parent_idx ));
   }
 
   /* We can simply copy over all of the data in the bank struct that
@@ -658,6 +676,7 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
+  child_bank->replayable = 1;
 
   child_bank->stake_rewards_fork_id = parent_bank->stake_rewards_fork_id;
 
@@ -673,12 +692,12 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   bank_l->locks = banks->locks;
   bank_l->data  = child_bank;
 
-  child_bank->fields.parent_slot = parent_bank->fields.slot;
-  child_bank->fields.shred_cnt = 0UL;
-  child_bank->fields.execution_fees = 0UL;
-  child_bank->fields.priority_fees = 0UL;
-  child_bank->fields.tips = 0UL;
-  child_bank->fields.block_height = child_bank->fields.block_height + 1UL;
+  child_bank->fields.parent_slot       = parent_bank->fields.slot;
+  child_bank->fields.shred_cnt         = 0UL;
+  child_bank->fields.execution_fees    = 0UL;
+  child_bank->fields.priority_fees     = 0UL;
+  child_bank->fields.tips              = 0UL;
+  child_bank->fields.block_height      = child_bank->fields.block_height + 1UL;
   child_bank->fields.identity_vote_idx = ULONG_MAX;
   return bank_l;
 }
@@ -972,12 +991,14 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
      root as being rooted.  We also need to figure out the oldest,
      non-rooted ancestor of the target bank since we only want to
      advance our root bank by one. */
+  uchar rooted[ FD_BANKS_MAX_BANKS ] = { 0 };
+
   fd_bank_data_t * curr = target_bank;
   fd_bank_data_t * prev = NULL;
   while( curr && curr!=root->data ) {
-    curr->flags |= FD_BANK_FLAGS_ROOTED;
-    prev         = curr;
-    curr         = fd_banks_pool_ele( bank_pool, curr->parent_idx );
+    rooted[ curr->idx ] = 1;
+    prev                = curr;
+    curr                = fd_banks_pool_ele( bank_pool, curr->parent_idx );
   }
 
   /* If we didn't reach the old root or there is no parent, target is
@@ -987,12 +1008,12 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
   }
 
   curr = root->data;
-  while( curr && (curr->flags&FD_BANK_FLAGS_ROOTED) && curr!=target_bank ) { /* curr!=target_bank to avoid abandoning good forks. */
+  while( curr && (rooted[ curr->idx ]==1) && curr!=target_bank ) { /* curr!=target_bank to avoid abandoning good forks. */
     fd_bank_data_t * rooted_child = NULL;
     ulong            child_idx    = curr->child_idx;
     while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
       fd_bank_data_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
-      if( child_bank->flags&FD_BANK_FLAGS_ROOTED ) rooted_child = child_bank;
+      if( rooted[ child_idx ]==1 ) rooted_child = child_bank;
       child_idx = child_bank->sibling_idx;
     }
     curr = rooted_child;

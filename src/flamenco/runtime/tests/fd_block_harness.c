@@ -242,8 +242,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   fd_stake_delegations_init( stake_delegations );
 
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank );
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_type_pun( (uchar *)banks->data + banks->data->stake_delegations_delta_offset );
   bank->data->stake_delegations_fork_id = fd_stake_delegations_delta_new_fork( stake_delegations_delta );
+  stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank );
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
