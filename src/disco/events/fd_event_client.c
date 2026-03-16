@@ -151,6 +151,7 @@ fd_event_client_new( void *                 shmem,
   client->boot_id     = boot_id;
   client->machine_id  = machine_id;
 
+  memset( client->genesis_hash, 0, sizeof(fd_hash_t) );
   client->has_genesis_hash = 0;
   client->has_shred_version = 0;
 
