@@ -1190,7 +1190,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
       fd_gossip_update_message_t const  * msg             = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
       fd_gossip_duplicate_shred_t const * duplicate_shred = msg->duplicate_shred;
       fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin );
-      fd_epoch_leaders_t const *          lsched          = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, duplicate_shred->slot ) )
+      fd_epoch_leaders_t const *          lsched          = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, duplicate_shred->slot );
       fd_tower_slot_duplicate_t         * out             = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       int eqvoc_err = fd_eqvoc_chunk_insert( ctx->eqvoc, ctx->shred_version, ctx->root_slot, lsched, from, duplicate_shred, out->chunks );
       record_eqvoc_metric( ctx, eqvoc_err );
@@ -1235,7 +1235,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
     if( FD_LIKELY( sz==FD_SHRED_MIN_SZ || sz==FD_SHRED_MAX_SZ ) ) { /* TODO depends on pending shred_out changes */
       fd_shred_t                * shred = (fd_shred_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       fd_tower_slot_duplicate_t * out   = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-      fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
+      fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, shred->slot );
       int eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, ctx->shred_version, ctx->root_slot, lsched, shred, out->chunks );
       record_eqvoc_metric( ctx, eqvoc_err );
       if( FD_UNLIKELY( eqvoc_err>0 ) ) {
