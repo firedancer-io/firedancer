@@ -21,14 +21,8 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
-extern int * fd_log_private_shared_lock;
-
 static void
 parent_signal( int sig ) {
-  /* Same hack as in run.c, see comments there. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
-
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 

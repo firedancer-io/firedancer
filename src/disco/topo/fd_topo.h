@@ -1149,17 +1149,7 @@ fd_topo_run_single_process( fd_topo_t *       topo,
    the sandbox code rejects and aborts if there is an unexpected file
    descriptor present on boot.  This is helpful to allow a parent
    process to be notified on termination of the tile by waiting for a
-   pipe file descriptor to get closed.
-
-   wait and debugger are both used in debugging.  If wait is non-NULL,
-   the runner will wait until the value pointed to by wait is non-zero
-   before launching the tile.  Likewise, if debugger is non-NULL, the
-   runner will wait until a debugger is attached before setting the
-   value pointed to by debugger to non-zero.  These are intended to be
-   used as a pair, where many tiles share a waiting reference, and then
-   one of the tiles (a tile you want to attach the debugger to) has the
-   same reference provided as the debugger, so all tiles will stop and
-   wait for the debugger to attach to it before proceeding. */
+   pipe file descriptor to get closed. */
 
 void
 fd_topo_run_tile( fd_topo_t *          topo,
@@ -1170,8 +1160,6 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
-                  volatile int *       wait,
-                  volatile int *       debugger,
                   fd_topo_run_tile_t * tile_run );
 
 /* This is for determining the value of RLIMIT_MLOCK that we need to

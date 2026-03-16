@@ -14,8 +14,6 @@
 extern action_t * ACTIONS[];
 extern fd_topo_run_tile_t * TILES[];
 
-extern int * fd_log_private_shared_lock;
-
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile ) {
   for( ulong i=0UL; TILES[ i ]; i++ ) {
@@ -33,32 +31,6 @@ copy_config_from_fd( int        config_fd,
   fd_memcpy( config, bytes, sizeof( config_t ) );
   if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-}
-
-static int *
-map_log_memfd( int log_memfd ) {
-  void * shmem = mmap( NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, log_memfd, (off_t)0 );
-  if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
-    FD_LOG_ERR(( "mmap(NULL,sizeof(int),PROT_READ|PROT_WRITE,MAP_SHARED,memfd,(off_t)0) (%i-%s); ", errno, fd_io_strerror( errno ) ));
-  } else {
-    if( FD_UNLIKELY( mlock( shmem, 4096 ) ) ) {
-      FD_LOG_ERR(( "mlock(%p,4096) (%i-%s); unable to lock log file shared lock in memory\n", shmem, errno, fd_io_strerror( errno ) ));
-    }
-  }
-  return shmem;
-}
-
-/* Try to allocate an anonymous page of memory in a file descriptor
-   (memfd) for fd_log_private_shared_lock such that the log can strictly
-   sequence messages written by clones of the caller made after the
-   caller has finished booting the log.  Must be a file descriptor so
-   we can pass it through `execve` calls. */
-static int
-init_log_memfd( void ) {
-  int memfd = memfd_create( "fd_log_lock_page", 0U );
-  if( FD_UNLIKELY( -1==memfd) ) FD_LOG_ERR(( "memfd_create(\"fd_log_lock_page\",0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==ftruncate( memfd, 4096 ) ) ) FD_LOG_ERR(( "ftruncate(memfd,4096) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  return memfd;
 }
 
 static void
@@ -193,8 +165,7 @@ fd_main_init( int *                      pargc,
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    config->log.lock_fd = init_log_memfd();
-    config->log.log_fd  = -1;
+    config->log.log_fd = -1;
     thread = "main";
     if( FD_UNLIKELY( log_path ) )
       strncpy( config->log.path, log_path, sizeof( config->log.path ) - 1 );
@@ -208,7 +179,6 @@ fd_main_init( int *                      pargc,
   char ** argv = shmem_args;
   int     argc = 2;
 
-  int * log_lock = map_log_memfd( config->log.lock_fd );
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc since we might be in a PID namespace now */;
 
   log_path = config->log.path;
@@ -223,8 +193,7 @@ fd_main_init( int *                      pargc,
   if( FD_LIKELY( !uid && seteuid( config->uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int boot_silent = config_fd>=0;
-  fd_log_private_boot_custom( log_lock,
-                              0UL,
+  fd_log_private_boot_custom( 0UL,
                               config->name,
                               0UL,    /* Thread ID will be initialized later */
                               thread, /* Thread will be initialized later */

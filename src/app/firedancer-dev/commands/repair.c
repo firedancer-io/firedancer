@@ -326,8 +326,6 @@ repair_topo( config_t * config ) {
   config->topo = *topo;
 }
 
-extern int * fd_log_private_shared_lock;
-
 static char *
 fmt_count( char buf[ static 64 ], ulong count ) {
   char tmp[ 64 ];
@@ -686,7 +684,6 @@ repair_cmd_fn_catchup( args_t *   args,
   }
   run_firedancer_init( config, 1, 0 );
 
-  fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   fd_topo_fill( &config->topo );
@@ -819,7 +816,6 @@ repair_cmd_fn_eqvoc( args_t *   args,
   if( 0==strcmp( config->net.provider, "xdp" ) ) fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
 
   run_firedancer_init( config, 1, 0 );
-  fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
@@ -862,7 +858,6 @@ repair_cmd_fn_metrics( args_t *   args,
                        config_t * config ) {
   //memset( &config->topo, 0, sizeof(config->topo) );
 
-  fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 

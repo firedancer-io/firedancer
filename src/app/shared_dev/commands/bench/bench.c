@@ -120,8 +120,6 @@ add_bench_topo( fd_topo_t  * topo,
   fd_topob_finish( topo, CALLBACKS );
 }
 
-extern int * fd_log_private_shared_lock;
-
 void
 bench_cmd_fn( args_t *   args,
               config_t * config,
@@ -189,7 +187,6 @@ bench_cmd_fn( args_t *   args,
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
-  fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   if( watch ) {

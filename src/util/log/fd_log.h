@@ -237,7 +237,7 @@
 /* FD_LOG_STDOUT(()) is used for writing formatted messages to STDOUT, it does not
    take a lock and might interleave with other messages to the same pipe.  It
    should only be used for command output. */
-#define FD_LOG_STDOUT(a) do { fd_log_private_fprintf_nolock_0( STDOUT_FILENO, "%s", fd_log_private_0 a ); } while(0)
+#define FD_LOG_STDOUT(a) do { fd_log_private_fprintf_0( STDOUT_FILENO, "%s", fd_log_private_0 a ); } while(0)
 
 /* FD_TEST is a single statement that evaluates condition c and, if c
    evaluates to false, will FD_LOG_ERR that the condition failed.  It is
@@ -638,9 +638,6 @@ void fd_log_enable_unclean_exit( void );
 void
 fd_log_private_fprintf_0( int fd, char const * fmt, ... ) __attribute__((format(printf,2,3))); /* Type check the fmt string at compile time */
 
-void
-fd_log_private_fprintf_nolock_0( int fd, char const * fmt, ... ) __attribute__((format(printf,2,3))); /* Type check the fmt string at compile time */
-
 char const *
 fd_log_private_0( char const * fmt, ... ) __attribute__((format(printf,1,2))); /* Type check the fmt string at compile time */
 
@@ -676,8 +673,7 @@ fd_log_private_boot( int *    pargc,
                      char *** pargv );
 
 void
-fd_log_private_boot_custom( int *        lock,
-                            ulong        app_id,
+fd_log_private_boot_custom( ulong        app_id,
                             char const * app,
                             ulong        thread_id,
                             char const * thread,
