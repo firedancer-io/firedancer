@@ -535,11 +535,8 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
 
-  fd_rwlock_write( &banks->locks->banks_lock );
-
   if( FD_UNLIKELY( !fd_banks_pool_free( bank_pool ) ) ) {
     FD_LOG_WARNING(( "Failed to acquire bank" ));
-    fd_rwlock_unwrite( &banks->locks->banks_lock );
     return NULL;
   }
   fd_bank_data_t * bank = fd_banks_pool_ele_acquire( bank_pool );
@@ -588,7 +585,6 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
 
   banks->data->root_idx = bank->idx;
 
-  fd_rwlock_unwrite( &banks->locks->banks_lock );
   bank_l->data  = bank;
   bank_l->locks = banks->locks;
   return bank_l;
@@ -598,7 +594,6 @@ fd_bank_t *
 fd_banks_clone_from_parent( fd_bank_t *  bank_l,
                             fd_banks_t * banks,
                             ulong        child_bank_idx ) {
-  fd_rwlock_write( &banks->locks->banks_lock );
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
   if( FD_UNLIKELY( !bank_pool ) ) {
@@ -618,7 +613,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   /* If the bank has been marked as dead from the time that it was
      initialized, don't bother copying over any data and return NULL. */
   if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
-    fd_rwlock_unwrite( &banks->locks->banks_lock );
     return NULL;
   }
 
@@ -672,8 +666,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( banks->data );
   child_bank->stake_delegations_fork_id = fd_stake_delegations_delta_new_fork( stake_delegations_delta );
   fd_rwlock_unwrite( &banks->locks->stake_delegations_delta_lock );
-
-  fd_rwlock_unwrite( &banks->locks->banks_lock );
 
   bank_l->locks = banks->locks;
   bank_l->data  = child_bank;
@@ -761,8 +753,6 @@ fd_stake_delegations_t *
 fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
                                           fd_bank_t *  bank ) {
 
-  fd_rwlock_write( &banks->locks->banks_lock );
-
   /* First copy the rooted state into the frontier. */
   fd_memcpy( fd_banks_get_stake_delegations_frontier_mem( banks->data ),
              fd_banks_get_stake_delegations_root_mem( banks->data ),
@@ -773,8 +763,6 @@ fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
   fd_stake_delegations_t * stake_delegations_base = fd_type_pun( fd_banks_get_stake_delegations_frontier_mem( banks->data ) );
   fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( banks->data );
   fd_bank_stake_delegation_apply_deltas( banks, bank, stake_delegations_base, stake_delegations_delta );
-
-  fd_rwlock_unwrite( &banks->locks->banks_lock );
 
   return stake_delegations_base;
 }
@@ -787,8 +775,6 @@ fd_banks_stake_delegations_root_query( fd_banks_t * banks ) {
 void
 fd_banks_advance_root( fd_banks_t * banks,
                        ulong        root_bank_idx ) {
-
-  fd_rwlock_write( &banks->locks->banks_lock );
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
 
@@ -904,8 +890,6 @@ fd_banks_advance_root( fd_banks_t * banks,
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
   fd_vote_stakes_advance_root( vote_stakes, new_root->data->vote_stakes_fork_id );
-
-  fd_rwlock_unwrite( &banks->locks->banks_lock );
 }
 
 /* Is the fork tree starting at the given bank entirely eligible for
@@ -945,26 +929,22 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
      refcnts to determine which bank is the highest advanceable. */
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
-  fd_rwlock_read( &banks->locks->banks_lock );
 
   fd_bank_t root[1];
   if( FD_UNLIKELY( !fd_banks_root( root, banks ) ) ) {
     FD_LOG_WARNING(( "failed to get root bank" ));
-    fd_rwlock_unread( &banks->locks->banks_lock );
     return 0;
   }
 
   /* Early exit if target is the same as the old root. */
   if( FD_UNLIKELY( root->data->idx==target_bank_idx ) ) {
     FD_LOG_WARNING(( "target bank_idx %lu is the same as the old root's bank index %lu", target_bank_idx, root->data->idx ));
-    fd_rwlock_unread( &banks->locks->banks_lock );
     return 0;
   }
 
   /* Early exit if the root bank still has a reference to it, we can't
      advance from it unti it's released. */
   if( FD_UNLIKELY( root->data->refcnt!=0UL ) ) {
-    fd_rwlock_unread( &banks->locks->banks_lock );
     return 0;
   }
 
@@ -1016,7 +996,6 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
     fd_bank_data_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
     if( child_idx!=advance_candidate_idx ) {
       if( !fd_banks_subtree_can_be_pruned( bank_pool, child_bank ) ) {
-        fd_rwlock_unread( &banks->locks->banks_lock );
         return 0;
       }
     }
@@ -1024,7 +1003,6 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
   }
 
   *advanceable_bank_idx_out = advance_candidate_idx;
-  fd_rwlock_unread( &banks->locks->banks_lock );
   return 1;
 }
 
@@ -1033,8 +1011,6 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
                    fd_banks_t * banks,
                    ulong        parent_bank_idx,
                    long         now ) {
-
-  fd_rwlock_write( &banks->locks->banks_lock );
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
   if( FD_UNLIKELY( !bank_pool ) ) {
@@ -1113,7 +1089,6 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
   child_bank->first_transaction_scheduled_nanos = 0L;
   child_bank->last_transaction_finished_nanos   = 0L;
 
-  fd_rwlock_unwrite( &banks->locks->banks_lock );
   bank_l->data  = child_bank;
   bank_l->locks = banks->locks;
   return bank_l;
@@ -1142,18 +1117,13 @@ fd_banks_subtree_mark_dead( fd_banks_data_t * banks,
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
                          ulong        bank_idx ) {
-  fd_rwlock_write( &banks->locks->banks_lock );
-
   fd_bank_data_t * bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank_idx );
   fd_banks_subtree_mark_dead( banks->data, fd_banks_get_bank_pool( banks->data ), bank );
-
-  fd_rwlock_unwrite( &banks->locks->banks_lock );
 }
 
 int
 fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
                               fd_banks_prune_cancel_info_t * cancel ) {
-  fd_rwlock_write( &banks->locks->banks_lock );
 
   fd_bank_idx_seq_t * dead_banks_queue = fd_banks_get_dead_banks_deque( banks->data );
   fd_bank_data_t *    bank_pool        = fd_banks_get_bank_pool( banks->data );
@@ -1220,7 +1190,6 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
 
     bank->stake_rewards_fork_id = UCHAR_MAX;
 
-    /* TODO:FIXME: Think about this more */
     int needs_cancel = !!(bank->flags&FD_BANK_FLAGS_REPLAYABLE);
     if( FD_LIKELY( needs_cancel ) ) {
       cancel->txncache_fork_id = bank->txncache_fork_id;
@@ -1232,21 +1201,17 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
 
     fd_banks_pool_ele_release( bank_pool, bank );
     fd_banks_dead_pop_head( dead_banks_queue );
-    fd_rwlock_unwrite( &banks->locks->banks_lock );
     return 1+needs_cancel;
   }
-  fd_rwlock_unwrite( &banks->locks->banks_lock );
   return 0;
 }
 
 void
-fd_banks_mark_bank_frozen( fd_banks_t * banks,
-                           fd_bank_t *  bank ) {
+fd_banks_mark_bank_frozen( fd_bank_t *  bank ) {
   if( FD_UNLIKELY( bank->data->flags&FD_BANK_FLAGS_FROZEN ) ) {
     FD_LOG_CRIT(( "invariant violation: bank for idx %lu is already frozen", bank->data->idx ));
   }
 
-  fd_rwlock_write( &banks->locks->banks_lock );
   bank->data->flags |= FD_BANK_FLAGS_FROZEN;
 
   if( FD_UNLIKELY( bank->data->cost_tracker_pool_idx==fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank->data ) ) ) ) {
@@ -1254,7 +1219,6 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
   }
   fd_bank_cost_tracker_pool_idx_release( fd_bank_get_cost_tracker_pool( bank->data ), bank->data->cost_tracker_pool_idx );
   bank->data->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank->data ) );
-  fd_rwlock_unwrite( &banks->locks->banks_lock );
 }
 
 static void
@@ -1281,13 +1245,10 @@ void
 fd_banks_get_frontier( fd_banks_t * banks,
                        ulong *      frontier_indices_out,
                        ulong *      frontier_cnt_out ) {
-  fd_rwlock_read( &banks->locks->banks_lock );
 
   *frontier_cnt_out = 0UL;
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
   fd_banks_get_frontier_private( bank_pool, banks->data->root_idx, frontier_indices_out, frontier_cnt_out );
-
-  fd_rwlock_unread( &banks->locks->banks_lock );
 }
 
 void
@@ -1295,7 +1256,6 @@ fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank,
                      ulong        max_vote_accounts ) {
 
-  fd_rwlock_read( &banks->locks->banks_lock );
   /* Get the parent bank. */
   fd_bank_data_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank->data->parent_idx );
 
@@ -1315,17 +1275,18 @@ fd_banks_clear_bank( fd_banks_t * banks,
   }
   bank->data->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
 
+  fd_rwlock_write( &banks->locks->stake_delegations_delta_lock );
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( banks->data );
+  fd_stake_delegations_delta_evict_fork( stake_delegations_delta, bank->data->stake_delegations_fork_id );
+  bank->data->stake_delegations_fork_id = USHORT_MAX;
   fd_rwlock_unwrite( &banks->locks->stake_delegations_delta_lock );
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
   fd_vote_stakes_new( vote_stakes, max_vote_accounts, max_vote_accounts, banks->data->max_fork_width, 999UL );
-
-  fd_rwlock_unread( &banks->locks->banks_lock );
 }
 
 void
 fd_banks_locks_init( fd_banks_locks_t * locks ) {
-  fd_rwlock_new( &locks->banks_lock );
   fd_rwlock_new( &locks->top_votes_pool_lock );
   fd_rwlock_new( &locks->vote_stakes_lock );
   fd_rwlock_new( &locks->stake_delegations_delta_lock );

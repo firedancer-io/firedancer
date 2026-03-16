@@ -855,7 +855,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   slot_info->identity_balance = FD_UNLIKELY( slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
   /* Mark the bank as frozen. */
-  fd_banks_mark_bank_frozen( ctx->banks, bank );
+  fd_banks_mark_bank_frozen( bank );
 
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
@@ -994,7 +994,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, ctx->leader_bank->data->idx } };
   slot_info->identity_balance = FD_UNLIKELY( curr_slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
-  fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
+  fd_banks_mark_bank_frozen( ctx->leader_bank );
 
   fd_hash_t const * bank_hash  = &ctx->leader_bank->data->fields.bank_hash;
   FD_TEST( bank_hash );
@@ -2287,7 +2287,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         fd_sched_block_abandon( ctx->sched, bank->data->idx );
       }
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( ctx->banks, bank );
+        fd_banks_mark_bank_frozen( bank );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
@@ -2320,7 +2320,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         fd_sched_block_abandon( ctx->sched, bank->data->idx );
       }
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( ctx->banks, bank );
+        fd_banks_mark_bank_frozen( bank );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
@@ -2335,7 +2335,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         mark_bank_dead( ctx, stem, bank->data->idx );
       }
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( ctx->banks, bank );
+        fd_banks_mark_bank_frozen( bank );
       }
       break;
     }

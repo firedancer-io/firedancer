@@ -366,17 +366,6 @@ struct fd_bank_data {
 typedef struct fd_bank_data fd_bank_data_t;
 
 struct fd_banks_locks {
-  /* This lock is only used to serialize banks fork tree reads with
-     respect to fork tree writes.  In other words, tree traversals
-     cannot happen at the same time as a tree pruning operation or a
-     tree insertion operation.  So the public APIs on banks take either
-     a read lock or a write lock depending on what they do on the fork
-     tree.  For example, publishing takes a write lock, and bank lookups
-     take a read lock.  Notably, individual banks can still be
-     concurrently accessed or modified, and this lock does not offer
-     synchronization on individual fields within a bank. */
-  fd_rwlock_t banks_lock;
-
   fd_rwlock_t top_votes_pool_lock;
 
   fd_rwlock_t vote_stakes_lock;
@@ -882,8 +871,7 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
    TODO: bank param should be replaced with bank_idx */
 
 void
-fd_banks_mark_bank_frozen( fd_banks_t * banks,
-                           fd_bank_t *  bank );
+fd_banks_mark_bank_frozen( fd_bank_t * bank );
 
 /* fd_banks_new_bank reserves a bank index for a new bank.  New bank
    indicies should always be available.  After this function is called,

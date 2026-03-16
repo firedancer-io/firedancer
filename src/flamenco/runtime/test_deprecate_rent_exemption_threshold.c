@@ -364,7 +364,7 @@ process_slot( test_env_t * env,
 
   int rent_modified = rent_was_modified_in_txn( env, &xid );
 
-  fd_banks_mark_bank_frozen( env->banks, new_bank );
+  fd_banks_mark_bank_frozen( new_bank );
 
   fd_accdb_advance_root( env->accdb_admin, &xid );
   fd_banks_advance_root( env->banks, new_bank_idx );
