@@ -2101,7 +2101,7 @@ process_fec_set( fd_replay_tile_t *  ctx,
     fd_bank_t curr_bank[1];
     if( FD_LIKELY( fd_banks_bank_query( curr_bank, ctx->banks, curr->bank_idx ) && curr_bank->data->bank_seq==curr->bank_seq ) ) break;
 
-    FD_TEST( path_cnt<=FD_BANKS_MAX_BANKS );
+    FD_TEST( path_cnt<FD_BANKS_MAX_BANKS );
     path[ path_cnt++ ] = curr;
   }
 
