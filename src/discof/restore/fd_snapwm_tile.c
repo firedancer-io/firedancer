@@ -225,7 +225,7 @@ handle_control_frag( fd_snapwm_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       fd_snapwm_vinyl_wd_fini( ctx );
       if( ctx->vinyl.txn_active ) {
-        fd_snapwm_vinyl_txn_commit( ctx, stem );
+        fd_snapwm_vinyl_txn_commit( ctx );
       }
       break;
     }
