@@ -218,9 +218,7 @@ FD_PROTOTYPES_BEGIN
   /* type,                             name */                                                                             \
   X(fd_blockhashes_t,                  block_hash_queue         ) /* Block hash queue */                                   \
   X(fd_fee_rate_governor_t,            fee_rate_governor        ) /* Fee rate governor */                                  \
-  X(ulong,                             rbh_lamports_per_sig     ) /* Recent Block Hashes lamports per signature */         \
-  X(ulong,                             slot                     ) /* Slot */                                               \
-  X(ulong,                             parent_slot              ) /* Parent slot */
+  X(ulong,                             rbh_lamports_per_sig     ) /* Recent Block Hashes lamports per signature */
 
 /* Defining pooled fields. */
 

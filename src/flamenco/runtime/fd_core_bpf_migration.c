@@ -468,7 +468,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
     return;
 
   fd_rent_t const * rent = &bank->data->fields.rent;
-  ulong const       slot = fd_bank_slot_get  ( bank );
+  ulong const       slot = bank->data->fields.slot;
 
   fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration.new_target_program;
   if( FD_UNLIKELY( !new_target_program_account(
@@ -574,7 +574,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   fd_bpf_upgradeable_loader_state_t programdata_state[1] = {{
     .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
     .inner = { .program_data = {
-      .slot = fd_bank_slot_get( bank ),
+      .slot = bank->data->fields.slot,
       .upgrade_authority_address = target->upgrade_authority_address,
       .has_upgrade_authority_address = target->has_upgrade_authority_address
     }}

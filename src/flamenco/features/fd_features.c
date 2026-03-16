@@ -74,7 +74,7 @@ fd_feature_restore( fd_bank_t *               bank,
 
   fd_features_t *             features       = &bank->data->fields.features;
   fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
-  ulong                       slot           = fd_bank_slot_get( bank );
+  ulong                       slot           = bank->data->fields.slot;
 
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;

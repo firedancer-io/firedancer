@@ -517,7 +517,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MR,   ctx->metrics.store_query_missing_mr   );
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
-  ulong leader_slot = ctx->leader_bank->data ? fd_bank_slot_get( ctx->leader_bank ) : 0UL;
+  ulong leader_slot = ctx->leader_bank->data ? ctx->leader_bank->data->fields.slot : 0UL;
 
   if( FD_LIKELY( ctx->leader_bank->data ) ) {
     FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, leader_slot );
@@ -569,7 +569,7 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
                     fd_bank_t *          bank,
                     int                  current_epoch ) {
   fd_epoch_schedule_t const * schedule = &bank->data->fields.epoch_schedule;
-  ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL ) + fd_ulong_if( current_epoch, 1UL, 0UL );
+  ulong epoch = fd_slot_to_epoch( schedule, bank->data->fields.slot, NULL ) + fd_ulong_if( current_epoch, 1UL, 0UL );
 
   fd_features_t const * features = &bank->data->fields.features;
 
@@ -625,7 +625,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_bank_query( parent_bank, ctx->banks, parent_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: parent bank is NULL for bank index %lu", parent_bank_idx ));
   }
-  ulong parent_slot = fd_bank_slot_get( parent_bank );
+  ulong parent_slot = parent_bank->data->fields.slot;
 
   /* Clone the bank from the parent.  We must special case the first
      slot that is executed as the snapshot does not provide a parent
@@ -634,7 +634,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_clone_from_parent( bank, ctx->banks, bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
-  fd_bank_slot_set( bank, slot );
+  bank->data->fields.slot = slot;
   bank->data->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->data->txncache_fork_id );
 
   /* Create a new funk txn for the block. */
@@ -696,7 +696,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
                         int                 is_initial,
                         int                 is_leader ) {
 
-  ulong slot = fd_bank_slot_get( bank );
+  ulong slot = bank->data->fields.slot;
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->data->idx ];
 
@@ -729,7 +729,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->slot_in_epoch         = slot_idx;
   slot_info->slots_per_epoch       = fd_epoch_slot_cnt( epoch_schedule, epoch );
   slot_info->block_height          = bank->data->fields.block_height;
-  slot_info->parent_slot           = fd_bank_parent_slot_get( bank );
+  slot_info->parent_slot           = bank->data->fields.parent_slot;
   slot_info->block_id              = block_id_ele->latest_mr;
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
@@ -852,7 +852,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   cost_tracker_snap( bank, slot_info );
 
   /* fetch identity / vote balance updates infrequently */
-  ulong slot = fd_bank_slot_get( bank );
+  ulong slot = bank->data->fields.slot;
   fd_funk_txn_xid_t xid = { .ul = { slot, bank->data->idx } };
   slot_info->identity_balance = FD_UNLIKELY( slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
@@ -907,7 +907,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_bank_query( parent_bank, ctx->banks, parent_bank_idx ) ) ) {
     FD_LOG_CRIT(( "invariant violation: parent bank not found for bank index %lu", parent_bank_idx ));
   }
-  ulong parent_slot = fd_bank_slot_get( parent_bank );
+  ulong parent_slot = parent_bank->data->fields.slot;
 
   if( FD_UNLIKELY( !fd_banks_new_bank( ctx->leader_bank, ctx->banks, parent_bank_idx, now ) ) ) {
     FD_LOG_CRIT(( "invariant violation: leader bank is NULL for slot %lu", slot ));
@@ -919,7 +919,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
 
   ctx->leader_bank->data->preparation_begin_nanos = before;
 
-  fd_bank_slot_set( ctx->leader_bank, slot );
+  ctx->leader_bank->data->fields.slot = slot;
   ctx->leader_bank->data->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->data->txncache_fork_id );
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->data->idx } };
@@ -985,7 +985,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   ctx->leader_bank->data->last_transaction_finished_nanos = fd_log_wallclock();
 
-  ulong curr_slot = fd_bank_slot_get( ctx->leader_bank );
+  ulong curr_slot = ctx->leader_bank->data->fields.slot;
 
   fd_sched_block_add_done( ctx->sched, ctx->leader_bank->data->idx, ctx->leader_bank->data->parent_idx, curr_slot );
 
@@ -1024,19 +1024,19 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
-  if( FD_UNLIKELY( bank->data->fields.epoch>fd_slot_to_epoch( &bank->data->fields.epoch_schedule, fd_bank_parent_slot_get( bank ), NULL ) )) {
+  if( FD_UNLIKELY( bank->data->fields.epoch>fd_slot_to_epoch( &bank->data->fields.epoch_schedule, bank->data->fields.parent_slot, NULL ) )) {
     publish_epoch_info( ctx, stem, bank, 1 );
   }
 
   if( ctx->rpc_enabled ) {
     bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, bank->data->fields.slot, bank->data->refcnt ));
   }
 
   /* Increment the reference count on the consensus root bank to account
      for the number of resolv tiles that are waiting on it. */
   bank->data->refcnt += ctx->resolv_tile_cnt;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for resolv", bank->data->idx, bank->data->fields.slot, bank->data->refcnt ));
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->bank_idx = bank->data->idx;
@@ -1097,8 +1097,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
   }
 
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
-  init_funk( ctx, fd_bank_slot_get( bank ) );
+  fd_funk_txn_xid_t xid = { .ul = { bank->data->fields.slot, bank->data->idx } };
+  init_funk( ctx, bank->data->fields.slot );
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
 
@@ -1144,7 +1144,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb, &xid, ctx->runtime_stack, ctx->capture_ctx );
 
-  ulong snapshot_slot = fd_bank_slot_get( bank );
+  ulong snapshot_slot = bank->data->fields.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
     /* Genesis-specific setup. */
     /* FIXME: This branch does not set up a new block exec ctx
@@ -1196,7 +1196,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     while( child_idx!=ULONG_MAX ) {
       fd_bank_t child_bank[1];
       fd_banks_bank_query( child_bank, ctx->banks, child_idx );
-      max_active_descendant = fd_ulong_max( max_active_descendant, fd_bank_slot_get( child_bank ) );
+      max_active_descendant = fd_ulong_max( max_active_descendant, child_bank->data->fields.slot );
       child_idx = child_bank->data->sibling_idx;
     }
 
@@ -1341,7 +1341,7 @@ publish_reset( fd_replay_tile_t *  ctx,
 
   reset->bank_idx         = bank->data->idx;
   reset->timestamp        = fd_log_wallclock();
-  reset->completed_slot   = fd_bank_slot_get( bank );
+  reset->completed_slot   = bank->data->fields.slot;
   reset->hashcnt_per_tick = bank->data->fields.hashes_per_tick;
   reset->ticks_per_slot   = bank->data->fields.ticks_per_slot;
   reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
@@ -1511,7 +1511,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
     }
 
-    ulong snapshot_slot = fd_bank_slot_get( bank );
+    ulong snapshot_slot = bank->data->fields.slot;
 
     fd_hash_t bank_hash = bank->data->fields.bank_hash;
     if( FD_UNLIKELY( ctx->wfs_enabled && memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
@@ -2107,7 +2107,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   }
   fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
-  ulong advanceable_root_slot = fd_bank_slot_get( bank );
+  ulong advanceable_root_slot = bank->data->fields.slot;
   accdb_advance_root( ctx, advanceable_root_slot, bank->data->idx );
 
   fd_txncache_advance_root( ctx->txncache, bank->data->txncache_fork_id );
@@ -2144,7 +2144,7 @@ after_credit( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->is_leader &&
                    ctx->recv_poh &&
                    ctx->block_id_arr[ ctx->leader_bank->data->idx ].block_id_seen &&
-                   ctx->block_id_arr[ ctx->leader_bank->data->idx ].slot==fd_bank_slot_get( ctx->leader_bank ) ) ) {
+                   ctx->block_id_arr[ ctx->leader_bank->data->idx ].slot==ctx->leader_bank->data->fields.slot ) ) {
 
     fini_leader_bank( ctx, stem );
     *charge_busy = 1;
@@ -2491,7 +2491,7 @@ process_resolv_slot_completed( fd_replay_tile_t * ctx, ulong bank_idx ) {
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, bank_idx ) );
   bank->data->refcnt--;
-  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+  FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank->data->idx, bank->data->fields.slot, bank->data->refcnt ));
 }
 
 static void
@@ -2574,7 +2574,7 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
 
   if( ctx->rpc_enabled ) {
     bank->data->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt ));
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for rpc", bank->data->idx, bank->data->fields.slot, bank->data->refcnt ));
   }
 
   fd_replay_oc_advanced_t * replay_msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -2693,7 +2693,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       fd_bank_t bank[1];
       FD_TEST( fd_banks_bank_query( bank, ctx->banks, sig ) );
       bank->data->refcnt--;
-      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->data->idx, fd_bank_slot_get( bank ), bank->data->refcnt, ctx->in_kind[ in_idx ]==IN_KIND_RPC ? "rpc" : "gui" ));
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->data->idx, bank->data->fields.slot, bank->data->refcnt, ctx->in_kind[ in_idx ]==IN_KIND_RPC ? "rpc" : "gui" ));
       break;
     }
     default:
@@ -2819,7 +2819,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_init_bank( bank, ctx->banks ) );
-  fd_bank_slot_set( bank, 0UL );
+  bank->data->fields.slot = 0UL;
   FD_TEST( bank->data->idx==FD_REPLAY_BOOT_BANK_IDX );
 
   ctx->consensus_root_slot = ULONG_MAX;

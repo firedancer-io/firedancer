@@ -952,7 +952,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   }
 
   fd_accdb_ro_t ro[1];
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { bank->data->fields.slot, bank->data->idx } };
   if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, ro, &xid, &txn_out->accounts.keys[ nonce_idx ] ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }

@@ -226,13 +226,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                 &txn_out->accounts.keys[i],
                                 meta,
                                 features,
-                                fd_bank_slot_get( runner->bank ),
+                                runner->bank->data->fields.slot,
                                 scratch,
                                 meta->dlen );
     } FD_SPAD_FRAME_END;
   }
 
-  fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ fd_bank_slot_get( runner->bank ), runner->bank->data->idx } }};
+  fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ runner->bank->data->fields.slot, runner->bank->data->idx } }};
   fd_accdb_attach_child        ( runner->accdb_admin,     xid, exec_xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, xid, exec_xid );
 
@@ -255,7 +255,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, clock_ );
   FD_TEST( clock );
-  fd_bank_slot_set( runner->bank, clock->slot );
+  runner->bank->data->fields.slot = clock->slot;
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );

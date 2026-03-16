@@ -59,7 +59,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
 
   /* Slot*/
-  fd_bank_slot_set( runner->bank, slot );
+  runner->bank->data->fields.slot = slot;
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
@@ -73,7 +73,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_solfuzz_pb_restore_fee_rate_governor( runner->bank, &txn_bank->fee_rate_governor );
 
   /* Parent slot */
-  fd_bank_parent_slot_set( runner->bank, slot-1UL );
+  runner->bank->data->fields.parent_slot = slot-1UL;
 
   /* Total epoch stake */
   runner->bank->data->fields.total_epoch_stake = txn_bank->total_epoch_stake;

@@ -533,7 +533,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      step. */
   fd_bank_t parent_bank[1];
   fd_banks_get_parent( parent_bank, banks, bank );
-  ulong                          parent_slot    = fd_bank_slot_get( parent_bank );
+  ulong                          parent_slot    = parent_bank->data->fields.slot;
   fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->data->idx } };
   fd_exec_test_block_context_t * block_context  = &dump_ctx->block_context;
   ulong                          dump_txn_count = dump_ctx->txns_to_dump_cnt;
@@ -721,10 +721,10 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   dump_fee_rate_governor( parent_bank, &block_bank->fee_rate_governor );
 
   /* BlockBank -> slot */
-  block_bank->slot = fd_bank_slot_get( bank );
+  block_bank->slot = bank->data->fields.slot;
 
   /* BlockBank -> parent_slot */
-  block_bank->parent_slot = fd_bank_parent_slot_get( bank );
+  block_bank->parent_slot = bank->data->fields.parent_slot;
 
   /* BlockBank -> capitalization */
   block_bank->capitalization = parent_bank->data->fields.capitalization;
@@ -802,7 +802,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->account_shared_data = fd_spad_alloc( spad,
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { bank->data->fields.slot, bank->data->idx } };
 
   /* Dump regular accounts first */
   for( ulong i = 0; i < txn_out->accounts.cnt; ++i ) {
@@ -925,7 +925,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Program ID */
   fd_memcpy( instr_context->program_id, txn_out->accounts.keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { bank->data->fields.slot, bank->data->idx } };
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_out->accounts.cnt;
@@ -1354,7 +1354,7 @@ FD_SPAD_FRAME_BEGIN( dump_block_ctx->spad ) {
   pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
   if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, &dump_block_ctx->block_context ) ) {
     char output_filepath[ PATH_MAX ];
-    snprintf( output_filepath, PATH_MAX, "%s/block-%lu.blockctx", dump_proto_ctx->dump_proto_output_dir, fd_bank_slot_get( bank ) );
+    snprintf( output_filepath, PATH_MAX, "%s/block-%lu.blockctx", dump_proto_ctx->dump_proto_output_dir, bank->data->fields.slot );
     FILE * file = fopen(output_filepath, "wb");
     if( file ) {
       fwrite( out, 1, stream.bytes_written, file );

@@ -145,7 +145,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !fd_banks_init_bank( runner->bank, runner->banks ) ) ) goto bail2;
   runner->acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ) );
   if( FD_UNLIKELY( !runner->acc_pool ) ) goto bail2;
-  fd_bank_slot_set( runner->bank, 0UL );
+  runner->bank->data->fields.slot = 0UL;
 
   runner->enable_vm_tracing = options->enable_vm_tracing;
   FD_TEST( runner->progcache->funk->shmem );

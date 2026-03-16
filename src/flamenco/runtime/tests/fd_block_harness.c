@@ -164,7 +164,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Slot */
   ulong slot = block_bank->slot;
-  fd_bank_slot_set( bank, slot );
+  bank->data->fields.slot = slot;
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( bank, block_bank->blockhash_queue, block_bank->blockhash_queue_count );
@@ -179,7 +179,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Parent slot */
   ulong parent_slot = block_bank->parent_slot;
-  fd_bank_parent_slot_set( bank, parent_slot );
+  bank->data->fields.parent_slot = parent_slot;
 
   /* Capitalization */
   bank->data->fields.capitalization = block_bank->capitalization;
@@ -397,7 +397,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       capture_link_file->fd          = solcap_fd;
       capture_ctx->capture_link      = &capture_link_file->base;
       capture_ctx->capctx_type.file  = capture_link_file;
-      capture_ctx->solcap_start_slot = fd_bank_slot_get( runner->bank );
+      capture_ctx->solcap_start_slot = runner->bank->data->fields.slot;
       capture_ctx->capture_solcap    = 1;
 
       fd_solcap_writer_init( capture_ctx->capture, solcap_fd );
@@ -405,7 +405,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
     /* TODO: Make sure this is able to work with booting up inside
        the partitioned epoch rewards distribution phase. */
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->data->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { runner->bank->data->fields.slot, runner->bank->data->idx } };
     fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb, &xid, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
@@ -573,7 +573,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
       return 0;
     }
 
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->data->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { runner->bank->data->fields.slot, runner->bank->data->idx } };
 
     /* Execute the constructed block against the runtime. */
     int is_committable = fd_solfuzz_block_ctx_exec( runner, txn_ptrs, txn_cnt, &poh );

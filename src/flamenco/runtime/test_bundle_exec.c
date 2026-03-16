@@ -164,7 +164,7 @@ init_rent_sysvar( test_env_t * env,
     init_clock_sysvar( env );
     init_blockhash_queue( env );
 
-    fd_bank_slot_set( env->bank, 9UL );
+    env->bank->data->fields.slot = 9UL;
     env->bank->data->fields.epoch = 4UL;
 
     fd_features_t features = {0};
@@ -196,7 +196,7 @@ static void
 process_slot( test_env_t * env,
               ulong        slot ) {
   fd_bank_t * parent_bank = env->bank;
-  ulong parent_slot       = fd_bank_slot_get( parent_bank );
+  ulong parent_slot       = parent_bank->data->fields.slot;
   ulong parent_bank_idx   = parent_bank->data->idx;
 
   FD_TEST( parent_bank->data->flags & FD_BANK_FLAGS_FROZEN );
@@ -205,8 +205,8 @@ process_slot( test_env_t * env,
   fd_bank_t * new_bank = fd_banks_clone_from_parent( env->bank, env->banks, new_bank_idx );
   FD_TEST( new_bank );
 
-  fd_bank_slot_set( new_bank, slot );
-  fd_bank_parent_slot_set( new_bank, parent_slot );
+  new_bank->data->fields.slot = slot;
+  new_bank->data->fields.parent_slot = parent_slot;
 
   fd_epoch_schedule_t const * epoch_schedule = &new_bank->data->fields.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );

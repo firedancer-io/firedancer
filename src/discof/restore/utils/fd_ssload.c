@@ -66,8 +66,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    int                      is_incremental ) {
   /* Slot */
 
-  fd_bank_slot_set( bank, manifest->slot );
-  fd_bank_parent_slot_set( bank, manifest->parent_slot );
+  bank->data->fields.slot = manifest->slot;
+  bank->data->fields.parent_slot = manifest->parent_slot;
 
   /* Bank Hash */
   fd_memcpy( &bank->data->fields.bank_hash.uc, manifest->bank_hash, 32UL );
@@ -81,7 +81,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fee_rate_governor->max_lamports_per_signature    = manifest->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = manifest->fee_rate_governor.burn_percent;
   /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/serde_snapshot.rs#L464-L466 */
-  fd_bank_rbh_lamports_per_sig_set( bank, manifest->lamports_per_signature );
+  bank->data->fields.rbh_lamports_per_sig = manifest->lamports_per_signature;
 
   fd_inflation_t * inflation = &bank->data->fields.inflation;
   inflation->initial         = manifest->inflation_params.initial;

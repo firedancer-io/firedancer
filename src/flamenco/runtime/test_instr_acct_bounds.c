@@ -158,8 +158,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
   fd_progcache_txn_attach_child( env->progcache_admin, root, &env->xid );
 
-  fd_bank_slot_set( env->bank, 10UL );
-  fd_bank_parent_slot_set( env->bank, 9UL );
+  env->bank->data->fields.slot = 10UL;
+  env->bank->data->fields.parent_slot = 9UL;
   env->bank->data->fields.epoch = 0UL;
 
   env->runtime->accdb        = env->accdb;

@@ -82,7 +82,7 @@ get_inflation_num_slots( fd_bank_t const *           bank,
 static double
 slot_in_year_for_inflation( fd_bank_t const * bank ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
-  ulong num_slots = get_inflation_num_slots( bank, epoch_schedule, fd_bank_slot_get( bank ) );
+  ulong num_slots = get_inflation_num_slots( bank, epoch_schedule, bank->data->fields.slot );
   return (double)num_slots / (double)bank->data->fields.slots_per_year;
 }
 
@@ -582,7 +582,7 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
     if( capture_ctx && capture_ctx->capture_solcap ) {
       uchar commission = runtime_stack->stakes.vote_ele[ idx ].commission;
       fd_capture_link_write_stake_reward_event( capture_ctx,
-                                                fd_bank_slot_get( bank ),
+                                                bank->data->fields.slot,
                                                 stake_delegation->stake_account,
                                                 stake_delegation->vote_account,
                                                 commission,
@@ -731,7 +731,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
     ulong epoch = bank->data->fields.epoch;
-    ulong slot  = fd_bank_slot_get( bank );
+    ulong slot  = bank->data->fields.slot;
     fd_capture_link_write_stake_rewards_begin( capture_ctx,
                                                slot,
                                                epoch,
@@ -758,7 +758,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   fd_hash_t const * parent_blockhash      = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
   ulong             starting_block_height = bank->data->fields.block_height + REWARD_CALCULATION_NUM_BLOCKS;
   uint              num_partitions        = get_reward_distribution_num_blocks( &bank->data->fields.epoch_schedule,
-                                                                                fd_bank_slot_get( bank ),
+                                                                                bank->data->fields.slot,
                                                                                 runtime_stack->stakes.stake_rewards_cnt );
 
   setup_stake_partitions(
@@ -952,9 +952,9 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,
-                                                fd_bank_slot_get( bank ),
+                                                bank->data->fields.slot,
                                                 *stake_pubkey,
-                                                fd_bank_slot_get( bank ),
+                                                bank->data->fields.slot,
                                                 acc_lamports,
                                                 (long)reward_lamports,
                                                 new_credits_observed,
