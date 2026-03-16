@@ -1801,6 +1801,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "discard_unexpected_data_complete_shreds",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, create_account_allow_prefund)>>3,
+    .id                        = {"\x57\x32\x9a\x9e\x7c\x9b\x2b\x63\xa6\xee\x98\xb8\x4a\x21\x4e\xb2\x16\xce\x9d\x43\x32\xb5\x8c\x1c\x9c\xa4\x56\x8b\xde\x3b\xa9\x14"},
+                                 /* 6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331 */
+    .name                      = "create_account_allow_prefund",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2081,6 +2087,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_261 0x73869887e8eb4903UL, .val = &ids[261]
 #define MAP_PERFECT_262 0x8b0786cd93f63607UL, .val = &ids[262]
 #define MAP_PERFECT_263 0x4908ae0360664f6dUL, .val = &ids[263]
+#define MAP_PERFECT_264 0x632b9b7c9e9a3257UL, .val = &ids[264]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2355,4 +2362,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model   
 FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==261UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==262UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, discard_unexpected_data_complete_shreds                 )>>3==263UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, create_account_allow_prefund                            )>>3==264UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
