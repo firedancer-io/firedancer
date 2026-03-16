@@ -88,33 +88,21 @@ fd_bank_top_votes_modify( fd_bank_t * bank ) {
 }
 
 fd_cost_tracker_t *
-fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
+fd_bank_cost_tracker_modify( fd_bank_t * bank ) {
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank->data );
   FD_TEST( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->data->cost_tracker_pool_idx )->data;
   FD_TEST( cost_tracker_mem );
-  fd_rwlock_write( &bank->locks->cost_tracker_lock[ bank->data->idx ] );
   return fd_type_pun( cost_tracker_mem );
 }
 
-void
-fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->cost_tracker_lock[ bank->data->idx ] );
-}
-
 fd_cost_tracker_t const *
-fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
+fd_bank_cost_tracker_query( fd_bank_t * bank ) {
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank->data );
   FD_TEST( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->data->cost_tracker_pool_idx )->data;
   FD_TEST( cost_tracker_mem );
-  fd_rwlock_read( &bank->locks->cost_tracker_lock[ bank->data->idx ] );
   return fd_type_pun_const( cost_tracker_mem );
-}
-
-void
-fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->locks->cost_tracker_lock[ bank->data->idx ] );
 }
 
 fd_lthash_value_t const *
@@ -541,7 +529,6 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   bank->top_votes_dirty    = 0;
 
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
-  fd_rwlock_new( &bank_l->locks->cost_tracker_lock[ bank->idx ] );
 
   fd_rwlock_new( &bank_l->locks->lthash_lock[ bank->idx ] );
 
@@ -628,7 +615,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
     FD_LOG_CRIT(( "invariant violation: no free cost tracker pool elements" ));
   }
   child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_new( &bank_l->locks->cost_tracker_lock[ child_bank->idx ] );
 
   /* The lthash has already been copied over, we just need to initialize
      the lock for the current bank. */
@@ -1280,7 +1266,6 @@ fd_banks_clear_bank( fd_banks_t * banks,
     fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, bank->data->cost_tracker_pool_idx );
   }
   bank->data->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-  fd_rwlock_unwrite( &banks->locks->cost_tracker_lock[ bank->data->idx ] );
 
   fd_rwlock_unwrite( &banks->locks->stake_delegations_delta_lock );
 
@@ -1293,13 +1278,11 @@ fd_banks_clear_bank( fd_banks_t * banks,
 void
 fd_banks_locks_init( fd_banks_locks_t * locks ) {
   fd_rwlock_new( &locks->banks_lock );
-  fd_rwlock_new( &locks->epoch_leaders_pool_lock );
   fd_rwlock_new( &locks->top_votes_pool_lock );
   fd_rwlock_new( &locks->vote_stakes_lock );
   fd_rwlock_new( &locks->stake_delegations_delta_lock );
 
   for( ulong i=0UL; i<FD_BANKS_MAX_BANKS; i++ ) {
     fd_rwlock_new( &locks->lthash_lock[i] );
-    fd_rwlock_new( &locks->cost_tracker_lock[i] );
   }
 }

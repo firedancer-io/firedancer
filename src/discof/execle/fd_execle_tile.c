@@ -252,7 +252,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
       /* If the transaction failed to fit into the block, we need to
          updated the transaction flag with the error code. */
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
       uchar * signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
       int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
@@ -433,7 +433,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-        fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+        fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
         int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );

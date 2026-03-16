@@ -30,6 +30,7 @@ struct cost_tracker_outer {
   ulong             pool_offset;
   ulong             accounts_used;
   ulong             magic;
+  fd_rwlock_t       lock;
 };
 
 typedef struct cost_tracker_outer cost_tracker_outer_t;
@@ -77,6 +78,8 @@ fd_cost_tracker_new( void * shmem,
   cost_tracker->pool_offset = (ulong)_accounts-(ulong)cost_tracker;
 
   cost_tracker->cost_tracker->larger_max_cost_per_block = larger_max_cost_per_block;
+
+  fd_rwlock_new( &cost_tracker->lock );
 
   (void)_accounts;
 
@@ -471,9 +474,11 @@ int
 fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,
                               fd_txn_out_t *      txn_out ) {
 
+  fd_rwlock_write( &((cost_tracker_outer_t *)cost_tracker)->lock );
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L167 */
   int err = would_fit( cost_tracker, txn_out, &txn_out->details.txn_cost );
   if( FD_UNLIKELY( err!=FD_COST_TRACKER_SUCCESS ) ) {
+    fd_rwlock_unwrite( &((cost_tracker_outer_t *)cost_tracker)->lock );
     return err;
   }
 
@@ -486,5 +491,6 @@ fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,
   /* Note: We purposely omit signature counts updates since they're not relevant to cost calculations right now. */
   cost_tracker->allocated_accounts_data_size += get_allocated_accounts_data_size( &txn_out->details.txn_cost );
   add_transaction_execution_cost( cost_tracker, txn_out, transaction_cost_sum( &txn_out->details.txn_cost ) );
+  fd_rwlock_unwrite( &((cost_tracker_outer_t *)cost_tracker)->lock );
   return FD_COST_TRACKER_SUCCESS;
 }
