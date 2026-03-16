@@ -62,7 +62,7 @@ struct fd_grpc_resp_hdrs {
 
   uint h2_status;   /* caller must init (typically 0); if :status header
                        absent, value is left unchanged; else HTTP status
-                       in [100,599] */
+                       in [100,999] */
   uint is_grpc_proto : 1;
 
   /* Trailers */
