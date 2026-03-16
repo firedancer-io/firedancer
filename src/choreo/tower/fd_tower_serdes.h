@@ -37,8 +37,8 @@ typedef struct fd_compact_tower_sync_serde fd_compact_tower_sync_serde_t;
 int
 fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
                            uchar *                               buf,
-                           ulong                                 buf_sz,
-                           ulong *                               out_sz );
+                           ulong                                 buf_max,
+                           ulong *                               buf_sz );
 
 /* fd_compact_tower_sync_de deserializes at most buf_sz of buf into
    fd_compact_tower_sync_serde_t.  Assumes buf is at least of size

@@ -136,34 +136,18 @@ ulong
 fd_url_unescape( char * const msg,
                  ulong  const len ) {
   char * end = msg+len;
-  int state = 0;
   char * dst = msg;
   for( char * src=msg; src<end; src++ ) {
-    /* invariant: p<=msg */
-    switch( state ) {
-    case 0:
-      if( FD_LIKELY( (*src)!='%' ) ) {
-        *dst = *src;
-        dst++;
-      } else {
-        state = 1;
-      }
-      break;
-    case 1:
-      if( FD_LIKELY( (*src)!='%' ) )  {
-        *dst = (char)( ( fd_hex_unhex( *src )&0xf )<<4 );
-        state = 2;
-      } else {
-        /* FIXME is 'aa%%aa' a valid escape? */
-        *(dst++) = '%';
-        state = 0;
-      }
-      break;
-    case 2:
-      *dst = (char)( (*dst) | ( fd_hex_unhex( *src )&0xf ) );
-      dst++;
-      state = 0;
-      break;
+    /* invariant: dst<=src */
+    if( FD_LIKELY( (*src)!='%' ) ) {
+      *(dst++) = *src;
+    } else {
+      if( FD_UNLIKELY( src+2>=end ) ) return 0UL; /* truncated percent encoding */
+      int hi = fd_hex_unhex( src[1] );
+      int lo = fd_hex_unhex( src[2] );
+      if( FD_UNLIKELY( (hi|lo)<0 ) ) return 0UL; /* invalid hex digit */
+      *(dst++) = (char)( (hi<<4) | lo );
+      src += 2;
     }
   }
   return (ulong)( dst-msg );

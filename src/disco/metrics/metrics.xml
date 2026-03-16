@@ -1219,28 +1219,32 @@ metric introduced.
     <counter name="VoteTxnInvalid" summary="Number of invalid vote txns (malformed, bad signature, etc.)" />
     <counter name="VoteTxnIgnored" summary="Number of ignored vote txns (unrecognized slot or block id)" />
 
-    <!-- DuplicateShreds from Gossip -->
+    <!-- Rx duplicate shreds -->
 
-    <counter name="ProofErrChunkCnt" summary="Invalid DuplicateShred proof bad chunk cnt" />
-    <counter name="ProofErrChunkIdx" summary="Invalid DuplicateShred proof bad chunk idx" />
-    <counter name="ProofErrChunkLen" summary="Invalid DuplicateShred proof bad chunk len" />
+    <counter name="EqvocSuccessMerkle" summary="Merkle root conflict" />
+    <counter name="EqvocSuccessMeta" summary="Coding metadata conflict" />
+    <counter name="EqvocSuccessLast" summary="Last shred index conflict" />
+    <counter name="EqvocSuccessOverlap" summary="Overlapping FEC set conflict" />
+    <counter name="EqvocSuccessChained" summary="Chained merkle root conflict" />
 
-    <counter name="ProofErrShredSer" summary="Invalid DuplicateShred proof bad serialization" />
-    <counter name="ProofErrShredSlot" summary="Invalid DuplicateShred proof different slots" />
-    <counter name="ProofErrShredVersion" summary="Invalid DuplicateShred proof shred version mismatch" />
-    <counter name="ProofErrShredType" summary="Invalid DuplicateShred proof bad shred type" />
-    <counter name="ProofErrShredMerkle" summary="Invalid DuplicateShred proof bad merkle root" />
-    <counter name="ProofErrShredSignature" summary="Invalid DuplicateShred proof bad signature" />
+    <counter name="EqvocErrSerde" summary="Invalid serialization" />
+    <counter name="EqvocErrSlot" summary="Shreds were for different slots" />
+    <counter name="EqvocErrVersion" summary="Either shred had wrong shred version" />
+    <counter name="EqvocErrType" summary="Wrong shred type (must be chained merkle)" />
+    <counter name="EqvocErrMerkle" summary="Failed to derive merkle root" />
+    <counter name="EqvocErrSignature" summary="Failed to sig verify" />
 
-    <counter name="ProofVerifiedMerkle" summary="Merkle root conflict" />
-    <counter name="ProofVerifiedMeta" summary="Coding metadata conflict" />
-    <counter name="ProofVerifiedLast" summary="Last shred index conflict" />
-    <counter name="ProofVerifiedOverlap" summary="Overlapping FEC set conflict" />
-    <counter name="ProofVerifiedChained" summary="Chained merkle root conflict" />
+    <counter name="EqvocErrChunkCnt" summary="num_chunks != FD_EQVOC_CHUNK_CNT" />
+    <counter name="EqvocErrChunkIdx" summary="chunk_index >= FD_EQVOC_CHUNK_CNT" />
+    <counter name="EqvocErrChunkLen" summary="chunk_len does not match expected length for chunk_index" />
 
-    <!-- DuplicateShreds we constructed from shreds -->
+    <counter name="EqvocErrIgnoredFrom" summary="Unrecognized from address" />
+    <counter name="EqvocErrIgnoredSlot" summary="Slot older than root or unable to derive leader schedule" />
 
-    <counter name="ProofConstructed" summary="Number of duplicate proofs we constructed" />
+    <!-- DuplicateShreds we constructed from shreds or verified from gossip -->
+
+    <counter name="EqvocProofConstructed" summary="Number of duplicate proofs we constructed from shreds" />
+    <counter name="EqvocProofVerified"    summary="Number of duplicate proofs we verified from gossip" />
 
     <!-- Hard forks / bank hash cmp tracking -->
 

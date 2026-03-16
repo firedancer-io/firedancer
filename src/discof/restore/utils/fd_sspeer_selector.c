@@ -1,4 +1,5 @@
 #include "fd_sspeer_selector.h"
+#include "../../../util/log/fd_log.h"
 
 static int
 fd_sspeer_key_private_eq( fd_sspeer_key_t const * k0,
@@ -384,8 +385,14 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
     }
     fd_sspeer_selector_update( selector, peer, latency, full_slot, incr_slot, full_hash, incr_hash );
   } else {
-    if( FD_UNLIKELY( !peer_pool_free( selector->pool ) ) ) return ULONG_MAX;
-    if( FD_UNLIKELY( score_treap_ele_cnt(selector->score_treap)>=selector->max_peers ) ) return ULONG_MAX;
+    if( FD_UNLIKELY( !peer_pool_free( selector->pool ) ) ) {
+      FD_LOG_WARNING(( "peer selector pool exhausted" ));
+      return ULONG_MAX;
+    }
+    if( FD_UNLIKELY( score_treap_ele_cnt(selector->score_treap)>=selector->max_peers ) ) {
+      FD_LOG_WARNING(( "peer selector at max capacity" ));
+      return ULONG_MAX;
+    }
 
     peer = peer_pool_ele_acquire( selector->pool );
     peer->key       = *key;

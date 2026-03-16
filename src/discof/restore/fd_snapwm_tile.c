@@ -319,10 +319,32 @@ handle_expected_hash_message( fd_snapwm_tile_t *  ctx,
                               ulong               sz,
                               fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->lthash_disabled ) ) return;
+  if( FD_UNLIKELY( sz!=sizeof(fd_lthash_value_t) ) ) {
+    FD_LOG_ERR(( "unexpected msg sz %lu for sig FD_SNAPSHOT_HASH_MSG_EXPECTED", sz ));
+    return;
+  }
+
   uchar * src = fd_chunk_to_laddr( ctx->in.wksp, chunk );
   uchar * dst = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
   memcpy( dst, src, sz );
   fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sz, 0UL, 0UL, 0UL );
+  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+}
+
+static inline void
+handle_expected_capitalization_message( fd_snapwm_tile_t *  ctx,
+                                        ulong               chunk,
+                                        ulong               sz,
+                                        fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( sz!=sizeof(fd_ssctrl_capitalization_t) ) ) {
+    FD_LOG_ERR(( "unexpected msg sz %lu for sig FD_SNAPSHOT_MSG_EXP_CAPITALIZATION", sz ));
+    return;
+  }
+
+  fd_ssctrl_capitalization_t const * src = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+  fd_ssctrl_capitalization_t * dst = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+  memcpy( dst, src, sz );
+  fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_EXP_CAPITALIZATION, ctx->hash_out.chunk, sz, 0UL, 0UL, 0UL );
   ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
 }
 
@@ -340,9 +362,10 @@ returnable_frag( fd_snapwm_tile_t *  ctx,
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   int ret = 0;
-  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) )                 ret = handle_data_frag( ctx, chunk, sz/*acc_cnt*/, stem );
-  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_EXPECTED ) ) handle_expected_hash_message( ctx, chunk, sz, stem );
-  else                                                         handle_control_frag( ctx, sig, stem );
+  if( FD_LIKELY( sig==FD_SNAPSHOT_MSG_DATA ) )                      ret = handle_data_frag( ctx, chunk, sz/*acc_cnt*/, stem );
+  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_HASH_MSG_EXPECTED ) )      handle_expected_hash_message( ctx, chunk, sz, stem );
+  else if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_EXP_CAPITALIZATION ) ) handle_expected_capitalization_message( ctx, chunk, sz, stem );
+  else                                                              handle_control_frag( ctx, sig, stem );
 
   return ret;
 }

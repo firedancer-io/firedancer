@@ -119,16 +119,21 @@ state_validate( fd_slot_delta_parser_t * parser ) {
     case STATE_SLOT_DELTAS_LEN:
       if( FD_UNLIKELY( parser->len>FD_SLOT_DELTA_MAX_ENTRIES ) ) {
         /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L535 */
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)", fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES ), FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES ));
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES;
       }
       break;
     case STATE_SLOT_DELTA_SLOT: {
       ulong slot_idx = slot_set_idx_query_const( parser->slot_set, &parser->entry->slot, ULONG_MAX, parser->slot_pool );
       /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L558 */
-      if( FD_UNLIKELY( slot_idx!=ULONG_MAX ) ) return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES;
+      if( FD_UNLIKELY( slot_idx!=ULONG_MAX ) ) {
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)", fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES ), FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES ));
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES;
+      }
 
       if( FD_UNLIKELY( parser->slot_pool_ele_cnt>=FD_SLOT_DELTA_MAX_ENTRIES ) ) {
         /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L535 */
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)", fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES ), FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES ));
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES;
       }
 
@@ -140,6 +145,7 @@ state_validate( fd_slot_delta_parser_t * parser ) {
     case STATE_SLOT_DELTA_IS_ROOT:
       if( FD_UNLIKELY( !parser->is_root) ) {
         /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L545 */
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)", fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT ), FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT ));
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT;
       }
       break;

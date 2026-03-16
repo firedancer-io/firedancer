@@ -11,14 +11,14 @@
    approach the boundary. */
 
 typedef uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)))
-    _lsched_t[FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH)];
+    _lsched_t[FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH)];
 
 #define MULTI_EPOCH_LEADERS_EPOCH_CNT (2UL)
 FD_STATIC_ASSERT(MULTI_EPOCH_LEADERS_EPOCH_CNT == 2UL, "This implementation depends on epoch_cnt==2");
 
 struct fd_multi_epoch_leaders_priv {
   fd_epoch_leaders_t * lsched       [ MULTI_EPOCH_LEADERS_EPOCH_CNT ];
-  fd_vote_stake_weight_t vote_stake_weight [ MAX_STAKED_LEADERS ];
+  fd_vote_stake_weight_t vote_stake_weight [ MAX_COMPRESSED_STAKE_WEIGHTS ];
 
   /* has that epoch's mem experienced a stake_msg_fini? */
   int                  init_done    [ MULTI_EPOCH_LEADERS_EPOCH_CNT ];

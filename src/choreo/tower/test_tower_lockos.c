@@ -16,7 +16,7 @@ mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_
 
   memcpy( out->data, &voter, sizeof(fd_vote_acc_t) );
   out->stake = stake;
-  out->addr  = *pubkey;
+  out->vote_acc = *pubkey;
 }
 
 void
@@ -33,7 +33,7 @@ test_lockos( fd_wksp_t * wksp ) {
   for( ulong i = 1; i < 32; i++ ) {
     ulong vote_slot = 50 - (i - 1);
     mock_vote_acc( &(fd_hash_t){.ul = {1}}, 100, vote_slot, (uint)i, &acct );
-    fd_tower_lockos_insert( lockos, fork_slot, &acct.addr, &acct );
+    fd_tower_lockos_insert( lockos, fork_slot, &acct.vote_acc, &acct );
     end_intervals[i - 1] = vote_slot + (1UL << (uint)i);
   }
 
@@ -58,7 +58,7 @@ test_lockos( fd_wksp_t * wksp ) {
     for( fd_tower_lockos_interval_t const * interval = fd_tower_lockos_interval_map_ele_query_const( lockos->interval_map, &key, NULL, lockos->interval_pool );
                                             interval;
                                             interval = fd_tower_lockos_interval_map_ele_next_const( interval, NULL, lockos->interval_pool ) ) {
-      FD_TEST( memcmp( &interval->addr, &acct.addr, sizeof(fd_hash_t) ) == 0 );
+      FD_TEST( memcmp( &interval->addr, &acct.vote_acc, sizeof(fd_hash_t) ) == 0 );
       num_pubkeys++;
     }
     FD_TEST( num_pubkeys == 1 );
