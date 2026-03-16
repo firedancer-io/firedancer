@@ -611,7 +611,7 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
                         uint128                        total_points ) {
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar fork_idx = fd_stake_rewards_init( stake_rewards, fd_bank_epoch_get( bank ), parent_blockhash, starting_block_height, (uint)num_partitions );
+  uchar fork_idx = fd_stake_rewards_init( stake_rewards, bank->data->fields.epoch, parent_blockhash, starting_block_height, (uint)num_partitions );
   bank->data->stake_rewards_fork_id = fork_idx;
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
@@ -730,7 +730,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   *rewards_out = total_points>0UL ? *rewards_out: 0UL;
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
-    ulong epoch = fd_bank_epoch_get( bank );
+    ulong epoch = bank->data->fields.epoch;
     ulong slot  = fd_bank_slot_get( bank );
     fd_capture_link_write_stake_rewards_begin( capture_ctx,
                                                slot,
@@ -1034,7 +1034,7 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
   ulong distribution_end_exclusive         = fd_stake_rewards_exclusive_ending_block_height( stake_rewards, bank->data->stake_rewards_fork_id );
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       epoch          = fd_bank_epoch_get( bank );
+  ulong                       epoch          = bank->data->fields.epoch;
 
   if( FD_UNLIKELY( get_slots_in_epoch( epoch, epoch_schedule ) <= fd_stake_rewards_num_partitions( stake_rewards, bank->data->stake_rewards_fork_id ) ) ) {
     FD_LOG_CRIT(( "Should not be distributing rewards" ));
@@ -1135,7 +1135,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L566 */
   FD_LOG_DEBUG(( "epoch rewards is active" ));
 
-  ulong const epoch          = fd_bank_epoch_get( bank );
+  ulong const epoch          = bank->data->fields.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
   int _err[1] = {0};

@@ -788,7 +788,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->transaction_fee -= (slot_info->transaction_fee>>1); /* burn */
   slot_info->priority_fee = fd_bank_priority_fees_get( bank );
   slot_info->tips = fd_bank_tips_get( bank );
-  slot_info->shred_cnt = fd_bank_shred_cnt_get( bank );
+  slot_info->shred_cnt = bank->data->fields.shred_cnt;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->data->idx ].latest_mr.uc, block_id_cstr );
   FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_query( bank )->uc, bank_hash_cstr );
@@ -842,7 +842,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_poh_set( bank, *poh );
 
   /* Set shred count in bank. */
-  fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, bank->data->idx ) );
+  bank->data->fields.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->data->idx );
 
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
@@ -1024,7 +1024,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
-  if( FD_UNLIKELY( fd_bank_epoch_get( bank )>fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), fd_bank_parent_slot_get( bank ), NULL ) )) {
+  if( FD_UNLIKELY( bank->data->fields.epoch>fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), fd_bank_parent_slot_get( bank ), NULL ) )) {
     publish_epoch_info( ctx, stem, bank, 1 );
   }
 
@@ -1237,7 +1237,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     fd_acct_addr_t tip_payment_config[1];
     fd_acct_addr_t tip_receiver[1];
-    fd_bundle_crank_get_addresses( ctx->bundle.gen, fd_bank_epoch_get( bank ), tip_payment_config, tip_receiver );
+    fd_bundle_crank_get_addresses( ctx->bundle.gen, bank->data->fields.epoch, tip_payment_config, tip_receiver );
 
     fd_accdb_ro_t tip_config_acc[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, tip_config_acc, &xid, tip_payment_config ) ) ) {
@@ -2090,7 +2090,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
     fd_bank_t root_bank[1];
     if( FD_UNLIKELY( !fd_banks_bank_query( root_bank, ctx->banks, target_bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: root bank not found for bank index %lu", target_bank_idx ));
-    if( fd_bank_identity_vote_idx_get( root_bank )==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
+    if( root_bank->data->fields.identity_vote_idx==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
@@ -2279,7 +2279,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 
         fd_pubkey_t * identity_pubkey_out = NULL;
         if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
-          fd_bank_identity_vote_idx_set( bank, ctx->identity_idx );
+          bank->data->fields.identity_vote_idx = ctx->identity_idx;
         }
       }
       if( FD_UNLIKELY( !msg->txn_exec->is_committable && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {

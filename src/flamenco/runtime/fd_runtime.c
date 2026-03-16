@@ -102,7 +102,7 @@ fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
        epoch.
        https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6162-L6164 */
     ulong effective_epoch = activation_epoch + 1UL;
-    ulong current_epoch   = fd_bank_epoch_get( bank );
+    ulong current_epoch   = bank->data->fields.epoch;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6167-L6170 */
     return !!( current_epoch >= effective_epoch );
@@ -678,7 +678,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   fd_runtime_update_leaders( bank, runtime_stack );
 
   long end = fd_log_wallclock();
-  FD_LOG_NOTICE(( "starting epoch %lu at slot %lu took %.6f seconds", fd_bank_epoch_get( bank ), fd_bank_slot_get( bank ), (double)(end - start) / 1e9 ));
+  FD_LOG_NOTICE(( "starting epoch %lu at slot %lu took %.6f seconds", bank->data->fields.epoch, fd_bank_slot_get( bank ), (double)(end - start) / 1e9 ));
 }
 
 static void
@@ -1687,7 +1687,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
   fd_vote_stakes_genesis_fini( vote_stakes );
   fd_bank_vote_stakes_end_locking_modify( bank );
 
-  fd_bank_epoch_set( bank, 0UL );
+  bank->data->fields.epoch = 0UL;
 
   fd_bank_capitalization_set( bank, capitalization );
 }

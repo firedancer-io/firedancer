@@ -104,7 +104,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   epoch_schedule->first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot;
 
   ulong epoch = fd_slot_to_epoch( epoch_schedule, manifest->slot, NULL );
-  fd_bank_epoch_set( bank, epoch );
+  bank->data->fields.epoch = epoch;
 
   fd_rent_t * rent = fd_bank_rent_modify( bank );
   rent->lamports_per_uint8_year = manifest->rent_params.lamports_per_uint8_year;
@@ -245,7 +245,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
-        fd_bank_epoch_get( bank ) );
+        bank->data->fields.epoch );
 
     if( i<runtime_stack->expected_vote_accounts ) {
       runtime_stack->stakes.epoch_credits[i].cnt = elem->epoch_credits_history_len;
@@ -268,7 +268,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
-        fd_bank_epoch_get( bank ) );
+        bank->data->fields.epoch );
   }
 
   fd_bank_vote_stakes_end_locking_modify( bank );

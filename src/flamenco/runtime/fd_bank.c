@@ -34,7 +34,7 @@ fd_bank_epoch_leaders_query( fd_bank_t const * bank ) {
 
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
-  ulong idx = fd_bank_epoch_get( bank ) % 2UL;
+  ulong idx = bank->data->fields.epoch % 2UL;
   bank->data->epoch_leaders_idx = idx;
   return (fd_epoch_leaders_t *)fd_type_pun( fd_bank_get_epoch_leaders( bank->data ) + idx * bank->data->epoch_leaders_footprint );
 }
@@ -640,13 +640,13 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   bank_l->locks = banks->locks;
   bank_l->data  = child_bank;
 
-  fd_bank_parent_slot_set( bank_l, parent_bank->fields.slot );
-  fd_bank_shred_cnt_set( bank_l, 0UL );
-  fd_bank_execution_fees_set( bank_l, 0UL );
-  fd_bank_priority_fees_set( bank_l, 0UL );
-  fd_bank_tips_set( bank_l, 0UL );
-  fd_bank_identity_vote_idx_set( bank_l, ULONG_MAX );
-  fd_bank_block_height_set( bank_l, fd_bank_block_height_get( bank_l ) + 1UL );
+  child_bank->fields.parent_slot = parent_bank->fields.slot;
+  child_bank->fields.shred_cnt = 0UL;
+  child_bank->fields.execution_fees = 0UL;
+  child_bank->fields.priority_fees = 0UL;
+  child_bank->fields.tips = 0UL;
+  child_bank->fields.block_height = child_bank->fields.block_height + 1UL;
+  child_bank->fields.identity_vote_idx = ULONG_MAX;
   return bank_l;
 }
 

@@ -94,7 +94,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Epoch */
   ulong epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( runner->bank ), slot, NULL );
-  fd_bank_epoch_set( runner->bank, epoch );
+  runner->bank->data->fields.epoch = epoch;
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk

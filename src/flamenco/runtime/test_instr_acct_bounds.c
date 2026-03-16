@@ -160,7 +160,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
 
   fd_bank_slot_set( env->bank, 10UL );
   fd_bank_parent_slot_set( env->bank, 9UL );
-  fd_bank_epoch_set( env->bank, 0UL );
+  env->bank->data->fields.epoch = 0UL;
 
   env->runtime->accdb        = env->accdb;
   env->runtime->status_cache = NULL;

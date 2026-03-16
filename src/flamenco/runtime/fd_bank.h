@@ -258,10 +258,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             failed_txn_count         ) /* Failed transaction count */                           \
   X(ulong,                             nonvote_failed_txn_count ) /* Nonvote failed transaction count */                   \
   X(ulong,                             total_compute_units_used ) /* Total compute units used */                           \
-  X(ulong,                             slots_per_epoch          ) /* Slots per epoch */                                    \
-  X(ulong,                             shred_cnt                ) /* Shred count */                                        \
-  X(ulong,                             epoch                    ) /* Epoch */                                              \
-  X(ulong,                             identity_vote_idx        ) /* Identity vote index */
+  X(ulong,                             slots_per_epoch          ) /* Slots per epoch */
 
 /* Defining pooled fields. */
 

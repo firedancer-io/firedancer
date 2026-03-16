@@ -250,7 +250,7 @@ test_env_create( test_env_t * env,
   init_blockhash_queue( env );
 
   fd_bank_slot_set( env->bank, 1UL );
-  fd_bank_epoch_set( env->bank, 1UL );
+  env->bank->data->fields.epoch = 1UL;
 
   fd_bank_top_votes_modify( env->bank );
 
@@ -352,7 +352,7 @@ process_slot( test_env_t * env,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( new_bank );
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  fd_bank_epoch_set( new_bank, epoch );
+  new_bank->data->fields.epoch = epoch;
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
