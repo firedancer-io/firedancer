@@ -296,8 +296,8 @@ fd_runtime_run_incinerator( fd_bank_t *               bank,
   fd_hashes_account_lthash( address, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
 
   /* Deleting account reduces capitalization */
-  ulong new_capitalization = fd_ulong_sat_sub( fd_bank_capitalization_get( bank ), fd_accdb_ref_lamports( rw->ro ) );
-  fd_bank_capitalization_set( bank, new_capitalization );
+  ulong new_capitalization = fd_ulong_sat_sub( bank->data->fields.capitalization, fd_accdb_ref_lamports( rw->ro ) );
+  bank->data->fields.capitalization = new_capitalization;
 
   /* Delete incinerator account */
   fd_accdb_ref_lamports_set( rw, 0UL );
@@ -347,10 +347,10 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
 
   fd_accdb_close_rw( accdb, rw );
 
-  ulong old = fd_bank_capitalization_get( bank );
-  fd_bank_capitalization_set( bank, fd_ulong_sat_sub( old, burn ) );
+  ulong old = bank->data->fields.capitalization;
+  bank->data->fields.capitalization = fd_ulong_sat_sub( old, burn );
   FD_LOG_INFO(( "slot %lu: burn %lu, capitalization %lu->%lu",
-                slot, burn, old, fd_bank_capitalization_get( bank ) ));
+                slot, burn, old, bank->data->fields.capitalization ));
 }
 
 static void
@@ -728,7 +728,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
   // );
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
 
-  fd_runtime_new_fee_rate_governor_derived( bank, fd_bank_parent_signature_cnt_get( bank ) );
+  fd_runtime_new_fee_rate_governor_derived( bank, bank->data->fields.parent_signature_cnt );
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
   ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
@@ -876,7 +876,7 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
     prev_bank_hash = &bank->data->fields.prev_bank_hash;
   }
 
-  fd_bank_parent_signature_cnt_set( bank, bank->data->fields.signature_count );
+  bank->data->fields.parent_signature_cnt = bank->data->fields.signature_count;
 
   /* Compute the new bank hash */
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
@@ -1567,9 +1567,9 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
   fee_rate_governor->max_lamports_per_signature    = genesis->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = genesis->fee_rate_governor.burn_percent;
 
-  fd_bank_max_tick_height_set( bank, genesis->poh.ticks_per_slot * (fd_bank_slot_get( bank ) + 1) );
+  bank->data->fields.max_tick_height = genesis->poh.ticks_per_slot * (fd_bank_slot_get( bank ) + 1);
 
-  fd_bank_hashes_per_tick_set( bank, genesis->poh.hashes_per_tick );
+  bank->data->fields.hashes_per_tick = genesis->poh.hashes_per_tick;
 
   bank->data->fields.ns_per_slot = (fd_w_u128_t) { .ud=target_tick_duration * genesis->poh.ticks_per_slot };
 
@@ -1689,7 +1689,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
   bank->data->fields.epoch = 0UL;
 
-  fd_bank_capitalization_set( bank, capitalization );
+  bank->data->fields.capitalization = capitalization;
 }
 
 static int

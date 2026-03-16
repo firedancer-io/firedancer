@@ -691,8 +691,7 @@ main( int argc, char ** argv ) {
 
   /* Set some fields */
 
-  fd_bank_capitalization_set( bank, 1000UL );
-  FD_TEST( fd_bank_capitalization_get( bank ) == 1000UL );
+  bank->data->fields.capitalization = 1000UL;
 
   /* Set a delta-based field. Query it from the local delta, then from
      the larger combined frontier state. */
@@ -723,7 +722,7 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_banks_clone_from_parent( bank2, banks, bank_idx2 ) );
   fd_bank_slot_set( bank2, 2UL );
   FD_TEST( bank2->data->bank_seq==1UL );
-  FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
+  FD_TEST( bank2->data->fields.capitalization == 1000UL );
   /* At this point, the first epoch leaders has been allocated from the
      pool that is limited to 2 instances. */
   fd_epoch_leaders_t * epoch_leaders = fd_bank_epoch_leaders_modify( bank2 );
@@ -760,9 +759,8 @@ main( int argc, char ** argv ) {
   ulong bank_idx3 = fd_banks_new_bank( bank3, banks, bank_idx, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank3, banks, bank_idx3 ) );
   FD_TEST( bank3->data->bank_seq==2UL );
-  FD_TEST( fd_bank_capitalization_get( bank3 ) == 1000UL );
-  fd_bank_capitalization_set( bank3, 2000UL );
-  FD_TEST( fd_bank_capitalization_get( bank3 ) == 2000UL );
+  FD_TEST( bank3->data->fields.capitalization == 1000UL );
+  bank3->data->fields.capitalization = 2000UL;
 
   /* Because bank 3 is on a different fork than bank 2, make sure that
      the updates don't get incorrectly applied. */
@@ -791,7 +789,7 @@ main( int argc, char ** argv ) {
   ulong bank_idx4 = fd_banks_new_bank( bank4, banks, bank_idx3, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank4, banks, bank_idx4 ) );
   FD_TEST( bank4->data->bank_seq==3UL );
-  FD_TEST( fd_bank_capitalization_get( bank4 ) == 2000UL );
+  FD_TEST( bank4->data->fields.capitalization == 2000UL );
 
   fd_banks_mark_bank_frozen( banks, bank4 );
 
@@ -799,9 +797,9 @@ main( int argc, char ** argv ) {
   ulong bank_idx5 = fd_banks_new_bank( bank5, banks, bank_idx4, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank5, banks, bank_idx5 ) );
   FD_TEST( bank5->data->bank_seq==4UL );
-  FD_TEST( fd_bank_capitalization_get( bank5 ) == 2000UL );
-  fd_bank_capitalization_set( bank5, 3000UL );
-  FD_TEST( fd_bank_capitalization_get( bank5 ) == 3000UL );
+  FD_TEST( bank5->data->fields.capitalization == 2000UL );
+  bank5->data->fields.capitalization = 3000UL;
+  FD_TEST( bank5->data->fields.capitalization == 3000UL );
 
   fd_banks_mark_bank_frozen( banks, bank5 );
 
@@ -809,10 +807,10 @@ main( int argc, char ** argv ) {
   ulong bank_idx6 = fd_banks_new_bank( bank6, banks, bank_idx2, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank6, banks, bank_idx6 ) );
   FD_TEST( bank6->data->bank_seq==5UL );
-  FD_TEST( fd_bank_capitalization_get( bank6 ) == 1000UL );
-  fd_bank_capitalization_set( bank6, 2100UL );
+  FD_TEST( bank6->data->fields.capitalization == 1000UL );
+  bank6->data->fields.capitalization = 2100UL;
   fd_bank_slot_set( bank6, 6UL );
-  FD_TEST( fd_bank_capitalization_get( bank6 ) == 2100UL );
+  FD_TEST( bank6->data->fields.capitalization == 2100UL );
 
   fd_banks_mark_bank_frozen( banks, bank6 );
 
@@ -821,7 +819,7 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_banks_clone_from_parent( bank7, banks, bank_idx7 ) );
   FD_TEST( bank7->data->bank_seq==6UL );
   fd_bank_slot_set( bank7, 7UL );
-  FD_TEST( fd_bank_capitalization_get( bank7 ) == 2100UL );
+  FD_TEST( bank7->data->fields.capitalization == 2100UL );
 
   stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank7 );
   fd_stake_delegations_delta_update( stake_delegations_delta, bank7->data->stake_delegations_fork_id, &key_3, &key_6, 7UL, 100UL, 100UL, 100UL, 0.09 );
@@ -851,7 +849,7 @@ main( int argc, char ** argv ) {
   ulong bank_idx8 = fd_banks_new_bank( bank8, banks, bank_idx7, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank8, banks, bank_idx8 ) );
   FD_TEST( bank8->data->bank_seq==7UL );
-  FD_TEST( fd_bank_capitalization_get( bank8 ) == 2100UL );
+  FD_TEST( bank8->data->fields.capitalization == 2100UL );
 
   stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank8 );
   fd_stake_delegations_delta_update( stake_delegations_delta, bank8->data->stake_delegations_fork_id, &key_4, &key_5, 4UL, 100UL, 100UL, 100UL, 0.09 );
@@ -869,7 +867,7 @@ main( int argc, char ** argv ) {
   ulong bank_idx9 = fd_banks_new_bank( bank9, banks, bank_idx7, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank9, banks, bank_idx9 ) );
   FD_TEST( bank9->data->bank_seq==8UL );
-  FD_TEST( fd_bank_capitalization_get( bank9 ) == 2100UL );
+  FD_TEST( bank9->data->fields.capitalization == 2100UL );
 
   /* Ensure that the child-most bank is able to correctly query the
      total stake delegations even when some ancestors have not
@@ -937,7 +935,7 @@ main( int argc, char ** argv ) {
   ulong bank_idx10 = fd_banks_new_bank( bank10, banks, bank_idx7, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank10, banks, bank_idx10 ) );
   FD_TEST( bank10->data->bank_seq==9UL );
-  FD_TEST( fd_bank_capitalization_get( bank10 ) == 2100UL );
+  FD_TEST( bank10->data->fields.capitalization == 2100UL );
 
   fd_banks_mark_bank_frozen( banks, bank10 );
 
@@ -945,7 +943,7 @@ main( int argc, char ** argv ) {
   ulong bank_idx11 = fd_banks_new_bank( bank11, banks, bank_idx9, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( bank11, banks, bank_idx11 ) );
   FD_TEST( bank11->data->bank_seq==10UL );
-  FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
+  FD_TEST( bank11->data->fields.capitalization == 2100UL );
   fd_bank_slot_set( bank11, 11UL );
 
   /* Now there should be 3 forks:
@@ -978,7 +976,7 @@ main( int argc, char ** argv ) {
 
   fd_banks_clear_bank( banks, bank11, 2048UL );
   FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
-  FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
+  FD_TEST( bank11->data->fields.capitalization == 0UL );
 
   FD_TEST( !fd_banks_join( banksl_join, banks->data, NULL ) );
 

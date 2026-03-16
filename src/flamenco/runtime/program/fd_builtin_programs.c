@@ -209,7 +209,7 @@ fd_write_builtin_account( fd_bank_t  *              bank,
   fd_accdb_ref_owner_set( rw, &fd_solana_native_loader_id );
 
   fd_hashes_update_lthash( &pubkey, rw->meta, prev_hash, bank, capture_ctx );
-  fd_bank_capitalization_set( bank, fd_bank_capitalization_get( bank ) + 1UL );
+  bank->data->fields.capitalization += 1UL;
   fd_accdb_close_rw( accdb, rw );
 }
 

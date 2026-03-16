@@ -220,13 +220,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_fee_rate_governor_t,            fee_rate_governor        ) /* Fee rate governor */                                  \
   X(ulong,                             rbh_lamports_per_sig     ) /* Recent Block Hashes lamports per signature */         \
   X(ulong,                             slot                     ) /* Slot */                                               \
-  X(ulong,                             parent_slot              ) /* Parent slot */                                        \
-  X(ulong,                             capitalization           ) /* Capitalization */                                     \
-  X(ulong,                             transaction_count        ) /* Transaction count */                                  \
-  X(ulong,                             parent_signature_cnt     ) /* Parent signature count */                             \
-  X(ulong,                             tick_height              ) /* Tick height */                                        \
-  X(ulong,                             max_tick_height          ) /* Max tick height */                                    \
-  X(ulong,                             hashes_per_tick          ) /* Hashes per tick */
+  X(ulong,                             parent_slot              ) /* Parent slot */
 
 /* Defining pooled fields. */
 

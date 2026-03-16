@@ -108,8 +108,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1118
      None gets treated as 0 for hash verification. */
-  if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( bank, manifest->hashes_per_tick );
-  else                                             fd_bank_hashes_per_tick_set( bank, 0UL );
+  if( FD_LIKELY( manifest->has_hashes_per_tick ) ) bank->data->fields.hashes_per_tick = manifest->hashes_per_tick;
+  else                                             bank->data->fields.hashes_per_tick = 0UL;
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
@@ -127,11 +127,11 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
   if( FD_LIKELY( last_hash ) ) bank->data->fields.poh = *last_hash;
 
-  fd_bank_capitalization_set( bank, manifest->capitalization );
+  bank->data->fields.capitalization = manifest->capitalization;
   bank->data->fields.transaction_count = manifest->transaction_count;
-  fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
-  fd_bank_tick_height_set( bank, manifest->tick_height );
-  fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
+  bank->data->fields.parent_signature_cnt = manifest->signature_count;
+  bank->data->fields.tick_height = manifest->tick_height;
+  bank->data->fields.max_tick_height = manifest->max_tick_height;
   bank->data->fields.ns_per_slot = (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } };
   bank->data->fields.ticks_per_slot = manifest->ticks_per_slot;
   bank->data->fields.genesis_creation_time = manifest->creation_time_seconds;

@@ -727,7 +727,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->parent_slot = fd_bank_parent_slot_get( bank );
 
   /* BlockBank -> capitalization */
-  block_bank->capitalization = fd_bank_capitalization_get( parent_bank );
+  block_bank->capitalization = parent_bank->data->fields.capitalization;
 
   /* BlockBank -> ns_per_slot */
   fd_w_u128_t ns_per_slot = bank->data->fields.ns_per_slot;
@@ -759,7 +759,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_bank_lthash_end_locking_query( parent_bank );
 
   /* BlockBank -> parent_signature_count */
-  block_bank->parent_signature_count = fd_bank_parent_signature_cnt_get( parent_bank );
+  block_bank->parent_signature_count = parent_bank->data->fields.parent_signature_cnt;
 
   /* BlockBank -> epoch_schedule */
   block_bank->has_epoch_schedule = true;

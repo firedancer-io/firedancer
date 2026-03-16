@@ -182,7 +182,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_parent_slot_set( bank, parent_slot );
 
   /* Capitalization */
-  fd_bank_capitalization_set( bank, block_bank->capitalization );
+  bank->data->fields.capitalization = block_bank->capitalization;
 
   /* Inflation */
   FD_TEST( block_bank->has_inflation );
@@ -207,7 +207,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_memcpy( bank_hash, block_bank->parent_bank_hash, sizeof(fd_hash_t) );
 
   /* Parent signature count */
-  fd_bank_parent_signature_cnt_set( bank, block_bank->parent_signature_count );
+  bank->data->fields.parent_signature_cnt = block_bank->parent_signature_count;
 
   /* Epoch schedule */
   FD_TEST( block_bank->has_epoch_schedule );
@@ -594,7 +594,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     effects->has_error = !is_committable;
 
     /* Capture capitalization */
-    effects->slot_capitalization = !effects->has_error ? fd_bank_capitalization_get( runner->bank ) : 0UL;
+    effects->slot_capitalization = !effects->has_error ? runner->bank->data->fields.capitalization : 0UL;
 
     /* Capture hashes */
     fd_hash_t bank_hash = !effects->has_error ? runner->bank->data->fields.bank_hash : (fd_hash_t){0};

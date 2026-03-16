@@ -652,9 +652,9 @@ replay_block_start( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->data->fields.ticks_per_slot, slot, &max_tick_height ) ) ) {
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->data->fields.ticks_per_slot ));
   }
-  fd_bank_max_tick_height_set( bank, max_tick_height );
-  fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
-  fd_sched_set_poh_params( ctx->sched, bank->data->idx, fd_bank_tick_height_get( bank ), fd_bank_max_tick_height_get( bank ), fd_bank_hashes_per_tick_get( bank ), &parent_bank->data->fields.poh );
+  bank->data->fields.max_tick_height = max_tick_height;
+  bank->data->fields.tick_height = parent_bank->data->fields.max_tick_height; /* The parent's max tick height is our starting tick height. */
+  fd_sched_set_poh_params( ctx->sched, bank->data->idx, bank->data->fields.tick_height, bank->data->fields.max_tick_height, bank->data->fields.hashes_per_tick, &parent_bank->data->fields.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
@@ -936,8 +936,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->data->fields.ticks_per_slot, slot, &max_tick_height ) ) ) {
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->data->fields.ticks_per_slot ));
   }
-  fd_bank_max_tick_height_set( ctx->leader_bank, max_tick_height );
-  fd_bank_tick_height_set( ctx->leader_bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
+  ctx->leader_bank->data->fields.max_tick_height = max_tick_height;
+  ctx->leader_bank->data->fields.tick_height = parent_bank->data->fields.max_tick_height; /* The parent's max tick height is our starting tick height. */
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -1270,7 +1270,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   msg->bank = NULL;
   msg->bank_idx = bank->data->idx;
   msg->ticks_per_slot = bank->data->fields.ticks_per_slot;
-  msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
+  msg->hashcnt_per_tick = bank->data->fields.hashes_per_tick;
   msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
   msg->bundle->config[0]       = config[0];
   memcpy( msg->bundle->last_blockhash,     &bank->data->fields.poh, sizeof(fd_hash_t)   );

@@ -417,23 +417,23 @@ fd_update_capitalization( fd_bank_t * bank,
     int err = fd_ulong_checked_sub( lamports_to_burn, lamports_to_fund, &diff );
     if( FD_UNLIKELY( err ) ) return err;
 
-    ulong capitalization = fd_bank_capitalization_get( bank );
+    ulong capitalization = bank->data->fields.capitalization;
     ulong new_capitalization;
     err = fd_ulong_checked_sub( capitalization, diff, &new_capitalization );
     if( FD_UNLIKELY( err ) ) return err;
 
-    fd_bank_capitalization_set( bank, new_capitalization );
+    bank->data->fields.capitalization = new_capitalization;
   } else if( lamports_to_fund > lamports_to_burn ) {
     ulong diff;
     int err = fd_ulong_checked_sub( lamports_to_fund, lamports_to_burn, &diff );
     if( FD_UNLIKELY( err ) ) return err;
 
-    ulong capitalization = fd_bank_capitalization_get( bank );
+    ulong capitalization = bank->data->fields.capitalization;
     ulong new_capitalization;
     err = fd_ulong_checked_add( capitalization, diff, &new_capitalization );
     if( FD_UNLIKELY( err ) ) return err;
 
-    fd_bank_capitalization_set( bank, new_capitalization );
+    bank->data->fields.capitalization = new_capitalization;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

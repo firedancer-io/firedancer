@@ -793,7 +793,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   fd_prev_epoch_inflation_rewards_t rewards;
 
   calculate_previous_epoch_inflation_rewards( bank,
-                                              fd_bank_capitalization_get( bank ),
+                                              bank->data->fields.capitalization,
                                               prev_epoch,
                                               &rewards );
 
@@ -816,7 +816,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   result->validator_rate               = rewards.validator_rate;
   result->foundation_rate              = rewards.foundation_rate;
   result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
-  result->capitalization               = fd_bank_capitalization_get( bank );
+  result->capitalization               = bank->data->fields.capitalization;
 }
 
 /* Calculate rewards from previous epoch and distribute vote rewards
@@ -893,7 +893,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     FD_LOG_CRIT(( "Unexpected rewards calculation result" ));
   }
 
-  fd_bank_capitalization_set( bank, fd_bank_capitalization_get( bank ) + distributed_rewards );
+  bank->data->fields.capitalization += distributed_rewards;
 
   runtime_stack->stakes.distributed_rewards = distributed_rewards;
   runtime_stack->stakes.total_rewards       = rewards_calc_result->validator_rewards;
@@ -1014,7 +1014,7 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
 
   FD_LOG_DEBUG(( "lamports burned: %lu, lamports distributed: %lu", lamports_burned, lamports_distributed ));
 
-  fd_bank_capitalization_set( bank, fd_bank_capitalization_get( bank ) + lamports_distributed );
+  bank->data->fields.capitalization += lamports_distributed;
 }
 
 /* Process reward distribution for the block if it is inside reward interval.
