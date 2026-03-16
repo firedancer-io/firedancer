@@ -568,7 +568,7 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
                     fd_stem_context_t *  stem,
                     fd_bank_t *          bank,
                     int                  current_epoch ) {
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * schedule = &bank->data->fields.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL ) + fd_ulong_if( current_epoch, 1UL, 0UL );
 
   fd_features_t const * features = &bank->data->fields.features;
@@ -654,7 +654,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   }
   fd_bank_max_tick_height_set( bank, max_tick_height );
   fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
-  fd_sched_set_poh_params( ctx->sched, bank->data->idx, fd_bank_tick_height_get( bank ), fd_bank_max_tick_height_get( bank ), fd_bank_hashes_per_tick_get( bank ), fd_bank_poh_query( parent_bank ) );
+  fd_sched_set_poh_params( ctx->sched, bank->data->idx, fd_bank_tick_height_get( bank ), fd_bank_max_tick_height_get( bank ), fd_bank_hashes_per_tick_get( bank ), &parent_bank->data->fields.poh );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
@@ -707,14 +707,14 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
     parent_block_id = ctx->block_id_arr[ bank->data->parent_idx ].latest_mr;
   }
 
-  fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( bank );
+  fd_hash_t const * bank_hash  = &bank->data->fields.bank_hash;
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
   FD_TEST( bank_hash  );
   FD_TEST( block_hash );
 
   if( FD_LIKELY( !is_initial ) ) fd_txncache_finalize_fork( ctx->txncache, bank->data->txncache_fork_id, 0UL, block_hash->uc );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
   ulong slot_idx;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
 
@@ -791,7 +791,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->shred_cnt = bank->data->fields.shred_cnt;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->data->idx ].latest_mr.uc, block_id_cstr );
-  FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_query( bank )->uc, bank_hash_cstr );
+  FD_BASE58_ENCODE_32_BYTES( bank->data->fields.bank_hash.uc, bank_hash_cstr );
   FD_LOG_DEBUG(( "publish_slot_completed: bank_idx=%lu slot=%lu bank_hash=%s block_id=%s", bank->data->idx, slot, bank_hash_cstr, block_id_cstr ));
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -839,7 +839,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   /* Set poh hash in bank. */
   fd_hash_t * poh = fd_sched_get_poh( ctx->sched, bank->data->idx );
-  fd_bank_poh_set( bank, *poh );
+  bank->data->fields.poh = *poh;
 
   /* Set shred count in bank. */
   bank->data->fields.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->data->idx );
@@ -863,7 +863,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
   /**********************************************************************/
 
-  fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
+  fd_hash_t const * bank_hash = &bank->data->fields.bank_hash;
   FD_TEST( bank_hash );
 
   /* Must be last so we can measure completion time correctly, even
@@ -998,7 +998,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
 
-  fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( ctx->leader_bank );
+  fd_hash_t const * bank_hash  = &ctx->leader_bank->data->fields.bank_hash;
   FD_TEST( bank_hash );
 
   publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */ );
@@ -1024,7 +1024,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
-  if( FD_UNLIKELY( bank->data->fields.epoch>fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), fd_bank_parent_slot_get( bank ), NULL ) )) {
+  if( FD_UNLIKELY( bank->data->fields.epoch>fd_slot_to_epoch( &bank->data->fields.epoch_schedule, fd_bank_parent_slot_get( bank ), NULL ) )) {
     publish_epoch_info( ctx, stem, bank, 1 );
   }
 
@@ -1153,7 +1153,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     fd_runtime_update_leaders( bank, ctx->runtime_stack );
 
     ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
-    fd_hash_t * poh = fd_bank_poh_modify( bank );
+    fd_hash_t * poh = &bank->data->fields.poh;
     while( hashcnt_per_slot-- ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
@@ -1273,7 +1273,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
   msg->bundle->config[0]       = config[0];
-  memcpy( msg->bundle->last_blockhash,     fd_bank_poh_query( bank )->hash, sizeof(fd_hash_t)   );
+  memcpy( msg->bundle->last_blockhash,     &bank->data->fields.poh, sizeof(fd_hash_t)   );
   memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc,           sizeof(fd_pubkey_t) );
 
   if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
@@ -1285,7 +1285,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   }
 
   msg->total_skipped_ticks = msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
-  msg->epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), ctx->next_leader_slot, NULL );
+  msg->epoch = fd_slot_to_epoch( &bank->data->fields.epoch_schedule, ctx->next_leader_slot, NULL );
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
@@ -1323,7 +1323,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
      on the bank until we have recieved the block id for the block after
      it has been shredded. */
 
-  memcpy( fd_bank_poh_modify( ctx->leader_bank ), slot_ended->blockhash, sizeof(fd_hash_t) );
+  memcpy( &ctx->leader_bank->data->fields.poh, slot_ended->blockhash, sizeof(fd_hash_t) );
 
   ctx->recv_poh = 1;
 }
@@ -1513,7 +1513,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     ulong snapshot_slot = fd_bank_slot_get( bank );
 
-    fd_hash_t bank_hash = fd_bank_bank_hash_get( bank );
+    fd_hash_t bank_hash = bank->data->fields.bank_hash;
     if( FD_UNLIKELY( ctx->wfs_enabled && memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
       FD_BASE58_ENCODE_32_BYTES( bank_hash.uc,                 actual_bank_hash_cstr );

@@ -95,7 +95,7 @@ fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
 
     /* Calculate the epoch that the feature became activated in
        https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6159-L6160 */
-    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+    fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
     ulong activation_epoch = fd_slot_to_epoch( epoch_schedule, activation_slot, NULL );
 
     /* The effective epoch is the epoch immediately after the activation
@@ -118,7 +118,7 @@ update_next_leaders( fd_bank_t *          bank,
                      fd_runtime_stack_t * runtime_stack,
                      fd_vote_stakes_t *   vote_stakes ) {
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
 
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, fd_bank_slot_get( bank ), NULL ) + 1UL;
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
@@ -172,7 +172,7 @@ void
 fd_runtime_update_leaders( fd_bank_t *          bank,
                            fd_runtime_stack_t * runtime_stack ) {
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
 
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, fd_bank_slot_get( bank ), NULL );
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
@@ -636,7 +636,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   ulong   new_rate_activation_epoch_val = 0UL;
   ulong * new_rate_activation_epoch     = &new_rate_activation_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
-      fd_bank_epoch_schedule_query( bank ),
+      &bank->data->fields.epoch_schedule,
       &bank->data->fields.features,
       new_rate_activation_epoch,
       _err );
@@ -692,7 +692,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
 
   ulong const slot = fd_bank_slot_get( bank );
   if( FD_LIKELY( slot != 0UL ) ) {
-    fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+    fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
 
     ulong prev_epoch = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
     ulong slot_idx;
@@ -730,7 +730,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
 
   fd_runtime_new_fee_rate_governor_derived( bank, fd_bank_parent_signature_cnt_get( bank ) );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
   ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
   fd_sysvar_clock_update( bank, accdb, xid, capture_ctx, runtime_stack, &parent_epoch );
 
@@ -738,7 +738,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
   if( fd_bank_slot_get( bank ) != 0 ) {
     fd_sysvar_slot_hashes_update( bank, accdb, xid, capture_ctx );
   }
-  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx, fd_bank_last_restart_slot_get( bank ).slot );
+  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx, bank->data->fields.last_restart_slot.slot );
 }
 
 int
@@ -820,7 +820,7 @@ fd_features_prepopulate_upcoming( fd_bank_t *               bank,
     return;
   }
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
   ulong curr_epoch = fd_slot_to_epoch( epoch_schedule, slot,     NULL );
   ulong next_epoch = fd_slot_to_epoch( epoch_schedule, slot+1UL, NULL );
 
@@ -870,10 +870,10 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
   /* Save the previous bank hash, and the parents signature count */
   fd_hash_t const * prev_bank_hash = NULL;
   if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    prev_bank_hash = fd_bank_bank_hash_query( bank );
-    fd_bank_prev_bank_hash_set( bank, *prev_bank_hash );
+    prev_bank_hash = &bank->data->fields.bank_hash;
+    bank->data->fields.prev_bank_hash = *prev_bank_hash;
   } else {
-    prev_bank_hash = fd_bank_prev_bank_hash_query( bank );
+    prev_bank_hash = &bank->data->fields.prev_bank_hash;
   }
 
   fd_bank_parent_signature_cnt_set( bank, fd_bank_signature_count_get( bank ) );
@@ -884,12 +884,12 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
   fd_hashes_hash_bank(
       lthash,
       prev_bank_hash,
-      (fd_hash_t *)fd_bank_poh_query( bank )->hash,
+      (fd_hash_t *)&bank->data->fields.poh,
       fd_bank_signature_count_get( bank ),
       new_bank_hash );
 
   /* Update the bank hash */
-  fd_bank_bank_hash_set( bank, *new_bank_hash );
+  bank->data->fields.bank_hash = *new_bank_hash;
 
   if( capture_ctx && capture_ctx->capture_solcap &&
       fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
@@ -900,9 +900,9 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
       capture_ctx,
       fd_bank_slot_get( bank ),
       (fd_hash_t *)new_bank_hash->hash,
-      (fd_hash_t *)fd_bank_prev_bank_hash_query( bank ),
+      (fd_hash_t *)&bank->data->fields.prev_bank_hash,
       (fd_hash_t *)lthash_hash,
-      (fd_hash_t *)fd_bank_poh_query( bank )->hash,
+      (fd_hash_t *)&bank->data->fields.poh,
       fd_bank_signature_count_get( bank ) );
   }
 
@@ -1522,14 +1522,14 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
                                    fd_hash_t const *         genesis_hash ) {
 
   fd_bank_parent_slot_set( bank, ULONG_MAX );
-  fd_bank_poh_set( bank, *genesis_hash );
+  bank->data->fields.poh = *genesis_hash;
 
-  fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
+  fd_hash_t * bank_hash = &bank->data->fields.bank_hash;
   memset( bank_hash->hash, 0, FD_SHA256_HASH_SZ );
 
   uint128 target_tick_duration = (uint128)genesis->poh.tick_duration_secs * 1000000000UL + (uint128)genesis->poh.tick_duration_ns;
 
-  fd_epoch_schedule_t * epoch_schedule = fd_bank_epoch_schedule_modify( bank );
+  fd_epoch_schedule_t * epoch_schedule = &bank->data->fields.epoch_schedule;
   epoch_schedule->leader_schedule_slot_offset = genesis->epoch_schedule.leader_schedule_slot_offset;
   epoch_schedule->warmup                      = genesis->epoch_schedule.warmup;
   epoch_schedule->first_normal_epoch          = genesis->epoch_schedule.first_normal_epoch;
@@ -1699,10 +1699,10 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
                                   fd_capture_ctx_t *        capture_ctx,
                                   fd_runtime_stack_t *      runtime_stack ) {
 
-  fd_hash_t * poh = fd_bank_poh_modify( bank );
+  fd_hash_t * poh = &bank->data->fields.poh;
   ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
   while( hashcnt_per_slot-- ) {
-    fd_sha256_hash( poh->hash, sizeof(fd_hash_t), poh->hash );
+    fd_sha256_hash( poh->uc, sizeof(fd_hash_t), poh->uc );
   }
 
   fd_bank_execution_fees_set( bank, 0UL );
@@ -1729,13 +1729,13 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
 
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
 
-  fd_hash_t const * prev_bank_hash = fd_bank_bank_hash_query( bank );
+  fd_hash_t const * prev_bank_hash = &bank->data->fields.prev_bank_hash;
 
-  fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
+  fd_hash_t * bank_hash = &bank->data->fields.bank_hash;
   fd_hashes_hash_bank(
     lthash,
     prev_bank_hash,
-    (fd_hash_t *)fd_bank_poh_query( bank )->hash,
+    &bank->data->fields.poh,
     0UL,
     bank_hash );
 

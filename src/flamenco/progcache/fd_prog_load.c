@@ -168,7 +168,7 @@ fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
     .features      = &bank->data->fields.features,
     .slot          = fd_bank_slot_get      ( bank ),
     .epoch         = bank->data->fields.epoch,
-    .epoch_slot0   = fd_epoch_slot0( fd_bank_epoch_schedule_query( bank ), bank->data->fields.epoch )
+    .epoch_slot0   = fd_epoch_slot0( &bank->data->fields.epoch_schedule, bank->data->fields.epoch )
   };
   return env;
 }

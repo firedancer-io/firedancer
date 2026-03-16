@@ -244,7 +244,7 @@ init_sysvars( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  fd_bank_epoch_schedule_set( env->bank, epoch_schedule );
+  env->bank->data->fields.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 
   fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );

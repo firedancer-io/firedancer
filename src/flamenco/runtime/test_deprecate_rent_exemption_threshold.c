@@ -84,7 +84,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_slot           = 0UL
   };
 
-  fd_bank_epoch_schedule_set( env->bank, epoch_schedule );
+  env->bank->data->fields.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 }
 
@@ -350,7 +350,7 @@ process_slot( test_env_t * env,
   fd_bank_slot_set( new_bank, slot );
   fd_bank_parent_slot_set( new_bank, parent_slot );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( new_bank );
+  fd_epoch_schedule_t const * epoch_schedule = &new_bank->data->fields.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
   new_bank->data->fields.epoch = epoch;
 

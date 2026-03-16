@@ -42,7 +42,7 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
     .first_normal_epoch          =      0,
     .first_normal_slot           =      0
   };
-  fd_bank_epoch_schedule_set( env->bank, schedule );
+  env->bank->data->fields.epoch_schedule = schedule;
 
   /* Update should be a no-op if not at the epoch boundary */
   fd_bank_slot_set( env->bank, 3UL );

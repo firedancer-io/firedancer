@@ -238,13 +238,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             execution_fees           ) /* Execution fees */                                     \
   X(ulong,                             priority_fees            ) /* Priority fees */                                      \
   X(ulong,                             tips                     ) /* Tips collected */                                     \
-  X(ulong,                             signature_count          ) /* Signature count */                                    \
-  X(fd_hash_t,                         poh                      ) /* PoH */                                                \
-  X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot        ) /* Last restart slot */                                  \
-  X(fd_hash_t,                         bank_hash                ) /* Bank hash */                                          \
-  X(fd_hash_t,                         prev_bank_hash           ) /* Previous bank hash */                                 \
-  X(fd_hash_t,                         genesis_hash             ) /* Genesis hash */                                       \
-  X(fd_epoch_schedule_t,               epoch_schedule           ) /* Epoch schedule */
+  X(ulong,                             signature_count          ) /* Signature count */
 
 /* Defining pooled fields. */
 

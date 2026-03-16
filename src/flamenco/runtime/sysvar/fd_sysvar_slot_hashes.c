@@ -93,7 +93,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
         iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
     fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
     if( ele->slot == fd_bank_parent_slot_get( bank ) ) {
-      fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
+      fd_hash_t const * bank_hash = &bank->data->fields.bank_hash;
       memcpy( &ele->hash, bank_hash, sizeof(fd_hash_t) );
       found = 1;
     }
@@ -102,7 +102,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
   if( !found ) {
     // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
     fd_slot_hash_t slot_hash = {
-      .hash = fd_bank_bank_hash_get( bank ), // parent hash?
+      .hash = bank->data->fields.bank_hash, // parent hash?
       .slot = fd_bank_parent_slot_get( bank ),   // parent_slot
     };
 

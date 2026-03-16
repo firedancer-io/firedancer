@@ -24,7 +24,7 @@ fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                            
 void
 fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank,
                                       fd_exec_test_epoch_schedule_t const * epoch_schedule ) {
-  fd_epoch_schedule_t * es = fd_bank_epoch_schedule_modify( bank );
+  fd_epoch_schedule_t * es = &bank->data->fields.epoch_schedule;
   *es = (fd_epoch_schedule_t){
     .slots_per_epoch             = epoch_schedule->slots_per_epoch,
     .leader_schedule_slot_offset = epoch_schedule->leader_schedule_slot_offset,

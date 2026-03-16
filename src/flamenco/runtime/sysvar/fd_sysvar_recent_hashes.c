@@ -67,7 +67,7 @@ fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
                                 fd_accdb_user_t *         accdb,
                                 fd_funk_txn_xid_t const * xid,
                                 fd_capture_ctx_t *        capture_ctx ) {
-  register_blockhash( bank, fd_bank_poh_query( bank ) );
+  register_blockhash( bank, &bank->data->fields.poh );
 
   uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
   encode_rbh_from_blockhash_queue( bank, enc );

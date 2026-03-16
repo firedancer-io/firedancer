@@ -203,7 +203,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Bank hash (parent bank hash because current bank hash gets computed
      after the block executes) */
-  fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
+  fd_hash_t * bank_hash = &bank->data->fields.bank_hash;
   fd_memcpy( bank_hash, block_bank->parent_bank_hash, sizeof(fd_hash_t) );
 
   /* Parent signature count */
@@ -291,7 +291,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */
-  bank->data->fields.epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), parent_slot, NULL );
+  bank->data->fields.epoch = fd_slot_to_epoch( &bank->data->fields.epoch_schedule, parent_slot, NULL );
 
   /* Finalize root fork.  Required before epoch boundary processing which
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */
@@ -444,7 +444,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
     /* At this point we want to set the poh.  This is what will get
        updated in the blockhash queue. */
-    fd_bank_poh_set( runner->bank, *poh );
+    runner->bank->data->fields.poh = *poh;
     /* Finalize the block */
     fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx );
   } FD_SPAD_FRAME_END;
@@ -597,7 +597,7 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     effects->slot_capitalization = !effects->has_error ? fd_bank_capitalization_get( runner->bank ) : 0UL;
 
     /* Capture hashes */
-    fd_hash_t bank_hash = !effects->has_error ? fd_bank_bank_hash_get( runner->bank ) : (fd_hash_t){0};
+    fd_hash_t bank_hash = !effects->has_error ? runner->bank->data->fields.bank_hash : (fd_hash_t){0};
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */

@@ -260,7 +260,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
   FD_TEST( epoch_schedule );
-  fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
+  runner->bank->data->fields.epoch_schedule = *epoch_schedule;
 
   fd_rent_t rent_[1];
   fd_rent_t * rent = fd_sysvar_cache_rent_read( ctx->sysvar_cache, rent_ );

@@ -330,7 +330,7 @@ dump_fee_rate_governor( fd_bank_t *                        bank,
 static void
 dump_epoch_schedule( fd_bank_t *                     bank,
                      fd_exec_test_epoch_schedule_t * out ) {
-  fd_epoch_schedule_t const * es = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * es = &bank->data->fields.epoch_schedule;
   *out = (fd_exec_test_epoch_schedule_t){
     .slots_per_epoch             = es->slots_per_epoch,
     .leader_schedule_slot_offset = es->leader_schedule_slot_offset,
@@ -748,10 +748,10 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->block_height = fd_bank_block_height_get( bank );
 
   /* BlockBank -> poh */
-  fd_memcpy( block_bank->poh, fd_bank_poh_query( bank ), sizeof(fd_hash_t) );
+  fd_memcpy( block_bank->poh, &bank->data->fields.poh, sizeof(fd_hash_t) );
 
   /* BlockBank -> parent_bank_hash */
-  fd_memcpy( block_bank->parent_bank_hash, fd_bank_bank_hash_query( parent_bank ), sizeof(fd_hash_t) );
+  fd_memcpy( block_bank->parent_bank_hash, &parent_bank->data->fields.bank_hash, sizeof(fd_hash_t) );
 
   /* BlockBank -> parent_lt_hash */
   fd_lthash_value_t const * parent_lthash = fd_bank_lthash_locking_query( parent_bank );

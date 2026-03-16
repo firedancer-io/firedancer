@@ -93,7 +93,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
 
   /* Epoch */
-  ulong epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( runner->bank ), slot, NULL );
+  ulong epoch = fd_slot_to_epoch( &runner->bank->data->fields.epoch_schedule, slot, NULL );
   runner->bank->data->fields.epoch = epoch;
 
   /* Load account states into funk (note this is different from the account keys):

@@ -70,14 +70,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_parent_slot_set( bank, manifest->parent_slot );
 
   /* Bank Hash */
+  fd_memcpy( &bank->data->fields.bank_hash.uc, manifest->bank_hash, 32UL );
 
-  fd_hash_t hash;
-  fd_memcpy( &hash.uc, manifest->bank_hash, 32UL );
-  fd_bank_bank_hash_set( bank, hash );
-
-  fd_hash_t parent_hash;
-  fd_memcpy( &parent_hash.uc, manifest->parent_bank_hash, 32UL );
-  fd_bank_prev_bank_hash_set( bank, parent_hash );
+  fd_memcpy( &bank->data->fields.prev_bank_hash.uc, manifest->parent_bank_hash, 32UL );
 
   fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( bank );
   fee_rate_governor->target_lamports_per_signature = manifest->fee_rate_governor.target_lamports_per_signature;
@@ -96,7 +91,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   inflation->foundation_term = manifest->inflation_params.foundation_term;
   inflation->unused          = 0.0;
 
-  fd_epoch_schedule_t * epoch_schedule = fd_bank_epoch_schedule_modify( bank );
+  fd_epoch_schedule_t * epoch_schedule = &bank->data->fields.epoch_schedule;
   epoch_schedule->slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch;
   epoch_schedule->leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset;
   epoch_schedule->warmup                      = manifest->epoch_schedule_params.warmup;
@@ -130,7 +125,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   /* PoH */
   fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
   fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
-  if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
+  if( FD_LIKELY( last_hash ) ) bank->data->fields.poh = *last_hash;
 
   fd_bank_capitalization_set( bank, manifest->capitalization );
   bank->data->fields.transaction_count = manifest->transaction_count;
@@ -170,7 +165,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      (There might be some hard forks in the future, ignore these)
 
      SIMD-0047: The first restart slot should be `0` */
-  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( bank );
+  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = &bank->data->fields.last_restart_slot;
   last_restart_slot->slot = 0UL;
   if( FD_LIKELY( manifest->hard_forks_len ) ) {
     for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
