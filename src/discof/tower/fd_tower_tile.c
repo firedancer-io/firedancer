@@ -163,13 +163,9 @@ struct fd_tower_tile {
   fd_hash_t                     notar_removed[FD_VOTER_MAX];
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
 
-<<<<<<< HEAD
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
-  /* consensus metadata */
-=======
   /* metadata */
->>>>>>> 62b1c2a180ea0b26fc6ba30ef0215b11858f1d40
 
   int    halt_signing;
   ushort shred_version;
