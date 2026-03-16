@@ -4,7 +4,6 @@
 //#include "fd_disco_base.h"    /* includes ../tango/fd_tango.h */
 #include "stem/fd_stem.h"       /* includes fd_disco_base.h */
 #include "metrics/fd_metrics.h" /* includes fd_disco_base.h */
-#include "pcap/fd_pcap_replay.h"   /* includes fd_disco_base.h */
 #include "../flamenco/types/fd_types_custom.h"
 
 struct __attribute__((packed)) fd_shred_dest_wire {
