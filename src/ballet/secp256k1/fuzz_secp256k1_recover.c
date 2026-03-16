@@ -20,27 +20,22 @@ LLVMFuzzerInitialize( int  *   argc,
   return 0;
 }
 
-struct verification_test {
+struct recover_test {
   uchar msg[ 32 ];
   uchar sig[ 64 ];
-  uchar pub[ 64 ];
 };
-typedef struct verification_test verification_test_t;
+typedef struct recover_test recover_test_t;
 
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  if( FD_UNLIKELY( size<sizeof(verification_test_t) ) ) return -1;
+  if( FD_UNLIKELY( size<sizeof(recover_test_t) ) ) return -1;
 
-  verification_test_t * const test = ( verification_test_t * const ) data;
-  uchar _pub[ 64 ]; uchar * pub = _pub;
+  recover_test_t const * test = (recover_test_t const *)data;
+  uchar pub[ 64 ];
 
   for( int recid=0; recid<=3; recid++ ) {
-    void * res = fd_secp256k1_recover(pub, test->msg, test->sig, recid);
-    if( FD_UNLIKELY( res != NULL && !memcmp( pub, test->pub, 64UL ) ) ) {
-      // was able to verify fuzz input
-      __builtin_trap();
-    }
+    fd_secp256k1_recover( pub, test->msg, test->sig, recid );
   }
 
   return 0;
