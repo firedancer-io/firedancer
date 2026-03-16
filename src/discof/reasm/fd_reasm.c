@@ -684,8 +684,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
        element is the one that will be acquired below.  reasm is
        dependent on the caller to then release the evicted elements back
        to the pool before the next insert/acquire. */
-    *evicted = evict( reasm, opt_store, merkle_root, chained_merkle_root );
-    if( FD_UNLIKELY( *evicted == NULL ) )  {
+    fd_reasm_fec_t * evicted_fec = evict( reasm, opt_store, merkle_root, chained_merkle_root );
+    if( FD_UNLIKELY( evicted_fec == NULL ) ) {
       FD_LOG_INFO(("reasm failed to evict a fec set when inserting slot %lu fec set %u", slot, fec_set_idx));
 
       /* in this case we want to signal to the replay tile that we
@@ -708,6 +708,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
       *evicted = fec;
       return NULL;
     }
+
+    *evicted = evicted_fec;
   }
 
   FD_TEST( pool_free( pool ) );

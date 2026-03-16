@@ -945,6 +945,41 @@ test_remove_bank_eviction( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_remove_bank_eviction passed" ));
 }
 
+void
+test_insert_rejects_when_full_and_nothing_is_evictable( fd_wksp_t * wksp ) {
+  ulong        fec_max = 4UL;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_hash_t mr0[1] = {{{ 0 }}};
+  fd_hash_t mr1[1] = {{{ 1 }}};
+  fd_hash_t mr2[1] = {{{ 2 }}};
+  fd_hash_t mr3[1] = {{{ 3 }}};
+
+  fd_reasm_fec_t * evicted[1];
+
+  FD_TEST( fd_reasm_insert( reasm, mr0, NULL, 0UL, 0U, 0, 0, 0, 1, 0, NULL, evicted ) );
+  FD_TEST( fd_reasm_insert( reasm, mr1, mr0,  1UL, 0U, 1, 32, 0, 1, 0, NULL, evicted ) );
+  FD_TEST( fd_reasm_insert( reasm, mr2, mr1,  2UL, 0U, 1, 32, 0, 1, 0, NULL, evicted ) );
+
+  fd_reasm_fec_t * inserted = fd_reasm_insert( reasm, mr3, mr2, 3UL, 0U, 1, 32, 0, 1, 0, NULL, evicted );
+  FD_TEST( inserted == NULL );
+  FD_TEST( evicted[0] );
+  FD_TEST( 0==memcmp( &evicted[0]->key, mr3, sizeof(fd_hash_t) ) );
+  FD_TEST( 0==memcmp( &evicted[0]->cmr, mr2, sizeof(fd_hash_t) ) );
+  FD_TEST( evicted[0]->slot        == 3UL );
+  FD_TEST( evicted[0]->fec_set_idx == 0U );
+  FD_TEST( evicted[0]->parent_off  == 1U );
+  FD_TEST( !fd_reasm_query( reasm, mr3 ) );
+
+  fd_reasm_pool_release( reasm, evicted[0] );
+
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+
+  FD_LOG_NOTICE(( "test_insert_rejects_when_full_and_nothing_is_evictable passed" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -966,6 +1001,7 @@ main( int argc, char ** argv ) {
   test_evict( wksp );
   test_confirm_out_ordering( wksp );
   test_remove_bank_eviction( wksp );
+  test_insert_rejects_when_full_and_nothing_is_evictable( wksp );
 
   fd_halt();
   return 0;
