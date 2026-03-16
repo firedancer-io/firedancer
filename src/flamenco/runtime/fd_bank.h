@@ -348,11 +348,48 @@ struct fd_bank_data {
      non-CoW field is just represented as a byte array. */
 
   struct {
-    fd_lthash_value_t lthash;
-
-    #define X(type, name) uchar name[sizeof(type)] __attribute__((aligned(alignof(type))));
-    FD_BANKS_ITER(X)
-    #undef X
+    fd_lthash_value_t                 lthash;
+    fd_blockhashes_t                  block_hash_queue;
+    fd_fee_rate_governor_t            fee_rate_governor;
+    ulong                             rbh_lamports_per_sig;
+    ulong                             slot;
+    ulong                             parent_slot;
+    ulong                             capitalization;
+    ulong                             transaction_count;
+    ulong                             parent_signature_cnt;
+    ulong                             tick_height;
+    ulong                             max_tick_height;
+    ulong                             hashes_per_tick;
+    fd_w_u128_t                       ns_per_slot;
+    ulong                             ticks_per_slot;
+    ulong                             genesis_creation_time;
+    double                            slots_per_year;
+    fd_inflation_t                    inflation;
+    ulong                             cluster_type;
+    ulong                             total_epoch_stake;
+    ulong                             block_height;
+    ulong                             execution_fees;
+    ulong                             priority_fees;
+    ulong                             tips;
+    ulong                             signature_count;
+    fd_hash_t                         poh;
+    fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+    fd_hash_t                         bank_hash;
+    fd_hash_t                         prev_bank_hash;
+    fd_hash_t                         genesis_hash;
+    fd_epoch_schedule_t               epoch_schedule;
+    fd_rent_t                         rent;
+    fd_sysvar_cache_t                 sysvar_cache;
+    fd_features_t                     features;
+    ulong                             txn_count;
+    ulong                             nonvote_txn_count;
+    ulong                             failed_txn_count;
+    ulong                             nonvote_failed_txn_count;
+    ulong                             total_compute_units_used;
+    ulong                             slots_per_epoch;
+    ulong                             shred_cnt;
+    ulong                             epoch;
+    ulong                             identity_vote_idx;
   } non_cow;
 
   /* Layout all information needed for non-templatized fields. */

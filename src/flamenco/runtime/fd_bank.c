@@ -132,20 +132,19 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
 #define X(type, name)                                                   \
   type const *                                                          \
   fd_bank_##name##_query( fd_bank_t const * bank ) {                    \
-    return (type const *)fd_type_pun_const( bank->data->non_cow.name ); \
+    return &bank->data->non_cow.name; \
   }                                                                     \
   type *                                                                \
   fd_bank_##name##_modify( fd_bank_t * bank ) {                         \
-    return (type *)fd_type_pun( bank->data->non_cow.name );             \
+    return &bank->data->non_cow.name;             \
   }                                                                     \
   void                                                                  \
   fd_bank_##name##_set( fd_bank_t * bank, type value ) {                \
-    FD_STORE( type, bank->data->non_cow.name, value );                  \
+    bank->data->non_cow.name = value;                  \
   }                                                                     \
   type                                                                  \
   fd_bank_##name##_get( fd_bank_t const * bank ) {                      \
-    type val = FD_LOAD( type, bank->data->non_cow.name );               \
-    return val;                                                         \
+    return bank->data->non_cow.name;               \
   }
 FD_BANKS_ITER(X)
 #undef X
@@ -640,6 +639,14 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   bank_l->locks = banks->locks;
   bank_l->data  = child_bank;
+
+  fd_bank_parent_slot_set( bank_l, parent_bank->non_cow.slot );
+  fd_bank_shred_cnt_set( bank_l, 0UL );
+  fd_bank_execution_fees_set( bank_l, 0UL );
+  fd_bank_priority_fees_set( bank_l, 0UL );
+  fd_bank_tips_set( bank_l, 0UL );
+  fd_bank_identity_vote_idx_set( bank_l, ULONG_MAX );
+  fd_bank_block_height_set( bank_l, fd_bank_block_height_get( bank_l ) + 1UL );
   return bank_l;
 }
 

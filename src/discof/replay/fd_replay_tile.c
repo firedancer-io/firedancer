@@ -645,16 +645,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
 
-  /* Update required runtime state and handle potential boundary. */
-
-  fd_bank_shred_cnt_set( bank, 0UL );
-  fd_bank_execution_fees_set( bank, 0UL );
-  fd_bank_priority_fees_set( bank, 0UL );
-  fd_bank_tips_set( bank, 0UL );
-  fd_bank_identity_vote_idx_set( bank, ULONG_MAX );
-
-  fd_bank_block_height_set( bank, fd_bank_block_height_get( bank ) + 1UL );
-
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 0 );
@@ -938,15 +928,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
-
-  fd_bank_execution_fees_set( ctx->leader_bank, 0UL );
-  fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
-  fd_bank_shred_cnt_set( ctx->leader_bank, 0UL );
-  fd_bank_tips_set( ctx->leader_bank, 0UL );
-  fd_bank_identity_vote_idx_set( ctx->leader_bank, ULONG_MAX );
-
-  /* Update block height. */
-  fd_bank_block_height_set( ctx->leader_bank, fd_bank_block_height_get( ctx->leader_bank ) + 1UL );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
