@@ -728,7 +728,7 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
   }
   if( FD_UNLIKELY( _bank_idx==ULONG_MAX ) ) {
     CSTR_JSON( id, id_cstr );
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
     return 0;
   }
   *bank_idx = _bank_idx;
