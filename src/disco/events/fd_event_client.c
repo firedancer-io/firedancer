@@ -134,7 +134,6 @@ fd_event_client_new( void *                 shmem,
                                           "[tiles.event.url]" ) ) ) {
     FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
   }
-  client->server_tcp_port = 7878;
   if( FD_UNLIKELY( url->host_len > 255 ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }
