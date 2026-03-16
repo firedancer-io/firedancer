@@ -111,6 +111,21 @@
 } while( 0 )
 
 static int
+deser_legacy_contact_info( fd_gossip_value_t * value,
+                           uchar const **      payload,
+                           ulong *             payload_sz ) {
+  READ_BYTES( value->origin, 32UL, payload, payload_sz );
+  for( ulong i=0UL; i<10UL; i++ ) {
+    uint is_ip6 = 0U;
+    READ_ENUM( is_ip6, 2UL, payload, payload_sz );
+    SKIP_BYTES( is_ip6 ? 16UL+2UL : 4UL+2UL, payload, payload_sz );
+  }
+  READ_WALLCLOCK( value->wallclock, payload, payload_sz );
+  SKIP_BYTES( 2UL, payload, payload_sz );
+  return 1;
+}
+
+static int
 deser_vote_instruction( uchar const * data,
                         ulong         data_len ) {
   // TODO: NO FD TYPES
@@ -506,7 +521,7 @@ deser_value( fd_gossip_value_t * value,
   READ_ENUM( value->tag, FD_GOSSIP_VALUE_CNT, payload, payload_sz );
 
   switch( value->tag ) {
-    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:           return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/legacy_contact_info.rs#L41 */
+    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:           return deser_legacy_contact_info( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_VOTE:                          return deser_vote( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_LOWEST_SLOT:                   return deser_lowest_slot( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES:        return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/crds_data.rs#L225 */
@@ -757,17 +772,6 @@ ser_vote( fd_gossip_value_t const * value,
 }
 
 static int
-ser_node_instance( fd_gossip_value_t const * value,
-                   uchar **                  out,
-                   ulong *                   out_sz ) {
-  WRITE_BYTES( value->origin, 32UL, out, out_sz );
-  WRITE_U64( value->wallclock, out, out_sz );
-  WRITE_U64( value->node_instance->timestamp, out, out_sz );
-  WRITE_U64( value->node_instance->token, out, out_sz );
-  return 1;
-}
-
-static int
 ser_duplicate_shred( fd_gossip_value_t const * value,
                      uchar **                  out,
                      ulong *                   out_sz ) {
@@ -890,7 +894,6 @@ fd_gossip_value_serialize( fd_gossip_value_t const * value,
 
   switch( value->tag ) {
     case FD_GOSSIP_VALUE_VOTE:            if( FD_UNLIKELY( -1==ser_vote( value, out, out_sz ) ) ) return -1; break;
-    case FD_GOSSIP_VALUE_NODE_INSTANCE:   if( FD_UNLIKELY( -1==ser_node_instance( value, out, out_sz ) ) ) return -1; break;
     case FD_GOSSIP_VALUE_DUPLICATE_SHRED: if( FD_UNLIKELY( -1==ser_duplicate_shred( value, out, out_sz ) ) ) return -1; break;
     case FD_GOSSIP_VALUE_SNAPSHOT_HASHES: if( FD_UNLIKELY( -1==ser_snapshot_hashes( value, out, out_sz ) ) ) return -1; break;
     case FD_GOSSIP_VALUE_CONTACT_INFO:    if( FD_UNLIKELY( -1==ser_contact_info( value, out, out_sz ) ) ) return -1; break;
