@@ -9,8 +9,14 @@
 #include "../fd_quic_proto.h"
 #include "../fd_quic_proto.c"
 
-#define APP_ENC_LEVEL fd_quic_enc_level_appdata_id  /* 3 */
-#define APP_PN_SPACE  2  /* pn_space for appdata (el2pn_map[3]==2) */
+#define APP_ENC_LEVEL fd_quic_enc_level_appdata_id              /* 3 */
+
+static uint
+app_pn_space( void ) {
+  static uchar const el2pn_map[] = { 0, 2, 1, 2 };
+  return el2pn_map[ APP_ENC_LEVEL ];
+}
+#define APP_PN_SPACE app_pn_space()
 
 /* Helpers *************************************************************/
 
@@ -404,7 +410,7 @@ test_stale_pkt_meta_regression( fd_quic_sandbox_t * sandbox,
   memset( data, 0x66, sizeof(data) );
   fd_quic_stream_send( stream, data, sizeof(data), 0 );
 
-  flush_conn( sandbox, conn );
+  ulong first_pkt = flush_conn( sandbox, conn );
 
   ulong stream_meta_cnt = count_pkt_metas_for_stream( conn, APP_ENC_LEVEL, stream_id );
   if( stream_meta_cnt < 2UL ) {
@@ -415,17 +421,18 @@ test_stale_pkt_meta_regression( fd_quic_sandbox_t * sandbox,
 
   ulong pkt_after = conn->pkt_number[ APP_PN_SPACE ] - 1UL;
 
-  /* ACK all stream packets except pkt 0.  This advances unacked_low
-     for the portion of stream data in those packets. */
-  if( pkt_after > 0UL ) {
-    inject_ack( sandbox, conn, 1UL, pkt_after );
+  /* ACK all stream packets except the first one.  This advances
+     unacked_low for the portion of stream data in those packets. */
+  if( pkt_after > first_pkt ) {
+    inject_ack( sandbox, conn, first_pkt+1UL, pkt_after );
     service_conn( sandbox, conn, (long)1e6 );
   }
 
-  /* Force-retry pkt 0 (simulating skip_ceil from ACK handler). */
+  /* Force-retry the first packet (simulating skip_ceil from the ACK
+     handler). */
   fd_quic_state_t * state = fd_quic_get_state( sandbox->quic );
   state->now = sandbox->wallclock;
-  fd_quic_pkt_meta_retry( sandbox->quic, conn, 1UL, APP_ENC_LEVEL );
+  fd_quic_pkt_meta_retry( sandbox->quic, conn, first_pkt+1UL, APP_ENC_LEVEL );
 
   /* Retransmit and ACK the retransmission. */
   ulong resend_pkt = flush_conn( sandbox, conn );
