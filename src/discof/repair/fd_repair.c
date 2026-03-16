@@ -138,3 +138,58 @@ fd_repair_orphan( fd_repair_t *     repair,
   repair->msg.orphan.slot  = slot;
   return &repair->msg;
 }
+
+int
+fd_repair_ping_de( fd_repair_ping_t * ping,
+                   uchar      const * buf,
+                   ulong              buf_sz ) {
+  if( FD_UNLIKELY( buf_sz<sizeof(uint) )) return -1;
+  ping->kind = *(uint const *)fd_type_pun_const( buf );
+  buf    += sizeof(uint);
+  buf_sz -= sizeof(uint);
+
+  if( FD_LIKELY( ping->kind != FD_REPAIR_KIND_PING )) return -1;
+
+  /* pong section */
+
+  if( FD_UNLIKELY( buf_sz<sizeof(fd_pubkey_t) )) return -1;
+  ping->ping.from = *(fd_pubkey_t const *)fd_type_pun_const( buf );
+  buf    += sizeof(fd_pubkey_t);
+  buf_sz -= sizeof(fd_pubkey_t);
+
+  if( FD_UNLIKELY( buf_sz<sizeof(fd_hash_t) )) return -1;
+  ping->ping.hash = *(fd_hash_t const *)fd_type_pun_const( buf );
+  buf    += sizeof(fd_hash_t);
+  buf_sz -= sizeof(fd_hash_t);
+
+  if( FD_UNLIKELY( buf_sz<sizeof(fd_ed25519_sig_t) )) return -1;
+  memcpy( ping->ping.sig, buf, sizeof(fd_ed25519_sig_t) );
+  buf    += sizeof(fd_ed25519_sig_t);
+  buf_sz -= sizeof(fd_ed25519_sig_t);
+  return 0;
+}
+
+int
+fd_repair_ping_ser( fd_repair_ping_t const * ping,
+                    uchar *                  buf,
+                    ulong                    buf_max,
+                    ulong *                  buf_sz ) {
+  ulong off = 0;
+  if( FD_UNLIKELY( off+sizeof(uint)>buf_max )) return -1;
+  FD_STORE( uint, buf+off, ping->kind );
+  off += sizeof(uint);
+
+  if( FD_UNLIKELY( off+sizeof(fd_pubkey_t)>buf_max )) return -1;
+  FD_STORE( fd_pubkey_t, buf+off, ping->ping.from );
+  off += sizeof(fd_pubkey_t);
+  if( FD_UNLIKELY( off+sizeof(fd_hash_t)>buf_max )) return -1;
+  FD_STORE( fd_hash_t, buf+off, ping->ping.hash );
+  off += sizeof(fd_hash_t);
+
+  if( FD_UNLIKELY( off+sizeof(fd_ed25519_sig_t)>buf_max )) return -1;
+  memcpy( buf+off, ping->ping.sig, sizeof(fd_ed25519_sig_t) );
+  off += sizeof(fd_ed25519_sig_t);
+
+  if( FD_LIKELY( buf_sz ) ) *buf_sz = off;
+  return 0;
+}

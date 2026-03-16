@@ -767,17 +767,15 @@ after_net( ctx_t * ctx,
   uchar * data; ulong data_sz;
   FD_TEST( fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &data, &data_sz, &eth, &ip4, &udp ) );
   fd_ip4_port_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
-  if( FD_UNLIKELY( data_sz != sizeof(fd_repair_ping_t) ) ) {
-    ctx->metrics->malformed_ping++;
-    return;
-  }
-  fd_repair_ping_t * res = (fd_repair_ping_t *)fd_type_pun( data );
-  if( FD_UNLIKELY( res->kind != FD_REPAIR_KIND_PING ) ) {
+
+  fd_repair_ping_t ping[1];
+  int err = fd_repair_ping_de( ping, data, data_sz );
+  if( FD_UNLIKELY( err ) ) {
     ctx->metrics->malformed_ping++;
     return;
   }
 
-  fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &res->ping.from );
+  fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &ping->ping.from );
   if( FD_UNLIKELY( !peer ) ) {
     ctx->metrics->unknown_peer_ping++;
     return;
@@ -786,7 +784,7 @@ after_net( ctx_t * ctx,
   if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) return;
 
   fd_sha512_t sha[1];
-  if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( res->ping.hash.uc, 32UL, res->ping.sig, res->ping.from.uc, sha ) ) ) {
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( ping->ping.hash.uc, 32UL, ping->ping.sig, ping->ping.from.uc, sha ) ) ) {
     ctx->metrics->fail_sigverify_ping++;
     return;
   }
@@ -798,8 +796,8 @@ after_net( ctx_t * ctx,
      feasible it actually is, especially considering upstream gossip
      behavior. */
 
-  fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &res->ping.hash );
-  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr, .key = res->ping.from } } );
+  fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &ping->ping.hash );
+  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = ping->ping.hash, .daddr = ip4->daddr, .key = ping->ping.from } } );
   peer->ping++;
 }
 

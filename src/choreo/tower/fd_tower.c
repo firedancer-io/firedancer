@@ -335,7 +335,7 @@ threshold_check( fd_tower_t const *        tower,
   uchar __attribute__((aligned(FD_TOWER_ALIGN))) scratch[ FD_TOWER_FOOTPRINT ];
   fd_tower_t * scratch_tower = fd_tower_join( fd_tower_new( scratch ) );
 
-  /* First, simulate a vote on our tower, popping off everything that
+/* First, simulate a vote on our tower, popping off everything that
      would be expired by voting for slot. */
 
   ulong cnt = simulate_vote( tower, slot );
