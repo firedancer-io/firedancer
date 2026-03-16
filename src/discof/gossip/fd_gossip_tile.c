@@ -365,7 +365,6 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       ctx->wfs_stake.online = 0UL;
       ctx->wfs_stake.total = 0UL;
 
-      /* FIXME: Replace this 40200*/
       FD_TEST( manifest->vote_accounts_len<=40200UL );
       for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
           if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
