@@ -37,7 +37,7 @@ fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank
 void
 fd_solfuzz_pb_restore_rent( fd_bank_t *                 bank,
                             fd_exec_test_rent_t const * rent ) {
-  fd_rent_t * r = fd_bank_rent_modify( bank );
+  fd_rent_t * r = &bank->data->fields.rent;
   *r = (fd_rent_t){
     .lamports_per_uint8_year = rent->lamports_per_byte_year,
     .exemption_threshold     = rent->exemption_threshold,

@@ -48,7 +48,7 @@ fd_sysvar_cache_restore1( fd_bank_t *               bank,
                           fd_funk_txn_xid_t const * xid,
                           int                       log_fails ) {
   fd_sysvar_cache_t * cache = fd_sysvar_cache_join( fd_sysvar_cache_new(
-      fd_bank_sysvar_cache_modify( bank ) ) );
+      &bank->data->fields.sysvar_cache ) );
 
   int saw_err = 0;
   for( ulong i=0UL; i<FD_SYSVAR_CACHE_ENTRY_CNT; i++ ) {

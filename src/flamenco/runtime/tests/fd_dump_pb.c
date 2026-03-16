@@ -343,7 +343,7 @@ dump_epoch_schedule( fd_bank_t *                     bank,
 static void
 dump_rent( fd_bank_t *           bank,
            fd_exec_test_rent_t * out ) {
-  fd_rent_t const * r = fd_bank_rent_query( bank );
+  fd_rent_t const * r = &bank->data->fields.rent;
   *out = (fd_exec_test_rent_t){
     .lamports_per_byte_year = r->lamports_per_uint8_year,
     .exemption_threshold    = r->exemption_threshold,
@@ -407,7 +407,7 @@ dump_txn_bank( fd_bank_t *                  bank,
 
   /* TxnBank -> features */
   txn_bank->has_features = true;
-  dump_sorted_features( fd_bank_features_query( bank ), &txn_bank->features, spad );
+  dump_sorted_features( &bank->data->fields.features, &txn_bank->features, spad );
 }
 
 /** SECONDARY FUNCTIONS **/
@@ -771,7 +771,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* BlockBank -> features */
   block_bank->has_features = true;
-  dump_sorted_features( fd_bank_features_query( parent_bank ), &block_bank->features, spad );
+  dump_sorted_features( &parent_bank->data->fields.features, &block_bank->features, spad );
 
   /* BlockBank -> vote_accounts_t_1 / vote_accounts_t_2 */
   block_bank->vote_accounts_t_1       = va_t1;
@@ -999,7 +999,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Feature set */
   instr_context->has_features = true;
-  dump_sorted_features( fd_bank_features_query( bank ), &instr_context->features, spad );
+  dump_sorted_features( &bank->data->fields.features, &instr_context->features, spad );
 }
 
 /***** PUBLIC APIs *****/

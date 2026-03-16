@@ -234,9 +234,6 @@ FD_PROTOTYPES_BEGIN
   X(fd_inflation_t,                    inflation                ) /* Inflation */                                          \
   X(ulong,                             cluster_type             ) /* Cluster type */                                       \
   X(ulong,                             total_epoch_stake        ) /* Total epoch stake */                                  \
-                                                                  /* This is only used for the get_epoch_stake syscall. */ \
-                                                                  /* If we are executing in epoch E, this is the total */  \
-                                                                  /* stake at the end of epoch E-1. */                     \
   X(ulong,                             block_height             ) /* Block height */                                       \
   X(ulong,                             execution_fees           ) /* Execution fees */                                     \
   X(ulong,                             priority_fees            ) /* Priority fees */                                      \
@@ -247,18 +244,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_hash_t,                         bank_hash                ) /* Bank hash */                                          \
   X(fd_hash_t,                         prev_bank_hash           ) /* Previous bank hash */                                 \
   X(fd_hash_t,                         genesis_hash             ) /* Genesis hash */                                       \
-  X(fd_epoch_schedule_t,               epoch_schedule           ) /* Epoch schedule */                                     \
-  X(fd_rent_t,                         rent                     ) /* Rent */                                               \
-  X(fd_sysvar_cache_t,                 sysvar_cache             ) /* Sysvar cache */                                       \
-                                                                  /* then there can be 100k unique leaders in the worst */ \
-                                                                  /* case. We also can assume 432k slots per epoch. */     \
-  X(fd_features_t,                     features                 ) /* Features */                                           \
-  X(ulong,                             txn_count                ) /* Transaction count */                                  \
-  X(ulong,                             nonvote_txn_count        ) /* Nonvote transaction count */                          \
-  X(ulong,                             failed_txn_count         ) /* Failed transaction count */                           \
-  X(ulong,                             nonvote_failed_txn_count ) /* Nonvote failed transaction count */                   \
-  X(ulong,                             total_compute_units_used ) /* Total compute units used */                           \
-  X(ulong,                             slots_per_epoch          ) /* Slots per epoch */
+  X(fd_epoch_schedule_t,               epoch_schedule           ) /* Epoch schedule */
 
 /* Defining pooled fields. */
 

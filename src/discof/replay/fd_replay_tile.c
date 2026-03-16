@@ -571,7 +571,7 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL ) + fd_ulong_if( current_epoch, 1UL, 0UL );
 
-  fd_features_t const * features = fd_bank_features_query( bank );
+  fd_features_t const * features = &bank->data->fields.features;
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
 
@@ -719,7 +719,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
 
   ctx->metrics.slots_total++;
-  ctx->metrics.transactions_total = fd_bank_txn_count_get( bank );
+  ctx->metrics.transactions_total = bank->data->fields.transaction_count;
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
@@ -734,7 +734,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
-  slot_info->transaction_count     = fd_bank_txn_count_get( bank );
+  slot_info->transaction_count     = bank->data->fields.transaction_count;
 
   fd_inflation_t inflation = fd_bank_inflation_get( bank );
   slot_info->inflation.foundation      = inflation.foundation;
@@ -743,7 +743,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->inflation.initial         = inflation.initial;
   slot_info->inflation.taper           = inflation.taper;
 
-  fd_rent_t rent = fd_bank_rent_get( bank );
+  fd_rent_t rent = bank->data->fields.rent;
   slot_info->rent.burn_percent            = rent.burn_percent;
   slot_info->rent.lamports_per_uint8_year = rent.lamports_per_uint8_year;
   slot_info->rent.exemption_threshold     = rent.exemption_threshold;
@@ -767,10 +767,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   fd_bank_t parent_bank[1];
   if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) ) ) {
-    ulong total_txn_cnt          = fd_bank_txn_count_get( bank )                 - fd_bank_txn_count_get( parent_bank );
-    ulong nonvote_txn_cnt        = fd_bank_nonvote_txn_count_get( bank ) - fd_bank_nonvote_txn_count_get( parent_bank );
-    ulong failed_txn_cnt         = fd_bank_failed_txn_count_get( bank )          - fd_bank_failed_txn_count_get( parent_bank );
-    ulong nonvote_failed_txn_cnt = fd_bank_nonvote_failed_txn_count_get( bank )  - fd_bank_nonvote_failed_txn_count_get( parent_bank );
+    ulong total_txn_cnt          = bank->data->fields.transaction_count        - parent_bank->data->fields.transaction_count;
+    ulong nonvote_txn_cnt        = bank->data->fields.nonvote_txn_count        - parent_bank->data->fields.nonvote_txn_count;
+    ulong failed_txn_cnt         = bank->data->fields.failed_txn_count         - parent_bank->data->fields.failed_txn_count;
+    ulong nonvote_failed_txn_cnt = bank->data->fields.nonvote_failed_txn_count - parent_bank->data->fields.nonvote_failed_txn_count;
 
     slot_info->nonvote_success = nonvote_txn_cnt - nonvote_failed_txn_cnt;
     slot_info->nonvote_failed  = nonvote_failed_txn_cnt;
@@ -2848,7 +2848,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bundle.enabled = 0;
   }
 
-  fd_features_t * features = fd_bank_features_modify( bank );
+  fd_features_t * features = &bank->data->fields.features;
   fd_features_enable_cleaned_up( features );
 
   char const * one_off_features[ 16UL ];

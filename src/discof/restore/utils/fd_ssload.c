@@ -106,7 +106,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   ulong epoch = fd_slot_to_epoch( epoch_schedule, manifest->slot, NULL );
   bank->data->fields.epoch = epoch;
 
-  fd_rent_t * rent = fd_bank_rent_modify( bank );
+  fd_rent_t * rent = &bank->data->fields.rent;
   rent->lamports_per_uint8_year = manifest->rent_params.lamports_per_uint8_year;
   rent->exemption_threshold     = manifest->rent_params.exemption_threshold;
   rent->burn_percent            = manifest->rent_params.burn_percent;
@@ -133,7 +133,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
 
   fd_bank_capitalization_set( bank, manifest->capitalization );
-  fd_bank_txn_count_set( bank, manifest->transaction_count );
+  bank->data->fields.transaction_count = manifest->transaction_count;
   fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
   fd_bank_tick_height_set( bank, manifest->tick_height );
   fd_bank_max_tick_height_set( bank, manifest->max_tick_height );

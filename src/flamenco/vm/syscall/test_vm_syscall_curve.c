@@ -133,7 +133,7 @@ main( int     argc,
   fd_txn_out_t        txn_out[1];
   test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, bank_data, bank_locks, txn_out );
 
-  fd_features_enable_all( fd_bank_features_modify( bank ) );
+  fd_features_enable_all( &bank->data->fields.features );
 
   int vm_ok = !!fd_vm_init(
       /* vm                                   */ vm,

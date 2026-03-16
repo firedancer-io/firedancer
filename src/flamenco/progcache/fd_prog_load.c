@@ -165,7 +165,7 @@ fd_prog_load_env_t *
 fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
                             fd_bank_t const *    bank ) {
   *env = (fd_prog_load_env_t) {
-    .features      = fd_bank_features_query( bank ),
+    .features      = &bank->data->fields.features,
     .slot          = fd_bank_slot_get      ( bank ),
     .epoch         = bank->data->fields.epoch,
     .epoch_slot0   = fd_epoch_slot0( fd_bank_epoch_schedule_query( bank ), bank->data->fields.epoch )

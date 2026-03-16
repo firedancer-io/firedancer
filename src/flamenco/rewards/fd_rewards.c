@@ -46,15 +46,15 @@ validator( fd_inflation_t const * inflation, double year) {
 static FD_FN_CONST ulong
 get_inflation_start_slot( fd_bank_t const * bank ) {
   ulong devnet_and_testnet = FD_FEATURE_ACTIVE_BANK( bank, devnet_and_testnet )
-      ? fd_bank_features_query( bank )->devnet_and_testnet
+      ? bank->data->fields.features.devnet_and_testnet
       : ULONG_MAX;
 
-  ulong enable = fd_bank_features_query( bank )->full_inflation_enable;
+  ulong enable = bank->data->fields.features.full_inflation_enable;
 
   ulong min_slot = fd_ulong_min( enable, devnet_and_testnet );
   if( min_slot == ULONG_MAX ) {
     if( FD_FEATURE_ACTIVE_BANK( bank, pico_inflation ) ) {
-      min_slot = fd_bank_features_query( bank )->pico_inflation;
+      min_slot = bank->data->fields.features.pico_inflation;
     } else {
       min_slot = 0;
     }
@@ -396,7 +396,7 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
-      fd_bank_features_query( bank ),
+      &bank->data->fields.features,
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -490,7 +490,7 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
-      fd_bank_features_query( bank ),
+      &bank->data->fields.features,
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -639,7 +639,7 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
       ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
       int is_some = fd_new_warmup_cooldown_rate_epoch(
           fd_bank_epoch_schedule_query( bank ),
-          fd_bank_features_query( bank ),
+          &bank->data->fields.features,
           new_warmup_cooldown_rate_epoch,
           _err );
       if( FD_UNLIKELY( !is_some ) ) {
@@ -1143,7 +1143,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong * new_warmup_cooldown_rate_epoch = &new_warmup_cooldown_rate_epoch_;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
-      fd_bank_features_query( bank ),
+      &bank->data->fields.features,
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {

@@ -32,7 +32,7 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 100
   };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->fields.rent = rent;
 
   /* Stake History update requires epoch schedule */
   fd_epoch_schedule_t const schedule = {

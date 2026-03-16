@@ -997,7 +997,7 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
   ulong total_fee = fd_ulong_sat_add( execution_fee, priority_fee );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
-  err = fd_validate_fee_payer( fee_payer_key, fee_payer_meta, fd_bank_rent_query( bank ), total_fee );
+  err = fd_validate_fee_payer( fee_payer_key, fee_payer_meta, &bank->data->fields.rent, total_fee );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1039,7 +1039,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                          fd_txn_out_t *      txn_out ) {
   if( TXN( txn_in->txn )->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
-    fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( bank );
+    fd_sysvar_cache_t const * sysvar_cache = &bank->data->fields.sysvar_cache;
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
     if( FD_UNLIKELY( !slot_hashes ) ) {
       FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
@@ -1274,7 +1274,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
                   fd_txn_in_t const * txn_in,
                   fd_txn_out_t *      txn_out,
                   fd_instr_info_t *   instr ) {
-  fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( bank );
+  fd_sysvar_cache_t const * sysvar_cache = &bank->data->fields.sysvar_cache;
   int instr_exec_result = fd_instr_stack_push( runtime, txn_in, txn_out, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
@@ -1577,7 +1577,7 @@ static int
 fd_executor_txn_check( fd_runtime_t * runtime,
                        fd_bank_t *    bank,
                        fd_txn_out_t * txn_out ) {
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_rent_t const * rent = &bank->data->fields.rent;
 
   ulong starting_lamports_l = 0UL;
   ulong starting_lamports_h = 0UL;

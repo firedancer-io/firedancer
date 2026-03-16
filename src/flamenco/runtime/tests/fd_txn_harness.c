@@ -89,7 +89,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Features */
   FD_TEST( txn_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &txn_bank->features;
-  fd_features_t * features_bm = fd_bank_features_modify( runner->bank );
+  fd_features_t * features_bm = &runner->bank->data->fields.features;
   FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
 
   /* Epoch */

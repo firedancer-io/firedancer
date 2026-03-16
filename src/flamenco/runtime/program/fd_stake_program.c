@@ -848,7 +848,7 @@ get_if_mergeable( fd_exec_instr_ctx_t *         invoke_context, // not const to 
     int err;
     int is_some = fd_new_warmup_cooldown_rate_epoch(
         epoch_schedule,
-        fd_bank_features_query( invoke_context->bank ),
+        &invoke_context->bank->data->fields.features,
         &new_rate_activation_epoch,
         &err );
     if( FD_UNLIKELY( err ) ) return err;
@@ -1166,7 +1166,7 @@ get_stake_status( fd_exec_instr_ctx_t const *    invoke_context,
   int err;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       epoch_schedule,
-      fd_bank_features_query( invoke_context->bank ),
+      &invoke_context->bank->data->fields.features,
       &new_rate_activation_epoch,
       &err );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1211,7 +1211,7 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
   int err;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       epoch_schedule,
-      fd_bank_features_query( ctx->bank ),
+      &ctx->bank->data->fields.features,
       &new_rate_activation_epoch,
       &err );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2867,7 +2867,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     int   err;
     int   is_some = fd_new_warmup_cooldown_rate_epoch(
         epoch_schedule,
-        fd_bank_features_query( ctx->bank ),
+        &ctx->bank->data->fields.features,
         &new_rate_activation_epoch,
         &err );
     if( FD_UNLIKELY( err ) ) return err;

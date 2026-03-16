@@ -234,7 +234,7 @@ typedef struct test_env test_env_t;
 static void
 init_sysvars( test_env_t * env ) {
   fd_rent_t rent = { .lamports_per_uint8_year = 3480UL, .exemption_threshold = 2.0, .burn_percent = 50 };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->fields.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 
   fd_epoch_schedule_t epoch_schedule = {
@@ -382,7 +382,7 @@ test_env_create( test_env_t * env,
   env->runtime->log.log_collector = env->log_collector;
 
   /* Features: legacy mode (no direct_mapping, no stricter_abi) */
-  fd_features_t * features = fd_bank_features_modify( env->bank );
+  fd_features_t * features = &env->bank->data->fields.features;
   fd_features_disable_all( features );
   features->loosen_cpi_size_restriction = 0UL;
 
@@ -432,7 +432,7 @@ test_env_create( test_env_t * env,
 
   test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->bank->data, env->banks->locks, env->txn_out );
 
-  features = fd_bank_features_modify( env->bank );
+  features = &env->bank->data->fields.features;
   fd_features_disable_all( features );
   features->loosen_cpi_size_restriction = 0UL;
 

@@ -43,7 +43,7 @@ test_sysvar_recent_hashes_init( fd_wksp_t * wksp ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 100
   };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->fields.rent = rent;
 
   /* Create an empty recent hashes sysvar */
   fd_sysvar_recent_hashes_init( env->bank, env->accdb, &env->xid, NULL );
@@ -73,7 +73,7 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 100
   };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->fields.rent = rent;
 
   /* The recent blockhashes sysvar is tied to the blockhash queue */
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( env->bank ), 0UL );

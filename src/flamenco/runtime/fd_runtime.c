@@ -90,7 +90,7 @@ fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
   if( FD_FEATURE_ACTIVE_BANK( bank, enable_vote_address_leader_schedule ) ) {
     /* Return the first epoch if activated at genesis
        https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6153-L6157 */
-    ulong activation_slot = fd_bank_features_query( bank )->enable_vote_address_leader_schedule;
+    ulong activation_slot = bank->data->fields.features.enable_vote_address_leader_schedule;
     if( activation_slot==0UL ) return 1; /* effective_epoch=0, current_epoch >= effective_epoch always true */
 
     /* Calculate the epoch that the feature became activated in
@@ -264,7 +264,7 @@ fd_runtime_validate_fee_collector( fd_bank_t const *     bank,
      We already know that the post deposit balance is >0 because we are paying a >0 amount.
      So TLDR we just check if the account is rent exempt.
    */
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_rent_t const * rent = &bank->data->fields.rent;
   ulong minbal  = fd_rent_exempt_minimum_balance( rent, fd_accdb_ref_data_sz( collector ) );
   ulong balance = fd_accdb_ref_lamports( collector );
   if( FD_UNLIKELY( __builtin_uaddl_overflow( balance, fee, &balance ) ) ) {
@@ -454,7 +454,7 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
   fd_builtin_program_t const * builtins = fd_builtins();
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6732-L6751 */
-    if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+    if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), &bank->data->fields.features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       FD_BASE58_ENCODE_32_BYTES( builtins[i].pubkey->key, pubkey_b58 );
       FD_LOG_DEBUG(( "Migrating builtin program %s to core BPF", pubkey_b58 ));
       fd_migrate_builtin_to_core_bpf( bank, accdb, xid, runtime_stack, builtins[i].core_bpf_migration_config, capture_ctx );
@@ -470,7 +470,7 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6776-L6793 */
   fd_stateless_builtin_program_t const * stateless_builtins = fd_stateless_builtins();
   for( ulong i=0UL; i<fd_num_stateless_builtins(); i++ ) {
-    if( stateless_builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), stateless_builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+    if( stateless_builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), &bank->data->fields.features, stateless_builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       FD_BASE58_ENCODE_32_BYTES( stateless_builtins[i].pubkey->key, pubkey_b58 );
       FD_LOG_DEBUG(( "Migrating stateless builtin program %s to core BPF", pubkey_b58 ));
       fd_migrate_builtin_to_core_bpf( bank, accdb, xid, runtime_stack, stateless_builtins[i].core_bpf_migration_config, capture_ctx );
@@ -493,7 +493,7 @@ fd_feature_activate( fd_bank_t *               bank,
                      fd_capture_ctx_t *        capture_ctx,
                      fd_feature_id_t const *   id,
                      fd_pubkey_t const *       addr ) {
-  fd_features_t * features = fd_bank_features_modify( bank );
+  fd_features_t * features = &bank->data->fields.features;
 
   if( id->reverted==1 ) return;
 
@@ -560,7 +560,7 @@ deprecate_rent_exemption_threshold( fd_bank_t *               bank,
      and testnet Agave's bank rent.burn_percent field is different to
      the value in the sysvar. When this feature is activated in Agave,
      the sysvar inherits the value from the bank. */
-  fd_rent_t rent               = fd_bank_rent_get( bank );
+  fd_rent_t rent               = bank->data->fields.rent;
   rent.lamports_per_uint8_year = fd_rust_cast_double_to_ulong(
     (double)rent.lamports_per_uint8_year * rent.exemption_threshold );
   rent.exemption_threshold     = FD_SIMD_0194_NEW_RENT_EXEMPTION_THRESHOLD;
@@ -569,7 +569,7 @@ deprecate_rent_exemption_threshold( fd_bank_t *               bank,
      fd_sysvar_cache_restore, which is called at the start of every
      block in fd_runtime_block_execute_prepare, after this function. */
   fd_sysvar_rent_write( bank, accdb, xid, capture_ctx, &rent );
-  fd_bank_rent_set( bank, rent );
+  bank->data->fields.rent = rent;
 }
 
 // https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391
@@ -637,7 +637,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   ulong * new_rate_activation_epoch     = &new_rate_activation_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
-      fd_bank_features_query( bank ),
+      &bank->data->fields.features,
       new_rate_activation_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -846,12 +846,12 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
   fd_bank_signature_count_set( bank, 0UL );
-  fd_bank_total_compute_units_used_set( bank, 0UL );
+  bank->data->fields.total_compute_units_used = 0UL;
 
   if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
     fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
     FD_TEST( cost_tracker );
-    fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
+    fd_cost_tracker_init( cost_tracker, &bank->data->fields.features, fd_bank_slot_get( bank ) );
   }
 
   /* Update the active feature set with any upcoming features */
@@ -1262,23 +1262,23 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
   /* Accumulate block-level information to the bank. */
 
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ),       1UL );
+  FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.transaction_count,       1UL );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ),  txn_out->details.execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ),   txn_out->details.priority_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_out->details.signature_count );
 
   if( !txn_out->details.is_simple_vote ) {
-    FD_ATOMIC_FETCH_AND_ADD( fd_bank_nonvote_txn_count_modify( bank ), 1 );
+    FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.nonvote_txn_count, 1 );
     if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
-      FD_ATOMIC_FETCH_AND_ADD( fd_bank_nonvote_failed_txn_count_modify( bank ), 1 );
+      FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.nonvote_failed_txn_count, 1 );
     }
   }
 
   if( FD_UNLIKELY( txn_out->err.exec_err ) ) {
-    FD_ATOMIC_FETCH_AND_ADD( fd_bank_failed_txn_count_modify( bank ), 1 );
+    FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.failed_txn_count, 1 );
   }
 
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_total_compute_units_used_modify( bank ), txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter );
+  FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.total_compute_units_used, txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter );
 
   /* Update the cost tracker. */
 
@@ -1536,7 +1536,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
   epoch_schedule->first_normal_slot           = genesis->epoch_schedule.first_normal_slot;
   epoch_schedule->slots_per_epoch             = genesis->epoch_schedule.slots_per_epoch;
 
-  fd_rent_t * rent = fd_bank_rent_modify( bank );
+  fd_rent_t * rent = &bank->data->fields.rent;
   rent->lamports_per_uint8_year = genesis->rent.lamports_per_uint8_year;
   rent->exemption_threshold     = genesis->rent.exemption_threshold;
   rent->burn_percent            = genesis->rent.burn_percent;
@@ -1650,7 +1650,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
           FD_LOG_WARNING(( "genesis contains corrupt feature account %s", addr_b58 ));
           FD_LOG_HEXDUMP_ERR(( "data", acc_data, account->meta.dlen ));
         }
-        fd_features_t * features = fd_bank_features_modify( bank );
+        fd_features_t * features = &bank->data->fields.features;
         if( feature->is_active ) {
           FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, pubkey_b58 );
           FD_LOG_DEBUG(( "feature %s activated at slot %lu (genesis)", pubkey_b58, feature->activation_slot ));
@@ -1711,13 +1711,13 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
 
   fd_bank_signature_count_set( bank, 0UL );
 
-  fd_bank_txn_count_set( bank, 0UL );
+  bank->data->fields.transaction_count = 0UL;
 
-  fd_bank_failed_txn_count_set( bank, 0UL );
+  bank->data->fields.failed_txn_count = 0UL;
 
-  fd_bank_nonvote_failed_txn_count_set( bank, 0UL );
+  bank->data->fields.nonvote_failed_txn_count = 0UL;
 
-  fd_bank_total_compute_units_used_set( bank, 0UL );
+  bank->data->fields.total_compute_units_used = 0UL;
 
   fd_runtime_genesis_init_program( bank, accdb, xid, capture_ctx );
 
@@ -1979,7 +1979,7 @@ fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                                    idx,
                                                    &txn_out->accounts.keys[idx],
                                                    TXN( txn_in->txn ),
-                                                   fd_bank_features_query( bank ),
+                                                   &bank->data->fields.features,
                                                    bpf_upgradeable );
 }
 

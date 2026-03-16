@@ -10,7 +10,7 @@ static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
   char const * one_offs[] = { "9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ", "CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM" };
-  fd_features_enable_one_offs( fd_bank_features_modify( vm_ctx->instr_ctx->bank ), one_offs, 1U, slot );
+  fd_features_enable_one_offs( &vm_ctx->instr_ctx->bank->data->fields.features, one_offs, 1U, slot );
   vm_ctx->direct_mapping = enable;
   vm_ctx->stricter_abi_and_runtime_constraints = enable;
 }

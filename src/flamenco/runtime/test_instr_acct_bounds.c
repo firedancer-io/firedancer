@@ -57,7 +57,7 @@ typedef struct test_env test_env_t;
 static void
 init_sysvars( test_env_t * env ) {
   fd_rent_t rent = { .lamports_per_uint8_year = 3480UL, .exemption_threshold = 2.0, .burn_percent = 50 };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->fields.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 
   fd_epoch_schedule_t epoch_schedule = {
@@ -269,7 +269,7 @@ test_500_instr_accts( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  fd_bank_features_modify( env->bank )->limit_instruction_accounts = FD_FEATURE_DISABLED;
+  env->bank->data->fields.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( env, txn_p, txn_out, txn_in, 500 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -286,7 +286,7 @@ test_1094_instr_accts( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  fd_bank_features_modify( env->bank )->limit_instruction_accounts = FD_FEATURE_DISABLED;
+  env->bank->data->fields.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( env, txn_p, txn_out, txn_in, FD_INSTR_ACCT_MAX );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -304,7 +304,7 @@ test_limit_instr_accts_at_limit( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  fd_bank_features_modify( env->bank )->limit_instruction_accounts = 0UL;
+  env->bank->data->fields.features.limit_instruction_accounts = 0UL;
   setup_txn( env, txn_p, txn_out, txn_in, 255 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -320,7 +320,7 @@ test_limit_instr_accts_exceeded( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  fd_bank_features_modify( env->bank )->limit_instruction_accounts = 0UL;
+  env->bank->data->fields.features.limit_instruction_accounts = 0UL;
   setup_txn( env, txn_p, txn_out, txn_in, 256 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );

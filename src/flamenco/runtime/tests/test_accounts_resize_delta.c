@@ -83,7 +83,7 @@ init_rent_sysvar( test_env_t * env ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 50
   };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->fields.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 }
 
@@ -185,7 +185,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
     fd_features_t features = {0};
     fd_features_disable_all( &features );
     features.enable_loader_v4 = 0UL;
-    fd_bank_features_set( env->bank, features );
+    env->bank->data->fields.features = features;
   }
 
   fd_builtin_programs_init( env->bank, env->accdb, &env->xid, NULL );

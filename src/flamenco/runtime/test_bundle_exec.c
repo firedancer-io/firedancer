@@ -77,7 +77,7 @@ init_rent_sysvar( test_env_t * env,
     .burn_percent            = 50
   };
 
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->fields.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 }
 
@@ -170,7 +170,7 @@ init_rent_sysvar( test_env_t * env,
     fd_features_t features = {0};
     fd_features_disable_all( &features );
     features.deprecate_rent_exemption_threshold = TEST_FEATURE_ACTIVATION_SLOT;
-    fd_bank_features_set( env->bank, features );
+    env->bank->data->fields.features = features;
 
     fd_bank_top_votes_modify( env->bank );
 
