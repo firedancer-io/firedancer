@@ -72,7 +72,7 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
 static pid_t pid_namespace;
 
-#define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, FD_SRC_FILE, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
 extern int * fd_log_private_shared_lock;
 

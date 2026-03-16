@@ -769,7 +769,8 @@ fd_log_private_hexdump_msg( char const * descr,
 void
 fd_log_private_1( int          level,
                   long         now,
-                  char const * file,
+                  char const * path,
+                  char const * file_name,
                   int          line,
                   char const * func,
                   char const * msg ) {
@@ -797,7 +798,7 @@ fd_log_private_1( int          level,
        a previous log message */
 
     ulong hash = fd_cstr_hash_append( fd_cstr_hash_append( fd_cstr_hash_append( fd_ulong_hash(
-                   (ulong)(8L*(long)line+(long)level) ), file ), func ), msg );
+                   (ulong)(8L*(long)line+(long)level) ), path ), func ), msg );
 
     static long const dedup_interval = 20000000L; /* 1/50 s */
 
@@ -894,7 +895,7 @@ fd_log_private_1( int          level,
   if( to_logfile )
     fd_log_private_fprintf_0( log_fileno, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
                               level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                              fd_log_app(),fd_log_group(),thread, file,line,func, msg );
+                              fd_log_app(),fd_log_group(),thread, path,line,func, msg );
 
   if( to_stderr ) {
     static char const * color_level_cstr[] = {
@@ -910,7 +911,7 @@ fd_log_private_1( int          level,
     char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
     fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s %s %-6lu %-4s %-4s %s(%i): %s\n",
                               fd_log_private_colorize ? color_level_cstr[level] : level_cstr[level],
-                              now_short_cstr, tid,cpu,thread, file, line, msg );
+                              now_short_cstr, tid,cpu,thread, file_name, line, msg );
   }
 
   if( level<fd_log_level_flush() ) return;
@@ -921,7 +922,8 @@ fd_log_private_1( int          level,
 void
 fd_log_private_2( int          level,
                   long         now,
-                  char const * file,
+                  char const * path,
+                  char const * file_name,
                   int          line,
                   char const * func,
                   char const * msg ) {
@@ -934,7 +936,7 @@ fd_log_private_2( int          level,
 
   }
 
-  fd_log_private_1( level, now, file, line, func, msg );
+  fd_log_private_1( level, now, path, file_name, line, func, msg );
 
   if( level<fd_log_level_core() ) {
 #   if defined(__linux__)
@@ -1032,7 +1034,7 @@ fd_log_private_sig_abort( int         sig,
   static FD_TL int lock = 0;
   fd_log_private_shared_lock = &lock;
 
-#define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+#define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, FD_SRC_FILE, __LINE__, __func__, fd_log_private_0 a ); } while(0)
   FD_LOG_ERR_NOEXIT(( "Received signal %s", fd_io_strsignal( sig ) ));
 #undef FD_LOG_ERR_NOEXIT
 
