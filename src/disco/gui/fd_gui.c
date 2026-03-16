@@ -3,6 +3,7 @@
 #include "fd_gui_metrics.h"
 
 #include "../metrics/fd_metrics.h"
+#include "../../discof/gossip/fd_gossip_tile.h"
 #include "../plugin/fd_plugin.h"
 
 #include "../../ballet/base58/fd_base58.h"
@@ -41,6 +42,8 @@ fd_gui_new( void *                shmem,
             int                   snapshots_enabled,
             int                   is_voting,
             int                   schedule_strategy,
+            char const *          wfs_expected_bank_hash_cstr,
+            ushort                expected_shred_version,
             fd_topo_t *           topo,
             long                  now ) {
 
@@ -101,18 +104,29 @@ fd_gui_new( void *                shmem,
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
   gui->summary.startup_time_nanos            = gui->next_sample_400millis;
+  gui->summary.expected_shred_version        = expected_shred_version;
+  gui->summary.wfs_enabled          = 0;
+  gui->summary.wfs_bank_hash[ 0UL ] = '\0';
 
   if( FD_UNLIKELY( is_full_client ) ) {
+    fd_cstr_ncpy( gui->summary.wfs_bank_hash, wfs_expected_bank_hash_cstr, sizeof(gui->summary.wfs_bank_hash) );
+    gui->summary.wfs_enabled = !!strcmp( wfs_expected_bank_hash_cstr, "" );
+
     if( FD_UNLIKELY( snapshots_enabled ) ) {
       gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP;
       gui->summary.boot_progress.joining_gossip_time_nanos = gui->next_sample_400millis;
+      memset( gui->summary.boot_progress.loading_snapshot, 0, sizeof(gui->summary.boot_progress.loading_snapshot) );
       for( ulong i=0UL; i<FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT; i++ ) {
         gui->summary.boot_progress.loading_snapshot[ i ].reset_cnt = ULONG_MAX; /* ensures other fields are reset initially */
-        gui->summary.boot_progress.loading_snapshot[ i ].read_path[ 0 ] = '\0';
-        gui->summary.boot_progress.loading_snapshot[ i ].insert_path[ 0 ] = '\0';
+        gui->summary.boot_progress.loading_snapshot[ i ].slot = ULONG_MAX;
       }
       gui->summary.boot_progress.catching_up_time_nanos        = 0L;
       gui->summary.boot_progress.catching_up_first_replay_slot = ULONG_MAX;
+      gui->summary.boot_progress.wfs_total_stake     = 0UL;
+      gui->summary.boot_progress.wfs_connected_stake = 0UL;
+      gui->summary.boot_progress.wfs_total_peers     = 0UL;
+      gui->summary.boot_progress.wfs_connected_peers = 0UL;
+      gui->summary.boot_progress.wfs_attempt         = 0UL;
     } else {
       fd_memset( &gui->summary.boot_progress, 0, sizeof(gui->summary.boot_progress) );
       gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
@@ -787,13 +801,32 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
   volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
 
+  fd_topo_tile_t const * gossip = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "gossip", 0UL ) ];
+  volatile ulong * gossip_metrics = fd_metrics_tile( gossip->metrics );
+
   ulong snapshot_phase = snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ];
+  ulong wfs_state      = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STATE ) ];
 
   /* state transitions */
   if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
-  } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX ) ) {
-    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
+  } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && wfs_state==FD_GOSSIP_WFS_STATE_DONE && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( gui->summary.wfs_enabled ) ) {
+      if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) {
+        ulong snap_inc  = gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].slot;
+        ulong snap_full = gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].slot;
+        gui->summary.slot_caught_up = fd_ulong_if( snap_inc!=ULONG_MAX, snap_inc, snap_full );
+        gui->summary.boot_progress.catching_up_time_nanos = now;
+
+        fd_gui_printf_slot_caught_up( gui );
+        fd_http_server_ws_broadcast( gui->http );
+      }
+      gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
+    } else {
+      gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
+    }
+  } else if( FD_UNLIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && wfs_state==FD_GOSSIP_WFS_STATE_WAIT ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY;
   } else if( FD_LIKELY( snapshot_phase==FD_SNAPCT_STATE_READING_FULL_FILE
                      || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI
                      || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE
@@ -858,6 +891,13 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       /* Use the latest compression ratio to estimate decompressed size */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current = _insert_accounts;
 
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY: {
+      gui->summary.boot_progress.wfs_total_stake     = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STAKE_TOTAL ) ];
+      gui->summary.boot_progress.wfs_connected_stake = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STAKE_ONLINE ) ];
+      gui->summary.boot_progress.wfs_total_peers     = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STAKED_PEERS_TOTAL ) ];
+      gui->summary.boot_progress.wfs_connected_peers = gossip_metrics[ MIDX( GAUGE, GOSSIP, WFS_STAKED_PEERS_ONLINE ) ];
       break;
     }
     case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP: {
@@ -2469,6 +2509,19 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
   }
   fd_cstr_printf_check( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path, sizeof(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path), NULL, "%s", msg->read_path );
+}
+
+void
+fd_gui_stage_snapshot_manifest( fd_gui_t *                    gui,
+                                 fd_snapshot_manifest_t const * manifest ) {
+  ulong attempt = 0UL;
+  for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
+    if( FD_UNLIKELY( manifest->hard_forks[ i ]==manifest->slot ) ) {
+      attempt = manifest->hard_forks_cnts[ i ];
+      break;
+    }
+  }
+  gui->summary.boot_progress.wfs_attempt = attempt;
 }
 
 static void

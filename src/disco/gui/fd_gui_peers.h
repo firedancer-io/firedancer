@@ -21,6 +21,7 @@
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
 #include "../../waltz/http/fd_http_server.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../topo/fd_topo.h"
 
 #if FD_HAS_ZSTD
@@ -84,6 +85,23 @@ struct fd_gui_geoip_node {
 };
 
 typedef struct fd_gui_geoip_node fd_gui_geoip_node_t;
+
+struct fd_gui_wfs_peer {
+  fd_pubkey_t identity_key;
+  ulong       stake;
+  int         is_online;
+  long        update_time_nanos;
+
+  ulong       fresh_prev;
+  ulong       fresh_next;
+};
+typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
+
+#define DLIST_NAME  wfs_fresh_dlist
+#define DLIST_ELE_T fd_gui_wfs_peer_t
+#define DLIST_PREV  fresh_prev
+#define DLIST_NEXT  fresh_next
+#include "../../util/tmpl/fd_dlist.c"
 
 #define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
@@ -392,6 +410,13 @@ struct fd_gui_peers_ctx {
       int   actions[ FD_CONTACT_INFO_TABLE_SIZE ];
       ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
     };
+    struct {
+      ulong wfs_peers[ 40200UL ];
+    };
+    struct {
+      fd_stake_weight_t      manifest_id_weights  [ 40200UL ];
+      fd_vote_stake_weight_t manifest_vote_weights[ 40200UL ];
+    };
   } scratch;
 
 #if FD_HAS_ZSTD
@@ -399,9 +424,21 @@ struct fd_gui_peers_ctx {
 #endif
 
   fd_gui_ip_db_t dbip;
+
+  int                       wfs_enabled;
+  fd_gui_wfs_peer_t         wfs_peers[ 40200UL ];
+  ulong                     wfs_peers_cnt;
+  int                       wfs_peers_valid;
+  int                       wfs_stakes_sent;
+  wfs_fresh_dlist_t         wfs_fresh_dlist[ 1 ];
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
+
+/* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
+FD_STATIC_ASSERT( sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers)/sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers[0])==
+                  sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts)/sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts[0]),
+                  wfs_peers_vote_accounts );
 
 FD_PROTOTYPES_BEGIN
 
@@ -416,6 +453,7 @@ fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
                   fd_topo_t *        topo,
                   ulong              max_ws_conn_cnt,
+                  char const *       wfs_expected_bank_hash_cstr,
                   long               now );
 
 fd_gui_peers_ctx_t *
@@ -472,6 +510,14 @@ void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
                                     ulong                 sz );
+
+void
+fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
+                                      fd_snapshot_manifest_t const * manifest,
+                                      long                           now );
+
+void
+fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers );
 
 /* fd_gui_peers_ws_message handles incoming websocket request payloads
    requesting peer-related responses.  ws_conn_id is the connection id
