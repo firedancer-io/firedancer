@@ -1477,6 +1477,74 @@ test_deque_overflow_guard( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
 }
 
+/* Regression test: if the second-pass protobuf decode fails partway
+   through a bundle (e.g. 3 of 4 packets decoded successfully), the
+   partially-pushed transactions must be rolled back so that no
+   incomplete bundle remains in the pending queue. */
+
+static void
+test_partial_bundle_decode_rollback( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+
+  /* A SubscribeBundlesResponse containing one bundle with 4 packets.
+     The first 3 packets are valid.  The 4th packet has a data field
+     whose length prefix (0x20 = 32) exceeds the submessage bounds,
+     causing pb_decode of packet.Packet to fail.  The first-pass
+     preflight callback ignores submessage contents and succeeds. */
+
+  static uchar bad_bundle_msg[] = {
+    0x0a, 0x39,                          /* bundles (field 1), length 57   */
+      0x0a, 0x32,                        /*   bundle (field 1), length 50  */
+        /* packet[0] - valid */
+        0x1a, 0x0d,                      /*   packets (field 3), length 13 */
+          0x0a, 0x01, 0x48,              /*     data = [0x48]              */
+          0x12, 0x08,                    /*     meta, length 8             */
+            0x08, 0x01,                  /*       size=1                   */
+            0x12, 0x00,                  /*       addr=""                  */
+            0x18, 0x00,                  /*       port=0                   */
+            0x28, 0x00,                  /*       sender_stake=0           */
+        /* packet[1] - valid */
+        0x1a, 0x0d,
+          0x0a, 0x01, 0x48,
+          0x12, 0x08,
+            0x08, 0x01,
+            0x12, 0x00,
+            0x18, 0x00,
+            0x28, 0x00,
+        /* packet[2] - valid */
+        0x1a, 0x0d,
+          0x0a, 0x01, 0x48,
+          0x12, 0x08,
+            0x08, 0x01,
+            0x12, 0x00,
+            0x18, 0x00,
+            0x28, 0x00,
+        /* packet[3] - INVALID (data length 32 exceeds 3-byte submsg) */
+        0x1a, 0x03,                      /*   packets (field 3), length 3  */
+          0x0a, 0x20, 0x48,              /*     data field, length=32 (!)  */
+      0x12, 0x03, 0x00, 0x00, 0x00       /*   uuid                        */
+  };
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      bad_bundle_msg, sizeof(bad_bundle_msg),
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+
+  /* Verify that valid txns were decoded before the failure, and that
+     the partial bundle was fully rolled back. */
+  FD_TEST( state->metrics.txn_received_cnt==3UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+  FD_TEST( state->metrics.decode_fail_cnt>0UL );
+
+  test_bundle_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1516,6 +1584,7 @@ main( int     argc,
   test_packet_drain_batch( wksp );
   test_interleaved_drain( wksp );
   test_deque_overflow_guard( wksp );
+  test_partial_bundle_decode_rollback( wksp );
 
   /* Check for memory leaks */
   fd_wksp_usage_t wksp_usage;
