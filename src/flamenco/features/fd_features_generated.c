@@ -1479,7 +1479,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x4f\x6e\x58\xf2\xa5\x04\x0c\xd3\x86\x2c\xea\xf5\xe7\x5e\x1a\xc4\x52\x52\xca\xea\xdf\x75\x06\xd3\x0e\xef\x5e\x33\x25\x16\xaf\xcf"},
                                  /* 6M4oQ6eXneVhtLoiAr4yRYQY43eVLjrKbiDZDJc892yk */
     .name                      = "migrate_stake_program_to_core_bpf",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_get_epoch_stake_syscall)>>3,
@@ -1638,7 +1638,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xbb\xe3\x22\x72\x50\x76\x2f\xe7\x43\x75\x35\x06\xc2\x69\x5a\x06\x5f\x21\xef\x12\xcf\x24\x33\x0e\x1a\xa7\x37\xbe\x4b\xb8\xee\xb3"},
                                  /* DeS7sR48ZcFTUmt5FFEVDr1v1bh73aAbZiZq3SYr8Eh8 */
     .name                      = "formalize_loaded_transaction_data_size",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_extend_program_checked)>>3,
@@ -1657,7 +1657,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x40\x02\x73\x40\x0f\xb3\x11\x37\x08\x32\x50\x92\x29\x6a\x13\x68\xe5\xe5\xde\x04\x99\x41\x79\xc5\xa0\xdf\xd8\x45\x51\x44\x24\x80"},
                                  /* 5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y */
     .name                      = "enable_vote_address_leader_schedule",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enshrine_slashing_program)>>3,

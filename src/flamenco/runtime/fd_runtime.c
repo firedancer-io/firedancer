@@ -1032,10 +1032,9 @@ fd_runtime_save_account( fd_accdb_user_t *         accdb,
   }
   int new_exist = meta->lamports!=0UL;
 
-  /* FIXME don't calculate LtHash if (!old_exist && !new_exist)
-           This change is blocked by solcap v2, which is not smart
-           enough to understand that (lthash+0==lthash). */
-  fd_hashes_update_lthash1( lthash_post, lthash_prev, pubkey, meta, bank, capture_ctx );
+  if( FD_LIKELY( old_exist || new_exist ) ) {
+    fd_hashes_update_lthash1( lthash_post, lthash_prev, pubkey, meta, bank, capture_ctx );
+  }
 
   /* The first 32 bytes of an LtHash with a single input element are
      equal to the BLAKE3_256 hash of an account.  Therefore, comparing
