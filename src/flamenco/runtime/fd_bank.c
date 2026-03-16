@@ -127,28 +127,6 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->locks->lthash_lock[ bank->data->idx ] );
 }
 
-/* Bank accesssors */
-
-#define X(type, name)                                                   \
-  type const *                                                          \
-  fd_bank_##name##_query( fd_bank_t const * bank ) {                    \
-    return &bank->data->fields.name; \
-  }                                                                     \
-  type *                                                                \
-  fd_bank_##name##_modify( fd_bank_t * bank ) {                         \
-    return &bank->data->fields.name;             \
-  }                                                                     \
-  void                                                                  \
-  fd_bank_##name##_set( fd_bank_t * bank, type value ) {                \
-    bank->data->fields.name = value;                  \
-  }                                                                     \
-  type                                                                  \
-  fd_bank_##name##_get( fd_bank_t const * bank ) {                      \
-    return bank->data->fields.name;               \
-  }
-FD_BANKS_ITER(X)
-#undef X
-
 /**********************************************************************/
 
 ulong

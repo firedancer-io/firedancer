@@ -214,8 +214,6 @@ FD_PROTOTYPES_BEGIN
   If the fields are not templatized, their accessor and modifier
   patterns vary and are documented below.
 */
-#define FD_BANKS_ITER(X)                                                                                                   \
-  /* type,                             name */
 
 /* Defining pooled fields. */
 
@@ -672,14 +670,6 @@ fd_bank_lthash_locking_modify( fd_bank_t * bank );
 
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
-
-#define X(type, name)                                            \
-  void fd_bank_##name##_set( fd_bank_t * bank, type value );     \
-  type fd_bank_##name##_get( fd_bank_t const * bank );           \
-  type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
-  type * fd_bank_##name##_modify( fd_bank_t * bank );
-FD_BANKS_ITER(X)
-#undef X
 
 /* Each bank has a fd_stake_delegations_t object which is delta-based.
    The usage pattern is the same as other bank fields:
