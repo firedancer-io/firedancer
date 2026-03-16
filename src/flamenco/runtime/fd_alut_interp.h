@@ -139,6 +139,11 @@ fd_alut_interp_next( fd_alut_interp_t * interp,
                                          &active_addresses_len );
   if( FD_UNLIKELY( err ) ) return err;
 
+  /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v3.0.1/address-lookup-table-interface/src/state.rs#L208-L211 */
+  if( FD_UNLIKELY( active_addresses_len>lookup_addrs_cnt ) ) {
+    return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+  }
+
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L169-L182 */
   uchar const * writable_lut_idxs = interp->txn_payload + addr_lut->writable_off;
   for( ulong j=0UL; j<addr_lut->writable_cnt; j++ ) {

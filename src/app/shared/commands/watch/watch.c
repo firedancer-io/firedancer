@@ -2,6 +2,7 @@
 #include "generated/watch_seccomp.h"
 
 #include "../../../../discof/restore/fd_snapct_tile.h"
+#include "../../../../discof/gossip/fd_gossip_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../util/tile/fd_tile.h"
 
@@ -460,6 +461,57 @@ write_accdb( config_t const * config,
 }
 
 static uint
+write_wfs( config_t const * config,
+           ulong const *    cur_tile ) {
+  ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
+  if( FD_UNLIKELY( gossip_tile_idx==ULONG_MAX ) ) return 0U;
+
+  int wfs_state = (int)cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STATE ) ];
+  if( FD_LIKELY( wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) return 0U;
+
+  char const * state_str;
+  switch( wfs_state ) {
+    case FD_GOSSIP_WFS_STATE_INIT:    state_str = "loading snapshot";      break;
+    case FD_GOSSIP_WFS_STATE_WAIT:    state_str = "waiting";               break;
+    case FD_GOSSIP_WFS_STATE_PUBLISH: state_str = "starting";              break;
+    default:                          return 0U;
+  }
+
+  ulong _stake_online = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STAKE_ONLINE ) ];
+  ulong _stake_total  = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STAKE_TOTAL  ) ];
+  ulong peers_online = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STAKED_PEERS_ONLINE ) ];
+  ulong peers_total  = cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, WFS_STAKED_PEERS_TOTAL  ) ];
+
+  ulong ipecho_tile_idx = fd_topo_find_tile( &config->topo, "ipecho", 0UL );
+  ulong shred_ver       = 0UL;
+  if( FD_LIKELY( ipecho_tile_idx!=ULONG_MAX ) ) shred_ver = cur_tile[ ipecho_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, IPECHO, CURRENT_SHRED_VERSION ) ];
+
+  double stake_pct = _stake_total>0UL ? 100.0*(double)_stake_online/(double)_stake_total : 0.0;
+  double         stake_div     = (_stake_total<(ulong)1e14) ? 1e9 : 1e15;
+  char const *   stake_unit    = (_stake_total<(ulong)1e14) ? " SOL" : "M";
+  double         stake_online  = (double)_stake_online / stake_div;
+  double         stake_total   = (double)_stake_total  / stake_div;
+
+  PRINT( "⏳ " BOLD YELLOW "CLUSTER BOOT" RESET UNBOLD
+         " " BOLD "STATE" UNBOLD " %s"
+         " " BOLD "STAKE" UNBOLD " %3.0f%% (%.1f%s / %.1f%s)"
+         " " BOLD "SHRED VERSION" UNBOLD " %lu"
+         " " BOLD "PEERS" UNBOLD " %lu online %lu offline"
+         " " BOLD "BANK HASH"  UNBOLD " %s" CLEARLN "\n",
+    state_str,
+    stake_pct,
+    stake_online,
+    stake_unit,
+    stake_total,
+    stake_unit,
+    shred_ver,
+    peers_online,
+    peers_total>peers_online ? peers_total-peers_online : 0UL,
+    config->firedancer.consensus.wait_for_supermajority_with_bank_hash );
+  return 1U;
+}
+
+static uint
 write_gossip( config_t const * config,
               ulong const *    cur_tile,
               ulong const *    prev_tile,
@@ -717,6 +769,7 @@ write_summary( config_t const * config,
   }
 
   lines_printed += write_accdb( config, cur_tile );
+  lines_printed += write_wfs( config, cur_tile );
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );

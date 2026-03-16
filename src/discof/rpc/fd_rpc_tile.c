@@ -494,10 +494,10 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       }
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
         if( FD_UNLIKELY( update->contact_info_remove->idx>=FD_CONTACT_INFO_TABLE_SIZE ) ) FD_LOG_ERR(( "unexpected remove_contact_info_idx %lu >= %lu", update->contact_info_remove->idx, FD_CONTACT_INFO_TABLE_SIZE ));
-        fd_rpc_cluster_node_t * node = &ctx->cluster_nodes[ update->contact_info->idx ];
+        fd_rpc_cluster_node_t * node = &ctx->cluster_nodes[ update->contact_info_remove->idx ];
         FD_TEST( node->valid );
         node->valid = 0;
-        fd_rpc_cluster_node_dlist_idx_remove( ctx->cluster_nodes_dlist, update->contact_info->idx, ctx->cluster_nodes );
+        fd_rpc_cluster_node_dlist_idx_remove( ctx->cluster_nodes_dlist, update->contact_info_remove->idx, ctx->cluster_nodes );
         break;
       }
       default: break;

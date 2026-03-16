@@ -943,6 +943,12 @@ metric introduced.
     <counter name="CrdsTxPushBytes" summary="Total wire bytes of CRDS sent out in push messages" enum="CrdsValue" />
     <counter name="CrdsTxPullResponseCount" summary="Number of CRDS values sent in pull response messages" enum="CrdsValue" />
     <counter name="CrdsTxPullResponseBytes" summary="Total wire bytes of CRDS sent out in pull response messages" enum="CrdsValue" />
+
+    <gauge name="WfsStakedPeersOnline" summary="Number of staked peers with recent gossip activity" />
+    <gauge name="WfsStakedPeersTotal" summary="Total number of staked peers being tracked" />
+    <gauge name="WfsStakeOnline" summary="Lamports of stake from peers with recent gossip activity" />
+    <gauge name="WfsStakeTotal" summary="Total lamports of stake being tracked" />
+    <gauge name="WfsState" summary="Wait for supermajority state. 1=INIT, 2=WAIT, 3=PUBLISH, 4=DONE" />
 </tile>
 
 <enum name="GossvfMessageOutcome">
