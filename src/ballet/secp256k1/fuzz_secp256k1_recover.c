@@ -29,9 +29,9 @@ typedef struct recover_test recover_test_t;
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  if( FD_UNLIKELY( size<sizeof(recover_test_t) ) ) return -1;
+  if( FD_UNLIKELY( size<sizeof( recover_test_t ) ) ) return -1;
 
-  recover_test_t const * test = (recover_test_t const *)data;
+  recover_test_t const * test = ( recover_test_t const * ) data;
   uchar pub[ 64 ];
 
   for( int recid=0; recid<=3; recid++ ) {
