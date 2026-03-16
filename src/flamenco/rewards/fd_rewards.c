@@ -83,7 +83,7 @@ static double
 slot_in_year_for_inflation( fd_bank_t const * bank ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
   ulong num_slots = get_inflation_num_slots( bank, epoch_schedule, fd_bank_slot_get( bank ) );
-  return (double)num_slots / (double)fd_bank_slots_per_year_get( bank );
+  return (double)num_slots / (double)bank->data->fields.slots_per_year;
 }
 
 
@@ -326,7 +326,7 @@ static double
 epoch_duration_in_years( fd_bank_t const * bank,
                          ulong             prev_epoch ) {
   ulong slots_in_epoch = get_slots_in_epoch( prev_epoch, &bank->data->fields.epoch_schedule );
-  return (double)slots_in_epoch / (double)fd_bank_slots_per_year_get( bank );
+  return (double)slots_in_epoch / (double)bank->data->fields.slots_per_year;
 }
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2128 */
@@ -337,8 +337,8 @@ calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   
                                             fd_prev_epoch_inflation_rewards_t * rewards ) {
   double slot_in_year = slot_in_year_for_inflation( bank );
 
-  rewards->validator_rate               = validator( fd_bank_inflation_query( bank ), slot_in_year );
-  rewards->foundation_rate              = foundation( fd_bank_inflation_query( bank ), slot_in_year );
+  rewards->validator_rate               = validator( &bank->data->fields.inflation, slot_in_year );
+  rewards->foundation_rate              = foundation( &bank->data->fields.inflation, slot_in_year );
   rewards->prev_epoch_duration_in_years = epoch_duration_in_years( bank, prev_epoch );
   rewards->validator_rewards            = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
   FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year ));

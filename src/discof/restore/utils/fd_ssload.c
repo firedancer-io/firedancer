@@ -83,7 +83,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/serde_snapshot.rs#L464-L466 */
   fd_bank_rbh_lamports_per_sig_set( bank, manifest->lamports_per_signature );
 
-  fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
+  fd_inflation_t * inflation = &bank->data->fields.inflation;
   inflation->initial         = manifest->inflation_params.initial;
   inflation->terminal        = manifest->inflation_params.terminal;
   inflation->taper           = manifest->inflation_params.taper;
@@ -132,17 +132,17 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
   fd_bank_tick_height_set( bank, manifest->tick_height );
   fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
-  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } } );
-  fd_bank_ticks_per_slot_set( bank, manifest->ticks_per_slot );
-  fd_bank_genesis_creation_time_set( bank, manifest->creation_time_seconds );
-  fd_bank_slots_per_year_set( bank, manifest->slots_per_year );
+  bank->data->fields.ns_per_slot = (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } };
+  bank->data->fields.ticks_per_slot = manifest->ticks_per_slot;
+  bank->data->fields.genesis_creation_time = manifest->creation_time_seconds;
+  bank->data->fields.slots_per_year = manifest->slots_per_year;
   bank->data->fields.block_height = manifest->block_height;
   bank->data->fields.execution_fees = manifest->collector_fees;
   bank->data->fields.priority_fees = 0UL;
 
   /* Set the cluster type based on the genesis creation time.  This is
      later cross referenced against the genesis hash. */
-  switch( fd_bank_genesis_creation_time_get( bank ) ) {
+  switch( bank->data->fields.genesis_creation_time ) {
     case FD_RUNTIME_GENESIS_CREATION_TIME_TESTNET:
       bank->data->fields.cluster_type = FD_CLUSTER_TESTNET;
       break;

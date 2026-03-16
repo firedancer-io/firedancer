@@ -226,12 +226,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             parent_signature_cnt     ) /* Parent signature count */                             \
   X(ulong,                             tick_height              ) /* Tick height */                                        \
   X(ulong,                             max_tick_height          ) /* Max tick height */                                    \
-  X(ulong,                             hashes_per_tick          ) /* Hashes per tick */                                    \
-  X(fd_w_u128_t,                       ns_per_slot              ) /* NS per slot */                                        \
-  X(ulong,                             ticks_per_slot           ) /* Ticks per slot */                                     \
-  X(ulong,                             genesis_creation_time    ) /* Genesis creation time */                              \
-  X(double,                            slots_per_year           ) /* Slots per year */                                     \
-  X(fd_inflation_t,                    inflation                ) /* Inflation */
+  X(ulong,                             hashes_per_tick          ) /* Hashes per tick */
 
 /* Defining pooled fields. */
 

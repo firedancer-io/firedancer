@@ -52,8 +52,8 @@ static inline long
 unix_timestamp_from_genesis( fd_bank_t * bank ) {
   /* TODO: genesis_creation_time needs to be a long in the bank. */
   return fd_long_sat_add(
-      (long)fd_bank_genesis_creation_time_get( bank ),
-      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ).ud ) / NS_IN_S ) );
+      (long)bank->data->fields.genesis_creation_time,
+      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), bank->data->fields.ns_per_slot.ud ) / NS_IN_S ) );
 }
 
 void
@@ -136,7 +136,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
   uint128 total_stake = 0UL;
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
-  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
+  ulong                       slot_duration  = bank->data->fields.ns_per_slot.ul[0];
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
@@ -227,7 +227,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
   uint128 total_stake = 0UL;
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
-  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
+  ulong                       slot_duration  = bank->data->fields.ns_per_slot.ul[0];
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
   fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
@@ -300,7 +300,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
                         fd_sol_sysvar_clock_t *   clock,
                         fd_runtime_stack_t *      runtime_stack ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->data->fields.epoch_schedule;
-  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
+  ulong                       slot_duration  = bank->data->fields.ns_per_slot.ul[0];
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
   ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;

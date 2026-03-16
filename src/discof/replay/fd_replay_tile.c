@@ -649,8 +649,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 0 );
 
   ulong max_tick_height;
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( fd_bank_ticks_per_slot_get( parent_bank ), slot, &max_tick_height ) ) ) {
-    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, fd_bank_ticks_per_slot_get( parent_bank ) ));
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->data->fields.ticks_per_slot, slot, &max_tick_height ) ) ) {
+    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->data->fields.ticks_per_slot ));
   }
   fd_bank_max_tick_height_set( bank, max_tick_height );
   fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
@@ -736,7 +736,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->block_hash            = *block_hash;
   slot_info->transaction_count     = bank->data->fields.transaction_count;
 
-  fd_inflation_t inflation = fd_bank_inflation_get( bank );
+  fd_inflation_t inflation = bank->data->fields.inflation;
   slot_info->inflation.foundation      = inflation.foundation;
   slot_info->inflation.foundation_term = inflation.foundation_term;
   slot_info->inflation.terminal        = inflation.terminal;
@@ -933,8 +933,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, ctx->leader_bank, 0 );
 
   ulong max_tick_height;
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( fd_bank_ticks_per_slot_get( parent_bank ), slot, &max_tick_height ) ) ) {
-    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, fd_bank_ticks_per_slot_get( parent_bank ) ));
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->data->fields.ticks_per_slot, slot, &max_tick_height ) ) ) {
+    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->data->fields.ticks_per_slot ));
   }
   fd_bank_max_tick_height_set( ctx->leader_bank, max_tick_height );
   fd_bank_tick_height_set( ctx->leader_bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
@@ -1152,7 +1152,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
        does, but just hacking that in breaks stuff. */
     fd_runtime_update_leaders( bank, ctx->runtime_stack );
 
-    ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
+    ulong hashcnt_per_slot = bank->data->fields.hashes_per_tick * bank->data->fields.ticks_per_slot;
     fd_hash_t * poh = &bank->data->fields.poh;
     while( hashcnt_per_slot-- ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
@@ -1269,7 +1269,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   msg->slot_end_ns   = now_nanos+(long)ctx->slot_duration_nanos;
   msg->bank = NULL;
   msg->bank_idx = bank->data->idx;
-  msg->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+  msg->ticks_per_slot = bank->data->fields.ticks_per_slot;
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
   msg->bundle->config[0]       = config[0];
@@ -1342,13 +1342,13 @@ publish_reset( fd_replay_tile_t *  ctx,
   reset->bank_idx         = bank->data->idx;
   reset->timestamp        = fd_log_wallclock();
   reset->completed_slot   = fd_bank_slot_get( bank );
-  reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
-  reset->ticks_per_slot   = fd_bank_ticks_per_slot_get( bank );
+  reset->hashcnt_per_tick = bank->data->fields.hashes_per_tick;
+  reset->ticks_per_slot   = bank->data->fields.ticks_per_slot;
   reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
   fd_memcpy( reset->completed_block_id, ctx->reset_block_id.uc, sizeof(fd_hash_t) );
   fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
 
-  ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+  ulong ticks_per_slot = bank->data->fields.ticks_per_slot;
   if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
     reset->max_microblocks_in_slot = ticks_per_slot;
@@ -2397,8 +2397,8 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     reset->bank_idx = bank->data->idx;
     reset->timestamp = ctx->reset_timestamp_nanos;
     reset->completed_slot = ctx->reset_slot;
-    reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
-    reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    reset->hashcnt_per_tick = bank->data->fields.hashes_per_tick;
+    reset->ticks_per_slot = bank->data->fields.ticks_per_slot;
     reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
 
     fd_memcpy( reset->completed_block_id, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
@@ -2408,7 +2408,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     FD_TEST( last_hash );
     fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
 
-    ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    ulong ticks_per_slot = bank->data->fields.ticks_per_slot;
     if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
       /* Low power producer, maximum of one microblock per tick in the slot */
       reset->max_microblocks_in_slot = ticks_per_slot;

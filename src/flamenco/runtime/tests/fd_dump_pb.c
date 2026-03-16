@@ -730,12 +730,12 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->capitalization = fd_bank_capitalization_get( parent_bank );
 
   /* BlockBank -> ns_per_slot */
-  fd_w_u128_t ns_per_slot = fd_bank_ns_per_slot_get( bank );
+  fd_w_u128_t ns_per_slot = bank->data->fields.ns_per_slot;
   fd_memcpy( block_bank->ns_per_slot, &ns_per_slot.ud, sizeof(uint128) );
 
   /* BlockBank -> inflation */
   block_bank->has_inflation = true;
-  fd_inflation_t const * inflation = fd_bank_inflation_query( parent_bank );
+  fd_inflation_t const * inflation = &parent_bank->data->fields.inflation;
   block_bank->inflation = (fd_exec_test_inflation_t){
     .initial         = inflation->initial,
     .terminal        = inflation->terminal,

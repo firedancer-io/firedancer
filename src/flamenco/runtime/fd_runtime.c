@@ -1541,7 +1541,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
   rent->exemption_threshold     = genesis->rent.exemption_threshold;
   rent->burn_percent            = genesis->rent.burn_percent;
 
-  fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
+  fd_inflation_t * inflation = &bank->data->fields.inflation;
   inflation->initial         = genesis->inflation.initial;
   inflation->terminal        = genesis->inflation.terminal;
   inflation->taper           = genesis->inflation.taper;
@@ -1571,13 +1571,13 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
   fd_bank_hashes_per_tick_set( bank, genesis->poh.hashes_per_tick );
 
-  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ud=target_tick_duration * genesis->poh.ticks_per_slot } );
+  bank->data->fields.ns_per_slot = (fd_w_u128_t) { .ud=target_tick_duration * genesis->poh.ticks_per_slot };
 
-  fd_bank_ticks_per_slot_set( bank, genesis->poh.ticks_per_slot );
+  bank->data->fields.ticks_per_slot = genesis->poh.ticks_per_slot;
 
-  fd_bank_genesis_creation_time_set( bank, genesis->creation_time );
+  bank->data->fields.genesis_creation_time = genesis->creation_time;
 
-  fd_bank_slots_per_year_set( bank, SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot );
+  bank->data->fields.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot;
 
   bank->data->fields.signature_count = 0UL;
 
@@ -1700,7 +1700,7 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
                                   fd_runtime_stack_t *      runtime_stack ) {
 
   fd_hash_t * poh = &bank->data->fields.poh;
-  ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
+  ulong hashcnt_per_slot = bank->data->fields.hashes_per_tick * bank->data->fields.ticks_per_slot;
   while( hashcnt_per_slot-- ) {
     fd_sha256_hash( poh->uc, sizeof(fd_hash_t), poh->uc );
   }

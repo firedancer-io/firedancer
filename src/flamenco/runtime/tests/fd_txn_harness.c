@@ -105,8 +105,8 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], i );
   }
 
-  fd_bank_ticks_per_slot_set( runner->bank, 64 );
-  fd_bank_slots_per_year_set( runner->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( runner->bank )) );
+  runner->bank->data->fields.ticks_per_slot = 64;
+  runner->bank->data->fields.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->data->fields.ticks_per_slot);
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );

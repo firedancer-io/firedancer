@@ -193,7 +193,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     .foundation      = block_bank->inflation.foundation,
     .foundation_term = block_bank->inflation.foundation_term,
   };
-  fd_bank_inflation_set( bank, inflation );
+  bank->data->fields.inflation = inflation;
 
   /* Block height */
   bank->data->fields.block_height = block_bank->block_height;
@@ -233,10 +233,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Using default configuration of 64 ticks per slot
      https://github.com/anza-xyz/solana-sdk/blob/time-utils%40v3.0.0/time-utils/src/lib.rs#L18-L27 */
   uint128 ns_per_slot = FD_LOAD(uint128, block_bank->ns_per_slot );
-  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t){ .ud = ns_per_slot } );
-  fd_bank_ticks_per_slot_set( bank, 64UL );
-  fd_bank_slots_per_year_set( runner->bank, (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot );
-  fd_bank_hashes_per_tick_set( bank, (slot+1UL)*64UL );
+  bank->data->fields.ns_per_slot = (fd_w_u128_t){ .ud = ns_per_slot };
+  bank->data->fields.ticks_per_slot = 64UL;
+  bank->data->fields.slots_per_year = (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot;
+  bank->data->fields.hashes_per_tick = (slot+1UL)*64UL;
 
   /* Load in accounts, populate stake delegations and vote accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
