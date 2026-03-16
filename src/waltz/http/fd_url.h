@@ -70,11 +70,13 @@ fd_url_parse_endpoint( fd_url_t *   url,
                        _Bool *      is_ssl,
                        char const * context );
 
-/* fd_url_unescape undoes % escapes in-place. */
+/* fd_url_unescape undoes % escapes in-place.  Returns the unescaped
+   length on success, or 0 on failure (invalid hex digit or truncated
+   percent encoding). */
 
 ulong
-fd_url_unescape( char * const msg,
-                 ulong  const len );
+fd_url_unescape( char * msg,
+                 ulong  len );
 
 FD_PROTOTYPES_END
 
