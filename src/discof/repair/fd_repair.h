@@ -230,6 +230,18 @@ fd_repair_leave( fd_repair_t const * repair );
 void *
 fd_repair_delete( void * repair );
 
+/* fd_repair_ping_de and fd_repair_ping_ser deserialize and serialize a
+   ping message. */
+int
+fd_repair_ping_de( fd_repair_ping_t * ping,
+                   uchar const      * buf,
+                   ulong              buf_sz );
+
+int
+fd_repair_ping_ser( fd_repair_ping_t const * ping,
+                    uchar                    buf[static sizeof(fd_repair_ping_t)],
+                    ulong                    buf_sz );
+
 /* fd_repair_{pong,shred,highest_shred,orphan} creates and returns a
    pointer to a serialized {Pong,Shred,HighestShred,Orphan} message.
    Does not require the caller to provide memory, as Repair itself
@@ -237,7 +249,6 @@ fd_repair_delete( void * repair );
    requests.  Assumes repair->msg is not already buffering an existing
    request and can be overwritten.  Returns a pointer to repair->msg on
    success, NULL on failure. */
-
 
 fd_repair_msg_t * fd_repair_pong         ( fd_repair_t * repair, fd_hash_t * ping_token );
 fd_repair_msg_t * fd_repair_shred        ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx );

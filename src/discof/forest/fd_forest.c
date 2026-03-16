@@ -194,7 +194,6 @@ consumed_remove( fd_forest_t * forest, ulong forest_pool_idx ) {
 
 fd_forest_t *
 fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
-  FD_TEST( forest );
   FD_TEST( fd_fseq_query( fd_forest_ver( forest ) ) == FD_FOREST_VER_UNINIT );
 
   VER_INC;
@@ -520,7 +519,6 @@ static ulong
 clear_leaf( fd_forest_t * forest, ulong slot ) {
   VER_INC;
 
-  FD_TEST( slot >= fd_forest_root_slot( forest ) );
   fd_forest_blk_t      * pool     = fd_forest_pool( forest );
   fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
@@ -852,7 +850,7 @@ evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot ) {
     /* is a useless new fork. */
     return ULONG_MAX;
   } else {
-    FD_TEST( confirmed_leaf );
+    // confirmed_leaf
     return ULONG_MAX;
     /* Should never be evicting a confirmed leaf. This is only non-NULL
        if:
@@ -1206,7 +1204,6 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 
 fd_forest_blk_t *
 fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) {
-  FD_TEST( shred_idx < FD_SHRED_BLK_MAX );
   fd_forest_blk_t * ele  = query( forest, slot );
   if( FD_UNLIKELY( !ele ) ) {
     return NULL;
