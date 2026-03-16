@@ -2350,13 +2350,14 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 
   switch( sig>>32 ) {
     case FD_EXECRP_TT_TXN_EXEC: {
+      ulong txn_idx = msg->txn_exec->txn_idx;
       if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
         /* Query the txn signature against our recently generated vote
            txn signatures.  If the query is successful, then we have
            seen our own vote transaction land and this should be marked
            in the bank.  We go through this exercise until we've seen
            our vote rooted. */
-        fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, msg->txn_exec->txn_idx );
+        fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, txn_idx );
 
         fd_pubkey_t * identity_pubkey_out = NULL;
         if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
@@ -2372,9 +2373,9 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
-      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, msg->txn_exec->txn_idx );
+      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
       txn_info->flags |= FD_SCHED_TXN_EXEC_DONE;
       if( FD_LIKELY( !(txn_info->flags&FD_SCHED_TXN_SIGVERIFY_DONE)||!txn_info->txn_err ) ) { /* Set execution status if sigverify hasn't happened yet or if sigverify was a success. */
         txn_info->txn_err = msg->txn_exec->txn_err;
@@ -2382,12 +2383,13 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         txn_info->flags  |= fd_ulong_if( msg->txn_exec->is_fees_only,   FD_SCHED_TXN_IS_FEES_ONLY,   0UL );
       }
       if( FD_UNLIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) { /* UNLIKELY because generally exec happens before sigverify. */
-        publish_txn_executed( ctx, stem, msg->txn_exec->txn_idx );
+        publish_txn_executed( ctx, stem, txn_idx );
       }
       break;
     }
     case FD_EXECRP_TT_TXN_SIGVERIFY: {
-      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, msg->txn_sigverify->txn_idx );
+      ulong txn_idx = msg->txn_sigverify->txn_idx;
+      fd_sched_txn_info_t * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
       txn_info->flags |= FD_SCHED_TXN_SIGVERIFY_DONE;
       if( FD_UNLIKELY( msg->txn_sigverify->err ) ) {
         txn_info->txn_err = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
@@ -2404,10 +2406,10 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       if( FD_UNLIKELY( (bank->data->flags&FD_BANK_FLAGS_DEAD) && bank->data->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx, NULL );
+      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
       if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
-        publish_txn_executed( ctx, stem, msg->txn_exec->txn_idx );
+        publish_txn_executed( ctx, stem, txn_idx );
       }
       break;
     }
