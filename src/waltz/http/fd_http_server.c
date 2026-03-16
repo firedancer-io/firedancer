@@ -84,6 +84,7 @@ fd_http_server_connection_close_reason_str( int reason ) {
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE:      return "WS_EXPECTED_TEXT_OPCODE-Expected text opcode in websocket frame";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE:   return "WS_CONTROL_FRAME_TOO_LARGE-Websocket control frame was too large";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE:            return "FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE-Websocket frame type changed unexpectedly";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_TIMEOUT:                      return "TIMEOUT-Connection timed out while reading request";
     default: break;
   }
 
@@ -419,6 +420,7 @@ accept_conns( fd_http_server_t * http ) {
 
     http->pollfds[ conn_id ].fd = fd;
     http->conns[ conn_id ].state                  = FD_HTTP_SERVER_CONNECTION_STATE_READING;
+    http->conns[ conn_id ].read_deadline          = fd_log_wallclock() + FD_HTTP_SERVER_READ_TIMEOUT_NANOS;
     http->conns[ conn_id ].request_bytes_read     = 0UL;
     http->conns[ conn_id ].response_bytes_written = 0UL;
 
@@ -1165,6 +1167,17 @@ write_conn( fd_http_server_t * http,
 int
 fd_http_server_poll( fd_http_server_t * http,
                      int                poll_timeout ) {
+  /* Close connections stuck in the READING state past their deadline
+     to prevent Slowloris-style denial of service. */
+  long now = fd_log_wallclock();
+  for( ulong i=0UL; i<http->max_conns; i++ ) {
+    if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
+    struct fd_http_server_connection * conn = &http->conns[ i ];
+    if( FD_UNLIKELY( conn->state==FD_HTTP_SERVER_CONNECTION_STATE_READING && now>=conn->read_deadline ) ) {
+      close_conn( http, i, FD_HTTP_SERVER_CONNECTION_CLOSE_TIMEOUT );
+    }
+  }
+
   int nfds = fd_syscall_poll( http->pollfds, (uint)( http->max_conns+http->max_ws_conns+1UL ), poll_timeout );
   if( FD_UNLIKELY( 0==nfds ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;

@@ -61,6 +61,7 @@
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE      (-21)
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE   (-22)
 #define FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE            (-23)
+#define FD_HTTP_SERVER_CONNECTION_CLOSE_TIMEOUT                      (-24)
 
 /* Given a FD_HTTP_SERVER_CONNECTION_CLOSE_* reason code, a reason that
    a HTTP connection a client was closed, produce a human readable

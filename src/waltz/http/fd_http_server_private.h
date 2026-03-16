@@ -14,6 +14,8 @@
 #define FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER 1
 #define FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY   2
 
+#define FD_HTTP_SERVER_READ_TIMEOUT_NANOS (5L*1000L*1000L*1000L) /* 5 seconds */
+
 #define FD_HTTP_SERVER_PONG_STATE_NONE    0
 #define FD_HTTP_SERVER_PONG_STATE_WAITING 1
 #define FD_HTTP_SERVER_PONG_STATE_WRITING 2
@@ -23,6 +25,7 @@
 
 struct fd_http_server_connection {
   int          state;
+  long         read_deadline; /* Wallclock nanos deadline for completing the read */
 
   int          upgrade_websocket;
   int          compress_websocket;

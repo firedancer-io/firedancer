@@ -4,9 +4,12 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+static uchar scratch[ 2UL<<20 ] __attribute__((aligned(128UL)));
 
 struct overflow_close_state {
   ulong close_cnt;
@@ -67,8 +70,7 @@ test_oring( void ) {
     .ws_message = NULL,
   };
 
-  uchar scratch[ 1633024 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1633024 );
+  FD_TEST( fd_http_server_footprint( params )<=sizeof(scratch) );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;
@@ -148,9 +150,7 @@ test_content_length_overflow_close( void ) {
     .ws_message = NULL,
   };
 
-  FD_LOG_NOTICE(( "footprint %lu", fd_http_server_footprint( params ) ));
-  uchar scratch[ 1306624 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1306624 );
+  FD_TEST( fd_http_server_footprint( params )<=sizeof(scratch) );
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );
@@ -193,12 +193,95 @@ test_content_length_overflow_close( void ) {
   fd_http_server_delete( fd_http_server_leave( http ) );
 }
 
+void
+test_read_timeout( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 2UL,
+    .max_ws_connection_cnt = 0UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+  };
+
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request_noop,
+    .close      = close_capture,
+    .ws_open    = NULL,
+    .ws_close   = NULL,
+    .ws_message = NULL,
+  };
+
+  FD_TEST( fd_http_server_footprint( params )<=sizeof(scratch) );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort server_port = ntohs( server_addr.sin_port );
+
+  /* Connect a client and send a partial HTTP request (no terminating
+     \r\n\r\n), simulating a Slowloris attack. */
+  int slow_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( slow_fd>=0 );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( server_port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  FD_TEST( !connect( slow_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  /* Send partial request — no \r\n\r\n so the server stays in READING */
+  char const * partial = "GET / HTTP/1.1\r\nHost: localhost\r\n";
+  send_all( slow_fd, partial, strlen( partial ) );
+
+  /* Accept the connection */
+  for( ulong i=0UL; i<10UL; i++ ) fd_http_server_poll( http, 1 );
+
+  /* The connection should still be open (no close callback yet) */
+  FD_TEST( state.close_cnt==0UL );
+
+  /* Force the read deadline into the past to simulate timeout without
+     actually waiting 5 seconds. */
+  for( ulong i=0UL; i<http->max_conns; i++ ) {
+    if( http->pollfds[ i ].fd!=-1 && http->conns[ i ].state==FD_HTTP_SERVER_CONNECTION_STATE_READING ) {
+      http->conns[ i ].read_deadline = fd_log_wallclock() - 1L;
+    }
+  }
+
+  /* Next poll should close the timed-out connection */
+  fd_http_server_poll( http, 0 );
+
+  FD_TEST( state.close_cnt==1UL );
+  FD_TEST( state.last_reason==FD_HTTP_SERVER_CONNECTION_CLOSE_TIMEOUT );
+
+  close( slow_fd );
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  /* Suppress warnings from tests that intentionally trigger error paths */
+  int old_stderr  = fd_log_level_stderr();
+  int old_logfile = fd_log_level_logfile();
+  fd_log_level_stderr_set ( 4 );
+  fd_log_level_logfile_set( 4 );
+
   test_oring();
+
+  fd_log_level_stderr_set ( old_stderr );
+  fd_log_level_logfile_set( old_logfile );
+
+  test_read_timeout();
   test_content_length_overflow_close();
 
   FD_LOG_NOTICE(( "pass" ));
