@@ -223,18 +223,8 @@ struct fd_bank_cost_tracker {
 };
 typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
-struct fd_bank_top_votes {
-  ulong next;
-  uchar data[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
-};
-typedef struct fd_bank_top_votes fd_bank_top_votes_t;
-
 #define POOL_NAME fd_bank_cost_tracker_pool
 #define POOL_T    fd_bank_cost_tracker_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_top_votes_pool
-#define POOL_T    fd_bank_top_votes_t
 #include "../../util/tmpl/fd_pool.c"
 
 /* Initialized.  Not yet replayable. */
@@ -353,9 +343,7 @@ struct fd_bank_data {
   ulong epoch_leaders_offset;
   ulong epoch_leaders_footprint;
 
-  int   top_votes_dirty;
-  ulong top_votes_pool_idx;
-  ulong top_votes_pool_offset;
+  uchar top_votes_mem[ FD_TOP_VOTES_MAX_FOOTPRINT ] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 
   ulong stake_weights_cnt_off;
   ulong stake_weights_off;
@@ -556,10 +544,6 @@ struct fd_banks_data {
 
   fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  next_stake_weights_cnt;
-
-  /* Lay out pool offsets */
-
-  ulong top_votes_pool_offset;
 };
 typedef struct fd_banks_data fd_banks_data_t;
 
