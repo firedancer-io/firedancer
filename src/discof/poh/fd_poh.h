@@ -378,8 +378,15 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
   double hashcnt_duration_ns;
   ulong  hashcnt_per_slot;
 
-  /* The maximum number of microblocks that the pack tile can publish in
-     each slot. */
+  /* The maximum number of real microblocks that the pack tile is
+     allowed to publish in each slot.
+
+     While we are leader, PoH internally treats this limit as having
+     one extra phantom "microblock" reserved for the done_packing
+     message, so that PoH does not finish the slot before pack
+     confirms it is done.  Pack itself is configured with the
+     un-inflated limit and never publishes more than this many real
+     microblocks per slot. */
   ulong max_microblocks_per_slot;
 
   /* The block id of the completed block. */
@@ -407,11 +414,6 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
      hashcnts in one slot. */
   ulong last_slot;
   ulong last_hashcnt;
-
-  /* If we have received the slot done message from pack yet.  We are
-     not allowed to fully finish hashing the block until this happens so
-     that we know which slot the slot_done message is arriving for. */
-  int slot_done;
 
   /* The PoH tile must never drop microblocks that get committed by the
      bank, so it needs to always be able to mixin a microblock hash.
