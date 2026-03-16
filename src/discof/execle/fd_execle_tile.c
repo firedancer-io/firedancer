@@ -462,6 +462,9 @@ handle_bundle( fd_execle_tile_t *  ctx,
       txns[ i ].execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
       txns[ i ].flags                        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       tips[ i ]                               = txn_out->details.tips;
+
+      ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
+      ctx->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX        ]++;
     }
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
@@ -483,6 +486,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
       txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus + non_execution_cus;
       tips[ i ]                               = 0UL;
       txns[ i ].flags = fd_uint_if( !!(txns[ i ].flags>>24), txns[ i ].flags, txns[ i ].flags | ((uint)(-FD_RUNTIME_TXN_ERR_BUNDLE_PEER)<<24) );
+
+      ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_UNLANDED_IDX ]++;
+      if( i==failed_idx ) ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out[ i ].err.txn_err ) ]++;
+      else                ctx->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX            ]++;
     }
   }
 
