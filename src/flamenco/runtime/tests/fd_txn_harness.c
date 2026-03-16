@@ -76,7 +76,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_bank_parent_slot_set( runner->bank, slot-1UL );
 
   /* Total epoch stake */
-  fd_bank_total_epoch_stake_set( runner->bank, txn_bank->total_epoch_stake );
+  runner->bank->data->fields.total_epoch_stake = txn_bank->total_epoch_stake;
 
   /* Epoch schedule */
   FD_TEST( txn_bank->has_epoch_schedule );

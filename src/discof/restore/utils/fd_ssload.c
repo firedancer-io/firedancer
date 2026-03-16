@@ -136,24 +136,24 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_ticks_per_slot_set( bank, manifest->ticks_per_slot );
   fd_bank_genesis_creation_time_set( bank, manifest->creation_time_seconds );
   fd_bank_slots_per_year_set( bank, manifest->slots_per_year );
-  fd_bank_block_height_set( bank, manifest->block_height );
-  fd_bank_execution_fees_set( bank, manifest->collector_fees );
-  fd_bank_priority_fees_set( bank, 0UL );
+  bank->data->fields.block_height = manifest->block_height;
+  bank->data->fields.execution_fees = manifest->collector_fees;
+  bank->data->fields.priority_fees = 0UL;
 
   /* Set the cluster type based on the genesis creation time.  This is
      later cross referenced against the genesis hash. */
   switch( fd_bank_genesis_creation_time_get( bank ) ) {
     case FD_RUNTIME_GENESIS_CREATION_TIME_TESTNET:
-      fd_bank_cluster_type_set( bank, FD_CLUSTER_TESTNET );
+      bank->data->fields.cluster_type = FD_CLUSTER_TESTNET;
       break;
     case FD_RUNTIME_GENESIS_CREATION_TIME_MAINNET:
-      fd_bank_cluster_type_set( bank, FD_CLUSTER_MAINNET_BETA );
+      bank->data->fields.cluster_type = FD_CLUSTER_MAINNET_BETA;
       break;
     case FD_RUNTIME_GENESIS_CREATION_TIME_DEVNET:
-      fd_bank_cluster_type_set( bank, FD_CLUSTER_DEVNET );
+      bank->data->fields.cluster_type = FD_CLUSTER_DEVNET;
       break;
     default:
-      fd_bank_cluster_type_set( bank, FD_CLUSTER_UNKNOWN );
+      bank->data->fields.cluster_type = FD_CLUSTER_UNKNOWN;
   }
 
   /* Update last restart slot
@@ -216,7 +216,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      stakes at the end of epoch 6.  Therefore, we save the total
      epoch stake by querying for epoch+1.  This logic is encapsulated
      in fd_ssmanifest_parser.c. */
-  fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
+  bank->data->fields.total_epoch_stake = manifest->epoch_stakes[1].total_stake;
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );

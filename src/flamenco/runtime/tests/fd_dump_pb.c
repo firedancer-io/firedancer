@@ -395,7 +395,7 @@ dump_txn_bank( fd_bank_t *                  bank,
   dump_fee_rate_governor( bank, &txn_bank->fee_rate_governor );
 
   /* TxnBank -> total_epoch_stake */
-  txn_bank->total_epoch_stake = fd_bank_total_epoch_stake_get( bank );
+  txn_bank->total_epoch_stake = bank->data->fields.total_epoch_stake;
 
   /* TxnBank -> epoch_schedule */
   txn_bank->has_epoch_schedule = true;
@@ -745,7 +745,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   };
 
   /* BlockBank -> block_height */
-  block_bank->block_height = fd_bank_block_height_get( bank );
+  block_bank->block_height = bank->data->fields.block_height;
 
   /* BlockBank -> poh */
   fd_memcpy( block_bank->poh, &bank->data->fields.poh, sizeof(fd_hash_t) );

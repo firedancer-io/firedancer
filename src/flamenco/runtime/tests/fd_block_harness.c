@@ -196,7 +196,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_inflation_set( bank, inflation );
 
   /* Block height */
-  fd_bank_block_height_set( bank, block_bank->block_height );
+  bank->data->fields.block_height = block_bank->block_height;
 
   /* POH (set right before finalize since we don't fuzz POH calculation) */
   fd_memcpy( poh, block_bank->poh, sizeof(fd_hash_t) );
@@ -228,7 +228,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     total_epoch_stake += block_bank->vote_accounts_t_1[i].stake;
   }
-  fd_bank_total_epoch_stake_set( bank, total_epoch_stake );
+  bank->data->fields.total_epoch_stake = total_epoch_stake;
 
   /* Using default configuration of 64 ticks per slot
      https://github.com/anza-xyz/solana-sdk/blob/time-utils%40v3.0.0/time-utils/src/lib.rs#L18-L27 */

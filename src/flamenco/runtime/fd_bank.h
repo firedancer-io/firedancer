@@ -231,14 +231,7 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             ticks_per_slot           ) /* Ticks per slot */                                     \
   X(ulong,                             genesis_creation_time    ) /* Genesis creation time */                              \
   X(double,                            slots_per_year           ) /* Slots per year */                                     \
-  X(fd_inflation_t,                    inflation                ) /* Inflation */                                          \
-  X(ulong,                             cluster_type             ) /* Cluster type */                                       \
-  X(ulong,                             total_epoch_stake        ) /* Total epoch stake */                                  \
-  X(ulong,                             block_height             ) /* Block height */                                       \
-  X(ulong,                             execution_fees           ) /* Execution fees */                                     \
-  X(ulong,                             priority_fees            ) /* Priority fees */                                      \
-  X(ulong,                             tips                     ) /* Tips collected */                                     \
-  X(ulong,                             signature_count          ) /* Signature count */
+  X(fd_inflation_t,                    inflation                ) /* Inflation */
 
 /* Defining pooled fields. */
 

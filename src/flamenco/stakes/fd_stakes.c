@@ -264,7 +264,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     total_stake += new_entry.effective;
   }
-  fd_bank_total_epoch_stake_set( bank, total_stake );
+  bank->data->fields.total_epoch_stake = total_stake;
 
   fd_vote_stakes_insert_fini( vote_stakes, child_idx );
 

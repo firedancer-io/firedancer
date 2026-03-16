@@ -728,7 +728,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->epoch                 = epoch;
   slot_info->slot_in_epoch         = slot_idx;
   slot_info->slots_per_epoch       = fd_epoch_slot_cnt( epoch_schedule, epoch );
-  slot_info->block_height          = fd_bank_block_height_get( bank );
+  slot_info->block_height          = bank->data->fields.block_height;
   slot_info->parent_slot           = fd_bank_parent_slot_get( bank );
   slot_info->block_id              = block_id_ele->latest_mr;
   slot_info->parent_block_id       = parent_block_id;
@@ -784,10 +784,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   }
 
   slot_info->is_leader = is_leader;
-  slot_info->transaction_fee = fd_bank_execution_fees_get( bank );
+  slot_info->transaction_fee = bank->data->fields.execution_fees;
   slot_info->transaction_fee -= (slot_info->transaction_fee>>1); /* burn */
-  slot_info->priority_fee = fd_bank_priority_fees_get( bank );
-  slot_info->tips = fd_bank_tips_get( bank );
+  slot_info->priority_fee = bank->data->fields.priority_fees;
+  slot_info->tips = bank->data->fields.tips;
   slot_info->shred_cnt = bank->data->fields.shred_cnt;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->data->idx ].latest_mr.uc, block_id_cstr );
@@ -1422,7 +1422,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->published_root_slot = 0UL;
   fd_sched_block_add_done( ctx->sched, bank->data->idx, ULONG_MAX, 0UL );
 
-  fd_bank_block_height_set( bank, 1UL );
+  bank->data->fields.block_height = 1UL;
 
   ctx->consensus_root          = ctx->initial_block_id;
   ctx->consensus_root_slot     = 0UL;
@@ -1595,7 +1595,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fec->bank_seq        = bank->data->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
 
-    ctx->cluster_type = fd_bank_cluster_type_get( bank );
+    ctx->cluster_type = bank->data->fields.cluster_type;
 
     maybe_verify_cluster_type( ctx );
 

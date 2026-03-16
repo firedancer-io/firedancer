@@ -316,8 +316,8 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
                         fd_capture_ctx_t *        capture_ctx ) {
 
   ulong slot           = fd_bank_slot_get( bank );
-  ulong execution_fees = fd_bank_execution_fees_get( bank );
-  ulong priority_fees  = fd_bank_priority_fees_get( bank );
+  ulong execution_fees = bank->data->fields.execution_fees;
+  ulong priority_fees  = bank->data->fields.priority_fees;
 
   ulong burn = execution_fees / 2;
   ulong fees = fd_ulong_sat_add( priority_fees, execution_fees - burn );
@@ -370,8 +370,8 @@ fd_runtime_freeze( fd_bank_t *         bank,
 
   /* jito collects a 3% fee at the end of the block + 3% fee at
      distribution time. */
-  ulong tips_pre_comission = fd_bank_tips_get( bank );
-  fd_bank_tips_set( bank, (tips_pre_comission - (tips_pre_comission * 6UL / 100UL)) );
+  ulong tips_pre_comission = bank->data->fields.tips;
+  bank->data->fields.tips = (tips_pre_comission - (tips_pre_comission * 6UL / 100UL));
 
   fd_runtime_run_incinerator( bank, accdb, &xid, capture_ctx );
 
@@ -699,7 +699,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
     ulong new_epoch  = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
     if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
       /* The block after genesis has a height of 1. */
-      fd_bank_block_height_set( bank, 1UL );
+      bank->data->fields.block_height = 1UL;
     }
 
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
@@ -843,9 +843,9 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
 
-  fd_bank_execution_fees_set( bank, 0UL );
-  fd_bank_priority_fees_set( bank, 0UL );
-  fd_bank_signature_count_set( bank, 0UL );
+  bank->data->fields.execution_fees = 0UL;
+  bank->data->fields.priority_fees = 0UL;
+  bank->data->fields.signature_count = 0UL;
   bank->data->fields.total_compute_units_used = 0UL;
 
   if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
@@ -876,7 +876,7 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
     prev_bank_hash = &bank->data->fields.prev_bank_hash;
   }
 
-  fd_bank_parent_signature_cnt_set( bank, fd_bank_signature_count_get( bank ) );
+  fd_bank_parent_signature_cnt_set( bank, bank->data->fields.signature_count );
 
   /* Compute the new bank hash */
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
@@ -885,7 +885,7 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
       lthash,
       prev_bank_hash,
       (fd_hash_t *)&bank->data->fields.poh,
-      fd_bank_signature_count_get( bank ),
+      bank->data->fields.signature_count,
       new_bank_hash );
 
   /* Update the bank hash */
@@ -903,7 +903,7 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
       (fd_hash_t *)&bank->data->fields.prev_bank_hash,
       (fd_hash_t *)lthash_hash,
       (fd_hash_t *)&bank->data->fields.poh,
-      fd_bank_signature_count_get( bank ) );
+      bank->data->fields.signature_count );
   }
 
   fd_bank_lthash_end_locking_query( bank );
@@ -1247,7 +1247,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
     /* Atomically add all accumulated tips to the bank once after processing all accounts */
     if( txn_out->details.tips>0UL )
-      FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), txn_out->details.tips );
+      FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.tips, txn_out->details.tips );
 
     /* We need to queue any existing program accounts that may have
        been deployed / upgraded for reverification in the program
@@ -1263,9 +1263,9 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   /* Accumulate block-level information to the bank. */
 
   FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.transaction_count,       1UL );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ),  txn_out->details.execution_fee );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ),   txn_out->details.priority_fee );
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_out->details.signature_count );
+  FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.execution_fees,  txn_out->details.execution_fee );
+  FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.priority_fees,   txn_out->details.priority_fee );
+  FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.signature_count, txn_out->details.signature_count );
 
   if( !txn_out->details.is_simple_vote ) {
     FD_ATOMIC_FETCH_AND_ADD( &bank->data->fields.nonvote_txn_count, 1 );
@@ -1549,7 +1549,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
   inflation->foundation_term = genesis->inflation.foundation_term;
   inflation->unused          = 0.0;
 
-  fd_bank_block_height_set( bank, 0UL );
+  bank->data->fields.block_height = 0UL;
 
   {
     /* FIXME Why is there a previous blockhash at genesis?  Why is the
@@ -1579,7 +1579,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
   fd_bank_slots_per_year_set( bank, SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis->poh.ticks_per_slot );
 
-  fd_bank_signature_count_set( bank, 0UL );
+  bank->data->fields.signature_count = 0UL;
 
   /* Derive epoch stakes */
 
@@ -1705,18 +1705,12 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
     fd_sha256_hash( poh->uc, sizeof(fd_hash_t), poh->uc );
   }
 
-  fd_bank_execution_fees_set( bank, 0UL );
-
-  fd_bank_priority_fees_set( bank, 0UL );
-
-  fd_bank_signature_count_set( bank, 0UL );
-
+  bank->data->fields.execution_fees = 0UL;
+  bank->data->fields.priority_fees = 0UL;
+  bank->data->fields.signature_count = 0UL;
   bank->data->fields.transaction_count = 0UL;
-
   bank->data->fields.failed_txn_count = 0UL;
-
   bank->data->fields.nonvote_failed_txn_count = 0UL;
-
   bank->data->fields.total_compute_units_used = 0UL;
 
   fd_runtime_genesis_init_program( bank, accdb, xid, capture_ctx );
