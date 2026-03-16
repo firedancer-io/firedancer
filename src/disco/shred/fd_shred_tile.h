@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_shred_fd_shred_tile_h
 
 #include "../tiles.h"
+#include "../keyguard/fd_keyguard_client.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
 /* Forward declarations */

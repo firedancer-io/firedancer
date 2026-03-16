@@ -48,10 +48,6 @@
 #define FD_REASM_USE_HANDHOLDING 1
 #endif
 
-#define FD_REASM_SUCCESS    ( 0)
-#define FD_REASM_ERR_UNIQUE (-1) /* key uniqueness conflict */
-#define FD_REASM_ERR_MERKLE (-2) /* chained merkle root conflict */
-
 /* fd_reasm is represented as a forest (multi-tree) structure.  Each
    node in the forest corresponds to a FEC set.
 

@@ -3,18 +3,12 @@
 
 /* FD_QUIC_STREAM_TYPE_* indicate stream type (two least significant
    bits of a stream ID) */
-#define FD_QUIC_STREAM_TYPE_BIDI_CLIENT 0
-#define FD_QUIC_STREAM_TYPE_BIDI_SERVER 1
 #define FD_QUIC_STREAM_TYPE_UNI_CLIENT  2
 #define FD_QUIC_STREAM_TYPE_UNI_SERVER  3
 
 /* FD_QUIC_{SUCCESS,FAILED} are used for error return codes. */
 #define FD_QUIC_SUCCESS (0)
 #define FD_QUIC_FAILED  (1)
-
-/* FD_QUIC_TYPE_{UNI,BI}DIR indicate stream type. */
-#define FD_QUIC_TYPE_BIDIR  (0)
-#define FD_QUIC_TYPE_UNIDIR (1)
 
 /* FD_QUIC_ALIGN specifies the alignment needed for an fd_quic_t.
    This is provided to facilitate compile-time QUIC declarations.
@@ -72,14 +66,8 @@
    after event delivery.
 
    ...END:        All stream data was transmitted successfully
-   ...PEER_RESET: Peer has ceased sending non-gracefully
-   ...PEER_STOP:  Peer has requested us to stop sending
-   ...DROP:       Local side dropped the stream
    ...CONN:       Stream aborted due to conn close */
 #define FD_QUIC_STREAM_NOTIFY_END        (0)
-#define FD_QUIC_STREAM_NOTIFY_PEER_RESET (1)
-#define FD_QUIC_STREAM_NOTIFY_PEER_STOP  (2)
-#define FD_QUIC_STREAM_NOTIFY_DROP       (3)
 #define FD_QUIC_STREAM_NOTIFY_CONN       (4)
 
 /* FD_QUIC_PKT_TYPE_{...}: QUIC v1 packet types.
