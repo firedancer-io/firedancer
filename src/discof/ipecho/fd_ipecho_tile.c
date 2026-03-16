@@ -21,7 +21,6 @@ struct fd_ipecho_tile_ctx {
   uint   bind_address;
   ushort bind_port;
 
-  ushort bootstrap_shred_version;
   ushort expected_shred_version;
 
   fd_wksp_t * genesi_in_mem;
