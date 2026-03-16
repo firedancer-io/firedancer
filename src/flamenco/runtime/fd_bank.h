@@ -672,68 +672,6 @@ fd_banks_get_dead_banks_deque( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->dead_banks_deque_offset );
 }
 
-static inline void
-fd_banks_set_dead_banks_deque( fd_banks_data_t *   banks_data,
-                               fd_bank_idx_seq_t * dead_banks_deque ) {
-  banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
-}
-
-static inline uchar *
-fd_banks_get_epoch_leaders( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset );
-}
-
-static inline void
-fd_banks_set_epoch_leaders( fd_banks_data_t * banks_data,
-                            uchar *           epoch_leaders_mem,
-                            ulong             epoch_leaders_footprint ) {
-  banks_data->epoch_leaders_offset    = (ulong)epoch_leaders_mem - (ulong)banks_data;
-  banks_data->epoch_leaders_footprint = epoch_leaders_footprint;
-}
-
-static inline uchar *
-fd_banks_get_stake_delegations_root_mem( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_root_offset );
-}
-
-static inline void
-fd_banks_set_stake_delegations_root_mem( fd_banks_data_t * banks_data,
-                                         uchar *           stake_delegations_root_mem ) {
-  banks_data->stake_delegations_root_offset = (ulong)stake_delegations_root_mem - (ulong)banks_data;
-}
-
-static inline uchar *
-fd_banks_get_stake_delegations_frontier_mem( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_frontier_offset );
-}
-
-static inline void
-fd_banks_set_stake_delegations_frontier_mem( fd_banks_data_t * banks_data,
-                                             uchar *           stake_delegations_frontier_mem ) {
-  banks_data->stake_delegations_frontier_offset = (ulong)stake_delegations_frontier_mem - (ulong)banks_data;
-}
-
-static inline fd_bank_top_votes_t *
-fd_banks_get_top_votes_pool( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->top_votes_pool_offset );
-}
-
-static inline void
-fd_banks_set_top_votes_pool( fd_banks_data_t *     banks_data,
-                             fd_bank_top_votes_t * top_votes_pool ) {
-  banks_data->top_votes_pool_offset = (ulong)top_votes_pool - (ulong)banks_data;
-}
-
-static inline fd_vote_stakes_t *
-fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_pool_offset );
-}
-
-static inline fd_stake_delegations_delta_t *
-fd_banks_get_stake_delegations_delta( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
-}
-
 /* fd_banks_root() returns a pointer to the root bank respectively. */
 
 FD_FN_PURE static inline fd_bank_t *

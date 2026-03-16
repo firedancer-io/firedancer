@@ -22,6 +22,36 @@ fd_banks_get_cost_tracker_pool( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
 }
 
+static inline uchar *
+fd_banks_get_epoch_leaders( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset );
+}
+
+static inline uchar *
+fd_banks_get_stake_delegations_root_mem( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_root_offset );
+}
+
+static inline uchar *
+fd_banks_get_stake_delegations_frontier_mem( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_frontier_offset );
+}
+
+static inline fd_bank_top_votes_t *
+fd_banks_get_top_votes_pool( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->top_votes_pool_offset );
+}
+
+static inline fd_vote_stakes_t *
+fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_pool_offset );
+}
+
+static inline fd_stake_delegations_delta_t *
+fd_banks_get_stake_delegations_delta( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
+}
+
 ulong
 fd_bank_align( void ) {
   return alignof(fd_bank_t);
@@ -251,15 +281,19 @@ fd_banks_new( void * shmem,
     bank->flags = 0UL;
   }
 
-  fd_bank_idx_seq_t * banks_dead_deque = fd_banks_dead_join( fd_banks_dead_new( dead_banks_deque_mem ) );
-  if( FD_UNLIKELY( !banks_dead_deque ) ) {
+  fd_bank_idx_seq_t * dead_banks_deque = fd_banks_dead_join( fd_banks_dead_new( dead_banks_deque_mem ) );
+  if( FD_UNLIKELY( !dead_banks_deque ) ) {
     FD_LOG_WARNING(( "Failed to create banks dead deque" ));
     return NULL;
   }
-  fd_banks_set_dead_banks_deque( banks_data, banks_dead_deque );
-  fd_banks_set_epoch_leaders( banks_data, epoch_leaders_mem, epoch_leaders_footprint );
-  fd_banks_set_stake_delegations_root_mem( banks_data, fd_type_pun( stake_delegations_root_mem ) );
-  fd_banks_set_stake_delegations_frontier_mem( banks_data, fd_type_pun( stake_delegations_front_mem ) );
+  banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
+
+  banks_data->epoch_leaders_offset    = (ulong)epoch_leaders_mem - (ulong)banks_data;
+  banks_data->epoch_leaders_footprint = epoch_leaders_footprint;
+
+  banks_data->stake_delegations_root_offset = (ulong)stake_delegations_root_mem - (ulong)banks_data;
+
+  banks_data->stake_delegations_frontier_offset = (ulong)stake_delegations_front_mem - (ulong)banks_data;
 
   /* Assign offset of the bank pool to the banks object. */
   banks_data->pool_offset = (ulong)bank_pool - (ulong)banks_data;
@@ -273,7 +307,8 @@ fd_banks_new( void * shmem,
     FD_LOG_WARNING(( "Failed to create top votes pool" ));
     return NULL;
   }
-  fd_banks_set_top_votes_pool( banks_data, top_votes_pool );
+  banks_data->top_votes_pool_offset = (ulong)top_votes_pool - (ulong)banks_data;
+
   for( ulong i=0UL; i<max_total_banks; i++ ) {
     fd_bank_top_votes_t * top_votes_ele = fd_bank_top_votes_pool_ele( top_votes_pool, i );
     fd_top_votes_t * top_votes = fd_top_votes_join( fd_top_votes_new( top_votes_ele->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT, seed ) );
@@ -347,7 +382,7 @@ fd_banks_new( void * shmem,
     bank->top_votes_pool_idx = fd_bank_top_votes_pool_idx_null( top_votes_pool );
 
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
-    bank->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)bank;
+    bank->cost_tracker_pool_offset = (ulong)cost_tracker_pool - (ulong)bank;
     bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
 
     fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks_data );

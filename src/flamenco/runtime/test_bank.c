@@ -2,6 +2,26 @@
 
 #include <stdlib.h> // ARM64: aligned_alloc(3)
 
+static inline uchar *
+fd_banks_get_epoch_leaders( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset );
+}
+
+static inline uchar *
+fd_banks_get_stake_delegations_root_mem( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_root_offset );
+}
+
+static inline uchar *
+fd_banks_get_stake_delegations_frontier_mem( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_frontier_offset );
+}
+
+static inline fd_stake_delegations_delta_t *
+fd_banks_get_stake_delegations_delta( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
+}
+
 static void
 test_bank_advancing( void * mem ) {
   fd_banks_locks_t locks[1];
