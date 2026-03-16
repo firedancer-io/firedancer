@@ -446,50 +446,6 @@ fd_bank_get_stake_weights_cnt_next( fd_bank_data_t * bank ) {
   return (ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_cnt_next_off );
 }
 
-static inline void
-fd_bank_set_epoch_leaders( fd_bank_data_t * bank,
-                           uchar *          epoch_leaders_mem,
-                           ulong            epoch_leaders_footprint ) {
-  bank->epoch_leaders_offset    = (ulong)bank - (ulong)epoch_leaders_mem;
-  bank->epoch_leaders_footprint = epoch_leaders_footprint;
-}
-
-static inline uchar *
-fd_bank_get_epoch_leaders( fd_bank_data_t * bank ) {
-  return (uchar *)bank - bank->epoch_leaders_offset;
-}
-
-/* Do the same setup for the cost tracker pool. */
-
-static inline void
-fd_bank_set_cost_tracker_pool( fd_bank_data_t * bank, fd_bank_cost_tracker_t * cost_tracker_pool ) {
-  void * cost_tracker_pool_mem = fd_bank_cost_tracker_pool_leave( cost_tracker_pool );
-  if( FD_UNLIKELY( !cost_tracker_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
-  }
-  bank->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)bank;
-}
-
-static inline fd_bank_cost_tracker_t *
-fd_bank_get_cost_tracker_pool( fd_bank_data_t * bank ) {
-  return fd_bank_cost_tracker_pool_join( (uchar *)bank + bank->cost_tracker_pool_offset );
-}
-
-static inline void
-fd_bank_set_top_votes_pool( fd_bank_data_t * bank, fd_bank_top_votes_t * top_votes_pool ) {
-  bank->top_votes_pool_offset = (ulong)top_votes_pool - (ulong)bank;
-}
-
-static inline fd_bank_top_votes_t *
-fd_bank_get_top_votes_pool( fd_bank_data_t * bank ) {
-  return fd_type_pun( (uchar *)bank + bank->top_votes_pool_offset );
-}
-
-static inline void
-fd_bank_set_vote_stakes( fd_bank_data_t * bank, fd_vote_stakes_t * vote_stakes ) {
-  bank->vote_stakes_offset = (ulong)vote_stakes - (ulong)bank;
-}
-
 static inline fd_vote_stakes_t *
 fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank ) {
   fd_rwlock_write( &bank->locks->vote_stakes_lock );
@@ -499,11 +455,6 @@ fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank ) {
 static inline void
 fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->locks->vote_stakes_lock );
-}
-
-static inline void
-fd_bank_set_stake_delegations_delta( fd_bank_data_t * bank, fd_stake_delegations_delta_t * stake_delegations_delta ) {
-  bank->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)bank;
 }
 
 static inline fd_stake_delegations_delta_t *
@@ -773,51 +724,14 @@ fd_banks_set_top_votes_pool( fd_banks_data_t *     banks_data,
   banks_data->top_votes_pool_offset = (ulong)top_votes_pool - (ulong)banks_data;
 }
 
-static inline fd_bank_cost_tracker_t *
-fd_banks_get_cost_tracker_pool( fd_banks_data_t * banks_data ) {
-  return fd_bank_cost_tracker_pool_join( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
-}
-
-static inline void
-fd_banks_set_cost_tracker_pool( fd_banks_data_t * banks_data,
-                                fd_bank_cost_tracker_t * cost_tracker_pool ) {
-  void * cost_tracker_pool_mem = fd_bank_cost_tracker_pool_leave( cost_tracker_pool );
-  if( FD_UNLIKELY( !cost_tracker_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
-  }
-  banks_data->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)banks_data;
-}
-
-static inline void
-fd_banks_set_stake_rewards( fd_banks_data_t *     bank,
-                            fd_stake_rewards_t * stake_rewards ) {
-  bank->stake_rewards_offset = (ulong)stake_rewards - (ulong)bank;
-}
-
-static inline void
-fd_bank_set_stake_rewards( fd_bank_data_t *     bank,
-                           fd_stake_rewards_t * stake_rewards ) {
-  bank->stake_rewards_offset = (ulong)stake_rewards - (ulong)bank;
-}
-
 static inline fd_vote_stakes_t *
 fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_pool_offset );
 }
 
-static inline void
-fd_banks_set_vote_stakes( fd_banks_data_t * banks_data, fd_vote_stakes_t * vote_stakes ) {
-  banks_data->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)banks_data;
-}
-
 static inline fd_stake_delegations_delta_t *
 fd_banks_get_stake_delegations_delta( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
-}
-
-static inline void
-fd_banks_set_stake_delegations_delta( fd_banks_data_t * banks_data, fd_stake_delegations_delta_t * stake_delegations_delta ) {
-  banks_data->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)banks_data;
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */
@@ -1077,13 +991,8 @@ fd_banks_get_frontier( fd_banks_t * banks,
          wide forking across blocks.
       b. Too many forks have crossed the epoch boundary.  */
 
-static inline int
-fd_banks_is_full( fd_banks_t * banks ) {
-  fd_bank_data_t * bank_data_pool = fd_type_pun( (uchar *)banks->data + banks->data->pool_offset );
-  return fd_banks_pool_free( bank_data_pool )==0UL ||
-         fd_bank_cost_tracker_pool_free( fd_banks_get_cost_tracker_pool( banks->data ) )==0UL ||
-         fd_bank_top_votes_pool_free( fd_banks_get_top_votes_pool( banks->data ) )==0UL;
-}
+int
+fd_banks_is_full( fd_banks_t * banks );
 
 FD_PROTOTYPES_END
 
