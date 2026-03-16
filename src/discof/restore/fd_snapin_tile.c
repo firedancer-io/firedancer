@@ -772,6 +772,23 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   return reprocess_frag;
 }
 
+static int
+validate_capitalization( fd_snapin_tile_t * ctx ) {
+  /* Capitalization is checked only when lthash verification is
+     enabled, since a snapshot that fails lthash would most probably
+     fail capitalization as well.  This also matches the snapshot
+     load pipeline check under vinyl. */
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
+  if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
+    /* SnapshotError::MismatchedCapitalization
+        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
+    FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
+                     ctx->full?"full":"incr", ctx->manifest_capitalization, ctx->capitalization ));
+    return -1;
+  }
+  return 0;
+}
+
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
@@ -862,11 +879,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         }
 
         ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
-        if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
-          /* SnapshotError::MismatchedCapitalization
-             https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
-          FD_LOG_WARNING(( "snapshot manifest capitalization %lu does not match computed capitalization %lu",
-                           ctx->manifest_capitalization, ctx->capitalization ));
+        if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;
@@ -896,11 +909,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         }
 
         ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
-        if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
-          /* SnapshotError::MismatchedCapitalization
-             https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
-          FD_LOG_WARNING(( "snapshot manifest capitalization %lu does not match computed capitalization %lu",
-                           ctx->manifest_capitalization, ctx->capitalization ));
+        if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;
