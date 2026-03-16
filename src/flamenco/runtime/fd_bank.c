@@ -2,6 +2,11 @@
 #include "fd_runtime_const.h"
 #include "../rewards/fd_stake_rewards.h"
 
+static inline fd_bank_data_t *
+fd_banks_get_bank_pool( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->pool_offset );
+}
+
 ulong
 fd_bank_align( void ) {
   return alignof(fd_bank_t);
@@ -242,8 +247,7 @@ fd_banks_new( void * shmem,
   fd_banks_set_stake_delegations_frontier_mem( banks_data, fd_type_pun( stake_delegations_front_mem ) );
 
   /* Assign offset of the bank pool to the banks object. */
-
-  fd_banks_set_bank_pool( banks_data, bank_pool );
+  banks_data->pool_offset = (ulong)bank_pool - (ulong)banks_data;
 
   /* Create the pools for the non-inlined fields.  Also new() and join()
      each of the elements in the pool as well as set up the lock for

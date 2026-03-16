@@ -711,19 +711,9 @@ fd_banks_stake_delegations_root_query( fd_banks_t * banks );
    the pool for the fd_bank_t structs as well as a map and pool pair of
    the CoW structs in the banks. */
 
-static inline fd_bank_data_t *
-fd_banks_get_bank_pool( fd_banks_data_t * banks_data ) {
-  return fd_banks_pool_join( (uchar *)banks_data + banks_data->pool_offset );
-}
-
-static inline void
-fd_banks_set_bank_pool( fd_banks_data_t * banks_data,
-                        fd_bank_data_t *  bank_pool ) {
-  void * bank_pool_mem = fd_banks_pool_leave( bank_pool );
-  if( FD_UNLIKELY( !bank_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave bank pool" ));
-  }
-  banks_data->pool_offset = (ulong)bank_pool_mem - (ulong)banks_data;
+static inline ulong
+fd_banks_get_used_cnt( fd_banks_t * banks ) {
+  return fd_banks_pool_used( fd_type_pun( (uchar *)banks->data + banks->data->pool_offset ) );
 }
 
 static inline fd_bank_idx_seq_t *
@@ -836,7 +826,9 @@ FD_FN_PURE static inline fd_bank_t *
 fd_banks_root( fd_bank_t *  bank_l,
                fd_banks_t * banks ) {
 
-  fd_bank_data_t * bank_data = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), banks->data->root_idx );
+  fd_bank_data_t * bank_data_pool = fd_type_pun( (uchar *)banks->data + banks->data->pool_offset );
+
+  fd_bank_data_t * bank_data = fd_banks_pool_ele( bank_data_pool, banks->data->root_idx );
   if( FD_UNLIKELY( !bank_data ) ) {
     return NULL;
   }
@@ -919,7 +911,8 @@ static inline fd_bank_t *
 fd_banks_bank_query( fd_bank_t *  bank_l,
                      fd_banks_t * banks,
                      ulong        bank_idx ) {
-  fd_bank_data_t * bank_data = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank_idx );
+  fd_bank_data_t * bank_data_pool = fd_type_pun( (uchar *)banks->data + banks->data->pool_offset );
+  fd_bank_data_t * bank_data = fd_banks_pool_ele( bank_data_pool, bank_idx );
   if( FD_UNLIKELY( !bank_data ) ) {
     return NULL;
   }
@@ -935,7 +928,8 @@ static inline fd_bank_t *
 fd_banks_get_parent( fd_bank_t *  bank_l,
                      fd_banks_t * banks,
                      fd_bank_t *  bank ) {
-  bank_l->data  = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank->data->parent_idx );
+  fd_bank_data_t * bank_data_pool = fd_type_pun( (uchar *)banks->data + banks->data->pool_offset );
+  bank_l->data  = fd_banks_pool_ele( bank_data_pool, bank->data->parent_idx );
   bank_l->locks = banks->locks;
   if( FD_UNLIKELY( !bank_l->data ) ) {
     return NULL;
@@ -1085,7 +1079,8 @@ fd_banks_get_frontier( fd_banks_t * banks,
 
 static inline int
 fd_banks_is_full( fd_banks_t * banks ) {
-  return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL ||
+  fd_bank_data_t * bank_data_pool = fd_type_pun( (uchar *)banks->data + banks->data->pool_offset );
+  return fd_banks_pool_free( bank_data_pool )==0UL ||
          fd_bank_cost_tracker_pool_free( fd_banks_get_cost_tracker_pool( banks->data ) )==0UL ||
          fd_bank_top_votes_pool_free( fd_banks_get_top_votes_pool( banks->data ) )==0UL;
 }

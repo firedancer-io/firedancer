@@ -528,9 +528,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
 
-  fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
-  ulong live_banks = fd_banks_pool_max( bank_pool ) - fd_banks_pool_free( bank_pool );
-  FD_MGAUGE_SET( REPLAY, LIVE_BANKS, live_banks );
+  FD_MGAUGE_SET( REPLAY, LIVE_BANKS, fd_banks_get_used_cnt( ctx->banks ) );
 
   ulong reasm_free = fd_reasm_free( ctx->reasm );
   FD_MGAUGE_SET( REPLAY, REASM_FREE, reasm_free );
@@ -1195,7 +1193,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     ulong child_idx = ctx->reset_bank->data->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_bank_t child_bank[1];
-      fd_banks_bank_query( child_bank, ctx->banks, child_idx );
+      FD_TEST( fd_banks_bank_query( child_bank, ctx->banks, child_idx ) );
       max_active_descendant = fd_ulong_max( max_active_descendant, child_bank->data->fields.slot );
       child_idx = child_bank->data->sibling_idx;
     }
@@ -2814,8 +2812,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
-  fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
-  FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max( bank_pool ) );
+  FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, tile->replay.max_live_slots );
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_init_bank( bank, ctx->banks ) );
