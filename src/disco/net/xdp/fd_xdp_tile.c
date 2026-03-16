@@ -337,7 +337,7 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
   struct xdp_statistics_v1 stats = {0};
   ulong xsk_cnt = ctx->xsk_cnt;
   for( ulong j=0UL; j<xsk_cnt; j++ ) {
-    struct xdp_statistics_v1 sub_stats;
+    struct xdp_statistics_v1 sub_stats = {0};
     uint optlen = (uint)sizeof(struct xdp_statistics_v1);
     if( FD_UNLIKELY( -1==getsockopt( ctx->xsk[ j ].xsk_fd, SOL_XDP, XDP_STATISTICS, &sub_stats, &optlen ) ) )
       FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) failed: %s", strerror( errno ) ));
