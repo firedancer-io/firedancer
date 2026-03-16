@@ -186,7 +186,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * ctx,
     uchar conn_id_truncated[24] = {0};
     fd_memcpy( conn_id_truncated, initial->dst_conn_id, initial->dst_conn_id_len );
     fd_quic_trace_frame_ctx_t frame_ctx = {
-      .conn_id  = fd_ulong_load_8( &initial->dst_conn_id_len ),
+      .conn_id  = fd_ulong_load_8( conn_id_truncated ),
       .pkt_num  = pktnum,
       .src_ip   = ip4_saddr,
       .src_port = udp_sport,
