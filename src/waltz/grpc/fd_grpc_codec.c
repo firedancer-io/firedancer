@@ -107,7 +107,8 @@ fd_grpc_h2_read_response_hdrs( fd_grpc_resp_hdrs_t *       resp,
          than rejecting the stream. We match that behavior here so that
          in all cases, we don't cause spurious RST_STREAMs. */
       if( FD_UNLIKELY( grpc_status>FD_GRPC_STATUS_UNAUTHENTICATED ) ) {
-        FD_LOG_WARNING(( "Unknown grpc-status %u, treating as UNKNOWN", grpc_status ));
+        int trunc_len = (int)fd_ulong_min( hdr->value_len, 32UL );
+        FD_LOG_WARNING(( "Unknown grpc-status \"%.*s\", treating as UNKNOWN", trunc_len, hdr->value ));
         grpc_status = FD_GRPC_STATUS_UNKNOWN;
       }
       resp->grpc_status = grpc_status;
