@@ -275,11 +275,6 @@ struct fd_bank_data {
   ulong flags;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
 
-  int reserved;
-  int replayable;
-  int completed;
-  int dead;
-
   ulong refcnt; /* reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */

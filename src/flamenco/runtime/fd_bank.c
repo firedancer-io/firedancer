@@ -569,9 +569,6 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
 
   fd_rwlock_new( &bank_l->locks->lthash_lock[ bank->idx ] );
 
-  bank->reserved   = 1;
-  bank->replayable = 1;
-  bank->completed  = 1;
   bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
 
@@ -614,9 +611,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   if( FD_UNLIKELY( !child_bank ) ) {
     FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu does not exist", child_bank_idx ));
   }
-  if( FD_UNLIKELY( child_bank->reserved == 0 ) ) {
-    FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu is reserved", child_bank_idx ));
-  }
   if( FD_UNLIKELY( !(child_bank->flags&FD_BANK_FLAGS_INIT) ) ) {
     FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu is not initialized", child_bank_idx ));
   }
@@ -624,10 +618,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   /* If the bank has been marked as dead from the time that it was
      initialized, don't bother copying over any data and return NULL. */
   if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_DEAD) ) {
-    fd_rwlock_unwrite( &banks->locks->banks_lock );
-    return NULL;
-  }
-  if( FD_UNLIKELY( child_bank->dead==1 ) ) {
     fd_rwlock_unwrite( &banks->locks->banks_lock );
     return NULL;
   }
@@ -640,9 +630,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   }
   if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_FROZEN) ) ) {
     FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is not frozen", child_bank->parent_idx ));
-  }
-  if( FD_UNLIKELY( parent_bank->completed!=1 ) ) {
-    FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu is dead", child_bank->parent_idx ));
   }
 
   /* We can simply copy over all of the data in the bank struct that
@@ -676,7 +663,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   /* At this point, the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
-  child_bank->replayable = 1;
 
   child_bank->stake_rewards_fork_id = parent_bank->stake_rewards_fork_id;
 
