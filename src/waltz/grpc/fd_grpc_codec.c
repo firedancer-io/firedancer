@@ -83,7 +83,10 @@ fd_grpc_h2_read_response_hdrs( fd_grpc_resp_hdrs_t *       resp,
         return FD_H2_ERR_PROTOCOL;
       }
       uint h2_status = fd_grpc_h2_parse_num( hdr->value, hdr->value_len );
-      if( FD_UNLIKELY( h2_status<100U || h2_status>599U ) ) {
+      /* [100,999] matches the http crate's StatusCode::from_bytes used
+         by tonic/h2 (first digit 1-9). RFC 9110 only defines 100-599
+         but the h2 crate accepts the full 3-digit range. */
+      if( FD_UNLIKELY( h2_status<100U || h2_status>999U ) ) {
         FD_LOG_WARNING(( "Invalid HTTP status %u", h2_status ));
         return FD_H2_ERR_PROTOCOL;
       }
@@ -99,9 +102,14 @@ fd_grpc_h2_read_response_hdrs( fd_grpc_resp_hdrs_t *       resp,
       break;
     case FD_GRPC_HDR_STATUS: {
       uint grpc_status = fd_grpc_h2_parse_num( hdr->value, hdr->value_len );
+      /* Tonic's Code::from_bytes maps any unrecognized grpc-status
+         (including >16, non-numeric, empty) to Code::Unknown rather
+         than rejecting the stream. We match that behavior here so that
+         in all cases, we don't cause spurious RST_STREAMs. */
       if( FD_UNLIKELY( grpc_status>FD_GRPC_STATUS_UNAUTHENTICATED ) ) {
-        FD_LOG_WARNING(( "Invalid grpc-status %u", grpc_status ));
-        return FD_H2_ERR_PROTOCOL;
+        int trunc_len = (int)fd_ulong_min( hdr->value_len, 32UL );
+        FD_LOG_WARNING(( "Unknown grpc-status \"%.*s\", treating as UNKNOWN", trunc_len, hdr->value ));
+        grpc_status = FD_GRPC_STATUS_UNKNOWN;
       }
       resp->grpc_status = grpc_status;
       break;

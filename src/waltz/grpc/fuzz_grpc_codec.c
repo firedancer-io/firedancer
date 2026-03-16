@@ -34,7 +34,7 @@ LLVMFuzzerTestOneInput( uchar const *data,
 
   if( rc==FD_H2_SUCCESS ) {
     /* Header fields must be in valid ranges on success */
-    FD_TEST( resp_hdrs.h2_status==0U || (resp_hdrs.h2_status>=100U && resp_hdrs.h2_status<=599U) );
+    FD_TEST( resp_hdrs.h2_status==0U || (resp_hdrs.h2_status>=100U && resp_hdrs.h2_status<=999U) );
     FD_TEST( resp_hdrs.grpc_status<=FD_GRPC_STATUS_UNAUTHENTICATED );
     FD_TEST( resp_hdrs.grpc_msg_len<=sizeof(resp_hdrs.grpc_msg));
   }
