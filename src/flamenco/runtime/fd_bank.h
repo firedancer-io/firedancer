@@ -329,12 +329,9 @@ struct fd_bank_data {
   ulong refcnt; /* reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
-
-  ushort vote_stakes_fork_id; /* fork id used by the vote stakes */
-
-  uchar stake_rewards_fork_id; /* fork id used by stake rewards */
-
-  ushort stake_delegations_fork_id; /* fork id used by stake delegations deltas */
+  ushort                vote_stakes_fork_id; /* fork id used by the vote stakes */
+  uchar                 stake_rewards_fork_id; /* fork id used by stake rewards */
+  ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
 
   /* Timestamps written and read only by replay */
 
@@ -390,7 +387,7 @@ struct fd_bank_data {
     ulong                             shred_cnt;
     ulong                             epoch;
     ulong                             identity_vote_idx;
-  } non_cow;
+  } fields;
 
   /* Layout all information needed for non-templatized fields. */
 

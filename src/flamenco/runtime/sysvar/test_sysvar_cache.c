@@ -40,7 +40,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   env->shlocks      = shlocks;
   env->bank         = bank;
   env->xid          = (fd_funk_txn_xid_t) { .ul={ 0UL, 0UL } };
-  env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( &bank->data->non_cow.sysvar_cache ) );
+  env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( &bank->data->fields.sysvar_cache ) );
 
   fd_accdb_admin_t admin[1];
   FD_TEST( fd_accdb_admin_v1_init( admin, funk_mem, shlocks ) );

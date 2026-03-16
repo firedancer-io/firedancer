@@ -108,7 +108,7 @@ fd_bank_cost_tracker_query( fd_bank_t * bank ) {
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank ) {
   fd_rwlock_read( &bank->locks->lthash_lock[ bank->data->idx ] );
-  return &bank->data->non_cow.lthash;
+  return &bank->data->fields.lthash;
 }
 
 void
@@ -119,7 +119,7 @@ fd_bank_lthash_end_locking_query( fd_bank_t * bank ) {
 fd_lthash_value_t *
 fd_bank_lthash_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_write( &bank->locks->lthash_lock[ bank->data->idx ] );
-  return &bank->data->non_cow.lthash;
+  return &bank->data->fields.lthash;
 }
 
 void
@@ -132,19 +132,19 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
 #define X(type, name)                                                   \
   type const *                                                          \
   fd_bank_##name##_query( fd_bank_t const * bank ) {                    \
-    return &bank->data->non_cow.name; \
+    return &bank->data->fields.name; \
   }                                                                     \
   type *                                                                \
   fd_bank_##name##_modify( fd_bank_t * bank ) {                         \
-    return &bank->data->non_cow.name;             \
+    return &bank->data->fields.name;             \
   }                                                                     \
   void                                                                  \
   fd_bank_##name##_set( fd_bank_t * bank, type value ) {                \
-    bank->data->non_cow.name = value;                  \
+    bank->data->fields.name = value;                  \
   }                                                                     \
   type                                                                  \
   fd_bank_##name##_get( fd_bank_t const * bank ) {                      \
-    return bank->data->non_cow.name;               \
+    return bank->data->fields.name;               \
   }
 FD_BANKS_ITER(X)
 #undef X
@@ -507,7 +507,7 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   fd_bank_data_t * bank = fd_banks_pool_ele_acquire( bank_pool );
   bank->bank_seq = FD_ATOMIC_FETCH_AND_ADD( &banks->data->bank_seq, 1UL );
 
-  fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
+  fd_memset( &bank->fields, 0, sizeof(bank->fields) );
 
   ulong null_idx    = fd_banks_pool_idx_null( bank_pool );
   bank->idx         = fd_banks_pool_idx( bank_pool, bank );
@@ -597,7 +597,7 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   /* We can simply copy over all of the data in the bank struct that
      is not used for internal tracking that is laid out contiguously. */
 
-  child_bank->non_cow = parent_bank->non_cow;
+  child_bank->fields = parent_bank->fields;
 
   /* For the other fields reset the state from the parent bank. */
 
@@ -640,7 +640,7 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   bank_l->locks = banks->locks;
   bank_l->data  = child_bank;
 
-  fd_bank_parent_slot_set( bank_l, parent_bank->non_cow.slot );
+  fd_bank_parent_slot_set( bank_l, parent_bank->fields.slot );
   fd_bank_shred_cnt_set( bank_l, 0UL );
   fd_bank_execution_fees_set( bank_l, 0UL );
   fd_bank_priority_fees_set( bank_l, 0UL );
@@ -1180,10 +1180,11 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
 
     bank->stake_rewards_fork_id = UCHAR_MAX;
 
+    /* TODO:FIXME: Think about this more */
     int needs_cancel = !!(bank->flags&FD_BANK_FLAGS_REPLAYABLE);
     if( FD_LIKELY( needs_cancel ) ) {
       cancel->txncache_fork_id = bank->txncache_fork_id;
-      cancel->slot             = FD_LOAD( ulong, bank->non_cow.slot );
+      cancel->slot             = bank->fields.slot;
       cancel->bank_idx         = bank->idx;
     }
 
@@ -1258,7 +1259,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
   /* Get the parent bank. */
   fd_bank_data_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank->data->parent_idx );
 
-  fd_memset( &bank->data->non_cow, 0, sizeof(bank->data->non_cow) );
+  fd_memset( &bank->data->fields, 0, sizeof(bank->data->fields) );
 
   fd_bank_top_votes_t * top_votes_pool = fd_bank_get_top_votes_pool( bank->data );
   if( bank->data->top_votes_dirty ) {
