@@ -1064,10 +1064,11 @@ union fd_system_program_instruction_inner {
   fd_system_program_instruction_allocate_with_seed_t allocate_with_seed;
   fd_system_program_instruction_assign_with_seed_t assign_with_seed;
   fd_system_program_instruction_transfer_with_seed_t transfer_with_seed;
+  fd_system_program_instruction_create_account_t create_account_allow_prefund;
 };
 typedef union fd_system_program_instruction_inner fd_system_program_instruction_inner_t;
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L152 */
+/* https://github.com/anza-xyz/solana-sdk/blob/system-interface%40v3.0.0/system-interface/src/instruction.rs#L92-L299 */
 struct fd_system_program_instruction {
   uint discriminant;
   fd_system_program_instruction_inner_t inner;
@@ -2309,6 +2310,7 @@ FD_FN_PURE uchar fd_system_program_instruction_is_allocate_with_seed( fd_system_
 FD_FN_PURE uchar fd_system_program_instruction_is_assign_with_seed( fd_system_program_instruction_t const * self );
 FD_FN_PURE uchar fd_system_program_instruction_is_transfer_with_seed( fd_system_program_instruction_t const * self );
 FD_FN_PURE uchar fd_system_program_instruction_is_upgrade_nonce_account( fd_system_program_instruction_t const * self );
+FD_FN_PURE uchar fd_system_program_instruction_is_create_account_allow_prefund( fd_system_program_instruction_t const * self );
 enum {
 fd_system_program_instruction_enum_create_account = 0,
 fd_system_program_instruction_enum_assign = 1,
@@ -2323,6 +2325,7 @@ fd_system_program_instruction_enum_allocate_with_seed = 9,
 fd_system_program_instruction_enum_assign_with_seed = 10,
 fd_system_program_instruction_enum_transfer_with_seed = 11,
 fd_system_program_instruction_enum_upgrade_nonce_account = 12,
+fd_system_program_instruction_enum_create_account_allow_prefund = 13,
 };
 static inline void fd_stake_authorized_new( fd_stake_authorized_t * self ) { fd_memset( self, 0, sizeof(fd_stake_authorized_t) ); }
 int fd_stake_authorized_encode( fd_stake_authorized_t const * self, fd_bincode_encode_ctx_t * ctx );

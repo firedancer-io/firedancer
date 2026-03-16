@@ -297,6 +297,20 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
   int found = fd_txncache_query( status_cache, bank->data->txncache_fork_id, blockhash->uc, txn_out->details.blake_txn_msg_hash.uc );
   if( FD_UNLIKELY( found ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
 
+  if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
+    /* It is possible for users to send transactions in a bundle with
+       identical transaction message hashes.  The message hashes are
+       only added to the txncache when transactions are committed.  So
+       message hashes must be checked against the txncache AND previous
+       transactions in the bundle. */
+    for( ulong i=0UL; i<txn_in->bundle.prev_txn_cnt; i++ ) {
+      fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[i];
+      if( FD_UNLIKELY( !memcmp( &prev_txn_out->details.blake_txn_msg_hash, &txn_out->details.blake_txn_msg_hash, sizeof(fd_hash_t) ) ) ) {
+        return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
+      }
+    }
+  }
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 

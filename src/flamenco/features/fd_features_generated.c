@@ -1479,7 +1479,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x4f\x6e\x58\xf2\xa5\x04\x0c\xd3\x86\x2c\xea\xf5\xe7\x5e\x1a\xc4\x52\x52\xca\xea\xdf\x75\x06\xd3\x0e\xef\x5e\x33\x25\x16\xaf\xcf"},
                                  /* 6M4oQ6eXneVhtLoiAr4yRYQY43eVLjrKbiDZDJc892yk */
     .name                      = "migrate_stake_program_to_core_bpf",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_get_epoch_stake_syscall)>>3,
@@ -1638,7 +1638,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xbb\xe3\x22\x72\x50\x76\x2f\xe7\x43\x75\x35\x06\xc2\x69\x5a\x06\x5f\x21\xef\x12\xcf\x24\x33\x0e\x1a\xa7\x37\xbe\x4b\xb8\xee\xb3"},
                                  /* DeS7sR48ZcFTUmt5FFEVDr1v1bh73aAbZiZq3SYr8Eh8 */
     .name                      = "formalize_loaded_transaction_data_size",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_extend_program_checked)>>3,
@@ -1657,7 +1657,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x40\x02\x73\x40\x0f\xb3\x11\x37\x08\x32\x50\x92\x29\x6a\x13\x68\xe5\xe5\xde\x04\x99\x41\x79\xc5\xa0\xdf\xd8\x45\x51\x44\x24\x80"},
                                  /* 5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y */
     .name                      = "enable_vote_address_leader_schedule",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enshrine_slashing_program)>>3,
@@ -1748,8 +1748,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, enable_bls12_381_syscall)>>3,
-    .id                        = {"\x08\xb6\xbd\x29\xaa\xb4\x9d\x6a\x7c\x4d\x8f\xb2\xc3\x1f\xd1\x9e\xfc\xda\x3c\xc8\xe3\x6f\x1c\x9a\x8d\x0f\x74\x62\xea\x21\xaf\x87"},
-                                 /* b1sraWPVFdcUizB2LV5wQTeMuK8M313bi5bHjco5eVU */
+    .id                        = {"\x08\xb6\xbc\x4b\x2f\xee\x11\x9e\x1b\x44\xd1\x6a\x49\x13\x1a\x27\xbc\xe5\x5e\xb4\xe3\xae\x15\x5b\x28\x0a\x77\x38\x47\xda\x4b\xdd"},
+                                 /* b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ */
     .name                      = "enable_bls12_381_syscall",
     .cleaned_up                = 0 },
 
@@ -1799,6 +1799,12 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x6d\x4f\x66\x60\x03\xae\x08\x49\xbd\xeb\xc0\x85\x5b\xa1\x4d\x71\x09\xb7\x24\x73\x65\xd1\xee\x41\x73\x7b\x8f\xb1\x5e\x5e\x9f\x89"},
                                  /* 8MhfKhoZEoiySpVe248bDkisyEcBA7JQLyUS94xoTSqN */
     .name                      = "discard_unexpected_data_complete_shreds",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, create_account_allow_prefund)>>3,
+    .id                        = {"\x57\x32\x9a\x9e\x7c\x9b\x2b\x63\xa6\xee\x98\xb8\x4a\x21\x4e\xb2\x16\xce\x9d\x43\x32\xb5\x8c\x1c\x9c\xa4\x56\x8b\xde\x3b\xa9\x14"},
+                                 /* 6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331 */
+    .name                      = "create_account_allow_prefund",
     .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
@@ -2072,7 +2078,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_252 0xdab5b6a991a03e4bUL, .val = &ids[252]
 #define MAP_PERFECT_253 0x8921a3abf23afaecUL, .val = &ids[253]
 #define MAP_PERFECT_254 0x640dddd90caae808UL, .val = &ids[254]
-#define MAP_PERFECT_255 0x6a9db4aa29bdb608UL, .val = &ids[255]
+#define MAP_PERFECT_255 0x9e11ee2f4bbcb608UL, .val = &ids[255]
 #define MAP_PERFECT_256 0x010f656d89a4e808UL, .val = &ids[256]
 #define MAP_PERFECT_257 0xfc12b1cef363afa7UL, .val = &ids[257]
 #define MAP_PERFECT_258 0x3727b6b01b8a6c1cUL, .val = &ids[258]
@@ -2081,6 +2087,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_261 0x73869887e8eb4903UL, .val = &ids[261]
 #define MAP_PERFECT_262 0x8b0786cd93f63607UL, .val = &ids[262]
 #define MAP_PERFECT_263 0x4908ae0360664f6dUL, .val = &ids[263]
+#define MAP_PERFECT_264 0x632b9b7c9e9a3257UL, .val = &ids[264]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2355,4 +2362,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model   
 FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==261UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==262UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, discard_unexpected_data_complete_shreds                 )>>3==263UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, create_account_allow_prefund                            )>>3==264UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

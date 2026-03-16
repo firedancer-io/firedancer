@@ -423,7 +423,7 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
 static inline void
 handle_contact_info_remove( fd_txsend_tile_t *                 ctx,
                             fd_gossip_update_message_t const * msg ) {
-  peer_entry_t * entry = &ctx->peers[ msg->contact_info->idx ];
+  peer_entry_t * entry = &ctx->peers[ msg->contact_info_remove->idx ];
   entry->tombstoned = 1;
 }
 
