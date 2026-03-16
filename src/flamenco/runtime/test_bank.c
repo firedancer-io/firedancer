@@ -525,6 +525,122 @@ test_bank_frontier( void * mem ) {
   FD_TEST( frontier_cnt==3UL );
 }
 
+static void
+test_bank_stake_delegations_dynamic_sizing( void * mem ) {
+  ulong const max_total_banks       = 16UL;
+  ulong const max_fork_width        = 4UL;
+  ulong const max_vote_accounts     = 2048UL;
+  ulong const max_stake_small       = 32UL;
+  ulong const max_stake_large       = 2048UL;
+  ulong const stake_footprint_small = fd_stake_delegations_footprint( max_stake_small );
+  ulong const stake_footprint_large = fd_stake_delegations_footprint( max_stake_large );
+
+  fd_banks_locks_t locks_small[1];
+  fd_banks_locks_init( locks_small );
+  fd_banks_t banks_small_ljoin[1];
+  fd_banks_t * banks_small = fd_banks_join(
+      banks_small_ljoin,
+      fd_banks_new( mem, max_total_banks, max_fork_width, max_stake_small, max_vote_accounts, 0, 9991UL ),
+      locks_small );
+  FD_TEST( banks_small );
+
+  uchar * root_mem_small     = fd_banks_get_stake_delegations_root_mem( banks_small->data );
+  uchar * frontier_mem_small = fd_banks_get_stake_delegations_frontier_mem( banks_small->data );
+  FD_TEST( root_mem_small );
+  FD_TEST( frontier_mem_small );
+  FD_TEST( root_mem_small!=frontier_mem_small );
+  FD_TEST( fd_ulong_is_aligned( (ulong)root_mem_small,     fd_stake_delegations_align() ) );
+  FD_TEST( fd_ulong_is_aligned( (ulong)frontier_mem_small, fd_stake_delegations_align() ) );
+  FD_TEST( ((ulong)frontier_mem_small - (ulong)root_mem_small)==stake_footprint_small );
+
+  /* If frontier memcpy uses the wrong footprint, this region gets
+     clobbered because it sits directly after the frontier stake set. */
+  uchar epoch_leaders_snapshot[128];
+  fd_memcpy( epoch_leaders_snapshot, fd_banks_get_epoch_leaders( banks_small->data ), sizeof(epoch_leaders_snapshot) );
+
+  fd_bank_t root_bank[1];
+  FD_TEST( fd_banks_init_bank( root_bank, banks_small ) );
+
+  fd_pubkey_t stake_0 = { .ul[0] = 0x1001UL };
+  fd_pubkey_t vote_0  = { .ul[0] = 0x2001UL };
+  fd_pubkey_t stake_1 = { .ul[0] = 0x1002UL };
+  fd_pubkey_t vote_1  = { .ul[0] = 0x2002UL };
+
+  fd_stake_delegations_t * root_stake_delegations = fd_banks_stake_delegations_root_query( banks_small );
+  fd_stake_delegations_update( root_stake_delegations, &stake_0, &vote_0, 11UL, 1UL, 2UL, 3UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
+
+  fd_stake_delegations_t * frontier_stake_delegations = fd_bank_stake_delegations_frontier_query( banks_small, root_bank );
+  FD_TEST( fd_stake_delegations_cnt( frontier_stake_delegations )==1UL );
+  fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_query( frontier_stake_delegations, &stake_0 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->stake==11UL );
+  FD_TEST( !memcmp( epoch_leaders_snapshot, fd_banks_get_epoch_leaders( banks_small->data ), sizeof(epoch_leaders_snapshot) ) );
+
+  /* Root and frontier are distinct buffers. */
+  fd_stake_delegations_remove( frontier_stake_delegations, &stake_0 );
+  FD_TEST( !fd_stake_delegations_query( frontier_stake_delegations, &stake_0 ) );
+  FD_TEST( fd_stake_delegations_query( root_stake_delegations, &stake_0 ) );
+
+  fd_bank_t child_bank[1];
+  ulong child_bank_idx = fd_banks_new_bank( child_bank, banks_small, root_bank->data->idx, 0L )->data->idx;
+  FD_TEST( fd_banks_clone_from_parent( child_bank, banks_small, child_bank_idx ) );
+
+  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_locking_modify( child_bank );
+  fd_stake_delegations_delta_update( delta, child_bank->data->stake_delegations_fork_id, &stake_0, &vote_0, 33UL, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
+  fd_stake_delegations_delta_update( delta, child_bank->data->stake_delegations_fork_id, &stake_1, &vote_1, 22UL, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
+  fd_bank_stake_delegations_delta_end_locking_modify( child_bank );
+
+  frontier_stake_delegations = fd_bank_stake_delegations_frontier_query( banks_small, child_bank );
+  FD_TEST( fd_stake_delegations_cnt( frontier_stake_delegations )==2UL );
+  stake_delegation = fd_stake_delegations_query( frontier_stake_delegations, &stake_0 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->stake==33UL );
+  stake_delegation = fd_stake_delegations_query( frontier_stake_delegations, &stake_1 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->stake==22UL );
+  FD_TEST( !memcmp( epoch_leaders_snapshot, fd_banks_get_epoch_leaders( banks_small->data ), sizeof(epoch_leaders_snapshot) ) );
+
+  /* Frontier is rebuilt from root + deltas each query. */
+  fd_stake_delegations_remove( frontier_stake_delegations, &stake_1 );
+  FD_TEST( !fd_stake_delegations_query( frontier_stake_delegations, &stake_1 ) );
+  frontier_stake_delegations = fd_bank_stake_delegations_frontier_query( banks_small, child_bank );
+  FD_TEST( fd_stake_delegations_query( frontier_stake_delegations, &stake_1 ) );
+
+  stake_delegation = fd_stake_delegations_query( root_stake_delegations, &stake_0 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->stake==11UL );
+  FD_TEST( !fd_stake_delegations_query( root_stake_delegations, &stake_1 ) );
+
+  fd_banks_mark_bank_frozen( banks_small, child_bank );
+  fd_banks_advance_root( banks_small, child_bank_idx );
+  root_stake_delegations = fd_banks_stake_delegations_root_query( banks_small );
+  stake_delegation = fd_stake_delegations_query( root_stake_delegations, &stake_0 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->stake==33UL );
+  stake_delegation = fd_stake_delegations_query( root_stake_delegations, &stake_1 );
+  FD_TEST( stake_delegation );
+  FD_TEST( stake_delegation->stake==22UL );
+
+  fd_banks_locks_t locks_large[1];
+  fd_banks_locks_init( locks_large );
+  fd_banks_t banks_large_ljoin[1];
+  fd_banks_t * banks_large = fd_banks_join(
+      banks_large_ljoin,
+      fd_banks_new( mem, max_total_banks, max_fork_width, max_stake_large, max_vote_accounts, 0, 9992UL ),
+      locks_large );
+  FD_TEST( banks_large );
+
+  uchar * root_mem_large     = fd_banks_get_stake_delegations_root_mem( banks_large->data );
+  uchar * frontier_mem_large = fd_banks_get_stake_delegations_frontier_mem( banks_large->data );
+  FD_TEST( root_mem_large );
+  FD_TEST( frontier_mem_large );
+  FD_TEST( root_mem_large!=frontier_mem_large );
+  FD_TEST( fd_ulong_is_aligned( (ulong)root_mem_large,     fd_stake_delegations_align() ) );
+  FD_TEST( fd_ulong_is_aligned( (ulong)frontier_mem_large, fd_stake_delegations_align() ) );
+  FD_TEST( ((ulong)frontier_mem_large - (ulong)root_mem_large)==stake_footprint_large );
+  FD_TEST( stake_footprint_large > stake_footprint_small );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -860,7 +976,7 @@ main( int argc, char ** argv ) {
 
   /* Set the cost tracker to some non-zero values. */
 
-  fd_banks_clear_bank( banks, bank11, FD_RUNTIME_MAX_VOTE_ACCOUNTS );
+  fd_banks_clear_bank( banks, bank11, 2048UL );
   FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
 
@@ -871,6 +987,8 @@ main( int argc, char ** argv ) {
   test_bank_dead_eviction( mem );
 
   test_bank_frontier( mem );
+
+  test_bank_stake_delegations_dynamic_sizing( mem );
 
   FD_LOG_NOTICE(( "pass" ));
 

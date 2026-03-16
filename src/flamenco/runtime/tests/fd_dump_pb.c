@@ -526,6 +526,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
                                           fd_bank_t *           bank,
                                           fd_accdb_user_t *     accdb,
                                           fd_runtime_stack_t *  runtime_stack ) {
+  (void)runtime_stack;
   /* We should use the bank fields and funk txn from the parent slot in
      order to capture the block context from before the current block
      was executed, since dumping is happening in the block finalize
@@ -664,26 +665,26 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   fd_bank_vote_stakes_end_locking_modify( parent_bank );
 
-  /* Dump epoch_credits from runtime_stack->stakes.vote_ele if the
-     vote_ele_map has been populated (happens after epoch boundary
-     reward calculation).  Needed for the harness to correctly
-     recalculate partitioned epoch rewards. */
-  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
-  for( pb_size_t i=0U; i<va_t1_cnt; i++ ) {
-    fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
-    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
-    if( idx==UINT_MAX ) continue;
+  // /* Dump epoch_credits from runtime_stack->stakes.vote_ele if the
+  //    vote_ele_map has been populated (happens after epoch boundary
+  //    reward calculation).  Needed for the harness to correctly
+  //    recalculate partitioned epoch rewards. */
+  // fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  // for( pb_size_t i=0U; i<va_t1_cnt; i++ ) {
+  //   fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
+  //   uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
+  //   if( idx==UINT_MAX ) continue;
 
-    fd_vote_rewards_t * ve  = &runtime_stack->stakes.vote_ele[idx];
-    ulong               cnt = ve->epoch_credits.cnt;
-    va_t1[i].epoch_credits_count = (pb_size_t)cnt;
-    va_t1[i].epoch_credits = fd_spad_alloc( spad, alignof(fd_exec_test_epoch_credit_t), cnt * sizeof(fd_exec_test_epoch_credit_t) );
-    for( ulong j=0; j<cnt; j++ ) {
-      va_t1[i].epoch_credits[j].epoch        = ve->epoch_credits.epoch[j];
-      va_t1[i].epoch_credits[j].credits      = ve->epoch_credits.credits[j];
-      va_t1[i].epoch_credits[j].prev_credits = ve->epoch_credits.prev_credits[j];
-    }
-  }
+  //   fd_vote_rewards_t * ve  = &runtime_stack->stakes.vote_ele[idx];
+  //   ulong               cnt = ve->epoch_credits.cnt;
+  //   va_t1[i].epoch_credits_count = (pb_size_t)cnt;
+  //   va_t1[i].epoch_credits = fd_spad_alloc( spad, alignof(fd_exec_test_epoch_credit_t), cnt * sizeof(fd_exec_test_epoch_credit_t) );
+  //   for( ulong j=0; j<cnt; j++ ) {
+  //     va_t1[i].epoch_credits[j].epoch        = ve->epoch_credits.epoch[j];
+  //     va_t1[i].epoch_credits[j].credits      = ve->epoch_credits.credits[j];
+  //     va_t1[i].epoch_credits[j].prev_credits = ve->epoch_credits.prev_credits[j];
+  //   }
+  // }
 
   /* BlockContext -> acct_states
      Iterate over the set and dump all the account keys in one pass. */
