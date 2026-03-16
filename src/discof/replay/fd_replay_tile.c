@@ -2273,6 +2273,11 @@ after_credit( fd_replay_tile_t *  ctx,
     fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_REASM_EVICTED, ctx->replay_out->chunk,  sizeof(fd_replay_fec_evicted_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_fec_evicted_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
+    if( FD_UNLIKELY( ctx->reasm_evicted->bank_idx != ULONG_MAX ) ) {
+      mark_bank_dead( ctx, stem, ctx->reasm_evicted->bank_idx );
+      fd_sched_block_abandon( ctx->sched, ctx->reasm_evicted->bank_idx );
+    }
+
     /* eviction policy only evicts chains of nodes until there is a
        fork, so guaranteed that the evict path is always the left-child */
     fd_reasm_pool_release( ctx->reasm, ctx->reasm_evicted );
