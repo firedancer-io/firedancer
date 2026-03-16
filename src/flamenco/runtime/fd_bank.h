@@ -215,10 +215,7 @@ FD_PROTOTYPES_BEGIN
   patterns vary and are documented below.
 */
 #define FD_BANKS_ITER(X)                                                                                                   \
-  /* type,                             name */                                                                             \
-  X(fd_blockhashes_t,                  block_hash_queue         ) /* Block hash queue */                                   \
-  X(fd_fee_rate_governor_t,            fee_rate_governor        ) /* Fee rate governor */                                  \
-  X(ulong,                             rbh_lamports_per_sig     ) /* Recent Block Hashes lamports per signature */
+  /* type,                             name */
 
 /* Defining pooled fields. */
 

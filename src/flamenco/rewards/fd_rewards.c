@@ -755,7 +755,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       runtime_stack,
       0 );
 
-  fd_hash_t const * parent_blockhash      = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
+  fd_hash_t const * parent_blockhash      = fd_blockhashes_peek_last_hash( &bank->data->fields.block_hash_queue );
   ulong             starting_block_height = bank->data->fields.block_height + REWARD_CALCULATION_NUM_BLOCKS;
   uint              num_partitions        = get_reward_distribution_num_blocks( &bank->data->fields.epoch_schedule,
                                                                                 bank->data->fields.slot,

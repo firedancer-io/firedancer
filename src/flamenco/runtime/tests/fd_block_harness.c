@@ -171,7 +171,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* RBH lamports per signature. In the Agave harness this is set inside
      the fee rate governor itself. */
-  fd_bank_rbh_lamports_per_sig_set( runner->bank, block_bank->rbh_lamports_per_signature );
+  runner->bank->data->fields.rbh_lamports_per_sig = block_bank->rbh_lamports_per_signature;
 
   /* Fee rate governor */
   FD_TEST( block_bank->has_fee_rate_governor );

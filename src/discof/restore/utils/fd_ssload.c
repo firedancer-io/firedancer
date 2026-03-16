@@ -74,7 +74,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   fd_memcpy( &bank->data->fields.prev_bank_hash.uc, manifest->parent_bank_hash, 32UL );
 
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( bank );
+  fd_fee_rate_governor_t * fee_rate_governor = &bank->data->fields.fee_rate_governor;
   fee_rate_governor->target_lamports_per_signature = manifest->fee_rate_governor.target_lamports_per_signature;
   fee_rate_governor->target_signatures_per_slot    = manifest->fee_rate_governor.target_signatures_per_slot;
   fee_rate_governor->min_lamports_per_signature    = manifest->fee_rate_governor.min_lamports_per_signature;
@@ -119,11 +119,11 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
   fd_bank_lthash_end_locking_modify( bank );
 
-  fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( bank );
+  fd_blockhashes_t * blockhashes = &bank->data->fields.block_hash_queue;
   blockhashes_recover( blockhashes, manifest->blockhashes, manifest->blockhashes_len, 42UL /* TODO */ );
 
   /* PoH */
-  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
+  fd_blockhashes_t const * bhq = &bank->data->fields.block_hash_queue;
   fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
   if( FD_LIKELY( last_hash ) ) bank->data->fields.poh = *last_hash;
 

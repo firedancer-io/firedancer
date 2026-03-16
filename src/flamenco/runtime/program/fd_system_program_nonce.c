@@ -62,7 +62,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( ctx->bank );
+  fd_blockhashes_t const *    blockhashes     = &ctx->bank->data->fields.block_hash_queue;
   fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
   if( FD_UNLIKELY( last_bhash_info==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
@@ -883,7 +883,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
                           fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out ) {
-  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
+  fd_blockhashes_t const * block_hash_queue = &bank->data->fields.block_hash_queue;
   fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last_hash( block_hash_queue );
   if( FD_UNLIKELY( !last_blockhash ) ) {
     FD_LOG_CRIT(( "blockhash queue is empty" ));
@@ -1012,7 +1012,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
 
-        fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( bank );
+        fd_blockhashes_t const *    blockhashes     = &bank->data->fields.block_hash_queue;
         fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
         FD_TEST( last_bhash_info ); /* Agave panics here if the blockhash queue is empty */
 

@@ -76,7 +76,7 @@ init_sysvars( test_env_t * env ) {
 
 static void
 init_blockhash_queue( test_env_t * env ) {
-  fd_blockhashes_t * bhq = fd_blockhashes_init( fd_bank_block_hash_queue_modify( env->bank ), 12345UL );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->data->fields.block_hash_queue, 12345UL );
   fd_hash_t dummy_hash = {0};
   fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
   info->fee_calculator.lamports_per_signature = 0UL;

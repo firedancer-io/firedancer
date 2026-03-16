@@ -384,9 +384,9 @@ void
 fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
                                           ulong       latest_signatures_per_slot ) {
 
-  fd_fee_rate_governor_t const * base_fee_rate_governor = fd_bank_fee_rate_governor_query( bank );
+  fd_fee_rate_governor_t const * base_fee_rate_governor = &bank->data->fields.fee_rate_governor;
 
-  ulong old_lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( bank );
+  ulong old_lamports_per_signature = bank->data->fields.rbh_lamports_per_sig;
 
   fd_fee_rate_governor_t me = {
     .target_signatures_per_slot    = base_fee_rate_governor->target_signatures_per_slot,
@@ -429,8 +429,8 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
     me.min_lamports_per_signature = me.target_lamports_per_signature;
     me.max_lamports_per_signature = me.target_lamports_per_signature;
   }
-  fd_bank_fee_rate_governor_set( bank, me );
-  fd_bank_rbh_lamports_per_sig_set( bank, new_lamports_per_signature );
+  bank->data->fields.fee_rate_governor = me;
+  bank->data->fields.rbh_lamports_per_sig = new_lamports_per_signature;
 }
 
 /******************************************************************************/
@@ -652,7 +652,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */
 
-  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
+  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( &bank->data->fields.block_hash_queue );
   fd_begin_partitioned_rewards( bank,
                                 accdb,
                                 xid,
@@ -1555,12 +1555,12 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     /* FIXME Why is there a previous blockhash at genesis?  Why is the
              last_hash field an option type in Agave, if even the first
              real block has a previous blockhash? */
-    fd_blockhashes_t *    bhq  = fd_blockhashes_init( fd_bank_block_hash_queue_modify( bank ), 0UL );
+    fd_blockhashes_t *    bhq  = fd_blockhashes_init( &bank->data->fields.block_hash_queue, 0UL );
     fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, genesis_hash );
     info->fee_calculator.lamports_per_signature = 0UL;
   }
 
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( bank );
+  fd_fee_rate_governor_t * fee_rate_governor = &bank->data->fields.fee_rate_governor;
   fee_rate_governor->target_lamports_per_signature = genesis->fee_rate_governor.target_lamports_per_signature;
   fee_rate_governor->target_signatures_per_slot    = genesis->fee_rate_governor.target_signatures_per_slot;
   fee_rate_governor->min_lamports_per_signature    = genesis->fee_rate_governor.min_lamports_per_signature;

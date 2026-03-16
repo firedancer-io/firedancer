@@ -101,7 +101,7 @@ init_clock_sysvar( test_env_t * env ) {
 static void
 init_blockhash_queue( test_env_t * env ) {
   ulong blockhash_seed = 12345UL;
-  fd_blockhashes_t * bhq = fd_blockhashes_init( fd_bank_block_hash_queue_modify( env->bank ), blockhash_seed );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->data->fields.block_hash_queue, blockhash_seed );
 
   fd_hash_t dummy_hash = {0};
   fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );

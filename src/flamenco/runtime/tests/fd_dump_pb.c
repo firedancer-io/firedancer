@@ -317,7 +317,7 @@ dump_sanitized_transaction( fd_accdb_user_t *                      accdb,
 static void
 dump_fee_rate_governor( fd_bank_t *                        bank,
                         fd_exec_test_fee_rate_governor_t * out ) {
-  fd_fee_rate_governor_t const * frg = fd_bank_fee_rate_governor_query( bank );
+  fd_fee_rate_governor_t const * frg = &bank->data->fields.fee_rate_governor;
   *out = (fd_exec_test_fee_rate_governor_t){
     .target_lamports_per_signature = frg->target_lamports_per_signature,
     .target_signatures_per_slot    = frg->target_signatures_per_slot,
@@ -356,7 +356,7 @@ dump_blockhash_queue( fd_bank_t *                             bank,
                       fd_spad_t *                             spad,
                       fd_exec_test_blockhash_queue_entry_t ** entries_out,
                       pb_size_t *                             count_out ) {
-  fd_blockhashes_t const * bhq      = fd_bank_block_hash_queue_query( bank );
+  fd_blockhashes_t const * bhq      = &bank->data->fields.block_hash_queue;
   ulong                    bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( bhq->d.deque ) );
 
   fd_exec_test_blockhash_queue_entry_t * entries = fd_spad_alloc( spad,
@@ -388,7 +388,7 @@ dump_txn_bank( fd_bank_t *                  bank,
   dump_blockhash_queue( bank, spad, &txn_bank->blockhash_queue, &txn_bank->blockhash_queue_count );
 
   /* TxnBank -> rbh_lamports_per_signature */
-  txn_bank->rbh_lamports_per_signature = (uint)fd_bank_rbh_lamports_per_sig_get( bank );
+  txn_bank->rbh_lamports_per_signature = (uint)bank->data->fields.rbh_lamports_per_sig;
 
   /* TxnBank -> fee_rate_governor */
   txn_bank->has_fee_rate_governor = true;
@@ -714,7 +714,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   dump_blockhash_queue( parent_bank, spad, &block_bank->blockhash_queue, &block_bank->blockhash_queue_count );
 
   /* BlockBank -> rbh_lamports_per_signature */
-  block_bank->rbh_lamports_per_signature = (uint)fd_bank_rbh_lamports_per_sig_get( parent_bank );
+  block_bank->rbh_lamports_per_signature = (uint)parent_bank->data->fields.rbh_lamports_per_sig;
 
   /* BlockBank -> fee_rate_governor */
   block_bank->has_fee_rate_governor = true;

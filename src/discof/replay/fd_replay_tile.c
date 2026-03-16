@@ -708,7 +708,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   }
 
   fd_hash_t const * bank_hash  = &bank->data->fields.bank_hash;
-  fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
+  fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->data->fields.block_hash_queue );
   FD_TEST( bank_hash  );
   FD_TEST( block_hash );
 
@@ -1334,7 +1334,7 @@ publish_reset( fd_replay_tile_t *  ctx,
                fd_bank_t *         bank ) {
   if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
 
-  fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
+  fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->data->fields.block_hash_queue );
   FD_TEST( block_hash );
 
   fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1409,7 +1409,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
   bank->data->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );
 
-  fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
+  fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->data->fields.block_hash_queue );
   fd_txncache_finalize_fork( ctx->txncache, bank->data->txncache_fork_id, 0UL, block_hash->uc );
 
   publish_epoch_info( ctx, stem, bank, 0 );
@@ -2403,7 +2403,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 
     fd_memcpy( reset->completed_block_id, &block_id_ele->latest_mr, sizeof(fd_hash_t) );
 
-    fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
+    fd_blockhashes_t const * block_hash_queue = &bank->data->fields.block_hash_queue;
     fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( block_hash_queue );
     FD_TEST( last_hash );
     fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );

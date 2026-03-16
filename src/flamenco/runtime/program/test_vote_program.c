@@ -114,7 +114,7 @@ init_clock_sysvar( test_env_t * env ) {
 static void
 init_blockhash_queue( test_env_t * env ) {
   ulong blockhash_seed = 12345UL;
-  fd_blockhashes_t * bhq = fd_blockhashes_init( fd_bank_block_hash_queue_modify( env->bank ), blockhash_seed );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->data->fields.block_hash_queue, blockhash_seed );
   fd_hash_t dummy_hash = {0};
   fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
   fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
@@ -338,7 +338,7 @@ setup_account_initialize_txn( test_env_t * env ) {
   /* add the blockhash */
   fd_hash_t blockhash[1];
   fd_hex_decode( blockhash, "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17", 32 );
-  fd_blockhashes_push_new( fd_bank_block_hash_queue_modify( env->bank ), blockhash );
+  fd_blockhashes_push_new( &env->bank->data->fields.block_hash_queue, blockhash );
 
   /* add the signer to the accdb with 1 SOL */
   fd_pubkey_t pubkey[1];
@@ -407,7 +407,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
   /* add the blockhash */
   fd_hash_t blockhash[1];
   fd_hex_decode( blockhash, "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17", 32 );
-  fd_blockhashes_push_new( fd_bank_block_hash_queue_modify( env->bank ), blockhash );
+  fd_blockhashes_push_new( &env->bank->data->fields.block_hash_queue, blockhash );
 
   /* add the signer to the accdb with 1 SOL */
   fd_pubkey_t pubkey[1];

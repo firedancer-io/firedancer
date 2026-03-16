@@ -55,7 +55,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Blockhash queue init */
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
-  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( runner->bank ), blockhash_seed );
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( &runner->bank->data->fields.block_hash_queue, blockhash_seed );
   fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );
 
   /* Set up mock txn descriptor and payload
@@ -272,12 +272,12 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   if( !deq_fd_block_block_hash_entry_t_empty( deq ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( deq );
     if( last ) {
-      fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( runner->bank );
+      fd_blockhashes_t * blockhashes = &runner->bank->data->fields.block_hash_queue;
       fd_blockhashes_pop_new( blockhashes );
       fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
       info->fee_calculator = last->fee_calculator;
 
-      fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
+      runner->bank->data->fields.rbh_lamports_per_sig = last->fee_calculator.lamports_per_signature;
     }
   }
   fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, deq );
