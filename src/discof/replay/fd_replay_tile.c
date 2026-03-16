@@ -517,7 +517,6 @@ metrics_write( fd_replay_tile_t * ctx ) {
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
   ulong leader_slot = ctx->leader_bank->data ? fd_bank_slot_get( ctx->leader_bank ) : 0UL;
-  FD_MGAUGE_SET( REPLAY, LEADER_SLOT, leader_slot );
 
   if( FD_LIKELY( ctx->leader_bank->data ) ) {
     FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, leader_slot );
