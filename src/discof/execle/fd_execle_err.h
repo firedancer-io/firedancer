@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_bank_fd_bank_err_h
-#define HEADER_fd_src_discof_bank_fd_bank_err_h
+#ifndef HEADER_fd_src_discof_execle_fd_execle_err_h
+#define HEADER_fd_src_discof_execle_fd_execle_err_h
 
 #include "../../util/log/fd_log.h"
 #include "../../flamenco/runtime/fd_runtime_err.h"
@@ -61,4 +61,4 @@ fd_execle_err_from_runtime_err( int err ) {
     return 0;
 }
 
-#endif /* HEADER_fd_src_discof_bank_fd_bank_err_h */
+#endif /* HEADER_fd_src_discof_execle_fd_execle_err_h */

@@ -404,7 +404,7 @@ accept_conns( fd_http_server_t * http ) {
     }
 
     if( FD_UNLIKELY( !conn_pool_free( http->conns ) ) ) {
-      conn_treap_rev_iter_t it = conn_treap_fwd_iter_init( http->conn_treap, http->conns );
+      conn_treap_fwd_iter_t it = conn_treap_fwd_iter_init( http->conn_treap, http->conns );
       if( FD_LIKELY( !conn_treap_fwd_iter_done( it ) ) ) {
         ulong conn_id = conn_treap_fwd_iter_idx( it );
         close_conn( http, conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
