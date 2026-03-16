@@ -553,28 +553,17 @@ after_credit( fd_snaplv_t *        ctx,
       transition_malformed( ctx, stem );
       return;
     }
-
     if( FD_UNLIKELY( ctx->running_capitalization<0L ) ) {
       FD_LOG_WARNING(( "computed capitalization %ld is invalid", ctx->running_capitalization ));
       transition_malformed( ctx, stem );
       return;
     }
-
     ulong computed_capitalization = (ulong)ctx->running_capitalization;
     int capitalization_match      = computed_capitalization==ctx->manifest_capitalization;
 
-    if( FD_UNLIKELY( !capitalization_match ) ) {
-      /* SnapshotError::MismatchedCapitalization
-         https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
-      FD_LOG_WARNING(( "snapshot manifest capitalization %lu does not match computed capitalization %lu",
-                       ctx->manifest_capitalization, computed_capitalization ));
-      transition_malformed( ctx, stem );
-      return;
-    }
+    int lthash_match = !memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) );
 
-    int test = memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) );
-
-    if( FD_UNLIKELY( test ) ) {
+    if( FD_UNLIKELY( !lthash_match ) ) {
       /* SnapshotError::MismatchedHash
          https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L479 */
       FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in %s snapshot manifest",
@@ -588,6 +577,15 @@ after_credit( fd_snaplv_t *        ctx,
                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ),
                      ctx->full?"full":"incremental" ));
+    }
+
+    if( FD_UNLIKELY( !capitalization_match ) ) {
+      /* SnapshotError::MismatchedCapitalization
+         https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
+      FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
+                       ctx->full?"full":"incremental", ctx->manifest_capitalization, computed_capitalization ));
+      transition_malformed( ctx, stem );
+      return;
     }
 
     fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->hash_accum.ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
