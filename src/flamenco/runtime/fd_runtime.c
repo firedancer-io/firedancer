@@ -151,7 +151,7 @@ update_next_leaders( fd_bank_t *          bank,
     fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
     ulong               stake       = epoch_weights[i].stake;
 
-    if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
+    if( FD_LIKELY( fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
       stake_weights[ idx ].stake = stake;
       memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
