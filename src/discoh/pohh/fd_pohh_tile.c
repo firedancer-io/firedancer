@@ -386,8 +386,16 @@ struct fd_pohh_tile {
   double slot_duration_ns;
   double hashcnt_duration_ns;
   ulong  hashcnt_per_slot;
-  /* Constant, fixed at initialization.  The maximum number of
-     microblocks that the pack tile can publish in each slot. */
+
+  /* The maximum number of real microblocks that the pack tile is
+     allowed to publish in each slot.
+
+     While we are leader, PoH internally treats this limit as having
+     one extra phantom "microblock" reserved for the done_packing
+     message, so that PoH does not finish the slot before pack
+     confirms it is done.  Pack itself is configured with the
+     un-inflated limit and never publishes more than this many real
+     microblocks per slot. */
   ulong max_microblocks_per_slot;
 
   /* Consensus-critical slot cost limits. */
@@ -445,11 +453,6 @@ struct fd_pohh_tile {
      with conflicting accounts execute in order, but this is easiest to
      implement for now. */
   uint expect_pack_idx;
-
-  /* If we have received the slot done message from pack yet.  We are
-     not allowed to fully finish hashing the block until this happens so
-     that we know which slot the slot_done message is arriving for. */
-  int slot_done;
 
   /* Pack and bank tiles need a reference to the bank object with a
      slightly different lifetime than current_leader_bank, particularly
@@ -1094,14 +1097,6 @@ fd_ext_poh_begin_leader( void const * bank,
     ctx->hashcnt_per_slot = ctx->ticks_per_slot*hashcnt_per_tick;
     ctx->hashcnt_per_tick = hashcnt_per_tick;
 
-    if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
-      /* Low power producer, maximum of one microblock per tick in the slot */
-      ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
-    } else {
-      /* See the long comment in after_credit for this limit */
-      ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
-    }
-
     /* Discard any ticks we might have done in the interim.  They will
        have the wrong number of hashes per tick.  We can just catch back
        up quickly if not too many slots were skipped and hopefully
@@ -1125,8 +1120,15 @@ fd_ext_poh_begin_leader( void const * bank,
     ctx->hashcnt = 0UL;
   }
 
+  if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
+    /* Low power producer, maximum of one microblock per tick in the slot */
+    ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
+  } else {
+    /* See the long comment in after_credit for this limit */
+    ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
+  }
+
   ctx->current_leader_bank     = bank;
-  ctx->slot_done               = 0;
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
 
@@ -1157,6 +1159,16 @@ fd_ext_poh_begin_leader( void const * bank,
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), slot );
 
   publish_became_leader( ctx, slot, epoch );
+
+  /* PoH ends the slot once it "ticks" through all of the hashes, but
+     we only want that to happen if we received a done packing message
+     from pack, so we always reserve an empty microblock at the end so
+     the tick advance will not end the slot without being told.
+
+     This should be after publish_became_leader so that pack receives
+     the original (un-inflated) max_microblocks_per_slot. */
+  ctx->max_microblocks_per_slot += 1UL;
+
   FD_LOG_INFO(( "fd_ext_poh_begin_leader(slot=%lu, highwater_leader_slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, ctx->highwater_leader_slot, ctx->last_slot, ctx->last_hashcnt ));
 
   fd_ext_poh_write_unlock();
@@ -1303,14 +1315,14 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
     ctx->hashcnt_duration_ns = (double)ctx->tick_duration_ns/(double)hashcnt_per_tick;
     ctx->hashcnt_per_slot = ctx->ticks_per_slot*hashcnt_per_tick;
     ctx->hashcnt_per_tick = hashcnt_per_tick;
+  }
 
-    if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
-      /* Low power producer, maximum of one microblock per tick in the slot */
-      ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
-    } else {
-      /* See the long comment in after_credit for this limit */
-      ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
-    }
+  if( FD_UNLIKELY( ctx->hashcnt_per_tick==1UL ) ) {
+    /* Low power producer, maximum of one microblock per tick in the slot */
+    ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
+  } else {
+    /* See the long comment in after_credit for this limit */
+    ctx->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ctx->ticks_per_slot*(ctx->hashcnt_per_tick-1UL) );
   }
 
   /* When we reset, we need to allow PoH to tick freely again rather
@@ -1533,10 +1545,6 @@ after_credit( fd_pohh_tile_t *    ctx,
      that we can mixin any potential microblocks still coming from the
      pack tile for this slot. */
   ulong max_remaining_microblocks = ctx->max_microblocks_per_slot - ctx->microblocks_lower_bound;
-
-  /* We don't want to tick over (finish) the slot until pack tell us
-     it's done.  If we're waiting on pack, then we clamp to [0, 1] */
-  if( FD_LIKELY( !ctx->slot_done && is_leader ) ) max_remaining_microblocks = fd_ulong_min( 1UL, max_remaining_microblocks );
 
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
@@ -1882,15 +1890,18 @@ during_frag( fd_pohh_tile_t * ctx,
        exact bound for once we receive them. */
     ctx->skip_frag = 1;
     if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
+    fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
     FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
-    fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+    FD_TEST( done_packing->microblocks_in_slot<=ctx->max_microblocks_per_slot-1UL );
     FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
                   ctx->slot,
                   ctx->microblocks_lower_bound,
                   done_packing->microblocks_in_slot ));
-    ctx->slot_done = 1;
-    ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
+
+    ctx->microblocks_lower_bound += 1UL /* done_packing as a phantom "microblock"*/
+                                  + (ctx->max_microblocks_per_slot-1UL) /* the canonical microblock limit */
+                                  - done_packing->microblocks_in_slot /* the actual microblock count */;
     return;
   } else {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>USHORT_MAX ) )
@@ -2286,7 +2297,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->lagged_consecutive_leader_start = tile->pohh.lagged_consecutive_leader_start;
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
-  ctx->slot_done               = 1;
   ctx->expect_pack_idx         = 0U;
   ctx->microblocks_lower_bound = 0UL;
 
