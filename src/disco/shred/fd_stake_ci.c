@@ -126,11 +126,11 @@ compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weigh
   }
 
   /* Sort [(id, stake)] by id, so we can dedup */
-  sort_weights_by_id_inplace( stake_weight, staked_cnt );
+  sort_weights_by_id_inplace( stake_weight, idx );
 
   /* Dedup entries, aggregating stake */
   ulong j=0UL;
-  for( ulong i=1UL; i<staked_cnt; i++ ) {
+  for( ulong i=1UL; i<idx; i++ ) {
     fd_pubkey_t * pre = &stake_weight[ j ].key;
     fd_pubkey_t * cur = &stake_weight[ i ].key;
     if( 0==memcmp( pre, cur, sizeof(fd_pubkey_t) ) ) {
@@ -141,7 +141,7 @@ compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weigh
       memcpy( stake_weight[ j ].key.uc, stake_weight[ i ].key.uc, sizeof(fd_pubkey_t) );
     }
   }
-  ulong staked_cnt_by_id = fd_ulong_min( staked_cnt, j+1 );
+  ulong staked_cnt_by_id = fd_ulong_min( idx, j+1 );
 
   /* Sort [(id, stake)] by stake then id, as expected */
   sort_weights_by_stake_id_inplace( stake_weight, staked_cnt_by_id );

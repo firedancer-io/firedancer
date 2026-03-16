@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_bank_fd_bank_err_h
-#define HEADER_fd_src_discof_bank_fd_bank_err_h
+#ifndef HEADER_fd_src_discof_execle_fd_execle_err_h
+#define HEADER_fd_src_discof_execle_fd_execle_err_h
 
 #include "../../util/log/fd_log.h"
 #include "../../flamenco/runtime/fd_runtime_err.h"
@@ -38,6 +38,8 @@ fd_execle_err_from_runtime_err( int err ) {
       case FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT:             return FD_METRICS_ENUM_TRANSACTION_RESULT_V_INSUFFICIENT_FUNDS_FOR_RENT_IDX;
       case FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION:                  return FD_METRICS_ENUM_TRANSACTION_RESULT_V_UNBALANCED_TRANSACTION_IDX;
 
+      case FD_RUNTIME_TXN_ERR_BUNDLE_PEER:                             return FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX;
+
       case FD_RUNTIME_TXN_ERR_CALL_CHAIN_TOO_DEEP:
       case FD_RUNTIME_TXN_ERR_MISSING_SIGNATURE_FOR_FEE:
       case FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_INDEX:
@@ -61,4 +63,4 @@ fd_execle_err_from_runtime_err( int err ) {
     return 0;
 }
 
-#endif /* HEADER_fd_src_discof_bank_fd_bank_err_h */
+#endif /* HEADER_fd_src_discof_execle_fd_execle_err_h */

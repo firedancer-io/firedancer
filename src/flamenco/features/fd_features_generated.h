@@ -8,10 +8,10 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (264UL)
+#define FD_FEATURE_ID_CNT (265UL)
 
 /* Feature set ID calculated from all feature names */
-#define FD_FEATURE_SET_ID (2244883607U)
+#define FD_FEATURE_SET_ID (2642541842U)
 
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
@@ -271,7 +271,7 @@ union fd_features {
     /* 0xdab5b6a991a03e4b */ ulong static_instruction_limit;
     /* 0x8921a3abf23afaec */ ulong vote_state_v4;
     /* 0x640dddd90caae808 */ ulong alt_bn128_little_endian;
-    /* 0x6a9db4aa29bdb608 */ ulong enable_bls12_381_syscall;
+    /* 0x9e11ee2f4bbcb608 */ ulong enable_bls12_381_syscall;
     /* 0x010f656d89a4e808 */ ulong enable_alt_bn128_g2_syscalls;
     /* 0xfc12b1cef363afa7 */ ulong switch_to_chacha8_turbine;
     /* 0x3727b6b01b8a6c1c */ ulong bls_pubkey_management_in_vote_account;
@@ -280,5 +280,6 @@ union fd_features {
     /* 0x73869887e8eb4903 */ ulong limit_instruction_accounts;
     /* 0x8b0786cd93f63607 */ ulong validator_admission_ticket;
     /* 0x4908ae0360664f6d */ ulong discard_unexpected_data_complete_shreds;
+    /* 0x632b9b7c9e9a3257 */ ulong create_account_allow_prefund;
   };
 };

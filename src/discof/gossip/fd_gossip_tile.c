@@ -113,7 +113,7 @@ gossip_activity_update_fn( void *                           _ctx,
      This is okay since this callback is triggered by all contact info
      updates, including refreshes, so any updates we missed at boot will
      show up shortly after. */
-  if( FD_LIKELY( !ctx->my_contact_info->shred_version || ctx->wfs_state!=FD_GOSSIP_WFS_STATE_START ) ) return;
+  if( FD_LIKELY( !ctx->my_contact_info->shred_version || ctx->wfs_state!=FD_GOSSIP_WFS_STATE_WAIT ) ) return;
 
   /* gossvf should filter out messages with mismatching shred version */
   FD_TEST( ci->shred_version==ctx->my_contact_info->shred_version );
@@ -124,11 +124,17 @@ gossip_activity_update_fn( void *                           _ctx,
   if( FD_UNLIKELY( stake_idx>=ctx->wfs_stakes_cnt || memcmp( identity->uc, ctx->wfs_stakes[ stake_idx ].key.uc, sizeof(fd_pubkey_t) ) ) ) return;
 
   if( FD_LIKELY( change_type==FD_GOSSIP_ACTIVITY_CHANGE_TYPE_ACTIVE ) ) {
-    if( FD_UNLIKELY( !ctx->wfs_active[ stake_idx ] ) ) ctx->wfs_stake.online += ctx->wfs_stakes[ stake_idx ].stake;
+    if( FD_UNLIKELY( !ctx->wfs_active[ stake_idx ] ) ) {
+      ctx->wfs_stake.online += ctx->wfs_stakes[ stake_idx ].stake;
+      ctx->wfs_peers.online++;
+    }
     ctx->wfs_active[ stake_idx ] = 1;
   }
   if( FD_LIKELY( change_type==FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE ) ) {
-    if( FD_UNLIKELY( ctx->wfs_active[ stake_idx ] ) ) ctx->wfs_stake.online -= ctx->wfs_stakes[ stake_idx ].stake;
+    if( FD_UNLIKELY( ctx->wfs_active[ stake_idx ] ) ) {
+      ctx->wfs_stake.online -= ctx->wfs_stakes[ stake_idx ].stake;
+      ctx->wfs_peers.online--;
+    }
     ctx->wfs_active[ stake_idx ] = 0;
   }
 
@@ -212,6 +218,10 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
 
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
+
+  FD_MGAUGE_SET( GOSSIP, WFS_STAKED_PEERS_ONLINE, ctx->wfs_peers.online );
+  FD_MGAUGE_SET( GOSSIP, WFS_STAKE_ONLINE,        ctx->wfs_stake.online );
+  FD_MGAUGE_SET( GOSSIP, WFS_STATE, (ulong)ctx->wfs_state );
 }
 
 /* Minimum quiet period (no new peers discovered) before we declare
@@ -353,7 +363,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
 
       if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
-        ctx->wfs_state = FD_GOSSIP_WFS_STATE_START;
+        ctx->wfs_state = FD_GOSSIP_WFS_STATE_WAIT;
         break;
       }
 
@@ -363,7 +373,10 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
       ulong wfs_stakes_unconverted_cnt = 0UL;
       ctx->wfs_stake.online = 0UL;
-      ctx->wfs_stake.total = 0UL;
+      ctx->wfs_stake.total  = 0UL;
+      ctx->wfs_peers.online = 0UL;
+      ctx->wfs_peers.total  = 0UL;
+      memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
 
       FD_TEST( manifest->vote_accounts_len<=40200UL );
       for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
@@ -379,6 +392,10 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
       /* sort for quick lookup */
       fd_stake_weight_key_sort_inplace( ctx->wfs_stakes, ctx->wfs_stakes_cnt );
+
+      ctx->wfs_peers.total = ctx->wfs_stakes_cnt;
+      FD_MGAUGE_SET( GOSSIP, WFS_STAKED_PEERS_TOTAL, ctx->wfs_peers.total );
+      FD_MGAUGE_SET( GOSSIP, WFS_STAKE_TOTAL,        ctx->wfs_stake.total );
 
       break;
     }

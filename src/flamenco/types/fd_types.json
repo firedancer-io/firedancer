@@ -803,9 +803,10 @@
         { "name": "allocate_with_seed", "type": "system_program_instruction_allocate_with_seed" },
         { "name": "assign_with_seed", "type": "system_program_instruction_assign_with_seed" },
         { "name": "transfer_with_seed", "type": "system_program_instruction_transfer_with_seed" },
-        { "name": "upgrade_nonce_account" }
+        { "name": "upgrade_nonce_account" },
+        { "name": "create_account_allow_prefund", "type": "system_program_instruction_create_account" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L152"
+      "comment": "https://github.com/anza-xyz/solana-sdk/blob/system-interface%40v3.0.0/system-interface/src/instruction.rs#L92-L299"
     },
     {
       "name": "stake_authorized",
