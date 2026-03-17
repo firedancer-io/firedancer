@@ -265,12 +265,18 @@ struct fd_bank_data {
   ulong flags;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
 
+  /* Offset to the shared banks_data object for this bank.  Shared
+     offsets for out-of-line fields live in fd_banks_data_t. */
+  ulong banks_data_offset;
+
   ulong refcnt; /* reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
   ushort                vote_stakes_fork_id; /* fork id used by the vote stakes */
   uchar                 stake_rewards_fork_id; /* fork id used by stake rewards */
   ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
+  ulong                 cost_tracker_pool_idx; /* pool index for the cost tracker, ULONG_MAX if not allocated */
+  ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
 
   /* Timestamps written and read only by replay */
 
@@ -330,21 +336,6 @@ struct fd_bank_data {
     ulong                             identity_vote_idx;
   } fields;
 
-  /* Layout all information needed for non-templatized fields. */
-
-  ulong stake_rewards_offset;
-
-  ulong cost_tracker_pool_idx;
-  ulong cost_tracker_pool_offset;
-
-  ulong vote_stakes_offset;
-
-  ulong stake_delegations_delta_offset;
-
-  ulong epoch_leaders_idx; /* always 0 or 1 based on % epoch */
-  ulong epoch_leaders_offset;
-  ulong epoch_leaders_footprint;
-
   uchar top_votes_mem[ FD_TOP_VOTES_MAX_FOOTPRINT ] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
 typedef struct fd_bank_data fd_bank_data_t;
@@ -368,25 +359,16 @@ struct fd_banks_prune_cancel_info {
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 
-static inline fd_vote_stakes_t *
-fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank ) {
-  fd_rwlock_write( &bank->locks->vote_stakes_lock );
-  return fd_type_pun( (uchar *)bank->data + bank->data->vote_stakes_offset );
-}
+fd_vote_stakes_t *
+fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank );
 
 static inline void
 fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->locks->vote_stakes_lock );
 }
 
-static inline fd_stake_delegations_delta_t *
-fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
-  if( FD_UNLIKELY( bank->data->stake_delegations_fork_id==USHORT_MAX ) ) {
-    FD_LOG_CRIT(( "Stake delegations fork id is not allocated" ));
-  }
-  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock );
-  return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_delta_offset );
-}
+fd_stake_delegations_delta_t *
+fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank );
 
 static inline void
 fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {

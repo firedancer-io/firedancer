@@ -658,6 +658,47 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   FD_TEST( stake_footprint_large > stake_footprint_small );
 }
 
+static void
+test_bank_shared_offset_accessors( void * mem ) {
+  fd_banks_locks_t locks[1];
+  fd_banks_locks_init( locks );
+  fd_banks_t banks_ljoin[1];
+  fd_banks_t * banks = fd_banks_join( banks_ljoin, fd_banks_new( mem, 16UL, 4UL, 2048UL, 2048UL, 0, 9911UL ), locks );
+  FD_TEST( banks );
+
+  fd_banks_data_t * banks_data = banks->data;
+  fd_bank_t root_bank[1];
+  FD_TEST( fd_banks_init_bank( root_bank, banks ) );
+  FD_TEST( fd_type_pun( (uchar *)root_bank->data + root_bank->data->banks_data_offset )==banks_data );
+
+  fd_vote_stakes_t * expected_vote_stakes = fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_pool_offset );
+  FD_TEST( fd_bank_vote_stakes_locking_modify( root_bank )==expected_vote_stakes );
+  fd_bank_vote_stakes_end_locking_modify( root_bank );
+
+  fd_stake_rewards_t * expected_stake_rewards = fd_type_pun( (uchar *)banks_data + banks_data->stake_rewards_offset );
+  FD_TEST( fd_bank_stake_rewards_query( root_bank )==expected_stake_rewards );
+  FD_TEST( fd_bank_stake_rewards_modify( root_bank )==expected_stake_rewards );
+
+  fd_bank_t child_bank[1];
+  ulong child_bank_idx = fd_banks_new_bank( child_bank, banks, root_bank->data->idx, 0L )->data->idx;
+  FD_TEST( fd_banks_clone_from_parent( child_bank, banks, child_bank_idx ) );
+  FD_TEST( fd_type_pun( (uchar *)child_bank->data + child_bank->data->banks_data_offset )==banks_data );
+
+  fd_stake_delegations_delta_t * expected_stake_delegations_delta = fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
+  FD_TEST( fd_bank_stake_delegations_delta_locking_modify( child_bank )==expected_stake_delegations_delta );
+  fd_bank_stake_delegations_delta_end_locking_modify( child_bank );
+
+  child_bank->data->fields.epoch = 5UL;
+  fd_epoch_leaders_t * expected_epoch_leaders = fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset + banks_data->epoch_leaders_footprint );
+  FD_TEST( fd_bank_epoch_leaders_modify( child_bank )==expected_epoch_leaders );
+  FD_TEST( fd_bank_epoch_leaders_query( child_bank )==expected_epoch_leaders );
+
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_type_pun( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
+  FD_TEST( child_bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
+  fd_cost_tracker_t const * expected_cost_tracker = fd_type_pun_const( fd_bank_cost_tracker_pool_ele( cost_tracker_pool, child_bank->data->cost_tracker_pool_idx )->data );
+  FD_TEST( fd_bank_cost_tracker_query( child_bank )==expected_cost_tracker );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1004,6 +1045,8 @@ main( int argc, char ** argv ) {
   test_bank_frontier( mem );
 
   test_bank_stake_delegations_dynamic_sizing( mem );
+
+  test_bank_shared_offset_accessors( mem );
 
   FD_LOG_NOTICE(( "pass" ));
 

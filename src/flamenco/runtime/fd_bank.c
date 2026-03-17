@@ -2,6 +2,28 @@
 #include "fd_runtime_const.h"
 #include "../rewards/fd_stake_rewards.h"
 
+FD_FN_PURE static inline fd_banks_data_t *
+fd_bank_banks_data( fd_bank_data_t * bank_data ) {
+  return fd_type_pun( (uchar *)bank_data + bank_data->banks_data_offset );
+}
+
+FD_FN_PURE static inline fd_banks_data_t const *
+fd_bank_banks_data_const( fd_bank_data_t const * bank_data ) {
+  return fd_type_pun_const( (uchar const *)bank_data + bank_data->banks_data_offset );
+}
+
+FD_FN_PURE static inline fd_vote_stakes_t *
+fd_bank_vote_stakes_from_data( fd_bank_data_t * bank_data ) {
+  fd_banks_data_t * banks_data = fd_bank_banks_data( bank_data );
+  return fd_type_pun( (uchar *)banks_data + banks_data->vote_stakes_pool_offset );
+}
+
+FD_FN_PURE static inline fd_stake_delegations_delta_t *
+fd_bank_stake_delegations_delta_from_data( fd_bank_data_t * bank_data ) {
+  fd_banks_data_t * banks_data = fd_bank_banks_data( bank_data );
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
+}
+
 static inline fd_bank_data_t *
 fd_banks_get_bank_pool( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->pool_offset );
@@ -9,7 +31,8 @@ fd_banks_get_bank_pool( fd_banks_data_t * banks_data ) {
 
 static inline fd_bank_cost_tracker_t *
 fd_bank_get_cost_tracker_pool( fd_bank_data_t * bank ) {
-  return fd_type_pun( (uchar *)bank + bank->cost_tracker_pool_offset );
+  fd_banks_data_t * banks_data = fd_bank_banks_data( bank );
+  return fd_type_pun( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
 }
 
 static inline fd_bank_cost_tracker_t *
@@ -47,6 +70,21 @@ fd_banks_get_dead_banks_deque( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->dead_banks_deque_offset );
 }
 
+fd_vote_stakes_t *
+fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank ) {
+  fd_rwlock_write( &bank->locks->vote_stakes_lock );
+  return fd_bank_vote_stakes_from_data( bank->data );
+}
+
+fd_stake_delegations_delta_t *
+fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
+  if( FD_UNLIKELY( bank->data->stake_delegations_fork_id==USHORT_MAX ) ) {
+    FD_LOG_CRIT(( "Stake delegations fork id is not allocated" ));
+  }
+  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock );
+  return fd_bank_stake_delegations_delta_from_data( bank->data );
+}
+
 ulong
 fd_bank_align( void ) {
   return alignof(fd_bank_t);
@@ -61,12 +99,14 @@ fd_bank_footprint( void ) {
 
 fd_stake_rewards_t const *
 fd_bank_stake_rewards_query( fd_bank_t * bank ) {
-  return fd_type_pun_const( (uchar *)bank->data + bank->data->stake_rewards_offset );
+  fd_banks_data_t const * banks_data = fd_bank_banks_data_const( bank->data );
+  return fd_type_pun_const( (uchar const *)banks_data + banks_data->stake_rewards_offset );
 }
 
 fd_stake_rewards_t *
 fd_bank_stake_rewards_modify( fd_bank_t * bank ) {
-  return fd_type_pun( (uchar *)bank->data + bank->data->stake_rewards_offset );
+  fd_banks_data_t * banks_data = fd_bank_banks_data( bank->data );
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_rewards_offset );
 }
 
 fd_epoch_leaders_t const *
@@ -74,14 +114,16 @@ fd_bank_epoch_leaders_query( fd_bank_t const * bank ) {
   if( FD_UNLIKELY( bank->data->epoch_leaders_idx==ULONG_MAX ) ) {
     return NULL;
   }
-  return (fd_epoch_leaders_t const *)fd_type_pun( (uchar *)bank->data - bank->data->epoch_leaders_offset + bank->data->epoch_leaders_idx * bank->data->epoch_leaders_footprint );
+  fd_banks_data_t const * banks_data = fd_bank_banks_data_const( bank->data );
+  return (fd_epoch_leaders_t const *)fd_type_pun_const( (uchar const *)banks_data + banks_data->epoch_leaders_offset + bank->data->epoch_leaders_idx * banks_data->epoch_leaders_footprint );
 }
 
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
   ulong idx = bank->data->fields.epoch % 2UL;
+  fd_banks_data_t * banks_data = fd_bank_banks_data( bank->data );
   bank->data->epoch_leaders_idx = idx;
-  return (fd_epoch_leaders_t *)fd_type_pun( (uchar *)bank->data - bank->data->epoch_leaders_offset + bank->data->epoch_leaders_idx * bank->data->epoch_leaders_footprint );
+  return (fd_epoch_leaders_t *)fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset + bank->data->epoch_leaders_idx * banks_data->epoch_leaders_footprint );
 }
 
 
@@ -310,20 +352,8 @@ fd_banks_new( void * shmem,
 
     fd_rwlock_new( &bank->lthash_lock );
 
-    bank->stake_rewards_offset = (ulong)stake_rewards - (ulong)bank;
-
-    bank->epoch_leaders_offset    = (ulong)bank - (ulong)epoch_leaders_mem;
-    bank->epoch_leaders_footprint = epoch_leaders_footprint;
-
-    fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
-    bank->cost_tracker_pool_offset = (ulong)cost_tracker_pool - (ulong)bank;
+    bank->banks_data_offset = (ulong)banks_data - (ulong)bank;
     bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
-
-    fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks_data );
-    bank->vote_stakes_offset = (ulong)vote_stakes - (ulong)bank;
-
-    fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( banks_data );
-    bank->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)bank;
   }
 
   banks_data->max_total_banks    = max_total_banks;
