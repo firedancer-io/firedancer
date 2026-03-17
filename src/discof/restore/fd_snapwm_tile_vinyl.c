@@ -816,7 +816,7 @@ fd_snapwm_vinyl_revert_full( fd_snapwm_tile_t * ctx  ) {
 
 void
 fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx ) {
-  FD_CRIT( ctx->vinyl.txn_active, "txn_commit called while not in txn" );
+  FD_CRIT( !ctx->vinyl.txn_active, "revert_incr called while txn_active" );
   FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
   fd_vinyl_io_t * io = ctx->vinyl.io_mm;
 
