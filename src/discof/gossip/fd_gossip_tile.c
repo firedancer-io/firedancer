@@ -328,7 +328,6 @@ handle_local_duplicate_shred( fd_gossip_tile_ctx_t *            ctx,
                               fd_gossip_duplicate_shred_t const chunk[FD_EQVOC_CHUNK_CNT],
                               fd_stem_context_t *               stem ) {
   if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_DUPLICATE ) ) {
-    FD_LOG_NOTICE(( "Received local duplicate shred from tower tile" ));
     long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
     for( ulong i=0UL; i<FD_EQVOC_CHUNK_CNT; i++ ) fd_gossip_push_duplicate_shred( ctx->gossip, &chunk[i], stem, now );
   }
