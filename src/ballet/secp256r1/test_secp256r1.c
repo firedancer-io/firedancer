@@ -223,6 +223,64 @@ test_secp256r1_point_eq_x( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
+test_secp256r1_point_add_mixed( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar buf[ 33 ] = { 0 };
+  ulong b_zero[ 8 ] = { 0 };
+  fd_secp256r1_point_t a_zero[1] = { 0 };
+  fd_secp256r1_point_t p[1];
+  fd_secp256r1_point_t r[1];
+
+  /* Load known point P = 02d8c82b... */
+  fd_hex_decode( buf, "02d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
+  FD_TEST( fd_secp256r1_point_frombytes( p, buf )==p );
+
+  /* b = affine-Montgomery representation of P (x then y, 4 ulongs each) */
+  ulong b[ 8 ];
+  fd_memcpy( b,   p->x->limbs, 32 );
+  fd_memcpy( b+4, p->y->limbs, 32 );
+
+  /* add zeros: 0 + 0 = 0 */
+  {
+    fd_secp256r1_point_add_mixed( r, a_zero, b_zero );
+    FD_TEST( fd_secp256r1_point_eq_mixed( r, b_zero ) );
+  }
+
+  /* add zero right: P + 0 = P */
+  {
+    fd_secp256r1_point_add_mixed( r, p, b_zero );
+    FD_TEST( fd_secp256r1_point_eq_mixed( r, b ) );
+  }
+
+  /* add zero left: 0 + P = P */
+  {
+    fd_secp256r1_point_add_mixed( r, a_zero, b );
+    FD_TEST( fd_secp256r1_point_eq_mixed( r, b ) );
+  }
+
+  /* add same point: P + P = 2P */
+  {
+    fd_secp256r1_point_add_mixed( r, p, b );
+    fd_secp256r1_scalar_t expected_2p_x[1];
+
+    fd_hex_decode( buf, "94ec8b7cb71a49b8c922d5da673fb59565ccad96e0fabb9ec9cc45240fc10e74", 32 );
+    fd_secp256r1_scalar_frombytes( expected_2p_x, buf );
+
+    FD_TEST( fd_secp256r1_point_eq_x( r, expected_2p_x )==FD_SECP256R1_SUCCESS );
+  }
+
+  /* add opposite points: P + (-P) = 0 */
+  {
+    ulong b_neg[ 8 ];
+    fd_memcpy( b_neg,   b,   32 );
+    fd_memcpy( b_neg+4, b+4, 32 );
+    bignum_optneg_p256( b_neg+4, 1UL, b_neg+4 );  /* negate y in Montgomery domain */
+
+    fd_secp256r1_point_add_mixed( r, p, b_neg );
+    FD_TEST( fd_uint256_eq( r->z, fd_secp256r1_const_zero ) );
+  }
+}
+
+static void
 test_secp256r1_double_scalar_mul_base_equal_points( FD_FN_UNUSED fd_rng_t * rng ) {
   /* edge case in fd_secp256r1_double_scalar_mul_base where the point
      addition at the end receives equal points. without special handling,
@@ -324,6 +382,7 @@ main( int     argc,
   test_secp256r1_point_frombytes ( rng );
   test_secp256r1_point_eq_x      ( rng );
 
+  test_secp256r1_point_add_mixed ( rng );
   test_secp256r1_double_scalar_mul_base_equal_points( rng );
 
   test_secp256r1_verify          ( rng );
