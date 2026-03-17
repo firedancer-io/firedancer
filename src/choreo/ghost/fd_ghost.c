@@ -264,7 +264,7 @@ fd_ghost_insert( fd_ghost_t      * ghost,
 
   if( FD_UNLIKELY( !parent_block_id ) ) {
     ghost->root = blk_pool_idx( pool, blk );
-    ghost->active_fork_cnt = 1;
+    ghost->width = 1;
     return blk;
   }
 
@@ -277,7 +277,7 @@ fd_ghost_insert( fd_ghost_t      * ghost,
     fd_ghost_blk_t * sibling = blk_pool_ele( pool, parent->child );
     while( sibling->sibling != null ) sibling = blk_pool_ele( pool, sibling->sibling );
     sibling->sibling = blk_pool_idx( pool, blk ); /* right-sibling */
-    ghost->active_fork_cnt++;
+    ghost->width++;
   }
 
   return blk;
@@ -420,7 +420,7 @@ fd_ghost_publish( fd_ghost_t     * ghost,
         tail->next = blk_pool_idx_null( blk_pool( ghost ) );
       }
       child = blk_pool_ele( blk_pool( ghost ), child->sibling ); /* next sibling */
-      if( FD_UNLIKELY( child ) ) ghost->active_fork_cnt--; /* has a sibling == a fork to be pruned */
+      ghost->width -= !!child; /* has a sibling == a fork to be pruned */
     }
     fd_ghost_blk_t * next = blk_pool_ele( blk_pool( ghost ), head->next ); /* pop prune queue head */
     blk_pool_ele_release( blk_pool( ghost ), head );                       /* free prune queue head */
@@ -432,7 +432,7 @@ fd_ghost_publish( fd_ghost_t     * ghost,
 
 ulong
 fd_ghost_active_fork_cnt( fd_ghost_t * ghost ) {
-  return ghost->active_fork_cnt;
+  return ghost->width;
 }
 
 fd_ghost_blk_t *

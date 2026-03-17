@@ -451,12 +451,14 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 /* Misc */
 
 /* fd_tower_reconcile reconciles our local tower with the on-chain tower
-   inside our vote account.  Mirrors what Agave does. */
+   inside our vote account.  Mirrors what Agave does.  Also updates
+   tower_blocks vote metadata to match the updated tower. */
 
 void
-fd_tower_reconcile( fd_tower_t  * tower,
-                    ulong         tower_root,
-                    uchar const * vote_acc );
+fd_tower_reconcile( fd_tower_t  *       tower,
+                    ulong               tower_root,
+                    uchar const *       vote_acc,
+                    fd_tower_blocks_t * tower_blocks );
 
 /* fd_tower_from_vote_acc deserializes the vote account into tower.
    Assumes tower is a valid local join and currently empty. */

@@ -478,46 +478,10 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
   }
 
   ulong            prev_vote_slot = fd_tower_peek_tail_const( tower )->slot;
-  fd_tower_blk_t * prev_vote_fork = fd_tower_blocks_query( blocks, prev_vote_slot );
+  fd_tower_blk_t * prev_vote_fork = fd_tower_blocks_query( blocks, prev_vote_slot ); /* must exist */
 
-  if( FD_UNLIKELY( !prev_vote_fork->voted ) ) {
-
-    /* It's possible prev_vote_fork->voted is not set even though we
-       popped it from the top of our tower.  This can happen when there
-       are multiple nodes operating with the same vote account.
-
-       In a typical setup involving a primary staked node and backup
-       unstaked node, the two nodes' towers will usually be identical
-       but occassionally diverge when one node observes a minority fork
-       the other doesn't.  As a result, one node might be locked out
-       from voting for a fork that the other node is not.
-
-       This becomes a problem in our primary-backup setup when the
-       unstaked node is locked out but the staked node is not.  The
-       staked node ultimately lands the vote into the on-chain vote
-       account, so it's possible when the unstaked node reads back their
-       on-chain vote account to diff against their local tower, there
-       are votes in there they themselves did not vote for due to
-       lockout (fd_tower_reconcile).
-
-       As a result, `voted_block_id` will not be set for slots in their
-       tower, which normally would be an invariant violation because the
-       node must have set this value when they voted for the slot (and
-       pushed it to their tower).
-
-       So here we manually set the voted_block_id to replayed_block_id
-       if not already set. We know we must have replayed it, because to
-       observe the on-chain tower you must have replayed all the slots
-       in the tower. */
-
-    /* FIXME this needs to be thought through more carefully for set-identity. */
-
-    prev_vote_fork->voted          = 1;
-    prev_vote_fork->voted_block_id = prev_vote_fork->replayed_block_id;
-  }
-
-  fd_hash_t        * prev_vote_block_id = &prev_vote_fork->voted_block_id;
-  fd_ghost_blk_t   * prev_vote_blk      = fd_ghost_query( ghost, prev_vote_block_id );
+  fd_hash_t      * prev_vote_block_id = &prev_vote_fork->voted_block_id;
+  fd_ghost_blk_t * prev_vote_blk      = fd_ghost_query( ghost, prev_vote_block_id );
 
   /* Case 1: if an ancestor of our prev vote (including prev vote
      itself) is an unconfirmed duplicate, then our prev vote was on a
@@ -690,8 +654,8 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
        we should never be voting on something we haven't replayed. */
 
     fd_tower_blk_t * fork = fd_tower_blocks_query( blocks, vote_blk->slot );
-    fork->voted             = 1;
-    fork->voted_block_id    = vote_blk->id;
+    fork->voted           = 1;
+    fork->voted_block_id  = vote_blk->id;
 
     /* Query the root slot's block id from tower forks.  This block id
        may not necessarily be confirmed, because confirmation requires
@@ -710,7 +674,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
     if( FD_LIKELY( out.root_slot!=ULONG_MAX ) ) {
       fd_tower_blk_t * root_fork = fd_tower_blocks_query( blocks, out.root_slot );
-      out.root_block_id            = *fd_ptr_if( root_fork->confirmed, &root_fork->confirmed_block_id, &root_fork->voted_block_id );
+      out.root_block_id          = *fd_ptr_if( root_fork->confirmed, &root_fork->confirmed_block_id, &root_fork->voted_block_id );
     }
   }
 
@@ -721,10 +685,97 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
   return out;
 }
 
+/* fd_tower_reconcile reconciles our local tower with the on-chain
+   tower inside our vote account.  Mirrors what Agave does.  Also
+   updates tower_blocks vote metadata to match the updated tower.
+
+   It's possible prev_vote_fork->voted is not set even though we popped
+   it from the top of our tower.  This can happen when there are
+   multiple nodes operating with the same vote account.
+
+   In a typical setup involving a primary staked node and backup
+   unstaked node, the two nodes' towers will usually be identical
+   but occassionally diverge when one node observes a minority fork
+   the other doesn't.  As a result, one node might be locked out
+   from voting for a fork that the other node is not.
+
+   This becomes a problem in our primary-backup setup when the
+   unstaked node is locked out but the staked node is not.  The
+   staked node ultimately lands the vote into the on-chain vote
+   account, so it's possible when the unstaked node reads back their
+   on-chain vote account to diff against their local tower, there
+   are votes in there they themselves did not vote for due to
+   lockout (fd_tower_reconcile).
+
+   As a result, `voted_block_id` will not be set for slots in their
+   tower, which normally would be an invariant violation because the
+   node must have set this value when they voted for the slot (and
+   pushed it to their tower).
+
+   So here we manually set the voted_block_id to most recent
+   replayed_block_id if not already set. We know we must have replayed
+   it, because to observe the on-chain tower you must have replayed all
+   the slots in the tower.
+
+   When there is equivocation, the backup may have replayed a different
+   version of a block than what the main validator voted for. In a
+   regular equivocation scenario, this is a non-issue: two equivocating
+   blocks will cause different bank hashes, so the vote program will
+   ensure that we will only see a vote for a certain version of a block
+   if we have also replayed that version.  Thus even though the vote
+   account only stores slot numbers (not block_ids), reconcile can
+   assume the version the main validator voted for was the last replayed
+   version.
+
+   This degenerates in the case where two equivocating blocks have the
+   same bank hash (rare but possible, see fd_txncache.h for more
+   details).  In this case, the vote program does not distinguish the
+   difference between votes for the two blocks for absolutely no good
+   reason.
+
+   Example:
+
+      2
+     / \
+    3   3' (confirmed)
+    |   |
+    5   4
+
+   Assume 3 and 3' have the same bank hash. Both slots 4 and 5 can
+   contain votes for 3 and 3'.  There are two cases depending on whether
+   the backup is on the duplicate confirmed (DC) fork:
+
+   Case 1: the backup is on the DC fork (replayed 3' first), the main
+   validator replayed 3 first and voted on it.
+
+     After replaying 4, reconcile sets voted_block_id for slot 3 to
+     block_id(3'), which is the DC version.  This is correct because the
+     main validator will eventually switch to the DC fork as well.
+
+   Case 2: the backup is on the non DC fork (replayed 3 first), the main
+   validator replayed 3' first and voted on it.
+
+     Reconcile initially sets voted_block_id for slot 3 to block_id(3), the
+     non-DC version.  After the backup later replays the DC version
+     (3') and its descendants, voted_block_id will still point to the
+     non-DC version because no new reconcile is triggered.  This is
+     handled by case 1b in fd_tower_vote_and_reset (sibling confirmed):
+     voted_block_id != confirmed_block_id triggers a free switch to
+     the DC fork without needing a switch proof.  This is the same
+     codepath a staked validator uses when it votes for a non-DC
+     version and later observes duplicate confirmation of the sibling.
+
+  Unsupported case: the main validator votes down a minority fork
+  that the backup never observes.  The backup could cast conflicting
+  votes that violate lockout.  Handling this would require additional
+  codepaths (tower file, communication channel between backup and
+  main, or gossip vote tracking) that are fully removed with
+  Alpenglow, so we do not handle this case. */
 void
-fd_tower_reconcile( fd_tower_t  * tower,
-                    ulong         root,
-                    uchar const * vote_account_data ) {
+fd_tower_reconcile( fd_tower_t  *       tower,
+                    ulong               tower_root,
+                    uchar const *       vote_account_data,
+                    fd_tower_blocks_t * tower_blocks ) {
   ulong on_chain_vote = fd_vote_acc_vote_slot( vote_account_data );
   ulong on_chain_root = fd_vote_acc_root_slot( vote_account_data );
 
@@ -735,38 +786,66 @@ fd_tower_reconcile( fd_tower_t  * tower,
   if( FD_LIKELY  ( ( on_chain_vote!=ULONG_MAX && last_vote_slot!=ULONG_MAX
                      && on_chain_vote <= last_vote_slot                    ) ) ) return;
 
-  /* At this point our local tower is too old, and we need to replace it
-     with our on-chain tower.  However, it's possible our local root is
-     newer than the on-chain root (even though the tower is older).  The
-     most likely reason this happens is because we just booted from a
-     snapshot and the snapshot slot > on-chain root.
+  /* At this point our local tower is older than the on-chain tower, and
+     we need to replace it with our on-chain tower.  This mirrors the
+     Agave logic:
+     https://github.com/firedancer-io/agave/blob/master/core/src/replay_stage.rs#L3690-L3719
 
-     So we need to filter out the stale votes < snapshot slot.  This
-     mirrors the Agave logic:
-     https://github.com/firedancer-io/agave/blob/master/core/src/replay_stage.rs#L3690-L3719 */
+     TODO: pass on_chain_tower instead of raw vote account data to
+     mirror agave logic one to one. */
 
-  if( FD_LIKELY( on_chain_root == ULONG_MAX || root > on_chain_root ) ) {
-    fd_tower_remove_all( tower );
-    fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-    uint               kind  = fd_uint_load_4_fast( vote_account_data ); /* skip node_pubkey */
-    for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_account_data ); i++ ) {
-      switch( kind ) {
-      case FD_VOTE_ACC_V4: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
-      case FD_VOTE_ACC_V3: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
-      case FD_VOTE_ACC_V2: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
-      default: FD_LOG_ERR(( "unknown kind: %u", kind ));
-      }
+  while( FD_LIKELY( !fd_tower_empty( tower ) ) ) {
+    fd_tower_vote_t  old_vote = fd_tower_pop_head( tower );
+    fd_tower_blk_t * vote_blk = fd_tower_blocks_query( tower_blocks, old_vote.slot );
+    if( FD_LIKELY( vote_blk ) ) vote_blk->voted = 0;
+  }
+
+  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
+  uint                  kind  = fd_uint_load_4_fast( vote_account_data ); /* skip node_pubkey */
+  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_account_data ); i++ ) {
+    switch( kind ) {
+    case FD_VOTE_ACC_V4: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
+    case FD_VOTE_ACC_V3: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
+    case FD_VOTE_ACC_V2: fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
+    default: FD_LOG_ERR(( "unknown kind: %u", kind ));
     }
+    fd_tower_vote_t * new_vote = fd_tower_peek_tail( tower );
+    fd_tower_blk_t  * vote_blk = fd_tower_blocks_query( tower_blocks, new_vote->slot );
 
-    /* Fast forward our tower to tower_root by retaining only votes >
-       local tower root. */
+    if( FD_LIKELY( vote_blk ) ) {
+      vote_blk->voted          = 1;
+      vote_blk->voted_block_id = vote_blk->replayed_block_id;
+    }
+  }
 
+  /* It's possible our local root is newer than the on-chain root
+     (even though the tower is older).  The most likely reason is
+     booting from a snapshot where snapshot slot > on-chain root.
+     Filter out stale votes <= local root.
+
+     After filtering, the tower may be empty if all on-chain votes
+     were below our local root.  In Agave this is handled by falling
+     back to local_root as the last_voted_slot.  Here it is fine to
+     leave the tower empty because vote_and_reset handles an empty
+     tower (case 0).
+
+     There's no need to clear voted metadata in tower_blocks, which
+     breaks our invariant that voted==1 iff slot is in tower.  This is
+     fine because pruning from tower_blocks is asynchronous with the
+     tower. */
+
+  if( FD_LIKELY( on_chain_root == ULONG_MAX || tower_root > on_chain_root ) ) {
     while( FD_LIKELY( !fd_tower_empty( tower ) ) ) {
       fd_tower_t const * vote = fd_tower_peek_head_const( tower );
-      if( FD_LIKELY( vote->slot > root ) ) break;
+      if( FD_LIKELY( vote->slot > tower_root ) ) break;
       fd_tower_pop_head( tower );
     }
   }
+  /* Note its also possible the on_chain_root is ahead of our local
+     root. In this case, our local root is technically !voted now, since
+     we have updated our tower to match the on-chain tower.  But this is
+     not a problem because the next vote we make will pop the
+     on_chain_root which we set above voted=1. */
 }
 
 void
