@@ -1,18 +1,119 @@
 /* The repair tile is responsible for repairing missing shreds that were
-   not received via Turbine.
+   not received via Turbine.  The goal is to ensure that slots we "care"
+   about have their FEC sets inserted into store.
 
    Generally there are two distinct traffic patterns:
 
-   1. Firedancer boots up and fires off a large number of repairs to
+   a. Firedancer boots up and fires off a large number of repairs to
       recover all the blocks between the snapshot on which it is booting
       and the head of the chain.  In this mode, repair tile utilization
       is very high along with net and sign utilization.
 
-   2. Firedancer catches up to the head of the chain and enters steady
+   b. Firedancer catches up to the head of the chain and enters steady
       state where most shred traffic is delivered over turbine.  In this
       state, repairs are only occasionally needed to recover shreds lost
       due to anomalies like packet loss, transmitter (leader) never sent
-      them or even a malicious leader etc. */
+      them or even a malicious leader etc.  On rare occasion, repair
+      will also need to recover a different version of a block that
+      equivocated.
+
+   To accomplish the above, repair mainly processes 4 kinds of frags:
+
+   1. Shred data (from shred tile)
+
+      Any shred (coding or data) that passes validation and filtering in
+      the shred tile is forwarded to repair.  Repair uses these to track
+      which shreds have been received in `fd_forest`, a tree data
+      structure that mirrors the block/slot ancestry chain.  It also
+      uses these shreds to discover slots or ancestries that were not
+      known. fd_forest tracks metadata for each slot, including slot
+      completion status, merkle roots, and metrics.
+
+      Any shred that we can correlate with a repair request we made is
+      used to update peer response latency metrics in fd_policy (See
+      fd_policy.h for more details).
+
+   2. FEC status messages (from shred tile)
+
+      These fall under two categories: FEC completion and FEC eviction.
+      When all shreds in a FEC set have been recovered, the shred tile
+      sends a completion message. This may trigger chained merkle
+      verification if the slot has a confirmed block_id.  The completed
+      FEC message is always forwarded to replay via repair_out.
+
+      When an incomplete FEC set is evicted from the shred tile's FEC
+      resolver (e.g. due to capacity), it also notifies repair.  Repair
+      clears the corresponding FEC set entries from the forest so those
+      shred indices can be re-requested if they are necessary.  As
+      mentioned in fd_forest.h, forest needs to maintain a strict subset
+      of shreds that are known by fec_resolver, store, and reasm in
+      order to guarantee forward progress always.
+
+   3. Pings (from net tile)
+
+      Repair peers use a ping-pong protocol to verify liveness before
+      serving repair requests.  When a ping arrives over the network,
+      repair validates the message and constructs a pong response. To
+      prevent spam attacks, repair has stopgaps like tracking how many
+      pongs per peer are currently in the sign queue and dropping pings
+      from unknown peers.  These are the only untrusted inputs to
+      repair.
+
+   4. Sign task responses (from sign tile)
+
+      Repair requests are signed asynchronously; the repair tile
+      constructs a repair request, dispatches it to a sign tile via the
+      repair_sign output link.  The repair-sign communication is
+      manually managed via credit tracking in the repair tile (see
+      comment in out_ctx_t struct definition).
+
+      After receiving the signature back from sign tile, repair injects
+      the signature into the pending request and dispatches it to the
+      net tile via the repair_net output link. The behavior depends on
+      the request type:
+      - Pong: the signed pong is sent to the peer that pinged us.
+      - Warmup: a proactive request sent when a new peer's contact info
+        first arrives, prepaying the ping-pong RTT cost.  The signed
+        request is sent to the peer if it is still active.
+      - Regular shred request: the request is recorded in an inflight
+        table (for tracking response latency and timeouts) and the
+        signed packet is sent to the selected peer.
+
+   Secondary "other" frags that are processed but not part of core
+   repair logic:
+
+   5. Confirmation messages from tower
+
+      Tower sends two kinds of messages relevant to repair:
+      - slot_done: indicates a slot has finished replay and may advance
+        the root.  Repair publishes (roots) the forest up to that slot,
+        pruning old ancestry.
+      - slot_confirmed: indicates a slot has reached a confirmation
+        level (e.g. duplicate-confirmed).  If the slot is not yet in the
+        forest, repair creates a sentinel block so it can be repaired.
+        It also stores the confirmed block_id and may trigger chained
+        merkle verification. See fd_forest.h on more details about
+        chained merkle verification.
+
+   6. Eviction messages from replay (reasm)
+
+      When the replay tile's reassembly buffer evicts a FEC set (e.g.
+      due to pool capacity) from itself and from store, it notifies
+      repair with the slot and fec_set_idx.  Repair clears those FEC
+      entries from the forest so the shreds can be re-requested.
+
+   7. Contact info messages from gossip
+
+      Gossip forwards contact info updates and removals for other
+      validators.  Repair uses these to maintain a list of peers to
+      make requests to.
+
+   If fd_forest tracks what we know about each shred, fd_policy and
+   fd_inflights is responsible for deciding what next repair request to
+   make. fd_policy and fd_inflights split responsibility: fd_policy
+   makes any new requests, orphan requests, and requests directly off
+   the forest iterator, while fd_inflights re-requests anything that has
+   been requested but not received yet within a timeout window. */
 
 #define _GNU_SOURCE
 
@@ -790,12 +891,9 @@ after_net( ctx_t * ctx,
     return;
   }
 
-  /* Note that anyone could theoretically send us many fake contact
-     infos that populate our peer map.  They could repeatedly send
-     pings, wait for the ping to exit the queue and then send another.
-     Needs investigation to see if this is a serious problem & how
-     feasible it actually is, especially considering upstream gossip
-     behavior. */
+  /* Any gossip peer can send a ping, but they are bounded to at most
+     one ping in the queue so they can't evict others' pings without
+     multiple gossip identities. */
 
   fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &ping->ping.hash );
   fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = ping->ping.hash, .daddr = ip4->daddr, .key = ping->ping.from } } );
@@ -1307,9 +1405,9 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( REPAIR, BLK_EVICTED,       ctx->metrics->blk_evicted );
   FD_MCNT_SET( REPAIR, BLK_FAILED_INSERT, ctx->metrics->blk_failed_insert );
 
-  FD_MCNT_SET( REPAIR, UNKNOWN_PEER_PING, ctx->metrics->unknown_peer_ping );
-  FD_MCNT_SET( REPAIR, MALFORMED_PING,    ctx->metrics->malformed_ping );
-  FD_MCNT_SET( REPAIR, FAIL_SIGVERIFY_PING, ctx->metrics->fail_sigverify_ping );
+  FD_MCNT_SET( REPAIR, UNKNOWN_PEER_PING,     ctx->metrics->unknown_peer_ping );
+  FD_MCNT_SET( REPAIR, MALFORMED_PING,        ctx->metrics->malformed_ping );
+  FD_MCNT_SET( REPAIR, FAILED_SIGVERIFY_PING, ctx->metrics->fail_sigverify_ping );
 }
 
 #undef DEBUG_LOGGING

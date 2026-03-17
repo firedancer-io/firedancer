@@ -2,29 +2,33 @@
 #define HEADER_fd_src_discof_forest_fd_forest_h
 
 /* Forest is an API for repairing blocks as they are discovered from the
-   cluster via Turbine or Gossip.  Shreds (from Turbine) and votes (from
-   Gossip) inform forest that a block with the given slot they are
-   associated with exists.  Blk repair ensures that this block is
-   received in its entirety by requesting repairs for missing shreds for
-   the block.
+   cluster via Turbine or Gossip.  Shreds (from Turbine) and
+   confirmations (from Tower) inform forest that slot exists.  Repair
+   ensures that this block is received in its entirety by requesting
+   repairs for missing shreds for the block.
 
-   Note forest needs to track the strict subset of shreds that are known
-   by fec_resolver, store, and reasm.  If any of these structures have
-   evicted shreds, forest needs to clear out the corresponding FEC sets
-   from forest to be re-requested. It's okay if shreds are evicted from
-   reasm and we re-request for them and they pass through fec_resolver
-   again. Although we could be creating duplicate ctxs, thats fine!  We
-   might later on get an evict notice for the second incomplete ctx but
-   that's okay too!!! just have a bunch of useless messages that
-   eventually will get ignored when we publish past it!!!!
+   Note that forest needs to track the strict subset of shreds that are
+   known by fec_resolver, store, and reasm.  If any of these structures
+   have evicted shreds, forest needs to clear out the corresponding FEC
+   sets from forest to be re-requested.  It's okay if shreds are evicted
+   from reasm and we re-request for them and they pass through
+   fec_resolver again. Although we could be creating duplicate ctxs,
+   thats fine!  We might later on get an evict notice for the second
+   incomplete ctx but that's okay too!!! just have a bunch of useless
+   messages that eventually will get ignored when we publish past it!!!!
 
    Like other fork-aware structures, forest maintains a tree that
-   records the ancestry of slots.  It also maintains a frontier, which
-   models the leaves of the tree ie. the oldest (in ancestry) blocks
-   that still need to be repaired (across multiple forks).
+   records the ancestry of slots.  It also maintains references to the
+   tips of each known fork (the frontier map), and also the latest
+   slot we finished repairing on each fork (the consumed map).  Any slot
+   that doesn't have a known ancestry connecting it back to the root yet
+   is part of the orphaned map.  And the head of every orphaned tree is
+   part of the subtrees map.  While this seems very verbose, it allows
+   for fast iteration and lookup of the different types of slots.
 
-   Forest constructs the ancestry tree backwards, and then repairs the
-   tree forwards (using BFS). */
+   fd_policy makes orphan requests that recover gaps between orphaned
+   subtrees and the main ancestry tree, and then the forest iterator
+   suggest repairs to make progress on the tree forwards (using BFS). */
 
 /* Merkle root tracking.
    For each FEC set in the slot, we record the merkle root of the first
@@ -51,15 +55,14 @@
      - Imagine we get shred 0-15 of FEC_A. then get shreds 16-31 of
        FEC_B. We would have set the merkle root to the null hash for
        that FEC set, but fec_resolver would not be able to complete the
-       FEC because from a shred index pov, we don't have anything we
+       FEC because from a shred index POV, we don't have anything we
        need to repair (and we won't be making any new requests for that
        FEC set).
-
-       We can't ignore shreds of FEC_B though, because it's difficult to
-       differentiate between a slot where we haven't finished repairing,
-       or a slot where we can't repair because the version we have is a
-       bad version and fake.  So merkle chaining verification can only
-       be performed on slots that have all the shreds received.
+       It's difficult to differentiate between a slot where we haven't
+       finished repairing, and a slot we can't repair because the
+       version we have is a bad version.  So merkle chaining
+       verification can only be performed on slots that have all the
+       shreds received.
 
   3. We receive some shreds for both FEC_A and FEC_B, but get a FEC
      completion for FEC_B.
@@ -69,14 +72,15 @@
         first, so overwrite our merkle root entry. It's likely being
         overwritten from the null_hash to the FEC_B merkle root.
 
-  So unfortunately...because of case 2, we can no longer rely on the
-  condition that the slot will complete with all the FEC completions.
-  But we can still rely on that at lease some version of all the shreds
-  in the slot will arrive eventually.
+  So unfortunately...because of case 2, we determine "slot completion"
+  status when all the shreds in the slot have been received, NOT when
+  the slot completes with all the FEC completions. We can rely on that
+  at least some version of all the shreds in the slot will arrive
+  eventually.
 
   As soon as we have a confirmed block id, we can verify the slot by
   verifying the chain of merkle roots backwards.  As the CMRs correctly
-  chain, the verified bit on each FEC set is set to 1. If they don't
+  chain, the verified status on each FEC set is set.  If they don't
   chain, we dump & repair that specific FEC set. For example, say the
   2nd & 3rd FEC set is incorrect. In this case, the merkle roots array
   and bitset will look like the following after one call of
