@@ -565,6 +565,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
+  topo->agave_affinity_cnt = 0UL;
   if( FD_UNLIKELY( reserve_agave_cores ) ) {
     for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
       if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
