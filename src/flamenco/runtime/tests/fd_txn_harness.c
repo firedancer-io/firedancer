@@ -73,7 +73,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_solfuzz_pb_restore_fee_rate_governor( runner->bank, &txn_bank->fee_rate_governor );
 
   /* Parent slot */
-  runner->bank->data->fields.parent_slot = slot-1UL;
+  runner->bank->data->parent_slot = slot-1UL;
 
   /* Total epoch stake */
   runner->bank->data->fields.total_epoch_stake = txn_bank->total_epoch_stake;

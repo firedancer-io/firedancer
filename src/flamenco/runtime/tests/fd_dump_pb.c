@@ -724,7 +724,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->slot = bank->data->fields.slot;
 
   /* BlockBank -> parent_slot */
-  block_bank->parent_slot = bank->data->fields.parent_slot;
+  block_bank->parent_slot = bank->data->parent_slot;
 
   /* BlockBank -> capitalization */
   block_bank->capitalization = parent_bank->data->fields.capitalization;
@@ -745,7 +745,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   };
 
   /* BlockBank -> block_height */
-  block_bank->block_height = bank->data->fields.block_height;
+  block_bank->block_height = bank->data->block_height;
 
   /* BlockBank -> poh */
   fd_memcpy( block_bank->poh, &bank->data->fields.poh, sizeof(fd_hash_t) );
@@ -759,7 +759,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_bank_lthash_end_locking_query( parent_bank );
 
   /* BlockBank -> parent_signature_count */
-  block_bank->parent_signature_count = parent_bank->data->fields.parent_signature_cnt;
+  block_bank->parent_signature_count = parent_bank->data->parent_signature_cnt;
 
   /* BlockBank -> epoch_schedule */
   block_bank->has_epoch_schedule = true;

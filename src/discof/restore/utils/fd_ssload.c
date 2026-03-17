@@ -67,12 +67,12 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   /* Slot */
 
   bank->data->fields.slot = manifest->slot;
-  bank->data->fields.parent_slot = manifest->parent_slot;
+  bank->data->parent_slot = manifest->parent_slot;
 
   /* Bank Hash */
   fd_memcpy( &bank->data->fields.bank_hash.uc, manifest->bank_hash, 32UL );
 
-  fd_memcpy( &bank->data->fields.prev_bank_hash.uc, manifest->parent_bank_hash, 32UL );
+  fd_memcpy( &bank->data->prev_bank_hash.uc, manifest->parent_bank_hash, 32UL );
 
   fd_fee_rate_governor_t * fee_rate_governor = &bank->data->fields.fee_rate_governor;
   fee_rate_governor->target_lamports_per_signature = manifest->fee_rate_governor.target_lamports_per_signature;
@@ -128,17 +128,17 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   if( FD_LIKELY( last_hash ) ) bank->data->fields.poh = *last_hash;
 
   bank->data->fields.capitalization = manifest->capitalization;
-  bank->data->fields.transaction_count = manifest->transaction_count;
-  bank->data->fields.parent_signature_cnt = manifest->signature_count;
+  bank->data->transaction_count = manifest->transaction_count;
+  bank->data->parent_signature_cnt = manifest->signature_count;
   bank->data->fields.tick_height = manifest->tick_height;
   bank->data->fields.max_tick_height = manifest->max_tick_height;
   bank->data->fields.ns_per_slot = (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } };
   bank->data->fields.ticks_per_slot = manifest->ticks_per_slot;
   bank->data->fields.genesis_creation_time = manifest->creation_time_seconds;
   bank->data->fields.slots_per_year = manifest->slots_per_year;
-  bank->data->fields.block_height = manifest->block_height;
-  bank->data->fields.execution_fees = manifest->collector_fees;
-  bank->data->fields.priority_fees = 0UL;
+  bank->data->block_height = manifest->block_height;
+  bank->data->execution_fees = manifest->collector_fees;
+  bank->data->priority_fees = 0UL;
 
   /* Set the cluster type based on the genesis creation time.  This is
      later cross referenced against the genesis hash. */

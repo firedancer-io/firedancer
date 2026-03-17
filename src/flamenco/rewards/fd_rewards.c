@@ -756,7 +756,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       0 );
 
   fd_hash_t const * parent_blockhash      = fd_blockhashes_peek_last_hash( &bank->data->fields.block_hash_queue );
-  ulong             starting_block_height = bank->data->fields.block_height + REWARD_CALCULATION_NUM_BLOCKS;
+  ulong             starting_block_height = bank->data->block_height + REWARD_CALCULATION_NUM_BLOCKS;
   uint              num_partitions        = get_reward_distribution_num_blocks( &bank->data->fields.epoch_schedule,
                                                                                 bank->data->fields.slot,
                                                                                 runtime_stack->stakes.stake_rewards_cnt );
@@ -1029,7 +1029,7 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
 
-  ulong block_height                       = bank->data->fields.block_height;
+  ulong block_height                       = bank->data->block_height;
   ulong distribution_starting_block_height = fd_stake_rewards_starting_block_height( stake_rewards, bank->data->stake_rewards_fork_id );
   ulong distribution_end_exclusive         = fd_stake_rewards_exclusive_ending_block_height( stake_rewards, bank->data->stake_rewards_fork_id );
 
@@ -1087,7 +1087,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
      client differs here since we hash the partitions during the epoch
      boundary. */
 
-  ulong distribution_starting_block_height = bank->data->fields.block_height + REWARD_CALCULATION_NUM_BLOCKS;
+  ulong distribution_starting_block_height = bank->data->block_height + REWARD_CALCULATION_NUM_BLOCKS;
   uint  num_partitions                     = fd_stake_rewards_num_partitions( fd_bank_stake_rewards_query( bank ), bank->data->stake_rewards_fork_id );
 
   fd_sysvar_epoch_rewards_init(

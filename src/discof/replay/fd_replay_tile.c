@@ -717,7 +717,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
 
   ctx->metrics.slots_total++;
-  ctx->metrics.transactions_total = bank->data->fields.transaction_count;
+  ctx->metrics.transactions_total = bank->data->transaction_count;
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
@@ -726,13 +726,13 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->epoch                 = epoch;
   slot_info->slot_in_epoch         = slot_idx;
   slot_info->slots_per_epoch       = fd_epoch_slot_cnt( epoch_schedule, epoch );
-  slot_info->block_height          = bank->data->fields.block_height;
-  slot_info->parent_slot           = bank->data->fields.parent_slot;
+  slot_info->block_height          = bank->data->block_height;
+  slot_info->parent_slot           = bank->data->parent_slot;
   slot_info->block_id              = block_id_ele->latest_mr;
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
-  slot_info->transaction_count     = bank->data->fields.transaction_count;
+  slot_info->transaction_count     = bank->data->transaction_count;
 
   fd_inflation_t inflation = bank->data->fields.inflation;
   slot_info->inflation.foundation      = inflation.foundation;
@@ -765,10 +765,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   fd_bank_t parent_bank[1];
   if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) ) ) {
-    ulong total_txn_cnt          = bank->data->fields.transaction_count        - parent_bank->data->fields.transaction_count;
-    ulong nonvote_txn_cnt        = bank->data->fields.nonvote_txn_count        - parent_bank->data->fields.nonvote_txn_count;
-    ulong failed_txn_cnt         = bank->data->fields.failed_txn_count         - parent_bank->data->fields.failed_txn_count;
-    ulong nonvote_failed_txn_cnt = bank->data->fields.nonvote_failed_txn_count - parent_bank->data->fields.nonvote_failed_txn_count;
+    ulong total_txn_cnt          = bank->data->transaction_count;
+    ulong nonvote_txn_cnt        = bank->data->nonvote_txn_count;
+    ulong failed_txn_cnt         = bank->data->failed_txn_count;
+    ulong nonvote_failed_txn_cnt = bank->data->nonvote_failed_txn_count;
 
     slot_info->nonvote_success = nonvote_txn_cnt - nonvote_failed_txn_cnt;
     slot_info->nonvote_failed  = nonvote_failed_txn_cnt;
@@ -782,11 +782,11 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   }
 
   slot_info->is_leader = is_leader;
-  slot_info->transaction_fee = bank->data->fields.execution_fees;
+  slot_info->transaction_fee = bank->data->execution_fees;
   slot_info->transaction_fee -= (slot_info->transaction_fee>>1); /* burn */
-  slot_info->priority_fee = bank->data->fields.priority_fees;
-  slot_info->tips = bank->data->fields.tips;
-  slot_info->shred_cnt = bank->data->fields.shred_cnt;
+  slot_info->priority_fee = bank->data->priority_fees;
+  slot_info->tips = bank->data->tips;
+  slot_info->shred_cnt = bank->data->shred_cnt;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->data->idx ].latest_mr.uc, block_id_cstr );
   FD_BASE58_ENCODE_32_BYTES( bank->data->fields.bank_hash.uc, bank_hash_cstr );
@@ -840,7 +840,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   bank->data->fields.poh = *poh;
 
   /* Set shred count in bank. */
-  bank->data->fields.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->data->idx );
+  bank->data->shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->data->idx );
 
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
@@ -1022,7 +1022,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
-  if( FD_UNLIKELY( bank->data->fields.epoch>fd_slot_to_epoch( &bank->data->fields.epoch_schedule, bank->data->fields.parent_slot, NULL ) )) {
+  if( FD_UNLIKELY( bank->data->fields.epoch>fd_slot_to_epoch( &bank->data->fields.epoch_schedule, bank->data->parent_slot, NULL ) )) {
     publish_epoch_info( ctx, stem, bank, 1 );
   }
 
@@ -1420,7 +1420,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->published_root_slot = 0UL;
   fd_sched_block_add_done( ctx->sched, bank->data->idx, ULONG_MAX, 0UL );
 
-  bank->data->fields.block_height = 1UL;
+  bank->data->block_height = 1UL;
 
   ctx->consensus_root          = ctx->initial_block_id;
   ctx->consensus_root_slot     = 0UL;
@@ -2088,7 +2088,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
     fd_bank_t root_bank[1];
     if( FD_UNLIKELY( !fd_banks_bank_query( root_bank, ctx->banks, target_bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: root bank not found for bank index %lu", target_bank_idx ));
-    if( root_bank->data->fields.identity_vote_idx==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
+    if( root_bank->data->identity_vote_idx==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
@@ -2277,7 +2277,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 
         fd_pubkey_t * identity_pubkey_out = NULL;
         if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
-          bank->data->fields.identity_vote_idx = ctx->identity_idx;
+          bank->data->identity_vote_idx = ctx->identity_idx;
         }
       }
       if( FD_UNLIKELY( !msg->txn_exec->is_committable && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {

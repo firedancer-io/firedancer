@@ -369,7 +369,7 @@ test_env_create( test_env_t * env,
   fd_progcache_txn_attach_child( env->progcache_admin, root, &env->xid );
 
   env->bank->data->fields.slot = 10UL;
-  env->bank->data->fields.parent_slot = 9UL;
+  env->bank->data->parent_slot = 9UL;
   env->bank->data->fields.epoch = 0UL;
 
   env->runtime->accdb        = env->accdb;

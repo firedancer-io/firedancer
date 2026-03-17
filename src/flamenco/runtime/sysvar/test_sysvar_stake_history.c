@@ -46,7 +46,7 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
 
   /* Update should be a no-op if not at the epoch boundary */
   env->bank->data->fields.slot = 3UL;
-  env->bank->data->fields.parent_slot = 2UL;
+  env->bank->data->parent_slot = 2UL;
   fd_epoch_stake_history_entry_pair_t const entry0 = {
     .epoch = 1UL, .entry = {
       .effective    = 0x111UL,
@@ -60,7 +60,7 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
 
   env->bank->data->fields.slot = 432000UL;
-  env->bank->data->fields.parent_slot = 431999UL;
+  env->bank->data->parent_slot = 431999UL;
   fd_sysvar_stake_history_update( env->bank, env->accdb, &env->xid, NULL, &entry0 );
   fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );

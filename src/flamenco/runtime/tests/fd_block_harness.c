@@ -179,7 +179,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Parent slot */
   ulong parent_slot = block_bank->parent_slot;
-  bank->data->fields.parent_slot = parent_slot;
+  bank->data->parent_slot = parent_slot;
 
   /* Capitalization */
   bank->data->fields.capitalization = block_bank->capitalization;
@@ -196,7 +196,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   bank->data->fields.inflation = inflation;
 
   /* Block height */
-  bank->data->fields.block_height = block_bank->block_height;
+  bank->data->block_height = block_bank->block_height;
 
   /* POH (set right before finalize since we don't fuzz POH calculation) */
   fd_memcpy( poh, block_bank->poh, sizeof(fd_hash_t) );
@@ -207,7 +207,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_memcpy( bank_hash, block_bank->parent_bank_hash, sizeof(fd_hash_t) );
 
   /* Parent signature count */
-  bank->data->fields.parent_signature_cnt = block_bank->parent_signature_count;
+  bank->data->parent_signature_cnt = block_bank->parent_signature_count;
 
   /* Epoch schedule */
   FD_TEST( block_bank->has_epoch_schedule );

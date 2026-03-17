@@ -16,8 +16,8 @@
 
 FD_PROTOTYPES_BEGIN
 
-#define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
-
+#define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
+#define FD_BANKS_ALIGN     (128UL)
 #define FD_BANKS_MAX_BANKS (4096UL)
 
 /* TODO: Some optimizations, cleanups, future work:
@@ -285,10 +285,25 @@ struct fd_bank_data {
   long first_transaction_scheduled_nanos;
   long last_transaction_finished_nanos;
 
-  /* First, layout all non-CoW fields contiguously. This is done to
-     allow for cloning the bank state with a simple memcpy. Each
-     non-CoW field is just represented as a byte array. */
+  ulong                             parent_slot;
+  ulong                             shred_cnt;
+  ulong                             block_height;
+  ulong                             execution_fees;
+  ulong                             priority_fees;
+  ulong                             tips;
+  ulong                             identity_vote_idx;
+  ulong                             signature_count;
+  ulong                             total_compute_units_used;
+  ulong                             nonvote_txn_count;
+  ulong                             failed_txn_count;
+  ulong                             nonvote_failed_txn_count;
+  ulong                             transaction_count;
+  ulong                             parent_signature_cnt;
+  fd_hash_t                         prev_bank_hash;
 
+  /* This lock is only used to synchronize updates to the lthash field
+     in the exec tile so it's better to keep it internal to the bank
+     data object instead of the bank locks. */
   fd_rwlock_t lthash_lock;
 
   struct {
@@ -297,10 +312,7 @@ struct fd_bank_data {
     fd_fee_rate_governor_t            fee_rate_governor;
     ulong                             rbh_lamports_per_sig;
     ulong                             slot;
-    ulong                             parent_slot;
     ulong                             capitalization;
-    ulong                             transaction_count;
-    ulong                             parent_signature_cnt;
     ulong                             tick_height;
     ulong                             max_tick_height;
     ulong                             hashes_per_tick;
@@ -311,29 +323,17 @@ struct fd_bank_data {
     fd_inflation_t                    inflation;
     ulong                             cluster_type;
     ulong                             total_epoch_stake;
-    ulong                             block_height;
-    ulong                             execution_fees;
-    ulong                             priority_fees;
-    ulong                             tips;
-    ulong                             signature_count;
+
     fd_hash_t                         poh;
     fd_sol_sysvar_last_restart_slot_t last_restart_slot;
     fd_hash_t                         bank_hash;
-    fd_hash_t                         prev_bank_hash;
     fd_hash_t                         genesis_hash;
     fd_epoch_schedule_t               epoch_schedule;
     fd_rent_t                         rent;
     fd_sysvar_cache_t                 sysvar_cache;
     fd_features_t                     features;
-    ulong                             txn_count;
-    ulong                             nonvote_txn_count;
-    ulong                             failed_txn_count;
-    ulong                             nonvote_failed_txn_count;
-    ulong                             total_compute_units_used;
     ulong                             slots_per_epoch;
-    ulong                             shred_cnt;
     ulong                             epoch;
-    ulong                             identity_vote_idx;
   } fields;
 
   uchar top_votes_mem[ FD_TOP_VOTES_MAX_FOOTPRINT ] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));

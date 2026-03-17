@@ -347,7 +347,7 @@ process_slot( test_env_t * env,
   FD_TEST( new_bank );
 
   new_bank->data->fields.slot = slot;
-  new_bank->data->fields.parent_slot = parent_slot;
+  new_bank->data->parent_slot = parent_slot;
 
   fd_epoch_schedule_t const * epoch_schedule = &new_bank->data->fields.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
