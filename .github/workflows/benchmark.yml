@@ -61,7 +61,7 @@ jobs:
         sudo $OBJDIR/bin/firedancer-dev configure init keys
         rm -rf baseline.log
         DUMP_DIR=../dump ./src/flamenco/runtime/tests/run_ledger_backtest.sh \
-          -l mainnet-368528500-perf -y 5 -m 2000000 -e 368529500 \
+          -l mainnet-406545575-perf -y 5 -m 2000000 -e 406546575 \
           --log baseline.log --skip-checksum
         SPS_BASELINE=$(grep "Backtest playback done." baseline.log | awk -F 'sec/slot: ' '{print $2}')
         TOTAL_ELAPSED_BASELINE=$(grep "Backtest playback done." baseline.log | awk -F 'elapsed: ' '{print $2}' | awk '{print $1}')
@@ -90,7 +90,7 @@ jobs:
         rm -rf new.log
         sudo $OBJDIR/bin/firedancer-dev configure init keys
         DUMP_DIR=../dump ./src/flamenco/runtime/tests/run_ledger_backtest.sh \
-          -l mainnet-368528500-perf -y 5 -m 2000000 -e 368529500 \
+          -l mainnet-406545575-perf -y 5 -m 2000000 -e 406546575 \
           --log new.log --skip-checksum
         SPS_NEWVAL=$(grep "Backtest playback done." new.log | awk -F 'sec/slot: ' '{print $2}')
         TOTAL_ELAPSED_NEWVAL=$(grep "Backtest playback done." new.log | awk -F 'elapsed: ' '{print $2}' | awk '{print $1}')
@@ -202,9 +202,9 @@ jobs:
           ## Performance Measurements ⏳
           | Suite  | Baseline | New   | Change |
           |--------|----------|-------|--------|
-          | backtest \`mainnet-368528500-perf\` per slot | ${fmt(baseline_sps, "s")} | ${fmt(newval_sps, "s")} | \`${sps_pct_change}%\` ${changeIcon(sps_pct_change, 5.0)} |
-          | backtest \`mainnet-368528500-perf\` snapshot load | ${fmt(baseline_snapshot_load, "s")} | ${fmt(newval_snapshot_load, "s")} | \`${snapshot_load_pct_change}%\` ${changeIcon(snapshot_load_pct_change, 5.0)} |
-          | backtest \`mainnet-368528500-perf\` total elapsed | ${fmt(baseline_total_elapsed, "s")} | ${fmt(newval_total_elapsed, "s")} | \`${total_elapsed_pct_change}%\` ${changeIcon(total_elapsed_pct_change, 5.0)} |
+          | backtest \`mainnet-406545575-perf\` per slot | ${fmt(baseline_sps, "s")} | ${fmt(newval_sps, "s")} | \`${sps_pct_change}%\` ${changeIcon(sps_pct_change, 5.0)} |
+          | backtest \`mainnet-406545575-perf\` snapshot load | ${fmt(baseline_snapshot_load, "s")} | ${fmt(newval_snapshot_load, "s")} | \`${snapshot_load_pct_change}%\` ${changeIcon(snapshot_load_pct_change, 5.0)} |
+          | backtest \`mainnet-406545575-perf\` total elapsed | ${fmt(baseline_total_elapsed, "s")} | ${fmt(newval_total_elapsed, "s")} | \`${total_elapsed_pct_change}%\` ${changeIcon(total_elapsed_pct_change, 5.0)} |
           | \`firedancer mem\` usage with \`mainnet.toml\` | ${fmt(baseline_default_mem, "GiB")} | ${fmt(newval_default_mem, "GiB")} | \`${default_mem_pct_change}%\` ${changeIcon(default_mem_pct_change, 5.0)} |
           `;
 
