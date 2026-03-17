@@ -115,24 +115,24 @@ fd_bank_cost_tracker_query( fd_bank_t * bank ) {
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->locks->lthash_lock[ bank->data->idx ] );
+  fd_rwlock_read( &bank->data->lthash_lock );
   return &bank->data->fields.lthash;
 }
 
 void
 fd_bank_lthash_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->locks->lthash_lock[ bank->data->idx ] );
+  fd_rwlock_unread( &bank->data->lthash_lock );
 }
 
 fd_lthash_value_t *
 fd_bank_lthash_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->locks->lthash_lock[ bank->data->idx ] );
+  fd_rwlock_write( &bank->data->lthash_lock );
   return &bank->data->fields.lthash;
 }
 
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->lthash_lock[ bank->data->idx ] );
+  fd_rwlock_unwrite( &bank->data->lthash_lock );
 }
 
 /**********************************************************************/
@@ -308,20 +308,12 @@ fd_banks_new( void * shmem,
       return NULL;
     }
 
+    fd_rwlock_new( &bank->lthash_lock );
+
     bank->stake_rewards_offset = (ulong)stake_rewards - (ulong)bank;
 
     bank->epoch_leaders_offset    = (ulong)bank - (ulong)epoch_leaders_mem;
     bank->epoch_leaders_footprint = epoch_leaders_footprint;
-
-    fd_bank_set_stake_weights( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights) );
-    fd_bank_set_stake_weights_cnt_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights_cnt) );
-    fd_bank_set_stake_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights) );
-    fd_bank_set_stake_weights_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights_cnt) );
-
-    fd_bank_set_stake_weights( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights) );
-    fd_bank_set_stake_weights_cnt_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights_cnt) );
-    fd_bank_set_stake_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights) );
-    fd_bank_set_stake_weights_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights_cnt) );
 
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
     bank->cost_tracker_pool_offset = (ulong)cost_tracker_pool - (ulong)bank;
@@ -486,8 +478,6 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
 
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
 
-  fd_rwlock_new( &bank_l->locks->lthash_lock[ bank->idx ] );
-
   bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
 
@@ -565,11 +555,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
     FD_LOG_CRIT(( "invariant violation: no free cost tracker pool elements" ));
   }
   child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
-
-  /* The lthash has already been copied over, we just need to initialize
-     the lock for the current bank. */
-
-  fd_rwlock_new( &bank_l->locks->lthash_lock[ child_bank->idx ] );
 
   /* Copy over the parent vote stake fork idx */
   child_bank->vote_stakes_fork_id = parent_bank->vote_stakes_fork_id;
@@ -1174,13 +1159,8 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
 void
 fd_banks_locks_init( fd_banks_locks_t * locks ) {
-  fd_rwlock_new( &locks->top_votes_pool_lock );
   fd_rwlock_new( &locks->vote_stakes_lock );
   fd_rwlock_new( &locks->stake_delegations_delta_lock );
-
-  for( ulong i=0UL; i<FD_BANKS_MAX_BANKS; i++ ) {
-    fd_rwlock_new( &locks->lthash_lock[i] );
-  }
 }
 
 int

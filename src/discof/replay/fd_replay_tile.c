@@ -573,9 +573,9 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
 
-  fd_vote_stake_weight_t * stake_weights = epoch_info_msg->weights;
-  fd_vote_stake_weight_t * compressed_stake_weights = current_epoch ? fd_bank_get_stake_weights_next( bank->data ) : fd_bank_get_stake_weights( bank->data );
-  ulong stake_weights_cnt = current_epoch ? *fd_bank_get_stake_weights_cnt_next( bank->data ) : *fd_bank_get_stake_weights_cnt( bank->data );
+  fd_vote_stake_weight_t * stake_weights            = epoch_info_msg->weights;
+  fd_vote_stake_weight_t * compressed_stake_weights = current_epoch ? ctx->runtime_stack->stakes.next_compressed_stake_weights : ctx->runtime_stack->stakes.compressed_stake_weights;
+  ulong                    stake_weights_cnt        = current_epoch ? ctx->runtime_stack->stakes.next_compressed_stake_weights_cnt : ctx->runtime_stack->stakes.compressed_stake_weights_cnt;
   FD_TEST( stake_weights_cnt!=0UL );
   fd_memcpy( stake_weights, compressed_stake_weights, stake_weights_cnt * sizeof(fd_vote_stake_weight_t) );
   epoch_info_msg->staked_cnt        = stake_weights_cnt;

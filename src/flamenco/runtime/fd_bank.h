@@ -283,6 +283,8 @@ struct fd_bank_data {
      allow for cloning the bank state with a simple memcpy. Each
      non-CoW field is just represented as a byte array. */
 
+  fd_rwlock_t lthash_lock;
+
   struct {
     fd_lthash_value_t                 lthash;
     fd_blockhashes_t                  block_hash_queue;
@@ -344,26 +346,12 @@ struct fd_bank_data {
   ulong epoch_leaders_footprint;
 
   uchar top_votes_mem[ FD_TOP_VOTES_MAX_FOOTPRINT ] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
-
-  ulong stake_weights_cnt_off;
-  ulong stake_weights_off;
-
-  ulong stake_weights_cnt_next_off;
-  ulong stake_weights_next_off;
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
 struct fd_banks_locks {
-  fd_rwlock_t top_votes_pool_lock;
-
   fd_rwlock_t vote_stakes_lock;
-
   fd_rwlock_t stake_delegations_delta_lock;
-
-  /* These locks are per bank and are used to atomically update their
-     corresponding fields in each bank.  The locks are indexed by the
-     bank index. */
-  fd_rwlock_t lthash_lock[ FD_BANKS_MAX_BANKS ];
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
 
@@ -379,46 +367,6 @@ struct fd_banks_prune_cancel_info {
   ulong                 bank_idx;
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
-
-static inline void
-fd_bank_set_stake_weights( fd_bank_data_t * bank, uchar * stake_weights_mem ) {
-  bank->stake_weights_off = (ulong)bank - (ulong)stake_weights_mem;
-}
-
-static inline fd_vote_stake_weight_t *
-fd_bank_get_stake_weights( fd_bank_data_t * bank ) {
-  return (fd_vote_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->stake_weights_off );
-}
-
-static inline void
-fd_bank_set_stake_weights_cnt_off( fd_bank_data_t * bank, uchar * stake_weights_cnt_mem ) {
-  bank->stake_weights_cnt_off = (ulong)bank - (ulong)stake_weights_cnt_mem;
-}
-
-static inline ulong *
-fd_bank_get_stake_weights_cnt( fd_bank_data_t * bank ) {
-  return (ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_cnt_off );
-}
-
-static inline void
-fd_bank_set_stake_weights_next( fd_bank_data_t * bank, uchar * stake_weights_mem ) {
-  bank->stake_weights_next_off = (ulong)bank - (ulong)stake_weights_mem;
-}
-
-static inline fd_vote_stake_weight_t *
-fd_bank_get_stake_weights_next( fd_bank_data_t * bank ) {
-  return (fd_vote_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->stake_weights_next_off );
-}
-
-static inline void
-fd_bank_set_stake_weights_cnt_next_off( fd_bank_data_t * bank, uchar * stake_weights_cnt_next_mem ) {
-  bank->stake_weights_cnt_next_off = (ulong)bank - (ulong)stake_weights_cnt_next_mem;
-}
-
-static inline ulong *
-fd_bank_get_stake_weights_cnt_next( fd_bank_data_t * bank ) {
-  return (ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_cnt_next_off );
-}
 
 static inline fd_vote_stakes_t *
 fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank ) {
@@ -532,18 +480,6 @@ struct fd_banks_data {
      root bank. */
 
   ulong stake_delegations_frontier_offset;
-
-  /* Set of compressed stake weights for the leader schedule for the
-     current epoch. */
-
-  fd_vote_stake_weight_t stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
-  ulong                  stake_weights_cnt;
-
-  /* Set of compressed stake weights for the leader schedule for the
-     next epoch. */
-
-  fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
-  ulong                  next_stake_weights_cnt;
 };
 typedef struct fd_banks_data fd_banks_data_t;
 
@@ -851,8 +787,7 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
    should be done when the bank is no longer being updated: it should be
    done at the end of a slot.  This also releases the memory for the
    cost tracker which only has to be persisted from the start of a slot
-   to the end.
-   TODO: bank param should be replaced with bank_idx */
+   to the end. */
 
 void
 fd_banks_mark_bank_frozen( fd_bank_t * bank );

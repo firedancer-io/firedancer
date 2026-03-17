@@ -143,7 +143,7 @@ update_next_leaders( fd_bank_t *          bank,
 
   /* Populate a compressed set of stake weights for a valid leader
      schedule. */
-  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights_next( bank->data );
+  fd_vote_stake_weight_t * stake_weights = runtime_stack->stakes.next_compressed_stake_weights;
   ulong idx = 0UL;
 
   for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
@@ -165,7 +165,7 @@ update_next_leaders( fd_bank_t *          bank,
       idx++;
     }
   }
-  *fd_bank_get_stake_weights_cnt_next( bank->data ) = idx;
+  runtime_stack->stakes.next_compressed_stake_weights_cnt = idx;
 }
 
 void
@@ -203,7 +203,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   /* Populate a compressed set of stake weights for a valid leader
      schedule. */
-  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights( bank->data );
+  fd_vote_stake_weight_t * stake_weights = runtime_stack->stakes.compressed_stake_weights;
   ulong idx = 0UL;
   for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
     fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
@@ -224,7 +224,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
       idx++;
     }
   }
-  *fd_bank_get_stake_weights_cnt( bank->data ) = idx;
+  runtime_stack->stakes.compressed_stake_weights_cnt = idx;
   fd_bank_vote_stakes_end_locking_modify( bank );
 }
 

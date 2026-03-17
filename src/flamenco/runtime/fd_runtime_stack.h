@@ -107,6 +107,18 @@ struct fd_runtime_stack {
 
     fd_epoch_credits_t * epoch_credits;
 
+    /* Set of compressed stake weights for the leader schedule for the
+       current epoch. */
+
+    fd_vote_stake_weight_t compressed_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    ulong                  compressed_stake_weights_cnt;
+
+    /* Set of compressed stake weights for the leader schedule for the
+       next epoch. */
+
+    fd_vote_stake_weight_t next_compressed_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    ulong                  next_compressed_stake_weights_cnt;
+
   } stakes;
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;
