@@ -165,6 +165,7 @@ agave_boot( config_t const * config ) {
   ADDU( "--maximum-incremental-snapshots-to-retain", config->frankendancer.snapshots.maximum_incremental_snapshots_to_retain );
   ADDU( "--maximum-snapshot-download-abort", config->frankendancer.snapshots.maximum_snapshot_download_abort );
   ADDU( "--minimal-snapshot-download-speed", config->frankendancer.snapshots.minimum_snapshot_download_speed );
+  ADD1( "--no-accounts-db-snapshots-direct-io" );
 
   uint replay_threads;
   if( config->frankendancer.layout.agave_unified_scheduler_handler_threads ) {
