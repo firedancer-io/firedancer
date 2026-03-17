@@ -1275,7 +1275,7 @@ static void
 fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
   if( FD_UNLIKELY( gui->validator_info.info_cnt == FD_GUI_MAX_PEER_CNT ) ) {
-    FD_LOG_DEBUG(("validator info cnt exceeds 40200 %lu, ignoring additional entries", gui->validator_info.info_cnt ));
+    FD_LOG_DEBUG(("validator info cnt exceeds 108000 %lu, ignoring additional entries", gui->validator_info.info_cnt ));
     return;
   }
   uchar const * data = (uchar const *)fd_type_pun_const( msg );
@@ -1730,7 +1730,7 @@ void
 fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           fd_epoch_info_msg_t const * epoch_info,
                           long                        now ) {
-  FD_TEST( epoch_info->staked_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( epoch_info->staked_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
   FD_TEST( epoch_info->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = epoch_info->epoch % 2UL;

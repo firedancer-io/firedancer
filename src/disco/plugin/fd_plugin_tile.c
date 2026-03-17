@@ -59,11 +59,11 @@ during_frag( fd_plugin_ctx_t * ctx,
   ctx->sz = sz;
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP && sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
-    FD_TEST( peer_cnt<=40200 );
+    FD_TEST( peer_cnt<=108000UL );
     ctx->sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_POHH || ctx->in_kind[ in_idx ]==IN_KIND_VOTE ) && FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
-    FD_TEST( peer_cnt<=40200 );
+    FD_TEST( peer_cnt<=108000UL );
     ctx->sz = 8UL + peer_cnt*112UL;
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     ulong staked_cnt = ((ulong *)src)[ 1 ];

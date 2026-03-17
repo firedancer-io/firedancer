@@ -1,8 +1,8 @@
 #include "fd_stake_ci.h"
 #include "../../ballet/base58/fd_base58.h"
 
-uchar _stake_ci[ 32UL*1024UL*1024UL ] __attribute__((aligned(128UL)));
-uchar _stake_ci_broadcast[ 32UL*1024UL*1024UL ] __attribute__((aligned(128UL)));
+uchar _stake_ci[ 64UL*1024UL*1024UL ] __attribute__((aligned(128UL)));
+uchar _stake_ci_broadcast[ 64UL*1024UL*1024UL ] __attribute__((aligned(128UL)));
 
 uchar _stake_msg_mem[ FD_STAKE_CI_STAKE_MSG_SZ ];
 

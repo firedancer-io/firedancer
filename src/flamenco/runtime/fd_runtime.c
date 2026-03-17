@@ -113,6 +113,61 @@ fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
   return 0;
 }
 
+static void
+update_next_leaders( fd_bank_t *          bank,
+                     fd_runtime_stack_t * runtime_stack,
+                     fd_vote_stakes_t *   vote_stakes ) {
+
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+
+  ulong epoch    = fd_slot_to_epoch ( epoch_schedule, fd_bank_slot_get( bank ), NULL ) + 1UL;
+  ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
+  ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
+
+  fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
+
+  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
+      epoch_leaders_mem,
+      epoch,
+      slot0,
+      slot_cnt,
+      stake_weight_cnt,
+      epoch_weights,
+      0UL,
+      (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank ) ) );
+  if( FD_UNLIKELY( !leaders ) ) {
+    FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
+  }
+
+  /* Populate a compressed set of stake weights for a valid leader
+     schedule. */
+  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights_next( bank->data );
+  ulong idx = 0UL;
+
+  for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
+    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
+    fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
+    ulong               stake       = epoch_weights[i].stake;
+
+    if( FD_LIKELY( fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
+      stake_weights[ idx ].stake = stake;
+      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
+      idx++;
+    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
+      stake_weights[ idx-1UL ].stake += stake;
+    } else {
+      stake_weights[ idx ].id_key   = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].vote_key = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].stake    = stake;
+      idx++;
+    }
+  }
+  *fd_bank_get_stake_weights_cnt_next( bank->data ) = idx;
+}
+
 void
 fd_runtime_update_leaders( fd_bank_t *          bank,
                            fd_runtime_stack_t * runtime_stack ) {
@@ -123,10 +178,12 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_vote_stakes_t *       vote_stakes      = fd_bank_vote_stakes_locking_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+
+  update_next_leaders( bank, runtime_stack, vote_stakes );
+
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
-  fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
@@ -143,6 +200,32 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   if( FD_UNLIKELY( !leaders ) ) {
     FD_LOG_ERR(( "Unable to init and join fd_epoch_leaders" ));
   }
+
+  /* Populate a compressed set of stake weights for a valid leader
+     schedule. */
+  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights( bank->data );
+  ulong idx = 0UL;
+  for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
+    fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
+    fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
+    ulong               stake       = epoch_weights[i].stake;
+
+    if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
+      stake_weights[ idx ].stake = stake;
+      memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
+      memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
+      idx++;
+    } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
+      stake_weights[ idx-1UL ].stake += stake;
+    } else {
+      stake_weights[ idx ].id_key   = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].vote_key = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].stake    = stake;
+      idx++;
+    }
+  }
+  *fd_bank_get_stake_weights_cnt( bank->data ) = idx;
+  fd_bank_vote_stakes_end_locking_modify( bank );
 }
 
 /******************************************************************************/

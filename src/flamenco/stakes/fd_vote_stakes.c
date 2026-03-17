@@ -155,7 +155,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
   index_ele_t * ele     = index_pool_ele_acquire( index_pool );
   ele->pubkey           = *pubkey;
   ele->refcnt           = 1;
-  ele->stake_t_1        = stake_t_1  & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+  ele->stake_t_1        = stake_t_1 & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
   ele->node_account_t_1 = *node_account_t_1;
   ele->stake_t_2        = 0UL;
   ele->node_account_t_2 = (fd_pubkey_t){0};

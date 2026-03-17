@@ -35,8 +35,6 @@ struct fd_gossip_tile_ctx {
   long   last_wallclock;
   long   last_tickcount;
 
-  fd_stake_weight_t * stake_weights_converted;
-
   fd_gossip_in_ctx_t in[ 128UL ];
 
   fd_gossip_out_ctx_t net_out[ 1 ];
@@ -54,6 +52,7 @@ struct fd_gossip_tile_ctx {
   fd_rng_t          rng[ 1 ];
 
 
+  /* FIXME: Get rid of this and use the stake map instead. */
   /* The condition for complete = 1 is 80% of the cluster has joined
      gossip. "joining gossip" is based on contact info CRDS values
      with a wallclock timestamp in the last 15 seconds.

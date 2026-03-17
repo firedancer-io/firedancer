@@ -21,6 +21,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_accdb_pipe.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../util/pod/fd_pod.h"
@@ -146,8 +147,8 @@ struct fd_tower_tile {
   fd_tower_stakes_t * tower_stakes; /* tracks the stakes for each voter in the epoch per fork */
   fd_tower_voters_t * tower_voters;
 
-  publish_t *     publishes; /* deque of slot_confirmed msgs queued for publishing */
-  fd_stake_ci_t * stake_ci;  /* stake ci from replay_epoch */
+  publish_t *                publishes; /* deque of slot_confirmed msgs queued for publishing */
+  fd_multi_epoch_leaders_t * mleaders; /* multi-epoch leaders */
 
   /* borrowed joins */
 
@@ -161,6 +162,8 @@ struct fd_tower_tile {
   ulong                         notar_reindex[FD_VOTER_MAX];
   fd_hash_t                     notar_removed[FD_VOTER_MAX];
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
+
+  uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
   /* metadata */
 
@@ -1036,7 +1039,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_stakes_align(),  fd_tower_stakes_footprint( slot_max )                 );
   l = FD_LAYOUT_APPEND( l, fd_tower_voters_align(),  fd_tower_voters_footprint( FD_VOTER_MAX )             );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                        );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),      fd_stake_ci_footprint()                               );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1179,8 +1181,8 @@ returnable_frag( fd_tower_tile_t *   ctx,
     return 0;
   }
   case IN_KIND_EPOCH: {
-    fd_stake_ci_epoch_msg_init( ctx->stake_ci, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
-    fd_stake_ci_epoch_msg_fini( ctx->stake_ci );
+    fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
+    fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
     return 0;
   }
   case IN_KIND_GOSSIP: {
@@ -1188,7 +1190,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
       fd_gossip_update_message_t const  * msg             = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
       fd_gossip_duplicate_shred_t const * duplicate_shred = msg->duplicate_shred;
       fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin );
-      fd_epoch_leaders_t const *          lsched          = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, duplicate_shred->slot );
+      fd_epoch_leaders_t const *          lsched          = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, duplicate_shred->slot );
       fd_tower_slot_duplicate_t         * out             = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       int eqvoc_err = fd_eqvoc_chunk_insert( ctx->eqvoc, ctx->shred_version, ctx->root_slot, lsched, from, duplicate_shred, out->chunks );
       record_eqvoc_metric( ctx, eqvoc_err );
@@ -1233,7 +1235,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
     if( FD_LIKELY( sz==FD_SHRED_MIN_SZ || sz==FD_SHRED_MAX_SZ ) ) { /* TODO depends on pending shred_out changes */
       fd_shred_t                * shred = (fd_shred_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       fd_tower_slot_duplicate_t * out   = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-      fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
+      fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, shred->slot );
       int eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, ctx->shred_version, ctx->root_slot, lsched, shred, out->chunks );
       record_eqvoc_metric( ctx, eqvoc_err );
       if( FD_UNLIKELY( eqvoc_err>0 ) ) {
@@ -1321,7 +1323,6 @@ unprivileged_init( fd_topo_t *      topo,
   void  * tower_stakes  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_align(),  fd_tower_stakes_footprint( slot_max )                 );
   void  * tower_voters  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_voters_align(),  fd_tower_voters_footprint( FD_VOTER_MAX )             );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                        );
-  void  * stake_ci      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),      fd_stake_ci_footprint()                               );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ctx->wksp               = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
@@ -1340,7 +1341,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower_stakes       = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes, slot_max, ctx->seed )                                     );
   ctx->tower_voters       = fd_tower_voters_join( fd_tower_voters_new( tower_voters, FD_VOTER_MAX )                                            );
   ctx->publishes          = publishes_join      ( publishes_new      ( publishes, pub_max )                                                    );
-  ctx->stake_ci           = fd_stake_ci_join    ( fd_stake_ci_new    ( stake_ci, ctx->identity_key )                                           );
+  ctx->mleaders           = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
 
   FD_TEST( ctx->wksp  );
   FD_TEST( ctx->identity_keyswitch );
@@ -1358,7 +1359,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->tower_stakes );
   FD_TEST( ctx->tower_voters );
   FD_TEST( ctx->publishes );
-  FD_TEST( ctx->stake_ci );
 
   memset( ctx->chunks, 0, sizeof(ctx->chunks) );
   memset( &ctx->compact_tower_sync_serde, 0, sizeof(ctx->compact_tower_sync_serde) );
