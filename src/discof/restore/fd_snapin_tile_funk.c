@@ -49,7 +49,7 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   ulong const alloc_sz = sizeof(fd_account_meta_t)+result->account_header.data_len;
   ulong       alloc_max;
   meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of memory while loading snapshot (increase [accounts.file_size_gib])" ));
   memset( meta, 0, sizeof(fd_account_meta_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
@@ -103,7 +103,7 @@ streamlined_insert( fd_snapin_tile_t * ctx,
   ulong const alloc_sz = sizeof(fd_account_meta_t)+data_len;
   ulong       alloc_max;
   fd_account_meta_t * meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of memory while loading snapshot (increase [accounts.file_size_gib])" ));
   memset( meta, 0, sizeof(fd_account_meta_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
