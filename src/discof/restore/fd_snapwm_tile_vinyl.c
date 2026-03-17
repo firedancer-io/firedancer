@@ -355,6 +355,9 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx,
   int commit_err = fd_vinyl_io_commit( io, FD_VINYL_IO_FLAG_BLOCKING );
   if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
 
+  /* Zero out txn_active before any return path. */
+  ctx->vinyl.txn_active = 0;
+
   /* Hint to kernel to start prefetching to speed up reads */
 
   uchar * mmio      = fd_vinyl_mmio   ( io ); FD_TEST( mmio );
@@ -476,6 +479,7 @@ fd_snapwm_vinyl_txn_cancel( fd_snapwm_tile_t * ctx ) {
   fd_vinyl_io_t * io = ctx->vinyl.io_mm;
   fd_vinyl_io_rewind( io, ctx->vinyl.txn_seq );
   fd_vinyl_io_sync  ( io, FD_VINYL_IO_FLAG_BLOCKING );
+  ctx->vinyl.txn_active = 0;
 }
 
 /* Fast writer ********************************************************/
