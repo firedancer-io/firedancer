@@ -211,22 +211,44 @@ fd_secp256r1_point_eq_mixed( fd_secp256r1_point_t const * a,
   }
 }
 
+/* Adds projective point `a` and affine-Montgomery point `b`, both
+   in Montgomery domain. Handles identity elements and the equal-point
+   (doubling) case. */
+static inline void
+fd_secp256r1_point_add_mixed( fd_secp256r1_point_t *       r,
+                              fd_secp256r1_point_t const * a,
+                              ulong                        b[ 8 ] ) {
+  int b_is_zero = fd_uint256_eq( (fd_uint256_t const *)(b+0), fd_secp256r1_const_zero ) &
+                  fd_uint256_eq( (fd_uint256_t const *)(b+4), fd_secp256r1_const_zero );
+
+  if( FD_UNLIKELY( b_is_zero ) ) {
+    /* a + 0 = a */
+    if( r != a ) fd_memcpy( r, a, sizeof(fd_secp256r1_point_t) );
+    return;
+  }
+
+  if( FD_UNLIKELY( fd_secp256r1_point_eq_mixed( a, b ) ) ) {
+    p256_montjdouble( (ulong *)r, (ulong *)a );
+  } else {
+    /* Also handles a == 0 and a == -b */
+    p256_montjmixadd( (ulong *)r, (ulong *)a, b );
+  }
+}
+
 static inline void
 fd_secp256r1_double_scalar_mul_base( fd_secp256r1_point_t *        r,
                                      fd_secp256r1_scalar_t const * u1,
                                      fd_secp256r1_point_t const *  a,
                                      fd_secp256r1_scalar_t const * u2 ) {
-  /* u1*G + u2*A */
+  /* u1*G */
   ulong rtmp[ 8 ];
   p256_scalarmulbase( rtmp, (ulong *)u1->limbs, 6, (ulong *)fd_secp256r1_base_point_table );
   bignum_tomont_p256( rtmp, rtmp );
   bignum_tomont_p256( rtmp+4, rtmp+4 );
 
+  /* u2*A */
   p256_montjscalarmul( (ulong *)r, (ulong *)u2->limbs, (ulong *)a );
 
-  if( FD_UNLIKELY( fd_secp256r1_point_eq_mixed( r, rtmp ) ) ) {
-    p256_montjdouble( (ulong *)r, (ulong *)r );
-  } else {
-    p256_montjmixadd( (ulong *)r, (ulong *)r, rtmp );
-  }
+  /* u1*G + u2*A */
+  fd_secp256r1_point_add_mixed( r, r, rtmp );
 }
