@@ -7,7 +7,7 @@ DUMP=${DUMP:="./dump"}
 OBJDIR=${OBJDIR:-build/native/gcc}
 SKIP_INGEST=${SKIP_INGEST:-0}
 
-LEDGER="mainnet-376969880-solcap"
+LEDGER="mainnet-406545575-solcap"
 REDOWNLOAD=1
 
 while [[ $# -gt 0 ]]; do
@@ -42,11 +42,8 @@ download_and_extract_ledger() {
   gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
 }
 
-if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+if [[ ! -e $DUMP/$LEDGER ]]; then
   download_and_extract_ledger
-  create_checksum
-else
-  check_ledger_checksum_and_redownload
 fi
 
 # Clone and build solcap-tools
@@ -56,15 +53,15 @@ if [ ! -d "solcap-tools" ]; then
   git clone https://github.com/firedancer-io/solcap-tools.git > /dev/null 2>&1
 fi
 cd solcap-tools
-git fetch origin > /dev/null 2>&1
-git checkout nishk/bp-fixes > /dev/null 2>&1
-git reset --hard origin/nishk/bp-fixes > /dev/null 2>&1
+git checkout main > /dev/null 2>&1
+git pull > /dev/null 2>&1
 cargo build --release > /dev/null 2>&1
 cd "$ORIG_DIR"
 
 export ledger_dir=$(realpath $DUMP/$LEDGER)
+export dump_dir=$(realpath $DUMP)
 
-cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
+cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
 
 [snapshots]
     incremental_snapshots = false
@@ -81,10 +78,9 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
 [tiles]
     [tiles.archiver]
         enabled = true
-        end_slot = 376969900
+        end_slot = 406545600
         rocksdb_path = "${ledger_dir}/rocksdb"
-        shredcap_path = "${ledger_dir}/shreds.pcapng.zst"
-        ingest_mode = "shredcap"
+        ingest_mode = "rocksdb"
     [tiles.replay]
         enable_features = [  ]
     [tiles.gui]
@@ -92,8 +88,8 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
     [tiles.rpc]
         enabled = false
 [accounts]
-    file_size_gib = 1
-    max_accounts = 2000000
+    file_size_gib = 5
+    max_accounts = 4000000
 [runtime]
     max_live_slots = 64
     max_fork_width = 4
@@ -105,7 +101,7 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
     snapshots = "${ledger_dir}"
 
 [capture]
-    solcap_capture = "${ledger_dir}/mainnet-376969880-solcap.solcap"
+    solcap_capture = "${dump_dir}/mainnet-406545575.solcap"
 [development]
     [development.snapshots]
         disable_lthash_verification = true
@@ -114,10 +110,10 @@ cat > "$DUMP/$LEDGER/mainnet-376969880_current.toml" << EOF
 EOF
 
 $OBJDIR/bin/firedancer-dev configure fini all
-$OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/mainnet-376969880_current.toml
+$OBJDIR/bin/firedancer-dev backtest --config $DUMP/mainnet-406545575-solcap_current.toml
 
 # Run solcap-tools diff and check the summary for zero differences
-DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/$LEDGER/mainnet-376969880-solcap.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
+DIFF_OUTPUT=$($DUMP/solcap-tools/target/release/solcap-tools diff $DUMP/mainnet-406545575.solcap $DUMP/$LEDGER/ledger_tool/bank_hash_details/ -v 5)
 echo "$DIFF_OUTPUT"
 
 SUMMARY=$(echo "$DIFF_OUTPUT" | tail -3) > /dev/null 2>&1
