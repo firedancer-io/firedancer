@@ -1,6 +1,6 @@
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_pipe.h"
-#include "../runtime/program/fd_stake_program.h"
+#include "fd_stakes.h"
 
 #define POOL_NAME  stake_delegation_pool
 #define POOL_T     fd_stake_delegation_t
@@ -355,7 +355,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) goto remove;
 
       fd_stake_state_v2_t stake;
-      int err = fd_stake_get_state( ro->meta, &stake );
+      int err = fd_stakes_get_state( ro->meta, &stake );
       if( FD_UNLIKELY( err ) ) goto remove;
       if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake ) ) ) goto remove;
 

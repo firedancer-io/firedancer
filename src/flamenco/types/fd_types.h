@@ -1095,106 +1095,6 @@ struct fd_stake_lockup {
 typedef struct fd_stake_lockup fd_stake_lockup_t;
 #define FD_STAKE_LOCKUP_ALIGN alignof(fd_stake_lockup_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L68 */
-/* Encoded Size: Fixed (112 bytes) */
-struct fd_stake_instruction_initialize {
-  fd_stake_authorized_t authorized;
-  fd_stake_lockup_t lockup;
-};
-typedef struct fd_stake_instruction_initialize fd_stake_instruction_initialize_t;
-#define FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN alignof(fd_stake_instruction_initialize_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L78 */
-/* Encoded Size: Dynamic */
-struct fd_stake_lockup_custodian_args {
-  fd_stake_lockup_t lockup;
-  fd_sol_sysvar_clock_t clock;
-  fd_pubkey_t * custodian;
-};
-typedef struct fd_stake_lockup_custodian_args fd_stake_lockup_custodian_args_t;
-#define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_ALIGN alignof(fd_stake_lockup_custodian_args_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L117 */
-struct fd_stake_authorize {
-  uint discriminant;
-};
-typedef struct fd_stake_authorize fd_stake_authorize_t;
-#define FD_STAKE_AUTHORIZE_ALIGN alignof(fd_stake_authorize_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L78 */
-/* Encoded Size: Fixed (36 bytes) */
-struct fd_stake_instruction_authorize {
-  fd_pubkey_t pubkey;
-  fd_stake_authorize_t stake_authorize;
-};
-typedef struct fd_stake_instruction_authorize fd_stake_instruction_authorize_t;
-#define FD_STAKE_INSTRUCTION_AUTHORIZE_ALIGN alignof(fd_stake_instruction_authorize_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L241 */
-/* Encoded Size: Dynamic */
-struct fd_authorize_with_seed_args {
-  fd_pubkey_t new_authorized_pubkey;
-  fd_stake_authorize_t stake_authorize;
-  ulong authority_seed_len;
-  uchar* authority_seed;
-  fd_pubkey_t authority_owner;
-};
-typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
-#define FD_AUTHORIZE_WITH_SEED_ARGS_ALIGN alignof(fd_authorize_with_seed_args_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249 */
-/* Encoded Size: Dynamic */
-struct fd_authorize_checked_with_seed_args {
-  fd_stake_authorize_t stake_authorize;
-  ulong authority_seed_len;
-  uchar* authority_seed;
-  fd_pubkey_t authority_owner;
-};
-typedef struct fd_authorize_checked_with_seed_args fd_authorize_checked_with_seed_args_t;
-#define FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN alignof(fd_authorize_checked_with_seed_args_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L235 */
-/* Encoded Size: Dynamic */
-struct fd_lockup_checked_args {
-  long* unix_timestamp;
-  ulong* epoch;
-};
-typedef struct fd_lockup_checked_args fd_lockup_checked_args_t;
-#define FD_LOCKUP_CHECKED_ARGS_ALIGN alignof(fd_lockup_checked_args_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L228 */
-/* Encoded Size: Dynamic */
-struct fd_lockup_args {
-  long* unix_timestamp;
-  ulong* epoch;
-  fd_pubkey_t * custodian;
-};
-typedef struct fd_lockup_args fd_lockup_args_t;
-#define FD_LOCKUP_ARGS_ALIGN alignof(fd_lockup_args_t)
-
-union fd_stake_instruction_inner {
-  fd_stake_instruction_initialize_t initialize;
-  fd_stake_instruction_authorize_t authorize;
-  ulong split;
-  ulong withdraw;
-  fd_lockup_args_t set_lockup;
-  fd_authorize_with_seed_args_t authorize_with_seed;
-  fd_stake_authorize_t authorize_checked;
-  fd_authorize_checked_with_seed_args_t authorize_checked_with_seed;
-  fd_lockup_checked_args_t set_lockup_checked;
-  ulong move_stake;
-  ulong move_lamports;
-};
-typedef union fd_stake_instruction_inner fd_stake_instruction_inner_t;
-
-/* https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/sdk/program/src/stake/instruction.rs#L96 */
-struct fd_stake_instruction {
-  uint discriminant;
-  fd_stake_instruction_inner_t inner;
-};
-typedef struct fd_stake_instruction fd_stake_instruction_t;
-#define FD_STAKE_INSTRUCTION_ALIGN alignof(fd_stake_instruction_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248 */
 /* Encoded Size: Fixed (120 bytes) */
 struct fd_stake_meta {
@@ -1307,15 +1207,6 @@ struct fd_compute_budget_program_instruction {
 };
 typedef struct fd_compute_budget_program_instruction fd_compute_budget_program_instruction_t;
 #define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN alignof(fd_compute_budget_program_instruction_t)
-
-/* https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/lib.rs#L32 */
-/* Encoded Size: Dynamic */
-struct fd_config_keys {
-  ushort keys_len;
-  fd_config_keys_pair_t * keys;
-};
-typedef struct fd_config_keys fd_config_keys_t;
-#define FD_CONFIG_KEYS_ALIGN alignof(fd_config_keys_t)
 
 /* Encoded Size: Dynamic */
 struct fd_bpf_loader_program_instruction_write {
@@ -1526,36 +1417,6 @@ struct fd_address_lookup_table_state {
 };
 typedef struct fd_address_lookup_table_state fd_address_lookup_table_state_t;
 #define FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN alignof(fd_address_lookup_table_state_t)
-
-/* Encoded Size: Fixed (9 bytes) */
-struct fd_addrlut_create {
-  ulong recent_slot;
-  uchar bump_seed;
-};
-typedef struct fd_addrlut_create fd_addrlut_create_t;
-#define FD_ADDRLUT_CREATE_ALIGN alignof(fd_addrlut_create_t)
-
-/* Encoded Size: Dynamic */
-struct fd_addrlut_extend {
-  ulong new_addrs_len;
-  fd_pubkey_t * new_addrs;
-};
-typedef struct fd_addrlut_extend fd_addrlut_extend_t;
-#define FD_ADDRLUT_EXTEND_ALIGN alignof(fd_addrlut_extend_t)
-
-union fd_addrlut_instruction_inner {
-  fd_addrlut_create_t create_lut;
-  fd_addrlut_extend_t extend_lut;
-};
-typedef union fd_addrlut_instruction_inner fd_addrlut_instruction_inner_t;
-
-/* https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13 */
-struct fd_addrlut_instruction {
-  uint discriminant;
-  fd_addrlut_instruction_inner_t inner;
-};
-typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
-#define FD_ADDRLUT_INSTRUCTION_ALIGN alignof(fd_addrlut_instruction_t)
 
 
 FD_PROTOTYPES_BEGIN
@@ -2349,119 +2210,6 @@ static inline int fd_stake_lockup_decode_footprint( fd_bincode_decode_ctx_t * ct
 }
 void * fd_stake_lockup_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-static inline void fd_stake_instruction_initialize_new( fd_stake_instruction_initialize_t * self ) { fd_memset( self, 0, sizeof(fd_stake_instruction_initialize_t) ); }
-int fd_stake_instruction_initialize_encode( fd_stake_instruction_initialize_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_instruction_initialize_size( fd_stake_instruction_initialize_t const * self ) { (void)self; return 112UL; }
-static inline ulong fd_stake_instruction_initialize_align( void ) { return FD_STAKE_INSTRUCTION_INITIALIZE_ALIGN; }
-static inline int fd_stake_instruction_initialize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_instruction_initialize_t);
-  if( (ulong)ctx->data + 112UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_instruction_initialize_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_stake_lockup_custodian_args_new( fd_stake_lockup_custodian_args_t * self );
-int fd_stake_lockup_custodian_args_encode( fd_stake_lockup_custodian_args_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_stake_lockup_custodian_args_size( fd_stake_lockup_custodian_args_t const * self );
-static inline ulong fd_stake_lockup_custodian_args_align( void ) { return FD_STAKE_LOCKUP_CUSTODIAN_ARGS_ALIGN; }
-int fd_stake_lockup_custodian_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_lockup_custodian_args_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_stake_authorize_new_disc( fd_stake_authorize_t * self, uint discriminant ) { self->discriminant = discriminant; }
-static inline void fd_stake_authorize_new( fd_stake_authorize_t * self ) { self->discriminant = (uint)ULONG_MAX; }
-int fd_stake_authorize_encode( fd_stake_authorize_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_stake_authorize_size( fd_stake_authorize_t const * self );
-static inline ulong fd_stake_authorize_align( void ) { return FD_STAKE_AUTHORIZE_ALIGN; }
-int fd_stake_authorize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_authorize_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_stake_authorize_is_staker( fd_stake_authorize_t const * self );
-FD_FN_PURE uchar fd_stake_authorize_is_withdrawer( fd_stake_authorize_t const * self );
-enum {
-fd_stake_authorize_enum_staker = 0,
-fd_stake_authorize_enum_withdrawer = 1,
-};
-void fd_stake_instruction_authorize_new( fd_stake_instruction_authorize_t * self );
-int fd_stake_instruction_authorize_encode( fd_stake_instruction_authorize_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_instruction_authorize_size( fd_stake_instruction_authorize_t const * self ) { (void)self; return 36UL; }
-static inline ulong fd_stake_instruction_authorize_align( void ) { return FD_STAKE_INSTRUCTION_AUTHORIZE_ALIGN; }
-int fd_stake_instruction_authorize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_instruction_authorize_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_authorize_with_seed_args_new( fd_authorize_with_seed_args_t * self );
-int fd_authorize_with_seed_args_encode( fd_authorize_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_authorize_with_seed_args_size( fd_authorize_with_seed_args_t const * self );
-static inline ulong fd_authorize_with_seed_args_align( void ) { return FD_AUTHORIZE_WITH_SEED_ARGS_ALIGN; }
-int fd_authorize_with_seed_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_authorize_with_seed_args_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_authorize_checked_with_seed_args_new( fd_authorize_checked_with_seed_args_t * self );
-int fd_authorize_checked_with_seed_args_encode( fd_authorize_checked_with_seed_args_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_authorize_checked_with_seed_args_size( fd_authorize_checked_with_seed_args_t const * self );
-static inline ulong fd_authorize_checked_with_seed_args_align( void ) { return FD_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN; }
-int fd_authorize_checked_with_seed_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_authorize_checked_with_seed_args_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_lockup_checked_args_new( fd_lockup_checked_args_t * self );
-int fd_lockup_checked_args_encode( fd_lockup_checked_args_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_lockup_checked_args_size( fd_lockup_checked_args_t const * self );
-static inline ulong fd_lockup_checked_args_align( void ) { return FD_LOCKUP_CHECKED_ARGS_ALIGN; }
-int fd_lockup_checked_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_lockup_checked_args_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_lockup_args_new( fd_lockup_args_t * self );
-int fd_lockup_args_encode( fd_lockup_args_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_lockup_args_size( fd_lockup_args_t const * self );
-static inline ulong fd_lockup_args_align( void ) { return FD_LOCKUP_ARGS_ALIGN; }
-int fd_lockup_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_lockup_args_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_stake_instruction_new_disc( fd_stake_instruction_t * self, uint discriminant );
-void fd_stake_instruction_new( fd_stake_instruction_t * self );
-int fd_stake_instruction_encode( fd_stake_instruction_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_stake_instruction_size( fd_stake_instruction_t const * self );
-static inline ulong fd_stake_instruction_align( void ) { return FD_STAKE_INSTRUCTION_ALIGN; }
-int fd_stake_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_stake_instruction_is_initialize( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_authorize( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_delegate_stake( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_split( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_withdraw( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_deactivate( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_set_lockup( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_merge( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_authorize_with_seed( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_initialize_checked( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_authorize_checked_with_seed( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_set_lockup_checked( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_get_minimum_delegation( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_deactivate_delinquent( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_redelegate( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_move_stake( fd_stake_instruction_t const * self );
-FD_FN_PURE uchar fd_stake_instruction_is_move_lamports( fd_stake_instruction_t const * self );
-enum {
-fd_stake_instruction_enum_initialize = 0,
-fd_stake_instruction_enum_authorize = 1,
-fd_stake_instruction_enum_delegate_stake = 2,
-fd_stake_instruction_enum_split = 3,
-fd_stake_instruction_enum_withdraw = 4,
-fd_stake_instruction_enum_deactivate = 5,
-fd_stake_instruction_enum_set_lockup = 6,
-fd_stake_instruction_enum_merge = 7,
-fd_stake_instruction_enum_authorize_with_seed = 8,
-fd_stake_instruction_enum_initialize_checked = 9,
-fd_stake_instruction_enum_authorize_checked = 10,
-fd_stake_instruction_enum_authorize_checked_with_seed = 11,
-fd_stake_instruction_enum_set_lockup_checked = 12,
-fd_stake_instruction_enum_get_minimum_delegation = 13,
-fd_stake_instruction_enum_deactivate_delinquent = 14,
-fd_stake_instruction_enum_redelegate = 15,
-fd_stake_instruction_enum_move_stake = 16,
-fd_stake_instruction_enum_move_lamports = 17,
-};
 static inline void fd_stake_meta_new( fd_stake_meta_t * self ) { fd_memset( self, 0, sizeof(fd_stake_meta_t) ); }
 int fd_stake_meta_encode( fd_stake_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
 static inline ulong fd_stake_meta_size( fd_stake_meta_t const * self ) { (void)self; return 120UL; }
@@ -2594,13 +2342,6 @@ fd_compute_budget_program_instruction_enum_set_compute_unit_limit = 2,
 fd_compute_budget_program_instruction_enum_set_compute_unit_price = 3,
 fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit = 4,
 };
-void fd_config_keys_new( fd_config_keys_t * self );
-int fd_config_keys_encode( fd_config_keys_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_config_keys_size( fd_config_keys_t const * self );
-static inline ulong fd_config_keys_align( void ) { return FD_CONFIG_KEYS_ALIGN; }
-int fd_config_keys_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_config_keys_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 void fd_bpf_loader_program_instruction_write_new( fd_bpf_loader_program_instruction_write_t * self );
 int fd_bpf_loader_program_instruction_write_encode( fd_bpf_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_bpf_loader_program_instruction_write_size( fd_bpf_loader_program_instruction_write_t const * self );
@@ -2845,44 +2586,6 @@ FD_FN_PURE uchar fd_address_lookup_table_state_is_lookup_table( fd_address_looku
 enum {
 fd_address_lookup_table_state_enum_uninitialized = 0,
 fd_address_lookup_table_state_enum_lookup_table = 1,
-};
-static inline void fd_addrlut_create_new( fd_addrlut_create_t * self ) { fd_memset( self, 0, sizeof(fd_addrlut_create_t) ); }
-int fd_addrlut_create_encode( fd_addrlut_create_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_addrlut_create_size( fd_addrlut_create_t const * self ) { (void)self; return 9UL; }
-static inline ulong fd_addrlut_create_align( void ) { return FD_ADDRLUT_CREATE_ALIGN; }
-static inline int fd_addrlut_create_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_addrlut_create_t);
-  if( (ulong)ctx->data + 9UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_addrlut_create_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_addrlut_extend_new( fd_addrlut_extend_t * self );
-int fd_addrlut_extend_encode( fd_addrlut_extend_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_addrlut_extend_size( fd_addrlut_extend_t const * self );
-static inline ulong fd_addrlut_extend_align( void ) { return FD_ADDRLUT_EXTEND_ALIGN; }
-int fd_addrlut_extend_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_addrlut_extend_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_addrlut_instruction_new_disc( fd_addrlut_instruction_t * self, uint discriminant );
-void fd_addrlut_instruction_new( fd_addrlut_instruction_t * self );
-int fd_addrlut_instruction_encode( fd_addrlut_instruction_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_addrlut_instruction_size( fd_addrlut_instruction_t const * self );
-static inline ulong fd_addrlut_instruction_align( void ) { return FD_ADDRLUT_INSTRUCTION_ALIGN; }
-int fd_addrlut_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_addrlut_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_addrlut_instruction_is_create_lut( fd_addrlut_instruction_t const * self );
-FD_FN_PURE uchar fd_addrlut_instruction_is_freeze_lut( fd_addrlut_instruction_t const * self );
-FD_FN_PURE uchar fd_addrlut_instruction_is_extend_lut( fd_addrlut_instruction_t const * self );
-FD_FN_PURE uchar fd_addrlut_instruction_is_deactivate_lut( fd_addrlut_instruction_t const * self );
-FD_FN_PURE uchar fd_addrlut_instruction_is_close_lut( fd_addrlut_instruction_t const * self );
-enum {
-fd_addrlut_instruction_enum_create_lut = 0,
-fd_addrlut_instruction_enum_freeze_lut = 1,
-fd_addrlut_instruction_enum_extend_lut = 2,
-fd_addrlut_instruction_enum_deactivate_lut = 3,
-fd_addrlut_instruction_enum_close_lut = 4,
 };
 FD_PROTOTYPES_END
 
