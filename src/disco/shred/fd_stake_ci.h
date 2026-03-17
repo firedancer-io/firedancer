@@ -60,7 +60,7 @@ struct fd_stake_ci {
     ulong vote_keyed_lsched;
   } scratch[1];
 
-  fd_vote_stake_weight_t   vote_stake_weight[ MAX_SHRED_DESTS ];
+  fd_vote_stake_weight_t   vote_stake_weight[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   fd_stake_weight_t        stake_weight     [ MAX_SHRED_DESTS ];
   fd_shred_dest_weighted_t shred_dest       [ MAX_SHRED_DESTS ];
 
