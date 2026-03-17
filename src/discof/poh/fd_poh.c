@@ -276,7 +276,10 @@ fd_poh_done_packing( fd_poh_t * poh,
                 microblocks_in_slot ));
   FD_TEST( poh->microblocks_lower_bound==microblocks_in_slot );
   FD_TEST( poh->microblocks_lower_bound<=poh->max_microblocks_per_slot );
-  poh->microblocks_lower_bound += poh->max_microblocks_per_slot - microblocks_in_slot;
+
+  poh->microblocks_lower_bound += 1UL /* done_packing as a phantom "microblock"*/
+                                + (poh->max_microblocks_per_slot-1UL) /* the canonical microblock limit */
+                                - microblocks_in_slot /* the actual microblock count */;
   FD_TEST( poh->microblocks_lower_bound==poh->max_microblocks_per_slot );
 }
 

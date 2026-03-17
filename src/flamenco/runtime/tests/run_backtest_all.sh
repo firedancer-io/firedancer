@@ -104,3 +104,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l limit_instruction_accounts -y 1 -m 1000 -e 290
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enshrine_slashing_program -y 1 -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l create_account_allow_prefund -y 1 -m 1000 -e 520
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_programdata_account_check_migration -y 1 -m 1000 -e 260
