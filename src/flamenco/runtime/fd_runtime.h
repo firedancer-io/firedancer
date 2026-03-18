@@ -353,18 +353,13 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
 /* fd_runtime_block_execute_finalize finishes the execution of the block
    by paying a fee out to the block leader, updating any sysvars, and
-   updating the bank hash.  hard_forks, hard_forks_cnts, and
-   hard_forks_cnt are passed through to the hard-fork bank hash mixing
-   step.  The required updates are made to the bank and the accounts
-   database. */
+   updating the bank hash.  The required updates are made to the bank
+   and the accounts database. */
 
 void
 fd_runtime_block_execute_finalize( fd_bank_t *        bank,
-                                   fd_accdb_user_t *  accdb,
-                                   fd_capture_ctx_t * capture_ctx,
-                                   ulong const *      hard_forks,
-                                   ulong const *      hard_forks_cnts,
-                                   ulong              hard_forks_cnt );
+                                   fd_accdb_user_t  * accdb,
+                                   fd_capture_ctx_t * capture_ctx );
 
 /* fd_runtime_prepare_and_execute_txn is responsible for executing a
    fd_txn_in_t against a fd_runtime_t and a fd_bank_t.  The results of

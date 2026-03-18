@@ -784,10 +784,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
 static void
 fd_runtime_update_bank_hash( fd_bank_t *        bank,
-                             fd_capture_ctx_t * capture_ctx,
-                             ulong const *      hard_forks,
-                             ulong const *      hard_forks_cnts,
-                             ulong              hard_forks_cnt ) {
+                             fd_capture_ctx_t * capture_ctx ) {
   /* Save the previous bank hash, and the parents signature count */
   fd_hash_t const * prev_bank_hash = NULL;
   if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
@@ -799,9 +796,6 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
 
   fd_bank_parent_signature_cnt_set( bank, fd_bank_signature_count_get( bank ) );
 
-  /* hard_forks_cnt must be a real count, not a sentinel value. */
-  FD_TEST( hard_forks_cnt!=ULONG_MAX );
-
   /* Compute the new bank hash */
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
   fd_hash_t new_bank_hash[1] = { 0 };
@@ -811,13 +805,6 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
       (fd_hash_t *)fd_bank_poh_query( bank )->hash,
       fd_bank_signature_count_get( bank ),
       new_bank_hash );
-  fd_hashes_apply_hard_forks(
-      new_bank_hash,
-      fd_bank_slot_get( bank ),
-      fd_bank_parent_slot_get( bank ),
-      hard_forks,
-      hard_forks_cnts,
-      hard_forks_cnt );
 
   /* Update the bank hash */
   fd_bank_bank_hash_set( bank, *new_bank_hash );
@@ -1723,15 +1710,12 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
 void
 fd_runtime_block_execute_finalize( fd_bank_t *        bank,
                                    fd_accdb_user_t *  accdb,
-                                   fd_capture_ctx_t * capture_ctx,
-                                   ulong const *      hard_forks,
-                                   ulong const *      hard_forks_cnts,
-                                   ulong              hard_forks_cnt ) {
+                                   fd_capture_ctx_t * capture_ctx ) {
 
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( bank, accdb, capture_ctx );
 
-  fd_runtime_update_bank_hash( bank, capture_ctx, hard_forks, hard_forks_cnts, hard_forks_cnt );
+  fd_runtime_update_bank_hash( bank, capture_ctx );
 }
 
 
