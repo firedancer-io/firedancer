@@ -567,6 +567,77 @@ test_fd_hashes_hash_bank( void ) {
   FD_LOG_NOTICE(( "test_fd_hashes_hash_bank passed" ));
 }
 
+static void
+test_fd_hashes_apply_hard_forks( void ) {
+  FD_LOG_NOTICE(( "Testing fd_hashes_apply_hard_forks" ));
+
+  fd_hash_t const base_hash = {
+    .uc = {
+      0x87, 0x8a, 0xc3, 0xbe, 0xd7, 0x48, 0x97, 0x6c, 0xbd, 0x14, 0xf2, 0xac, 0x9a, 0x37, 0xdd, 0xb5,
+      0x77, 0xb1, 0x69, 0x0c, 0x6b, 0x8c, 0xce, 0x93, 0x68, 0x79, 0x58, 0x43, 0x86, 0x37, 0x42, 0xee
+    }
+  };
+
+  fd_hash_t const expected_single = {
+    .uc = {
+      0xd0, 0x22, 0x04, 0x31, 0x35, 0x8e, 0xe6, 0x84, 0xdd, 0x3a, 0xf8, 0xeb, 0x07, 0x4d, 0x92, 0x67,
+      0xc7, 0x3d, 0x35, 0x92, 0x08, 0xe9, 0x94, 0x8f, 0x11, 0x11, 0xc7, 0xcf, 0xd3, 0xf2, 0xde, 0x1b
+    }
+  };
+
+  fd_hash_t const expected_multi = {
+    .uc = {
+      0x66, 0xcd, 0x8c, 0xee, 0xfc, 0xaf, 0x4d, 0x66, 0xcd, 0x5a, 0x72, 0x43, 0x9c, 0xc6, 0x20, 0x6f,
+      0x06, 0xf3, 0x95, 0xd5, 0x7f, 0xf8, 0xde, 0x2a, 0xcd, 0x21, 0x2d, 0xf9, 0xc6, 0xb1, 0x5a, 0xbe
+    }
+  };
+
+  {
+    fd_hash_t hash = {0};
+    fd_hash_t zero = {0};
+    ulong fork_slots[] = { 10UL };
+    ulong fork_cnts[]  = {  1UL };
+    fd_hashes_apply_hard_forks( &hash, 9UL, 0UL, fork_slots, fork_cnts, 1UL );
+    FD_TEST( fd_hash_equal( &hash, &zero ) );
+  }
+
+  {
+    fd_hash_t hash = {0};
+    fd_hash_t zero = {0};
+    ulong fork_slots[] = { 10UL };
+    ulong fork_cnts[]  = {  1UL };
+    fd_hashes_apply_hard_forks( &hash, 10UL, 0UL, fork_slots, fork_cnts, 1UL );
+    FD_TEST( !fd_hash_equal( &hash, &zero ) );
+  }
+
+  {
+    fd_hash_t hash = base_hash;
+    ulong fork_slots[] = { 10UL, 20UL };
+    ulong fork_cnts[]  = {  1UL,  1UL };
+    fd_hashes_apply_hard_forks( &hash, 20UL, 0UL, fork_slots, fork_cnts, 2UL );
+    FD_TEST( fd_hash_equal( &hash, &expected_multi ) );
+  }
+
+  {
+    fd_hash_t hash = base_hash;
+    ulong fork_slots[] = { 10UL, 20UL };
+    ulong fork_cnts[]  = {  1UL,  1UL };
+    fd_hashes_apply_hard_forks( &hash, 20UL, 10UL, fork_slots, fork_cnts, 2UL );
+    FD_TEST( fd_hash_equal( &hash, &expected_single ) );
+  }
+
+  {
+    fd_hash_t hash = base_hash;
+    fd_hash_t unchanged = base_hash;
+    ulong fork_slots[] = { 10UL, 20UL };
+    ulong fork_cnts[]  = {  1UL,  1UL };
+    fd_hashes_apply_hard_forks( &hash, 21UL, 20UL, fork_slots, fork_cnts, 2UL );
+    FD_TEST( fd_hash_equal( &hash, &unchanged ) );
+  }
+
+  FD_LOG_NOTICE(( "test_fd_hashes_apply_hard_forks passed" ));
+}
+
 /* Define global test data */
 static fd_account_meta_t test_meta;
 static uchar test_data[64];
@@ -643,6 +714,7 @@ main( int     argc,
 
   test_fd_hashes_account_lthash();
   test_fd_hashes_hash_bank();
+  test_fd_hashes_apply_hard_forks();
   test_fd_hashes_update_lthash();
 
   FD_LOG_NOTICE(( "pass" ));
