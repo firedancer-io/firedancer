@@ -524,9 +524,8 @@ during_frag( fd_shred_ctx_t * ctx,
       fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
       memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
 
-      /* TODO: call fd_fec_resolver_set_discard_unexpected_data_complete_shreds
-         when discard_unexpected_data_complete_shreds is added to
-         the features of interest in the Rust shim. */
+      fd_fec_resolver_set_discard_unexpected_data_complete_shreds( ctx->resolver,
+        ctx->features_activation->discard_unexpected_data_complete_shreds );
     }
     else { /* (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK) */
       /* This is a frag from the PoH tile.  We'll copy it to our pending
