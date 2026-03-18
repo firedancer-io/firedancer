@@ -8,18 +8,40 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* All of the variable bounds in the bank should be deteremined by the
-   max number of vote accounts and stake accounts that the system
-   supports. These are not protocol-level bounds, but rather bounds
-   that are used to determine the max amount of memory that various
-   data structures require. */
+/* FD_RUNTIME_MAX_{STAKE,VOTE}_ACCOUNTS are the maximum number of stake
+   and vote accounts that the system supports.  The system will support
+   up to these numbers but will crash otherwise.  The bounds were set
+   with the intention of making a dos vector to mint stake/vote accounts
+   infeasible financially.  A reasonable value is roughly 550,000 SOL.
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS         (40201UL)
-#define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS    (2048UL)
+   For vote accounts, the limit is set to 19,000,000 because the rent
+   exempt reserve of creating a valid vote account is ~0.03 SOL.  For
+   each vote account, it also must be staked.  Each stake account has a
+   rent exempt value of ~0.022 SOL.  This means the cost of minting 20M
+   vote accounts is:
+   19,000,000 accounts * 0.02685 SOL = 510,150 SOL.
+   19,000,000 accounts * 0.00228 SOL = 43,320 SOL.
+   Total cost: 553,470 SOL.
+   In reality, the cost is slightly higher because of transaction fees
+   and various CU costs to create the vote and stake accounts.
 
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (3000000UL) /* 3M stake accounts */
+   For stake accounts, the limit is set to 241M because the rent exempt
+   reserve of creating a valid stake account is
+   241,000,000 accounts * 0.00228 SOL = 549,480 SOL.
+   If you just consider the transaction fee of 0.000005 per account
+   241,000,000 * 0.000005 = 1,205 SOL.
+   This brings our total cost to 550,685 SOL. */
+
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (241000000UL)
+
+/* The expected stake and vote account values are based on observed
+   values on mainnet and testnet allowing for some growth.  These are
+   chosen to size various caches and maps: they are not intended to be
+   exact as they are not consensus critical values. */
 
 #define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2000000UL)
+#define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS  (16384UL)
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
 

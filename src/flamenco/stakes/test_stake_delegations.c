@@ -20,24 +20,20 @@ int main( int argc, char ** argv ) {
     wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
   }
 
-  /* We need to make sure that the hard constant is at least large
-     enough to actually hold the footprint of stake delegations for
-     the max number of stake accounts that the runtime can support. */
-  FD_TEST( fd_stake_delegations_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS ) <= FD_STAKE_DELEGATIONS_FOOTPRINT );
-
   /* Test stake delegations where is_tombstone == 0 */
 
   ulong const max_stake_accounts = 10UL;
+  ulong const expected_stake_accounts = fd_ulong_min( max_stake_accounts, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS );
 
-  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts ), wksp_tag );
+  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts, expected_stake_accounts ), wksp_tag );
   FD_TEST( stake_delegations_mem );
 
   FD_TEST( fd_stake_delegations_align()>=alignof(fd_stake_delegations_t)  );
   FD_TEST( fd_stake_delegations_align()==FD_STAKE_DELEGATIONS_ALIGN );
 
-  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts ) );
-  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL ) );
-  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts );
+  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts, expected_stake_accounts ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL, expected_stake_accounts ) );
+  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, expected_stake_accounts );
   FD_TEST( new_stake_delegations_mem );
 
   FD_TEST( !fd_stake_delegations_join( NULL ) );

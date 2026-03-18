@@ -296,26 +296,27 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Finalize root fork.  Required before epoch boundary processing which
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */
 
-  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, 999 ) ) );
+  ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->expected_vote_accounts );
+  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, chain_cnt, 999 ) ) );
 
   /* Populate vote_ele and vote_ele_map for partitioned epoch rewards.
      Use epoch_credits from the proto if available (captured at epoch
      boundary time), otherwise fall back to the vote account in funk. */
   fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
-    fd_exec_test_prev_vote_account_t const * pva         = &block_bank->vote_accounts_t_1[i];
-    fd_pubkey_t                              vote_pubkey = FD_LOAD( fd_pubkey_t, pva->address );
+    fd_exec_test_prev_vote_account_t const * prev_vote_accs = &block_bank->vote_accounts_t_1[i];
+    fd_pubkey_t                              vote_pubkey    = FD_LOAD( fd_pubkey_t, prev_vote_accs->address );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_memcpy( vote_ele->pubkey.uc, &vote_pubkey, sizeof(fd_pubkey_t) );
-    vote_ele->commission = (uchar)pva->commission;
+    vote_ele->commission = (uchar)prev_vote_accs->commission;
 
-    FD_TEST( pva->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
-    vote_ele->epoch_credits.cnt = pva->epoch_credits_count;
-    for( ulong j=0UL; j<pva->epoch_credits_count; j++ ) {
-      vote_ele->epoch_credits.epoch[j]        = (ushort)pva->epoch_credits[j].epoch;
-      vote_ele->epoch_credits.credits[j]      = pva->epoch_credits[j].credits;
-      vote_ele->epoch_credits.prev_credits[j] = pva->epoch_credits[j].prev_credits;
+    FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
+    runtime_stack->stakes.epoch_credits[i].cnt = prev_vote_accs->epoch_credits_count;
+    for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
+      runtime_stack->stakes.epoch_credits[i].epoch[j]        = (ushort)prev_vote_accs->epoch_credits[j].epoch;
+      runtime_stack->stakes.epoch_credits[i].credits[j]      = prev_vote_accs->epoch_credits[j].credits;
+      runtime_stack->stakes.epoch_credits[i].prev_credits[j] = prev_vote_accs->epoch_credits[j].prev_credits;
     }
 
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );

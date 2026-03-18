@@ -50,29 +50,6 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary. */
 
-/* The static footprint of the vote states assumes that there are
-   FD_RUNTIME_MAX_STAKE_ACCOUNTS. It also assumes worst case alignment
-   for each struct. fd_stake_delegations_t is laid out as first the
-   fd_stake_delegations_t struct, followed by a pool of
-   fd_stake_delegation_t structs, followed by a map of
-   fd_stake_delegation_map_ele_t structs. The pool has
-   FD_RUNTIME_MAX_STAKE_ACCOUNTS elements, and the map has a chain count
-   determined by a call to fd_stake_delegations_chain_cnt_est.
-   NOTE: the footprint is validated to be at least as large as the
-   actual runtime-determined footprint (see test_stake_delegations.c) */
-
-#define FD_STAKE_DELEGATIONS_CHAIN_CNT_EST (2097152UL)
-#define FD_STAKE_DELEGATIONS_FOOTPRINT                                                         \
-  /* First, layout the struct with alignment */                                                \
-  sizeof(fd_stake_delegations_t) + alignof(fd_stake_delegations_t) +                           \
-  /* Now layout the pool's data footprint */                                                   \
-  FD_STAKE_DELEGATIONS_ALIGN + sizeof(fd_stake_delegation_t) * FD_RUNTIME_MAX_STAKE_ACCOUNTS + \
-  /* Now layout the pool's meta footprint */                                                   \
-  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* POOL_ALIGN */ +                                        \
-  /* Now layout the map.  We must make assumptions about the chain */                          \
-  /* count to be equivalent to chain_cnt_est. */                                               \
-  FD_STAKE_DELEGATIONS_ALIGN + 128UL /* MAP_ALIGN */ + (FD_STAKE_DELEGATIONS_CHAIN_CNT_EST * sizeof(ulong))
-
 #define FD_STAKE_DELEGATIONS_ALIGN (128UL)
 
 /* The warmup cooldown rate can only be one of two values: 0.25 or 0.09.
@@ -113,15 +90,20 @@ struct fd_stake_delegation {
   fd_pubkey_t vote_account;
   ulong       stake;
   ulong       credits_observed;
+
   uint        next_; /* Only for internal pool/map usage */
+
+  union {
+    uint        prev_;
+    uint        delta_idx;
+  };
   ushort      activation_epoch;
   ushort      deactivation_epoch;
-  uchar       is_tombstone;
+  union {
+    uchar       is_tombstone;
+    uchar       dne_in_root;
+  };
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
-  uint        idx;
-
-  uint        prev;
-  uint        next;
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -129,6 +111,7 @@ struct fd_stake_delegations {
   ulong magic;
   ulong map_offset_;
   ulong pool_offset_;
+  ulong expected_stake_accounts_;
   ulong max_stake_accounts_;
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
@@ -139,7 +122,13 @@ typedef struct fd_map_chain_iter fd_stake_delegation_map_iter_t;
 struct fd_stake_delegations_iter {
   stake_delegation_map_t *       map;
   fd_stake_delegation_t *        pool;
+  fd_stake_delegation_t *        delta_pool;
   fd_stake_delegation_map_iter_t iter;
+
+  ulong curr_idx;
+  ulong total_cnt;
+  ulong seen_cnt;
+
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
@@ -168,21 +157,24 @@ ulong
 fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
-   delegations struct for a given amount of max stake accounts. */
+   delegations struct for a given amount of max stake accounts and
+   expected stake accounts. The pool is sized by max_stake_accounts and
+   the map is sized by expected_stake_accounts. */
 
 ulong
-fd_stake_delegations_footprint( ulong max_stake_accounts );
+fd_stake_delegations_footprint( ulong max_stake_accounts,
+                                ulong expected_stake_accounts );
 
 /* fd_stake_delegations_new creates a new stake delegations struct
-   with a given amount of max stake accounts. It formats a memory region
-   which is sized based off of the number of stake accounts. The struct
-   can optionally be configured to leave tombstones in the map. This is
-   useful if fd_stake_delegations is being used as a delta. */
+   with a given amount of max and expected stake accounts. It formats a
+   memory region which is sized based off the pool capacity and expected
+   map occupancy. */
 
 void *
 fd_stake_delegations_new( void * mem,
                           ulong  seed,
-                          ulong  max_stake_accounts );
+                          ulong  max_stake_accounts,
+                          ulong  expected_stake_accounts );
 
 /* fd_stake_delegations_join joins a stake delegations struct from a
    memory region. There can be multiple valid joins for a given memory
@@ -290,43 +282,6 @@ fd_stake_delegations_max( fd_stake_delegations_t const * stake_delegations ) {
 
   return stake_delegations->max_stake_accounts_;
 }
-
-/* Iterator API for stake delegations. The iterator is initialized with
-   a call to fd_stake_delegations_iter_init. The caller is responsible
-   for managing the memory for the iterator. It is safe to call
-   fd_stake_delegations_iter_next if the result of
-   fd_stake_delegations_iter_done() ==0. It is safe to call
-   fd_stake_delegations_iter_ele() to get the current stake delegation.
-   As a note, it is safe to modify the stake delegation acquired from
-   fd_stake_delegations_iter_ele() as long as the next_ field is not
-   modified (which the caller should never do). It is unsafe to insert
-   or remove fd_stake_delegation_t from the stake delegations struct
-   while iterating.
-
-   Under the hood, the iterator is just a wrapper over the iterator in
-   fd_map_chain.c.
-
-   Example use:
-
-   fd_stake_delegations_iter_t iter_[1];
-   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations ); !fd_stake_delegations_iter_done( iter ); fd_stake_delegations_iter_next( iter ) ) {
-     fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
-     // Do something with the stake delegation ...
-   }
-*/
-
-fd_stake_delegation_t *
-fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter );
-
-fd_stake_delegations_iter_t *
-fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
-                                fd_stake_delegations_t const * stake_delegations );
-
-void
-fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
-
-int
-fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
 
 /* fd_stake_delegations_delta is a shared pool over all live slots for
    fd_stake_delegation_t objects.  It is used to store stake delegations
@@ -454,6 +409,57 @@ fd_stake_delegation_t *
 fd_stake_delegations_delta_iter_ele( fd_stake_delegations_delta_t * stake_delegations,
                                      ushort                         fork_idx,
                                      ulong                          iter );
+
+/* Iterator API for stake delegations. The iterator is initialized with
+   a call to fd_stake_delegations_iter_init. The caller is responsible
+   for managing the memory for the iterator. It is safe to call
+   fd_stake_delegations_iter_next if the result of
+   fd_stake_delegations_iter_done() ==0. It is safe to call
+   fd_stake_delegations_iter_ele() to get the current stake delegation.
+   As a note, it is safe to modify the stake delegation acquired from
+   fd_stake_delegations_iter_ele() as long as the next_ field is not
+   modified (which the caller should never do). It is unsafe to insert
+   or remove fd_stake_delegation_t from the stake delegations struct
+   while iterating.
+
+   Under the hood, the iterator is just a wrapper over the iterator in
+   fd_map_chain.c.
+
+   Example use:
+
+   fd_stake_delegations_iter_t iter_[1];
+   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations ); !fd_stake_delegations_iter_done( iter ); fd_stake_delegations_iter_next( iter ) ) {
+     fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
+     // Do something with the stake delegation ...
+   }
+*/
+
+fd_stake_delegation_t *
+fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter );
+
+ulong
+fd_stake_delegations_iter_idx( fd_stake_delegations_iter_t * iter );
+
+fd_stake_delegations_iter_t *
+fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *        iter,
+                                fd_stake_delegations_t const *       stake_delegations,
+                                fd_stake_delegations_delta_t const * delta );
+
+void
+fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
+
+int
+fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
+
+void
+fd_stake_delegations_mark_delta( fd_stake_delegations_t *       base,
+                                 fd_stake_delegations_delta_t * delta,
+                                 ushort                         fork_idx );
+
+void
+fd_stake_delegations_unmark_delta( fd_stake_delegations_t *      base,
+                                  fd_stake_delegations_delta_t * delta,
+                                  ushort                         fork_idx );
 
 FD_PROTOTYPES_END
 

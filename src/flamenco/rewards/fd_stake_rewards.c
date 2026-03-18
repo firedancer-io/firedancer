@@ -124,7 +124,7 @@ fd_stake_rewards_footprint( ulong max_stake_accounts,
   ulong l = FD_LAYOUT_INIT;
   l  = FD_LAYOUT_APPEND( l, fd_stake_rewards_align(),  sizeof(fd_stake_rewards_t) );
   l =  FD_LAYOUT_APPEND( l, fork_pool_align(),         fork_pool_footprint( max_fork_width ) );
-  l  = FD_LAYOUT_APPEND( l, index_pool_align(),        index_pool_footprint( max_stake_accounts ) );
+  l  = FD_LAYOUT_APPEND( l, alignof(index_ele_t),      sizeof(index_ele_t) * max_stake_accounts );
   l  = FD_LAYOUT_APPEND( l, index_map_align(),         index_map_footprint( map_chain_cnt ) );
   l  = FD_LAYOUT_APPEND( l, alignof(partition_ele_t),  max_fork_width * max_stake_accounts * sizeof(partition_ele_t) );
 
@@ -154,7 +154,7 @@ fd_stake_rewards_new( void * shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
   void *               fork_pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),        fork_pool_footprint( max_fork_width ) );
-  void *               index_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),       index_pool_footprint( max_stake_accounts ) );
+  void *               index_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(index_ele_t),     sizeof(index_ele_t) * max_stake_accounts );
   void *               index_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),        index_map_footprint( map_chain_cnt ) );
   void *               partitions_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(partition_ele_t), max_fork_width * max_stake_accounts * sizeof(partition_ele_t) );
 
@@ -165,12 +165,7 @@ fd_stake_rewards_new( void * shmem,
   }
   stake_rewards->fork_pool_offset = (ulong)fork_pool - (ulong)shmem;
 
-  index_ele_t * index_pool = index_pool_join( index_pool_new( index_pool_mem, max_stake_accounts ) );
-  if( FD_UNLIKELY( !index_pool ) ) {
-    FD_LOG_WARNING(( "Failed to create index pool" ));
-    return NULL;
-  }
-  stake_rewards->index_pool_offset = (ulong)index_pool - (ulong)shmem;
+  stake_rewards->index_pool_offset = (ulong)index_pool_mem - (ulong)shmem;
 
   index_map_t * index_map = index_map_join( index_map_new( index_map_mem, map_chain_cnt, seed ) );
   if( FD_UNLIKELY( !index_map ) ) {
@@ -181,6 +176,7 @@ fd_stake_rewards_new( void * shmem,
   stake_rewards->partitions_offset  = (ulong)partitions_mem - (ulong)shmem;
   stake_rewards->max_stake_accounts = max_stake_accounts;
   stake_rewards->epoch              = ULONG_MAX;
+  stake_rewards->total_ele_used     = 0UL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_rewards->magic ) = FD_STAKE_REWARDS_MAGIC;
@@ -215,17 +211,16 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt ) {
-  index_map_t * index_map  = get_index_map( stake_rewards );
-  index_ele_t * index_pool = get_index_pool( stake_rewards );
-  fork_t *      fork_pool  = get_fork_pool( stake_rewards );
+  index_map_t * index_map = get_index_map( stake_rewards );
+  fork_t *      fork_pool = get_fork_pool( stake_rewards );
 
   /* If this is the first reference to the stake rewards, we need to
      reset the backing map and pool all the forks will share. */
   if( FD_LIKELY( stake_rewards->epoch!=epoch ) ) {
     fork_pool_reset( fork_pool );
     index_map_reset( index_map );
-    index_pool_reset( index_pool );
-    stake_rewards->epoch = epoch;
+    stake_rewards->epoch          = epoch;
+    stake_rewards->total_ele_used = 0UL;
   }
 
   uchar fork_idx = (uchar)fork_pool_idx_acquire( fork_pool );
@@ -258,12 +253,13 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
   };
 
   uint index = (uint)index_map_idx_query( index_map, &index_key, UINT_MAX, index_ele );
-  if( FD_UNLIKELY( index==UINT_MAX ) ) {
-    if( FD_UNLIKELY( index_pool_free( index_ele )==0UL ) ) {
-      FD_LOG_CRIT(( "invariant violation: index_pool_free( index_ele )==0UL" ));
+  if( FD_LIKELY( index==UINT_MAX ) ) {
+    index = stake_rewards->total_ele_used;
+    stake_rewards->total_ele_used++;
+    if( FD_UNLIKELY( index>=stake_rewards->max_stake_accounts ) ) {
+      FD_LOG_CRIT(( "invariant violation: index>=stake_rewards->max_stake_accounts" ));
     }
-    index = (uint)index_pool_idx_acquire( index_ele );
-    index_ele_t * ele = index_pool_ele( index_ele, index );
+    index_ele_t * ele = (index_ele_t *)index_ele + index;
     ele->index_key = index_key;
     index_map_ele_insert( index_map, ele, index_ele );
   }
