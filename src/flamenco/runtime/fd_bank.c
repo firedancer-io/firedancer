@@ -436,12 +436,12 @@ fd_banks_join( fd_banks_t * banks_ljoin,
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_banks_get_epoch_leaders( banks_data )!=epoch_leaders_mem ) ) {
+  if( FD_UNLIKELY( epoch_leaders_mem!=fd_banks_get_epoch_leaders( banks_data ) ) ) {
     FD_LOG_WARNING(( "Failed to join epoch leaders mem" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( fd_banks_get_stake_delegations( banks_data )!=stake_delegations_mem ) ) {
+  if( FD_UNLIKELY( stake_delegations_mem!=fd_banks_get_stake_delegations( banks_data ) ) ) {
     FD_LOG_WARNING(( "Failed to join stake delegations root mem" ));
     return NULL;
   }

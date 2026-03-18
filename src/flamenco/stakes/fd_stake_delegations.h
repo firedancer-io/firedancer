@@ -9,14 +9,14 @@
 
 #define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E0) /* FIREDANCER STAKE V0 */
 
-/* fd_stakes_delegations_t is a cache of stake accounts mapping the
+/* fd_stake_delegations_t is a cache of stake accounts mapping the
    pubkey of the stake account to various information including
    stake, activation/deactivation epoch, corresponding vote_account,
    credits observed, and warmup cooldown rate. This is used to quickly
    iterate through all of the stake delegations in the system during
    epoch boundary reward calculations.
 
-   The implementation of fd_stakes_delegations_t is split into two:
+   The implementation of fd_stake_delegations_t is split into two:
    1. The entire set of stake delegations are stored in the root as a
       map/pool pair.  This root state is setup at boot (on snapshot
       load) and is not directly modified after that point.
@@ -36,7 +36,7 @@
    3. There are no stake accounts which are valid delegations which
       exist in the accounts database but not in fd_stake_delegations_t.
 
-   In practice, fd_stakes_delegations_t are updated in 3 cases:
+   In practice, fd_stake_delegations_t are updated in 3 cases:
    1. During bootup when the snapshot manifest is loaded in. The cache
       is also refreshed during the bootup process to ensure that the
       states are valid and up-to-date.
@@ -56,7 +56,19 @@
       several hundred slots where their rewards are distributed. In this
       case, the cache is updated to reflect each stake account post
       reward distribution.
-   The stake accounts are read-only during the epoch boundary. */
+   The stake accounts are read-only during the epoch boundary.
+
+   The concurrency model is limited: most operations are not allowed to
+   be concurrent with each other with the exception of operations that
+   operate on the stake delegations's delta pool:
+    fd_stake_delegations_fork_update()
+    fd_stake_delegations_fork_remove()
+    fd_stake_delegations_evict_fork()
+   These operations are internally synchronized with a read-write lock
+   because multiple executor tiles may be trying to call
+   stake_delegations_fork_update() at the same time, and the replay tile
+   can simulatenously be calling fd_stake_delegations_evict_fork()
+   */
 
 #define FD_STAKE_DELEGATIONS_ALIGN (128UL)
 
@@ -101,11 +113,10 @@ struct fd_stake_delegations {
   ulong pool_offset_;
 
   /* Delta pool + fork  */
-  ulong delta_pool_offset_;
-  ulong fork_pool_offset_;
-  ulong dlist_offsets_[ FD_STAKE_DELEGATIONS_FORK_MAX ];
-
-  fd_rwlock_t lock;
+  ulong       delta_pool_offset_;
+  ulong       fork_pool_offset_;
+  ulong       dlist_offsets_[ FD_STAKE_DELEGATIONS_FORK_MAX ];
+  fd_rwlock_t delta_lock;
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
