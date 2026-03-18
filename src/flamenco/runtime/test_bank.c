@@ -544,117 +544,6 @@ test_bank_frontier( void * mem ) {
 }
 
 static void
-test_bank_stake_delegation_delta_apply_and_remove( void * mem ) {
-
-  fd_banks_locks_t locks[1];
-  fd_banks_locks_init( locks );
-  fd_banks_t banks_ljoin[1];
-  fd_banks_t * banks = fd_banks_join( banks_ljoin, fd_banks_new( mem, 16UL, 4UL, 64UL, 64UL, 0, 9990UL ), locks );
-  FD_TEST( banks );
-
-  fd_bank_t root_bank[1];
-  FD_TEST( fd_banks_init_bank( root_bank, banks ) );
-
-  fd_pubkey_t stake_0 = { .ul[0] = 0x3001UL };
-  fd_pubkey_t vote_0  = { .ul[0] = 0x4001UL };
-  fd_pubkey_t stake_1 = { .ul[0] = 0x3002UL };
-  fd_pubkey_t vote_1  = { .ul[0] = 0x4002UL };
-  fd_pubkey_t stake_2 = { .ul[0] = 0x3003UL };
-  fd_pubkey_t vote_2  = { .ul[0] = 0x4003UL };
-  fd_pubkey_t stake_3 = { .ul[0] = 0x3004UL };
-  fd_pubkey_t vote_3  = { .ul[0] = 0x4004UL };
-
-  fd_stake_delegations_t * root_stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  fd_stake_delegations_root_update( root_stake_delegations, &stake_0, &vote_0, 11UL,  1UL, 2UL, 3UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-  fd_stake_delegations_root_update( root_stake_delegations, &stake_1, &vote_1, 22UL,  1UL, 2UL, 3UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-  fd_stake_delegations_root_update( root_stake_delegations, &stake_2, &vote_2, 333UL, 1UL, 2UL, 3UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-
-  fd_bank_t delta_banks[ 10UL ][1];
-  ulong parent_idx = root_bank->data->idx;
-
-  /* Build a long chain where each bank applies new delta entries.
-     stake_0 is always updated, stake_1 alternates update/remove, and
-     stake_2 is removed every third bank. stake_3 is delta-only (not in
-     root) and alternates between add/remove in the chain. */
-  for( ulong i=0UL; i<10UL; i++ ) {
-    fd_bank_t * bank = delta_banks[ i ];
-    ulong bank_idx = fd_banks_new_bank( bank, banks, parent_idx, 0L )->data->idx;
-    FD_TEST( fd_banks_clone_from_parent( bank, banks, bank_idx ) );
-
-    fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( bank );
-    fd_stake_delegations_fork_update( sd, bank->data->stake_delegations_fork_id, &stake_0, &vote_0, 1000UL+i, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-    if( (i&1UL)==0UL ) {
-      fd_stake_delegations_fork_update( sd, bank->data->stake_delegations_fork_id, &stake_1, &vote_1, 2000UL+i, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-    } else {
-      fd_stake_delegations_fork_remove( sd, bank->data->stake_delegations_fork_id, &stake_1 );
-    }
-
-    if( (i%3UL)==0UL ) {
-      fd_stake_delegations_fork_remove( sd, bank->data->stake_delegations_fork_id, &stake_2 );
-    } else {
-      fd_stake_delegations_fork_update( sd, bank->data->stake_delegations_fork_id, &stake_2, &vote_2, 3000UL+i, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-    }
-
-    if( (i&1UL)==0UL ) {
-      fd_stake_delegations_fork_update( sd, bank->data->stake_delegations_fork_id, &stake_3, &vote_3, 4000UL+i, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-    } else {
-      fd_stake_delegations_fork_remove( sd, bank->data->stake_delegations_fork_id, &stake_3 );
-    }
-    fd_banks_mark_bank_frozen( banks, bank );
-    parent_idx = bank_idx;
-  }
-
-  /* Repeatedly query each bank to ensure deltas are applied for the
-     queried frontier and removed when the query ends. */
-  for( ulong round=0UL; round<3UL; round++ ) {
-    for( ulong i=0UL; i<10UL; i++ ) {
-      fd_stake_delegations_t * frontier_stake_delegations = fd_bank_stake_delegations_frontier_query( banks, delta_banks[ i ] );
-      fd_stake_delegation_t const * stake_delegation = test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_0 );
-      FD_TEST( stake_delegation );
-      FD_TEST( stake_delegation->stake==1000UL+i );
-
-      if( (i&1UL)==0UL ) {
-        stake_delegation = test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_1 );
-        FD_TEST( stake_delegation );
-        FD_TEST( stake_delegation->stake==2000UL+i );
-      } else {
-        FD_TEST( !test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_1 ) );
-      }
-
-      if( (i%3UL)==0UL ) {
-        FD_TEST( !test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_2 ) );
-      } else {
-        stake_delegation = test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_2 );
-        FD_TEST( stake_delegation );
-        FD_TEST( stake_delegation->stake==3000UL+i );
-      }
-
-      if( (i&1UL)==0UL ) {
-        stake_delegation = test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_3 );
-        FD_TEST( stake_delegation );
-        FD_TEST( stake_delegation->stake==4000UL+i );
-      } else {
-        FD_TEST( !test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_3 ) );
-      }
-      fd_bank_stake_delegations_end_frontier_query( banks, delta_banks[ i ] );
-
-      frontier_stake_delegations = fd_bank_stake_delegations_frontier_query( banks, root_bank );
-      stake_delegation = test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_0 );
-      FD_TEST( stake_delegation );
-      FD_TEST( stake_delegation->stake==11UL );
-      stake_delegation = test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_1 );
-      FD_TEST( stake_delegation );
-      FD_TEST( stake_delegation->stake==22UL );
-      stake_delegation = test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_2 );
-      FD_TEST( stake_delegation );
-      FD_TEST( stake_delegation->stake==333UL );
-      FD_TEST( !test_bank_frontier_delegation_query( banks, frontier_stake_delegations, &stake_3 ) );
-      fd_bank_stake_delegations_end_frontier_query( banks, root_bank );
-    }
-  }
-}
-
-static void
 test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   ulong const max_total_banks       = 16UL;
   ulong const max_fork_width        = 4UL;
@@ -1107,8 +996,6 @@ main( int argc, char ** argv ) {
   test_bank_dead_eviction( mem );
 
   test_bank_frontier( mem );
-
-  test_bank_stake_delegation_delta_apply_and_remove( mem );
 
   test_bank_stake_delegations_dynamic_sizing( mem );
 

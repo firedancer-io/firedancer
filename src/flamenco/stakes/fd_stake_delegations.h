@@ -16,9 +16,17 @@
    iterate through all of the stake delegations in the system during
    epoch boundary reward calculations.
 
-   The implementation of fd_stakes_delegations_t is a hash map which
-   is backed by a memory pool. Callers are allowed to insert, replace,
-   and remove entries from the map.
+   The implementation of fd_stakes_delegations_t is split into two:
+   1. The entire set of stake delegations are stored in the root as a
+      map/pool pair.  This root state is setup at boot (on snapshot
+      load) and is not directly modified after that point.
+   2. As banks/forks execute, they will maintain a delta-based
+      representation of the stake delegations.  Each fork will hold its
+      own set of deltas.  These are then applied to the root set when
+      the fork is finalized.  This is implemented as each bank having
+      its own dlist of deltas which are allocated from a pool which is
+      shared across all stake delegation forks.  The caller is expected
+      to create a new fork index for each bank and add deltas to it.
 
    There are some important invariants wrt fd_stake_delegations_t:
    1. After execution has started, there will be no invalid stake
@@ -62,48 +70,22 @@
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025      (0.25)
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009      (0.09)
 
-/* TODO: The memory footprint of stake delegations can be further
-   reduced by maintaining a global index of stake account pubkeys:
-   stake_index: pool<pubkey, refcnt>.
-
-   There will also be a global index of vote account pubkeys which is
-   also refcnted:
-   vote_index: pool<pubkey, refcnt>.
-
-   Assuming 200M stake and vote accounts, this would require:
-   200M * (32 bytes for pubkey + 4 bytes for map/pool ptr + 4 bytes for refcnt) = 8GB per index.
-   So with our pubkey and stake index, we would need 16GB.
-
-   Now each fd_stake_delegation_t can just reference the pool index of
-   the stake and vote account.  With this, now each
-   fd_stake_delegation_t can be stored in 40 bytes instead of 128 bytes.
-
-   We need memory to store the frontier set, root set, and the deltas.
-   Assume in total we have 200M accounts * 3 sets = 600M elements total.
-
-   So with 40 bytes per element we would need 24GB of memory to store
-   all of the elements.  This brings our total footprint to 40GB to
-   handle ~200M stake accounts.  If the vote account index is shared
-   with the one from fd_vote_stakes_t, the footprint can be further
-   reduced by 8GB to 32GB. */
-
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
   fd_pubkey_t vote_account;
   ulong       stake;
   ulong       credits_observed;
-
-  uint        next_; /* Only for internal pool/map usage */
+  uint        next_; /* Internal pool/map/dlist usage */
 
   union {
-    uint        prev_;
-    uint        delta_idx;
+    uint      prev_; /* Internal dlist usage for delta  */
+    uint      delta_idx; /* Tracking for stake delegation iteration */
   };
   ushort      activation_epoch;
   ushort      deactivation_epoch;
   union {
-    uchar       is_tombstone;
-    uchar       dne_in_root;
+    uchar     is_tombstone; /* Internal dlist/delta usage */
+    uchar     dne_in_root; /* Tracking for stake delegation iteration */
   };
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
 };
@@ -111,17 +93,17 @@ typedef struct fd_stake_delegation fd_stake_delegation_t;
 
 struct fd_stake_delegations {
   ulong magic;
-
-  /* Base map + pool */
-  ulong map_offset_;
-  ulong pool_offset_;
   ulong expected_stake_accounts_;
   ulong max_stake_accounts_;
 
-  /* Delta pool + fork management */
+  /* Root map + pool */
+  ulong map_offset_;
+  ulong pool_offset_;
+
+  /* Delta pool + fork  */
   ulong delta_pool_offset_;
   ulong fork_pool_offset_;
-  ulong dlist_offsets_[FD_STAKE_DELEGATIONS_FORK_MAX];
+  ulong dlist_offsets_[ FD_STAKE_DELEGATIONS_FORK_MAX ];
 
   fd_rwlock_t lock;
 };
@@ -131,8 +113,8 @@ typedef struct fd_stake_delegations fd_stake_delegations_t;
 typedef struct root_map_private root_map_t;
 typedef struct fd_map_chain_iter fd_stake_delegation_map_iter_t;
 struct fd_stake_delegations_iter {
-  root_map_t *                     map;
-  fd_stake_delegation_t *        pool;
+  root_map_t *                   root_map;
+  fd_stake_delegation_t *        root_pool;
   fd_stake_delegation_t *        delta_pool;
   fd_stake_delegation_map_iter_t iter;
 };
@@ -142,7 +124,7 @@ FD_PROTOTYPES_BEGIN
 
 static inline double
 fd_stake_delegations_warmup_cooldown_rate_to_double( uchar warmup_cooldown_rate ) {
-  return warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009;
+  return warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009;
 }
 
 static inline uchar
@@ -164,9 +146,7 @@ fd_stake_delegations_align( void );
 
 /* fd_stake_delegations_footprint returns the footprint of the stake
    delegations struct for a given amount of max stake accounts,
-   expected stake accounts, and max live slots.  The base pool is sized
-   by max_stake_accounts, the map by expected_stake_accounts, and the
-   delta pool / fork structures by max_live_slots. */
+   expected stake accounts, and max live slots. */
 
 ulong
 fd_stake_delegations_footprint( ulong max_stake_accounts,
@@ -194,7 +174,8 @@ fd_stake_delegations_t *
 fd_stake_delegations_join( void * mem );
 
 /* fd_stake_delegations_init resets the state of a valid join of a
-   stake delegations struct. */
+   stake delegations struct.  Specifically, it only resets the root
+   state, leaving the deltas intact. */
 
 void
 fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations );
@@ -222,8 +203,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
    the snapshot has finished loading.
 
    Before this function is called, there are some important assumptions
-   made about the state of the stake delegations that are enforced by
-   the Agave client:
+   made about the state of the stake delegations:
    1. fd_stake_delegations_t is not missing any valid entries
    2. fd_stake_delegations_t may have some invalid entries that should
       be removed
@@ -240,24 +220,10 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
                               fd_funk_txn_xid_t const * xid );
 
 /* fd_stake_delegations_cnt returns the number of stake delegations
-   in the stake delegations struct. fd_stake_delegations_t must be a
-   valid local join.
-
-   NOTE: The cnt will return the number of stake delegations that are
-   in the underlying map. This number includes tombstones if the
-   leave_tombstones flag is set. */
+   in the base of stake delegations struct. */
 
 ulong
 fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations );
-
-static inline ulong
-fd_stake_delegations_max( fd_stake_delegations_t const * stake_delegations ) {
-  if( FD_UNLIKELY( !stake_delegations ) ) {
-    FD_LOG_CRIT(( "NULL stake_delegations" ));
-  }
-
-  return stake_delegations->max_stake_accounts_;
-}
 
 /* fd_stake_delegations_new_fork allocates a new fork index for the
    stake delegations.  The fork index is returned to the caller. */
@@ -318,17 +284,38 @@ void
 fd_stake_delegations_apply_fork_delta( fd_stake_delegations_t * stake_delegations,
                                        ushort                   fork_idx );
 
+/* fd_stake_delegations_{mark,unmark}_delta are used to temporarily
+   tag delta elements from a given fork in the base/root stake
+   delegation map/pool.  This allows the caller to then iterator over
+   the stake delegations for a given bank using just the deltas and the
+   root without creating a copy.  Each delta that is marked, must be
+   unmarked after the caller is done iterating over the stake
+   delegations.
+
+   Under the hood, it reuses internal pointers for elements in the root
+   map to point to the corresponding delta element.  If the element is
+   removed by a delta another field will be reused to ignore it during
+   iteration.  If an element is inserted by a delta, it will be
+   temporarily added to the root, but will be removed with a call to
+   unmark_delta. */
+
+void
+fd_stake_delegations_mark_delta( fd_stake_delegations_t * stake_delegations,
+                                 ushort                   fork_idx );
+
+void
+fd_stake_delegations_unmark_delta( fd_stake_delegations_t * stake_delegations,
+                                  ushort                   fork_idx );
+
 /* Iterator API for stake delegations.  The iterator is initialized with
    a call to fd_stake_delegations_iter_init.  The caller is responsible
    for managing the memory for the iterator.  It is safe to call
    fd_stake_delegations_iter_next if the result of
    fd_stake_delegations_iter_done()==0.  It is safe to call
-   fd_stake_delegations_iter_ele() to get the current stake delegation.
-   As a note, it is safe to modify the stake delegation acquired from
-   fd_stake_delegations_iter_ele() as long as the next_ field is not
-   modified (which the caller should never do).  It is unsafe to insert
-   or remove fd_stake_delegation_t from the stake delegations struct
-   while iterating.
+   fd_stake_delegations_iter_ele() to get the current stake delegation
+   or fd_stake_delegations_iter_idx() to get the index of the current
+   stake delegation.  It is not safe to modify the stake delegation
+   while iterating through it.
 
    Under the hood, the iterator is just a wrapper over the iterator in
    fd_map_chain.c.
@@ -343,7 +330,7 @@ fd_stake_delegations_apply_fork_delta( fd_stake_delegations_t * stake_delegation
    }
 */
 
-fd_stake_delegation_t *
+fd_stake_delegation_t const *
 fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter );
 
 ulong
@@ -358,14 +345,6 @@ fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
 
 int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
-
-void
-fd_stake_delegations_mark_delta( fd_stake_delegations_t * stake_delegations,
-                                 ushort                   fork_idx );
-
-void
-fd_stake_delegations_unmark_delta( fd_stake_delegations_t * stake_delegations,
-                                   ushort                   fork_idx );
 
 FD_PROTOTYPES_END
 

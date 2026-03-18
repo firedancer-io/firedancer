@@ -437,10 +437,10 @@ fd_stake_delegations_apply_fork_delta( fd_stake_delegations_t * stake_delegation
 
 /* Combined base+delta iterator */
 
-fd_stake_delegation_t *
+fd_stake_delegation_t const *
 fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter ) {
-  ulong idx = root_map_iter_idx( iter->iter, iter->map, iter->pool );
-  fd_stake_delegation_t * stake_delegation = root_pool_ele( iter->pool, idx );
+  ulong idx = root_map_iter_idx( iter->iter, iter->root_map, iter->root_pool );
+  fd_stake_delegation_t * stake_delegation = root_pool_ele( iter->root_pool, idx );
   if( FD_UNLIKELY( stake_delegation->delta_idx!=UINT_MAX ) ) {
     return (fd_stake_delegation_t *)delta_pool_ele( iter->delta_pool, stake_delegation->delta_idx );
   }
@@ -449,7 +449,19 @@ fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter ) {
 
 ulong
 fd_stake_delegations_iter_idx( fd_stake_delegations_iter_t * iter ) {
-  return root_map_iter_idx( iter->iter, iter->map, iter->pool );
+  return root_map_iter_idx( iter->iter, iter->root_map, iter->root_pool );
+}
+
+static void
+skip_tombstones( fd_stake_delegations_iter_t * iter ) {
+  while( !root_map_iter_done( iter->iter, iter->root_map, iter->root_pool ) ) {
+    fd_stake_delegation_t *       root_delegation = root_map_iter_ele( iter->iter, iter->root_map, iter->root_pool );
+    fd_stake_delegation_t const * ele             = (root_delegation->delta_idx != UINT_MAX)
+      ? (fd_stake_delegation_t const *)delta_pool_ele( iter->delta_pool, root_delegation->delta_idx )
+      : (fd_stake_delegation_t const *)root_delegation;
+    if( FD_LIKELY( !ele->is_tombstone ) ) return;
+    iter->iter = root_map_iter_next( iter->iter, iter->root_map, iter->root_pool );
+  }
 }
 
 fd_stake_delegations_iter_t *
@@ -459,22 +471,25 @@ fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
     FD_LOG_CRIT(( "NULL stake_delegations" ));
   }
 
-  iter->map        = get_root_map( stake_delegations );
-  iter->pool       = get_root_pool( stake_delegations );
-  iter->iter       = root_map_iter_init( iter->map, iter->pool );
+  iter->root_map   = get_root_map( stake_delegations );
+  iter->root_pool  = get_root_pool( stake_delegations );
+  iter->iter       = root_map_iter_init( iter->root_map, iter->root_pool );
   iter->delta_pool = get_delta_pool( stake_delegations );
+
+  skip_tombstones( iter );
 
   return iter;
 }
 
 void
 fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
-  iter->iter = root_map_iter_next( iter->iter, iter->map, iter->pool );
+  iter->iter = root_map_iter_next( iter->iter, iter->root_map, iter->root_pool );
+  skip_tombstones( iter );
 }
 
 int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
-  return root_map_iter_done( iter->iter, iter->map, iter->pool );
+  return root_map_iter_done( iter->iter, iter->root_map, iter->root_pool );
 }
 
 void

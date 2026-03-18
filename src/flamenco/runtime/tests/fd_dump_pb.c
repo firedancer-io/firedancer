@@ -606,7 +606,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &stake_delegation->stake_account );
   }
   fd_bank_stake_delegations_end_frontier_query( banks, parent_bank );
