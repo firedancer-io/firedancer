@@ -4,7 +4,7 @@
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime_stack.h"
-#include "../program/fd_stake_program.h"
+#include "../../stakes/fd_stakes.h"
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
@@ -94,7 +94,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
   fd_stake_state_v2_t stake_state;
   if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_stake_program_id ) ||
       fd_accdb_ref_lamports( ro )==0UL ||
-      0!=fd_stake_get_state( ro->meta, &stake_state ) ||
+      0!=fd_stakes_get_state( ro->meta, &stake_state ) ||
       !fd_stake_state_v2_is_stake( &stake_state ) ||
       stake_state.inner.stake.stake.delegation.stake==0UL ) {
     fd_accdb_close_ro( accdb, ro );

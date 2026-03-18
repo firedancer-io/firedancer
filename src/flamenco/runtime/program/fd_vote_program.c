@@ -2407,13 +2407,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /* Public API                                                         */
 /**********************************************************************/
 
-/* TODO: Old code, remove whenever stake program gets cleaned up */
-void
-fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
-                            uchar *                     landed_votes_mem ) {
-  fd_vsv_try_convert_to_v3( self, landed_votes_mem );
-}
-
 fd_vote_state_versioned_t *
 fd_vote_get_state( fd_account_meta_t const * self,
                    uchar *                   mem ) {

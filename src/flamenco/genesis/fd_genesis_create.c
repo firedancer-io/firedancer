@@ -2,7 +2,7 @@
 #include "fd_genesis_create.h"
 
 #include "../runtime/fd_system_ids.h"
-#include "../runtime/program/fd_stake_program.h"
+#include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../types/fd_types.h"

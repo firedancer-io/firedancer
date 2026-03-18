@@ -1,7 +1,7 @@
 #include "fd_runtime.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../types/fd_cast.h"
-#include "fd_alut_interp.h"
+#include "fd_alut.h"
 #include "fd_bank.h"
 #include "fd_executor_err.h"
 #include "fd_hashes.h"
@@ -21,7 +21,6 @@
 #include "../accdb/fd_accdb_sync.h"
 #include "../progcache/fd_progcache_user.h"
 
-#include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
 #include "program/fd_precompiles.h"
 #include "program/fd_program_util.h"
@@ -635,7 +634,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   int _err[1];
   ulong   new_rate_activation_epoch_val = 0UL;
   ulong * new_rate_activation_epoch     = &new_rate_activation_epoch_val;
-  int is_some = fd_new_warmup_cooldown_rate_epoch(
+  int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
       fd_bank_features_query( bank ),
       new_rate_activation_epoch,
@@ -1510,7 +1509,7 @@ fd_runtime_genesis_init_program( fd_bank_t *               bank,
   fd_sysvar_last_restart_slot_init( bank, accdb, xid, capture_ctx );
 
   fd_builtin_programs_init( bank, accdb, xid, capture_ctx );
-  fd_stake_program_config_init( accdb, xid );
+  fd_stakes_config_init( accdb, xid );
 }
 
 static void
