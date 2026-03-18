@@ -1586,24 +1586,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_epoch_info( ctx, stem, bank, 0 );
     publish_epoch_info( ctx, stem, bank, 1 );
 
-    /* Typically, when we cross an epoch boundary during normal
-       operation, we publish the stake weights for the new epoch.  But
-       since we are starting from a snapshot, we need to publish two
-       epochs worth of stake weights: the previous epoch (which is
-       needed for voting on the current epoch), and the current epoch
-       (which is needed for voting on the next epoch). */
-    publish_epoch_info( ctx, stem, bank, 0 );
-    publish_epoch_info( ctx, stem, bank, 1 );
-
-    /* Typically, when we cross an epoch boundary during normal
-       operation, we publish the stake weights for the new epoch.  But
-       since we are starting from a snapshot, we need to publish two
-       epochs worth of stake weights: the previous epoch (which is
-       needed for voting on the current epoch), and the current epoch
-       (which is needed for voting on the next epoch). */
-    publish_epoch_info( ctx, stem, bank, 0 );
-    publish_epoch_info( ctx, stem, bank, 1 );
-
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
     block_id_ele->latest_mr      = manifest_block_id;
     block_id_ele->slot           = snapshot_slot;

@@ -26,12 +26,6 @@ struct index_ele {
 };
 typedef struct index_ele index_ele_t;
 
-#define POOL_NAME  index_pool
-#define POOL_T     index_ele_t
-#define POOL_NEXT  next
-#define POOL_IDX_T uint
-#include "../../util/tmpl/fd_pool.c"
-
 #define MAP_NAME               index_map
 #define MAP_KEY_T              index_key_t
 #define MAP_ELE_T              index_ele_t
@@ -325,7 +319,8 @@ fd_stake_rewards_iter_ele( fd_stake_rewards_t * stake_rewards,
                            ulong *              lamports_out,
                            ulong *              credits_observed_out ) {
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, stake_rewards->iter_curr_fork_idx );
-  index_ele_t * index_ele = index_pool_ele( get_index_pool( stake_rewards ), partition_ele->index );
+
+  index_ele_t * index_ele = get_index_pool( stake_rewards ) + partition_ele->index;
   *pubkey_out = index_ele->index_key.pubkey;
   *lamports_out = index_ele->index_key.lamports;
   *credits_observed_out = index_ele->index_key.credits_observed;
