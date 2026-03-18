@@ -187,7 +187,7 @@ fd_sspeer_selector_new( void * shmem,
   selector->max_peers          = max_peers;
 
   selector->cluster_slot.full          = 0UL;
-  selector->cluster_slot.incremental   = 0UL;
+  selector->cluster_slot.incremental   = ULONG_MAX;
   selector->incremental_snapshot_fetch = incremental_snapshot_fetch;
 
   FD_COMPILER_MFENCE();
@@ -290,12 +290,12 @@ fd_sspeer_selector_score( fd_sspeer_selector_t * selector,
   peer_latency = peer_latency!=ULONG_MAX ? peer_latency : DEFAULT_PEER_LATENCY;
 
   if( FD_LIKELY( full_slot!=ULONG_MAX ) ) {
-    if( FD_UNLIKELY( incr_slot==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( incr_slot==ULONG_MAX || incr_slot==0UL ) ) {
       slot         = full_slot;
       slots_behind = selector->cluster_slot.full>slot ? selector->cluster_slot.full - slot : 0UL;
     } else {
       slot         = incr_slot;
-      slots_behind = selector->cluster_slot.incremental>slot ? selector->cluster_slot.incremental - slot : 0UL;
+      slots_behind = selector->cluster_slot.incremental>slot && selector->cluster_slot.incremental!=ULONG_MAX ? selector->cluster_slot.incremental - slot : 0UL;
     }
   }
 
@@ -451,7 +451,7 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
     fd_sspeer_private_t const * peer = score_treap_fwd_iter_ele_const( iter, selector->pool );
     if( FD_LIKELY( peer->valid &&
                    (!incremental ||
-                   (incremental && peer->full_slot==base_slot) ) ) ) {
+                   (incremental && peer->full_slot==base_slot && peer->incr_slot!=ULONG_MAX && peer->incr_slot!=0UL) ) ) ) {
       fd_sspeer_t best = {
         .addr      = peer->addr,
         .full_slot = peer->full_slot,
@@ -478,22 +478,27 @@ void
 fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
                                          ulong                  full_slot,
                                          ulong                  incr_slot ) {
-  if( full_slot==ULONG_MAX && incr_slot==ULONG_MAX ) return;
+  /* Treat incr_slot==0 as "no incremental" (same as ULONG_MAX).
+     on_snapshot_hash uses 0 as the sentinel since ULONG_MAX means
+     "don't change" in fd_sspeer_selector_update. */
+  ulong effective_incr_slot = incr_slot==0UL ? ULONG_MAX : incr_slot;
+
+  if( full_slot==ULONG_MAX && effective_incr_slot==ULONG_MAX ) return;
 
   FD_TEST( full_slot!=ULONG_MAX );
   if( FD_LIKELY( selector->incremental_snapshot_fetch ) ) {
     /* incremental slot is less than or equal to cluster incremental slot */
-    if( FD_UNLIKELY( incr_slot!=ULONG_MAX && selector->cluster_slot.incremental!=ULONG_MAX && incr_slot<=selector->cluster_slot.incremental ) ) return;
+    if( FD_UNLIKELY( effective_incr_slot!=ULONG_MAX && selector->cluster_slot.incremental!=ULONG_MAX && effective_incr_slot<=selector->cluster_slot.incremental ) ) return;
     /* incremental slot is less than or equal to cluster full slot when cluster incremental slot does not exist */
-    else if( FD_UNLIKELY( incr_slot!=ULONG_MAX && selector->cluster_slot.incremental==ULONG_MAX && incr_slot<=selector->cluster_slot.full ) )   return;
+    else if( FD_UNLIKELY( effective_incr_slot!=ULONG_MAX && selector->cluster_slot.incremental==ULONG_MAX && effective_incr_slot<=selector->cluster_slot.full ) )   return;
     /* full slot is less than cluster full slot when incremental slot does not exist */
-    else if( FD_UNLIKELY( incr_slot==ULONG_MAX && full_slot<=selector->cluster_slot.full ) )                                                           return;
+    else if( FD_UNLIKELY( effective_incr_slot==ULONG_MAX && full_slot<=selector->cluster_slot.full ) )                                                              return;
   } else {
     if( FD_UNLIKELY( full_slot<=selector->cluster_slot.full ) ) return;
   }
 
   selector->cluster_slot.full        = full_slot;
-  selector->cluster_slot.incremental = incr_slot;
+  selector->cluster_slot.incremental = effective_incr_slot;
 
   if( FD_UNLIKELY( score_treap_ele_cnt( selector->score_treap )==0UL ) ) return;
 

@@ -240,6 +240,8 @@ fd_http_resolver_add( fd_http_resolver_t *   resolver,
   peer->fd.idx                       = ULONG_MAX;
   peer->full_slot                    = ULONG_MAX;
   peer->incr_slot                    = ULONG_MAX;
+  fd_memset( peer->full_hash, 0, FD_HASH_FOOTPRINT );
+  fd_memset( peer->incr_hash, 0, FD_HASH_FOOTPRINT );
 
   /* The peer needs to be added to the selector, in order to guarantee
      that any subsequent update on the selector is able to find it.
@@ -465,7 +467,9 @@ poll_advance( fd_http_resolver_t * resolver,
       deadline_list_ele_push_tail( resolver->valid, peer, resolver->pool );
       remove_peer( resolver, peer->fd.idx );
 
-      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->full_slot, peer->incr_slot, peer->full_hash, peer->incr_hash );
+      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->full_slot, peer->incr_slot,
+                               peer->full_slot!=ULONG_MAX ? peer->full_hash : NULL,
+                               peer->incr_slot!=ULONG_MAX ? peer->incr_hash : NULL );
     }
   }
 }

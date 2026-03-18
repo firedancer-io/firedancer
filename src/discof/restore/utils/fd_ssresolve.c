@@ -191,8 +191,8 @@ fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
            "User-Agent: Firedancer\r\n"
            "Accept: */*\r\n"
            "Accept-Encoding: identity\r\n"
-           "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-           path, FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
+           "Host: " FD_IP4_ADDR_FMT ":%u\r\n\r\n",
+           path, FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ), fd_ushort_bswap( ssresolve->addr.port ) ) );
   }
 }
 
@@ -504,4 +504,5 @@ fd_ssresolve_cancel( fd_ssresolve_t * ssresolve ) {
     ssresolve->ssl = NULL;
   }
 #endif
+  ssresolve->state = FD_SSRESOLVE_STATE_DONE;
 }
