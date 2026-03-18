@@ -1784,8 +1784,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, limit_instruction_accounts)>>3,
-    .id                        = {"\x03\x49\xeb\xe8\x87\x98\x86\x73\x53\x66\xe5\x65\x8c\xf5\x66\x5c\x2c\x97\x0c\xfe\x58\x24\x37\x66\x9f\xdb\x3c\xa0\x86\xbc\x72\x7d"},
-                                 /* DqbnFPASg7tHmZ6qfpdrt2M6MWoSeiicWPXxPhxqFCQ */
+    .id                        = {"\x52\xd1\xb6\xb3\x5a\x56\x28\x74\x22\x0c\xa4\x14\xc4\x5b\xf8\xb5\x41\xa9\xab\xc4\xe9\x73\x7d\xf5\xc7\x62\x41\x5a\x84\xd7\x5b\x33"},
+                                 /* 6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC */
     .name                      = "limit_instruction_accounts",
     .cleaned_up                = 0 },
 
@@ -2084,7 +2084,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_258 0x3727b6b01b8a6c1cUL, .val = &ids[258]
 #define MAP_PERFECT_259 0xa5ce8f931961b80cUL, .val = &ids[259]
 #define MAP_PERFECT_260 0xf55c421c9eccc012UL, .val = &ids[260]
-#define MAP_PERFECT_261 0x73869887e8eb4903UL, .val = &ids[261]
+#define MAP_PERFECT_261 0x7428565ab3b6d152UL, .val = &ids[261]
 #define MAP_PERFECT_262 0x8b0786cd93f63607UL, .val = &ids[262]
 #define MAP_PERFECT_263 0x4908ae0360664f6dUL, .val = &ids[263]
 #define MAP_PERFECT_264 0x632b9b7c9e9a3257UL, .val = &ids[264]
