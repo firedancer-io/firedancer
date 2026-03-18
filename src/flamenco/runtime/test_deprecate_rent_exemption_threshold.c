@@ -188,7 +188,7 @@ add_bank_stake_delegation_entry( test_env_t *        env,
   fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( env->banks->data );
   env->bank->data->stake_delegations_fork_id = fd_stake_delegations_delta_new_fork( stake_delegations_delta );
 
-  stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( env->bank );
+  stake_delegations_delta = fd_bank_stake_delegations_delta_modify( env->bank );
   fd_stake_delegations_delta_update( stake_delegations_delta,
                                      env->bank->data->stake_delegations_fork_id,
                                      stake_account,
@@ -198,7 +198,6 @@ add_bank_stake_delegation_entry( test_env_t *        env,
                                      ULONG_MAX,
                                      0UL,
                                      0.25 );
-  fd_bank_stake_delegations_delta_end_locking_modify( env->bank );
 }
 
 static test_env_t *

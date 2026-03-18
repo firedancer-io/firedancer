@@ -602,7 +602,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   }
 
   /* Dump stake accounts for this epoch */
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( parent_bank );
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_modify( parent_bank );
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, stake_delegations_delta );
        !fd_stake_delegations_iter_done( iter );
@@ -611,7 +611,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &stake_delegation->stake_account );
   }
   fd_bank_stake_delegations_end_frontier_query( banks, parent_bank );
-  fd_bank_stake_delegations_delta_end_locking_modify( parent_bank );
 
 
   ushort fork_idx = parent_bank->data->vote_stakes_fork_id;

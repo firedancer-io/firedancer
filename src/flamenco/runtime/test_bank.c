@@ -582,7 +582,7 @@ test_bank_stake_delegation_delta_apply_and_remove( void * mem ) {
     ulong bank_idx = fd_banks_new_bank( bank, banks, parent_idx, 0L )->data->idx;
     FD_TEST( fd_banks_clone_from_parent( bank, banks, bank_idx ) );
 
-    fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_locking_modify( bank );
+    fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( bank );
     fd_stake_delegations_delta_update( delta, bank->data->stake_delegations_fork_id, &stake_0, &vote_0, 1000UL+i, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
     if( (i&1UL)==0UL ) {
       fd_stake_delegations_delta_update( delta, bank->data->stake_delegations_fork_id, &stake_1, &vote_1, 2000UL+i, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
@@ -601,7 +601,6 @@ test_bank_stake_delegation_delta_apply_and_remove( void * mem ) {
     } else {
       fd_stake_delegations_delta_remove( delta, bank->data->stake_delegations_fork_id, &stake_3 );
     }
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
     fd_banks_mark_bank_frozen( banks, bank );
     parent_idx = bank_idx;
   }
@@ -715,11 +714,9 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   ulong child_bank_idx = fd_banks_new_bank( child_bank, banks_small, root_bank->data->idx, 0L )->data->idx;
   FD_TEST( fd_banks_clone_from_parent( child_bank, banks_small, child_bank_idx ) );
 
-  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_locking_modify( child_bank );
+  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( child_bank );
   fd_stake_delegations_delta_update( delta, child_bank->data->stake_delegations_fork_id, &stake_0, &vote_0, 33UL, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
   fd_stake_delegations_delta_update( delta, child_bank->data->stake_delegations_fork_id, &stake_1, &vote_1, 22UL, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-  fd_bank_stake_delegations_delta_end_locking_modify( child_bank );
-
   frontier_stake_delegations = fd_bank_stake_delegations_frontier_query( banks_small, child_bank );
   FD_TEST( fd_stake_delegations_cnt( frontier_stake_delegations )==2UL );
   stake_delegation = test_bank_frontier_delegation_query( banks_small, frontier_stake_delegations, &stake_0 );
@@ -827,10 +824,8 @@ main( int argc, char ** argv ) {
   fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( banks->data );
   bank->data->stake_delegations_fork_id = fd_stake_delegations_delta_new_fork( stake_delegations_delta );
 
-  stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank );
+  stake_delegations_delta = fd_bank_stake_delegations_delta_modify( bank );
   fd_stake_delegations_delta_update( stake_delegations_delta, bank->data->stake_delegations_fork_id, &key_0, &key_9, 100UL, 100UL, 100UL, 100UL, 0.09 );
-
-  fd_bank_stake_delegations_delta_end_locking_modify( bank );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
@@ -869,11 +864,9 @@ main( int argc, char ** argv ) {
 
   /* Make updates to delta */
 
-  stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank2 );
+  stake_delegations_delta = fd_bank_stake_delegations_delta_modify( bank2 );
   fd_stake_delegations_delta_update( stake_delegations_delta, bank2->data->stake_delegations_fork_id, &key_0, &key_0, 200UL, 100UL, 100UL, 100UL, 0.09 );
   fd_stake_delegations_delta_update( stake_delegations_delta, bank2->data->stake_delegations_fork_id, &key_1, &key_8, 100UL, 100UL, 100UL, 100UL, 0.09 );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank2 );
-
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank2 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
   stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_0 );
@@ -897,10 +890,8 @@ main( int argc, char ** argv ) {
   /* Because bank 3 is on a different fork than bank 2, make sure that
      the updates don't get incorrectly applied. */
 
-  stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank3 );
+  stake_delegations_delta = fd_bank_stake_delegations_delta_modify( bank3 );
   fd_stake_delegations_delta_update( stake_delegations_delta, bank3->data->stake_delegations_fork_id, &key_2, &key_7, 10UL, 100UL, 100UL, 100UL, 0.09 );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank3 );
-
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank3 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
   stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_2 );
@@ -954,10 +945,8 @@ main( int argc, char ** argv ) {
   fd_bank_slot_set( bank7, 7UL );
   FD_TEST( fd_bank_capitalization_get( bank7 ) == 2100UL );
 
-  stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank7 );
+  stake_delegations_delta = fd_bank_stake_delegations_delta_modify( bank7 );
   fd_stake_delegations_delta_update( stake_delegations_delta, bank7->data->stake_delegations_fork_id, &key_3, &key_6, 7UL, 100UL, 100UL, 100UL, 0.09 );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank7 );
-
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank7 );
 
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
@@ -985,10 +974,8 @@ main( int argc, char ** argv ) {
   FD_TEST( bank8->data->bank_seq==7UL );
   FD_TEST( fd_bank_capitalization_get( bank8 ) == 2100UL );
 
-  stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank8 );
+  stake_delegations_delta = fd_bank_stake_delegations_delta_modify( bank8 );
   fd_stake_delegations_delta_update( stake_delegations_delta, bank8->data->stake_delegations_fork_id, &key_4, &key_5, 4UL, 100UL, 100UL, 100UL, 0.09 );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank8 );
-
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank8 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 4UL );
   stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_4 );

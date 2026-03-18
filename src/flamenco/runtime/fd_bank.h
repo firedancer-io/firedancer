@@ -524,17 +524,8 @@ fd_bank_set_stake_delegations_delta( fd_bank_data_t * bank, fd_stake_delegations
 }
 
 static inline fd_stake_delegations_delta_t *
-fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
-  if( FD_UNLIKELY( bank->data->stake_delegations_fork_id==USHORT_MAX ) ) {
-    FD_LOG_CRIT(( "Stake delegations fork id is not allocated" ));
-  }
-  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock );
+fd_bank_stake_delegations_delta_modify( fd_bank_t * bank ) {
   return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_delta_offset );
-}
-
-static inline void
-fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->stake_delegations_delta_lock );
 }
 
 /* fd_bank_t is the alignment for the bank state. */

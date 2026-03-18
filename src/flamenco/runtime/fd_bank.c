@@ -681,6 +681,7 @@ fd_banks_stake_delegations_apply_delta( fd_stake_delegations_t *       stake_del
       fd_stake_delegations_remove( stake_delegations_base, &stake_delegation->stake_account );
     }
   }
+  fd_stake_delegations_delta_iter_fini( stake_delegations_delta );
 }
 
 /* fd_bank_stake_delegation_apply_deltas applies all of the stake

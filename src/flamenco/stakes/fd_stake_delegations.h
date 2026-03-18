@@ -299,6 +299,8 @@ struct fd_stake_delegations_delta {
   ulong dlist_offsets_[FD_STAKE_DELEGATIONS_DELTA_FORK_MAX];
 
   ulong max_stake_accounts_;
+
+  fd_rwlock_t lock;
 };
 typedef struct fd_stake_delegations_delta fd_stake_delegations_delta_t;
 
@@ -410,11 +412,14 @@ fd_stake_delegations_delta_iter_ele( fd_stake_delegations_delta_t * stake_delega
                                      ushort                         fork_idx,
                                      ulong                          iter );
 
+void
+fd_stake_delegations_delta_iter_fini( fd_stake_delegations_delta_t * stake_delegations );
+
 /* Iterator API for stake delegations. The iterator is initialized with
    a call to fd_stake_delegations_iter_init. The caller is responsible
    for managing the memory for the iterator. It is safe to call
    fd_stake_delegations_iter_next if the result of
-   fd_stake_delegations_iter_done() ==0. It is safe to call
+   fd_stake_delegations_iter_done()==0. It is safe to call
    fd_stake_delegations_iter_ele() to get the current stake delegation.
    As a note, it is safe to modify the stake delegation acquired from
    fd_stake_delegations_iter_ele() as long as the next_ field is not
@@ -428,7 +433,9 @@ fd_stake_delegations_delta_iter_ele( fd_stake_delegations_delta_t * stake_delega
    Example use:
 
    fd_stake_delegations_iter_t iter_[1];
-   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations ); !fd_stake_delegations_iter_done( iter ); fd_stake_delegations_iter_next( iter ) ) {
+   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, delta );
+        !fd_stake_delegations_iter_done( iter );
+        fd_stake_delegations_iter_next( iter ) ) {
      fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
      // Do something with the stake delegation ...
    }

@@ -153,7 +153,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong epoch = fd_bank_epoch_get( bank );
 
   ulong total_stake = 0UL;
-  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_locking_modify( bank );
+  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( bank );
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, delta );
        !fd_stake_delegations_iter_done( iter );
@@ -270,7 +270,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_vote_stakes_insert_fini( vote_stakes, child_idx );
 
   fd_bank_vote_stakes_end_locking_modify( bank );
-  fd_bank_stake_delegations_delta_end_locking_modify( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
@@ -303,7 +302,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     }
   };
 
-  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_locking_modify( bank );
+  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( bank );
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, delta );
        !fd_stake_delegations_iter_done( iter );
@@ -319,8 +318,6 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     new_elem.entry.activating   += new_entry.activating;
     new_elem.entry.deactivating += new_entry.deactivating;
   }
-  fd_bank_stake_delegations_delta_end_locking_modify( bank );
-
   fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &new_elem );
 
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
@@ -347,11 +344,10 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
                                    fd_bank_t *               bank ) {
 
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank );
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_modify( bank );
 
   if( meta->lamports==0UL ) {
     fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
@@ -359,25 +355,21 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
   int err = fd_stake_get_state( meta, &stake_state );
   if( FD_UNLIKELY( err!=0 ) ) {
     fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
     fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( fd_stake_state_v2_is_uninitialized( &stake_state ) ) ) {
     fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
     fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
@@ -388,6 +380,4 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                      stake_state.inner.stake.stake.delegation.deactivation_epoch,
                                      stake_state.inner.stake.stake.credits_observed,
                                      stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
-
-  fd_bank_stake_delegations_delta_end_locking_modify( bank );
 }
