@@ -20,11 +20,7 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAX_BANKS (4096UL)
 
-/* TODO: Some optimizations, cleanups, future work:
-   1. Simple data types (ulong, int, etc) should be stored as their
-      underlying type instead of a byte array.
-   3. Rename locks to suffix with _query_locking and _query_locking_end
-  */
+/* TODO:FIXME: REREVIEW ALL DOCUMENTATION FOR BANKS */
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
    for a given block.  More specifically, the bank state corresponds to
@@ -610,15 +606,6 @@ struct fd_banks_data {
   ulong epoch_leaders_offset;
   ulong epoch_leaders_footprint;
 
-  /* stake_delegations_root will be the full state of stake delegations
-     for the current root. It can get updated in two ways:
-     1. On boot the snapshot will be directly read into the rooted
-        stake delegations because we assume that any and all snapshots
-        are a rooted slot.
-     2. Calls to fd_banks_publish() will apply all of the stake
-        delegation deltas from each of the banks that are about to be
-        published.  */
-
   ulong stake_delegations_root_offset;
 
   /* Set of compressed stake weights for the leader schedule for the
@@ -698,34 +685,29 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 FD_BANKS_ITER(X)
 #undef X
 
-/* Each bank has a fd_stake_delegations_t object which is delta-based.
-   The usage pattern is the same as other bank fields:
-   1. fd_bank_stake_delegations_delta_locking_modify( bank ) will return
-      a mutable pointer to the stake delegations delta object. If the
-      caller has not yet initialized the delta object, then it will
-      be initialized. Because it is a delta it is not copied over from
-      a parent bank.
-   2. fd_bank_stake_delegations_delta_locking_query( bank ) will return
-      a const pointer to the stake delegations delta object. If the
-      delta object has not been initialized, then NULL is returned.
-   3. fd_bank_stake_delegations_delta_locking_end_modify( bank ) will
-      release the write lock on the object.
-   4. fd_bank_stake_delegations_delta_locking_end_query( bank ) will
-      release a read lock on the object.
-*/
-
 /* fd_bank_stake_delegations_frontier_query() will return a pointer to
    the full stake delegations for the current frontier. The caller is
    responsible that there are no concurrent readers or writers to
    the stake delegations returned by this function.
 
-   Under the hood, the function copies the rooted stake delegations and
-   applies all of the deltas for the direct ancestry from the current
-   bank up to the rooted bank to the copy. */
+   Under the hood, the function applies all of the stake delegation
+   deltas from all banks starting from the root down to the current bank
+   to the rooted version of the stake delegations.  This is done in a
+   reversible way and is unwound with a call to
+   fd_bank_stake_delegations_end_frontier_query(). */
 
 fd_stake_delegations_t *
 fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
                                           fd_bank_t *  bank );
+
+/* fd_bank_stake_delegations_end_frontier_query() will finish the
+   reversible operation started by
+   fd_bank_stake_delegations_frontier_query().  It is unsafe to call
+   fd_bank_stake_delegations_frontier_query multiple times without
+   calling this function in between.
+
+   Under the hood, it undoes any references to the stake delegation
+   deltas that were applied. */
 
 void
 fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,

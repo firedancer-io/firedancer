@@ -9,10 +9,10 @@
 FD_PROTOTYPES_BEGIN
 
 /* FD_RUNTIME_MAX_{STAKE,VOTE}_ACCOUNTS are the maximum number of stake
-   and vote accounts that the system supports.  The system will support
-   up to these numbers but will crash otherwise.  The bounds were set
-   with the intention of making a dos vector to mint stake/vote accounts
-   infeasible financially.  A reasonable value is roughly 550,000 SOL.
+   and vote accounts that the system supports: anything larger will
+   result in a crash. The bounds were set with the intention of making a
+   dos vector to mint stake/vote accounts financially infeasible.  A
+   reasonable value to guard against this attack is roughly 550,000 SOL.
 
    For vote accounts, the limit is set to 19,000,000 because the rent
    exempt reserve of creating a valid vote account is ~0.03 SOL.  For

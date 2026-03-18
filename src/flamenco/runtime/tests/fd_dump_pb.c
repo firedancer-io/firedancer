@@ -526,7 +526,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
                                           fd_bank_t *           bank,
                                           fd_accdb_user_t *     accdb,
                                           fd_runtime_stack_t *  runtime_stack ) {
-  (void)runtime_stack;
   /* We should use the bank fields and funk txn from the parent slot in
      order to capture the block context from before the current block
      was executed, since dumping is happening in the block finalize
@@ -602,14 +601,18 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, fd_dump_builtin_ids[i] );
   }
 
-  // /* Dump stake accounts for this epoch */
-  // fd_stake_delegations_iter_t iter_[1];
-  // for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-  //      !fd_stake_delegations_iter_done( iter );
-  //      fd_stake_delegations_iter_next( iter ) ) {
-  //   fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
-  //   add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &stake_delegation->stake_account );
-  // }
+  /* Dump stake accounts for this epoch */
+  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( parent_bank );
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, stake_delegations_delta );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
+    add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &stake_delegation->stake_account );
+  }
+  fd_bank_stake_delegations_end_frontier_query( banks, parent_bank );
+  fd_bank_stake_delegations_delta_end_locking_modify( parent_bank );
+
 
   ushort fork_idx = parent_bank->data->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];

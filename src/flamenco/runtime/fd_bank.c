@@ -352,16 +352,6 @@ fd_banks_new( void * shmem,
     fd_bank_set_stake_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights) );
     fd_bank_set_stake_weights_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights_cnt) );
 
-    fd_bank_set_stake_weights( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights) );
-    fd_bank_set_stake_weights_cnt_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights_cnt) );
-    fd_bank_set_stake_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights) );
-    fd_bank_set_stake_weights_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights_cnt) );
-
-    fd_bank_set_stake_weights( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights) );
-    fd_bank_set_stake_weights_cnt_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, stake_weights_cnt) );
-    fd_bank_set_stake_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights) );
-    fd_bank_set_stake_weights_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights_cnt) );
-
     fd_bank_top_votes_t * top_votes_pool = fd_banks_get_top_votes_pool( banks_data );
     fd_bank_set_top_votes_pool( bank, top_votes_pool );
     bank->top_votes_pool_idx = fd_bank_top_votes_pool_idx_null( top_votes_pool );
@@ -739,12 +729,6 @@ fd_bank_stake_delegation_mark_deltas( fd_banks_t *                   banks,
                                       fd_stake_delegations_t *       stake_delegations_base,
                                       fd_stake_delegations_delta_t * stake_delegations_delta ) {
 
-  /* Naively what we want to do is iterate from the old root to the new
-     root and apply the delta to the full state iteratively. */
-
-  /* First, gather all of the pool indicies that we want to apply deltas
-     for in reverse order starting from the new root. We want to exclude
-     the old root since its delta has been applied previously. */
   ushort pool_indices[ banks->data->max_total_banks ];
   ulong  pool_indices_len = 0UL;
 
@@ -757,9 +741,6 @@ fd_bank_stake_delegation_mark_deltas( fd_banks_t *                   banks,
     }
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
   }
-
-  /* We have populated all of the indicies that we need to apply deltas
-     from in reverse order. */
 
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
@@ -767,19 +748,12 @@ fd_bank_stake_delegation_mark_deltas( fd_banks_t *                   banks,
   }
 }
 
-
 static inline void
 fd_bank_stake_delegation_unmark_deltas( fd_banks_t *                   banks,
                                         fd_bank_t *                    bank,
                                         fd_stake_delegations_t *       stake_delegations_base,
                                         fd_stake_delegations_delta_t * stake_delegations_delta ) {
 
-  /* Naively what we want to do is iterate from the old root to the new
-     root and apply the delta to the full state iteratively. */
-
-  /* First, gather all of the pool indicies that we want to apply deltas
-     for in reverse order starting from the new root. We want to exclude
-     the old root since its delta has been applied previously. */
   ushort pool_indices[ banks->data->max_total_banks ];
   ulong  pool_indices_len = 0UL;
 
@@ -792,9 +766,6 @@ fd_bank_stake_delegation_unmark_deltas( fd_banks_t *                   banks,
     }
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
   }
-
-  /* We have populated all of the indicies that we need to apply deltas
-     from in reverse order. */
 
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
