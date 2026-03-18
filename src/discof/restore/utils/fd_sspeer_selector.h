@@ -13,6 +13,27 @@
 
 #define FD_SSPEER_SELECTOR_MAGIC (0xF17EDA2CE5593350) /* FIREDANCE SSPING V0 */
 
+/* Sentinel score returned by fd_sspeer_selector_best when no peer was
+   found and by fd_sspeer_selector_add on failure. */
+#define FD_SSPEER_SCORE_INVALID   (ULONG_MAX)
+
+/* Maximum score a valid peer can have.  FD_SSPEER_SCORE_MAX ensures a
+   valid peer's score is never confused with FD_SSPEER_SCORE_INVALID. */
+#define FD_SSPEER_SCORE_MAX       (ULONG_MAX-1UL)
+
+/* Sentinel value indicating that a snapshot slot (full or incremental)
+   is unknown or absent. */
+#define FD_SSPEER_SLOT_UNKNOWN    (ULONG_MAX)
+
+/* Sentinel value indicating that peer latency has not been measured. */
+#define FD_SSPEER_LATENCY_UNKNOWN (ULONG_MAX)
+
+/* Return codes for fd_sspeer_selector_update_on_resolve. */
+#define FD_SSPEER_UPDATE_SUCCESS         ( 0)
+#define FD_SSPEER_UPDATE_ERR_NULL_KEY    (-1)
+#define FD_SSPEER_UPDATE_ERR_NOT_FOUND   (-2)
+#define FD_SSPEER_UPDATE_ERR_INVALID_ARG (-3)
+
 /* fd_sscluster_slot stores the highest full and incremental slot pair
    seen in the cluster. */
 struct fd_sscluster_slot {
@@ -64,8 +85,17 @@ fd_sspeer_selector_delete( void * shselector );
 
 /* Update the selector when an http server is resolved.  The peer is
    identified by key.  The values that can be updated are slot and
-   hash, for both full and incremental snapshots.  On success it
-   returns 0, -1 if key==NULL, and -2 if the key was not found. */
+   hash, for both full and incremental snapshots.  Returns
+   FD_SSPEER_UPDATE_SUCCESS on success, FD_SSPEER_UPDATE_ERR_NULL_KEY
+   if key==NULL, FD_SSPEER_UPDATE_ERR_NOT_FOUND if the key was not
+   found, and FD_SSPEER_UPDATE_ERR_INVALID_ARG if the update failed
+   due to invalid arguments (e.g. incr_slot < full_slot).
+
+   Slot-based incremental clearing: when the caller provides
+   incr_slot==FD_SSPEER_SLOT_UNKNOWN and full_slot!=FD_SSPEER_SLOT_UNKNOWN,
+   the peer's existing incremental data is cleared if it is stale
+   (peer->incr_slot < full_slot).  Otherwise, existing incremental
+   data is preserved. */
 int
 fd_sspeer_selector_update_on_resolve( fd_sspeer_selector_t *  selector,
                                       fd_sspeer_key_t const * key,
@@ -86,7 +116,15 @@ fd_sspeer_selector_update_on_ping( fd_sspeer_selector_t * selector,
 
 /* Add a peer to the selector.  If the peer already exists,
    fd_sspeer_selector_add updates the existing peer's score using the
-   given peer latency and snapshot info.  Returns the updated score. */
+   given peer latency and snapshot info.  Returns the updated score.
+
+   Slot-based incremental clearing: for an existing peer, when
+   incr_slot==FD_SSPEER_SLOT_UNKNOWN and full_slot!=FD_SSPEER_SLOT_UNKNOWN,
+   the peer's incremental data is cleared if it is stale
+   (peer->incr_slot < full_slot).  For a new peer, full_hash and
+   incr_hash are handled independently.
+
+   Returns the updated score, or FD_SSPEER_SCORE_INVALID on failure. */
 ulong
 fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
                         fd_sspeer_key_t const * key,
@@ -111,7 +149,10 @@ fd_sspeer_selector_remove_by_addr( fd_sspeer_selector_t * selector,
 
 /* Select the best peer to download a snapshot from.  incremental
    indicates to select a peer to download an incremental snapshot.  If
-   incremental is set, base_slot must be a valid full snapshot slot. */
+   incremental is set, base_slot must be a valid full snapshot slot.
+   Peers that do not offer an incremental snapshot
+   (incr_slot==FD_SSPEER_SLOT_UNKNOWN) are excluded from incremental
+   selection. */
 fd_sspeer_t
 fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
