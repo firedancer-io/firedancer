@@ -190,7 +190,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {
       continue;
     }
-    fd_stake_delegations_update(
+    fd_stake_delegations_root_update(
         stake_delegations,
         (fd_pubkey_t *)elem->stake_pubkey,
         (fd_pubkey_t *)elem->vote_pubkey,

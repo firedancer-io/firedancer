@@ -1622,7 +1622,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
         FD_LOG_ERR(( "Invalid warmup cooldown rate %f for stake account %s", stake_state.inner.stake.stake.delegation.warmup_cooldown_rate, stake_b58 ));
       }
 
-      fd_stake_delegations_update(
+      fd_stake_delegations_root_update(
           stake_delegations,
           &account->pubkey,
           &stake_state.inner.stake.stake.delegation.voter_pubkey,

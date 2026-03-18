@@ -101,7 +101,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
     return;
   }
 
-  fd_stake_delegations_update(
+  fd_stake_delegations_root_update(
       stake_delegations,
       pubkey,
       &stake_state.inner.stake.stake.delegation.voter_pubkey,

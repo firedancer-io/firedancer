@@ -199,41 +199,20 @@ fd_stake_delegations_join( void * mem );
 void
 fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations );
 
-/* fd_stake_delegations_update will either insert a new stake delegation
-   if the pubkey doesn't exist yet, or it will update the stake
-   delegation for the pubkey if already in the map, overriding any
-   previous data. fd_stake_delegations_t must be a valid local join.
-
-   NOTE: This function CAN be called while iterating over the map, but
-   ONLY for keys which already exist in the map. */
+/* fd_stake_delegations_root_update will either insert a new stake
+   delegation if the pubkey doesn't exist yet, or it will update the
+   stake delegation for the pubkey if already in the map, overriding any
+   previous data. fd_stake_delegations_t must be a valid local join. */
 
 void
-fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
-                             fd_pubkey_t const *      stake_account,
-                             fd_pubkey_t const *      vote_account,
-                             ulong                    stake,
-                             ulong                    activation_epoch,
-                             ulong                    deactivation_epoch,
-                             ulong                    credits_observed,
-                             double                   warmup_cooldown_rate );
-
-/* fd_stake_delegations_remove removes a stake delegation corresponding
-   to a stake account's pubkey if one exists.  Nothing happens if the
-   key doesn't exist in the stake delegations.  fd_stake_delegations_t
-   must be a valid local join. */
-
-void
-fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
-                             fd_pubkey_t const *      stake_account );
-
-
-/* fd_stake_delegations_query returns the stake delegation for a
-   stake account's pubkey if one exists. If one does not exist, returns
-   NULL. fd_stake_delegations_t must be a valid local join. */
-
-fd_stake_delegation_t const *
-fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
-                            fd_pubkey_t const *            stake_account );
+fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
+                                  fd_pubkey_t const *      stake_account,
+                                  fd_pubkey_t const *      vote_account,
+                                  ulong                    stake,
+                                  ulong                    activation_epoch,
+                                  ulong                    deactivation_epoch,
+                                  ulong                    credits_observed,
+                                  double                   warmup_cooldown_rate );
 
 /* fd_stake_delegations_refresh is used to refresh the stake
    delegations stored in fd_stake_delegations_t which is owned by
@@ -331,9 +310,9 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
 
 /* fd_stake_delegations_apply_fork_delta merges all stake delegation
    entries for fork_idx into the root map: non-tombstone entries are
-   applied via fd_stake_delegations_update, tombstones via
-   fd_stake_delegations_remove.  Caller must ensure no concurrent
-   iteration on stake_delegations for this fork. */
+   applied via fd_stake_delegations_root_update; tombstone entries remove
+   the corresponding stake account from the root map.  Caller must
+   ensure no concurrent iteration on stake_delegations for this fork. */
 
 void
 fd_stake_delegations_apply_fork_delta( fd_stake_delegations_t * stake_delegations,
