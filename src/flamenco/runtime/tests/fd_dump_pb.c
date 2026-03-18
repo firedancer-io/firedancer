@@ -602,9 +602,8 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   }
 
   /* Dump stake accounts for this epoch */
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_modify( parent_bank );
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, stake_delegations_delta );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );

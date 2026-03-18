@@ -25,15 +25,16 @@ int main( int argc, char ** argv ) {
   ulong const max_stake_accounts = 10UL;
   ulong const expected_stake_accounts = fd_ulong_min( max_stake_accounts, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS );
 
-  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts, expected_stake_accounts ), wksp_tag );
+  ulong const max_live_slots = 32UL;
+  void * stake_delegations_mem = fd_wksp_alloc_laddr( wksp, fd_stake_delegations_align(), fd_stake_delegations_footprint( max_stake_accounts, expected_stake_accounts, max_live_slots ), wksp_tag );
   FD_TEST( stake_delegations_mem );
 
   FD_TEST( fd_stake_delegations_align()>=alignof(fd_stake_delegations_t)  );
   FD_TEST( fd_stake_delegations_align()==FD_STAKE_DELEGATIONS_ALIGN );
 
-  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts, expected_stake_accounts ) );
-  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL, expected_stake_accounts ) );
-  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, expected_stake_accounts );
+  FD_TEST( !fd_stake_delegations_new( NULL, 0UL, max_stake_accounts, expected_stake_accounts, max_live_slots ) );
+  FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0UL, expected_stake_accounts, max_live_slots ) );
+  void * new_stake_delegations_mem = fd_stake_delegations_new( stake_delegations_mem, 0UL, max_stake_accounts, expected_stake_accounts, max_live_slots );
   FD_TEST( new_stake_delegations_mem );
 
   FD_TEST( !fd_stake_delegations_join( NULL ) );
@@ -43,10 +44,6 @@ int main( int argc, char ** argv ) {
 
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( new_stake_delegations_mem );
   FD_TEST( stake_delegations );
-
-  FD_TEST( !fd_stake_delegations_leave( NULL ) );
-  FD_TEST( fd_stake_delegations_join( fd_stake_delegations_leave( stake_delegations ) ) );
-  FD_TEST( fd_stake_delegations_join( fd_stake_delegations_leave( stake_delegations ) )==stake_delegations );
 
   FD_TEST( fd_stake_delegations_max( stake_delegations ) == max_stake_accounts );
 
@@ -119,11 +116,6 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegation_1->deactivation_epoch == 0UL );
   FD_TEST( stake_delegation_1->warmup_cooldown_rate == FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
-
-  FD_TEST( !fd_stake_delegations_delete( NULL ) );
-  uchar * deleted_mem = fd_stake_delegations_delete( fd_stake_delegations_leave( stake_delegations ) );
-  FD_TEST( deleted_mem );
-  FD_TEST( !fd_stake_delegations_join( deleted_mem ) );
 
   /* Test stake delegations refresh */
 

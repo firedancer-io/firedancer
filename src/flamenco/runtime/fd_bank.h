@@ -360,7 +360,7 @@ struct fd_bank_data {
 
   ulong vote_stakes_offset;
 
-  ulong stake_delegations_delta_offset;
+  ulong stake_delegations_offset;
 
   ulong epoch_leaders_idx; /* always 0 or 1 based on % epoch */
   ulong epoch_leaders_offset;
@@ -519,13 +519,13 @@ fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank ) {
 }
 
 static inline void
-fd_bank_set_stake_delegations_delta( fd_bank_data_t * bank, fd_stake_delegations_delta_t * stake_delegations_delta ) {
-  bank->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)bank;
+fd_bank_set_stake_delegations( fd_bank_data_t * bank, fd_stake_delegations_t * stake_delegations ) {
+  bank->stake_delegations_offset = (ulong)stake_delegations - (ulong)bank;
 }
 
-static inline fd_stake_delegations_delta_t *
-fd_bank_stake_delegations_delta_modify( fd_bank_t * bank ) {
-  return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_delta_offset );
+static inline fd_stake_delegations_t *
+fd_bank_stake_delegations_modify( fd_bank_t * bank ) {
+  return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_offset );
 }
 
 /* fd_bank_t is the alignment for the bank state. */
@@ -578,8 +578,6 @@ struct fd_banks_data {
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
   ulong vote_stakes_pool_offset;
-
-  ulong stake_delegations_delta_offset;
 
   ulong stake_rewards_offset;
 
@@ -811,16 +809,6 @@ fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
 static inline void
 fd_banks_set_vote_stakes( fd_banks_data_t * banks_data, fd_vote_stakes_t * vote_stakes ) {
   banks_data->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)banks_data;
-}
-
-static inline fd_stake_delegations_delta_t *
-fd_banks_get_stake_delegations_delta( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
-}
-
-static inline void
-fd_banks_set_stake_delegations_delta( fd_banks_data_t * banks_data, fd_stake_delegations_delta_t * stake_delegations_delta ) {
-  banks_data->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)banks_data;
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */

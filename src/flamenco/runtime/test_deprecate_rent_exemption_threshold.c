@@ -185,12 +185,11 @@ static void
 add_bank_stake_delegation_entry( test_env_t *        env,
                                  fd_pubkey_t const * stake_account,
                                  fd_pubkey_t const * vote_account ) {
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( env->banks->data );
-  env->bank->data->stake_delegations_fork_id = fd_stake_delegations_delta_new_fork( stake_delegations_delta );
+  fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( env->bank );
+  env->bank->data->stake_delegations_fork_id = fd_stake_delegations_new_fork( sd );
 
-  stake_delegations_delta = fd_bank_stake_delegations_delta_modify( env->bank );
-  fd_stake_delegations_delta_update( stake_delegations_delta,
-                                     env->bank->data->stake_delegations_fork_id,
+  fd_stake_delegations_fork_update( sd,
+                                    env->bank->data->stake_delegations_fork_id,
                                      stake_account,
                                      vote_account,
                                      1000000000UL,

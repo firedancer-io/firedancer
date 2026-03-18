@@ -153,9 +153,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   ulong epoch = fd_bank_epoch_get( bank );
 
   ulong total_stake = 0UL;
-  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( bank );
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, delta );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
 
@@ -302,9 +301,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     }
   };
 
-  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( bank );
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, delta );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
@@ -344,40 +342,40 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
                                    fd_bank_t *               bank ) {
 
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_modify( bank );
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
 
   if( meta->lamports==0UL ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   fd_stake_state_v2_t stake_state;
   int err = fd_stake_get_state( meta, &stake_state );
   if( FD_UNLIKELY( err!=0 ) ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   if( FD_UNLIKELY( fd_stake_state_v2_is_uninitialized( &stake_state ) ) ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
-  fd_stake_delegations_delta_update( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey,
-                                     &stake_state.inner.stake.stake.delegation.voter_pubkey,
-                                     stake_state.inner.stake.stake.delegation.stake,
-                                     stake_state.inner.stake.stake.delegation.activation_epoch,
-                                     stake_state.inner.stake.stake.delegation.deactivation_epoch,
-                                     stake_state.inner.stake.stake.credits_observed,
-                                     stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+  fd_stake_delegations_fork_update( stake_delegations, bank->data->stake_delegations_fork_id, pubkey,
+                                    &stake_state.inner.stake.stake.delegation.voter_pubkey,
+                                    stake_state.inner.stake.stake.delegation.stake,
+                                    stake_state.inner.stake.stake.delegation.activation_epoch,
+                                    stake_state.inner.stake.stake.delegation.deactivation_epoch,
+                                    stake_state.inner.stake.stake.credits_observed,
+                                    stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 }

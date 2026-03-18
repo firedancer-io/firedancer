@@ -408,9 +408,8 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
 
-  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( bank );
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, delta );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
@@ -507,9 +506,8 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
-  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( bank );
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, delta );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
@@ -620,9 +618,8 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
-  fd_stake_delegations_delta_t * delta = fd_bank_stake_delegations_delta_modify( bank );
   fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations, delta );
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
@@ -941,16 +938,16 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake,
                                                                       reward_lamports );
 
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_modify( bank );
-  fd_stake_delegations_delta_update( stake_delegations_delta,
-                                     bank->data->stake_delegations_fork_id,
-                                     stake_pubkey,
-                                     &stake_state->inner.stake.stake.delegation.voter_pubkey,
-                                     stake_state->inner.stake.stake.delegation.stake,
-                                     stake_state->inner.stake.stake.delegation.activation_epoch,
-                                     stake_state->inner.stake.stake.delegation.deactivation_epoch,
-                                     stake_state->inner.stake.stake.credits_observed,
-                                     stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
+  fd_stake_delegations_t * stake_delegations_upd = fd_bank_stake_delegations_modify( bank );
+  fd_stake_delegations_fork_update( stake_delegations_upd,
+                                    bank->data->stake_delegations_fork_id,
+                                    stake_pubkey,
+                                    &stake_state->inner.stake.stake.delegation.voter_pubkey,
+                                    stake_state->inner.stake.stake.delegation.stake,
+                                    stake_state->inner.stake.stake.delegation.activation_epoch,
+                                    stake_state->inner.stake.stake.delegation.deactivation_epoch,
+                                    stake_state->inner.stake.stake.credits_observed,
+                                    stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,
