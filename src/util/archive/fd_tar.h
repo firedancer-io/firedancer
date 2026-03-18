@@ -111,7 +111,7 @@ fd_tar_set_octal( char * buf,
   buf[ buf_sz-1UL ] = '\0';
 
   for( ulong i=buf_sz-1UL; i>0UL && val>0UL; i-- ) {
-    buf[ i-1UL ] = '0' + (val&7UL);  /* Extract low 3 bits as octal digit */
+    buf[ i-1UL ] = (char)('0' + (val&7UL));  /* Extract low 3 bits as octal digit */
     val >>= 3;                       /* Divide by 8 */
   }
 

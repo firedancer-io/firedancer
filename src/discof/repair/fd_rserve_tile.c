@@ -255,7 +255,7 @@ handle_net_request( ctx_t             * ctx,
           return;
         }
 
-        uchar payload[ FD_SHRED_MIN_SZ+sizeof(uint) ];
+        uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
         int len;
         if( tag==FD_REPAIR_KIND_SHRED ) {
           len = fd_shredb_query( ctx->shredb, slot, (uint)shred_idx, payload );
@@ -283,7 +283,7 @@ handle_net_request( ctx_t             * ctx,
         fd_repair_orphan_req_t const * request = &msg->orphan;
         ulong current = request->slot;
         for( uint i=0; i<FD_RSERVE_MAX_OPRHAN_SLOTS; i++ ) {
-          uchar payload[ FD_SHRED_MIN_SZ+sizeof(uint) ];
+          uchar payload[ FD_SHRED_MAX_SZ+sizeof(uint) ];
           int len = fd_shredb_query_highest( ctx->shredb, current, 0, payload );
           if( FD_UNLIKELY( len<0 ) ) {
             FD_LOG_NOTICE(("didn't have orphan shreds for (slot=%lu, root=%lu)", current, request->slot ));

@@ -287,7 +287,7 @@ fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
   index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
 
   if( FD_UNLIKELY( index_ele->exists_t_1==0U ) ) return;
-  index_ele->stake_t_1 += (stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
+  index_ele->stake_t_1 = (index_ele->stake_t_1 + (stake & 0x7FFFFFFFFFFFFFFFUL)) & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
 }
 
 void
