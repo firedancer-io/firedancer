@@ -309,7 +309,7 @@ fd_shredb_insert_payload( fd_shredb_t * store,
   fd_shredb_entry_t * entry = &ring[ shred_entry->ring_idx ];
   FD_TEST( entry->occupied );
 
-  entry->shred_sz = (ushort)payload_sz+FD_SHRED_DATA_HEADER_SZ;
+  entry->shred_sz = (ushort)(payload_sz+FD_SHRED_DATA_HEADER_SZ);
   fd_memcpy( entry->shred+FD_SHRED_DATA_HEADER_SZ, payload, payload_sz );
 }
 

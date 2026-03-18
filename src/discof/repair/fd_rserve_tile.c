@@ -234,7 +234,7 @@ handle_net_request( ctx_t             * ctx,
   uchar signable[ 96 ];
   uchar signable_sz = tag==FD_REPAIR_KIND_ORPHAN ? 88 : 96;
   fd_memcpy( signable,     payload,      4             );
-  fd_memcpy( signable+4UL, payload+68UL, signable_sz-4 );
+  fd_memcpy( signable+4UL, payload+68UL, (ulong)(signable_sz-4) );
 
   if( FD_UNLIKELY( FD_ED25519_SIG_SZ!=fd_ed25519_verify( signable, signable_sz, header->sig, header->from.uc, ctx->sha512 ) ) ) {
     /* Invalid signature, ignore. */
