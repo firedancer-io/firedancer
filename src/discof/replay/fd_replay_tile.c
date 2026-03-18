@@ -1509,6 +1509,10 @@ boot_genesis( fd_replay_tile_t *        ctx,
   publish_epoch_info( ctx, stem, bank, 0 );
   publish_epoch_info( ctx, stem, bank, 1 );
 
+  /* Genesis has no hard forks.  Normalize from ULONG_MAX sentinel
+     (set during init) before init_after_snapshot calls finalize. */
+  ctx->hard_forks_cnt = 0UL;
+
   /* We call this after fd_runtime_read_genesis, which sets up the
      slot_bank needed in blockstore_init. */
   init_after_snapshot( ctx );

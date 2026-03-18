@@ -799,10 +799,12 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
 
   fd_bank_parent_signature_cnt_set( bank, fd_bank_signature_count_get( bank ) );
 
+  /* hard_forks_cnt must be a real count, not a sentinel value. */
+  FD_TEST( hard_forks_cnt!=ULONG_MAX );
+
   /* Compute the new bank hash */
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
   fd_hash_t new_bank_hash[1] = { 0 };
-  ulong     hard_forks_cnt_safe = fd_ulong_if( hard_forks_cnt==ULONG_MAX, 0UL, hard_forks_cnt );
   fd_hashes_hash_bank(
       lthash,
       prev_bank_hash,
@@ -815,7 +817,7 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
       fd_bank_parent_slot_get( bank ),
       hard_forks,
       hard_forks_cnts,
-      hard_forks_cnt_safe );
+      hard_forks_cnt );
 
   /* Update the bank hash */
   fd_bank_bank_hash_set( bank, *new_bank_hash );
