@@ -400,8 +400,6 @@ struct fd_banks_locks {
 
   fd_rwlock_t vote_stakes_lock;
 
-  fd_rwlock_t stake_delegations_delta_lock;
-
   /* These locks are per bank and are used to atomically update their
      corresponding fields in each bank.  The locks are indexed by the
      bank index. */
@@ -595,7 +593,7 @@ struct fd_banks_data {
   ulong epoch_leaders_offset;
   ulong epoch_leaders_footprint;
 
-  ulong stake_delegations_root_offset;
+  ulong stake_delegations_offset;
 
   /* Set of compressed stake weights for the leader schedule for the
      current epoch. */
@@ -739,7 +737,7 @@ fd_banks_set_dead_banks_deque( fd_banks_data_t *   banks_data,
   banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
 }
 
-static inline uchar *
+static inline fd_epoch_leaders_t *
 fd_banks_get_epoch_leaders( fd_banks_data_t * banks_data ) {
   return fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset );
 }
@@ -752,15 +750,15 @@ fd_banks_set_epoch_leaders( fd_banks_data_t * banks_data,
   banks_data->epoch_leaders_footprint = epoch_leaders_footprint;
 }
 
-static inline uchar *
-fd_banks_get_stake_delegations_root_mem( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_root_offset );
+static inline fd_stake_delegations_t *
+fd_banks_get_stake_delegations( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_offset );
 }
 
 static inline void
-fd_banks_set_stake_delegations_root_mem( fd_banks_data_t * banks_data,
-                                         uchar *           stake_delegations_root_mem ) {
-  banks_data->stake_delegations_root_offset = (ulong)stake_delegations_root_mem - (ulong)banks_data;
+fd_banks_set_stake_delegations( fd_banks_data_t * banks_data,
+                                uchar *           stake_delegations_mem ) {
+  banks_data->stake_delegations_offset = (ulong)stake_delegations_mem - (ulong)banks_data;
 }
 
 static inline fd_bank_top_votes_t *

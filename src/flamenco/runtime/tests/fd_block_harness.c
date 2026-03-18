@@ -117,7 +117,7 @@ static void
 fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   /* Release the stake delegations fork allocated in ctx_create */
   if( runner->bank->data->stake_delegations_fork_id!=USHORT_MAX ) {
-    fd_stake_delegations_t * sd = fd_stake_delegations_join( fd_banks_get_stake_delegations_root_mem( runner->banks->data ) );
+    fd_stake_delegations_t * sd = fd_stake_delegations_join( fd_banks_get_stake_delegations( runner->banks->data ) );
     fd_stake_delegations_evict_fork( sd, runner->bank->data->stake_delegations_fork_id );
     runner->bank->data->stake_delegations_fork_id = USHORT_MAX;
   }

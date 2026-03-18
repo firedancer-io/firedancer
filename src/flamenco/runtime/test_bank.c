@@ -673,8 +673,8 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
       locks_small );
   FD_TEST( banks_small );
 
-  uchar * root_mem_small     = fd_banks_get_stake_delegations_root_mem( banks_small->data );
-  uchar * epoch_leaders_small = fd_banks_get_epoch_leaders( banks_small->data );
+  uchar * root_mem_small      = fd_type_pun( fd_banks_get_stake_delegations( banks_small->data ) );
+  uchar * epoch_leaders_small = fd_type_pun( fd_banks_get_epoch_leaders( banks_small->data ) );
   FD_TEST( root_mem_small );
   FD_TEST( epoch_leaders_small );
   FD_TEST( fd_ulong_is_aligned( (ulong)root_mem_small,     fd_stake_delegations_align() ) );
@@ -752,8 +752,8 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
       locks_large );
   FD_TEST( banks_large );
 
-  uchar * root_mem_large      = fd_banks_get_stake_delegations_root_mem( banks_large->data );
-  uchar * epoch_leaders_large = fd_banks_get_epoch_leaders( banks_large->data );
+  uchar * root_mem_large      = fd_type_pun( fd_banks_get_stake_delegations( banks_large->data ) );
+  uchar * epoch_leaders_large = fd_type_pun( fd_banks_get_epoch_leaders( banks_large->data ) );
   FD_TEST( root_mem_large );
   FD_TEST( epoch_leaders_large );
   FD_TEST( fd_ulong_is_aligned( (ulong)root_mem_large,     fd_stake_delegations_align() ) );

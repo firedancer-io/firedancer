@@ -329,35 +329,15 @@ void
 fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
                                  ushort                   fork_idx );
 
-/* fd_stake_delegations_fork_iter_{init,done,next,ele,fini} are used to
-   iterate over the stake delegation deltas for a given fork.  It is not
-   safe to interleave any other iteration or modification of the stake
-   delegations while iterating.
-
-   Under the hood, the iterator is just a wrapper over the iterator
-   described in fd_dlist.c. */
-
-ulong
-fd_stake_delegations_fork_iter_init( fd_stake_delegations_t * stake_delegations,
-                                     ushort                   fork_idx );
-
-int
-fd_stake_delegations_fork_iter_done( fd_stake_delegations_t * stake_delegations,
-                                     ushort                   fork_idx,
-                                     ulong                    iter );
-
-ulong
-fd_stake_delegations_fork_iter_next( fd_stake_delegations_t * stake_delegations,
-                                     ushort                   fork_idx,
-                                     ulong                    iter );
-
-fd_stake_delegation_t *
-fd_stake_delegations_fork_iter_ele( fd_stake_delegations_t * stake_delegations,
-                                    ushort                   fork_idx,
-                                    ulong                    iter );
+/* fd_stake_delegations_apply_fork_delta merges all stake delegation
+   entries for fork_idx into the root map: non-tombstone entries are
+   applied via fd_stake_delegations_update, tombstones via
+   fd_stake_delegations_remove.  Caller must ensure no concurrent
+   iteration on stake_delegations for this fork. */
 
 void
-fd_stake_delegations_fork_iter_fini( fd_stake_delegations_t * stake_delegations );
+fd_stake_delegations_apply_fork_delta( fd_stake_delegations_t * stake_delegations,
+                                       ushort                   fork_idx );
 
 /* Iterator API for stake delegations.  The iterator is initialized with
    a call to fd_stake_delegations_iter_init.  The caller is responsible
