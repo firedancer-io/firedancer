@@ -85,21 +85,21 @@ get_vote_credits_commission( uchar const *        account_data,
     *node_account_t_1    = vsv->inner.v1_14_11.node_pubkey;
     *last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
     *last_vote_timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
-    vote_epoch_credits = vsv->inner.v1_14_11.epoch_credits;
+    vote_epoch_credits   = vsv->inner.v1_14_11.epoch_credits;
     break;
   case fd_vote_state_versioned_enum_v3:
     vote_ele->commission = vsv->inner.v3.commission;
     *node_account_t_1    = vsv->inner.v3.node_pubkey;
     *last_vote_slot      = vsv->inner.v3.last_timestamp.slot;
     *last_vote_timestamp = vsv->inner.v3.last_timestamp.timestamp;
-    vote_epoch_credits = vsv->inner.v3.epoch_credits;
+    vote_epoch_credits   = vsv->inner.v3.epoch_credits;
     break;
   case fd_vote_state_versioned_enum_v4:
     vote_ele->commission = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
     *node_account_t_1    = vsv->inner.v4.node_pubkey;
     *last_vote_slot      = vsv->inner.v4.last_timestamp.slot;
     *last_vote_timestamp = vsv->inner.v4.last_timestamp.timestamp;
-    vote_epoch_credits = vsv->inner.v4.epoch_credits;
+    vote_epoch_credits   = vsv->inner.v4.epoch_credits;
     break;
   default:
     FD_LOG_CRIT(( "invalid vote state version %u", vsv->discriminant ));
@@ -181,7 +181,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       }
 
       if( FD_UNLIKELY( !exists_curr ) ) {
-        fd_accdb_close_ro( accdb, vote_ro );
 
         /* If the vote account does not exist going into the epoch
            boundary, and did not exist at the end of the last epoch
