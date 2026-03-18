@@ -1,12 +1,325 @@
+#include <limits.h>
+
 #include "fd_stakes.h"
 #include "../runtime/fd_bank.h"
-#include "../runtime/program/fd_stake_program.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/fd_runtime_stack.h"
+#include "../runtime/fd_system_ids.h"
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../accdb/fd_accdb_sync.h"
+#include "../../util/bits/fd_sat.h"
+
+/**********************************************************************/
+/* Constants                                                          */
+/**********************************************************************/
+
+#define DEFAULT_WARMUP_COOLDOWN_RATE               ( 0.25 )
+#define NEW_WARMUP_COOLDOWN_RATE                   ( 0.09 )
+#define DEFAULT_SLASH_PENALTY                      ( 12 )
+
+/**********************************************************************/
+/* Types                                                              */
+/**********************************************************************/
+
+struct effective_activating {
+  ulong effective;
+  ulong activating;
+};
+typedef struct effective_activating effective_activating_t;
+
+typedef fd_stake_history_entry_t fd_stake_activation_status_t;
+
+/**********************************************************************/
+/* Static helpers                                                     */
+/**********************************************************************/
+
+static inline double
+warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
+  ulong activation_epoch = new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX;
+  return current_epoch<activation_epoch ? DEFAULT_WARMUP_COOLDOWN_RATE : NEW_WARMUP_COOLDOWN_RATE;
+}
+
+static fd_stake_history_entry_t const *
+fd_stake_history_ele_binary_search_const( fd_stake_history_t const * history,
+                                          ulong epoch ) {
+  ulong start = 0UL;
+  ulong end  = history->fd_stake_history_len - 1;
+
+  while ( start<=end ) {
+    ulong mid = start + ( end - start ) / 2UL;
+    if( history->fd_stake_history[mid].epoch==epoch ) {
+      return &history->fd_stake_history[mid].entry;
+    } else if( history->fd_stake_history[mid].epoch<epoch ) {
+      if ( mid==0 ) return NULL;
+      end = mid - 1;
+    } else {
+      start = mid + 1;
+    }
+  }
+  return NULL;
+}
+
+static fd_stake_history_entry_t const *
+fd_stake_history_ele_query_const( fd_stake_history_t const * history,
+                                  ulong epoch ) {
+  if( 0 == history->fd_stake_history_len ) {
+    return NULL;
+  }
+
+  if( epoch > history->fd_stake_history[0].epoch ) {
+    return NULL;
+  }
+
+  ulong off = (history->fd_stake_history[0].epoch - epoch);
+  if( off >= history->fd_stake_history_len ) {
+    return fd_stake_history_ele_binary_search_const( history, epoch );
+  }
+
+  ulong e = (off + history->fd_stake_history_offset) & (history->fd_stake_history_size - 1);
+
+  if ( history->fd_stake_history[e].epoch == epoch ) {
+    return &history->fd_stake_history[e].entry;
+  }
+
+  return fd_stake_history_ele_binary_search_const( history, epoch );
+}
+
+// https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L728
+static effective_activating_t
+stake_and_activating( fd_delegation_t const *    self,
+                      ulong                      target_epoch,
+                      fd_stake_history_t const * history,
+                      ulong *                    new_rate_activation_epoch ) {
+  ulong delegated_stake = self->stake;
+
+  fd_stake_history_entry_t const * cluster_stake_at_activation_epoch;
+  if( self->activation_epoch==ULONG_MAX ) {
+    return ( effective_activating_t ){ .effective = delegated_stake, .activating = 0 };
+  } else if( self->activation_epoch==self->deactivation_epoch ) {
+    return ( effective_activating_t ){ .effective = 0, .activating = 0 };
+  } else if( target_epoch==self->activation_epoch ) {
+    return ( effective_activating_t ){ .effective = 0, .activating = delegated_stake };
+  } else if( target_epoch<self->activation_epoch ) {
+    return ( effective_activating_t ){ .effective = 0, .activating = 0 };
+  } else if( history &&
+              ( cluster_stake_at_activation_epoch = fd_stake_history_ele_query_const(
+                    history, self->activation_epoch ) ) ) {
+    ulong                            prev_epoch         = self->activation_epoch;
+    fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_activation_epoch;
+
+    ulong current_epoch;
+    ulong current_effective_stake = 0;
+    for( ;; ) {
+      current_epoch = prev_epoch + 1;
+      if( FD_LIKELY( prev_cluster_stake->activating==0 ) ) {
+        break;
+      }
+
+      ulong  remaining_activating_stake = delegated_stake - current_effective_stake;
+      double weight = (double)remaining_activating_stake / (double)prev_cluster_stake->activating;
+      double warmup_cooldown_rate_ =
+          warmup_cooldown_rate( current_epoch, new_rate_activation_epoch );
+
+      double newly_effective_cluster_stake =
+          (double)prev_cluster_stake->effective * warmup_cooldown_rate_;
+      ulong newly_effective_stake =
+          fd_ulong_max( fd_rust_cast_double_to_ulong( weight * newly_effective_cluster_stake ), 1 );
+
+      current_effective_stake += newly_effective_stake;
+      if( FD_LIKELY( current_effective_stake>=delegated_stake ) ) {
+        current_effective_stake = delegated_stake;
+        break;
+      }
+
+      if( FD_LIKELY( current_epoch>=target_epoch ||
+                     current_epoch>=self->deactivation_epoch ) ) {
+        break;
+      }
+
+      fd_stake_history_entry_t const * current_cluster_stake =
+          fd_stake_history_ele_query_const( history, current_epoch );
+      if( FD_LIKELY( current_cluster_stake ) ) {
+        prev_epoch         = current_epoch;
+        prev_cluster_stake = current_cluster_stake;
+      } else {
+        break;
+      }
+    }
+    return ( effective_activating_t ){ .effective  = current_effective_stake,
+                                       .activating = delegated_stake - current_effective_stake };
+  } else {
+    return ( effective_activating_t ){ .effective = delegated_stake, .activating = 0 };
+  }
+}
+
+// https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L641
+static fd_stake_activation_status_t
+stake_activating_and_deactivating( fd_delegation_t const *    self,
+                                   ulong                      target_epoch,
+                                   fd_stake_history_t const * stake_history,
+                                   ulong *                    new_rate_activation_epoch ) {
+
+  effective_activating_t effective_activating =
+      stake_and_activating( self, target_epoch, stake_history, new_rate_activation_epoch );
+
+  ulong effective_stake  = effective_activating.effective;
+  ulong activating_stake = effective_activating.activating;
+
+  fd_stake_history_entry_t const * cluster_stake_at_deactivation_epoch = NULL;
+
+  if( target_epoch<self->deactivation_epoch ) {
+    if( activating_stake==0 ) {
+      return ( fd_stake_history_entry_t ){
+          .effective = effective_stake, .deactivating = 0, .activating = 0 };
+    } else {
+      return ( fd_stake_history_entry_t ){
+          .effective = effective_stake, .deactivating = 0, .activating = activating_stake };
+    }
+  } else if( target_epoch==self->deactivation_epoch ) {
+    return ( fd_stake_history_entry_t ){
+        .effective = effective_stake, .deactivating = effective_stake, .activating = 0 };
+  } else if( stake_history &&
+             ( cluster_stake_at_deactivation_epoch = fd_stake_history_ele_query_const( stake_history, self->deactivation_epoch ) ) ) {
+    ulong                      prev_epoch         = self->deactivation_epoch;
+    fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_deactivation_epoch;
+
+    ulong current_epoch;
+    ulong current_effective_stake = effective_stake;
+    for( ;; ) {
+      current_epoch = prev_epoch + 1;
+      if( prev_cluster_stake->deactivating==0 ) break;
+
+      double weight = (double)current_effective_stake / (double)prev_cluster_stake->deactivating;
+      double warmup_cooldown_rate_ =
+          warmup_cooldown_rate( current_epoch, new_rate_activation_epoch );
+
+      double newly_not_effective_cluster_stake =
+          (double)prev_cluster_stake->effective * warmup_cooldown_rate_;
+      ulong newly_not_effective_stake =
+          fd_ulong_max( fd_rust_cast_double_to_ulong( weight * newly_not_effective_cluster_stake ), 1 );
+
+      current_effective_stake =
+          fd_ulong_sat_sub( current_effective_stake, newly_not_effective_stake );
+      if( current_effective_stake==0 ) break;
+
+      if( current_epoch>=target_epoch ) break;
+
+      fd_stake_history_entry_t const * current_cluster_stake = NULL;
+      if( ( current_cluster_stake = fd_stake_history_ele_query_const(stake_history, current_epoch ) ) ) {
+        prev_epoch         = current_epoch;
+        prev_cluster_stake = current_cluster_stake;
+      } else {
+        break;
+      }
+    }
+    return ( fd_stake_history_entry_t ){ .effective    = current_effective_stake,
+                                         .deactivating = current_effective_stake,
+                                         .activating   = 0 };
+  } else {
+    return ( fd_stake_history_entry_t ){ .effective = 0, .activating = 0, .deactivating = 0 };
+  }
+}
+
+static void
+write_stake_config( fd_accdb_user_t *         accdb,
+                    fd_funk_txn_xid_t const * xid,
+                    fd_stake_config_t const * stake_config ) {
+  ulong               data_sz = fd_stake_config_size( stake_config );
+  fd_pubkey_t const * address = &fd_solana_stake_program_config_id;
+
+  fd_accdb_rw_t rw[1];
+  fd_accdb_open_rw( accdb, rw, xid, address, data_sz, FD_ACCDB_FLAG_CREATE );
+
+  /* FIXME update capitalization? */
+  /* FIXME set owner to Config program? */
+  /* FIXME Agave reflink? */
+  /* FIXME derive lamport balance from rent instead of hardcoding */
+
+  fd_accdb_ref_lamports_set( rw, 960480UL );
+  fd_accdb_ref_exec_bit_set( rw, 0 );
+  fd_accdb_ref_data_sz_set( accdb, rw, data_sz, 0 );
+  fd_bincode_encode_ctx_t ctx = {
+    .data    = fd_accdb_ref_data( rw ),
+    .dataend = (uchar *)fd_accdb_ref_data( rw ) + data_sz
+  };
+  if( fd_stake_config_encode( stake_config, &ctx ) )
+    FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
+
+  fd_accdb_close_rw( accdb, rw );
+}
+
+/**********************************************************************/
+/* Public API                                                         */
+/**********************************************************************/
+
+int
+fd_stakes_new_warmup_cooldown_rate_epoch(
+    fd_epoch_schedule_t const * epoch_schedule,
+    fd_features_t const *       features,
+    /* out */ ulong *           epoch,
+    int *                       err
+) {
+  *err = 0;
+
+  if( FD_UNLIKELY( !epoch_schedule ) ) {
+    *epoch = ULONG_MAX;
+    *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    return 1;
+  }
+  *epoch = fd_slot_to_epoch( epoch_schedule, features->reduce_stake_warmup_cooldown, NULL );
+  return 1;
+}
+
+void
+fd_stakes_config_init( fd_accdb_user_t *         accdb,
+                       fd_funk_txn_xid_t const * xid ) {
+  fd_stake_config_t stake_config = {
+      .warmup_cooldown_rate = DEFAULT_WARMUP_COOLDOWN_RATE,
+      .slash_penalty        = DEFAULT_SLASH_PENALTY,
+  };
+  write_stake_config( accdb, xid, &stake_config );
+}
+
+int
+fd_stakes_get_state( fd_account_meta_t const * meta,
+                     fd_stake_state_v2_t *     out ) {
+  int rc;
+
+  fd_bincode_decode_ctx_t bincode_ctx = {
+    .data    = fd_account_data( meta ),
+    .dataend = fd_account_data( meta ) + meta->dlen,
+  };
+
+  ulong total_sz = 0UL;
+  rc = fd_stake_state_v2_decode_footprint( &bincode_ctx, &total_sz );
+  if( FD_UNLIKELY( rc!=FD_BINCODE_SUCCESS ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  fd_stake_state_v2_decode( out, &bincode_ctx );
+
+  return 0;
+}
+
+fd_stake_history_entry_t
+fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * stake_delegation,
+                                       ulong                         target_epoch,
+                                       fd_stake_history_t const *    stake_history,
+                                       ulong *                       new_rate_activation_epoch ) {
+  fd_delegation_t delegation = {
+    .voter_pubkey         = stake_delegation->vote_account,
+    .stake                = stake_delegation->stake,
+    .deactivation_epoch   = stake_delegation->deactivation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->deactivation_epoch,
+    .activation_epoch     = stake_delegation->activation_epoch==USHORT_MAX ? ULONG_MAX : stake_delegation->activation_epoch,
+    .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_to_double( stake_delegation->warmup_cooldown_rate ),
+  };
+
+  return stake_activating_and_deactivating(
+    &delegation, target_epoch, stake_history, new_rate_activation_epoch );
+}
 
 ulong
 fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
@@ -160,7 +473,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
+    fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating(
         stake_delegation,
         epoch,
         history,
@@ -306,7 +619,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
 
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
+    fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating(
         stake_delegation,
         fd_bank_epoch_get( bank ),
         stake_history,
@@ -349,7 +662,7 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
   }
 
   fd_stake_state_v2_t stake_state;
-  int err = fd_stake_get_state( meta, &stake_state );
+  int err = fd_stakes_get_state( meta, &stake_state );
   if( FD_UNLIKELY( err!=0 ) ) {
     fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;

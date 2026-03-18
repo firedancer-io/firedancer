@@ -74,10 +74,6 @@ fd_vote_state_versioned_t *
 fd_vote_get_state( fd_account_meta_t const * meta,
                    uchar *                   mem );
 
-void
-fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
-                            uchar *                     landed_votes_mem );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_vote_program_h */

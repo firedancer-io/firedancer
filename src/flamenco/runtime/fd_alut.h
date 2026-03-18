@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_alut_h
 #define HEADER_fd_src_flamenco_runtime_fd_alut_h
 
-/* fd_alut_interp.h provides APIs for interpreting Solana address lookup
-   table usages.
+/* fd_alut.h provides APIs for interpreting Solana address lookup table
+   usages.
 
    https://solana.com/de/developers/guides/advanced/lookup-tables */
 
@@ -10,7 +10,15 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "fd_runtime_err.h"
 #include "fd_system_ids.h"
-#include "program/fd_address_lookup_table_program.h"
+#include "sysvar/fd_sysvar_slot_hashes.h"
+
+#define FD_ADDRLUT_STATUS_ACTIVATED    (0)
+#define FD_ADDRLUT_STATUS_DEACTIVATING (1)
+#define FD_ADDRLUT_STATUS_DEACTIVATED  (2)
+
+/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L19 */
+#define FD_LOOKUP_TABLE_META_SIZE      (56)
+#define FD_ADDRLUT_MAX_ENTRIES         FD_SYSVAR_SLOT_HASHES_CAP
 
 /* fd_alut_interp_t interprets indirect account references of a txn. */
 
@@ -30,6 +38,90 @@ struct fd_alut_interp {
 typedef struct fd_alut_interp fd_alut_interp_t;
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_alut_slot_hashes_position, fd_alut_status, and fd_alut_is_active
+   are all helper methods for determining the number of active addresses
+   in an address lookup table account. */
+
+
+/* Logic here is copied from slice::binary_search_by() in Rust. While
+   not fully optimized, it aims to achieve fuzzing conformance for both
+   sorted and unsorted inputs. */
+FD_FN_UNUSED static ulong
+fd_alut_slot_hashes_position( fd_slot_hash_t const * hashes, /* deque */
+                              ulong                  slot ) {
+  ulong size = deq_fd_slot_hash_t_cnt( hashes );
+  if( FD_UNLIKELY( size==0UL ) ) return ULONG_MAX;
+
+  ulong base = 0UL;
+  while( size>1UL ) {
+    ulong half = size / 2UL;
+    ulong mid = base + half;
+    ulong mid_slot = deq_fd_slot_hash_t_peek_index_const( hashes, mid )->slot;
+    base = (slot>mid_slot) ? base : mid;
+    size -= half;
+  }
+
+  return deq_fd_slot_hash_t_peek_index_const( hashes, base )->slot==slot ? base : ULONG_MAX;
+}
+
+/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L81-L104 */
+FD_FN_UNUSED static uchar
+fd_alut_status( fd_lookup_table_meta_t const * state,
+                ulong                          current_slot,
+                fd_slot_hash_t const *         slot_hashes /* deque */ ) {
+  if( state->deactivation_slot==ULONG_MAX ) {
+    return FD_ADDRLUT_STATUS_ACTIVATED;
+  }
+
+  if( state->deactivation_slot==current_slot ) {
+    return FD_ADDRLUT_STATUS_DEACTIVATING;
+  }
+
+  ulong slot_hash_position = fd_alut_slot_hashes_position( slot_hashes, state->deactivation_slot );
+  if( slot_hash_position!=ULONG_MAX ) {
+    return FD_ADDRLUT_STATUS_DEACTIVATING;
+  }
+
+  return FD_ADDRLUT_STATUS_DEACTIVATED;
+}
+
+/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L72-L78 */
+FD_FN_UNUSED static uchar
+fd_alut_is_active( fd_address_lookup_table_t const * self,
+                      ulong                          current_slot,
+                      fd_slot_hash_t const *         slot_hashes  /* deque */ ) {
+  uchar status = fd_alut_status( &self->meta, current_slot, slot_hashes );
+  switch( status ) {
+    case FD_ADDRLUT_STATUS_ACTIVATED:
+    case FD_ADDRLUT_STATUS_DEACTIVATING:
+      return 1;
+    case FD_ADDRLUT_STATUS_DEACTIVATED:
+      return 0;
+    default:
+      FD_LOG_CRIT(( "invalid lut status %d", status ));
+  }
+}
+
+/* fd_alut_active_addresses_len returns the number of active addresses
+   in an address lookup table account.
+   https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L142-L164 */
+FD_FN_UNUSED static int
+fd_alut_active_addresses_len( fd_address_lookup_table_t * self,
+                              ulong                       current_slot,
+                              fd_slot_hash_t const *      slot_hashes, /* deque */
+                              ulong                       addresses_len,
+                              ulong *                     active_addresses_len /* out */ ) {
+  if( FD_UNLIKELY( !fd_alut_is_active( self, current_slot, slot_hashes ) ) ) {
+    return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+  }
+
+  *active_addresses_len = ( current_slot > self->meta.last_extended_slot )
+      ? addresses_len
+      : self->meta.last_extended_slot_start_index;
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
 
 /* fd_alut_interp_new creates a new ALUT interpreter.
    Will write indirectly referenced addresses to out_addrs.
@@ -132,11 +224,13 @@ fd_alut_interp_next( fd_alut_interp_t * interp,
 
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
   ulong active_addresses_len;
-  int err = fd_get_active_addresses_len( &table->inner.lookup_table,
-                                         interp->slot,
-                                         interp->hashes,
-                                         lookup_addrs_cnt,
-                                         &active_addresses_len );
+  int err = fd_alut_active_addresses_len(
+      &table->inner.lookup_table,
+      interp->slot,
+      interp->hashes,
+      lookup_addrs_cnt,
+      &active_addresses_len
+  );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v3.0.1/address-lookup-table-interface/src/state.rs#L208-L211 */

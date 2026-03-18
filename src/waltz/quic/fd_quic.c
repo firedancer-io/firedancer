@@ -658,7 +658,7 @@ fd_quic_conn_free_validate( fd_quic_t * quic ) {
   ulong cnt  = 0UL;
   uint  node = state->free_conn_list;
   while( node!=UINT_MAX ) {
-    FD_TEST( node <= quic->limits.conn_cnt );
+    FD_TEST( node < quic->limits.conn_cnt );
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, node );
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_INVALID );
     conn->visited = 1U;

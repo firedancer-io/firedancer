@@ -5,7 +5,6 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
-#include "../runtime/program/fd_stake_program.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../capture/fd_capture_ctx.h"
@@ -185,7 +184,7 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
 
     new_credits_observed = fd_ulong_max( new_credits_observed, final_epoch_credits );
 
-    ulong stake_amount = fd_stake_activating_and_deactivating(
+    ulong stake_amount = fd_stakes_activating_and_deactivating(
         stake,
         epoch_credits->epoch[ i ],
         stake_history,
@@ -394,7 +393,7 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
   int _err[1];
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
-  int is_some = fd_new_warmup_cooldown_rate_epoch(
+  int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
       fd_bank_features_query( bank ),
       new_warmup_cooldown_rate_epoch,
@@ -489,7 +488,7 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
   int _err[1];
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
-  int is_some = fd_new_warmup_cooldown_rate_epoch(
+  int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
       fd_bank_features_query( bank ),
       new_warmup_cooldown_rate_epoch,
@@ -640,7 +639,7 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
       int _err[1];
       ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
       ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
-      int is_some = fd_new_warmup_cooldown_rate_epoch(
+      int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
           fd_bank_epoch_schedule_query( bank ),
           fd_bank_features_query( bank ),
           new_warmup_cooldown_rate_epoch,
@@ -918,7 +917,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash( stake_pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
   fd_stake_state_v2_t stake_state[1] = {0};
-  if( 0!=fd_stake_get_state( rw->meta, stake_state ) ||
+  if( 0!=fd_stakes_get_state( rw->meta, stake_state ) ||
       !fd_stake_state_v2_is_stake( stake_state ) ) {
     fd_accdb_close_rw( accdb, rw );
     return 1;  /* not a valid stake account */
@@ -1140,7 +1139,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   int _err[1] = {0};
   ulong new_warmup_cooldown_rate_epoch_;
   ulong * new_warmup_cooldown_rate_epoch = &new_warmup_cooldown_rate_epoch_;
-  int is_some = fd_new_warmup_cooldown_rate_epoch(
+  int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
       fd_bank_epoch_schedule_query( bank ),
       fd_bank_features_query( bank ),
       new_warmup_cooldown_rate_epoch,
