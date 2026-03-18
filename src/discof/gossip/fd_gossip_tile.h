@@ -52,20 +52,20 @@ struct fd_gossip_tile_ctx {
   fd_rng_t          rng[ 1 ];
 
 
-  /* FIXME: Get rid of this and use the stake map instead. */
+  /* FIXME: Support a larger bound. */
   /* The condition for complete = 1 is 80% of the cluster has joined
      gossip. "joining gossip" is based on contact info CRDS values
      with a wallclock timestamp in the last 15 seconds.
 
      We keep a copy of the snapshot bank's votes states in an array here
      for quick look up. */
-  fd_vote_stake_weight_t wfs_stakes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
-  fd_stake_weight_t      wfs_stakes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  fd_vote_stake_weight_t wfs_stakes_scratch[ 40200UL ];
+  fd_stake_weight_t      wfs_stakes        [ 40200UL ];
   ulong                  wfs_stakes_cnt;
 
   /* wfs_active is used to keep track of nodes we've already labeled as
      being active on gossip, so we don't double count their stake. */
-  uchar             wfs_active[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  uchar             wfs_active[ 40200UL ];
   int               wfs_state;
 
   struct {

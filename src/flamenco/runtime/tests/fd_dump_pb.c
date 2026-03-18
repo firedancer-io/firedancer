@@ -606,9 +606,11 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &stake_delegation->stake_account );
   }
+  fd_bank_stake_delegations_end_frontier_query( banks, parent_bank );
+
 
   ushort fork_idx = parent_bank->data->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
@@ -673,15 +675,13 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
     if( idx==UINT_MAX ) continue;
-
-    fd_vote_rewards_t * ve  = &runtime_stack->stakes.vote_ele[idx];
-    ulong               cnt = ve->epoch_credits.cnt;
+    ulong cnt = runtime_stack->stakes.epoch_credits[idx].cnt;
     va_t1[i].epoch_credits_count = (pb_size_t)cnt;
     va_t1[i].epoch_credits = fd_spad_alloc( spad, alignof(fd_exec_test_epoch_credit_t), cnt * sizeof(fd_exec_test_epoch_credit_t) );
     for( ulong j=0; j<cnt; j++ ) {
-      va_t1[i].epoch_credits[j].epoch        = ve->epoch_credits.epoch[j];
-      va_t1[i].epoch_credits[j].credits      = ve->epoch_credits.credits[j];
-      va_t1[i].epoch_credits[j].prev_credits = ve->epoch_credits.prev_credits[j];
+      va_t1[i].epoch_credits[j].epoch        = runtime_stack->stakes.epoch_credits[idx].epoch[j];
+      va_t1[i].epoch_credits[j].credits      = runtime_stack->stakes.epoch_credits[idx].credits[j];
+      va_t1[i].epoch_credits[j].prev_credits = runtime_stack->stakes.epoch_credits[idx].prev_credits[j];
     }
   }
 

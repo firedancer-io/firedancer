@@ -372,13 +372,14 @@ fd_stake_weights_by_node_next( fd_vote_stakes_t *       vote_stakes,
 }
 
 static void
-get_vote_credits_commission( uchar const *       account_data,
-                             ulong               account_data_len,
-                             uchar *             buf,
-                             fd_vote_rewards_t * vote_ele,
-                             fd_pubkey_t *       node_account_t_1,
-                             ulong *             last_vote_slot,
-                             long *              last_vote_timestamp ) {
+get_vote_credits_commission( uchar const *        account_data,
+                             ulong                account_data_len,
+                             uchar *              buf,
+                             fd_vote_rewards_t *  vote_ele,
+                             fd_pubkey_t *        node_account_t_1,
+                             ulong *              last_vote_slot,
+                             long *               last_vote_timestamp,
+                             fd_epoch_credits_t * epoch_credits_opt ) {
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = account_data,
@@ -389,44 +390,44 @@ get_vote_credits_commission( uchar const *       account_data,
   if( FD_UNLIKELY( vsv==NULL ) ) {
     FD_LOG_CRIT(( "unable to decode vote state versioned" ));
   }
-
-  fd_vote_epoch_credits_t * vote_credits = NULL;
+  fd_vote_epoch_credits_t * vote_epoch_credits = NULL;
 
   switch( vsv->discriminant ) {
   case fd_vote_state_versioned_enum_v1_14_11:
-    vote_credits         = vsv->inner.v1_14_11.epoch_credits;
     vote_ele->commission = vsv->inner.v1_14_11.commission;
     *node_account_t_1    = vsv->inner.v1_14_11.node_pubkey;
     *last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
     *last_vote_timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
+    vote_epoch_credits   = vsv->inner.v1_14_11.epoch_credits;
     break;
   case fd_vote_state_versioned_enum_v3:
-    vote_credits         = vsv->inner.v3.epoch_credits;
     vote_ele->commission = vsv->inner.v3.commission;
     *node_account_t_1    = vsv->inner.v3.node_pubkey;
     *last_vote_slot      = vsv->inner.v3.last_timestamp.slot;
     *last_vote_timestamp = vsv->inner.v3.last_timestamp.timestamp;
+    vote_epoch_credits   = vsv->inner.v3.epoch_credits;
     break;
   case fd_vote_state_versioned_enum_v4:
-    vote_credits         = vsv->inner.v4.epoch_credits;
     vote_ele->commission = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
     *node_account_t_1    = vsv->inner.v4.node_pubkey;
     *last_vote_slot      = vsv->inner.v4.last_timestamp.slot;
     *last_vote_timestamp = vsv->inner.v4.last_timestamp.timestamp;
+    vote_epoch_credits   = vsv->inner.v4.epoch_credits;
     break;
   default:
     FD_LOG_CRIT(( "invalid vote state version %u", vsv->discriminant ));
   }
 
-  vote_ele->epoch_credits.cnt = 0UL;
-  for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
-       !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, iter );
-       iter = deq_fd_vote_epoch_credits_t_iter_next( vote_credits, iter ) ) {
-    fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, iter );
-    vote_ele->epoch_credits.epoch[ vote_ele->epoch_credits.cnt ]        = (ushort)ele->epoch;
-    vote_ele->epoch_credits.credits[ vote_ele->epoch_credits.cnt ]      = ele->credits;
-    vote_ele->epoch_credits.prev_credits[ vote_ele->epoch_credits.cnt ] = ele->prev_credits;
-    vote_ele->epoch_credits.cnt++;
+  if( !epoch_credits_opt ) return;
+  epoch_credits_opt->cnt = 0UL;
+  for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_epoch_credits );
+       !deq_fd_vote_epoch_credits_t_iter_done( vote_epoch_credits, iter );
+       iter = deq_fd_vote_epoch_credits_t_iter_next( vote_epoch_credits, iter ) ) {
+    fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_epoch_credits, iter );
+    epoch_credits_opt->epoch[ epoch_credits_opt->cnt ]        = (ushort)ele->epoch;
+    epoch_credits_opt->credits[ epoch_credits_opt->cnt ]      = ele->credits;
+    epoch_credits_opt->prev_credits[ epoch_credits_opt->cnt ] = ele->prev_credits;
+    epoch_credits_opt->cnt++;
   }
 }
 
@@ -493,6 +494,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       }
 
       if( FD_UNLIKELY( !exists_curr ) ) {
+
         /* If the vote account does not exist going into the epoch
            boundary, and did not exist at the end of the last epoch
            boundary, then we can fully skip it. */
@@ -527,13 +529,16 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         fd_pubkey_t curr_node_account_t_1;
         ulong       last_vote_slot;
         long        last_vote_timestamp;
+        fd_epoch_credits_t * epoch_credits = vote_ele_cnt<runtime_stack->expected_vote_accounts ? &runtime_stack->stakes.epoch_credits[ vote_ele_cnt ] : NULL;
+
         get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
                                     fd_accdb_ref_data_sz( vote_ro ),
                                     vsv_buf,
                                     &runtime_stack->stakes.vote_ele[ vote_ele_cnt ],
                                     &curr_node_account_t_1,
                                     &last_vote_slot,
-                                    &last_vote_timestamp );
+                                    &last_vote_timestamp,
+                                    epoch_credits );
         fd_accdb_close_ro( accdb, vote_ro );
 
         /* If old_node_account_t_1 gets zero-initialized which means
@@ -623,7 +628,6 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     new_elem.entry.activating   += new_entry.activating;
     new_elem.entry.deactivating += new_entry.deactivating;
   }
-
   fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &new_elem );
 
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
@@ -650,47 +654,40 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
                                    fd_bank_t *               bank ) {
 
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( bank );
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
 
   if( meta->lamports==0UL ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   fd_stake_state_v2_t stake_state;
   int err = fd_stakes_get_state( meta, &stake_state );
   if( FD_UNLIKELY( err!=0 ) ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   if( FD_UNLIKELY( fd_stake_state_v2_is_uninitialized( &stake_state ) ) ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
-    fd_stake_delegations_delta_remove( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey );
-    fd_bank_stake_delegations_delta_end_locking_modify( bank );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
-  fd_stake_delegations_delta_update( stake_delegations_delta, bank->data->stake_delegations_fork_id, pubkey,
-                                     &stake_state.inner.stake.stake.delegation.voter_pubkey,
-                                     stake_state.inner.stake.stake.delegation.stake,
-                                     stake_state.inner.stake.stake.delegation.activation_epoch,
-                                     stake_state.inner.stake.stake.delegation.deactivation_epoch,
-                                     stake_state.inner.stake.stake.credits_observed,
-                                     stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
-
-  fd_bank_stake_delegations_delta_end_locking_modify( bank );
+  fd_stake_delegations_fork_update( stake_delegations, bank->data->stake_delegations_fork_id, pubkey,
+                                    &stake_state.inner.stake.stake.delegation.voter_pubkey,
+                                    stake_state.inner.stake.stake.delegation.stake,
+                                    stake_state.inner.stake.stake.delegation.activation_epoch,
+                                    stake_state.inner.stake.stake.delegation.deactivation_epoch,
+                                    stake_state.inner.stake.stake.credits_observed,
+                                    stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 }

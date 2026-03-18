@@ -20,11 +20,7 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAX_BANKS (4096UL)
 
-/* TODO: Some optimizations, cleanups, future work:
-   1. Simple data types (ulong, int, etc) should be stored as their
-      underlying type instead of a byte array.
-   3. Rename locks to suffix with _query_locking and _query_locking_end
-  */
+/* TODO:FIXME: REREVIEW ALL DOCUMENTATION FOR BANKS */
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
    for a given block.  More specifically, the bank state corresponds to
@@ -100,10 +96,10 @@ FD_PROTOTYPES_BEGIN
 
   Currently, there is a delta-based field, fd_stake_delegations_t.
   Each bank stores a delta-based representation in the form of an
-  aligned uchar buffer.  The full state is stored in fd_banks_t also as
-  a uchar buffer which corresponds to the full state of stake
-  delegations for the current root.  fd_banks_t also reserves another
-  buffer which can store the full state of the stake delegations.
+  aligned uchar buffer.  The full state is stored in fd_banks_t in
+  out-of-line memory sized using max_stake_accounts, and fd_banks_t
+  also reserves another out-of-line buffer which can store the full
+  state of the stake delegations for frontier queries.
 
   The cost tracker is allocated from a pool.  The lifetime of a cost
   tracker element starts when the bank is linked to a parent with a
@@ -364,10 +360,11 @@ struct fd_bank_data {
 
   ulong vote_stakes_offset;
 
-  ulong stake_delegations_delta_offset;
+  ulong stake_delegations_offset;
 
   ulong epoch_leaders_idx; /* always 0 or 1 based on % epoch */
   ulong epoch_leaders_offset;
+  ulong epoch_leaders_footprint;
 
   int   top_votes_dirty;
   ulong top_votes_pool_idx;
@@ -402,8 +399,6 @@ struct fd_banks_locks {
   fd_rwlock_t top_votes_pool_lock;
 
   fd_rwlock_t vote_stakes_lock;
-
-  fd_rwlock_t stake_delegations_delta_lock;
 
   /* These locks are per bank and are used to atomically update their
      corresponding fields in each bank.  The locks are indexed by the
@@ -467,8 +462,11 @@ fd_bank_get_stake_weights_cnt_next( fd_bank_data_t * bank ) {
 }
 
 static inline void
-fd_bank_set_epoch_leaders( fd_bank_data_t * bank, uchar * epoch_leaders_mem ) {
-  bank->epoch_leaders_offset = (ulong)bank - (ulong)epoch_leaders_mem;
+fd_bank_set_epoch_leaders( fd_bank_data_t * bank,
+                           uchar *          epoch_leaders_mem,
+                           ulong            epoch_leaders_footprint ) {
+  bank->epoch_leaders_offset    = (ulong)bank - (ulong)epoch_leaders_mem;
+  bank->epoch_leaders_footprint = epoch_leaders_footprint;
 }
 
 static inline uchar *
@@ -519,22 +517,13 @@ fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank ) {
 }
 
 static inline void
-fd_bank_set_stake_delegations_delta( fd_bank_data_t * bank, fd_stake_delegations_delta_t * stake_delegations_delta ) {
-  bank->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)bank;
+fd_bank_set_stake_delegations( fd_bank_data_t * bank, fd_stake_delegations_t * stake_delegations ) {
+  bank->stake_delegations_offset = (ulong)stake_delegations - (ulong)bank;
 }
 
-static inline fd_stake_delegations_delta_t *
-fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
-  if( FD_UNLIKELY( bank->data->stake_delegations_fork_id==USHORT_MAX ) ) {
-    FD_LOG_CRIT(( "Stake delegations fork id is not allocated" ));
-  }
-  fd_rwlock_write( &bank->locks->stake_delegations_delta_lock );
-  return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_delta_offset );
-}
-
-static inline void
-fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->stake_delegations_delta_lock );
+static inline fd_stake_delegations_t *
+fd_bank_stake_delegations_modify( fd_bank_t * bank ) {
+  return fd_type_pun( (uchar *)bank->data + bank->data->stake_delegations_offset );
 }
 
 /* fd_bank_t is the alignment for the bank state. */
@@ -588,32 +577,12 @@ struct fd_banks_data {
 
   ulong vote_stakes_pool_offset;
 
-  ulong stake_delegations_delta_offset;
-
   ulong stake_rewards_offset;
 
   ulong dead_banks_deque_offset;
 
-  /* stake_delegations_root will be the full state of stake delegations
-     for the current root. It can get updated in two ways:
-     1. On boot the snapshot will be directly read into the rooted
-        stake delegations because we assume that any and all snapshots
-        are a rooted slot.
-     2. Calls to fd_banks_publish() will apply all of the stake
-        delegation deltas from each of the banks that are about to be
-        published.  */
-
-  uchar stake_delegations_root[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-
-  /* stake_delegations_frontier is reserved memory that can represent
-     the full state of stake delegations for the current frontier. This
-     is done by taking the stake_delegations_root and applying all of
-     the deltas from the current bank and all of its ancestors up to the
-     root bank. */
-
-  uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-
-  /* The set of epoch leaders for the current and previous epochs.  Only
+  /* The set of epoch leaders for the current and previous epochs is
+     allocated out-of-line and tracked by epoch_leaders_offset.  Only
      two need to be stored because in the worst case we will have a root
      that sits behind an epoch boundary, with leaf banks executing into
      the next epoch.  All banks that execute behind the boundary, will
@@ -621,7 +590,10 @@ struct fd_banks_data {
      epoch boundary are guaranteed to produce identical leader
      schedules. */
 
-  uchar epoch_leaders_mem[ 2UL ][ FD_EPOCH_LEADERS_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
+  ulong epoch_leaders_offset;
+  ulong epoch_leaders_footprint;
+
+  ulong stake_delegations_offset;
 
   /* Set of compressed stake weights for the leader schedule for the
      current epoch. */
@@ -700,34 +672,33 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 FD_BANKS_ITER(X)
 #undef X
 
-/* Each bank has a fd_stake_delegations_t object which is delta-based.
-   The usage pattern is the same as other bank fields:
-   1. fd_bank_stake_delegations_delta_locking_modify( bank ) will return
-      a mutable pointer to the stake delegations delta object. If the
-      caller has not yet initialized the delta object, then it will
-      be initialized. Because it is a delta it is not copied over from
-      a parent bank.
-   2. fd_bank_stake_delegations_delta_locking_query( bank ) will return
-      a const pointer to the stake delegations delta object. If the
-      delta object has not been initialized, then NULL is returned.
-   3. fd_bank_stake_delegations_delta_locking_end_modify( bank ) will
-      release the write lock on the object.
-   4. fd_bank_stake_delegations_delta_locking_end_query( bank ) will
-      release a read lock on the object.
-*/
-
 /* fd_bank_stake_delegations_frontier_query() will return a pointer to
    the full stake delegations for the current frontier. The caller is
    responsible that there are no concurrent readers or writers to
    the stake delegations returned by this function.
 
-   Under the hood, the function copies the rooted stake delegations and
-   applies all of the deltas for the direct ancestry from the current
-   bank up to the rooted bank to the copy. */
+   Under the hood, the function applies all of the stake delegation
+   deltas from all banks starting from the root down to the current bank
+   to the rooted version of the stake delegations.  This is done in a
+   reversible way and is unwound with a call to
+   fd_bank_stake_delegations_end_frontier_query(). */
 
 fd_stake_delegations_t *
 fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
                                           fd_bank_t *  bank );
+
+/* fd_bank_stake_delegations_end_frontier_query() will finish the
+   reversible operation started by
+   fd_bank_stake_delegations_frontier_query().  It is unsafe to call
+   fd_bank_stake_delegations_frontier_query multiple times without
+   calling this function in between.
+
+   Under the hood, it undoes any references to the stake delegation
+   deltas that were applied. */
+
+void
+fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
+                                              fd_bank_t *  bank );
 
 /* fd_banks_stake_delegations_root_query() will return a pointer to the
    full stake delegations for the current root. This function should
@@ -764,6 +735,30 @@ static inline void
 fd_banks_set_dead_banks_deque( fd_banks_data_t *   banks_data,
                                fd_bank_idx_seq_t * dead_banks_deque ) {
   banks_data->dead_banks_deque_offset = (ulong)dead_banks_deque - (ulong)banks_data;
+}
+
+static inline fd_epoch_leaders_t *
+fd_banks_get_epoch_leaders( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->epoch_leaders_offset );
+}
+
+static inline void
+fd_banks_set_epoch_leaders( fd_banks_data_t * banks_data,
+                            uchar *           epoch_leaders_mem,
+                            ulong             epoch_leaders_footprint ) {
+  banks_data->epoch_leaders_offset    = (ulong)epoch_leaders_mem - (ulong)banks_data;
+  banks_data->epoch_leaders_footprint = epoch_leaders_footprint;
+}
+
+static inline fd_stake_delegations_t *
+fd_banks_get_stake_delegations( fd_banks_data_t * banks_data ) {
+  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_offset );
+}
+
+static inline void
+fd_banks_set_stake_delegations( fd_banks_data_t * banks_data,
+                                uchar *           stake_delegations_mem ) {
+  banks_data->stake_delegations_offset = (ulong)stake_delegations_mem - (ulong)banks_data;
 }
 
 static inline fd_bank_top_votes_t *
@@ -812,16 +807,6 @@ fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
 static inline void
 fd_banks_set_vote_stakes( fd_banks_data_t * banks_data, fd_vote_stakes_t * vote_stakes ) {
   banks_data->vote_stakes_pool_offset = (ulong)vote_stakes - (ulong)banks_data;
-}
-
-static inline fd_stake_delegations_delta_t *
-fd_banks_get_stake_delegations_delta( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->stake_delegations_delta_offset );
-}
-
-static inline void
-fd_banks_set_stake_delegations_delta( fd_banks_data_t * banks_data, fd_stake_delegations_delta_t * stake_delegations_delta ) {
-  banks_data->stake_delegations_delta_offset = (ulong)stake_delegations_delta - (ulong)banks_data;
 }
 
 /* fd_banks_root() returns a pointer to the root bank respectively. */

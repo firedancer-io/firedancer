@@ -190,7 +190,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {
       continue;
     }
-    fd_stake_delegations_update(
+    fd_stake_delegations_root_update(
         stake_delegations,
         (fd_pubkey_t *)elem->stake_pubkey,
         (fd_pubkey_t *)elem->vote_pubkey,
@@ -247,11 +247,15 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         elem->stake,
         fd_bank_epoch_get( bank ) );
 
-    vote_ele->epoch_credits.cnt = elem->epoch_credits_history_len;
-    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      vote_ele->epoch_credits.epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
-      vote_ele->epoch_credits.credits[ j ]      = elem->epoch_credits[ j ].credits;
-      vote_ele->epoch_credits.prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+    if( i<runtime_stack->expected_vote_accounts ) {
+      runtime_stack->stakes.epoch_credits[i].cnt = elem->epoch_credits_history_len;
+      for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
+        runtime_stack->stakes.epoch_credits[ i ].epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
+        runtime_stack->stakes.epoch_credits[ i ].credits[ j ]      = elem->epoch_credits[ j ].credits;
+        runtime_stack->stakes.epoch_credits[ i ].prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+      }
+    } else {
+      FD_LOG_ERR(( "snapshot loading currently does not support more than %lu vote accounts, %lu", runtime_stack->expected_vote_accounts, manifest->epoch_stakes[1].vote_stakes_len ));
     }
   }
 

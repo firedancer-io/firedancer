@@ -185,20 +185,18 @@ static void
 add_bank_stake_delegation_entry( test_env_t *        env,
                                  fd_pubkey_t const * stake_account,
                                  fd_pubkey_t const * vote_account ) {
-  fd_stake_delegations_delta_t * stake_delegations_delta = fd_banks_get_stake_delegations_delta( env->banks->data );
-  env->bank->data->stake_delegations_fork_id = fd_stake_delegations_delta_new_fork( stake_delegations_delta );
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
+  env->bank->data->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
 
-  stake_delegations_delta = fd_bank_stake_delegations_delta_locking_modify( env->bank );
-  fd_stake_delegations_delta_update( stake_delegations_delta,
-                                     env->bank->data->stake_delegations_fork_id,
-                                     stake_account,
-                                     vote_account,
-                                     1000000000UL,
-                                     0UL,
-                                     ULONG_MAX,
-                                     0UL,
-                                     0.25 );
-  fd_bank_stake_delegations_delta_end_locking_modify( env->bank );
+  fd_stake_delegations_fork_update( stake_delegations,
+                                    env->bank->data->stake_delegations_fork_id,
+                                    stake_account,
+                                    vote_account,
+                                    1000000000UL,
+                                    0UL,
+                                    ULONG_MAX,
+                                    0UL,
+                                    0.25 );
 }
 
 static test_env_t *
@@ -234,10 +232,9 @@ test_env_create( test_env_t * env,
 
   FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
-  env->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), env->tag );
+  env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
-  fd_memset( env->runtime_stack, 0, sizeof(fd_runtime_stack_t) );
-  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( env->runtime_stack->stakes.vote_map_mem, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, 999UL ) ) );
+  FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) );
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );

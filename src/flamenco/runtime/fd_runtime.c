@@ -661,6 +661,8 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                                 parent_blockhash,
                                 parent_epoch );
 
+  fd_bank_stake_delegations_end_frontier_query( banks, bank );
+
   /* The Agave client handles updating their stakes cache with a call to
      update_epoch_stakes() which keys stakes by the leader schedule
      epochs and retains up to 6 epochs of stakes.  However, to correctly
@@ -1619,7 +1621,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
         FD_LOG_ERR(( "Invalid warmup cooldown rate %f for stake account %s", stake_state.inner.stake.stake.delegation.warmup_cooldown_rate, stake_b58 ));
       }
 
-      fd_stake_delegations_update(
+      fd_stake_delegations_root_update(
           stake_delegations,
           &account->pubkey,
           &stake_state.inner.stake.stake.delegation.voter_pubkey,
