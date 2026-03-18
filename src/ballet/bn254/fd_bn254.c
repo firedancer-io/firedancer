@@ -336,7 +336,7 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
     }
     ++sz;
     /* Compute the Miller loop and aggregate into r */
-    if( sz==FD_BN254_PAIRING_BATCH_MAX || i==elements_len-1 ) {
+    if( sz==FD_BN254_PAIRING_BATCH_MAX ) {
       fd_bn254_fp12_t tmp[1];
       fd_bn254_miller_loop( tmp, p, q, sz );
       fd_bn254_fp12_mul( r, r, tmp );
