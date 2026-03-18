@@ -1,4 +1,5 @@
 #include "fd_sspeer_selector.h"
+#include "../../../util/bits/fd_sat.h"
 #include "../../../util/log/fd_log.h"
 
 static int
@@ -109,8 +110,14 @@ typedef struct fd_sspeer_private fd_sspeer_private_t;
 #define TREAP_PRIO      score_treap.prio
 #include "../../../util/tmpl/fd_treap.c"
 
-#define DEFAULT_SLOTS_BEHIND   (1000UL*1000UL)        /* 1,000,000 slots behind */
-#define DEFAULT_PEER_LATENCY   (100L*1000L*1000L)     /* 100ms */
+#define DEFAULT_SLOTS_BEHIND         (1000UL*1000UL) /* 1,000,000 slots behind */
+/* Assumed latency (in nanos) for peers that have not been pinged yet.
+   Pings are sent immediately on peer discovery, so this default is
+   short-lived.  100ms is a neutral middle-ground: high enough that
+   any peer with a measured latency is preferred, low enough that slot
+   distance still meaningfully differentiates unpinged peers. */
+#define DEFAULT_PEER_LATENCY         (100UL*1000UL*1000UL)  /* 100ms */
+#define DEFAULT_SLOTS_BEHIND_PENALTY (1000UL)
 
 #define FD_SSPEER_SELECTOR_DEBUG 0
 
@@ -179,6 +186,8 @@ fd_sspeer_selector_new( void * shmem,
   void * _peer_idx_list           = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),           max_peers * sizeof(ulong) );
 
   selector->pool               = peer_pool_join( peer_pool_new( _pool, 2UL*max_peers ) );
+  /* Seed treap priorities so the treap is balanced. */
+  score_treap_seed( selector->pool, 2UL*max_peers, seed );
   selector->map_by_key         = peer_map_by_key_join( peer_map_by_key_new( _map, peer_map_by_key_chain_cnt_est( 2UL*max_peers ), seed ) );
   selector->map_by_addr        = peer_map_by_addr_join( peer_map_by_addr_new( _multimap_by_addr, peer_map_by_addr_chain_cnt_est( 2UL*max_peers ), seed ) );
   selector->score_treap        = score_treap_join( score_treap_new( _score_treap, max_peers ) );
@@ -187,7 +196,7 @@ fd_sspeer_selector_new( void * shmem,
   selector->max_peers          = max_peers;
 
   selector->cluster_slot.full          = 0UL;
-  selector->cluster_slot.incremental   = 0UL;
+  selector->cluster_slot.incremental   = FD_SSPEER_SLOT_UNKNOWN;
   selector->incremental_snapshot_fetch = incremental_snapshot_fetch;
 
   FD_COMPILER_MFENCE();
@@ -279,33 +288,71 @@ fd_sspeer_selector_delete( void * shselector ) {
 
 /* Calculates a score for a peer given its latency and its resolved
    full and incremental slots */
-ulong
-fd_sspeer_selector_score( fd_sspeer_selector_t * selector,
-                          ulong                  peer_latency,
-                          ulong                  full_slot,
-                          ulong                  incr_slot ) {
-  static const ulong slots_behind_penalty = 1000UL;
-  ulong slot                              = ULONG_MAX;
-  ulong slots_behind                      = DEFAULT_SLOTS_BEHIND;
-  peer_latency = peer_latency!=ULONG_MAX ? peer_latency : DEFAULT_PEER_LATENCY;
+static ulong
+fd_sspeer_selector_score( fd_sspeer_selector_t const * selector,
+                          ulong                        peer_latency,
+                          ulong                        full_slot,
+                          ulong                        incr_slot ) {
+  peer_latency = peer_latency!=FD_SSPEER_LATENCY_UNKNOWN ? peer_latency : DEFAULT_PEER_LATENCY;
 
-  if( FD_LIKELY( full_slot!=ULONG_MAX ) ) {
-    if( FD_UNLIKELY( incr_slot==ULONG_MAX ) ) {
-      slot         = full_slot;
-      slots_behind = selector->cluster_slot.full>slot ? selector->cluster_slot.full - slot : 0UL;
+  ulong slots_behind = DEFAULT_SLOTS_BEHIND;
+
+  if( FD_LIKELY( full_slot!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+    if( FD_LIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN &&
+                   selector->cluster_slot.incremental!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+      slots_behind = selector->cluster_slot.incremental>incr_slot ? selector->cluster_slot.incremental - incr_slot : 0UL;
     } else {
-      slot         = incr_slot;
-      slots_behind = selector->cluster_slot.incremental>slot ? selector->cluster_slot.incremental - slot : 0UL;
+      /* Either the peer has no incremental or the cluster has no
+         incremental reference yet.  Fall back to comparing full_slot
+         against the cluster full slot. */
+      slots_behind = selector->cluster_slot.full>full_slot ? selector->cluster_slot.full - full_slot : 0UL;
     }
   }
 
-  /* TODO: come up with a better/more dynamic score function */
-  return peer_latency + slots_behind_penalty*slots_behind;
+  /* Using saturating arithmetic to avoid overflow and cap at
+     FD_SSPEER_SCORE_MAX. */
+  ulong penalty = fd_ulong_sat_mul( DEFAULT_SLOTS_BEHIND_PENALTY, slots_behind );
+  ulong score   = fd_ulong_sat_add( peer_latency, penalty );
+  return fd_ulong_min( score, FD_SSPEER_SCORE_MAX );
+}
+
+/* Validates slot arguments for both new and existing peers.  Returns
+   0 on success, -1 on failure due to incr_slot<full_slot, and -2 on
+   failure due to full_slot==UNKNOWN with incr_slot!=UNKNOWN.  The
+   caller passes in the effective (already-resolved) full_slot and
+   incr_slot values.  No log on failure (the caller is responsible
+   for logging whenever needed).
+
+   Two invariants are enforced:
+   1. When both slots are known, incr_slot must be >= full_slot.
+   2. An incremental slot requires a known full slot. */
+static int
+fd_sspeer_validate_slot_args( ulong full_slot,
+                              ulong incr_slot ) {
+  if( FD_UNLIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN &&
+                   full_slot!=FD_SSPEER_SLOT_UNKNOWN &&
+                   incr_slot<full_slot ) ) {
+    return -1;
+  }
+
+  if( FD_UNLIKELY( full_slot==FD_SSPEER_SLOT_UNKNOWN &&
+                   incr_slot!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+    return -2;
+  }
+
+  return 0;
 }
 
 /* Updates a peer's score with new values for latency and/or resolved
-   full/incremental slots */
-static void
+   full/incremental slots.  Returns FD_SSPEER_UPDATE_SUCCESS on
+   success, or the specific fd_sspeer_validate_slot_args error code
+   on failure without modifying the peer or any data structure.
+
+   Slot-based incremental clearing: when the caller provides
+   incr_slot==UNKNOWN and full_slot!=UNKNOWN, the peer's existing
+   incremental data is cleared if it is stale (peer->incr_slot <
+   full_slot).  Otherwise, the existing incremental data is preserved. */
+static int
 fd_sspeer_selector_update( fd_sspeer_selector_t * selector,
                            fd_sspeer_private_t *  peer,
                            ulong                  latency,
@@ -313,21 +360,45 @@ fd_sspeer_selector_update( fd_sspeer_selector_t * selector,
                            ulong                  incr_slot,
                            uchar const            full_hash[ FD_HASH_FOOTPRINT ],
                            uchar const            incr_hash[ FD_HASH_FOOTPRINT ] ) {
-  score_treap_ele_remove( selector->score_treap, peer, selector->pool );
+  ulong peer_latency   = latency!=FD_SSPEER_LATENCY_UNKNOWN ? latency : peer->latency;
+  ulong peer_full_slot = full_slot!=FD_SSPEER_SLOT_UNKNOWN ? full_slot : peer->full_slot;
 
-  ulong peer_latency   = latency!=ULONG_MAX ? latency : peer->latency;
-  ulong peer_full_slot = full_slot!=ULONG_MAX ? full_slot : peer->full_slot;
-  ulong peer_incr_slot = incr_slot!=ULONG_MAX ? incr_slot : peer->incr_slot;
+  ulong peer_incr_slot;
+  int   clear_incr = 0;
+  if( incr_slot!=FD_SSPEER_SLOT_UNKNOWN ) {
+    peer_incr_slot = incr_slot;
+  } else if( full_slot!=FD_SSPEER_SLOT_UNKNOWN &&
+             peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN &&
+             peer->incr_slot<full_slot ) {
+    /* The caller is providing a new full_slot that has advanced past
+       the peer's existing incremental — the incremental is stale. */
+    peer_incr_slot = FD_SSPEER_SLOT_UNKNOWN;
+    clear_incr     = 1;
+  } else {
+    peer_incr_slot = peer->incr_slot;
+  }
+
+  int validate_err = fd_sspeer_validate_slot_args( peer_full_slot, peer_incr_slot );
+  if( FD_UNLIKELY( validate_err ) ) return validate_err;
+
+  score_treap_ele_remove( selector->score_treap, peer, selector->pool );
 
   peer->score = fd_sspeer_selector_score( selector, peer_latency, peer_full_slot, peer_incr_slot );
 
   peer->latency   = peer_latency;
   peer->full_slot = peer_full_slot;
   peer->incr_slot = peer_incr_slot;
-  if( FD_LIKELY( full_hash ) ) fd_memcpy( peer->full_hash, full_hash, FD_HASH_FOOTPRINT );
-  if( FD_LIKELY( incr_hash ) ) fd_memcpy( peer->incr_hash, incr_hash, FD_HASH_FOOTPRINT );
+  if( FD_LIKELY( full_hash ) ) {
+    fd_memcpy( peer->full_hash, full_hash, FD_HASH_FOOTPRINT );
+  }
+  if( FD_UNLIKELY( clear_incr ) ) {
+    fd_memset( peer->incr_hash, 0, FD_HASH_FOOTPRINT );
+  } else if( FD_LIKELY( incr_hash ) ) {
+    fd_memcpy( peer->incr_hash, incr_hash, FD_HASH_FOOTPRINT );
+  }
 
   score_treap_ele_insert( selector->score_treap, peer, selector->pool );
+  return FD_SSPEER_UPDATE_SUCCESS;
 }
 
 int
@@ -337,12 +408,13 @@ fd_sspeer_selector_update_on_resolve( fd_sspeer_selector_t *  selector,
                                       ulong                   incr_slot,
                                       uchar const             full_hash[ FD_HASH_FOOTPRINT ],
                                       uchar const             incr_hash[ FD_HASH_FOOTPRINT ] ) {
-  if( FD_UNLIKELY( key==NULL ) ) return -1;
+  if( FD_UNLIKELY( key==NULL ) ) return FD_SSPEER_UPDATE_ERR_NULL_KEY;
   fd_sspeer_private_t * peer = peer_map_by_key_ele_query( selector->map_by_key, key, NULL, selector->pool );
-  if( FD_UNLIKELY( peer==NULL ) ) return -2;
-  fd_sspeer_selector_update( selector, peer, ULONG_MAX, full_slot, incr_slot, full_hash, incr_hash );
-  peer->valid = peer->full_slot!=ULONG_MAX;
-  return 0;
+  if( FD_UNLIKELY( peer==NULL ) ) return FD_SSPEER_UPDATE_ERR_NOT_FOUND;
+  int update_status = fd_sspeer_selector_update( selector, peer, FD_SSPEER_LATENCY_UNKNOWN, full_slot, incr_slot, full_hash, incr_hash );
+  if( FD_UNLIKELY( update_status!=FD_SSPEER_UPDATE_SUCCESS ) ) return FD_SSPEER_UPDATE_ERR_INVALID_ARG;
+  peer->valid = peer->full_slot!=FD_SSPEER_SLOT_UNKNOWN;
+  return FD_SSPEER_UPDATE_SUCCESS;
 }
 
 ulong
@@ -354,7 +426,27 @@ fd_sspeer_selector_update_on_ping( fd_sspeer_selector_t * selector,
   for(;;) {
     if( FD_UNLIKELY( ele_idx==ULONG_MAX ) ) break;
     fd_sspeer_private_t * peer = selector->pool + ele_idx;
-    fd_sspeer_selector_update( selector, peer, latency, ULONG_MAX, ULONG_MAX, NULL, NULL );
+    /* Update cannot fail here: slots are FD_SSPEER_SLOT_UNKNOWN and
+       hashes are NULL, so fd_sspeer_validate_slot_args always
+       returns FD_SSPEER_UPDATE_SUCCESS (no clear_incr trigger,
+       no incr<full violation). */
+    int update_status = fd_sspeer_selector_update( selector, peer, latency,
+                                                   FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN,
+                                                   NULL, NULL );
+    if( FD_UNLIKELY( update_status!=FD_SSPEER_UPDATE_SUCCESS ) ) {
+      /* A warning is a tradeoff between crashing with FD_LOG_CRIT and
+         potentially missing the log altogether with FD_LOG_DEBUG. */
+      if( peer->key.is_url ) {
+        FD_LOG_WARNING(( "unexpected selector update returned %d for peer %s " FD_IP4_ADDR_FMT ":%hu",
+                         update_status, peer->key.url.hostname,
+                         FD_IP4_ADDR_FMT_ARGS( peer->key.url.resolved_addr.addr ), fd_ushort_bswap( peer->key.url.resolved_addr.port ) ));
+      } else {
+        FD_BASE58_ENCODE_32_BYTES( peer->key.pubkey->uc, peer_pubkey_b58 );
+        FD_LOG_WARNING(( "unexpected selector update returned %d for peer %s " FD_IP4_ADDR_FMT ":%hu",
+                         update_status, peer_pubkey_b58,
+                         FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
+      }
+    }
     ele_idx = peer_map_by_addr_idx_next_const( ele_idx, ULONG_MAX, selector->pool );
     cnt++;
   }
@@ -370,28 +462,35 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
                         ulong                  incr_slot,
                         uchar const            full_hash[ FD_HASH_FOOTPRINT ],
                         uchar const            incr_hash[ FD_HASH_FOOTPRINT ] ) {
-  if( FD_UNLIKELY( key==NULL ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( key==NULL ) ) return FD_SSPEER_SCORE_INVALID;
   /* A peer without a valid address cannot be added to the selector.
      For an existing peer changing from a valid address to 0, it is
      the caller's responsibility to remove them. */
-  if( FD_UNLIKELY( !addr.l ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( !addr.l ) ) return FD_SSPEER_SCORE_INVALID;
 
   fd_sspeer_private_t * peer = peer_map_by_key_ele_query( selector->map_by_key, key, NULL, selector->pool );
   if( FD_LIKELY( peer ) ) {
+    int update_status = fd_sspeer_selector_update( selector, peer, latency, full_slot, incr_slot, full_hash, incr_hash );
+    if( FD_UNLIKELY( update_status!=FD_SSPEER_UPDATE_SUCCESS ) ) return FD_SSPEER_SCORE_INVALID;
+    /* Update the addr map after the selector update so that the peer
+       is not mutated when the update fails. */
     if( FD_UNLIKELY( peer->addr.l!=addr.l ) ) {
       peer_map_by_addr_ele_remove_fast( selector->map_by_addr, peer, selector->pool );
       peer->addr = addr;
       peer_map_by_addr_ele_insert( selector->map_by_addr, peer, selector->pool );
     }
-    fd_sspeer_selector_update( selector, peer, latency, full_slot, incr_slot, full_hash, incr_hash );
   } else {
     if( FD_UNLIKELY( !peer_pool_free( selector->pool ) ) ) {
       FD_LOG_WARNING(( "peer selector pool exhausted" ));
-      return ULONG_MAX;
+      return FD_SSPEER_SCORE_INVALID;
     }
     if( FD_UNLIKELY( score_treap_ele_cnt(selector->score_treap)>=selector->max_peers ) ) {
       FD_LOG_WARNING(( "peer selector at max capacity" ));
-      return ULONG_MAX;
+      return FD_SSPEER_SCORE_INVALID;
+    }
+
+    if( FD_UNLIKELY( fd_sspeer_validate_slot_args( full_slot, incr_slot ) ) ) {
+      return FD_SSPEER_SCORE_INVALID;
     }
 
     peer = peer_pool_ele_acquire( selector->pool );
@@ -403,13 +502,14 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
     peer->incr_slot = incr_slot;
     if( FD_LIKELY( full_hash ) ) fd_memcpy( peer->full_hash, full_hash, FD_HASH_FOOTPRINT );
     else                         fd_memset( peer->full_hash, 0, FD_HASH_FOOTPRINT );
+    /* full_hash and incr_hash are treated independently here. */
     if( FD_LIKELY( incr_hash ) ) fd_memcpy( peer->incr_hash, incr_hash, FD_HASH_FOOTPRINT );
     else                         fd_memset( peer->incr_hash, 0, FD_HASH_FOOTPRINT );
     peer_map_by_key_ele_insert( selector->map_by_key, peer, selector->pool );
     peer_map_by_addr_ele_insert( selector->map_by_addr, peer, selector->pool );
     score_treap_ele_insert( selector->score_treap, peer, selector->pool );
   }
-  peer->valid = peer->full_slot!=ULONG_MAX;
+  peer->valid = peer->full_slot!=FD_SSPEER_SLOT_UNKNOWN;
   return peer->score;
 }
 
@@ -441,17 +541,28 @@ fd_sspeer_t
 fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
                          ulong                  base_slot ) {
-  if( FD_UNLIKELY( incremental ) ) {
-    FD_TEST( base_slot!=ULONG_MAX );
+  if( FD_UNLIKELY( incremental && base_slot==FD_SSPEER_SLOT_UNKNOWN ) ) {
+    FD_LOG_WARNING(( "incremental selection requires a valid base_slot" ));
+    return (fd_sspeer_t){
+      .addr      = { .l=0UL },
+      .full_slot = FD_SSPEER_SLOT_UNKNOWN,
+      .incr_slot = FD_SSPEER_SLOT_UNKNOWN,
+      .score     = FD_SSPEER_SCORE_INVALID,
+      .full_hash = {0},
+      .incr_hash = {0},
+    };
   }
 
   for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( selector->score_treap, selector->pool );
        !score_treap_fwd_iter_done( iter );
        iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
     fd_sspeer_private_t const * peer = score_treap_fwd_iter_ele_const( iter, selector->pool );
+    /* For full selection (!incremental), any valid peer is eligible.
+       For incremental selection, the peer must serve the same base full
+       snapshot and must actually offer an incremental snapshot. */
     if( FD_LIKELY( peer->valid &&
                    (!incremental ||
-                   (incremental && peer->full_slot==base_slot) ) ) ) {
+                   (peer->full_slot==base_slot && peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN) ) ) ) {
       fd_sspeer_t best = {
         .addr      = peer->addr,
         .full_slot = peer->full_slot,
@@ -466,9 +577,9 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
 
   return (fd_sspeer_t){
     .addr      = { .l=0UL },
-    .full_slot = ULONG_MAX,
-    .incr_slot = ULONG_MAX,
-    .score     = ULONG_MAX,
+    .full_slot = FD_SSPEER_SLOT_UNKNOWN,
+    .incr_slot = FD_SSPEER_SLOT_UNKNOWN,
+    .score     = FD_SSPEER_SCORE_INVALID,
     .full_hash = {0},
     .incr_hash = {0},
   };
@@ -478,22 +589,50 @@ void
 fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
                                          ulong                  full_slot,
                                          ulong                  incr_slot ) {
-  if( full_slot==ULONG_MAX && incr_slot==ULONG_MAX ) return;
+  if( FD_UNLIKELY( full_slot==FD_SSPEER_SLOT_UNKNOWN ) ) return;
 
-  FD_TEST( full_slot!=ULONG_MAX );
+  /* Reject cluster slot updates where the incremental slot is before
+     the full slot.  Both must be known for the check to apply.  Genesis
+     (full_slot=0, incr_slot=0) is supported. */
+  if( FD_UNLIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN && incr_slot<full_slot ) ) return;
+
   if( FD_LIKELY( selector->incremental_snapshot_fetch ) ) {
-    /* incremental slot is less than or equal to cluster incremental slot */
-    if( FD_UNLIKELY( incr_slot!=ULONG_MAX && selector->cluster_slot.incremental!=ULONG_MAX && incr_slot<=selector->cluster_slot.incremental ) ) return;
-    /* incremental slot is less than or equal to cluster full slot when cluster incremental slot does not exist */
-    else if( FD_UNLIKELY( incr_slot!=ULONG_MAX && selector->cluster_slot.incremental==ULONG_MAX && incr_slot<=selector->cluster_slot.full ) )   return;
-    /* full slot is less than cluster full slot when incremental slot does not exist */
-    else if( FD_UNLIKELY( incr_slot==ULONG_MAX && full_slot<=selector->cluster_slot.full ) )                                                           return;
+    /* The full slot must never regress, regardless of incr_slot. */
+    if( FD_UNLIKELY( full_slot<selector->cluster_slot.full ) ) return;
+
+    /* Reject updates that do not advance the cluster slot.
+       incr_slot     | stored incr   | reject when
+       --------------|---------------|--------------------------------
+       valid         | valid         | incr_slot < stored.incremental
+                     |               |   OR (incr_slot == stored.incremental
+                     |               |       AND full_slot <= stored.full)
+       valid         | _SLOT_UNKNOWN | incr_slot <  stored.full
+                     |               |   (strict: genesis accepted)
+       _SLOT_UNKNOWN | valid         | full_slot <= stored.full
+       _SLOT_UNKNOWN | _SLOT_UNKNOWN | full_slot <= stored.full  */
+    if( FD_UNLIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+      if( FD_UNLIKELY( selector->cluster_slot.incremental!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+        if( FD_UNLIKELY( ( incr_slot<selector->cluster_slot.incremental ||
+                         ( incr_slot==selector->cluster_slot.incremental &&
+                           full_slot<=selector->cluster_slot.full ) ) ) ) return;
+      } else {
+        if( FD_UNLIKELY( incr_slot<selector->cluster_slot.full ) ) return;
+      }
+    } else if( FD_UNLIKELY( full_slot<=selector->cluster_slot.full ) ) return;
+
   } else {
     if( FD_UNLIKELY( full_slot<=selector->cluster_slot.full ) ) return;
   }
 
-  selector->cluster_slot.full        = full_slot;
-  selector->cluster_slot.incremental = incr_slot;
+  selector->cluster_slot.full = full_slot;
+  if( FD_LIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+    selector->cluster_slot.incremental = incr_slot;
+  } else if( FD_UNLIKELY( selector->cluster_slot.incremental!=FD_SSPEER_SLOT_UNKNOWN &&
+                           selector->cluster_slot.incremental<full_slot ) ) {
+    /* The full slot advanced past the incremental slot, so the
+       incremental reference is stale and must be invalidated. */
+    selector->cluster_slot.incremental = FD_SSPEER_SLOT_UNKNOWN;
+  }
 
   if( FD_UNLIKELY( score_treap_ele_cnt( selector->score_treap )==0UL ) ) return;
 

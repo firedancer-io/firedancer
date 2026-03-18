@@ -70,6 +70,14 @@ typedef struct fd_ssresolve_peer fd_ssresolve_peer_t;
 #define DLIST_NEXT  deadline.next
 #include "../../../util/tmpl/fd_dlist.c"
 
+static inline void
+clear_peer_snapshot_data( fd_ssresolve_peer_t * peer ) {
+  peer->full_slot = FD_SSPEER_SLOT_UNKNOWN;
+  peer->incr_slot = FD_SSPEER_SLOT_UNKNOWN;
+  fd_memset( peer->full_hash, 0, FD_HASH_FOOTPRINT );
+  fd_memset( peer->incr_hash, 0, FD_HASH_FOOTPRINT );
+}
+
 struct fd_http_resolver_private {
   fd_ssresolve_peer_t *            pool;
   deadline_list_t *                unresolved;
@@ -232,21 +240,24 @@ fd_http_resolver_add( fd_http_resolver_t *   resolver,
   } else {
     peer->key.url.hostname[ 0 ] = '\0';
   }
-  peer->key.url.resolved_addr        = addr;
-  peer->key.is_url                   = 1;
-  peer->state                        = PEER_STATE_UNRESOLVED;
-  peer->addr                         = addr;
-  peer->is_https                     = is_https;
-  peer->fd.idx                       = ULONG_MAX;
-  peer->full_slot                    = ULONG_MAX;
-  peer->incr_slot                    = ULONG_MAX;
+  peer->key.url.resolved_addr = addr;
+  peer->key.is_url            = 1;
+  peer->state                 = PEER_STATE_UNRESOLVED;
+  peer->addr                  = addr;
+  peer->is_https              = is_https;
+  peer->fd.idx                = ULONG_MAX;
+  peer->full_slot             = FD_SSPEER_SLOT_UNKNOWN;
+  peer->incr_slot             = FD_SSPEER_SLOT_UNKNOWN;
+  fd_memset( peer->full_hash, 0, FD_HASH_FOOTPRINT );
+  fd_memset( peer->incr_hash, 0, FD_HASH_FOOTPRINT );
 
   /* The peer needs to be added to the selector, in order to guarantee
      that any subsequent update on the selector is able to find it.
      At this time, latency, full/incr slot, as well as full/incr hash
      are unknown. */
-  ulong score = fd_sspeer_selector_add( selector, &peer->key, addr, ULONG_MAX, ULONG_MAX, ULONG_MAX, NULL, NULL );
-  if( FD_UNLIKELY( score==ULONG_MAX ) ) {
+  ulong score = fd_sspeer_selector_add( selector, &peer->key, addr, FD_SSPEER_LATENCY_UNKNOWN,
+                                        FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, NULL, NULL );
+  if( FD_UNLIKELY( score==FD_SSPEER_SCORE_INVALID ) ) {
     /* If unable to add, then release the element back to the pool. */
     FD_LOG_WARNING(( "failed to add peer to selector (hostname \"%s\" addr=" FD_IP4_ADDR_FMT ":%hu score=%lu)",
                      peer->key.url.hostname[ 0 ] ? peer->key.url.hostname : "(none)",
@@ -465,7 +476,8 @@ poll_advance( fd_http_resolver_t * resolver,
       deadline_list_ele_push_tail( resolver->valid, peer, resolver->pool );
       remove_peer( resolver, peer->fd.idx );
 
-      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->full_slot, peer->incr_slot, peer->full_hash, peer->incr_hash );
+      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->full_slot, peer->incr_slot, peer->full_hash,
+                               peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN ? peer->incr_hash : NULL );
     }
   }
 }
@@ -478,6 +490,17 @@ fd_http_resolver_advance( fd_http_resolver_t *   resolver,
     fd_ssresolve_peer_t * peer = deadline_list_ele_pop_head( resolver->unresolved, resolver->pool );
 
     FD_LOG_INFO(( "resolving " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
+    /* Clear stale snapshot data so the new resolve cycle starts clean.
+       Without this, a previously-valid peer could carry stale
+       incr_slot/incr_hash through the invalid->unresolved cycle. */
+    clear_peer_snapshot_data( peer );
+    /* Re-add the peer to the selector with unknown data.  The peer may
+       have been removed from the selector during a previous timeout or
+       failed re-resolve.  The add call may fail if the selector is
+       full, which is fine — the peer will still attempt to resolve and
+       the next cycle will try again. */
+    fd_sspeer_selector_add( selector, &peer->key, peer->addr, FD_SSPEER_LATENCY_UNKNOWN,
+                            FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, NULL, NULL );
     int result = peer_connect( resolver, peer );
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state          = PEER_STATE_INVALID;
@@ -520,6 +543,9 @@ fd_http_resolver_advance( fd_http_resolver_t *   resolver,
 
     deadline_list_ele_pop_head( resolver->valid, resolver->pool );
 
+    /* Clear stale snapshot data before re-resolving so the peer
+       does not carry data from the previous resolve cycle. */
+    clear_peer_snapshot_data( peer );
     int result = peer_connect( resolver, peer );
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state = PEER_STATE_INVALID;
