@@ -92,7 +92,6 @@ union fdctl_args {
 
     char         manifest_path[256UL];
     char         iptable_path[256UL];
-    ulong        end_slot;
     ulong        slot;
     int          sort_by_slot;
   } repair;

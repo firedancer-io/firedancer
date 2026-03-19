@@ -397,12 +397,6 @@ struct ctx {
 
   fd_repair_metrics_t * slot_metrics;
   ulong turbine_slot0;  // catchup considered complete after this slot
-  struct {
-    int   enabled;
-    int   eqvoc;     /* if eqvoc is enabled, the end_slot will first be generated incorrectly, and then confirmed correctly */
-    ulong end_slot;
-    int   complete;
-  } profiler;
 };
 typedef struct ctx ctx_t;
 
@@ -845,18 +839,6 @@ after_fec( ctx_t      * ctx,
                    ele->buffered_idx == ele->complete_idx ) {
     check_confirmed( ctx, ele, &ele->confirmed_bid /* if lowest_verified_fec is not UINT_MAX, confirmed_bid must be populated */ );
   }
-
-  if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
-    // If turbine slot 0 is in the consumed frontier, and it satisfies the
-    // above conditions for completions, then catchup is complete
-    fd_forest_blk_t * turbine0     = fd_forest_query( ctx->forest, ctx->turbine_slot0 );
-    ulong             turbine0_idx = fd_forest_pool_idx( fd_forest_pool( ctx->forest ), turbine0 );
-    fd_forest_ref_t * consumed     = fd_forest_consumed_ele_query( fd_forest_consumed( ctx->forest ), &turbine0_idx, NULL, fd_forest_conspool( ctx->forest ) );
-    if( FD_UNLIKELY( consumed && turbine0->complete_idx != UINT_MAX && turbine0->complete_idx == turbine0->buffered_idx ) ) {
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( ctx->profiler.complete ) = 1;
-    }
-  }
 }
 
 static inline void
@@ -1009,7 +991,6 @@ after_frag( ctx_t *             ctx,
         return;
       };
 
-      if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && ( shred->slot > ctx->turbine_slot0 ) ) ) return;
   #   if LOGGING
       if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
         FD_LOG_INFO(( "\n\n[Turbine]\n"
@@ -1021,20 +1002,6 @@ after_frag( ctx_t *             ctx,
   #   endif
       ctx->metrics->current_slot  = fd_ulong_max( shred->slot, ctx->metrics->current_slot );
       if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
-
-        if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
-          /* we wait until the first turbine shred arrives to kick off
-             the profiler.  This is to let gossip peers accumulate similar
-             to a regular Firedancer run. */
-          fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot, NULL );
-          fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
-
-          ctx->turbine_slot0 = ctx->profiler.end_slot;
-          fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, ctx->profiler.end_slot );
-          fd_policy_set_turbine_slot0( ctx->policy, ctx->profiler.end_slot );
-          return;
-        }
-
         ctx->turbine_slot0 = shred->slot;
         fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
         fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
@@ -1357,12 +1324,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tsdebug = fd_log_wallclock();
   ctx->pending_key_next = 0;
-  ctx->profiler.enabled  = tile->repair.end_slot != 0UL;
-  ctx->profiler.end_slot = tile->repair.end_slot;
-  if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
-    ctx->metrics->current_slot = tile->repair.end_slot + 1; /* +1 to allow the turbine slot 0 to be completed */
-    ctx->profiler.complete     = 0;
-  }
 }
 
 static ulong
