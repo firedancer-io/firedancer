@@ -103,6 +103,12 @@ struct fd_stake_delegation {
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
+/* Maximum number of unique vote accounts tracked in vote_total_map.
+   Must be large enough for any network (mainnet ~3k, testnet/devnet
+   can have many more historical validators). */
+#define FD_STAKE_DELEGATIONS_MAX_VOTE_ACCOUNTS (65536UL)
+
+
 struct fd_stake_delegations {
   ulong magic;
   ulong expected_stake_accounts_;
@@ -117,6 +123,15 @@ struct fd_stake_delegations {
   ulong       fork_pool_offset_;
   ulong       dlist_offsets_[ FD_STAKE_DELEGATIONS_FORK_MAX ];
   fd_rwlock_t delta_lock;
+
+  /* Per-vote-account raw stake total map.  Maps each vote account
+     pubkey to the sum of raw delegation.stake values pointing to it.
+     Maintained at the root level by root_update/remove/apply_fork_delta
+     and temporarily adjusted during mark_delta/unmark_delta so that
+     fd_refresh_vote_accounts can read the correct per-vote-account totals
+     without iterating all delegations for fully-active epochs. */
+  ulong vote_total_pool_offset_;
+  ulong vote_total_map_offset_;
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
@@ -235,6 +250,60 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
 
 ulong
 fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations );
+
+/* fd_stake_delegations_pool_ele_const returns a const pointer to the
+   root pool element at the given index.  The caller is responsible for
+   ensuring idx is within the pool capacity and refers to a used slot.
+   This allows loop 3 of the rewards calculation to iterate
+   stake_rewards_result[] sequentially and look up stake_account by
+   pool index, avoiding the delegation hash-map traversal. */
+
+fd_stake_delegation_t const *
+fd_stake_delegations_pool_ele_const( fd_stake_delegations_t const * stake_delegations,
+                                     ulong                           idx );
+
+/* fd_stake_delegations_vote_total_adjust adds delta (may be negative)
+   to the raw stake total for the given vote account in the vote_total
+   map.  If the entry does not exist and delta > 0, a new entry is
+   created.  Callers must ensure the pool has free capacity. */
+
+void
+fd_stake_delegations_vote_total_adjust( fd_stake_delegations_t * stake_delegations,
+                                        fd_pubkey_t const *       vote_account,
+                                        long                      delta );
+
+/* fd_stake_delegations_vote_total_get returns the current raw stake
+   total for the given vote account, or 0 if not found. */
+
+ulong
+fd_stake_delegations_vote_total_get( fd_stake_delegations_t const * stake_delegations,
+                                     fd_pubkey_t const *             vote_account );
+
+/* fd_stake_delegations_vote_total_sum returns the sum of all raw stake
+   values in the vote_total_map. */
+
+ulong
+fd_stake_delegations_vote_total_sum( fd_stake_delegations_t const * stake_delegations );
+
+/* fd_stake_delegations_query looks up the current delegation for the
+   given stake account, taking fork deltas into account.  The fork dlist
+   is walked in reverse (most-recent-first).  Returns 1 and fills *out
+   if found and not tombstoned, returns 0 otherwise.  *out is not
+   modified on a miss. */
+
+int
+fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
+                             ushort                         fork_idx,
+                             fd_pubkey_t const *            stake_account,
+                             fd_stake_delegation_t *        out );
+
+/* fd_stake_delegations_query_stake is a convenience wrapper that
+   returns just the stake amount, or 0 if not found / tombstoned. */
+
+ulong
+fd_stake_delegations_query_stake( fd_stake_delegations_t const * stake_delegations,
+                                  ushort                         fork_idx,
+                                  fd_pubkey_t const *            stake_account );
 
 /* fd_stake_delegations_new_fork allocates a new fork index for the
    stake delegations.  The fork index is returned to the caller. */

@@ -83,6 +83,19 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
                                    fd_bank_t *               bank );
 
+/* fd_stakes_init_totals initializes total_effective_stake,
+   total_activating_stake, and total_deactivating_stake on the bank by
+   iterating all stake delegations in the root map with the current
+   stake history.  Called once after snapshot load (before any slot
+   execution) so that the incremental maintenance paths start from a
+   correct baseline. */
+
+void
+fd_stakes_init_totals( fd_bank_t *                    bank,
+                       fd_stake_delegations_t const * stake_delegations,
+                       fd_accdb_user_t *              accdb,
+                       fd_funk_txn_xid_t const *      xid );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stakes_h */

@@ -185,6 +185,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   /* Stake delegations for the current epoch. */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   if( is_incremental ) fd_stake_delegations_init( stake_delegations );
+  ulong total_effective_stake = 0UL;
   for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
     fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
     if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {
@@ -200,7 +201,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         elem->credits_observed,
         elem->warmup_cooldown_rate
     );
+    total_effective_stake += elem->stake_delegation;
   }
+  fd_bank_total_effective_stake_set( bank, total_effective_stake );
 
   /* We also want to set the total stake to be the total amount of stake
      at the end of the previous epoch. This value is used for the

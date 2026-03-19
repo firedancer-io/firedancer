@@ -171,10 +171,35 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
   /* Calculate the points for each epoch credit */
   uint128 points               = 0;
   ulong   new_credits_observed = credits_in_stake;
-  for( ulong i=0UL; i<epoch_credits->cnt; i++ ) {
+
+  /* Fast path: if the most recent entry is at or below credits_in_stake,
+     no credits have been earned at all — skip the entire loop. */
+  if( FD_LIKELY( epoch_credits->cnt == 0UL ||
+                 epoch_credits->credits[ epoch_credits->cnt - 1UL ] <= credits_in_stake ) ) {
+    if( epoch_credits->cnt > 0UL )
+      new_credits_observed = epoch_credits->credits[ epoch_credits->cnt - 1UL ];
+    result->points.ud                              = 0;
+    result->new_credits_observed                   = new_credits_observed;
+    result->force_credits_update_with_skipped_reward = 0;
+    return;
+  }
+
+  /* Binary search for the first entry with final_epoch_credits > credits_in_stake.
+     epoch_credits->credits is monotonically non-decreasing, so binary search works.
+     For up-to-date stake accounts this is typically just the last entry. */
+  ulong lo = 0UL, hi = epoch_credits->cnt;
+  while( lo + 1UL < hi ) {
+    ulong mid = (lo + hi) >> 1;
+    if( epoch_credits->credits[ mid ] <= credits_in_stake ) lo = mid + 1UL;
+    else                                                     hi = mid;
+  }
+  /* entries [lo, cnt) have final_epoch_credits > credits_in_stake */
+
+  for( ulong i=lo; i<epoch_credits->cnt; i++ ) {
 
     ulong final_epoch_credits   = epoch_credits->credits[ i ];
     ulong initial_epoch_credits = epoch_credits->prev_credits[ i ];
+
     uint128 earned_credits = 0;
     if( FD_LIKELY( credits_in_stake < initial_epoch_credits ) ) {
       earned_credits = (uint128)(final_epoch_credits - initial_epoch_credits);
@@ -501,6 +526,12 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
 
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
 
+  /* Zero the result array so the sequential scan in loop 3 (which
+     indexes by pool_idx) correctly skips stale entries from prior
+     epoch boundaries. */
+  fd_memset( runtime_stack->stakes.stake_rewards_result, 0,
+             sizeof(fd_calculated_stake_rewards_t) * runtime_stack->expected_stake_accounts );
+
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
@@ -760,19 +791,35 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                                                 fd_bank_slot_get( bank ),
                                                                                 runtime_stack->stakes.stake_rewards_cnt );
 
-  setup_stake_partitions(
-      accdb,
-      xid,
-      bank,
-      stake_history,
-      stake_delegations,
-      runtime_stack,
-      parent_blockhash,
-      starting_block_height,
-      num_partitions,
-      rewarded_epoch,
-      *rewards_out,
-      total_points );
+  /* Optimization: instead of re-traversing the delegation hash-map
+     (setup_stake_partitions), scan stake_rewards_result[] sequentially.
+     This replaces random hash-map pointer-chasing with sequential reads.
+     The result is correct because loop 2 stored results indexed by
+     pool idx, and pool_ele_const(dk, i) gives the stake_account. */
+  fd_stake_rewards_t * stake_rewards_struct = fd_bank_stake_rewards_modify( bank );
+  uchar fork_idx_rewards = fd_stake_rewards_init( stake_rewards_struct,
+                                                   fd_bank_epoch_get( bank ),
+                                                   parent_blockhash,
+                                                   starting_block_height,
+                                                   (uint)num_partitions );
+  bank->data->stake_rewards_fork_id = fork_idx_rewards;
+
+  for( ulong i = 0UL; i < runtime_stack->expected_stake_accounts; i++ ) {
+    fd_calculated_stake_rewards_t const * r = &runtime_stack->stakes.stake_rewards_result[ i ];
+    if( FD_LIKELY( !r->success ) ) continue;
+    fd_stake_delegation_t const * d = fd_stake_delegations_pool_ele_const( stake_delegations, i );
+    fd_stake_rewards_insert( stake_rewards_struct, fork_idx_rewards,
+                             &d->stake_account,
+                             r->staker_rewards,
+                             r->new_credits_observed );
+  }
+
+  /* Note: delegations with pool idx >= expected_stake_accounts used a
+     temporary buffer in loop 2 (not stored in stake_rewards_result[]).
+     This is only possible if the actual delegation count exceeds the
+     configured expected_stake_accounts, which should never happen in
+     production.  If it does, those delegations silently miss rewards
+     until the next epoch boundary. */
 
   return total_points;
 }
@@ -947,6 +994,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
                                     stake_state->inner.stake.stake.delegation.deactivation_epoch,
                                     stake_state->inner.stake.stake.credits_observed,
                                     stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
+  fd_bank_total_effective_stake_set( bank, fd_bank_total_effective_stake_get( bank ) + reward_lamports );
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,

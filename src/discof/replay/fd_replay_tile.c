@@ -35,6 +35,7 @@
 
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -1143,6 +1144,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
 
   fd_stake_delegations_refresh( root_delegations, ctx->accdb, &xid );
+  fd_stakes_init_totals( bank, root_delegations, ctx->accdb, &xid );
 
   fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
 

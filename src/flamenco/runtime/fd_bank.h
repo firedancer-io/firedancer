@@ -233,6 +233,16 @@ FD_PROTOTYPES_BEGIN
                                                                   /* This is only used for the get_epoch_stake syscall. */ \
                                                                   /* If we are executing in epoch E, this is the total */  \
                                                                   /* stake at the end of epoch E-1. */                     \
+  X(ulong,                             total_effective_stake    ) /* Running total of effective delegated stake. Set at  */ \
+                                                                  /* epoch boundary by fd_refresh_vote_accounts, then    */ \
+                                                                  /* maintained incrementally as rewards are distributed */ \
+                                                                  /* and stake delegations change during the epoch.      */ \
+  X(ulong,                             total_activating_stake   ) /* Running total of activating delegated stake.        */ \
+                                                                  /* Maintained incrementally alongside total_effective_ */ \
+                                                                  /* stake. Used to skip the full delegation scan in     */ \
+                                                                  /* fd_stakes_activate_epoch at epoch boundaries.       */ \
+  X(ulong,                             total_deactivating_stake ) /* Running total of deactivating delegated stake.      */ \
+                                                                  /* Maintained alongside total_activating_stake.        */ \
   X(ulong,                             block_height             ) /* Block height */                                       \
   X(ulong,                             execution_fees           ) /* Execution fees */                                     \
   X(ulong,                             priority_fees            ) /* Priority fees */                                      \

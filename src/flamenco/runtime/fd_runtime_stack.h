@@ -38,6 +38,8 @@ typedef struct fd_epoch_credits fd_epoch_credits_t;
 struct fd_vote_rewards {
   fd_pubkey_t        pubkey;
   ulong              vote_rewards;
+  ulong              stake;        /* accumulated effective stake for this vote account,
+                                      computed during fd_refresh_vote_accounts */
   uint               next;
   uchar              commission;
 };
