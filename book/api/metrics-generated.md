@@ -924,6 +924,54 @@
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;free</span> | gauge | The number of free FEC sets in the reassembly queue |
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;slot</span> | gauge | Slot of the latest FEC set in the reassembly queue that can be replayed |
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;fec_&#8203;idx</span> | gauge | FEC set index of the latest FEC set in the reassembly queue that can be replayed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;active_&#8203;bank_&#8203;idx</span> | gauge | The bank that the replay scheduler is currently dispatching work against |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;popcnt</span> | gauge | The total number of staging lanes that are currently occupied in the replay scheduler. Up to four staging lanes can be occupied at once |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;pool_&#8203;popcnt</span> | gauge | The total number of transactions that are available to be scheduled in the replay scheduler |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;pool_&#8203;size</span> | gauge | The maximum number of transactions that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for TxnPoolPopcnt |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;pool_&#8203;popcnt</span> | gauge | The total number of microblocks that are available to be scheduled in the replay scheduler |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;pool_&#8203;size</span> | gauge | The maximum number of microblocks that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for MblkPoolPopcnt |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;pool_&#8203;popcnt</span> | gauge | The total number of blocks that are available to be scheduled in the replay scheduler |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;pool_&#8203;size</span> | gauge | The maximum number of blocks that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for BlockPoolPopcnt |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;added_&#8203;staged</span> | counter | Blocks added to the replay scheduler as staged |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;added_&#8203;unstaged</span> | counter | Blocks added to the replay scheduler as unstaged |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;replayed</span> | counter | Blocks that the replay scheduler considers fully replayed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;abandoned</span> | counter | Blocks that the replay scheduler abandoned for any reason  |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;bad</span> | counter | Blocks that the replay scheduler considers bad |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;promoted</span> | counter | Blocks that the replay scheduler promoted from unstaged to a staging lane |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;demoted</span> | counter | Blocks that the replay scheduler demoted from a staging lane to unstaged |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;deactivate_&#8203;no_&#8203;child</span> | counter | Number of times that the replay scheduler stopped dispatching because a block fully replayed and there was no child block available yet |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;deactivate_&#8203;no_&#8203;work</span> | counter | Number of times that the replay scheduler stopped dispatching because a partially replayed block ran out of work to dispatch |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;deactivate_&#8203;abandoned</span> | counter | Number of times that the replay scheduler stopped dispatching because a block got abandoned for any reason |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;deactivate_&#8203;minority</span> | counter | Number of times that the replay scheduler stopped dispatching because a block got abandoned for being on a minority fork |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;switch</span> | counter | Number of times that the replay scheduler switched the lane that it is dispatching from |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;promote</span> | counter | Number of times that the replay scheduler promoted one or more blocks onto a staging lane |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;demote</span> | counter | Number of times that the replay scheduler demoted one or more blocks from a staging lane |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;fork_&#8203;observed</span> | counter | Number of forks that the replay scheduler has observed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;alut_&#8203;success</span> | counter | Number of transactions with address lookup tables that the replay scheduler successfully expanded |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;alut_&#8203;failure</span> | counter | Number of transactions with address lookup tables that the replay scheduler failed to expand |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;abandoned_&#8203;parsed</span> | counter | Number of transactions that were parsed but ended up being in abandoned blocks |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;abandoned_&#8203;exec</span> | counter | Number of transactions that were executed but ended up being in abandoned blocks |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;abandoned_&#8203;done</span> | counter | Number of transactions that were fully replayed but ended up being in abandoned blocks |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;weighted_&#8203;in_&#8203;flight</span> | counter | Cumulative number of transactions that have been in-flight from the replay scheduler's point of view, weighted by the duration of each transaction. This value is useful as the dividend for TxnWeightedInFlightDuration |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;weighted_&#8203;in_&#8203;flight_&#8203;duration</span> | counter | Duration over which TxnWeightedInFlight was accumulated. Use this as divisor to get the average number of in-flight transactions |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;none_&#8203;in_&#8203;flight_&#8203;duration</span> | counter | Duration over which the replay scheduler had no transaction in-flight. This value is useful in a ratio against WeightedInFlightDuration to see how often the replay transaction execution pipeline was idle |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;parsed</span> | counter | Number of transactions that the replay pipeline has parsed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;exec</span> | counter | Number of transactions that the replay pipeline has executed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;sigverify</span> | counter | Number of transactions that the replay pipeline has sigverified |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;mixin</span> | counter | Number of transactions that the replay pipeline has performed PoH mixin |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;done</span> | counter | Number of transactions that were fully replayed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;parsed</span> | counter | Number of microblocks that the replay pipeline has parsed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;hashed</span> | counter | Number of microblocks that the replay pipeline has fully hashed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;done</span> | counter | Number of microblocks that were fully replayed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;ingested</span> | counter | Number of bytes that the replay scheduler has ingested |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;ingested_&#8203;padding</span> | counter | Number of bytes that the replay scheduler ingested but did not parse for being padding |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;dropped</span> | counter | Number of bytes that the replay scheduler refused to ingest because the block is considered abandoned |
+| <span class="metrics-name">replay_&#8203;fec</span> | counter | Number of FEC sets that the replay scheduler has been given |
+| <span class="metrics-name">replay_&#8203;available_&#8203;transactions</span><br/>{avail_&#8203;txn_&#8203;type="<span class="metrics-enum">all</span>"} | gauge | The total number of pending transactions in pack's pool that are available to be scheduled (All transactions in any treap) |
+| <span class="metrics-name">replay_&#8203;available_&#8203;transactions</span><br/>{avail_&#8203;txn_&#8203;type="<span class="metrics-enum">regular</span>"} | gauge | The total number of pending transactions in pack's pool that are available to be scheduled (Non-votes in the main treap) |
+| <span class="metrics-name">replay_&#8203;available_&#8203;transactions</span><br/>{avail_&#8203;txn_&#8203;type="<span class="metrics-enum">votes</span>"} | gauge | The total number of pending transactions in pack's pool that are available to be scheduled (Simple votes) |
+| <span class="metrics-name">replay_&#8203;available_&#8203;transactions</span><br/>{avail_&#8203;txn_&#8203;type="<span class="metrics-enum">conflicting</span>"} | gauge | The total number of pending transactions in pack's pool that are available to be scheduled (Non-votes that write to a hotly-contended account) |
+| <span class="metrics-name">replay_&#8203;available_&#8203;transactions</span><br/>{avail_&#8203;txn_&#8203;type="<span class="metrics-enum">bundles</span>"} | gauge | The total number of pending transactions in pack's pool that are available to be scheduled (Transactions that are part of a bundle) |
 | <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
 | <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;full</span> | counter | Times where sched is full and a FEC set can't be processed |

@@ -92,7 +92,6 @@ struct fd_sched_block {
   uint                poh_hash_cmp_done_cnt; /* poh_hashing_done_cnt==poh_hash_cmp_done_cnt+len(mixin_in_progress) */
   uint                txn_done_cnt; /* A transaction is considered done when all types of tasks associated with it are done. */
   uint                shred_cnt;
-  uint                fec_cnt;
   uint                mblk_cnt;          /* Total number of microblocks, including ticks and non ticks.
                                             mblk_cnt==len(unhashed)+len(hashing_in_progress)+hashing_in_flight_cnt+len(mixin_in_progress)+hash_cmp_done_cnt */
   uint                mblk_tick_cnt;     /* Total number of tick microblocks. */
@@ -197,7 +196,11 @@ struct fd_sched_metrics {
   ulong txn_parsed_cnt;
   ulong txn_exec_done_cnt;
   ulong txn_sigverify_done_cnt;
+  ulong txn_mixin_done_cnt;
   ulong txn_done_cnt;
+  ulong mblk_parsed_cnt;
+  ulong mblk_poh_hashed_cnt;
+  ulong mblk_poh_done_cnt;
   ulong bytes_ingested_cnt;
   ulong bytes_ingested_unparsed_cnt;
   ulong bytes_dropped_cnt;
@@ -490,14 +493,14 @@ print_histogram( fd_sched_t * sched, fd_histf_t * hist, ulong converter, char * 
 
 FD_FN_UNUSED static void
 print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, fec_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, max_tick_hashcnt %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->fec_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->max_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, max_tick_hashcnt %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->max_tick_hashcnt, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -509,8 +512,8 @@ print_block_and_parent( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_metrics( fd_sched_t * sched ) {
-    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
-                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
+    fd_sched_printf( sched, "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_bad_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, fork_observed_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_exec_done_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_mixin_done_cnt %lu, txn_done_cnt %lu, mblk_parsed_cnt %lu, mblk_poh_hashed_cnt %lu, mblk_poh_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu\n",
+                     sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_bad_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->fork_observed_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_exec_done_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_mixin_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->mblk_parsed_cnt, sched->metrics->mblk_poh_hashed_cnt, sched->metrics->mblk_poh_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt );
 
 }
 
@@ -771,6 +774,8 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, slot %lu, parent slot %lu", fec->fec->data_sz, fec->slot, fec->parent_slot ));
   }
 
+  sched->metrics->fec_cnt++;
+
   if( FD_UNLIKELY( fec->is_first_in_block ) ) {
     /* This is a new block. */
     add_block( sched, fec->bank_idx, fec->parent_bank_idx );
@@ -870,7 +875,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     }
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt - 1UL );
   block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
@@ -969,9 +974,6 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   int err = fd_sched_parse( sched, block, fec->alut_ctx );
 
-  block->fec_cnt++;
-  sched->metrics->fec_cnt++;
-
   if( FD_UNLIKELY( err==FD_SCHED_BAD_BLOCK ) ) {
     handle_bad_block( sched, block );
     sched->metrics->bytes_dropped_cnt += block->fec_buf_sz-block->fec_buf_soff;
@@ -1057,7 +1059,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu is not activatable nor has anything in-flight", sched->active_bank_idx ));
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt - 1UL );
   block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
@@ -1293,7 +1295,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
                   block->slot, block->parent_slot ));
   }
 
-  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt );
+  block->txn_pool_max_popcnt   = fd_ulong_max( block->txn_pool_max_popcnt, sched->depth - sched->txn_pool_free_cnt - 1UL );
   block->mblk_pool_max_popcnt  = fd_ulong_max( block->mblk_pool_max_popcnt, sched->depth - sched->mblk_pool_free_cnt );
   block->block_pool_max_popcnt = fd_ulong_max( block->block_pool_max_popcnt, sched->block_pool_popcnt );
 
@@ -1377,6 +1379,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       ulong hashcnt_todo = mblk->hashcnt-mblk->curr_hashcnt;
       if( !hashcnt_todo ) {
         block->poh_hashing_done_cnt++;
+        sched->metrics->mblk_poh_hashed_cnt++;
         if( FD_LIKELY( !mblk->is_tick ) ) {
           /* This is not a tick.  Enqueue for mixin. */
           mblk_slist_idx_push_tail( block->mblks_mixin_in_progress, msg->mblk_idx, sched->mblk_pool );
@@ -1384,6 +1387,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
           /* This is a tick.  No need to mixin.  Check the hash value
              right away. */
           block->poh_hash_cmp_done_cnt++;
+          sched->metrics->mblk_poh_done_cnt++;
           free_mblk( sched, block, (uint)msg->mblk_idx );
           if( FD_UNLIKELY( memcmp( mblk->curr_hash, mblk->end_hash, sizeof(fd_hash_t) ) ) ) {
             FD_BASE58_ENCODE_32_BYTES( mblk->curr_hash->hash, our_str );
@@ -1663,6 +1667,53 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx ) {
   return block->shred_cnt;
 }
 
+void
+fd_sched_metrics_write( fd_sched_t * sched ) {
+  FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_IDX, sched->active_bank_idx );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_POPCNT, (ulong)fd_ulong_popcnt( sched->staged_bitset ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_POPCNT, sched->depth-sched->txn_pool_free_cnt-1UL );
+  FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_SIZE, sched->depth-1UL );
+  FD_MGAUGE_SET( REPLAY, SCHED_MBLK_POOL_POPCNT, sched->depth-sched->mblk_pool_free_cnt );
+  FD_MGAUGE_SET( REPLAY, SCHED_MBLK_POOL_SIZE, sched->depth );
+  FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_POPCNT, sched->block_pool_popcnt );
+  FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_SIZE, sched->block_cnt_max );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_ADDED_STAGED, sched->metrics->block_added_staged_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_ADDED_UNSTAGED, sched->metrics->block_added_unstaged_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_REPLAYED, sched->metrics->block_removed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_ABANDONED, sched->metrics->block_abandoned_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_BAD, sched->metrics->block_bad_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_PROMOTED, sched->metrics->block_promoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BLOCK_DEMOTED, sched->metrics->block_demoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_DEACTIVATE_NO_CHILD, sched->metrics->deactivate_no_child_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_DEACTIVATE_NO_WORK, sched->metrics->deactivate_no_txn_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_DEACTIVATE_ABANDONED, sched->metrics->deactivate_abandoned_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_DEACTIVATE_MINORITY, sched->metrics->deactivate_pruned_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_SWITCH, sched->metrics->lane_switch_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_PROMOTE, sched->metrics->lane_promoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_LANE_DEMOTE, sched->metrics->lane_demoted_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_FORK_OBSERVED, sched->metrics->fork_observed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_ALUT_SUCCESS, sched->metrics->alut_success_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_ALUT_FAILURE, sched->metrics->alut_serializing_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_ABANDONED_PARSED, sched->metrics->txn_abandoned_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_ABANDONED_EXEC, sched->metrics->txn_abandoned_exec_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_ABANDONED_DONE, sched->metrics->txn_abandoned_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT, sched->metrics->txn_weighted_in_flight_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT_DURATION, sched->metrics->txn_weighted_in_flight_tickcount );
+  FD_MCNT_SET( REPLAY, SCHED_NONE_IN_FLIGHT_DURATION, sched->metrics->txn_none_in_flight_tickcount );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED, sched->metrics->txn_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_EXEC, sched->metrics->txn_exec_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_SIGVERIFY, sched->metrics->txn_sigverify_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_MIXIN, sched->metrics->txn_mixin_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_TXN_DONE, sched->metrics->txn_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MBLK_PARSED, sched->metrics->mblk_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MBLK_HASHED, sched->metrics->mblk_poh_hashed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MBLK_DONE, sched->metrics->mblk_poh_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED, sched->metrics->bytes_ingested_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED_PADDING, sched->metrics->bytes_ingested_unparsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_BYTES_DROPPED, sched->metrics->bytes_dropped_cnt );
+  FD_MCNT_SET( REPLAY, FEC, sched->metrics->fec_cnt );
+}
+
 char *
 fd_sched_get_state_cstr( fd_sched_t * sched ) {
   sched->print_buf_sz = 0UL;
@@ -1695,13 +1746,12 @@ add_block( fd_sched_t * sched,
   block->poh_hash_cmp_done_cnt       = 0U;
   block->txn_done_cnt                = 0U;
   block->shred_cnt                   = 0U;
-  block->fec_cnt                     = 0U;
   block->mblk_cnt                    = 0U;
   block->mblk_freed_cnt              = 0U;
   block->mblk_tick_cnt               = 0U;
   block->mblk_unhashed_cnt           = 0U;
   block->hashcnt                     = 0UL;
-  block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt;
+  block->txn_pool_max_popcnt         = sched->depth - sched->txn_pool_free_cnt - 1UL;
   block->mblk_pool_max_popcnt        = sched->depth - sched->mblk_pool_free_cnt;
   block->block_pool_max_popcnt       = sched->block_pool_popcnt;
 
@@ -1916,6 +1966,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       memcpy( block->poh_hash, hdr->hash, sizeof(fd_hash_t) );
       block->last_mblk_is_tick = mblk->is_tick;
       block->mblk_cnt++;
+      sched->metrics->mblk_parsed_cnt++;
       if( FD_UNLIKELY( !hdr->txn_cnt ) ) {
         /* This is a tick microblock. */
         if( FD_UNLIKELY( block->mblk_tick_cnt && block->max_tick_hashcnt!=block->curr_tick_hashcnt ) ) {
@@ -2187,6 +2238,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
 
   /* Release the txn_idx. */
   txn_bitset_insert( sched->poh_mixin_done_set, txn_gidx );
+  sched->metrics->txn_mixin_done_cnt++;
   if( txn_bitset_test( sched->exec_done_set, txn_gidx ) && txn_bitset_test( sched->sigverify_done_set, txn_gidx ) ) {
     fd_rdisp_complete_txn( sched->rdisp, txn_gidx, 1 );
     sched->txn_pool_free_cnt++;
@@ -2199,6 +2251,7 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
   if( FD_LIKELY( mblk->curr_txn_idx==mblk->end_txn_idx ) ) {
     /* Ready to compute the final hash for this microblock. */
     block->poh_hash_cmp_done_cnt++;
+    sched->metrics->mblk_poh_done_cnt++;
     uchar * root = fd_bmtree_commit_fini( block->bmtree );
     uchar mixin_buf[ 64 ];
     fd_memcpy( mixin_buf, mblk->curr_hash, 32UL );
