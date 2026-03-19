@@ -262,6 +262,6 @@
   {"name":"remove_simple_vote_from_cost_model","pubkey":"2GCrNXbzmt4xrwdcKS2RdsLzsgu4V5zHAemW57pcHT6a"},
   {"name":"limit_instruction_accounts","pubkey":"6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC","old":"DqbnFPASg7tHmZ6qfpdrt2M6MWoSeiicWPXxPhxqFCQ"},
   {"name":"validator_admission_ticket","pubkey":"VATtb1DepUwdPh5bFVasdtkbeDNsftZSRzr2aKpKWJA"},
-  {"name":"discard_unexpected_data_complete_shreds","pubkey":"8MhfKhoZEoiySpVe248bDkisyEcBA7JQLyUS94xoTSqN"},
+  {"name":"discard_unexpected_data_complete_shreds","pubkey":"shredXP8xLjJWp1AWh3gAFsFn4GSH1vohhCMDHw5koU"},
   {"name":"create_account_allow_prefund","pubkey":"6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331"}
 ]

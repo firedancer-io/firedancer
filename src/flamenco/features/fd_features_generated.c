@@ -1797,8 +1797,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, discard_unexpected_data_complete_shreds)>>3,
-    .id                        = {"\x6d\x4f\x66\x60\x03\xae\x08\x49\xbd\xeb\xc0\x85\x5b\xa1\x4d\x71\x09\xb7\x24\x73\x65\xd1\xee\x41\x73\x7b\x8f\xb1\x5e\x5e\x9f\x89"},
-                                 /* 8MhfKhoZEoiySpVe248bDkisyEcBA7JQLyUS94xoTSqN */
+    .id                        = {"\x0c\xfd\x3c\x8a\xf9\xae\x9b\x6d\x53\x7c\x34\xf6\x80\x27\x5a\x20\x29\x32\x9c\x18\xfc\x21\x8d\xed\x15\x85\x1d\x7b\xce\x0d\xbb\x93"},
+                                 /* shredXP8xLjJWp1AWh3gAFsFn4GSH1vohhCMDHw5koU */
     .name                      = "discard_unexpected_data_complete_shreds",
     .cleaned_up                = 0 },
 
@@ -2087,7 +2087,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_260 0xf55c421c9eccc012UL, .val = &ids[260]
 #define MAP_PERFECT_261 0x7428565ab3b6d152UL, .val = &ids[261]
 #define MAP_PERFECT_262 0x8b0786cd93f63607UL, .val = &ids[262]
-#define MAP_PERFECT_263 0x4908ae0360664f6dUL, .val = &ids[263]
+#define MAP_PERFECT_263 0x6d9baef98a3cfd0cUL, .val = &ids[263]
 #define MAP_PERFECT_264 0x632b9b7c9e9a3257UL, .val = &ids[264]
 
 #include "../../util/tmpl/fd_map_perfect.c"
