@@ -376,7 +376,7 @@
 #include "fd_tower_stakes.h"
 #include "fd_tower_voters.h"
 #include "../ghost/fd_ghost.h"
-#include "../notar/fd_notar.h"
+#include "../votes/fd_votes.h"
 #include "../../disco/pack/fd_microblock.h"
 
 #define FD_TOWER_VOTE_MAX (FD_TOWER_LOCKOS_MAX)
@@ -448,7 +448,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
                          fd_tower_stakes_t * stakes,
                          fd_tower_voters_t * voters,
                          fd_ghost_t        * ghost,
-                         fd_notar_t        * notar );
+                         fd_votes_t        * votes );
 
 /* Misc */
 

@@ -1,7 +1,10 @@
 #ifndef HEADER_fd_src_discof_tower_fd_hfork_h
 #define HEADER_fd_src_discof_tower_fd_hfork_h
 
-/* The Solana chain occasionally forks for what we will call soft and
+/* fd_hfork presents an API for detecting hard forks by monitoring
+   votes from validators and comparing their bank hashes against ours.
+
+   The Solana chain occasionally forks for what we will call soft and
    hard reasons.
 
      - Soft forks occur due to network latency and the distributed
@@ -66,17 +69,23 @@
    running on the forked chain. */
 
 #include "../fd_choreo_base.h"
+#include "../tower/fd_tower_voters.h"
 
 struct fd_hfork;
 typedef struct fd_hfork fd_hfork_t;
 
-struct fd_hfork_metrics {
-   ulong seen;
-   ulong pruned;
-   ulong active;
-   ulong max_width;
+struct fd_hfork_blk {
+  fd_hash_t block_id;      /* blk_map key */
+  ulong     prev;          /* blk_map prev */
+  ulong     next;          /* pool next / blk_map next */
+  fd_hash_t our_bank_hash; /* our bank hash for this block id */
+  int       replayed;      /* whether we've replayed this block  */
+  int       dead;          /* whether we marked this block as dead */
+  int       flag;          /* -1: mismatch, 0: not checked yet, 1: match */
+  ulong     bhm_cnt;       /* number of competing bank hashes for this block id */
+  void *    bhm_dlist;     /* dlist of bank hash objects for this block id */
 };
-typedef struct fd_hfork_metrics fd_hfork_metrics_t;
+typedef struct fd_hfork_blk fd_hfork_blk_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -88,8 +97,8 @@ FD_FN_CONST ulong
 fd_hfork_align( void );
 
 FD_FN_CONST ulong
-fd_hfork_footprint( ulong max_live_slots,
-                    ulong max_vote_accounts );
+fd_hfork_footprint( ulong per_vtr_max,
+                    ulong vtr_max );
 
 /* fd_hfork_new formats an unused memory region for use as a hfork.  mem
    is a non-NULL pointer to this region in the local address space with
@@ -97,10 +106,9 @@ fd_hfork_footprint( ulong max_live_slots,
 
 void *
 fd_hfork_new( void * mem,
-              ulong  max_live_slots,
-              ulong  max_vote_accounts,
-              ulong  seed,
-              int    fatal );
+              ulong  per_vtr_max,
+              ulong  vtr_max,
+              ulong  seed );
 
 /* fd_hfork_join joins the caller to the hfork.  hfork points to the
    first byte of the memory region backing the hfork in the caller's
@@ -127,45 +135,42 @@ fd_hfork_leave( fd_hfork_t const * hfork );
 void *
 fd_hfork_delete( void * hfork );
 
-/* Update the block detector with a newly observed vote.  A vote is for
-   a bank hash, with a block ID, from a certain vote account.  Updates
-   are a time ordered stream, containing votes from both gossip and
-   replayed blocks.  Any vote which has a valid signature is valid, and
-   should be provided to the update time series, even if, for example,
-   it's from a block which was not valid or got skipped, or the vote
-   otherwise looks malformed.
+/* fd_hfork_count_vote updates the hard fork detector with a newly
+   observed vote.  Always returns a pointer to the associated
+   fd_hfork_blk_t.  The caller should inspect blk->flag to determine
+   the outcome: 1 (match), -1 (mismatch), or 0 (not yet checked). */
 
-   If incorporating the vote would cause a hard fork to be detected, and
-   if the hard fork detector was created with fatal=0, this simply logs
-   a warning and returns, and the validator will continue running now on
-   the forked chain.  This is the preferred mode for production, as it
-   makes sense from a consensus perspective to continue running in case
-   the other nodes switch to our fork.
+fd_hfork_blk_t *
+fd_hfork_count_vote( fd_hfork_t *        hfork,
+                     fd_pubkey_t const * vote_acc,
+                     fd_hash_t const *   block_id,
+                     fd_hash_t const *   bank_hash,
+                     ulong               slot,
+                     ulong               stake,
+                     ulong               total_stake );
 
-   Otherwise, if the hard fork detector was created with fatal!=0, this
-   will log a critical error and abort the process.  This mode is useful
-   for development, testing, and debugging purposes to make sure we can
-   isolate the failure to the specific time it occurs. */
+/* fd_hfork_record_our_bank_hash updates the hard fork detector with our
+   bank hash (computed on replay) for a given block ID.  If bank_hash is
+   NULL, this indicates the block was marked dead during replay and we
+   did not think it was valid.  Always returns a pointer to the
+   associated fd_hfork_blk_t.  The caller should inspect blk->flag to
+   determine the outcome: 1 (match), -1 (mismatch), or 0 (not yet
+   checked). */
+
+fd_hfork_blk_t *
+fd_hfork_record_our_bank_hash( fd_hfork_t *      hfork,
+                               fd_hash_t const * block_id,
+                               fd_hash_t const * bank_hash,
+                               ulong             total_stake );
+
+/* fd_hfork_update_voters updates the set of voters tracked by the hard
+   fork detector.  Voters not in tower_voters are removed along with all
+   their vote entries.  New voters are added.  This should be called on
+   each epoch boundary when the stake-weighted voter set changes. */
 
 void
-fd_hfork_count_vote( fd_hfork_t *         hfork,
-                     fd_hfork_metrics_t * metrics,
-                     fd_hash_t const *    vote_acc,
-                     fd_hash_t const *    block_id,
-                     fd_hash_t const *    bank_hash,
-                     ulong                slot,
-                     ulong                stake,
-                     ulong                total_stake );
-
-/* Update the hard fork detector with our bank hash (computed on replay)
-   for a given block ID.  If bank_hash is NULL, this indicates the block
-   was marked dead during replay and we did not think it was valid. */
-
-void
-fd_hfork_record_our_bank_hash( fd_hfork_t * hfork,
-                               fd_hash_t  * block_id,
-                               fd_hash_t  * bank_hash,
-                               ulong        total_stake );
+fd_hfork_update_voters( fd_hfork_t *              hfork,
+                        fd_tower_voters_t const * tower_voters );
 
 FD_PROTOTYPES_END
 

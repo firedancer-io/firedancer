@@ -386,19 +386,20 @@ threshold_check( fd_tower_t const *        tower,
 }
 
 static int
-propagated_check( fd_notar_t * notar,
-                  ulong        slot ) {
+propagated_check( fd_tower_t        * tower FD_PARAM_UNUSED,
+                  fd_tower_blocks_t * blocks,
+                  ulong               slot ) {
 
-  fd_notar_slot_t * notar_slot = fd_notar_slot_query( notar->slot_map, slot, NULL );
-  if( FD_UNLIKELY( !notar_slot ) ) return 1;
+  fd_tower_blk_t * blk = fd_tower_blocks_query( blocks, slot );
+  if( FD_UNLIKELY( !blk ) ) return 1;
 
-  if( FD_LIKELY( notar_slot->is_leader                   ) ) return 1; /* can always vote for slot in which we're leader */
-  if( FD_LIKELY( notar_slot->prev_leader_slot==ULONG_MAX ) ) return 1; /* haven't been leader yet */
+  if( FD_LIKELY( blk->leader                        ) ) return 1; /* can always vote for slot in which we're leader */
+  if( FD_LIKELY( blk->prev_leader_slot==ULONG_MAX   ) ) return 1; /* haven't been leader yet */
 
-  fd_notar_slot_t * prev_leader_notar_slot = fd_notar_slot_query( notar->slot_map, notar_slot->prev_leader_slot, NULL );
-  if( FD_LIKELY( !prev_leader_notar_slot ) ) return 1; /* already pruned rooted */
+  fd_tower_blk_t * prev_leader = fd_tower_blocks_query( blocks, blk->prev_leader_slot );
+  if( FD_LIKELY( !prev_leader ) ) return 1; /* already pruned / rooted */
 
-  return prev_leader_notar_slot->is_propagated;
+  return prev_leader->propagated;
 }
 
 fd_tower_out_t
@@ -409,7 +410,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
                          fd_tower_stakes_t * stakes,
                          fd_tower_voters_t * voters,
                          fd_ghost_t        * ghost,
-                         fd_notar_t        * notar ) {
+                         fd_votes_t        * votes FD_PARAM_UNUSED ) {
 
   uchar                  flags     = 0;
   fd_ghost_blk_t const * best_blk  = fd_ghost_best( ghost, fd_ghost_root( ghost ) );
@@ -435,9 +436,8 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
     };
   }
 
-  ulong              prev_vote_slot     = fd_tower_peek_tail_const( tower )->slot;
-  fd_tower_blk_t * prev_vote_fork     = fd_tower_blocks_query( blocks, prev_vote_slot );
-
+  ulong            prev_vote_slot = fd_tower_peek_tail_const( tower )->slot;
+  fd_tower_blk_t * prev_vote_fork = fd_tower_blocks_query( blocks, prev_vote_slot );
 
   if( FD_UNLIKELY( !prev_vote_fork->voted ) ) {
 
@@ -605,7 +605,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
 
      Specifically, we need to make sure we're not locked out, pass the
      threshold check and that our previous leader block has propagated
-     (reached the prop threshold according to fd_notar).
+     (reached the prop threshold according to fd_votes).
 
      https://github.com/firedancer-io/agave/blob/master/core/src/consensus/fork_choice.rs#L382-L385
 
@@ -621,7 +621,7 @@ fd_tower_vote_and_reset( fd_tower_t        * tower,
       flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_THRESHOLD_FAIL );
       vote_blk = NULL;
     }
-    else if( FD_UNLIKELY( !propagated_check( notar, vote_blk->slot ) ) ) {
+    else if( FD_UNLIKELY( !propagated_check( tower, blocks, vote_blk->slot ) ) ) {
       flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_PROPAGATED_FAIL );
       vote_blk = NULL;
     }

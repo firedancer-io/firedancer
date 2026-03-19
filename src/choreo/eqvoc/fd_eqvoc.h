@@ -16,44 +16,11 @@
    same slot.  Proving equivocation does not require the complete blocks
    however; in fact, only two shreds are required.  The idea is these
    shreds conflict in a way that implies equivocating blocks for a slot.
-   See `verify_proof` in fd_eqvoc.c for details.
-
-   fd_eqvoc maintains four bounded maps:
-
-   dup_map  (capacity dup_max): maps slot -> equivocation result,
-            recording slots we've already verified are duplicates
-            (equivocations).  LRU-evicts when at capacity: querying an
-            entry moves it to the tail of the recency list; when an
-            insert is needed and the map is full, the head
-            (least-recently-used) entry is evicted.
-
-   fec_map  (capacity fec_max): maps (slot, fec_set_idx) -> shred,
-            storing the first shred seen in each FEC set so it can be
-            compared against later siblings for equivocation.  Same LRU
-            eviction policy as dup_map.  Entries are also explicitly
-            removed when equivocation is confirmed (proof constructed).
-
-   prf_map  (capacity dup_max * vtr_max): maps (slot, voter_pubkey) ->
-            in-progress proof ("chunks") assembly state, tracking proofs
-            per voter per slot.  Entries are LRU-evicted per voter when
-            that voter's in-progress proof count reaches dup_max.
-            Entries are also removed when proof assembly completes (all
-            chunks received), regardless of verification outcome, or
-            when the corresponding voter is removed from vtr_map.
-
-   vtr_map  (capacity vtr_max): maps voter pubkey -> per-voter proof-
-            assembly state.  vtr entries are not evicted automatically;
-            they are explicitly inserted and removed by
-            fd_eqvoc_update_voters when the voter set changes.  Each
-            vtr slot has a pre-allocated prf_dlist that travels with the
-            voter if the open-addressing table backfills during removal.
-            Each voter's in-progress proof count is bounded by dup_max;
-            when that limit is reached, the oldest proof for that voter
-            is evicted. */
+   See `verify_proof` in fd_eqvoc.c for details. */
 
 #define FD_EQVOC_SUCCESS (0) /* shreds do not equivocate */
 
-/* proof successfully reassembled from chunked and verified for reason */
+/* proof successfully reassembled from chunked and verified */
 
 #define FD_EQVOC_SUCCESS_MERKLE  (1)
 #define FD_EQVOC_SUCCESS_META    (2)
@@ -61,7 +28,7 @@
 #define FD_EQVOC_SUCCESS_OVERLAP (4)
 #define FD_EQVOC_SUCCESS_CHAINED (5)
 
-/* proof successfully reassembled from chunked but not verified for reason */
+/* proof successfully reassembled from chunked but not verified */
 
 #define FD_EQVOC_ERR_SERDE   (-1) /* invalid serialization */
 #define FD_EQVOC_ERR_SLOT    (-2) /* shreds were for different slots */
@@ -98,7 +65,7 @@
 
    See: https://github.com/anza-xyz/agave/blob/v2.0.3/gossip/src/cluster_info.rs#L113 */
 
-#define FD_EQVOC_CHUNK_SZ  (1232UL - 115UL - 63UL)
+#define FD_EQVOC_CHUNK_SZ (1232UL - 115UL - 63UL)
 FD_STATIC_ASSERT( FD_EQVOC_CHUNK_SZ<=sizeof(((fd_gossip_duplicate_shred_t*)0)->chunk), "DuplicateShred chunk max mismatch" );
 
 /* FD_EQVOC_CHUNK{0,1,2}_LEN: the chunk lengths for each of the 3 chunks
@@ -147,6 +114,7 @@ fd_eqvoc_align( void );
 FD_FN_CONST ulong
 fd_eqvoc_footprint( ulong dup_max,
                     ulong fec_max,
+                    ulong per_vtr_max,
                     ulong vtr_max );
 
 /* fd_eqvoc_new formats an unused memory region for use as a eqvoc.
@@ -157,6 +125,7 @@ void *
 fd_eqvoc_new( void * shmem,
               ulong  dup_max,
               ulong  fec_max,
+              ulong  per_vtr_max,
               ulong  vtr_max,
               ulong  seed );
 
