@@ -279,7 +279,7 @@ union fd_features {
     /* 0xf55c421c9eccc012 */ ulong remove_simple_vote_from_cost_model;
     /* 0x7428565ab3b6d152 */ ulong limit_instruction_accounts;
     /* 0x8b0786cd93f63607 */ ulong validator_admission_ticket;
-    /* 0x4908ae0360664f6d */ ulong discard_unexpected_data_complete_shreds;
+    /* 0x6d9baef98a3cfd0c */ ulong discard_unexpected_data_complete_shreds;
     /* 0x632b9b7c9e9a3257 */ ulong create_account_allow_prefund;
   };
 };
