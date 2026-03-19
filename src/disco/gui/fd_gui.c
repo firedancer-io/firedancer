@@ -373,6 +373,7 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
     if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) continue; /* Slot is on this fork but was never completed, must have been in root path on boot. */
     if( FD_UNLIKELY( slot->completed_time+FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS*1000L*1000L*1000L<gui->next_sample_400millis ) ) break; /* Slot too old. */
     if( FD_UNLIKELY( slot->skipped ) ) continue; /* Skipped slots don't count to TPS. */
+    if( FD_UNLIKELY( slot->vote_failed==UINT_MAX ) ) continue; /* Slot transaction counts not yet populated. */
     vote_failed     += slot->vote_failed;
     vote_success    += slot->vote_success;
     nonvote_success += slot->nonvote_success;
@@ -2529,12 +2530,13 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
           skipped = fd_gui_clear_slot( gui, slot, p ? p->slot : ULONG_MAX );
         }
 
+        int was_skipped = skipped->skipped;
         skipped->skipped = 0;
         fd_gui_printf_slot( gui, skipped->slot );
         fd_http_server_ws_broadcast( gui->http );
         skipped->must_republish = 0;
 
-        if( FD_LIKELY( skipped->mine ) ) {
+        if( FD_LIKELY( was_skipped && skipped->mine ) ) {
           for( ulong epoch=0UL; epoch<2UL; epoch++ ) {
             if( FD_LIKELY( slot>=gui->epoch.epochs[ epoch ].start_slot && slot<=gui->epoch.epochs[ epoch ].end_slot ) ) {
               gui->epoch.epochs[ epoch ].my_skipped_slots--;
@@ -2552,12 +2554,13 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
           skipped = fd_gui_clear_slot( gui, slot, p ? p->slot : ULONG_MAX );
         }
 
+        int was_skipped = skipped->skipped;
         skipped->skipped = 1;
         fd_gui_printf_slot( gui, skipped->slot );
         fd_http_server_ws_broadcast( gui->http );
         skipped->must_republish = 0;
 
-        if( FD_LIKELY( skipped->mine ) ) {
+        if( FD_LIKELY( !was_skipped && skipped->mine ) ) {
           for( ulong epoch=0UL; epoch<2UL; epoch++ ) {
             if( FD_LIKELY( slot>=gui->epoch.epochs[ epoch ].start_slot && slot<=gui->epoch.epochs[ epoch ].end_slot ) ) {
               gui->epoch.epochs[ epoch ].my_skipped_slots++;
@@ -2580,16 +2583,18 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
           fd_gui_slot_t * p = fd_gui_get_parent_slot_on_fork( gui, gui->summary.slot_completed, slot );
           skipped = fd_gui_clear_slot( gui, slot, p ? p->slot : ULONG_MAX );
         }
-        skipped->skipped = 1;
-        fd_gui_printf_slot( gui, skipped->slot );
-        fd_http_server_ws_broadcast( gui->http );
-        skipped->must_republish = 0;
-        if( FD_LIKELY( skipped->mine ) ) {
-          for( ulong epoch=0UL; epoch<2UL; epoch++ ) {
-            if( FD_LIKELY( slot>=gui->epoch.epochs[ epoch ].start_slot && slot<=gui->epoch.epochs[ epoch ].end_slot ) ) {
-              gui->epoch.epochs[ epoch ].my_skipped_slots++;
-              republish_skip_rate[ epoch ] = 1;
-              break;
+        if( FD_LIKELY( !skipped->skipped ) ) {
+          skipped->skipped = 1;
+          fd_gui_printf_slot( gui, skipped->slot );
+          fd_http_server_ws_broadcast( gui->http );
+          skipped->must_republish = 0;
+          if( FD_LIKELY( skipped->mine ) ) {
+            for( ulong epoch=0UL; epoch<2UL; epoch++ ) {
+              if( FD_LIKELY( slot>=gui->epoch.epochs[ epoch ].start_slot && slot<=gui->epoch.epochs[ epoch ].end_slot ) ) {
+                gui->epoch.epochs[ epoch ].my_skipped_slots++;
+                republish_skip_rate[ epoch ] = 1;
+                break;
+              }
             }
           }
         }
