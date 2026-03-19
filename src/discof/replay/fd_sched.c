@@ -234,6 +234,7 @@ struct fd_sched {
   ulong                 staged_bitset;    /* Bit i set if staging lane i is occupied. */
   ulong                 staged_head_bank_idx[ FD_SCHED_MAX_STAGING_LANES ]; /* Head of the linear chain in each staging lane, ignored if bit i is
                                                                                not set in the bitset. */
+  ulong                 staged_popcnt_wmk;
   ulong                 txn_pool_free_cnt;
   fd_txn_p_t *          txn_pool;      /* Just a flat array. */
   fd_sched_txn_info_t * txn_info_pool; /* Just a flat array. */
@@ -519,8 +520,8 @@ print_metrics( fd_sched_t * sched ) {
 
 FD_FN_UNUSED static void
 print_sched( fd_sched_t * sched ) {
-  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
-                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
+  fd_sched_printf( sched, "sched canary 0x%lx, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, poh_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, staged_popcnt_wmk %lu, txn_pool_free_cnt %lu/%lu, block_pool_popcnt %lu/%lu\n",
+                   sched->canary, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->staged_popcnt_wmk, sched->txn_pool_free_cnt, sched->depth, sched->block_pool_popcnt, sched->block_cnt_max );
   fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
   if( active_block ) print_block_debug( sched, active_block );
   for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
@@ -648,6 +649,7 @@ fd_sched_new( void * mem,
   sched->active_bank_idx      = ULONG_MAX;
   sched->last_active_bank_idx = ULONG_MAX;
   sched->staged_bitset        = 0UL;
+  sched->staged_popcnt_wmk    = 0UL;
 
   sched->txn_exec_ready_bitset[ 0 ]  = fd_ulong_mask_lsb( (int)exec_cnt );
   sched->sigverify_ready_bitset[ 0 ] = fd_ulong_mask_lsb( (int)exec_cnt );
@@ -856,6 +858,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
         }
         sched->staged_bitset = fd_ulong_set_bit( sched->staged_bitset, lane_idx );
         sched->staged_head_bank_idx[ lane_idx ] = fec->bank_idx;
+        sched->staged_popcnt_wmk = fd_ulong_max( sched->staged_popcnt_wmk, (ulong)fd_ulong_popcnt( sched->staged_bitset ) );
         block->in_rdisp     = 1;
         block->staged       = 1;
         block->staging_lane = (ulong)lane_idx;
@@ -1671,12 +1674,14 @@ void
 fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_IDX, sched->active_bank_idx );
   FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_POPCNT, (ulong)fd_ulong_popcnt( sched->staged_bitset ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_POPCNT_WMK, sched->staged_popcnt_wmk );
   FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_POPCNT, sched->depth-sched->txn_pool_free_cnt-1UL );
   FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_SIZE, sched->depth-1UL );
   FD_MGAUGE_SET( REPLAY, SCHED_MBLK_POOL_POPCNT, sched->depth-sched->mblk_pool_free_cnt );
   FD_MGAUGE_SET( REPLAY, SCHED_MBLK_POOL_SIZE, sched->depth );
   FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_POPCNT, sched->block_pool_popcnt );
   FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_SIZE, sched->block_cnt_max );
+
   FD_MCNT_SET( REPLAY, SCHED_BLOCK_ADDED_STAGED, sched->metrics->block_added_staged_cnt );
   FD_MCNT_SET( REPLAY, SCHED_BLOCK_ADDED_UNSTAGED, sched->metrics->block_added_unstaged_cnt );
   FD_MCNT_SET( REPLAY, SCHED_BLOCK_REPLAYED, sched->metrics->block_removed_cnt );
@@ -2300,9 +2305,13 @@ try_activate_block( fd_sched_t * sched ) {
     if( block_is_done( parent_block ) && block_is_activatable( head_block ) ) {
       /* ... Yes, on this staging lane the parent block is done.  So we
          can activate the staged child. */
-      if( FD_UNLIKELY( head_idx!=sched->last_active_bank_idx ) ) { /* Unlikely because lane switching only possible under forking. */
-        FD_LOG_DEBUG(( "activating block %lu:%lu: lane switch to %d", head_block->slot, head_idx, lane_idx ));
-        sched->metrics->lane_switch_cnt++;
+      if( FD_UNLIKELY( head_idx!=sched->last_active_bank_idx ) ) { /* Unlikely because only possible under forking or on slot boundary. */
+        if( FD_UNLIKELY( sched->last_active_bank_idx!=head_block->parent_idx ) ) { /* Forking is rare. */
+          FD_LOG_DEBUG(( "activating block %lu:%lu: lane switch to %d", head_block->slot, head_idx, lane_idx ));
+          sched->metrics->lane_switch_cnt++;
+        } else {
+          FD_LOG_DEBUG(( "activating block %lu:%lu: lane %d waking up on slot boundary", head_block->slot, head_idx, lane_idx ));
+        }
       }
       sched->active_bank_idx = head_idx;
       return;
@@ -2789,6 +2798,9 @@ stage_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx, int lane_idx ) 
   if( FD_LIKELY( head_bank_idx!=ULONG_MAX ) ) {
     sched->metrics->lane_promoted_cnt++;
     sched->staged_bitset = fd_ulong_set_bit( sched->staged_bitset, lane_idx );
+    /* No need to update staged_popcnt_wmk because the fact that there
+       are unstaged blocks implies we already maxed out lanes at one
+       point. */
     sched->staged_head_bank_idx[ lane_idx ] = head_bank_idx;
   }
   return head_bank_idx;

@@ -788,18 +788,19 @@ metric introduced.
   <gauge name="ReasmLatestSlot" summary="Slot of the latest FEC set in the reassembly queue that can be replayed" />
   <gauge name="ReasmLatestFecIdx" summary="FEC set index of the latest FEC set in the reassembly queue that can be replayed" />
 
-  <gauge name="SchedActiveBankIdx" summary="The bank that the replay scheduler is currently dispatching work against" />
+  <gauge name="SchedActiveBankIdx" summary="The bank that the replay scheduler is currently dispatching work for" />
   <gauge name="SchedStagingLanePopcnt" summary="The total number of staging lanes that are currently occupied in the replay scheduler. Up to four staging lanes can be occupied at once" />
+  <gauge name="SchedStagingLanePopcntWmk" summary="The high watermark number of staging lanes that were at one point occupied in the replay scheduler" />
   <gauge name="SchedTxnPoolPopcnt" summary="The total number of transactions that are available to be scheduled in the replay scheduler" />
   <gauge name="SchedTxnPoolSize" summary="The maximum number of transactions that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for TxnPoolPopcnt" />
   <gauge name="SchedMblkPoolPopcnt" summary="The total number of microblocks that are available to be scheduled in the replay scheduler" />
   <gauge name="SchedMblkPoolSize" summary="The maximum number of microblocks that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for MblkPoolPopcnt" />
-  <gauge name="SchedBlockPoolPopcnt" summary="The total number of blocks that are available to be scheduled in the replay scheduler" />
-  <gauge name="SchedBlockPoolSize" summary="The maximum number of blocks that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for BlockPoolPopcnt" />
+  <gauge name="SchedBlockPoolPopcnt" summary="The total number of blocks that are alive in the replay scheduler" />
+  <gauge name="SchedBlockPoolSize" summary="The maximum number of blocks that the replay scheduler can keep track of. This value is fixed at Firedancer startup but is a useful reference for BlockPoolPopcnt" />
   <counter name="SchedBlockAddedStaged" summary="Blocks added to the replay scheduler as staged" />
   <counter name="SchedBlockAddedUnstaged" summary="Blocks added to the replay scheduler as unstaged" />
   <counter name="SchedBlockReplayed" summary="Blocks that the replay scheduler considers fully replayed" />
-  <counter name="SchedBlockAbandoned" summary="Blocks that the replay scheduler abandoned for any reason " />
+  <counter name="SchedBlockAbandoned" summary="Blocks that the replay scheduler abandoned for any reason" />
   <counter name="SchedBlockBad" summary="Blocks that the replay scheduler considers bad" />
   <counter name="SchedBlockPromoted" summary="Blocks that the replay scheduler promoted from unstaged to a staging lane" />
   <counter name="SchedBlockDemoted" summary="Blocks that the replay scheduler demoted from a staging lane to unstaged" />
@@ -831,8 +832,6 @@ metric introduced.
   <counter name="SchedBytesIngestedPadding" summary="Number of bytes that the replay scheduler ingested but did not parse for being padding" />
   <counter name="SchedBytesDropped" summary="Number of bytes that the replay scheduler refused to ingest because the block is considered abandoned" />
   <counter name="Fec" summary="Number of FEC sets that the replay scheduler has been given" />
-
-  <gauge name="AvailableTransactions" enum="AvailTxnType" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
 
   <counter name="SlotsTotal" summary="Count of slots replayed successfully" />
   <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
