@@ -58,9 +58,11 @@ struct fd_stake_ci {
     ulong staked_cnt;
     ulong excluded_stake;
     ulong vote_keyed_lsched;
+    ulong id_staked_cnt;
   } scratch[1];
 
   fd_vote_stake_weight_t   vote_stake_weight[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+  fd_stake_weight_t        id_stake_weight  [ MAX_SHRED_DESTS ];
   fd_stake_weight_t        stake_weight     [ MAX_SHRED_DESTS ];
   fd_shred_dest_weighted_t shred_dest       [ MAX_SHRED_DESTS ];
 

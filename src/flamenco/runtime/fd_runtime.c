@@ -42,6 +42,56 @@
 
 #include <unistd.h>
 #include <sys/stat.h>
+
+/* Sort templates for fd_stake_weight_t, used by compute_identity_stakes
+   to dedup vote-keyed weights into identity-keyed weights. */
+
+#define SORT_NAME sort_id_weights_by_id
+#define SORT_KEY_T fd_stake_weight_t
+#define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )>0)
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME sort_id_weights_by_stake_id
+#define SORT_KEY_T fd_stake_weight_t
+#define SORT_BEFORE(a,b) ((a).stake > (b).stake ? 1 : ((a).stake < (b).stake ? 0 : memcmp( (a).key.uc, (b).key.uc, 32UL )>0))
+#include "../../util/tmpl/fd_sort.c"
+
+/* compute_identity_stakes converts vote-keyed stake weights into
+   identity-deduped stake weights for the turbine tree.  This must be
+   called on the FULL (uncompressed) weights so that all vote accounts
+   for each identity are aggregated.
+
+   out must have room for at least stake_weight_cnt entries.
+   Returns the number of identity-deduped entries written to out. */
+static ulong
+compute_identity_stakes( fd_stake_weight_t *            out,
+                         fd_vote_stake_weight_t const * in,
+                         ulong                          cnt ) {
+  if( FD_UNLIKELY( !cnt ) ) return 0UL;
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_memcpy( out[i].key.uc, in[i].id_key.uc, sizeof(fd_pubkey_t) );
+    out[i].stake = in[i].stake;
+  }
+
+  sort_id_weights_by_id_inplace( out, cnt );
+
+  ulong j = 0UL;
+  for( ulong i=1UL; i<cnt; i++ ) {
+    if( 0==memcmp( out[j].key.uc, out[i].key.uc, sizeof(fd_pubkey_t) ) ) {
+      out[j].stake += out[i].stake;
+    } else {
+      ++j;
+      out[j].stake = out[i].stake;
+      fd_memcpy( out[j].key.uc, out[i].key.uc, sizeof(fd_pubkey_t) );
+    }
+  }
+  ulong deduped_cnt = j + 1UL;
+
+  sort_id_weights_by_stake_id_inplace( out, deduped_cnt );
+
+  return deduped_cnt;
+}
 #include <sys/types.h>
 #include <fcntl.h>
 
@@ -145,7 +195,7 @@ update_next_leaders( fd_bank_t *          bank,
   fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights_next( bank->data );
   ulong idx = 0UL;
 
-  for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
+  for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
     fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
     fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
     ulong               stake       = epoch_weights[i].stake;
@@ -165,6 +215,12 @@ update_next_leaders( fd_bank_t *          bank,
     }
   }
   *fd_bank_get_stake_weights_cnt_next( bank->data ) = idx;
+
+  /* Compute identity-deduped stakes from FULL weights for the turbine
+     tree.  This must be done before epoch_weights is overwritten by the
+     current epoch's fd_stake_weights_by_node call. */
+  *fd_bank_get_id_stakes_cnt_next( bank->data ) =
+      compute_identity_stakes( fd_bank_get_id_stakes_next( bank->data ), epoch_weights, stake_weight_cnt );
 }
 
 void
@@ -224,6 +280,11 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     }
   }
   *fd_bank_get_stake_weights_cnt( bank->data ) = idx;
+
+  /* Compute identity-deduped stakes from FULL weights for the turbine tree. */
+  *fd_bank_get_id_stakes_cnt( bank->data ) =
+      compute_identity_stakes( fd_bank_get_id_stakes( bank->data ), epoch_weights, stake_weight_cnt );
+
   fd_bank_vote_stakes_end_locking_modify( bank );
 }
 

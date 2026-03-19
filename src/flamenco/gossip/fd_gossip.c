@@ -418,6 +418,27 @@ fd_gossip_stakes_update( fd_gossip_t *                  gossip,
   gossip->stake.count = stake_pool_used( gossip->stake.pool );
 }
 
+void
+fd_gossip_id_stakes_update( fd_gossip_t *              gossip,
+                            fd_stake_weight_t const *  id_stakes,
+                            ulong                      id_stakes_cnt ) {
+  stake_map_reset( gossip->stake.map );
+  stake_pool_reset( gossip->stake.pool );
+
+  for( ulong i=0UL; i<id_stakes_cnt; i++ ) {
+    stake_t * entry = stake_pool_ele_acquire( gossip->stake.pool );
+    fd_memcpy( entry->pubkey.uc, id_stakes[i].key.uc, 32UL );
+    entry->stake = id_stakes[i].stake;
+    stake_map_ele_insert( gossip->stake.map, entry, gossip->stake.pool );
+  }
+
+  gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
+  fd_gossip_wsample_self_stake( gossip->wsample, gossip->identity_stake );
+  fd_active_set_set_identity( gossip->active_set, gossip->identity_pubkey, gossip->identity_stake );
+  fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
+  gossip->stake.count = stake_pool_used( gossip->stake.pool );
+}
+
 /* Outbound data budget constants (matching Agave's DataBudget for gossip).
    Budget is replenished every BUDGET_REPLENISH_INTERVAL_NS with
    num_staked * BUDGET_BYTES_PER_INTERVAL bytes, capped at

@@ -79,14 +79,20 @@ fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
                  " but the maximum allowed is %lu", msg->staked_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
 
+  if( FD_UNLIKELY( msg->id_staked_cnt > MAX_SHRED_DESTS ) )
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu identity stakes in it,"
+                 " but the maximum allowed is %lu", msg->id_staked_cnt, MAX_SHRED_DESTS ));
+
   info->scratch->epoch             = msg->epoch;
   info->scratch->start_slot        = msg->start_slot;
   info->scratch->slot_cnt          = msg->slot_cnt;
   info->scratch->staked_cnt        = msg->staked_cnt;
   info->scratch->excluded_stake    = msg->excluded_stake;
   info->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
+  info->scratch->id_staked_cnt     = msg->id_staked_cnt;
 
   fd_memcpy( info->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_memcpy( info->id_stake_weight, fd_epoch_info_msg_id_stakes_const( msg ), msg->id_staked_cnt*sizeof(fd_stake_weight_t) );
 }
 
 static inline void
@@ -179,10 +185,18 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   unhit_set_t * unhit = unhit_set_join( unhit_set_new( _unhit ) );
   unhit_set_full( unhit );
 
-  /* This function will remove any dummy stakes from the list.  After
-     this point, there will only be actual stakes that correspond to
-     selected leader nodes. */
-  staked_cnt = compute_id_weights_from_vote_weights( info->stake_weight, info->vote_stake_weight, staked_cnt );
+  /* Use the pre-computed identity-deduped stakes from the replay tile
+     (computed from FULL vote weights) for the turbine tree.  This
+     ensures the total stake matches what Agave computes, which is
+     critical because even a 1 lamport difference in the wsample total
+     weight completely reshuffles the turbine tree. */
+  if( FD_LIKELY( info->scratch->id_staked_cnt > 0UL ) ) {
+    fd_memcpy( info->stake_weight, info->id_stake_weight, info->scratch->id_staked_cnt * sizeof(fd_stake_weight_t) );
+    staked_cnt = info->scratch->id_staked_cnt;
+  } else {
+    /* Fallback for Frankendancer path or messages without identity stakes. */
+    staked_cnt = compute_id_weights_from_vote_weights( info->stake_weight, info->vote_stake_weight, staked_cnt );
+  }
   if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
                  " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));

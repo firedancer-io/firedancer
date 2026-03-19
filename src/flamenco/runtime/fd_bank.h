@@ -375,6 +375,12 @@ struct fd_bank_data {
 
   ulong stake_weights_cnt_next_off;
   ulong stake_weights_next_off;
+
+  ulong id_stakes_cnt_off;
+  ulong id_stakes_off;
+
+  ulong id_stakes_cnt_next_off;
+  ulong id_stakes_next_off;
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
@@ -459,6 +465,46 @@ fd_bank_set_stake_weights_cnt_next_off( fd_bank_data_t * bank, uchar * stake_wei
 static inline ulong *
 fd_bank_get_stake_weights_cnt_next( fd_bank_data_t * bank ) {
   return (ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_cnt_next_off );
+}
+
+static inline void
+fd_bank_set_id_stakes( fd_bank_data_t * bank, uchar * id_stakes_mem ) {
+  bank->id_stakes_off = (ulong)bank - (ulong)id_stakes_mem;
+}
+
+static inline fd_stake_weight_t *
+fd_bank_get_id_stakes( fd_bank_data_t * bank ) {
+  return (fd_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->id_stakes_off );
+}
+
+static inline void
+fd_bank_set_id_stakes_cnt_off( fd_bank_data_t * bank, uchar * id_stakes_cnt_mem ) {
+  bank->id_stakes_cnt_off = (ulong)bank - (ulong)id_stakes_cnt_mem;
+}
+
+static inline ulong *
+fd_bank_get_id_stakes_cnt( fd_bank_data_t * bank ) {
+  return (ulong *)fd_type_pun( (uchar *)bank - bank->id_stakes_cnt_off );
+}
+
+static inline void
+fd_bank_set_id_stakes_next( fd_bank_data_t * bank, uchar * id_stakes_mem ) {
+  bank->id_stakes_next_off = (ulong)bank - (ulong)id_stakes_mem;
+}
+
+static inline fd_stake_weight_t *
+fd_bank_get_id_stakes_next( fd_bank_data_t * bank ) {
+  return (fd_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->id_stakes_next_off );
+}
+
+static inline void
+fd_bank_set_id_stakes_cnt_next_off( fd_bank_data_t * bank, uchar * id_stakes_cnt_next_mem ) {
+  bank->id_stakes_cnt_next_off = (ulong)bank - (ulong)id_stakes_cnt_next_mem;
+}
+
+static inline ulong *
+fd_bank_get_id_stakes_cnt_next( fd_bank_data_t * bank ) {
+  return (ulong *)fd_type_pun( (uchar *)bank - bank->id_stakes_cnt_next_off );
 }
 
 static inline void
@@ -606,6 +652,16 @@ struct fd_banks_data {
 
   fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  next_stake_weights_cnt;
+
+  /* Identity-deduped stake weights for the turbine tree.  These are
+     computed from the FULL vote weights (not compressed) so that the
+     turbine tree total stake matches Agave's ClusterNodes. */
+
+  fd_stake_weight_t id_stakes[ MAX_STAKED_LEADERS ];
+  ulong             id_stakes_cnt;
+
+  fd_stake_weight_t next_id_stakes[ MAX_STAKED_LEADERS ];
+  ulong             next_id_stakes_cnt;
 
   /* Lay out pool offsets */
 

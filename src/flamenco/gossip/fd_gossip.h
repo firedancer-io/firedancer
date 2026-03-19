@@ -142,6 +142,14 @@ fd_gossip_stakes_update( fd_gossip_t *                  gossip,
                          fd_vote_stake_weight_t const * stake_weights,
                          ulong                          stake_weights_cnt );
 
+/* fd_gossip_id_stakes_update is the same as fd_gossip_stakes_update
+   but takes pre-computed identity-deduped stakes.  This avoids the
+   information loss from deduping compressed vote-keyed weights. */
+void
+fd_gossip_id_stakes_update( fd_gossip_t *              gossip,
+                            fd_stake_weight_t const *  id_stakes,
+                            ulong                      id_stakes_cnt );
+
 /* fd_gossip_advance advances the gossip protocol to the provided time,
    performing any necessary updates and actions along the way.  The
    actions performed include,

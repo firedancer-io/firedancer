@@ -267,7 +267,7 @@ during_frag( fd_gui_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
-    sz = fd_epoch_info_msg_sz( epoch_info->staked_cnt );
+    sz = fd_epoch_info_msg_sz( epoch_info->staked_cnt, epoch_info->id_staked_cnt );
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {

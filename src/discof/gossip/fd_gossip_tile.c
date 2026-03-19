@@ -291,7 +291,11 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
-  fd_gossip_stakes_update( ctx->gossip, msg->weights, msg->staked_cnt );
+  if( FD_LIKELY( msg->id_staked_cnt > 0UL ) ) {
+    fd_gossip_id_stakes_update( ctx->gossip, fd_epoch_info_msg_id_stakes_const( msg ), msg->id_staked_cnt );
+  } else {
+    fd_gossip_stakes_update( ctx->gossip, msg->weights, msg->staked_cnt );
+  }
 }
 
 static void

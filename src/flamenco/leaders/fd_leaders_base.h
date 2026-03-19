@@ -34,14 +34,17 @@ static inline ulong fd_stake_weight_msg_sz( ulong cnt ) {
 /* Firedancer only */
 struct fd_epoch_info_msg_t {
   ulong                  epoch;             /* Epoch for which the info is valid */
-  ulong                  staked_cnt;        /* Number of staked nodes */
+  ulong                  staked_cnt;        /* Number of compressed stake weight entries (leaders + dummies) */
   ulong                  start_slot;        /* Start slot of the epoch */
   ulong                  slot_cnt;          /* Number of slots in the epoch */
   ulong                  excluded_stake;    /* Total stake that is excluded from leader selection */
   ulong                  vote_keyed_lsched; /* Whether vote account keyed leader schedule is active */
+  ulong                  id_staked_cnt;     /* Number of identity-deduped stake entries for turbine */
   fd_epoch_schedule_t    epoch_schedule;    /* Epoch schedule */
   fd_features_t          features;          /* Feature activation slots */
-  fd_vote_stake_weight_t weights[];         /* Flexible array member (must be last) */
+  fd_vote_stake_weight_t weights[];         /* Flexible array member: first staked_cnt compressed entries,
+                                               then id_staked_cnt fd_stake_weight_t entries (accessed via
+                                               fd_epoch_info_msg_id_stakes) */
 };
 typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
 
@@ -80,11 +83,23 @@ typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
    they aren't inserted into any downstream data structures. */
 
 #define FD_EPOCH_INFO_MSG_HEADER_SZ (sizeof(fd_epoch_info_msg_t))
-#define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t))
+#define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t) + MAX_STAKED_LEADERS * sizeof(fd_stake_weight_t))
 #define FD_EPOCH_OUT_MTU            FD_EPOCH_INFO_MAX_MSG_SZ
 
-static inline ulong fd_epoch_info_msg_sz( ulong cnt ) {
-  return FD_EPOCH_INFO_MSG_HEADER_SZ + ( cnt * sizeof(fd_vote_stake_weight_t) );
+static inline ulong fd_epoch_info_msg_sz( ulong vote_cnt, ulong id_cnt ) {
+  return FD_EPOCH_INFO_MSG_HEADER_SZ + vote_cnt * sizeof(fd_vote_stake_weight_t) + id_cnt * sizeof(fd_stake_weight_t);
+}
+
+/* Returns a pointer to the identity-deduped stakes that are serialized
+   after the compressed vote stake weights in the epoch info message. */
+static inline fd_stake_weight_t *
+fd_epoch_info_msg_id_stakes( fd_epoch_info_msg_t * msg ) {
+  return (fd_stake_weight_t *)( msg->weights + msg->staked_cnt );
+}
+
+static inline fd_stake_weight_t const *
+fd_epoch_info_msg_id_stakes_const( fd_epoch_info_msg_t const * msg ) {
+  return (fd_stake_weight_t const *)( msg->weights + msg->staked_cnt );
 }
 
 #endif /* HEADER_fd_src_flamenco_leaders_fd_leaders_base_h */

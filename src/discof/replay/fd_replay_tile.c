@@ -607,7 +607,16 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   epoch_info_msg->excluded_stake    = 0UL;
   epoch_info_msg->vote_keyed_lsched = 1UL;
 
-  ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt );
+  /* Copy pre-computed identity-deduped stakes (from full weights) for
+     the turbine tree.  These are placed after the compressed weights in
+     the message buffer. */
+  fd_stake_weight_t const * id_stakes_src = current_epoch ? fd_bank_get_id_stakes_next( bank->data ) : fd_bank_get_id_stakes( bank->data );
+  ulong id_stakes_cnt = current_epoch ? *fd_bank_get_id_stakes_cnt_next( bank->data ) : *fd_bank_get_id_stakes_cnt( bank->data );
+  epoch_info_msg->id_staked_cnt = id_stakes_cnt;
+  fd_stake_weight_t * id_stakes_dst = fd_epoch_info_msg_id_stakes( epoch_info_msg );
+  fd_memcpy( id_stakes_dst, id_stakes_src, id_stakes_cnt * sizeof(fd_stake_weight_t) );
+
+  ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt, epoch_info_msg->id_staked_cnt );
 
   ulong epoch_info_sig = 4UL;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );

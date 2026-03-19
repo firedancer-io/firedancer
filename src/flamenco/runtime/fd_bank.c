@@ -347,6 +347,11 @@ fd_banks_new( void * shmem,
     fd_bank_set_stake_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights) );
     fd_bank_set_stake_weights_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_stake_weights_cnt) );
 
+    fd_bank_set_id_stakes( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, id_stakes) );
+    fd_bank_set_id_stakes_cnt_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, id_stakes_cnt) );
+    fd_bank_set_id_stakes_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_id_stakes) );
+    fd_bank_set_id_stakes_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_id_stakes_cnt) );
+
     fd_bank_top_votes_t * top_votes_pool = fd_banks_get_top_votes_pool( banks_data );
     fd_bank_set_top_votes_pool( bank, top_votes_pool );
     bank->top_votes_pool_idx = fd_bank_top_votes_pool_idx_null( top_votes_pool );

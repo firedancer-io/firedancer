@@ -226,6 +226,7 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
   epoch_info_msg->excluded_stake    = 0UL;
   epoch_info_msg->vote_keyed_lsched = 1UL;
+  epoch_info_msg->id_staked_cnt     = 0UL; /* Full weights — shred tile will compute identity stakes via fallback */
 
   /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
      This code can be removed once the feature is active. */
@@ -252,7 +253,7 @@ generate_epoch_info_msg_manifest( ulong                                       ep
 
   epoch_info_msg->epoch_schedule = *epoch_schedule;
 
-  return fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt );
+  return fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt, epoch_info_msg->id_staked_cnt );
 }
 
 static void
