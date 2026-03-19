@@ -409,6 +409,7 @@ test_env_create( test_env_t * env,
     FD_TEST( scratch );
     fd_progcache_inject_rec( env->progcache->join,
                              &callee_program_pubkey,
+                             inject_meta->owner,
                              inject_meta,
                              features,
                              fd_bank_slot_get( env->bank ),

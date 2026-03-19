@@ -564,6 +564,7 @@ fd_progcache_clear( fd_progcache_join_t * cache ) {
 void
 fd_progcache_inject_rec( fd_progcache_join_t *     cache,
                          void const *              prog_addr,
+                         void const *              prog_owner,
                          fd_account_meta_t const * progdata_meta,
                          fd_features_t const *     features,
                          ulong                     slot,
@@ -582,18 +583,18 @@ fd_progcache_inject_rec( fd_progcache_join_t *     cache,
 
   uchar const * elf_bin    = NULL;
   ulong         elf_bin_sz = progdata_meta->dlen;
-  if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  if( !memcmp( prog_owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
     if( FD_UNLIKELY( elf_bin_sz<PROGRAMDATA_METADATA_SIZE ) ) return;
 
     elf_bin     = (uchar const *)fd_account_data( progdata_meta ) + PROGRAMDATA_METADATA_SIZE;
     elf_bin_sz -= PROGRAMDATA_METADATA_SIZE;
-  } else if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  } else if( !memcmp( prog_owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     if( FD_UNLIKELY( elf_bin_sz<LOADER_V4_PROGRAM_DATA_OFFSET ) ) return;
 
     elf_bin     = (uchar const *)fd_account_data( progdata_meta ) + LOADER_V4_PROGRAM_DATA_OFFSET;
     elf_bin_sz -= LOADER_V4_PROGRAM_DATA_OFFSET;
-  } else if( !memcmp( progdata_meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
-             !memcmp( progdata_meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  } else if( !memcmp( prog_owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
+             !memcmp( prog_owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
     elf_bin = (uchar const *)fd_account_data( progdata_meta );
   }
   if( FD_UNLIKELY( !elf_bin ) ) return;
