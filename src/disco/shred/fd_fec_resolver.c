@@ -413,7 +413,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   /* This, combined with the check on shred->code.data_cnt implies that
      shred_idx is in [0, DATA_SHREDS_MAX+PARITY_SHREDS_MAX). */
 
-  if( FD_UNLIKELY( tree_depth!=FD_SHRED_MERKLE_LAYER_CNT-1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( tree_depth!=6 ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   if( FD_UNLIKELY( !ctx ) ) { /* This is the first shred in the FEC set */
 
