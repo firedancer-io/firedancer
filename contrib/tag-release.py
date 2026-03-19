@@ -132,7 +132,12 @@ def main():
     solana_version = solana_version.stdout.decode('utf-8').strip().split('@')[1]
     solana_version_major = int(solana_version.split('.')[0])
     solana_version_minor = int(solana_version.split('.')[1])
-    solana_version_patch = int(solana_version.split('.')[2])
+    if '-' in solana_version.split('.')[2]:
+        # prerelease
+        solana_version_patch = int(solana_version.split('.')[3])
+    else:
+        # stable
+        solana_version_patch = int(solana_version.split('.')[2])
 
     solana_version = f'{solana_version_major}{solana_version_minor:02d}{solana_version_patch:02d}'
 
