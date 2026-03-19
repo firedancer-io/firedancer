@@ -840,14 +840,17 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
 
+  fd_bank_execution_fees_set( bank, 0UL );
+  fd_bank_priority_fees_set( bank, 0UL );
+  fd_bank_tips_set( bank, 0UL );
+  fd_bank_signature_count_set( bank, 0UL );
+  fd_bank_total_compute_units_used_set( bank, 0UL );
+  fd_bank_shred_cnt_set( bank, 0UL );
+  fd_bank_identity_vote_idx_set( bank, ULONG_MAX );
+
   fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
-
-  fd_bank_execution_fees_set( bank, 0UL );
-  fd_bank_priority_fees_set( bank, 0UL );
-  fd_bank_signature_count_set( bank, 0UL );
-  fd_bank_total_compute_units_used_set( bank, 0UL );
 
   if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
     fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
