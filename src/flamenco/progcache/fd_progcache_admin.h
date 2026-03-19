@@ -94,6 +94,7 @@ fd_progcache_clear( fd_progcache_join_t * cache );
 void
 fd_progcache_inject_rec( fd_progcache_join_t *     cache,
                          void const *              prog_addr,
+                         void const *              prog_owner,
                          fd_account_meta_t const * progdata_meta,
                          fd_features_t const *     features,
                          ulong                     slot,

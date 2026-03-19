@@ -171,12 +171,14 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
 
-    fd_account_meta_t * meta = txn_out->accounts.account[i].meta;
-    if( !fd_executor_pubkey_is_bpf_loader( fd_type_pun( meta->owner ) ) ) {
+    fd_account_meta_t * meta  = txn_out->accounts.account[i].meta;
+    fd_pubkey_t const * owner = fd_type_pun_const( meta->owner );
+
+    if( !fd_executor_pubkey_is_bpf_loader( owner ) ) {
       continue;
     }
 
-    if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( !memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
       fd_bpf_upgradeable_loader_state_t program_loader_state[1];
       int err = fd_bpf_loader_program_get_state( meta, program_loader_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
@@ -207,7 +209,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     } else if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
                             !memcmp( meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
       meta = txn_out->accounts.account[i].meta;
-    } else if( !memcmp( meta->owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+    } else if( !memcmp( owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
       int err;
       fd_loader_v4_state_t const * state = fd_loader_v4_get_state( fd_account_data( meta ), meta->dlen, &err );
       if( FD_UNLIKELY( err ) ) {
@@ -225,6 +227,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       uchar * scratch = fd_spad_alloc( runner->spad, FD_FUNK_REC_ALIGN, meta->dlen );
       fd_progcache_inject_rec( runner->progcache->join,
                                &txn_out->accounts.keys[i],
+                               owner,
                                meta,
                                features,
                                fd_bank_slot_get( runner->bank ),
