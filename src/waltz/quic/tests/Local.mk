@@ -33,6 +33,7 @@ $(call run-unit-test,test_quic_concurrency)
 $(call run-unit-test,test_quic_svc_q)
 $(call run-unit-test,test_quic_pkt_meta)
 $(call run-unit-test,test_quic_keep_alive)
+$(call run-unit-test,test_quic_pkt_meta_lifecycle)
 
 # fd_quic_tls unit tests
 $(call make-unit-test,test_quic_tls_hs,test_quic_tls_hs,$(QUIC_TEST_LIBS))

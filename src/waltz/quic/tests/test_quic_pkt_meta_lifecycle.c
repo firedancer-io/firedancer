@@ -97,9 +97,10 @@ setup_conn( fd_quic_sandbox_t * sandbox,
 static ulong
 flush_conn( fd_quic_sandbox_t * sandbox,
             fd_quic_conn_t *    conn ) {
+  ulong pkt_first = conn->pkt_number[ APP_PN_SPACE ];
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
   service_conn( sandbox, conn, (long)1e6 );
-  return conn->pkt_number[ APP_PN_SPACE ] - 1UL;
+  return pkt_first;
 }
 
 static ulong
@@ -402,6 +403,10 @@ test_stale_pkt_meta_regression( fd_quic_sandbox_t * sandbox,
                                 fd_rng_t *          rng ) {
   fd_quic_conn_t * conn = setup_conn( sandbox, rng );
 
+  /* Force small datagrams so a 200-byte STREAM payload is split over
+     multiple packets, making this regression test deterministic. */
+  conn->tx_max_datagram_sz = 120UL;
+
   fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
   FD_TEST( stream );
   ulong stream_id = stream->stream_id;
@@ -413,18 +418,16 @@ test_stale_pkt_meta_regression( fd_quic_sandbox_t * sandbox,
   ulong first_pkt = flush_conn( sandbox, conn );
 
   ulong stream_meta_cnt = count_pkt_metas_for_stream( conn, APP_ENC_LEVEL, stream_id );
-  if( stream_meta_cnt < 2UL ) {
-    FD_LOG_NOTICE(( "SKIP: test_stale_pkt_meta_regression (single packet)" ));
-    fd_quic_state_validate( sandbox->quic );
-    return;
-  }
+  FD_TEST( stream_meta_cnt >= 2UL );
 
   ulong pkt_after = conn->pkt_number[ APP_PN_SPACE ] - 1UL;
 
-  /* ACK all stream packets except the first one.  This advances
-     unacked_low for the portion of stream data in those packets. */
-  if( pkt_after > first_pkt ) {
-    inject_ack( sandbox, conn, first_pkt+1UL, pkt_after );
+  /* ACK middle stream packets, leaving the first and last unacked.
+     This advances unacked_low for the ACKed packets while keeping a
+     later pkt_meta on the sent ledger to exercise the stale pkt_meta
+     bug. */
+  if( pkt_after > first_pkt+1UL ) {
+    inject_ack( sandbox, conn, first_pkt+1UL, pkt_after-1UL );
     service_conn( sandbox, conn, (long)1e6 );
   }
 
