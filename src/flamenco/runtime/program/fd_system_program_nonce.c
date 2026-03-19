@@ -943,7 +943,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      - statically included in the transaction account keys (if SIMD-242
        is active)
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L110-L111 */
-  if( FD_UNLIKELY( !fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, nonce_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_runtime_account_is_writable_idx( txn_in, txn_out, nonce_idx ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, require_static_nonce_account ) &&

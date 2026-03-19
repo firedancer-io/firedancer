@@ -33,7 +33,6 @@ instructions_serialized_size( fd_txn_t const * txn ) {
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
 void
 fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
-                                          fd_bank_t *         bank,
                                           fd_txn_in_t const * txn_in,
                                           fd_txn_out_t *      txn_out,
                                           ulong               txn_idx ) {
@@ -92,7 +91,7 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
     uchar const * instr_accts = fd_txn_get_instr_accts( instr, txn_in->txn->payload );
     for( ushort j=0; j<instr->acct_cnt; j++ ) {
       uchar idx_in_txn          = instr_accts[j];
-      uchar is_writable         = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, idx_in_txn );
+      uchar is_writable         = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, idx_in_txn );
       uchar is_signer           = (uchar)fd_txn_is_signer( txn, idx_in_txn );
       uchar flags               = (uchar)( ((!!is_signer)*FD_INSTR_ACCT_FLAGS_IS_SIGNER) | ((!!is_writable)*FD_INSTR_ACCT_FLAGS_IS_WRITABLE) );
 

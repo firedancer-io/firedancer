@@ -202,7 +202,7 @@
   {"name":"move_stake_and_move_lamports_ixs","pubkey":"7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
   {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"enable_secp256r1_precompile","pubkey":"srremy31J5Y25FrAApwVb9kZcfXbusYMMsvTK9aWv5q","old":"sryYyFwxzJop1Bh9XpyiVWjZP4nfHExiqNp3Dh71W9i"},
+  {"name":"enable_secp256r1_precompile","pubkey":"srremy31J5Y25FrAApwVb9kZcfXbusYMMsvTK9aWv5q","old":"sryYyFwxzJop1Bh9XpyiVWjZP4nfHExiqNp3Dh71W9i","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"get_sysvar_syscall_enabled","pubkey":"CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq","hardcode_for_fuzzing":1},
   {"name":"disable_sbpf_v0_execution","pubkey":"XTestFeature1111111111111111111111111111111","comment":"IMPORTANT:NEED REKEY"},
   {"name":"reenable_sbpf_v0_execution","pubkey":"TestFeature21111111111111111111111111111111","comment":"for test only"},

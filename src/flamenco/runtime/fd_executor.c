@@ -447,7 +447,7 @@ load_transaction_account( fd_runtime_t *      runtime,
        constructed by the SVM and modified within each transaction's
        instruction execution only, so it incurs a loaded size cost
        of 0. */
-    fd_sysvar_instructions_serialize_account( runtime, bank, txn_in, txn_out, txn_idx );
+    fd_sysvar_instructions_serialize_account( runtime, txn_in, txn_out, txn_idx );
     return 0UL;
   }
 
@@ -871,8 +871,7 @@ fd_get_prioritization_fee( fd_compute_budget_details_t const * compute_budget_de
 }
 
 static void
-fd_executor_calculate_fee( fd_bank_t *      bank,
-                           fd_txn_out_t *   txn_out,
+fd_executor_calculate_fee( fd_txn_out_t *   txn_out,
                            fd_txn_t const * txn_descriptor,
                            uchar const *    payload,
                            ulong *          ret_execution_fee,
@@ -888,7 +887,7 @@ fd_executor_calculate_fee( fd_bank_t *      bank,
     fd_pubkey_t *          program_id = &txn_out->accounts.keys[txn_instr->program_id];
     if( !memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) ||
         !memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) ||
-        (!memcmp(program_id->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE_BANK( bank, enable_secp256r1_precompile )) ) {
+        !memcmp(program_id->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t)) ) {
       if( !txn_instr->data_sz ) {
         continue;
       }
@@ -1001,7 +1000,7 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
   ulong execution_fee = 0UL;
   ulong priority_fee  = 0UL;
 
-  fd_executor_calculate_fee( bank, txn_out, TXN( txn_in->txn ), txn_in->txn->payload, &execution_fee, &priority_fee );
+  fd_executor_calculate_fee( txn_out, TXN( txn_in->txn ), txn_in->txn->payload, &execution_fee, &priority_fee );
   ulong total_fee = fd_ulong_sat_add( execution_fee, priority_fee );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
@@ -1527,7 +1526,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
   ushort writable_account_cnt = 0U;
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
-    if( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, i ) ) {
+    if( fd_runtime_account_is_writable_idx( txn_in, txn_out, i ) ) {
       txn_out->accounts.is_writable[ i ] = 1;
       writable_account_cnt++;
     } else {
@@ -1675,7 +1674,6 @@ fd_execute_txn( fd_runtime_t *      runtime,
     fd_instr_info_t * instr_info = &runtime->instr.trace[runtime->instr.trace_length++];
     fd_instr_info_init_from_txn_instr(
         instr_info,
-        bank,
         txn_in,
         txn_out,
         &txn->instr[i]
