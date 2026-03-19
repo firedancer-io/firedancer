@@ -111,21 +111,6 @@
 } while( 0 )
 
 static int
-deser_legacy_contact_info( fd_gossip_value_t * value,
-                           uchar const **      payload,
-                           ulong *             payload_sz ) {
-  READ_BYTES( value->origin, 32UL, payload, payload_sz );
-  for( ulong i=0UL; i<10UL; i++ ) {
-    uint is_ip6 = 0U;
-    READ_ENUM( is_ip6, 2UL, payload, payload_sz );
-    SKIP_BYTES( is_ip6 ? 16UL+2UL : 4UL+2UL, payload, payload_sz );
-  }
-  READ_WALLCLOCK( value->wallclock, payload, payload_sz );
-  SKIP_BYTES( 2UL, payload, payload_sz );
-  return 1;
-}
-
-static int
 deser_vote_instruction( uchar const * data,
                         ulong         data_len ) {
   // TODO: NO FD TYPES
@@ -521,7 +506,7 @@ deser_value( fd_gossip_value_t * value,
   READ_ENUM( value->tag, FD_GOSSIP_VALUE_CNT, payload, payload_sz );
 
   switch( value->tag ) {
-    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:           return deser_legacy_contact_info( value, payload, payload_sz );
+    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:           return 0; /* deprecated: reject_deserialize! in agave gossip/src/legacy_contact_info.rs */
     case FD_GOSSIP_VALUE_VOTE:                          return deser_vote( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_LOWEST_SLOT:                   return deser_lowest_slot( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES:        return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/crds_data.rs#L225 */
@@ -581,8 +566,7 @@ deser_pull_request( fd_gossip_message_t * message,
   message->pull_request->contact_info->offset = original_sz-*payload_sz;
   CHECK( deser_value( message->pull_request->contact_info, payload, payload_sz ) );
   message->pull_request->contact_info->length = original_sz-*payload_sz-message->pull_request->contact_info->offset;
-  CHECK( message->pull_request->contact_info->tag==FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO ||
-         message->pull_request->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
+  CHECK( message->pull_request->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
   return 1;
 }
 
