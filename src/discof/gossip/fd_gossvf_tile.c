@@ -645,11 +645,22 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
 
     /* We currently don't handle IPv6, so setting the address to 0 will
        cause it to be always dropped. */
-    fd_ip4_port_t addr = {
+    fd_ip4_port_t gossip_addr = {
       .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
       .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
     };
-    int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
+    int drop = !check_addr( gossip_addr, ctx->allow_private_address ) || ping_if_unponged( ctx, gossip_addr, value->origin, stem );
+
+    /* Reject ContactInfos where any non-gossip socket has a multicast
+       address.  A malicious peer could advertise a multicast address
+       for e.g. TVU to cause the validator to send traffic to
+       unintended destinations. */
+    for( ulong j=0UL; j<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT; j++ ) {
+      if( FD_UNLIKELY( drop ) ) break;
+      fd_gossip_socket_t const * sock = &value->contact_info->sockets[ j ];
+      if( !sock->port || sock->is_ipv6 ) continue;
+      drop = fd_ip4_addr_is_mcast( sock->ip4 );
+    }
 
     if( FD_UNLIKELY( drop ) ) {
       if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
