@@ -361,6 +361,9 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
 
+void
+fd_sched_metrics_write( fd_sched_t * sched );
+
 /* Serialize the current state as a cstr to the returned buffer.  Caller
    may read from the buffer until the next invocation of any fd_sched
    function. */

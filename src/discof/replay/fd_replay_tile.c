@@ -545,6 +545,8 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, REASM_LATEST_SLOT,    ctx->metrics.reasm_latest_slot );
   FD_MGAUGE_SET( REPLAY, REASM_LATEST_FEC_IDX, ctx->metrics.reasm_latest_fec_idx );
 
+  fd_sched_metrics_write( ctx->sched );
+
   FD_MCNT_SET( REPLAY, SCHED_FULL,          ctx->metrics.sched_full );
   FD_MCNT_SET( REPLAY, REASM_EMPTY,         ctx->metrics.reasm_empty );
   FD_MCNT_SET( REPLAY, LEADER_BID_WAIT,     ctx->metrics.leader_bid_wait );
