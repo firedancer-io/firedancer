@@ -645,11 +645,11 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
 
     /* We currently don't handle IPv6, so setting the address to 0 will
        cause it to be always dropped. */
-    fd_ip4_port_t gossip_addr = {
+    fd_ip4_port_t addr = {
       .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
       .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
     };
-    int drop = !check_addr( gossip_addr, ctx->allow_private_address ) || ping_if_unponged( ctx, gossip_addr, value->origin, stem );
+    int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
 
     /* Reject ContactInfos where any non-gossip socket has a multicast
        address.  A malicious peer could advertise a multicast address
