@@ -670,9 +670,6 @@ repair_cmd_fn_catchup( args_t *   args,
       tile->shredcap.enable_publish_stake_weights = 1;
       fd_cstr_ncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
     }
-    if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
-      tile->repair.end_slot = args->repair.end_slot;
-    }
   }
 
   fd_topo_print_log( 1, &config->topo );
@@ -757,8 +754,6 @@ repair_cmd_fn_catchup( args_t *   args,
   long  last_print    = fd_log_wallclock();
   ulong last_sent     = 0UL;
 
-  if( FD_LIKELY( args->repair.end_slot ) ) turbine_slot0 = args->repair.end_slot;
-
   fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
   for(;;) {
 
@@ -778,7 +773,7 @@ repair_cmd_fn_catchup( args_t *   args,
       print_tile_metrics( shred_metrics, repair_metrics, repair_metrics_prev, repair_net_links, net_shred_links, net_cnt, &last_sent, last_print, now );
       ulong slots_behind = turbine_slot0 > repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] ? turbine_slot0 - repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] : 0;
       printf(" Repaired slots: %lu/%lu  (slots behind: %lu)\n", repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ], turbine_slot0, slots_behind );
-      if( turbine_slot0 && !slots_behind && ( !args->repair.end_slot || FD_VOLATILE_CONST( repair_ctx->profiler.complete ) ) ) {
+      if( turbine_slot0 && !slots_behind ) {
         catchup_finished = 1;
       }
       printf("\n");
@@ -812,9 +807,6 @@ repair_cmd_fn_eqvoc( args_t *   args,
           on purpose as a safety mechanism. */
       tile->shredcap.enable_publish_stake_weights = 1;
       fd_cstr_ncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
-    }
-    if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
-      tile->repair.end_slot = args->repair.end_slot;
     }
   }
 
@@ -1154,7 +1146,6 @@ static const char * CATCHUP_HELP =
   "\n"
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n"
-  "  --end-slot END_SLOT   slot to catchup to (generally should be a rooted slot)\n"
   "  --iptable-path IPTABLE_PATH\n"
   "                        path to iptable file\n"
   "  --sort-by-slot        sort results by slot\n";
@@ -1253,7 +1244,6 @@ repair_cmd_args( int *    pargc,
   char const * iptable_path  = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--iptable",       NULL, NULL      );
   ulong        slot          = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--slot",          NULL, ULONG_MAX );
   int          sort_by_slot  = fd_env_strip_cmdline_contains( pargc, pargv, "--sort-by-slot"                   );
-  ulong        end_slot      = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--end-slot",      NULL, 0         );
 
   if( FD_UNLIKELY( !strcmp( args->repair.pos_arg, "catchup" ) && !manifest_path ) ) {
     args->repair.help = 1;
@@ -1266,7 +1256,6 @@ repair_cmd_args( int *    pargc,
   fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( args->repair.iptable_path ),  iptable_path,  sizeof(args->repair.iptable_path )-1UL ) );
   args->repair.slot         = slot;
   args->repair.sort_by_slot = sort_by_slot;
-  args->repair.end_slot     = end_slot;
 }
 
 static void
