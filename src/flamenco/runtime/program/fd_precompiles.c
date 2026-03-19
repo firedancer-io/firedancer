@@ -1,5 +1,4 @@
 #include "fd_precompiles.h"
-#include "../fd_bank.h"
 #include "../fd_executor_err.h"
 #include "../../../ballet/keccak256/fd_keccak256.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
@@ -340,10 +339,6 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
-  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->bank, enable_secp256r1_precompile ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-  }
-
   uchar const * data    = ctx->instr->data;
   ulong         data_sz = ctx->instr->data_sz;
 
@@ -426,7 +421,7 @@ fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
 }
 
 static const fd_precompile_program_t precompiles[] = {
-    { &fd_solana_secp256r1_program_id,          offsetof(fd_features_t, enable_secp256r1_precompile), fd_precompile_secp256r1_verify },
+    { &fd_solana_secp256r1_program_id,          NO_ENABLE_FEATURE_ID,                                 fd_precompile_secp256r1_verify },
     { &fd_solana_keccak_secp_256k_program_id,   NO_ENABLE_FEATURE_ID,                                 fd_precompile_secp256k1_verify },
     { &fd_solana_ed25519_sig_verify_program_id, NO_ENABLE_FEATURE_ID,                                 fd_precompile_ed25519_verify   },
     {0}

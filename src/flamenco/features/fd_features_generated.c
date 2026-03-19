@@ -1413,7 +1413,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\x07\x69\xb2\x4d\xf9\xa6\xa3\xbe\x46\x1c\xcd\x33\x4f\x22\xcd\x35\x49\x98\xc6\xf6\xaf\xb6\x8c\xe5\x39\xef\x19\x11\x48\x56\xa4"},
                                  /* srremy31J5Y25FrAApwVb9kZcfXbusYMMsvTK9aWv5q */
     .name                      = "enable_secp256r1_precompile",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, get_sysvar_syscall_enabled)>>3,
     .id                        = {"\xa8\x5b\xef\x52\xf2\x62\x90\x82\x3b\xd2\x06\xdd\x10\xe7\x2c\x5b\x9c\x22\x0e\x96\x8a\xa7\x2e\x98\x8c\x7b\x02\x39\x0e\xd5\x9a\xf4"},
