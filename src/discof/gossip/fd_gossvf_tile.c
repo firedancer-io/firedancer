@@ -651,7 +651,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     };
     int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
 
-    /* Reject ContactInfos where any non-gossip socket has a multicast
+    /* Reject ContactInfos where any socket has a multicast
        address.  A malicious peer could advertise a multicast address
        for e.g. TVU to cause the validator to send traffic to
        unintended destinations. */
