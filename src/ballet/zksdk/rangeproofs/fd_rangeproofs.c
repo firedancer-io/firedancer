@@ -26,9 +26,13 @@ fd_rangeproofs_delta(
   uchar sum_2[ 32 ];
   fd_curve25519_scalar_neg( neg_exp_z, zz );
   for( ulong i=0; i<batch_len; i++ ) {
+    /* sum_2 = 2^n_i - 1, encoded as a 32-byte little-endian scalar.
+       https://github.com/solana-program/zk-elgamal-proof/blob/zk-sdk%40v5.0.1/zk-sdk/src/range_proof/mod.rs#L516 */
     fd_memset( sum_2, 0, 32 );
-    //TODO currently assuming that bit_length[i] is multiple of 8 - need to fix cases: 1, 2, 4
     fd_memset( sum_2, 0xFF, bit_lengths[i] / 8 );
+    if( bit_lengths[i] % 8 ) {
+      sum_2[ bit_lengths[i] / 8 ] = (uchar)( ( 1U << ( bit_lengths[i] % 8 ) ) - 1U );
+    }
     fd_curve25519_scalar_mul   ( neg_exp_z, neg_exp_z, z );
     fd_curve25519_scalar_muladd( delta, neg_exp_z, sum_2, delta );
   }
