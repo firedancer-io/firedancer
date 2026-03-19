@@ -1730,7 +1730,7 @@ void
 fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           fd_epoch_info_msg_t const * epoch_info,
                           long                        now ) {
-  FD_TEST( epoch_info->staked_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+  FD_TEST( epoch_info->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
   FD_TEST( epoch_info->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = epoch_info->epoch % 2UL;
@@ -1739,7 +1739,7 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
   gui->epoch.epochs[ idx ].epoch            = epoch_info->epoch;
   gui->epoch.epochs[ idx ].start_slot       = epoch_info->start_slot;
   gui->epoch.epochs[ idx ].end_slot         = epoch_info->start_slot + epoch_info->slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].excluded_stake   = epoch_info->excluded_stake;
+  gui->epoch.epochs[ idx ].excluded_stake   = epoch_info->excluded_id_stake;
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
 
@@ -1748,17 +1748,17 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
 
   gui->epoch.epochs[ idx ].rankings_slot = epoch_info->start_slot;
 
-  fd_vote_stake_weight_t const * stake_weights = epoch_info->weights;
-  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, epoch_info->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t const * stake_weights = fd_epoch_info_msg_stake_weights( epoch_info );
+  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, epoch_info->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
 
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
                                                                                epoch_info->epoch,
                                                                                gui->epoch.epochs[ idx ].start_slot,
                                                                                epoch_info->slot_cnt,
-                                                                               epoch_info->staked_cnt,
+                                                                               epoch_info->staked_vote_cnt,
                                                                                gui->epoch.epochs[ idx ].stakes,
-                                                                               epoch_info->excluded_stake,
+                                                                               epoch_info->excluded_id_stake,
                                                                                epoch_info->vote_keyed_lsched ) );
 
   if( FD_UNLIKELY( epoch_info->start_slot==0UL ) ) {

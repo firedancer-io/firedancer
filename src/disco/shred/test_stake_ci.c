@@ -39,19 +39,21 @@ generate_epoch_msg( uchar *      _buf,
                     char const * stakers ) {
   fd_epoch_info_msg_t *buf = fd_type_pun( _buf );
 
-  buf->epoch          = epoch;
-  buf->start_slot     = epoch * SLOTS_PER_EPOCH;
-  buf->slot_cnt       = SLOTS_PER_EPOCH;
-  buf->staked_cnt     = strlen(stakers);
-  buf->excluded_stake = 0UL;
+  buf->epoch             = epoch;
+  buf->start_slot        = epoch * SLOTS_PER_EPOCH;
+  buf->slot_cnt          = SLOTS_PER_EPOCH;
+  buf->staked_vote_cnt   = strlen(stakers);
+  buf->staked_id_cnt     = strlen(stakers);
+  buf->excluded_id_stake = 0UL;
   buf->vote_keyed_lsched = 0UL;
   memset( &buf->features, 0, sizeof(fd_features_t) );
 
+  fd_vote_stake_weight_t * weights = fd_type_pun( buf + 1 );
   ulong i = 0UL;
   for(; *stakers; stakers++, i++ ) {
-    memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    memset( buf->weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    buf->weights[i].stake = 1000UL/(i+1UL);
+    memset( weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
+    memset( weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
+    weights[i].stake = 1000UL/(i+1UL);
   }
   return fd_type_pun( _buf );
 }
@@ -827,18 +829,20 @@ test_dest_update_overflow( void ) {
 
   /* Add MAX_SHRED_DESTS-2 entries*/
   fd_epoch_info_msg_t *buf = fd_type_pun( epoch_msg );
-  buf->epoch          = 0UL;
-  buf->start_slot     = 0UL;
-  buf->slot_cnt       = SLOTS_PER_EPOCH;
-  buf->staked_cnt     = MAX_SHRED_DESTS - 2UL;
-  buf->excluded_stake = 0UL;
+  buf->epoch             = 0UL;
+  buf->start_slot        = 0UL;
+  buf->slot_cnt          = SLOTS_PER_EPOCH;
+  buf->staked_vote_cnt   = MAX_SHRED_DESTS - 2UL;
+  buf->staked_id_cnt     = MAX_SHRED_DESTS - 2UL;
+  buf->excluded_id_stake = 0UL;
   buf->vote_keyed_lsched = 0UL;
   memset( &buf->features, 0, sizeof(fd_features_t) );
 
-  for(ulong i = 0UL; i<buf->staked_cnt; i++ ) {
-    FD_STORE( ulong, buf->weights[i].vote_key.uc, fd_ulong_bswap( i ) );
-    FD_STORE( ulong, buf->weights[i].id_key.uc, fd_ulong_bswap( i ) );
-    buf->weights[i].stake = i+1UL;
+  fd_vote_stake_weight_t * weights = fd_type_pun( buf + 1 );
+  for(ulong i = 0UL; i<buf->staked_vote_cnt; i++ ) {
+    FD_STORE( ulong, weights[i].vote_key.uc, fd_ulong_bswap( i ) );
+    FD_STORE( ulong, weights[i].id_key.uc, fd_ulong_bswap( i ) );
+    weights[i].stake = i+1UL;
   }
 
   fd_stake_ci_epoch_msg_init( info, buf );  fd_stake_ci_epoch_msg_fini( info );

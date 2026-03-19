@@ -7,16 +7,6 @@
 #define SORT_BEFORE(a,b) (memcmp( (a).pubkey.uc, (b).pubkey.uc, 32UL )>0)
 #include "../../util/tmpl/fd_sort.c"
 
-#define SORT_NAME sort_weights_by_stake_id
-#define SORT_KEY_T fd_stake_weight_t
-#define SORT_BEFORE(a,b) ((a).stake > (b).stake ? 1 : ((a).stake < (b).stake ? 0 : memcmp( (a).key.uc, (b).key.uc, 32UL )>0))
-#include "../../util/tmpl/fd_sort.c"
-
-#define SORT_NAME sort_weights_by_id
-#define SORT_KEY_T fd_stake_weight_t
-#define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )>0)
-#include "../../util/tmpl/fd_sort.c"
-
 /* We don't have or need real contact info for the local validator, but
    we want to be able to distinguish it from staked nodes with no
    contact info. */
@@ -65,8 +55,8 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
   info->scratch->epoch          = msg->epoch;
   info->scratch->start_slot     = msg->start_slot;
   info->scratch->slot_cnt       = msg->slot_cnt;
-  info->scratch->staked_cnt     = msg->staked_cnt;
-  info->scratch->excluded_stake = msg->excluded_stake;
+  info->scratch->staked_vote_cnt     = msg->staked_cnt;
+  info->scratch->excluded_id_stake = msg->excluded_stake;
   info->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
 
   fd_memcpy( info->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
@@ -75,18 +65,24 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
 void
 fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
                             fd_epoch_info_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
 
-  info->scratch->epoch             = msg->epoch;
-  info->scratch->start_slot        = msg->start_slot;
-  info->scratch->slot_cnt          = msg->slot_cnt;
-  info->scratch->staked_cnt        = msg->staked_cnt;
-  info->scratch->excluded_stake    = msg->excluded_stake;
-  info->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
+  info->scratch->epoch               = msg->epoch;
+  info->scratch->start_slot          = msg->start_slot;
+  info->scratch->slot_cnt            = msg->slot_cnt;
+  info->scratch->staked_vote_cnt     = msg->staked_vote_cnt;
+  info->scratch->staked_id_cnt       = msg->staked_id_cnt;
+  info->scratch->excluded_id_stake   = msg->excluded_id_stake;
+  info->scratch->excluded_vote_stake = 0UL;
+  info->scratch->vote_keyed_lsched   = msg->vote_keyed_lsched;
 
-  fd_memcpy( info->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t const * weights = fd_epoch_info_msg_stake_weights( msg );
+  fd_memcpy( info->vote_stake_weight, weights, msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
+
+  fd_stake_weight_t const * id_weights = fd_epoch_info_msg_id_weights( msg );
+  fd_memcpy( info->stake_weight, id_weights, msg->staked_id_cnt*sizeof(fd_stake_weight_t) );
 }
 
 static inline void
@@ -108,47 +104,6 @@ log_summary( char const * msg, fd_stake_ci_t * info ) {
 #endif
 }
 
-ulong
-compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weight,
-                                      fd_vote_stake_weight_t const * vote_stake_weight,
-                                      ulong                          staked_cnt ) {
-
-  if( FD_UNLIKELY( staked_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
-    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu compressed stakes in it,"
-                 " but the maximum allowed is %lu", staked_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
-  /* Copy from input message [(vote, id, stake)] into old format [(id, stake)]. */
-  ulong idx = 0UL;
-  for( ulong i=0UL; i<staked_cnt; i++ ) {
-    if( FD_UNLIKELY( fd_pubkey_eq( &vote_stake_weight[ i ].id_key, &FD_DUMMY_ACCOUNT_PUBKEY ) ) ) continue;
-    memcpy( stake_weight[ idx ].key.uc, vote_stake_weight[ i ].id_key.uc, sizeof(fd_pubkey_t) );
-    stake_weight[ idx ].stake = vote_stake_weight[ i ].stake;
-    idx++;
-  }
-
-  /* Sort [(id, stake)] by id, so we can dedup */
-  sort_weights_by_id_inplace( stake_weight, idx );
-
-  /* Dedup entries, aggregating stake */
-  ulong j=0UL;
-  for( ulong i=1UL; i<idx; i++ ) {
-    fd_pubkey_t * pre = &stake_weight[ j ].key;
-    fd_pubkey_t * cur = &stake_weight[ i ].key;
-    if( 0==memcmp( pre, cur, sizeof(fd_pubkey_t) ) ) {
-      stake_weight[ j ].stake += stake_weight[ i ].stake;
-    } else {
-      ++j;
-      stake_weight[ j ].stake = stake_weight[ i ].stake;
-      memcpy( stake_weight[ j ].key.uc, stake_weight[ i ].key.uc, sizeof(fd_pubkey_t) );
-    }
-  }
-  ulong staked_cnt_by_id = fd_ulong_min( idx, j+1 );
-
-  /* Sort [(id, stake)] by stake then id, as expected */
-  sort_weights_by_stake_id_inplace( stake_weight, staked_cnt_by_id );
-
-  return staked_cnt_by_id;
-}
-
 #define SET_NAME unhit_set
 #define SET_MAX  MAX_SHRED_DESTS
 #include "../../util/tmpl/fd_set.c"
@@ -159,10 +114,9 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
      be fixed instead of just patched.  We need to generate weighted
      shred destinations using a combination of the new stake information
      and whatever contact info we previously knew. */
-  ulong epoch                  = info->scratch->epoch;
-  ulong staked_cnt             = info->scratch->staked_cnt;
-  ulong unchanged_staked_cnt   = info->scratch->staked_cnt;
-  ulong vote_keyed_lsched      = info->scratch->vote_keyed_lsched;
+  ulong epoch             = info->scratch->epoch;
+  ulong staked_cnt        = info->scratch->staked_id_cnt;
+  ulong vote_keyed_lsched = info->scratch->vote_keyed_lsched;
 
   /* Just take the first one arbitrarily because they both have the same
      contact info, other than possibly some staked nodes with no contact
@@ -179,14 +133,14 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   unhit_set_t * unhit = unhit_set_join( unhit_set_new( _unhit ) );
   unhit_set_full( unhit );
 
-  /* This function will remove any dummy stakes from the list.  After
-     this point, there will only be actual stakes that correspond to
-     selected leader nodes. */
-  staked_cnt = compute_id_weights_from_vote_weights( info->stake_weight, info->vote_stake_weight, staked_cnt );
-  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
-    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));
-  }
+  // /* This function will remove any dummy stakes from the list.  After
+  //    this point, there will only be actual stakes that correspond to
+  //    selected leader nodes. */
+  // staked_cnt = compute_id_weights_from_vote_weights( info->stake_weight, info->vote_stake_weight, staked_cnt );
+  // if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
+  //   FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
+  //                " but the maximum allowed is %lu", staked_cnt, MAX_SHRED_DESTS ));
+  // }
 
   for( ulong i=0UL; i<staked_cnt; i++ ) {
     fd_shred_dest_idx_t old_idx = fd_shred_dest_pubkey_to_idx( existing_sdest, &(info->stake_weight[ i ].key) );
@@ -235,18 +189,18 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( new_ei->lsched ) );
 
   /* And create the new one */
-  ulong excluded_stake = info->scratch->excluded_stake;
+  ulong excluded_stake = info->scratch->excluded_id_stake;
 
-  new_ei->epoch          = epoch;
-  new_ei->start_slot     = info->scratch->start_slot;
-  new_ei->slot_cnt       = info->scratch->slot_cnt;
-  new_ei->excluded_stake = excluded_stake;
+  new_ei->epoch             = epoch;
+  new_ei->start_slot        = info->scratch->start_slot;
+  new_ei->slot_cnt          = info->scratch->slot_cnt;
+  new_ei->excluded_stake    = excluded_stake;
   new_ei->vote_keyed_lsched = vote_keyed_lsched;
 
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
-                                                                unchanged_staked_cnt, info->vote_stake_weight, excluded_stake, vote_keyed_lsched ) );
+                                                                info->scratch->staked_vote_cnt, info->vote_stake_weight, info->scratch->excluded_vote_stake, vote_keyed_lsched ) );
   new_ei->sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( new_ei->_sdest, info->shred_dest, j,
-                                                                new_ei->lsched, info->identity_key,  excluded_stake ) );
+                                                                new_ei->lsched, info->identity_key,  info->scratch->excluded_id_stake ) );
   log_summary( "stake update", info );
 }
 

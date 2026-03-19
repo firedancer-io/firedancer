@@ -175,6 +175,9 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
 
     ulong final_epoch_credits   = epoch_credits->credits[ i ];
     ulong initial_epoch_credits = epoch_credits->prev_credits[ i ];
+
+    if( FD_LIKELY( final_epoch_credits <= credits_in_stake ) ) continue;
+
     uint128 earned_credits = 0;
     if( FD_LIKELY( credits_in_stake < initial_epoch_credits ) ) {
       earned_credits = (uint128)(final_epoch_credits - initial_epoch_credits);
