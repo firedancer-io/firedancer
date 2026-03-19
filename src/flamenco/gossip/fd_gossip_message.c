@@ -506,7 +506,7 @@ deser_value( fd_gossip_value_t * value,
   READ_ENUM( value->tag, FD_GOSSIP_VALUE_CNT, payload, payload_sz );
 
   switch( value->tag ) {
-    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:           return 0; /* deprecated: reject_deserialize! in agave gossip/src/legacy_contact_info.rs */
+    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:           return 0; /* https://github.com/anza-xyz/agave/blob/c13d79400af11752a8d6b61103971dffa3004741/gossip/src/legacy_contact_info.rs#L42 */
     case FD_GOSSIP_VALUE_VOTE:                          return deser_vote( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_LOWEST_SLOT:                   return deser_lowest_slot( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES:        return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/crds_data.rs#L225 */
@@ -566,6 +566,7 @@ deser_pull_request( fd_gossip_message_t * message,
   message->pull_request->contact_info->offset = original_sz-*payload_sz;
   CHECK( deser_value( message->pull_request->contact_info, payload, payload_sz ) );
   message->pull_request->contact_info->length = original_sz-*payload_sz-message->pull_request->contact_info->offset;
+  /* https://github.com/anza-xyz/agave/blob/c13d79400af11752a8d6b61103971dffa3004741/gossip/src/protocol.rs#L160 */
   CHECK( message->pull_request->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
   return 1;
 }
