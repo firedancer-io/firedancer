@@ -669,9 +669,6 @@ after_sign( ctx_t             * ctx,
 
   /* This is a pong message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_PONG ) ) {
-    fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &pending->pong_data.key );
-    if( FD_LIKELY( peer && peer->ping ) ) peer->ping--; /* prevent underflow if the peer was removed/readded */
-
     fd_memcpy( pending->msg.pong.sig, ctx->sign_buf, 64UL );
     send_packet( ctx, stem, 1, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     return;
@@ -1086,6 +1083,12 @@ after_credit( ctx_t *             ctx,
 
   if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->pong_queue ) ) ) {
     sign_pending_t signable = fd_signs_queue_pop( ctx->pong_queue );
+
+    if( FD_UNLIKELY( signable.msg.kind == FD_REPAIR_KIND_PONG ) ) {
+      fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &signable.pong_data.key );
+      if( FD_LIKELY( peer && peer->ping ) ) peer->ping--; /* prevent underflow if the peer was removed/readded */
+    }
+
     fd_repair_send_sign_request( ctx, sign_out, &signable.msg, signable.msg.kind == FD_REPAIR_KIND_PONG ? &signable.pong_data : NULL );
     *charge_busy = 1;
     return;
