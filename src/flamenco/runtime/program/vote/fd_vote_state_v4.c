@@ -56,9 +56,9 @@ fd_vote_state_v4_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
      The terms were broken up into their own variables. */
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L582-L586 */
-  fd_rent_t const rent               = fd_sysvar_cache_rent_read_nofail( ctx->sysvar_cache );
-  int             resize_needed      = fd_borrowed_account_get_data_len( vote_account ) < FD_VOTE_STATE_V4_SZ;
-  int             resize_rent_exempt = fd_rent_exempt_minimum_balance( &rent, FD_VOTE_STATE_V4_SZ ) <= fd_borrowed_account_get_lamports( vote_account );
+  fd_rent_t const * rent               = fd_bank_rent_query( ctx->bank );
+  int               resize_needed      = fd_borrowed_account_get_data_len( vote_account ) < FD_VOTE_STATE_V4_SZ;
+  int               resize_rent_exempt = fd_rent_exempt_minimum_balance( rent, FD_VOTE_STATE_V4_SZ ) <= fd_borrowed_account_get_lamports( vote_account );
 
   /* The resize operation itself is part of the horrible conditional,
      but behind a short-circuit operator. */
