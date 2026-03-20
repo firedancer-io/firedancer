@@ -1089,7 +1089,7 @@
 | <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
 | <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;gauge</span> | gauge | Slot number of most recently equivocating replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Vote slot |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Most recent vote slot, ULONG_MAX if no vote cast |
 | <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |
 | <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | Root slot |
 | <span class="metrics-name">tower_&#8203;init_&#8203;slot</span> | gauge | Init slot |
@@ -1224,6 +1224,10 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">diag_&#8203;bundle_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently zhas an active connection to the block engine server |
+| <span class="metrics-name">diag_&#8203;vote_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy vote subsystem means the client has cast at least one vote in both the last 60 seconds and last 150 slots (before the currently replay slot) |
+| <span class="metrics-name">diag_&#8203;replay_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy replay subsystem means that the largest fully-processed replay slot on the chosen consensus fork is within 12 slots of the current turbine slot |
+| <span class="metrics-name">diag_&#8203;turbine_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy turbine subsystem means that the largest slot associated with received turbine shreds has not stalled for 12 seconds, and also that the average replay ingress traffic exceeds the average ingress repair traffic over the past 12 seconds |
 
 </div>
 

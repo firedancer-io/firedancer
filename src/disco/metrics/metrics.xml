@@ -1189,6 +1189,10 @@ metric introduced.
 </tile>
 
 <tile name="diag">
+    <gauge name="BundleHealth" summary="0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently zhas an active connection to the block engine server" />
+    <gauge name="VoteHealth" summary="0=unhealthy, 1=healthy, 2=disabled. A healthy vote subsystem means the client has cast at least one vote in both the last 60 seconds and last 150 slots (before the currently replay slot)" />
+    <gauge name="ReplayHealth" summary="0=unhealthy, 1=healthy, 2=disabled. A healthy replay subsystem means that the largest fully-processed replay slot on the chosen consensus fork is within 12 slots of the current turbine slot" />
+    <gauge name="TurbineHealth" summary="0=unhealthy, 1=healthy, 2=disabled. A healthy turbine subsystem means that the largest slot associated with received turbine shreds has not stalled for 12 seconds, and also that the average replay ingress traffic exceeds the average ingress repair traffic over the past 12 seconds" />
 </tile>
 
 <tile name="genesi">
@@ -1272,7 +1276,7 @@ metric introduced.
     <!-- Tower slot metadata -->
 
     <gauge name="ReplaySlot" summary="Replay slot" />
-    <gauge name="VoteSlot" summary="Vote slot" />
+    <gauge name="VoteSlot" summary="Most recent vote slot, ULONG_MAX if no vote cast" />
     <gauge name="ResetSlot" summary="Reset slot" />
     <gauge name="RootSlot" summary="Root slot" />
     <gauge name="InitSlot" summary="Init slot" />

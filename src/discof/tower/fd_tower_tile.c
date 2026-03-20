@@ -193,7 +193,7 @@ struct fd_tower_tile {
     ulong slot_eqvoced_gauge;
 
     ulong replay_slot;
-    ulong vote_slot;
+    ulong last_vote_slot;
     ulong reset_slot;
     ulong root_slot;
     ulong init_slot;
@@ -991,7 +991,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* Write out metrics. */
 
   ctx->metrics.replay_slot = slot_completed->slot;
-  ctx->metrics.vote_slot   = out.vote_slot;
+  if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) ctx->metrics.last_vote_slot = out.vote_slot;
   ctx->metrics.reset_slot  = out.reset_slot; /* always set */
   ctx->metrics.root_slot   = ctx->root_slot;
   ctx->metrics.init_slot   = ctx->init_slot;
@@ -1093,9 +1093,9 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MCNT_SET  ( TOWER, SLOT_IGNORED_CNT,   ctx->metrics.slot_ignored_cnt   );
   FD_MGAUGE_SET( TOWER, SLOT_IGNORED_GAUGE, ctx->metrics.slot_ignored_gauge );
 
-  FD_MGAUGE_SET( TOWER, REPLAY_SLOT,  ctx->metrics.replay_slot  );
-  FD_MGAUGE_SET( TOWER, VOTE_SLOT,    ctx->metrics.vote_slot    );
-  FD_MGAUGE_SET( TOWER, RESET_SLOT,   ctx->metrics.reset_slot   );
+  FD_MGAUGE_SET( TOWER, REPLAY_SLOT,     ctx->metrics.replay_slot     );
+  FD_MGAUGE_SET( TOWER, VOTE_SLOT,       ctx->metrics.last_vote_slot  );
+  FD_MGAUGE_SET( TOWER, RESET_SLOT,      ctx->metrics.reset_slot      );
   FD_MGAUGE_SET( TOWER, ROOT_SLOT,    ctx->metrics.root_slot    );
   FD_MGAUGE_SET( TOWER, INIT_SLOT,    ctx->metrics.init_slot    );
 
@@ -1408,6 +1408,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_seq    = 0UL;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+  ctx->metrics.last_vote_slot = ULONG_MAX;
 }
 
 static ulong
