@@ -11,24 +11,34 @@
 /* Follows message structure in fd_stake_ci_stake_msg_init.
    Frankendancer only */
 struct fd_stake_weight_msg_t {
-  ulong             epoch;          /* Epoch for which the stake weights are valid */
-  ulong             staked_cnt;     /* Number of staked nodes */
-  ulong             start_slot;     /* Start slot of the epoch */
-  ulong             slot_cnt;       /* Number of slots in the epoch */
-  ulong             excluded_stake; /* Total stake that is excluded from leader selection */
+  ulong             epoch;             /* Epoch for which the stake weights are valid */
+  ulong             staked_vote_cnt;   /* Number of staked nodes */
+  ulong             staked_id_cnt;     /* Number of staked nodes */
+  ulong             start_slot;        /* Start slot of the epoch */
+  ulong             slot_cnt;          /* Number of slots in the epoch */
+  ulong             excluded_id_stake; /* Total stake that is excluded for shred dests */
   ulong             vote_keyed_lsched; /* 1=use vote-keyed leader schedule, 0=use old leader schedule */
-  fd_vote_stake_weight_t weights[]; /* Stake weights for each staked node */
 };
 typedef struct fd_stake_weight_msg_t fd_stake_weight_msg_t;
 
 #define FD_STAKE_CI_STAKE_MSG_HEADER_SZ (sizeof(fd_stake_weight_msg_t))
 #define FD_STAKE_CI_STAKE_MSG_RECORD_SZ (sizeof(fd_vote_stake_weight_t))
-#define FD_STAKE_CI_STAKE_MSG_SZ (FD_STAKE_CI_STAKE_MSG_HEADER_SZ + MAX_STAKED_LEADERS * FD_STAKE_CI_STAKE_MSG_RECORD_SZ)
+#define FD_STAKE_CI_STAKE_MSG_SZ (FD_STAKE_CI_STAKE_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * FD_STAKE_CI_STAKE_MSG_RECORD_SZ + 40200UL * sizeof(fd_stake_weight_t))
 
 #define FD_STAKE_OUT_MTU FD_STAKE_CI_STAKE_MSG_SZ
 
 static inline ulong fd_stake_weight_msg_sz( ulong cnt ) {
   return FD_STAKE_CI_STAKE_MSG_HEADER_SZ + cnt * FD_STAKE_CI_STAKE_MSG_RECORD_SZ;
+}
+
+static inline fd_vote_stake_weight_t *
+fd_stake_weight_msg_stake_weights( fd_stake_weight_msg_t const * stake_weight_msg ) {
+  return (fd_vote_stake_weight_t *)fd_type_pun( (uchar *)stake_weight_msg + FD_STAKE_CI_STAKE_MSG_HEADER_SZ );
+}
+
+static inline fd_stake_weight_t *
+fd_stake_weight_msg_id_weights( fd_stake_weight_msg_t const * stake_weight_msg ) {
+  return (fd_stake_weight_t *)fd_type_pun( (uchar *)stake_weight_msg + FD_STAKE_CI_STAKE_MSG_HEADER_SZ + stake_weight_msg->staked_vote_cnt * sizeof(fd_vote_stake_weight_t) );
 }
 
 /* Firedancer only */

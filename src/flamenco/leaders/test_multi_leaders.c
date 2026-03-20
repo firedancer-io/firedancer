@@ -15,18 +15,20 @@ generate_stake_msg( uchar *      _buf,
                     char const * stakers ) {
   fd_stake_weight_msg_t *buf = fd_type_pun( _buf );
 
-  buf->epoch          = epoch;
-  buf->start_slot     = epoch * SLOTS_PER_EPOCH;
-  buf->slot_cnt       = SLOTS_PER_EPOCH;
-  buf->staked_cnt     = strlen(stakers);
-  buf->excluded_stake = 0UL;
+  buf->epoch             = epoch;
+  buf->start_slot        = epoch * SLOTS_PER_EPOCH;
+  buf->slot_cnt          = SLOTS_PER_EPOCH;
+  buf->staked_vote_cnt   = strlen(stakers);
+  buf->staked_id_cnt     = strlen(stakers);
+  buf->excluded_id_stake = 0UL;
   buf->vote_keyed_lsched = 0UL;
 
+  fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( buf + 1 );
   ulong i = 0UL;
   for(; *stakers; stakers++, i++ ) {
-    memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    memset( buf->weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    buf->weights[i].stake = 1000UL/(i+1UL);
+    memset( vote_stake_weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
+    memset( vote_stake_weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
+    vote_stake_weights[i].stake = 1000UL/(i+1UL);
   }
   return fd_type_pun( _buf );
 }
@@ -235,21 +237,24 @@ test_limits( void ) {
     buf->epoch                  = stake_weight_cnt;
     buf->start_slot             = stake_weight_cnt * SLOTS_PER_EPOCH;
     buf->slot_cnt               = SLOTS_PER_EPOCH;
-    buf->staked_cnt             = 0UL;
-    buf->excluded_stake         = 0UL;
+    buf->staked_vote_cnt        = 0UL;
+    buf->staked_id_cnt          = 0UL;
+    buf->excluded_id_stake      = 0UL;
     buf->vote_keyed_lsched      = 0UL;
 
+    fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( buf + 1 );
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
       if( FD_LIKELY( i<MAX_STAKED_LEADERS ) ) {
-        memset( buf->weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        memset( buf->weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        FD_STORE( ulong, buf->weights[i].vote_key.uc, fd_ulong_bswap( i ) );
-        FD_STORE( ulong, buf->weights[i].id_key.uc, fd_ulong_bswap( i ) );
-        buf->weights[i].stake = stake;
-        buf->staked_cnt++;
+        memset( vote_stake_weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+        memset( vote_stake_weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+        FD_STORE( ulong, vote_stake_weights[i].vote_key.uc, fd_ulong_bswap( i ) );
+        FD_STORE( ulong, vote_stake_weights[i].id_key.uc, fd_ulong_bswap( i ) );
+        vote_stake_weights[i].stake = stake;
+        buf->staked_vote_cnt++;
+        buf->staked_id_cnt++;
       } else {
-        buf->excluded_stake += stake;
+        buf->excluded_id_stake += stake;
       }
     }
     fd_multi_epoch_leaders_stake_msg_init( mleaders, buf );

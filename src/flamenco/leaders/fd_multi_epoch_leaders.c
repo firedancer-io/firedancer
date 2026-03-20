@@ -96,18 +96,17 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
 void
 fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t   * mleaders,
                                        fd_stake_weight_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_cnt > MAX_STAKED_LEADERS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKED_LEADERS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_cnt, MAX_STAKED_LEADERS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKED_LEADERS ));
 
-  mleaders->scratch->epoch          = msg->epoch;
-  mleaders->scratch->start_slot     = msg->start_slot;
-  mleaders->scratch->slot_cnt       = msg->slot_cnt;
-  mleaders->scratch->staked_cnt     = msg->staked_cnt;
-  mleaders->scratch->excluded_stake = msg->excluded_stake;
+  mleaders->scratch->epoch             = msg->epoch;
+  mleaders->scratch->start_slot        = msg->start_slot;
+  mleaders->scratch->slot_cnt          = msg->slot_cnt;
+  mleaders->scratch->staked_cnt        = msg->staked_vote_cnt;
   mleaders->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
 
-  fd_memcpy( mleaders->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_memcpy( mleaders->vote_stake_weight, fd_stake_weight_msg_stake_weights( msg ), msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
 }
 
 void
@@ -117,11 +116,10 @@ fd_multi_epoch_leaders_epoch_msg_init( fd_multi_epoch_leaders_t   * mleaders,
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
                  " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
 
-  mleaders->scratch->epoch          = msg->epoch;
-  mleaders->scratch->start_slot     = msg->start_slot;
-  mleaders->scratch->slot_cnt       = msg->slot_cnt;
-  mleaders->scratch->staked_cnt     = msg->staked_vote_cnt;
-  mleaders->scratch->excluded_stake = msg->excluded_id_stake;
+  mleaders->scratch->epoch             = msg->epoch;
+  mleaders->scratch->start_slot        = msg->start_slot;
+  mleaders->scratch->slot_cnt          = msg->slot_cnt;
+  mleaders->scratch->staked_cnt        = msg->staked_vote_cnt;
   mleaders->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
 
   fd_vote_stake_weight_t const * weights = fd_type_pun_const( msg + 1 );

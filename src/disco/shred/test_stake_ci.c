@@ -8,28 +8,30 @@ uchar epoch_msg[ FD_EPOCH_INFO_MAX_MSG_SZ ];
 
 fd_pubkey_t identity_key[1];
 
+static fd_stake_weight_t id_scratch[ MAX_STAKED_LEADERS ];
+
 static fd_stake_weight_msg_t *
 generate_stake_msg( uchar *      _buf,
                     ulong        epoch,
                     char const * stakers ) {
   fd_stake_weight_msg_t *buf = fd_type_pun( _buf );
 
-  buf->epoch          = epoch;
-  buf->start_slot     = epoch * SLOTS_PER_EPOCH;
-  buf->slot_cnt       = SLOTS_PER_EPOCH;
-  buf->staked_cnt     = strlen(stakers);
-  buf->excluded_stake = 0UL;
+  buf->epoch             = epoch;
+  buf->start_slot        = epoch * SLOTS_PER_EPOCH;
+  buf->slot_cnt          = SLOTS_PER_EPOCH;
+  buf->staked_vote_cnt   = strlen(stakers);
+  buf->excluded_id_stake = 0UL;
   buf->vote_keyed_lsched = 0UL;
 
-  ulong i = 0UL;
-  for(; *stakers; stakers++, i++ ) {
-    /* for simplicity use vote==id, but see test_stake_msg_staked_by_vote()
-       where we test cases in which id is repeated.
-       (vote is not used, so it doesn't matter if it's repeated or not) */
-    memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    memset( buf->weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    buf->weights[i].stake = 1000UL/(i+1UL);
+  fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( buf );
+  for( ulong i=0UL; i<buf->staked_vote_cnt; i++ ) {
+    memset( vote_stake_weights[i].vote_key.uc, stakers[i], sizeof(fd_pubkey_t) );
+    memset( vote_stake_weights[i].id_key.uc,   stakers[i], sizeof(fd_pubkey_t) );
+    vote_stake_weights[i].stake = 1000UL/(i+1UL);
   }
+
+  buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, vote_stake_weights, buf->staked_vote_cnt );
+  fd_memcpy( fd_stake_weight_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
   return fd_type_pun( _buf );
 }
 
@@ -43,18 +45,19 @@ generate_epoch_msg( uchar *      _buf,
   buf->start_slot        = epoch * SLOTS_PER_EPOCH;
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = strlen(stakers);
-  buf->staked_id_cnt     = strlen(stakers);
   buf->excluded_id_stake = 0UL;
   buf->vote_keyed_lsched = 0UL;
   memset( &buf->features, 0, sizeof(fd_features_t) );
 
-  fd_vote_stake_weight_t * weights = fd_type_pun( buf + 1 );
-  ulong i = 0UL;
-  for(; *stakers; stakers++, i++ ) {
-    memset( weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    memset( weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
+  fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );
+  for( ulong i=0UL; i<buf->staked_vote_cnt; i++ ) {
+    memset( weights[i].vote_key.uc, stakers[i], sizeof(fd_pubkey_t) );
+    memset( weights[i].id_key.uc,   stakers[i], sizeof(fd_pubkey_t) );
     weights[i].stake = 1000UL/(i+1UL);
   }
+
+  buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, weights, buf->staked_vote_cnt );
+  fd_memcpy( fd_epoch_info_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
   return fd_type_pun( _buf );
 }
 
@@ -638,25 +641,31 @@ test_limits( void ) {
     buf->epoch                  = stake_weight_cnt;
     buf->start_slot             = stake_weight_cnt * SLOTS_PER_EPOCH;
     buf->slot_cnt               = SLOTS_PER_EPOCH;
-    buf->staked_cnt             = 0UL;
-    buf->excluded_stake         = 0UL;
+    buf->staked_vote_cnt        = 0UL;
+    buf->staked_id_cnt          = 0UL;
+    buf->excluded_id_stake      = 0UL;
     buf->vote_keyed_lsched      = 0UL;
 
+    fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( buf );
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
       if( FD_LIKELY( i<108000UL ) ) {
-        memset( buf->weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        memset( buf->weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+        memset( vote_stake_weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+        memset( vote_stake_weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
         if( FD_LIKELY( 127UL-i!=(ulong)'I' ) ) {
-          FD_STORE( ulong, buf->weights[i].vote_key.uc, fd_ulong_bswap( i ) );
-          FD_STORE( ulong, buf->weights[i].id_key.uc, fd_ulong_bswap( i ) );
+          FD_STORE( ulong, vote_stake_weights[i].vote_key.uc, fd_ulong_bswap( i ) );
+          FD_STORE( ulong, vote_stake_weights[i].id_key.uc, fd_ulong_bswap( i ) );
         }
-        buf->weights[i].stake = stake;
-        buf->staked_cnt++;
+        vote_stake_weights[i].stake = stake;
+        buf->staked_vote_cnt++;
       } else {
-        buf->excluded_stake += stake;
+        buf->excluded_id_stake += stake;
       }
     }
+
+    buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, vote_stake_weights, buf->staked_vote_cnt );
+    fd_memcpy( fd_stake_weight_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
+
     fd_stake_ci_stake_msg_init( info, buf );
     fd_stake_ci_stake_msg_fini( info );
 
@@ -833,17 +842,19 @@ test_dest_update_overflow( void ) {
   buf->start_slot        = 0UL;
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = MAX_SHRED_DESTS - 2UL;
-  buf->staked_id_cnt     = MAX_SHRED_DESTS - 2UL;
   buf->excluded_id_stake = 0UL;
   buf->vote_keyed_lsched = 0UL;
   memset( &buf->features, 0, sizeof(fd_features_t) );
 
-  fd_vote_stake_weight_t * weights = fd_type_pun( buf + 1 );
+  fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );
   for(ulong i = 0UL; i<buf->staked_vote_cnt; i++ ) {
     FD_STORE( ulong, weights[i].vote_key.uc, fd_ulong_bswap( i ) );
     FD_STORE( ulong, weights[i].id_key.uc, fd_ulong_bswap( i ) );
     weights[i].stake = i+1UL;
   }
+
+  buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, weights, buf->staked_vote_cnt );
+  fd_memcpy( fd_epoch_info_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
   fd_stake_ci_epoch_msg_init( info, buf );  fd_stake_ci_epoch_msg_fini( info );
 

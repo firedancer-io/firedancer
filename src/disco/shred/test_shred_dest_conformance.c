@@ -167,20 +167,21 @@ test_shred_dest_conformance(
   stake_msg->epoch = 123UL;
   stake_msg->start_slot = 0UL;
   stake_msg->slot_cnt = 432000UL;
-  stake_msg->excluded_stake = 0UL;
+  stake_msg->excluded_id_stake = 0UL;
   stake_msg->vote_keyed_lsched = 0UL;  /* Use identity-keyed leader schedule */
 
   /* Count staked nodes and build stake weights */
+  fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( stake_msg + 1 );
   ulong staked_cnt = 0UL;
   for( ulong i=0UL; i<20UL; i++ ) {
     if( CLUSTER_NODES[i].stake > 0UL ) {
-      memcpy( stake_msg->weights[staked_cnt].id_key.uc, pubkeys[i].uc, 32UL );
-      memcpy( stake_msg->weights[staked_cnt].vote_key.uc, pubkeys[i].uc, 32UL );
-      stake_msg->weights[staked_cnt].stake = CLUSTER_NODES[i].stake;
+      memcpy( vote_stake_weights[staked_cnt].id_key.uc, pubkeys[i].uc, 32UL );
+      memcpy( vote_stake_weights[staked_cnt].vote_key.uc, pubkeys[i].uc, 32UL );
+      vote_stake_weights[staked_cnt].stake = CLUSTER_NODES[i].stake;
       staked_cnt++;
     }
   }
-  stake_msg->staked_cnt = staked_cnt;
+  stake_msg->staked_vote_cnt = staked_cnt;
 
   FD_LOG_NOTICE(( "Staked nodes: %lu / 20", staked_cnt ));
 

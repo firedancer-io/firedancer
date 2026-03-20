@@ -58,7 +58,6 @@ struct fd_stake_ci {
     ulong staked_vote_cnt;
     ulong staked_id_cnt;
     ulong excluded_id_stake;
-    ulong excluded_vote_stake;
     ulong vote_keyed_lsched;
   } scratch[1];
 

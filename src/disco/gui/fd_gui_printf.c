@@ -749,7 +749,7 @@ fd_gui_printf_epoch( fd_gui_t * gui,
       else                                                                  jsonp_null( gui->http, "end_time_nanos" );
       jsonp_ulong( gui->http, "start_slot",              gui->epoch.epochs[ epoch_idx ].start_slot );
       jsonp_ulong( gui->http, "end_slot",                gui->epoch.epochs[ epoch_idx ].end_slot );
-      jsonp_ulong_as_str( gui->http, "excluded_stake_lamports", gui->epoch.epochs[ epoch_idx ].excluded_stake );
+      jsonp_ulong_as_str( gui->http, "excluded_stake_lamports", 0UL );
       jsonp_open_array( gui->http, "staked_pubkeys" );
         fd_epoch_leaders_t * lsched = gui->epoch.epochs[epoch_idx].lsched;
         for( ulong i=0UL; i<lsched->pub_cnt; i++ ) {
