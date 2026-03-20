@@ -309,7 +309,8 @@ struct fd_snapshot_manifest {
      block_height will always be less than or equal to the slot. */
   ulong block_height;
 
-  /* TODO: Document */
+  /* Unused in Agave
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/runtime/src/serde_snapshot.rs#L290 */
   ulong collector_fees;
 
   /* The parent slot is the slot that this block builds on top of.  It

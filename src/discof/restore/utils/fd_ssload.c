@@ -142,7 +142,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_genesis_creation_time_set( bank, manifest->creation_time_seconds );
   fd_bank_slots_per_year_set( bank, manifest->slots_per_year );
   fd_bank_block_height_set( bank, manifest->block_height );
-  fd_bank_execution_fees_set( bank, manifest->collector_fees );
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/runtime/src/serde_snapshot.rs#L290 */
+  fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
 
   /* Set the cluster type based on the genesis creation time.  This is
