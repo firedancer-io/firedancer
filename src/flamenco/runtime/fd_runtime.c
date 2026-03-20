@@ -171,14 +171,14 @@ update_next_leaders( fd_bank_t *          bank,
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
-  compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
+  ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
   ulong excluded_stake = 0UL;
   if( FD_UNLIKELY( stake_weight_cnt>MAX_SHRED_DESTS ) ) {
     for( ulong i=MAX_SHRED_DESTS; i<stake_weight_cnt; i++ ) {
       excluded_stake += epoch_weights[i].stake;
     }
   }
-  ulong staked_cnt = fd_ulong_min( stake_weight_cnt, MAX_SHRED_DESTS );
+  staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
   fd_stake_weight_t * id_weights = fd_bank_get_id_weights_next( bank->data );
   memcpy( id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
   *fd_bank_get_id_weights_cnt_next( bank->data ) = staked_cnt;
@@ -248,14 +248,14 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
-  compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
+  ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
   ulong excluded_stake = 0UL;
   if( FD_UNLIKELY( stake_weight_cnt>MAX_SHRED_DESTS ) ) {
     for( ulong i=MAX_SHRED_DESTS; i<stake_weight_cnt; i++ ) {
       excluded_stake += epoch_weights[i].stake;
     }
   }
-  ulong staked_cnt = fd_ulong_min( stake_weight_cnt, MAX_SHRED_DESTS );
+  staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
   fd_stake_weight_t * id_weights = fd_bank_get_id_weights( bank->data );
   memcpy( id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
   *fd_bank_get_id_weights_cnt( bank->data ) = staked_cnt;

@@ -25,10 +25,10 @@ fd_stake_ci_new( void             * mem,
   info->shred_dest  [ 0 ] = dummy_dests [ 0 ];
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_per_epoch_info_t * ei = info->epoch_info + i;
-    ei->epoch          = i;
-    ei->start_slot     = 0UL;
-    ei->slot_cnt       = 0UL;
-    ei->excluded_stake = 0UL;
+    ei->epoch             = i;
+    ei->start_slot        = 0UL;
+    ei->slot_cnt          = 0UL;
+    ei->excluded_id_stake = 0UL;
     ei->vote_keyed_lsched = 0UL;
 
     ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( ei->_lsched, 0UL, 0UL, 1UL, 1UL,    info->vote_stake_weight,  0UL, ei->vote_keyed_lsched ) );
@@ -192,7 +192,7 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   new_ei->epoch             = epoch;
   new_ei->start_slot        = info->scratch->start_slot;
   new_ei->slot_cnt          = info->scratch->slot_cnt;
-  new_ei->excluded_stake    = info->scratch->excluded_id_stake;
+  new_ei->excluded_id_stake = info->scratch->excluded_id_stake;
   new_ei->vote_keyed_lsched = vote_keyed_lsched;
 
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,
@@ -275,7 +275,7 @@ fd_stake_ci_dest_add_fini_impl( fd_stake_ci_t       * info,
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
   ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j, ei->lsched, info->identity_key,
-                                                      ei->excluded_stake ) );
+                                                      ei->excluded_id_stake ) );
 
   if( FD_UNLIKELY( ei->sdest==NULL ) ) {
     /* Happens if the identity key is not present, which can only happen
@@ -371,7 +371,7 @@ fd_stake_ci_set_identity( fd_stake_ci_t *     info,
       fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
       ei->sdest  = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, info->shred_dest_temp, j+1UL, ei->lsched, identity_key,
-                                                          ei->excluded_stake ) );
+                                                          ei->excluded_id_stake ) );
       FD_TEST( ei->sdest );
     }
 
@@ -388,7 +388,7 @@ refresh_sdest( fd_stake_ci_t *            info,
   sort_pubkey_inplace( shred_dest_temp + staked_cnt, cnt - staked_cnt );
 
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
-  ei->sdest = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, shred_dest_temp, cnt, ei->lsched, info->identity_key, ei->excluded_stake ) );
+  ei->sdest = fd_shred_dest_join( fd_shred_dest_new( ei->_sdest, shred_dest_temp, cnt, ei->lsched, info->identity_key, ei->excluded_id_stake ) );
   if( FD_UNLIKELY( ei->sdest==NULL ) ) {
     FD_LOG_ERR(( "Too many validators have higher stake than this validator.  Cannot continue." ));
   }

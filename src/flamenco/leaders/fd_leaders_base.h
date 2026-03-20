@@ -25,7 +25,7 @@ typedef struct fd_stake_weight_msg_t fd_stake_weight_msg_t;
 #define FD_STAKE_CI_STAKE_MSG_HEADER_SZ (sizeof(fd_stake_weight_msg_t))
 #define FD_STAKE_CI_STAKE_MSG_RECORD_SZ (sizeof(fd_vote_stake_weight_t))
 #define FD_STAKE_CI_ID_WEIGHT_RECORD_SZ (sizeof(fd_stake_weight_t))
-#define FD_STAKE_CI_STAKE_MSG_SZ (FD_STAKE_CI_STAKE_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * FD_STAKE_CI_STAKE_MSG_RECORD_SZ + MAX_SHRED_DESTS * sizeof(fd_stake_weight_t))
+#define FD_STAKE_CI_STAKE_MSG_SZ (FD_STAKE_CI_STAKE_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * FD_STAKE_CI_STAKE_MSG_RECORD_SZ + MAX_SHRED_DESTS * FD_STAKE_CI_ID_WEIGHT_RECORD_SZ)
 
 #define FD_STAKE_OUT_MTU FD_STAKE_CI_STAKE_MSG_SZ
 
@@ -41,7 +41,7 @@ fd_stake_weight_msg_stake_weights( fd_stake_weight_msg_t const * stake_weight_ms
 
 static inline fd_stake_weight_t *
 fd_stake_weight_msg_id_weights( fd_stake_weight_msg_t const * stake_weight_msg ) {
-  return (fd_stake_weight_t *)fd_type_pun( (uchar *)stake_weight_msg + FD_STAKE_CI_STAKE_MSG_HEADER_SZ + stake_weight_msg->staked_vote_cnt * sizeof(fd_vote_stake_weight_t) );
+  return (fd_stake_weight_t *)fd_type_pun( (uchar *)stake_weight_msg + FD_STAKE_CI_STAKE_MSG_HEADER_SZ + stake_weight_msg->staked_vote_cnt * FD_STAKE_CI_STAKE_MSG_RECORD_SZ );
 }
 
 /* Firedancer only */

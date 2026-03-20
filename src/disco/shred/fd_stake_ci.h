@@ -31,7 +31,7 @@ struct fd_per_epoch_info_private {
   ulong epoch;
   ulong start_slot;
   ulong slot_cnt;
-  ulong excluded_stake;
+  ulong excluded_id_stake;
   ulong vote_keyed_lsched;
 
   /* Invariant: These are always joined and use the memory below for

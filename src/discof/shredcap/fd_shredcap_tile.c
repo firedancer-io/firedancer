@@ -219,7 +219,7 @@ generate_epoch_info_msg_manifest( ulong                                       ep
                                   fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
                                   ulong *                                     epoch_info_msg_out ) {
   fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
-  fd_vote_stake_weight_t * stake_weights  = fd_type_pun( epoch_info_msg + 1 );
+  fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
 
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
@@ -249,6 +249,8 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   }
   epoch_info_msg->staked_vote_cnt = idx;
   sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
+
+  FD_TEST( idx<=MAX_SHRED_DESTS );
 
   epoch_info_msg->epoch_schedule = *epoch_schedule;
 
