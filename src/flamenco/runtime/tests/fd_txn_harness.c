@@ -307,7 +307,6 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         output_bufsz,
         txn_in,
         txn_out,
-        runner->bank,
         exec_res
     );
 

@@ -2,18 +2,20 @@
 #define HEADER_fd_src_discof_repair_fd_policy_h
 
 /* fd_policy implements the policy of the Repair agent.  It determines
-   what shreds the validator is expecting but has not yet received and
-   needs to request via repair.  It also determines which peer(s) the
-   validator should request the shred from.
+   what next repair request the validator should make. It also
+   determines which peer(s) the validator should make the request to.
 
-   The default policy implementation is round-robin DFS with time-based
+   The default policy implementation is to prioritize discovering
+   ancestry for orphaned slots first (making an orphan request), and
+   then making forward progress on the main ancestry tree (making a
+   regular request) when there are no orphan requests to make.
+
+   Regular shred requests are made round-robin BFS with time-based
    dedup: round-robin through all the repair peers we know about, and
-   depth-first search down the repair forest (see fd_forest.h).  This
-   policy also dedups identical repair requests that occur within a
-   specified amount of time window of each other (configurable on init
-   as a hyperparameter).  With the DFS strategy, the smaller the tree,
-   the sooner an element will be iterated again (when the DFS restarts
-   from the root of the tree). */
+   BFS down the repair forest (see fd_forest.h).
+
+   This policy dedups identical repair requests that occur within a
+   specified amount of time window of each other. */
 
 #include "../../flamenco/types/fd_types_custom.h"
 #include "../forest/fd_forest.h"
@@ -104,8 +106,7 @@ struct fd_policy_peer {
   long  total_lat; /* total RTT over all responses in ns */
   ulong stake;
 
-  /* count of pongs currently living in our sign queue that belong to this peer */
-  uint ping_cnt;
+  uint ping;  /* whether this peer currently has a ping in our sign queue */
 };
 typedef struct fd_policy_peer fd_policy_peer_t;
 

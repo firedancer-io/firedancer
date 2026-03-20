@@ -1081,7 +1081,6 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
                                      ulong                        out_bufsz,
                                      fd_txn_in_t const *          txn_in,
                                      fd_txn_out_t *               txn_out,
-                                     fd_bank_t *                  bank,
                                      int                          exec_res ) {
   FD_SCRATCH_ALLOC_INIT( l, out_buf );
   ulong out_end = (ulong)out_buf + out_bufsz;
@@ -1193,7 +1192,7 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
   if( !txn_out->err.is_fees_only ) {
     /* Executed: capture fee payer and writable accounts. */
     for( ulong j=0UL; j<txn_out->accounts.cnt; j++ ) {
-      if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, (ushort)j ) ||
+      if( !( fd_runtime_account_is_writable_idx( txn_in, txn_out, (ushort)j ) ||
              j==FD_FEE_PAYER_TXN_IDX ) ) {
         continue;
       }
@@ -1270,14 +1269,13 @@ void
 fd_dump_txn_result_to_protobuf( fd_txn_dump_ctx_t * txn_dump_ctx,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out,
-                                fd_bank_t *         bank,
                                 int                 exec_res ) {
   txn_dump_ctx->fixture.has_output = true;
 
   ulong  buf_sz = 100UL<<20UL;
   void * buf    = fd_spad_alloc( txn_dump_ctx->spad, alignof(fd_exec_test_txn_result_t), buf_sz );
   fd_exec_test_txn_result_t * result = NULL;
-  create_txn_result_protobuf_from_txn( &result, buf, buf_sz, txn_in, txn_out, bank, exec_res );
+  create_txn_result_protobuf_from_txn( &result, buf, buf_sz, txn_in, txn_out, exec_res );
   txn_dump_ctx->fixture.output = *result;
 }
 

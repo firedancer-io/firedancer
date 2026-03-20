@@ -873,14 +873,17 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
 
+  fd_bank_execution_fees_set( bank, 0UL );
+  fd_bank_priority_fees_set( bank, 0UL );
+  fd_bank_tips_set( bank, 0UL );
+  fd_bank_signature_count_set( bank, 0UL );
+  fd_bank_total_compute_units_used_set( bank, 0UL );
+  fd_bank_shred_cnt_set( bank, 0UL );
+  fd_bank_identity_vote_idx_set( bank, ULONG_MAX );
+
   fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
-
-  fd_bank_execution_fees_set( bank, 0UL );
-  fd_bank_priority_fees_set( bank, 0UL );
-  fd_bank_signature_count_set( bank, 0UL );
-  fd_bank_total_compute_units_used_set( bank, 0UL );
 
   if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
     fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
@@ -1484,7 +1487,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
 # if FD_HAS_FLATCC
   /* Phase 2: Capture TxnResult after execution and write to disk. */
   if( FD_UNLIKELY( dump_txn && runtime->log.txn_dump_ctx ) ) {
-    fd_dump_txn_result_to_protobuf( runtime->log.txn_dump_ctx, txn_in, txn_out, bank, txn_out->err.txn_err );
+    fd_dump_txn_result_to_protobuf( runtime->log.txn_dump_ctx, txn_in, txn_out, txn_out->err.txn_err );
     fd_dump_txn_fixture_to_file( runtime->log.txn_dump_ctx, runtime->log.dump_proto_ctx, txn_in );
   }
 # endif
@@ -1972,11 +1975,9 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
 }
 
 static inline int
-fd_runtime_account_is_writable_idx_flat( const ulong           slot,
-                                         const ushort          idx,
+fd_runtime_account_is_writable_idx_flat( const ushort          idx,
                                          const fd_pubkey_t *   addr_at_idx,
                                          const fd_txn_t *      txn_descriptor,
-                                         const fd_features_t * features,
                                          const uint            bpf_upgradeable_in_txn ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L43 */
   if( !fd_txn_is_writable( txn_descriptor, idx ) ) {
@@ -1986,9 +1987,7 @@ fd_runtime_account_is_writable_idx_flat( const ulong           slot,
   /* See comments in fd_system_ids.h.
      https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
   if( fd_pubkey_is_active_reserved_key( addr_at_idx ) ||
-      fd_pubkey_is_pending_reserved_key( addr_at_idx ) ||
-      ( FD_FEATURE_ACTIVE( slot, features, enable_secp256r1_precompile ) &&
-                           fd_pubkey_is_secp256r1_key( addr_at_idx ) ) ) {
+      fd_pubkey_is_pending_reserved_key( addr_at_idx ) ) {
 
     return 0;
   }
@@ -2008,14 +2007,11 @@ fd_runtime_account_is_writable_idx_flat( const ulong           slot,
 int
 fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t const * txn_out,
-                                    fd_bank_t *          bank,
                                     ushort               idx ) {
   uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.keys, txn_out->accounts.cnt );
-  return fd_runtime_account_is_writable_idx_flat( fd_bank_slot_get( bank ),
-                                                   idx,
+  return fd_runtime_account_is_writable_idx_flat( idx,
                                                    &txn_out->accounts.keys[idx],
                                                    TXN( txn_in->txn ),
-                                                   fd_bank_features_query( bank ),
                                                    bpf_upgradeable );
 }
 

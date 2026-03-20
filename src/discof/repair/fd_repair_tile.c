@@ -1,18 +1,119 @@
 /* The repair tile is responsible for repairing missing shreds that were
-   not received via Turbine.
+   not received via Turbine.  The goal is to ensure that slots we "care"
+   about have their FEC sets inserted into store.
 
    Generally there are two distinct traffic patterns:
 
-   1. Firedancer boots up and fires off a large number of repairs to
+   a. Firedancer boots up and fires off a large number of repairs to
       recover all the blocks between the snapshot on which it is booting
       and the head of the chain.  In this mode, repair tile utilization
       is very high along with net and sign utilization.
 
-   2. Firedancer catches up to the head of the chain and enters steady
+   b. Firedancer catches up to the head of the chain and enters steady
       state where most shred traffic is delivered over turbine.  In this
       state, repairs are only occasionally needed to recover shreds lost
       due to anomalies like packet loss, transmitter (leader) never sent
-      them or even a malicious leader etc. */
+      them or even a malicious leader etc.  On rare occasion, repair
+      will also need to recover a different version of a block that
+      equivocated.
+
+   To accomplish the above, repair mainly processes 4 kinds of frags:
+
+   1. Shred data (from shred tile)
+
+      Any shred (coding or data) that passes validation and filtering in
+      the shred tile is forwarded to repair.  Repair uses these to track
+      which shreds have been received in `fd_forest`, a tree data
+      structure that mirrors the block/slot ancestry chain.  It also
+      uses these shreds to discover slots or ancestries that were not
+      known. fd_forest tracks metadata for each slot, including slot
+      completion status, merkle roots, and metrics.
+
+      Any shred that we can correlate with a repair request we made is
+      used to update peer response latency metrics in fd_policy (See
+      fd_policy.h for more details).
+
+   2. FEC status messages (from shred tile)
+
+      These fall under two categories: FEC completion and FEC eviction.
+      When all shreds in a FEC set have been recovered, the shred tile
+      sends a completion message. This may trigger chained merkle
+      verification if the slot has a confirmed block_id.  The completed
+      FEC message is always forwarded to replay via repair_out.
+
+      When an incomplete FEC set is evicted from the shred tile's FEC
+      resolver (e.g. due to capacity), it also notifies repair.  Repair
+      clears the corresponding FEC set entries from the forest so those
+      shred indices can be re-requested if they are necessary.  As
+      mentioned in fd_forest.h, forest needs to maintain a strict subset
+      of shreds that are known by fec_resolver, store, and reasm in
+      order to guarantee forward progress always.
+
+   3. Pings (from net tile)
+
+      Repair peers use a ping-pong protocol to verify liveness before
+      serving repair requests.  When a ping arrives over the network,
+      repair validates the message and constructs a pong response. To
+      prevent spam attacks, repair has stopgaps like tracking how many
+      pongs per peer are currently in the sign queue and dropping pings
+      from unknown peers.  These are the only untrusted inputs to
+      repair.
+
+   4. Sign task responses (from sign tile)
+
+      Repair requests are signed asynchronously; the repair tile
+      constructs a repair request, dispatches it to a sign tile via the
+      repair_sign output link.  The repair-sign communication is
+      manually managed via credit tracking in the repair tile (see
+      comment in out_ctx_t struct definition).
+
+      After receiving the signature back from sign tile, repair injects
+      the signature into the pending request and dispatches it to the
+      net tile via the repair_net output link. The behavior depends on
+      the request type:
+      - Pong: the signed pong is sent to the peer that pinged us.
+      - Warmup: a proactive request sent when a new peer's contact info
+        first arrives, prepaying the ping-pong RTT cost.  The signed
+        request is sent to the peer if it is still active.
+      - Regular shred request: the request is recorded in an inflight
+        table (for tracking response latency and timeouts) and the
+        signed packet is sent to the selected peer.
+
+   Secondary "other" frags that are processed but not part of core
+   repair logic:
+
+   5. Confirmation messages from tower
+
+      Tower sends two kinds of messages relevant to repair:
+      - slot_done: indicates a slot has finished replay and may advance
+        the root.  Repair publishes (roots) the forest up to that slot,
+        pruning old ancestry.
+      - slot_confirmed: indicates a slot has reached a confirmation
+        level (e.g. duplicate-confirmed).  If the slot is not yet in the
+        forest, repair creates a sentinel block so it can be repaired.
+        It also stores the confirmed block_id and may trigger chained
+        merkle verification. See fd_forest.h on more details about
+        chained merkle verification.
+
+   6. Eviction messages from replay (reasm)
+
+      When the replay tile's reassembly buffer evicts a FEC set (e.g.
+      due to pool capacity) from itself and from store, it notifies
+      repair with the slot and fec_set_idx.  Repair clears those FEC
+      entries from the forest so the shreds can be re-requested.
+
+   7. Contact info messages from gossip
+
+      Gossip forwards contact info updates and removals for other
+      validators.  Repair uses these to maintain a list of peers to
+      make requests to.
+
+   If fd_forest tracks what we know about each shred, fd_policy and
+   fd_inflights is responsible for deciding what next repair request to
+   make. fd_policy and fd_inflights split responsibility: fd_policy
+   makes any new requests, orphan requests, and requests directly off
+   the forest iterator, while fd_inflights re-requests anything that has
+   been requested but not received yet within a timeout window. */
 
 #define _GNU_SOURCE
 
@@ -157,6 +258,7 @@ struct pong_data {
   fd_ip4_port_t  peer_addr;
   fd_hash_t      hash;
   uint           daddr;
+  fd_pubkey_t    key;
 };
 typedef struct pong_data pong_data_t;
 
@@ -284,6 +386,7 @@ struct ctx {
     ulong rerequest;
     ulong malformed_ping;
     ulong unknown_peer_ping;
+    ulong fail_sigverify_ping;
     fd_histf_t slot_compl_time[ 1 ];
     fd_histf_t response_latency[ 1 ];
     ulong blk_evicted;
@@ -294,12 +397,6 @@ struct ctx {
 
   fd_repair_metrics_t * slot_metrics;
   ulong turbine_slot0;  // catchup considered complete after this slot
-  struct {
-    int   enabled;
-    int   eqvoc;     /* if eqvoc is enabled, the end_slot will first be generated incorrectly, and then confirmed correctly */
-    ulong end_slot;
-    int   complete;
-  } profiler;
 };
 typedef struct ctx ctx_t;
 
@@ -516,8 +613,6 @@ after_snap( ctx_t * ctx,
   fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)chunk;
 
   fd_forest_init( ctx->forest, manifest->slot );
-  FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
-
 }
 
 static inline void
@@ -561,13 +656,16 @@ after_sign( ctx_t             * ctx,
   }
 
   sign_req_t * pending_ = fd_signs_map_query( ctx->signs_map, pending_key, NULL );
-  if( FD_UNLIKELY( !pending_ ) ) FD_LOG_CRIT(( "No pending request found for key %lu", pending_key ));
+  if( FD_UNLIKELY( !pending_ ) ) FD_LOG_CRIT(( "No pending request found for key %lu", pending_key )); /* implies either bad programmer error or something happened with sign tile */
 
   sign_req_t   pending[1] = { *pending_ }; /* Make a copy of the pending request so we can sign_map_remove immediately. */
   sign_map_remove( ctx, pending_key );
 
   /* This is a pong message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_PONG ) ) {
+    fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &pending->pong_data.key );
+    if( FD_LIKELY( peer && peer->ping ) ) peer->ping--; /* prevent underflow if the peer was removed/readded */
+
     fd_memcpy( pending->msg.pong.sig, ctx->sign_buf, 64UL );
     send_packet( ctx, stem, 1, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     return;
@@ -579,25 +677,22 @@ after_sign( ctx_t             * ctx,
 
   /* This is a warmup message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.slot == 0 ) ) {
-    fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
-    if( FD_UNLIKELY( active ) ) send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
+    if( FD_UNLIKELY( peer ) ) send_packet( ctx, stem, 1, peer->ip4, peer->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
     else { /* This is a warmup request for a peer that is no longer active.  There's no reason to pick another peer for a warmup rq, so just drop it. */ }
     return;
   }
 
   /* This is a regular repair shred request
 
-     TODO: anyways to make this less complicated? Essentially we need to
-     ensure we always send out any shred requests we have, because policy_next
-     has no way to revisit a shred.  But the fact that peers can drop out
-     of the active peer list makes this complicated.
+     We need to ensure we always send out any shred requests we have,
+     because policy_next has no way to revisit a shred.  But the fact
+     that peers can drop out of the peer list makes this complicated.
+     If the peer is still there (common), it's fine.  If the peer is not
+     there, we can add this request to the inflights table, pretend
+     we've sent it and let the inflight timeout request it down the
+     line. */
 
-     1. If the peer is still there (common), it's fine.
-     2. If the peer is not there, we can select another peer and send the request.
-     3. If the peer is not there, and we have no other peers, we can add
-        this request to the inflights table, pretend we've sent it and
-        let the inflight timeout request it down the line.
-  */
   fd_policy_peer_t * active         = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
   int                is_regular_req = pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.nonce > 0; // not a highest/orphan request
 
@@ -744,18 +839,6 @@ after_fec( ctx_t      * ctx,
                    ele->buffered_idx == ele->complete_idx ) {
     check_confirmed( ctx, ele, &ele->confirmed_bid /* if lowest_verified_fec is not UINT_MAX, confirmed_bid must be populated */ );
   }
-
-  if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
-    // If turbine slot 0 is in the consumed frontier, and it satisfies the
-    // above conditions for completions, then catchup is complete
-    fd_forest_blk_t * turbine0     = fd_forest_query( ctx->forest, ctx->turbine_slot0 );
-    ulong             turbine0_idx = fd_forest_pool_idx( fd_forest_pool( ctx->forest ), turbine0 );
-    fd_forest_ref_t * consumed     = fd_forest_consumed_ele_query( fd_forest_consumed( ctx->forest ), &turbine0_idx, NULL, fd_forest_conspool( ctx->forest ) );
-    if( FD_UNLIKELY( consumed && turbine0->complete_idx != UINT_MAX && turbine0->complete_idx == turbine0->buffered_idx ) ) {
-      FD_COMPILER_MFENCE();
-      FD_VOLATILE( ctx->profiler.complete ) = 1;
-    }
-  }
 }
 
 static inline void
@@ -763,29 +846,40 @@ after_net( ctx_t * ctx,
            ulong   sz  ) {
   fd_eth_hdr_t * eth; fd_ip4_hdr_t * ip4; fd_udp_hdr_t * udp;
   uchar * data; ulong data_sz;
-  FD_TEST( fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &data, &data_sz, &eth, &ip4, &udp ) );
-  fd_ip4_port_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
-  if( FD_UNLIKELY( data_sz != sizeof(fd_repair_ping_t) ) ) {
+  if( FD_UNLIKELY( !fd_ip4_udp_hdr_strip( ctx->net_buf, sz, &data, &data_sz, &eth, &ip4, &udp ) ) ) {
     ctx->metrics->malformed_ping++;
     return;
   }
-  fd_repair_ping_t * res = (fd_repair_ping_t *)fd_type_pun( data );
-  if( FD_UNLIKELY( res->kind != FD_REPAIR_KIND_PING ) ) {
+  fd_ip4_port_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
+
+  fd_repair_ping_t ping[1];
+  int err = fd_repair_ping_de( ping, data, data_sz );
+  if( FD_UNLIKELY( err ) ) {
     ctx->metrics->malformed_ping++;
     return;
   }
 
-  fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &res->ping.from );
+  fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &ping->ping.from );
   if( FD_UNLIKELY( !peer ) ) {
     ctx->metrics->unknown_peer_ping++;
     return;
   }
-  if( FD_UNLIKELY( peer->ping_cnt ) ) return;
-  /* TODO: we should sigverify the ping.sig */
+  if( FD_UNLIKELY( peer->ping ) ) return;
   if( FD_UNLIKELY( fd_signs_queue_full( ctx->pong_queue ) ) ) return;
-  fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &res->ping.hash );
-  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr } } );
-  peer->ping_cnt++;
+
+  fd_sha512_t sha[1];
+  if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( ping->ping.hash.uc, 32UL, ping->ping.sig, ping->ping.from.uc, sha ) ) ) {
+    ctx->metrics->fail_sigverify_ping++;
+    return;
+  }
+
+  /* Any gossip peer can send a ping, but they are bounded to at most
+     one ping in the queue so they can't evict others' pings without
+     multiple gossip identities. */
+
+  fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &ping->ping.hash );
+  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = ping->ping.hash, .daddr = ip4->daddr, .key = ping->ping.from } } );
+  peer->ping++;
 }
 
 static inline void
@@ -897,7 +991,6 @@ after_frag( ctx_t *             ctx,
         return;
       };
 
-      if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && ( shred->slot > ctx->turbine_slot0 ) ) ) return;
   #   if LOGGING
       if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
         FD_LOG_INFO(( "\n\n[Turbine]\n"
@@ -909,20 +1002,6 @@ after_frag( ctx_t *             ctx,
   #   endif
       ctx->metrics->current_slot  = fd_ulong_max( shred->slot, ctx->metrics->current_slot );
       if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
-
-        if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
-          /* we wait until the first turbine shred arrives to kick off
-             the profiler.  This is to let gossip peers accumulate similar
-             to a regular Firedancer run. */
-          fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot, NULL );
-          fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
-
-          ctx->turbine_slot0 = ctx->profiler.end_slot;
-          fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, ctx->profiler.end_slot );
-          fd_policy_set_turbine_slot0( ctx->policy, ctx->profiler.end_slot );
-          return;
-        }
-
         ctx->turbine_slot0 = shred->slot;
         fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
         fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
@@ -974,12 +1053,6 @@ after_credit( ctx_t *             ctx,
 
   if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->pong_queue ) ) ) {
     sign_pending_t signable = fd_signs_queue_pop( ctx->pong_queue );
-
-    if( FD_UNLIKELY( signable.msg.kind == FD_REPAIR_KIND_PONG ) ) {
-      fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &signable.msg.pong.from );
-      if( FD_LIKELY( peer && peer->ping_cnt ) ) peer->ping_cnt--; /* prevent underflow if the peer was removed/readded */
-    }
-
     fd_repair_send_sign_request( ctx, sign_out, &signable.msg, signable.msg.kind == FD_REPAIR_KIND_PONG ? &signable.pong_data : NULL );
     *charge_busy = 1;
     return;
@@ -1251,12 +1324,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tsdebug = fd_log_wallclock();
   ctx->pending_key_next = 0;
-  ctx->profiler.enabled  = tile->repair.end_slot != 0UL;
-  ctx->profiler.end_slot = tile->repair.end_slot;
-  if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
-    ctx->metrics->current_slot = tile->repair.end_slot + 1; /* +1 to allow the turbine slot 0 to be completed */
-    ctx->profiler.complete     = 0;
-  }
 }
 
 static ulong
@@ -1299,8 +1366,9 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( REPAIR, BLK_EVICTED,       ctx->metrics->blk_evicted );
   FD_MCNT_SET( REPAIR, BLK_FAILED_INSERT, ctx->metrics->blk_failed_insert );
 
-  FD_MCNT_SET( REPAIR, UNKNOWN_PEER_PING, ctx->metrics->unknown_peer_ping );
-  FD_MCNT_SET( REPAIR, MALFORMED_PING,    ctx->metrics->malformed_ping );
+  FD_MCNT_SET( REPAIR, UNKNOWN_PEER_PING,     ctx->metrics->unknown_peer_ping );
+  FD_MCNT_SET( REPAIR, MALFORMED_PING,        ctx->metrics->malformed_ping );
+  FD_MCNT_SET( REPAIR, FAILED_SIGVERIFY_PING, ctx->metrics->fail_sigverify_ping );
 }
 
 #undef DEBUG_LOGGING

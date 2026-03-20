@@ -253,6 +253,7 @@ struct ABI_ALIGN(8UL) fd_bank_abi_txn_private {
       ushort num_non_compute_budget_instructions;
       ushort num_non_migratable_builtin_instructions;
       ushort num_non_builtin_instructions;
+      ushort migrating_builtin[1]; /* the vote program */
     } compute_budget_instruction_details;
 
     uchar _message_hash[ 32 ]; /* with the same value as message_hash */
@@ -432,7 +433,7 @@ typedef struct {
 #define MAP_PERFECT_0  ( KECCAK_SECP_PROG_ID     ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_1  ( ED25519_SV_PROG_ID      ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_2  ( SECP256R1_PROG_ID       ), .category=CATEGORY_NON_BUILTIN /* strange, but true */
-#define MAP_PERFECT_3  ( VOTE_PROG_ID            ), .category=CATEGORY_NON_MIGRATABLE
+#define MAP_PERFECT_3  ( VOTE_PROG_ID            ), .category=CATEGORY_MIGRATING(0) /* SIMD-0387 */
 #define MAP_PERFECT_4  ( SYS_PROG_ID             ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_5  ( COMPUTE_BUDGET_PROG_ID  ), .category=CATEGORY_NON_MIGRATABLE
 #define MAP_PERFECT_6  ( BPF_UPGRADEABLE_PROG_ID ), .category=CATEGORY_NON_MIGRATABLE
@@ -478,7 +479,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
 
 
   ulong sig_counters[4] = { 0UL };
-  ulong instr_cnt[3] = { 0UL }; /* non-builtin, non-migrating, stake program */
+  ulong instr_cnt[3] = { 0UL }; /* non-builtin, non-migrating, vote program */
 
   fd_compute_budget_program_state_t cbp_state[1];
   fd_compute_budget_program_init( cbp_state );
@@ -513,6 +514,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
   out_txn->compute_budget_instruction_details.num_non_compute_budget_instructions     = (ushort)(txn->instr_cnt - cbp_state->compute_budget_instr_cnt);
   out_txn->compute_budget_instruction_details.num_non_migratable_builtin_instructions = (ushort)instr_cnt[ CATEGORY_NON_MIGRATABLE ];
   out_txn->compute_budget_instruction_details.num_non_builtin_instructions            = (ushort)instr_cnt[ CATEGORY_NON_BUILTIN   ];
+  out_txn->compute_budget_instruction_details.migrating_builtin[0]                    = (ushort)instr_cnt[ CATEGORY_MIGRATING(0)  ];
   /* The instruction index doesn't matter */
 #define CBP_TO_TUPLE_OPTION( out, flag, val0, val1 )                                                                      \
   do {                                                                                                                    \

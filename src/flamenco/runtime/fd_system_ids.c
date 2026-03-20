@@ -81,6 +81,7 @@ const fd_pubkey_t fd_solana_migration_authority                        = { .uc =
 #define MAP_PERFECT_17      ( SYSVAR_SLOT_HIST_ID      ),
 #define MAP_PERFECT_18      ( SYSVAR_STAKE_HIST_ID     ),
 #define MAP_PERFECT_19      ( NATIVE_LOADER_ID         ),
+#define MAP_PERFECT_20      ( SECP256R1_PROG_ID        ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
@@ -126,9 +127,4 @@ fd_pubkey_is_active_reserved_key( fd_pubkey_t const * acct ) {
 int
 fd_pubkey_is_pending_reserved_key( fd_pubkey_t const * acct ) {
   return fd_pubkey_pending_reserved_keys_tbl_contains( acct );
-}
-
-int
-fd_pubkey_is_secp256r1_key( fd_pubkey_t const * acct ) {
-  return memcmp( acct->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t) )==0;
 }

@@ -343,11 +343,10 @@ fd_vm_syscall_cpi_check_id( fd_pubkey_t const * program_id,
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/src/precompiles.rs#L93
  */
 static inline int
-fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id, fd_bank_t * bank ) {
+fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
   return fd_vm_syscall_cpi_check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
          fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key) |
-         ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key) &&
-           FD_FEATURE_ACTIVE_BANK( bank, enable_secp256r1_precompile ) );
+         fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key);
 }
 
 /* fd_vm_syscall_cpi_check_authorized_program corresponds to
@@ -374,7 +373,7 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                ( FD_FEATURE_ACTIVE_BANK( bank, enable_extend_program_checked ) &&
                  ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_extend_program_checked )) ||
                ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_close ))) ||
-           fd_vm_syscall_cpi_is_precompile( program_id, bank ) );
+           fd_vm_syscall_cpi_is_precompile( program_id ) );
 }
 
 /* The data and lamports fields are in an Rc<Refcell<T>> in the Rust ABI AccountInfo.

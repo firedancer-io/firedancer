@@ -181,7 +181,6 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
 int
 fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t const * txn_out,
-                                    fd_bank_t *          bank,
                                     ushort               idx );
 
 /* Account pre-condition filtering functions

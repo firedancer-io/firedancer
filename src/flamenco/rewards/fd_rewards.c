@@ -176,7 +176,20 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
     ulong final_epoch_credits   = epoch_credits->credits[ i ];
     ulong initial_epoch_credits = epoch_credits->prev_credits[ i ];
 
-    if( FD_LIKELY( final_epoch_credits <= credits_in_stake ) ) continue;
+    /* Vote account credits can only increase or stay the same, so
+       initial_epoch_credits <= final_epoch_credits always holds. */
+    FD_TEST( initial_epoch_credits<=final_epoch_credits );
+
+    /* If final_epoch_credits <= credits_in_stake, then:
+        initial_epoch_credits <= final_epoch_credits <= credits_in_stake
+
+       * earned_credits = 0 since both conditions are false.
+       * new_credits_observed stays the same since it is already set
+         to credits_in_stake and final_epoch_credits <= credits_in_stake
+
+       Since earned_credits = 0 and new_credits_observed stays the same,
+       points computation can be skipped. */
+    if( FD_LIKELY( final_epoch_credits<=credits_in_stake ) ) continue;
 
     uint128 earned_credits = 0;
     if( FD_LIKELY( credits_in_stake < initial_epoch_credits ) ) {
