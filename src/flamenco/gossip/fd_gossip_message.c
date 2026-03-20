@@ -6,11 +6,11 @@
 #include "../runtime/fd_system_ids.h"
 #include "../types/fd_types.h"
 
-/* https://github.com/anza-xyz/agave/blob/bff4df9cf6f41520a26c9838ee3d4d8c024a96a1/gossip/src/crds_data.rs#L22-L23 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/crds_data.rs#L22-L23 */
 #define WALLCLOCK_MAX_MILLIS (1000000000000000UL)
 #define MAX_SLOT             (1000000000000000UL)
 
-/* https://github.com/anza-xyz/agave/blob/master/gossip/src/epoch_slots.rs#L15 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/epoch_slots.rs#L16 */
 #define MAX_SLOTS_PER_EPOCH_SLOT (2048UL*8UL)
 
 #define FD_GOSSIP_VOTE_IDX_MAX (32)
@@ -109,21 +109,6 @@
   CHECK( wallclock_millis<WALLCLOCK_MAX_MILLIS );       \
   (dst) = wallclock_millis;                             \
 } while( 0 )
-
-static int
-deser_legacy_contact_info( fd_gossip_value_t * value,
-                           uchar const **      payload,
-                           ulong *             payload_sz ) {
-  READ_BYTES( value->origin, 32UL, payload, payload_sz );
-  for( ulong i=0UL; i<10UL; i++ ) {
-    uint is_ip6 = 0U;
-    READ_ENUM( is_ip6, 2UL, payload, payload_sz );
-    SKIP_BYTES( is_ip6 ? 16UL+2UL : 4UL+2UL, payload, payload_sz );
-  }
-  READ_WALLCLOCK( value->wallclock, payload, payload_sz );
-  SKIP_BYTES( 2UL, payload, payload_sz );
-  return 1;
-}
 
 static int
 deser_vote_instruction( uchar const * data,
@@ -521,15 +506,15 @@ deser_value( fd_gossip_value_t * value,
   READ_ENUM( value->tag, FD_GOSSIP_VALUE_CNT, payload, payload_sz );
 
   switch( value->tag ) {
-    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:           return deser_legacy_contact_info( value, payload, payload_sz );
+    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:           return 0; /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/legacy_contact_info.rs#L41 */
     case FD_GOSSIP_VALUE_VOTE:                          return deser_vote( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_LOWEST_SLOT:                   return deser_lowest_slot( value, payload, payload_sz );
-    case FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES:        return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/crds_data.rs#L225 */
-    case FD_GOSSIP_VALUE_ACCOUNT_HASHES:                return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/crds_data.rs#L225 */
+    case FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES:        return 0; /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/crds_data.rs#L224 */
+    case FD_GOSSIP_VALUE_ACCOUNT_HASHES:                return 0; /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/crds_data.rs#L224 */
     case FD_GOSSIP_VALUE_EPOCH_SLOTS:                   return deser_epoch_slots( value, payload, payload_sz );
-    case FD_GOSSIP_VALUE_LEGACY_VERSION:                return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/crds_data.rs#L432 */
-    case FD_GOSSIP_VALUE_VERSION:                       return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/crds_data.rs#L449 */
-    case FD_GOSSIP_VALUE_NODE_INSTANCE:                 return 0; /* https://github.com/anza-xyz/agave/blob/9bf0e79eeebfafd72ee68660cffcaec51ea7a66a/gossip/src/crds_data.rs#L467 */
+    case FD_GOSSIP_VALUE_LEGACY_VERSION:                return 0; /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/crds_data.rs#L431 */
+    case FD_GOSSIP_VALUE_VERSION:                       return 0; /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/crds_data.rs#L448 */
+    case FD_GOSSIP_VALUE_NODE_INSTANCE:                 return 0; /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/crds_data.rs#L466 */
     case FD_GOSSIP_VALUE_DUPLICATE_SHRED:               return deser_duplicate_shred( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_SNAPSHOT_HASHES:               return deser_snapshot_hashes( value, payload, payload_sz );
     case FD_GOSSIP_VALUE_CONTACT_INFO:                  return deser_contact_info( value, payload, payload_sz );
@@ -581,8 +566,8 @@ deser_pull_request( fd_gossip_message_t * message,
   message->pull_request->contact_info->offset = original_sz-*payload_sz;
   CHECK( deser_value( message->pull_request->contact_info, payload, payload_sz ) );
   message->pull_request->contact_info->length = original_sz-*payload_sz-message->pull_request->contact_info->offset;
-  CHECK( message->pull_request->contact_info->tag==FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO ||
-         message->pull_request->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/protocol.rs#L158 */
+  CHECK( message->pull_request->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
   return 1;
 }
 

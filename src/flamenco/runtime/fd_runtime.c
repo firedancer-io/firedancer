@@ -634,6 +634,19 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *               bank,
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, vote_state_v4 ) ) ) {
     fd_upgrade_core_bpf_program( bank, accdb, xid, runtime_stack, &fd_solana_stake_program_id, &fd_solana_stake_program_vote_state_v4_buffer_address, capture_ctx );
   }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank.rs#L5703-L5716 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, replace_spl_token_with_p_token ) ) ) {
+    fd_upgrade_loader_v2_program_with_loader_v3_program(
+      bank,
+      accdb,
+      xid,
+      runtime_stack,
+      &fd_solana_spl_token_id,
+      &fd_solana_ptoken_program_buffer_address,
+      FD_FEATURE_ACTIVE_BANK( bank, relax_programdata_account_check_migration ),
+      capture_ctx );
+  }
 }
 
 /* Starting a new epoch.

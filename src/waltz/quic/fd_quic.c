@@ -4473,6 +4473,16 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
             /* do not try sending data that has been acked */
             ulong offset = fd_ulong_max( pkt_meta->val.range.offset_lo, stream->unacked_low );
 
+            /* This pkt_meta may be stale: when ACK-driven loss detection
+               force-retries an earlier pkt_meta for the same stream, the
+               retransmitted data can be ACKed (advancing unacked_low)
+               before this pkt_meta expires. Skip the retry if the
+               stream has nothing left to send. */
+            if( FD_UNLIKELY( offset>=stream->tx_buf.head &&
+                  !( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ) ) ) {
+              break;
+            }
+
             /* any data left to retry? */
             stream->tx_sent = fd_ulong_min( stream->tx_sent, offset );
 

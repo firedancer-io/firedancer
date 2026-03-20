@@ -5,6 +5,7 @@
 #include "sysvar/fd_sysvar_clock.h"
 #include "program/fd_builtin_programs.h"
 #include "fd_runtime_const.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
 struct fd_calculated_stake_points {
@@ -85,6 +86,14 @@ struct fd_runtime_stack {
     fd_tmp_account_t new_target_program;
     fd_tmp_account_t new_target_program_data;
     fd_tmp_account_t empty;
+
+    /* Staging memory for ELF validation during BPF program
+       migrations. */
+    struct {
+      uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+      uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
+      uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+    } progcache_validate;
   } bpf_migration;
 
   struct {
