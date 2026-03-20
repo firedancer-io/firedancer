@@ -125,7 +125,10 @@ fd_vote_stakes_footprint( ulong max_vote_accounts,
 
 
 /* fd_vote_stakes_new creates a new fd_vote_stakes_t object given a
-   region of memory sized out according to fd_vote_stakes_footprint. */
+   region of memory sized out according to fd_vote_stakes_footprint.
+   The underlying data storage will actually support
+   2 * max_vote_accounts entries because entries are deduped across
+   forks after all of the entries have already been inserted. */
 
 void *
 fd_vote_stakes_new( void * shmem,

@@ -14,13 +14,13 @@ fd_vote_stakes_footprint( ulong max_vote_accounts,
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_vote_stakes_align(),  sizeof(fd_vote_stakes_t) );
-  l = FD_LAYOUT_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts ) );
+  l = FD_LAYOUT_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts * 2UL ) );
   l = FD_LAYOUT_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
   for( ulong i=0; i<max_fork_width; i++ ) {
-    l = FD_LAYOUT_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
+    l = FD_LAYOUT_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts * 2UL ) );
     l = FD_LAYOUT_APPEND( l, stakes_map_align(),  stakes_map_footprint( map_chain_cnt ) );
   }
   return FD_LAYOUT_FINI( l, fd_vote_stakes_align() );
@@ -51,14 +51,14 @@ fd_vote_stakes_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_vote_stakes_t * vote_stakes         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_stakes_align(),  sizeof(fd_vote_stakes_t) );
-  void *             index_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts ) );
+  void *             index_pool_mem      = FD_SCRATCH_ALLOC_APPEND( l, index_pool_align(),      index_pool_footprint( max_vote_accounts * 2UL ) );
   void *             index_map_mem       = FD_SCRATCH_ALLOC_APPEND( l, index_map_align(),       index_map_footprint( map_chain_cnt ) );
   void *             index_map_multi_mem = FD_SCRATCH_ALLOC_APPEND( l, index_map_multi_align(), index_map_multi_footprint( map_chain_cnt ) );
   void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
   void *             fork_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
   for( ulong i=0; i<max_fork_width; i++ ) {
     void *    stakes_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
-    stake_t * stakes_pool     = stakes_pool_join( stakes_pool_new( stakes_pool_mem, max_vote_accounts ) );
+    stake_t * stakes_pool     = stakes_pool_join( stakes_pool_new( stakes_pool_mem, max_vote_accounts * 2UL ) );
     if( FD_UNLIKELY( !stakes_pool ) ) {
       FD_LOG_WARNING(( "Failed to create vote stakes ele pool" ));
       return NULL;
@@ -74,7 +74,7 @@ fd_vote_stakes_new( void * shmem,
     vote_stakes->stakes_map_off[ i ] = (ulong)stakes_map - (ulong)shmem;
   }
 
-  index_ele_t * index_pool = index_pool_join( index_pool_new( index_pool_mem, max_vote_accounts ) );
+  index_ele_t * index_pool = index_pool_join( index_pool_new( index_pool_mem, max_vote_accounts * 2UL ) );
   if( FD_UNLIKELY( !index_pool ) ) {
     FD_LOG_WARNING(( "Failed to create vote stakes index pool" ));
     return NULL;
@@ -454,8 +454,8 @@ fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
   if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
   if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
   if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
-  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = index_ele->commission_t_1;
-  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = index_ele->commission_t_2;
+  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = (uchar)index_ele->commission_t_1;
+  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = (uchar)index_ele->commission_t_2;
   return 1;
 }
 
@@ -576,6 +576,6 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
   if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
   if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
   if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
-  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = index_ele->commission_t_1;
-  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = index_ele->commission_t_2;
+  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = (uchar)index_ele->commission_t_1;
+  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = (uchar)index_ele->commission_t_2;
 }
