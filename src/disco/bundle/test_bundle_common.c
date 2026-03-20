@@ -80,6 +80,8 @@ test_bundle_env_create( test_bundle_env_t * env,
   /* Clamp max_frame_size to buffer capacity so oversized frames are
      rejected by the H2 layer before filling the rx buffer. */
   h2_conn->self_settings.max_frame_size = (uint)( state->grpc_buf_max - sizeof(fd_h2_frame_hdr_t) );
+  /* Verify invariant: buffer can hold any valid frame (header + max payload) */
+  FD_TEST( h2_conn->self_settings.max_frame_size + sizeof(fd_h2_frame_hdr_t) <= state->grpc_buf_max );
 
   const ulong pending_max  = mcache_depth;
   env->deque_mem      = fd_wksp_alloc_laddr( wksp, pending_txn_align(), pending_txn_footprint( pending_max ), 1UL );
