@@ -263,7 +263,7 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
   index_ele->node_account_t_2 = *node_account_t_2;
   index_ele->commission_t_1   = commission_t_1;
   index_ele->commission_t_2   = commission_t_2;
-  index_ele->exists_t_1       = exists_curr;
+  index_ele->exists_t_1       = !!exists_curr;
   index_ele->stake_t_1        = 0UL;
   index_ele->stake_t_2        = stake_t_2;
   index_ele->epoch            = epoch % 2;
