@@ -143,7 +143,7 @@ struct fd_progcache_join {
     fd_progcache_txn_t * pool;
   } txn;
 
-  fd_wksp_t *  wksp;
+  void *       data_base;
   fd_alloc_t * alloc;
 
   struct {

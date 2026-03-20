@@ -22,7 +22,7 @@ fd_progcache_val_alloc( fd_progcache_rec_t *  rec,
   void * mem;
   ulong  gaddr;
   if( FD_UNLIKELY( use_malloc() ) ) { /* test only */
-    mem = malloc( val_footprint );
+    mem = aligned_alloc( val_align, val_footprint );
     if( FD_UNLIKELY( !mem ) ) return NULL;
     val_max = val_footprint;
     gaddr   = (ulong)mem;
@@ -30,7 +30,7 @@ fd_progcache_val_alloc( fd_progcache_rec_t *  rec,
     mem = fd_alloc_malloc_at_least( join->alloc, val_align, val_footprint, &val_max );
     if( FD_UNLIKELY( !mem ) ) return NULL;
     FD_CRIT( val_max<=UINT_MAX, "massive" ); /* unreachable */
-    gaddr = fd_wksp_gaddr_fast( join->wksp, mem );
+    gaddr = fd_wksp_gaddr_fast( join->data_base, mem );
   }
   rec->data_gaddr = gaddr;
   rec->data_max   = (uint)val_max;
@@ -56,7 +56,7 @@ void
 fd_progcache_val_free( fd_progcache_rec_t *  rec,
                        fd_progcache_join_t * join ) {
   if( !rec->data_gaddr ) return;
-  void * mem = fd_wksp_laddr_fast( join->wksp, rec->data_gaddr );
+  void * mem = fd_wksp_laddr_fast( join->data_base, rec->data_gaddr );
 
   /* Illegal to call val_free on a spill-allocated buffer */
   FD_TEST( !( (ulong)mem >= (ulong)join->shmem->spill.spad &&

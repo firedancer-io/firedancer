@@ -441,7 +441,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong r2_initial_value = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
 
   /* TODO: (topointon): correctly set check_size in vm setup */
-  fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->wksp;
+  fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->data_base;
   void const * rodata = fd_progcache_rec_rodata( cache_entry, progcache_wksp );
   vm = fd_vm_init(
     /* vm                                   */ vm,
