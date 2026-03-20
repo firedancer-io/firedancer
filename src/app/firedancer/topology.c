@@ -173,12 +173,12 @@ setup_topo_txncache( fd_topo_t *  topo,
 
 fd_topo_obj_t *
 setup_topo_acc_pool( fd_topo_t * topo,
-                     ulong       max_account_cnt ) {
+                     ulong       concurrent_account_limit ) {
   fd_topob_wksp( topo, "acc_pool" );
   fd_topo_obj_t * acc_pool_obj = fd_topob_obj( topo, "acc_pool", "acc_pool" );
   FD_TEST( acc_pool_obj );
   FD_TEST( acc_pool_obj->id != ULONG_MAX );
-  fd_pod_insertf_ulong( topo->props, max_account_cnt, "obj.%lu.max_account_cnt", acc_pool_obj->id );
+  fd_pod_insertf_ulong( topo->props, concurrent_account_limit, "obj.%lu.concurrent_account_limit", acc_pool_obj->id );
   return acc_pool_obj;
 }
 

@@ -256,8 +256,8 @@ test_env_create( test_env_t * env,
   fd_vote_stakes_reset( vote_stakes );
   fd_pubkey_t pubkey = { .ul[0] = 1UL };
   add_vote_account( env, &pubkey, &pubkey );
-  fd_vote_stakes_root_insert_key( vote_stakes, &pubkey, &pubkey, 1000000000UL, 0UL );
-  fd_vote_stakes_root_update_meta( vote_stakes, &pubkey, &pubkey, 1000000000UL, 1UL );
+  fd_vote_stakes_root_insert_key( vote_stakes, &pubkey, &pubkey, 1000000000UL, 0UL, 0UL );
+  fd_vote_stakes_root_update_meta( vote_stakes, &pubkey, &pubkey, 1000000000UL, 1UL, 0UL );
   fd_pubkey_t stake_account = { .ul[0] = 2UL };
   add_delegated_stake_account( env, &stake_account, &pubkey );
   add_bank_stake_delegation_entry( env, &stake_account, &pubkey );

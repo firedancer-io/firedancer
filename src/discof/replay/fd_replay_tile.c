@@ -1143,7 +1143,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     fd_pubkey_t pubkey;
     fd_pubkey_t node_account_t_2;
     ulong       stake_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2 );
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2, NULL, NULL );
 
     int is_valid = 1;
     fd_accdb_ro_t acc[1];

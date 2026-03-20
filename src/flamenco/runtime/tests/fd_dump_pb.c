@@ -618,7 +618,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
        fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
     fd_pubkey_t pubkey;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL );
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
     add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &pubkey );
   }
 
@@ -640,15 +640,16 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     ulong       stake_t_2;
     fd_pubkey_t node_t_1;
     fd_pubkey_t node_t_2;
-    /* TODO: uchar commission = 0U; */
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_t_1, &node_t_2 );
+    uchar       commission_t_1;
+    uchar       commission_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_t_1, &node_t_2, &commission_t_1, &commission_t_2 );
 
     if( stake_t_1 ) {
       fd_exec_test_prev_vote_account_t * entry = &va_t1[ va_t1_cnt++ ];
       fd_memcpy( entry->address,     &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( entry->node_pubkey, &node_t_1, sizeof(fd_pubkey_t) );
       entry->stake               = stake_t_1;
-      entry->commission          = 0U; /* TODO: entry->commission          = commission; */
+      entry->commission          = commission_t_1;
       entry->version             = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V3;
       entry->epoch_credits_count = 0U;
     }
@@ -658,7 +659,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
       fd_memcpy( entry->address,     &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( entry->node_pubkey, &node_t_2, sizeof(fd_pubkey_t) );
       entry->stake               = stake_t_2;
-      entry->commission          = 0U; /* TODO: entry->commission          = commission; */
+      entry->commission          = commission_t_2;
       entry->version             = FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V3;
       entry->epoch_credits_count = 0U;
     }

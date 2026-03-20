@@ -666,7 +666,7 @@ update_tower_voters( fd_tower_tile_t * ctx,
     } else {
       fd_pubkey_t vote_acc;
       ulong       stake;
-      fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &vote_acc, NULL, &stake, NULL, NULL );
+      fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL, NULL );
       if( FD_LIKELY( stake ) ) {
         fd_accdb_ro_pipe_enqueue( ro_pipe, vote_acc.key );
         pending_cnt++;
@@ -679,7 +679,7 @@ update_tower_voters( fd_tower_tile_t * ctx,
       pending_cnt--;
       fd_pubkey_t const * vote_acc = fd_accdb_ref_address( ro );
 
-      ulong stake; fd_pubkey_t id; int found = fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_acc, &stake, &id );
+      ulong stake; fd_pubkey_t id; int found = fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_acc, &stake, &id, NULL );
       FD_TEST( found );
       FD_TEST( stake );
       total_stake += stake;

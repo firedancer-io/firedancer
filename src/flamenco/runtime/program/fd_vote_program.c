@@ -1729,7 +1729,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
      TODO: don't hardcode these when the features are implemented. */
   int vote_state_v4                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, vote_state_v4 );
   int bls_pubkey_management_in_vote_account = FD_FEATURE_ACTIVE_BANK( ctx->bank, bls_pubkey_management_in_vote_account );
-  int delay_commission_updates              = 0;
+  int delay_commission_updates              = FD_FEATURE_ACTIVE_BANK( ctx->bank, delay_commission_updates );
   int commission_rate_in_basis_points       = 0;
   int custom_commission_collector           = 0;
   int block_revenue_sharing                 = 0;

@@ -8,8 +8,10 @@
 struct index_key {
   fd_pubkey_t pubkey;
   fd_pubkey_t node_account_t_1;
-  ulong       stake_t_1 : 63;
+  ulong       stake_t_1;
   ulong       epoch : 1;
+  ulong       commission_t_1 : 1;
+  ulong       exists_t_1 : 1;
 };
 typedef struct index_key index_key_t;
 
@@ -18,8 +20,10 @@ struct index_ele {
     struct {
       fd_pubkey_t pubkey;
       fd_pubkey_t node_account_t_1;
-      ulong       stake_t_1 : 63;
+      ulong       stake_t_1 : 61;
       ulong       epoch : 1;
+      ulong       commission_t_1 : 1;
+      ulong       exists_t_1 : 1;
     };
     index_key_t index_key;
   };
@@ -29,7 +33,7 @@ struct index_ele {
   uint        prev_multi;
   uint        next_multi;
   ushort      refcnt;
-  uchar       exists_t_1;
+  uchar       commission_t_2;
 };
 typedef struct index_ele index_ele_t;
 

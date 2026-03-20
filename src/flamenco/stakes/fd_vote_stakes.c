@@ -147,6 +147,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account_t_1,
                                 ulong               stake_t_1,
+                                uchar               commission_t_1,
                                 ulong               epoch ) {
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_t *       index_map       = get_index_map( vote_stakes );
@@ -155,10 +156,12 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
   index_ele_t * ele     = index_pool_ele_acquire( index_pool );
   ele->pubkey           = *pubkey;
   ele->refcnt           = 1;
-  ele->stake_t_1        = stake_t_1 & 0x7FFFFFFFFFFFFFFFUL; /* mask to 63 bits */
+  ele->stake_t_1        = (stake_t_1 & 0x1FFFFFFFFFFFFFFFUL);
+  ele->commission_t_1   = commission_t_1;
   ele->node_account_t_1 = *node_account_t_1;
   ele->stake_t_2        = 0UL;
   ele->node_account_t_2 = (fd_pubkey_t){0};
+  ele->commission_t_2   = 0U;
   ele->epoch            = epoch % 2;
   ele->exists_t_1       = 1U;
   /* It is fine to leave node account t_2 uninitalized because it will
@@ -181,6 +184,7 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * pubkey,
                                  fd_pubkey_t const * node_account_t_2,
                                  ulong               stake_t_2,
+                                 uchar               commission_t_2,
                                  ulong               epoch ) {
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_t *       index_map       = get_index_map( vote_stakes );
@@ -194,6 +198,7 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
     ele->node_account_t_1 = (fd_pubkey_t){0};
     ele->epoch            = epoch % 2;
     ele->exists_t_1       = 0U;
+    ele->commission_t_2   = commission_t_2;
 
     FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
     FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
@@ -242,6 +247,8 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
                            fd_pubkey_t const * node_account_t_1,
                            fd_pubkey_t const * node_account_t_2,
                            ulong               stake_t_2,
+                           uchar               commission_t_1,
+                           uchar               commission_t_2,
                            ulong               epoch,
                            uchar               exists_curr ) {
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
@@ -254,6 +261,8 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
   index_ele->pubkey           = *pubkey;
   index_ele->node_account_t_1 = *node_account_t_1;
   index_ele->node_account_t_2 = *node_account_t_2;
+  index_ele->commission_t_1   = commission_t_1;
+  index_ele->commission_t_2   = commission_t_2;
   index_ele->exists_t_1       = exists_curr;
   index_ele->stake_t_1        = 0UL;
   index_ele->stake_t_2        = stake_t_2;
@@ -287,7 +296,7 @@ fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
   index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
 
   if( FD_UNLIKELY( index_ele->exists_t_1==0U ) ) return;
-  index_ele->stake_t_1 += (stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
+  index_ele->stake_t_1 += (stake & 0x1FFFFFFFFFFFFFFFUL); /* mask to 61 bits */
 }
 
 void
@@ -414,7 +423,9 @@ fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
                       ulong *                  stake_t_1_out_opt,
                       ulong *                  stake_t_2_out_opt,
                       fd_pubkey_t *            node_account_t_1_out_opt,
-                      fd_pubkey_t *            node_account_t_2_out_opt ) {
+                      fd_pubkey_t *            node_account_t_2_out_opt,
+                      uchar *                  commission_t_1_out_opt,
+                      uchar *                  commission_t_2_out_opt ) {
 
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
@@ -443,6 +454,8 @@ fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
   if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
   if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
   if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
+  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = index_ele->commission_t_1;
+  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = index_ele->commission_t_2;
   return 1;
 }
 
@@ -450,7 +463,7 @@ int
 fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
                              ushort                   fork_idx,
                              fd_pubkey_t const *      pubkey ) {
-  return fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, NULL, NULL, NULL, NULL );
+  return fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
 }
 
 int
@@ -458,8 +471,9 @@ fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
                           ushort                   fork_idx,
                           fd_pubkey_t const *      pubkey,
                           ulong *                  stake_out,
-                          fd_pubkey_t *            node_account_out ) {
-  int found = fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, stake_out, NULL, node_account_out, NULL );
+                          fd_pubkey_t *            node_account_out,
+                          uchar *                  commission_out ) {
+  int found = fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, stake_out, NULL, node_account_out, NULL, commission_out, NULL );
   return found && *stake_out>0UL;
 }
 
@@ -468,8 +482,9 @@ fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
                           ushort                   fork_idx,
                           fd_pubkey_t const *      pubkey,
                           ulong *                  stake_out,
-                          fd_pubkey_t *            node_account_out ) {
-  int found = fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, NULL, stake_out, NULL, node_account_out );
+                          fd_pubkey_t *            node_account_out,
+                          uchar *                  commission_out ) {
+  int found = fd_vote_stakes_query( vote_stakes, fork_idx, pubkey, NULL, stake_out, NULL, node_account_out, NULL, commission_out );
   return found && *stake_out>0UL;
 }
 
@@ -546,7 +561,9 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
                               ulong *                 stake_t_1_out_opt,
                               ulong *                 stake_t_2_out_opt,
                               fd_pubkey_t *           node_account_t_1_out_opt,
-                              fd_pubkey_t *           node_account_t_2_out_opt ) {
+                              fd_pubkey_t *           node_account_t_2_out_opt,
+                              uchar *                 commission_t_1_out_opt,
+                              uchar *                 commission_t_2_out_opt ) {
   stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
   stake_t * stake = stakes_map_iter_ele( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
 
@@ -559,4 +576,6 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
   if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
   if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
   if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
+  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = index_ele->commission_t_1;
+  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = index_ele->commission_t_2;
 }

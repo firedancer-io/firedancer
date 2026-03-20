@@ -272,7 +272,8 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
                 uint128                         total_points,
                 fd_runtime_stack_t *            runtime_stack,
                 fd_calculated_stake_points_t *  stake_points_result,
-                fd_calculated_stake_rewards_t * result ) {
+                fd_calculated_stake_rewards_t * result,
+                int                             delay_commission_updates ) {
 
   /* The firedancer implementation of redeem_rewards inlines a lot of
      the helper functions that the Agave implementation uses.
@@ -312,7 +313,7 @@ redeem_rewards( fd_stake_delegation_t const *   stake,
     return 1;
   }
 
-  uchar commission = runtime_stack->stakes.vote_ele[ vote_state_idx ].commission;
+  uchar commission = delay_commission_updates ? runtime_stack->stakes.vote_ele[ vote_state_idx ].commission_t_2 : runtime_stack->stakes.vote_ele[ vote_state_idx ].commission_t_1;
   fd_commission_split_t split_result;
   fd_vote_commission_split( commission, rewards, &split_result );
   if( split_result.is_split && (split_result.voter_portion == 0 || split_result.staker_portion == 0) ) {
@@ -513,6 +514,8 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
     new_warmup_cooldown_rate_epoch = NULL;
   }
 
+  int delay_commission_updates = FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates );
+
   ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
 
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
@@ -588,7 +591,8 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
         total_points,
         runtime_stack,
         stake_points_result,
-        calculated_stake_rewards );
+        calculated_stake_rewards,
+        delay_commission_updates );
 
     if( FD_UNLIKELY( err!=0 ) ) {
       continue;
@@ -597,7 +601,7 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
     calculated_stake_rewards->success = 1;
 
     if( capture_ctx && capture_ctx->capture_solcap ) {
-      uchar commission = runtime_stack->stakes.vote_ele[ idx ].commission;
+      uchar commission = delay_commission_updates ? runtime_stack->stakes.vote_ele[ idx ].commission_t_2 : runtime_stack->stakes.vote_ele[ idx ].commission_t_1;
       fd_capture_link_write_stake_reward_event( capture_ctx,
                                                 fd_bank_slot_get( bank ),
                                                 stake_delegation->stake_account,
@@ -632,6 +636,8 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
   bank->data->stake_rewards_fork_id = fork_idx;
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
+
+  int delay_commission_updates = FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -696,7 +702,8 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
           total_points,
           runtime_stack,
           stake_points_result,
-          calculated_stake_rewards );
+          calculated_stake_rewards,
+          delay_commission_updates );
       calculated_stake_rewards->success = err==0;
     } else {
       calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation_idx ];
