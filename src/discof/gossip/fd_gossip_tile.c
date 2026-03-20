@@ -291,7 +291,7 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
-  fd_vote_stake_weight_t const * weights = fd_type_pun_const( msg + 1 );
+  fd_stake_weight_t const * weights = fd_epoch_info_msg_id_weights( msg );
   fd_gossip_stakes_update( ctx->gossip, weights, msg->staked_vote_cnt );
 }
 

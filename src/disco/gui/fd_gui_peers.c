@@ -852,7 +852,7 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   if( FD_UNLIKELY( epoch_info->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
     FD_LOG_WARNING(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
 
-  fd_vote_stake_weight_t const * weights = fd_type_pun_const( epoch_info + 1 );
+  fd_vote_stake_weight_t const * weights = fd_epoch_info_msg_stake_weights( epoch_info );
 
   ulong stakes_cnt = 0UL;
   for( ulong i=0UL; i<epoch_info->staked_vote_cnt; i++ ) {

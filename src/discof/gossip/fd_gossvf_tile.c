@@ -304,19 +304,13 @@ handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
   stake_map_reset( ctx->stake.map );
   stake_pool_reset( ctx->stake.pool );
 
-  fd_vote_stake_weight_t const * weights = fd_type_pun_const( msg + 1 );
+  fd_stake_weight_t const * id_weights = fd_epoch_info_msg_id_weights( msg );
 
-  for( ulong i=0UL; i<msg->staked_vote_cnt; i++ ) {
-    if( FD_UNLIKELY( fd_pubkey_eq( &weights[i].id_key, &FD_DUMMY_ACCOUNT_PUBKEY ) ) ) continue;
-    stake_t * entry;
-    if( FD_UNLIKELY( (entry = stake_map_ele_query( ctx->stake.map, &weights[i].id_key, NULL, ctx->stake.pool )) ) ) {
-      entry->stake += weights[i].stake;
-    } else {
-      entry = stake_pool_ele_acquire( ctx->stake.pool );
-      fd_memcpy( entry->pubkey.uc, weights[i].id_key.uc, 32UL );
-      entry->stake = weights[i].stake;
-      stake_map_ele_insert( ctx->stake.map, entry, ctx->stake.pool );
-    }
+  for( ulong i=0UL; i<msg->staked_id_cnt; i++ ) {
+    stake_t * entry = stake_pool_ele_acquire( ctx->stake.pool );
+    entry->pubkey = id_weights[i].key;
+    entry->stake  = id_weights[i].stake;
+    stake_map_ele_insert( ctx->stake.map, entry, ctx->stake.pool );
   }
   ctx->stake.count = stake_pool_used( ctx->stake.pool );
 }

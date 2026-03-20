@@ -147,7 +147,7 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
   msg->excluded_id_stake = 0;
   msg->vote_keyed_lsched = 0;
 
-  fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( msg + 1 );
+  fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( msg );
   ulong stake_count = 0;
 
   FILE * file = fopen( ctx->stake_file, "r" );
