@@ -66,7 +66,26 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   while( size ) {
     ulong const chunk_sz = fd_ulong_min( size, fd_h2_rbuf_free_sz( frame_rx ) );
-    if( FD_UNLIKELY( !chunk_sz ) ) FD_LOG_CRIT(( "H2 rx buffer full but not drained" ));
+    if( FD_UNLIKELY( !chunk_sz ) ) {
+      /* Buffer full.  Give the H2 state machine one more step to
+         process the conn error.  The typical error path is:
+           fd_h2_rx sets SEND_GOAWAY
+           -> next fd_h2_tx_control sends GOAWAY, sets DEAD,
+              fires conn_final -> conn_dead sets defer_reset
+           -> step1 sees defer_reset, calls reset (clears
+              defer_reset and reinitializes buffers).
+         After the extra step, verify the buffer was drained
+         (either by processing frames or by a connection reset
+         reinitializing the buffer).  If still full, that
+         indicates a real H2 bug. */
+      int charge_busy = 0;
+      fd_bundle_client_step( ctx, &charge_busy );
+      fd_h2_rbuf_skip( frame_tx, fd_h2_rbuf_used_sz( frame_tx ) );
+      if( FD_UNLIKELY( !fd_h2_rbuf_free_sz( frame_rx ) ) ) {
+        FD_LOG_CRIT(( "H2 rx buffer full but not drained" ));
+      }
+      break;
+    }
     fd_h2_rbuf_push( frame_rx, data, chunk_sz );
     data += chunk_sz;
     size -= chunk_sz;
