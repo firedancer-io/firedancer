@@ -50,6 +50,7 @@ extern const fd_pubkey_t fd_solana_slashing_program_id;
 extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
 extern const fd_pubkey_t fd_solana_stake_program_vote_state_v4_buffer_address;
 extern const fd_pubkey_t fd_solana_slashing_program_buffer_address;
+extern const fd_pubkey_t fd_solana_ptoken_program_buffer_address;
 
 /* BPF migration authority
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L399-L401 */

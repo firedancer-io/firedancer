@@ -103,7 +103,7 @@
    */
 #define FD_SBPF_TEXT_CNT_MAX (FD_RUNTIME_ACC_SZ_MAX / 8UL)
 #define FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT ( (FD_SBPF_TEXT_CNT_MAX +63UL)>>6 )
-#define FD_SBPF_PROGRAM_FOOTPRINT (sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT )
+#define FD_SBPF_PROGRAM_FOOTPRINT (sizeof(fd_sbpf_program_t) + sizeof(fd_sbpf_calldests_private_t)-sizeof(ulong) + sizeof(ulong)*FD_SBPF_CALLDESTS_PRIVATE_WORD_CNT )
 
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
    vm is a handle to the running VM.  Returns 0 on success or an integer
