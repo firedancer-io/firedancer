@@ -23,8 +23,25 @@
 #define FD_H2_FRAME_TYPE_ORIGIN          ((uchar)0x0c)
 #define FD_H2_FRAME_TYPE_PRIORITY_UPDATE ((uchar)0x10)
 
+/* 4.1.  Frame Format
+   All frames begin with a fixed 9-octet header followed by a variable-
+   length payload.
+
+    +-----------------------------------------------+
+    |                 Length (24)                   |
+    +---------------+---------------+---------------+
+    |   Type (8)    |   Flags (8)   |
+    +-+-------------+---------------+-------------------------------+
+    |R|                 Stream Identifier (31)                      |
+    +=+=============================================================+
+    |                   Frame Payload (0...)                      ...
+    +---------------------------------------------------------------+
+
+                          Figure 1: Frame Layout
+*/
+
 /* fd_h2_frame_{length,type} pack/unpack the typlen field as found in a
-   frame header. */
+   frame header. The length is in bytes and does not include the 9-byte frame header. */
 
 FD_FN_CONST static inline uchar
 fd_h2_frame_type( uint typlen ) {
