@@ -128,7 +128,7 @@ struct fd_configf {
   struct {
     ulong max_live_slots;
     ulong max_fork_width;
-    ulong max_account_cnt;
+    ulong concurrent_account_limit;
 
     struct {
       ulong heap_size_mib;
