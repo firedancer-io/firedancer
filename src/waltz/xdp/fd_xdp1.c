@@ -178,8 +178,8 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
 
   /* check ip4's dst port */
   if( listen_ip4_addr!=0 ) {
-    *(code++) = FD_EBPF( ldxw, r5, r2, 16                       );
-    *(code++) = FD_EBPF( jne_imm, r5, listen_ip4_addr, LBL_PASS );  // if ip4->daddr != listen_ip4_addr goto LBL_PASS
+    *(code++) = FD_EBPF( ldxw, r5, r2, 16                         );
+    *(code++) = FD_EBPF( jne32_imm, r5, listen_ip4_addr, LBL_PASS );  // if ip4->daddr != listen_ip4_addr goto LBL_PASS
   }
 
   /* Advance r2 to start of udp_hdr */
@@ -213,12 +213,11 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   ulong * code_end = code;
   ulong   code_cnt = (ulong)( code_end-code_buf );
 
-  FD_LOG_HEXDUMP_DEBUG(( "XDP program", code_buf, code_cnt*sizeof(ulong) ));
-
   /* Fill in jump labels */
 
   for( ulong i=0UL; i<code_cnt; i++ ) {
-    if( (code_buf[ i ] & 0x05)==0x05 ) {
+    ulong ix_class = code_buf[ i ] & 0x07UL;
+    if( (ix_class==5UL) | (ix_class==6UL) ) {
       ulong * jmp_target = 0;
       uint    jmp_label = (code_buf[ i ]>>16) & 0xFFFF;
       switch( jmp_label ) {
@@ -234,6 +233,9 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
       code_buf[ i ] = (code_buf[ i ] & 0xFFFFFFFF0000FFFF) | ((ulong)off_u<<16UL);
     }
   }
+
+  FD_LOG_HEXDUMP_DEBUG(( "XDP program", code_buf, code_cnt*sizeof(ulong) ));
+
 
   #undef LBL_PASS
   #undef LBL_REDIRECT
