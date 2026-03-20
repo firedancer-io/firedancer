@@ -20,7 +20,7 @@
    This is asserted in the tests.  The size of fd_shred_dest_t, varies
    based on FD_SHA256_BATCH_FOOTPRINT, which depends on the compiler
    settings. */
-#define MAX_SHRED_DEST_FOOTPRINT (24564736UL + sizeof(fd_shred_dest_t))
+#define MAX_SHRED_DEST_FOOTPRINT (8386688UL + sizeof(fd_shred_dest_t))
 
 struct fd_per_epoch_info_private {
   /* Epoch, and [start_slot, start_slot+slot_cnt) refer to the time
