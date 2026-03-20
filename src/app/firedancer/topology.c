@@ -1255,12 +1255,12 @@ fd_topo_initialize( config_t * config ) {
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_locks_obj->id, "banks_locks" ) );
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-    if( FD_UNLIKELY( config->firedancer.runtime.max_account_cnt<FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE ) ) {
-      FD_LOG_ERR(( "max_account_cnt is less than the minimum required for bundle execution: %lu < %lu", config->firedancer.runtime.max_account_cnt, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE ));
+    if( FD_UNLIKELY( config->firedancer.runtime.concurrent_account_limit<FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE ) ) {
+      FD_LOG_ERR(( "concurrent_account_limit is less than the minimum required for bundle execution: %lu < %lu", config->firedancer.runtime.concurrent_account_limit, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE ));
     }
   }
-  if( FD_UNLIKELY( config->firedancer.runtime.max_account_cnt<FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ) ) {
-    FD_LOG_ERR(( "max_account_cnt is less than the minimum required for transaction execution: %lu < %lu", config->firedancer.runtime.max_account_cnt, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ));
+  if( FD_UNLIKELY( config->firedancer.runtime.concurrent_account_limit<FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ) ) {
+    FD_LOG_ERR(( "concurrent_account_limit is less than the minimum required for transaction execution: %lu < %lu", config->firedancer.runtime.concurrent_account_limit, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ));
   }
   if( FD_UNLIKELY( config->firedancer.runtime.max_live_slots<32UL ) ) {
     FD_LOG_ERR(( "max_live_slots must be >= 32 in order to support tower rooting" ));
@@ -1270,7 +1270,7 @@ fd_topo_initialize( config_t * config ) {
                  config->firedancer.runtime.max_live_slots, config->firedancer.accounts.write_delay_slots, FD_ACCDB_MAX_DEPTH_MAX ));
   }
 
-  fd_topo_obj_t * acc_pool_obj = setup_topo_acc_pool( topo, config->firedancer.runtime.max_account_cnt );
+  fd_topo_obj_t * acc_pool_obj = setup_topo_acc_pool( topo, config->firedancer.runtime.concurrent_account_limit );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle",   i   ) ], acc_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, acc_pool_obj->id, "acc_pool" ) );
