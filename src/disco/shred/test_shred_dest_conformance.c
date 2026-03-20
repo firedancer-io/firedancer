@@ -6,6 +6,8 @@ uchar _stake_ci_broadcast[ 64UL*1024UL*1024UL ] __attribute__((aligned(128UL)));
 
 uchar _stake_msg_mem[ FD_STAKE_CI_STAKE_MSG_SZ ];
 
+static fd_stake_weight_t id_scratch[ MAX_STAKED_LEADERS ];
+
 /* Cluster data from deterministic Rust test */
 static const struct {
   const char * pubkey_base58;
@@ -182,6 +184,8 @@ test_shred_dest_conformance(
     }
   }
   stake_msg->staked_vote_cnt = staked_cnt;
+  stake_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, vote_stake_weights, staked_cnt );
+  fd_memcpy( fd_stake_weight_msg_id_weights( stake_msg ), id_scratch, stake_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
   FD_LOG_NOTICE(( "Staked nodes: %lu / 20", staked_cnt ));
 
