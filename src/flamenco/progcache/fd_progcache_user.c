@@ -1,6 +1,7 @@
 #include "fd_prog_load.h"
 #include "fd_progcache_user.h"
 #include "fd_progcache_reclaim.h"
+#include "../../util/racesan/fd_racesan_target.h"
 
 FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 
@@ -135,6 +136,7 @@ fd_progcache_search_chain( fd_progcache_t const *    cache,
     return FD_MAP_ERR_AGAIN; /* chain is locked */
   }
   FD_COMPILER_MFENCE();
+  fd_racesan_hook( "prog_search_chain:post_ver_cnt" );
   uint ele_idx = chain->head_cidx;
 
   /* Walk the map chain, remember the best entry */
@@ -157,9 +159,11 @@ fd_progcache_search_chain( fd_progcache_t const *    cache,
     best = rec;
     break;
   }
+  fd_racesan_hook( "prog_search_chain:pre_tryread" );
   if( best && FD_UNLIKELY( !fd_rwlock_tryread( &best->lock ) ) ) {
     return FD_MAP_ERR_AGAIN;
   }
+  fd_racesan_hook( "prog_search_chain:post_tryread" );
 
   /* Retry if we were overrun */
   if( FD_UNLIKELY( FD_VOLATILE_CONST( chain->ver_cnt )!=ver_cnt ) ) {
@@ -189,6 +193,7 @@ fd_progcache_query( fd_progcache_t *          cache,
   for(;;) {
     int err = fd_progcache_search_chain( cache, chain_idx, key, revision_slot, &rec );
     if( FD_LIKELY( err==FD_MAP_SUCCESS ) ) break;
+    fd_racesan_hook( "prog_query:retry" );
     FD_SPIN_PAUSE();
     /* FIXME backoff */
   }
@@ -265,6 +270,7 @@ fd_progcache_push( fd_progcache_join_t * cache,
   if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) ) {
     FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock funk rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
   }
+  fd_racesan_hook( "prog_push:post_chain_lock" );
 
   /* Check if record exists */
 
@@ -295,6 +301,7 @@ fd_progcache_push( fd_progcache_join_t * cache,
   if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) {
     FD_LOG_CRIT(( "fd_prog_recm_txn_insert failed: %i-%s", insert_err, fd_map_strerror( insert_err ) ));
   }
+  fd_racesan_hook( "prog_push:post_map_insert" );
 
   /* Phase 5: Insert rec into rec_map */
 
@@ -504,6 +511,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
      lock order).  Safe because the record was just allocated and is not
      yet visible to other threads. */
   fd_rwlock_write( &rec->lock );
+  fd_racesan_hook( "prog_insert:pre_push" );
   fd_xid_t const * xid = fd_lineage_xid( cache->lineage, revision_slot );
   fd_rwlock_read( &ljoin->shmem->txn.rwlock );
   fd_progcache_txn_t * txn = NULL;
@@ -519,6 +527,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
     return NULL;
   }
   fd_rwlock_unread( &ljoin->shmem->txn.rwlock );
+  fd_racesan_hook( "prog_insert:pre_load" );
 
   /* Load program
      (The write lock was acquired before loading such that another

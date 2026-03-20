@@ -1,6 +1,7 @@
 #include "fd_progcache_reclaim.h"
 #include "fd_progcache_clock.h"
 #include "fd_progcache_user.h"
+#include "../../util/racesan/fd_racesan_target.h"
 
 void
 fd_prog_reclaim_enqueue( fd_progcache_join_t * join,
@@ -26,6 +27,7 @@ rec_reclaim( fd_progcache_join_t * join,
       FD_LOG_CRIT(( "progcache: corruption detected (rec_reclaim txn_idx=%u txn_max=%lu)", txn_idx, txn_max ));
     fd_progcache_txn_t * txn = &join->txn.pool[ txn_idx ];
     fd_rwlock_write( &txn->lock );
+    fd_racesan_hook( "prog_reclaim:pre_cas" );
     if( atomic_compare_exchange_strong_explicit( &rec->txn_idx, &txn_idx, UINT_MAX, memory_order_acq_rel, memory_order_acquire ) ) {
       /* A transaction may not be deallocated before all records are
          unlinked. */
@@ -37,6 +39,7 @@ rec_reclaim( fd_progcache_join_t * join,
     }
     fd_rwlock_unwrite( &txn->lock );
   }
+  fd_racesan_hook( "prog_reclaim:post_unlink" );
 
   /* Drain existing users
 

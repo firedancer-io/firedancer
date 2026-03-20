@@ -1,6 +1,7 @@
 #include "fd_progcache_user.h"
 #include "fd_progcache_clock.h"
 #include "fd_progcache_reclaim.h"
+#include "../../util/racesan/fd_racesan_target.h"
 
 void
 fd_prog_clock_init( atomic_ulong * cbits,
@@ -33,6 +34,7 @@ fd_prog_clock_evict( fd_progcache_t * cache,
     ulong slot    = atomic_load_explicit( slot_p, memory_order_relaxed );
     int   visited = fd_ulong_extract_bit( slot, fd_prog_visited_bit( head ) );
     int   exists  = fd_ulong_extract_bit( slot, fd_prog_exists_bit ( head ) );
+    fd_racesan_hook( "prog_clock_evict:post_load_bits" );
 
     if( exists ) {
       ulong mask = 0UL;
