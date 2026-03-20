@@ -60,6 +60,8 @@ struct fd_accdb_admin {
   uchar impl[ FD_ACCDB_IMPL_FOOTPRINT ] __attribute__((aligned(64)));
 };
 
+extern int fd_accdb_log_enabled;
+
 FD_PROTOTYPES_BEGIN
 
 static inline void
