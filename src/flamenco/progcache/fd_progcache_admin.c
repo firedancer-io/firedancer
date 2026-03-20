@@ -617,7 +617,8 @@ fd_progcache_verify( fd_progcache_join_t * join ) {
 
 void
 fd_progcache_wksp_metrics_update( fd_progcache_join_t * cache ) {
-  fd_wksp_t * wksp = cache->wksp;
+  fd_wksp_t * wksp = fd_wksp_containing( cache );
+  if( FD_UNLIKELY( !wksp ) ) return;
   if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) ) FD_LOG_CRIT(( "fd_wksp_private_lock failed" ));
 
   fd_wksp_private_pinfo_t * pinfo = fd_wksp_private_pinfo( wksp );

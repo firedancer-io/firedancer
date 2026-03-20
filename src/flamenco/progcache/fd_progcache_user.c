@@ -417,11 +417,11 @@ fd_progcache_spill_open( fd_progcache_t *        cache,
     if( FD_UNLIKELY( off1 > FD_PROGCACHE_SPAD_MAX ) ) {
       FD_LOG_CRIT(( "spill buffer overflow: spad_used=%u val_sz=%lu spad_max=%lu", shmem->spill.spad_used, off1-off0, FD_PROGCACHE_SPAD_MAX ));
     }
-    rec->data_gaddr = fd_wksp_gaddr_fast( join->wksp, shmem->spill.spad + off0 );
+    rec->data_gaddr = fd_wksp_gaddr_fast( join->data_base, shmem->spill.spad + off0 );
     rec->data_max   = (uint)( off1 - off0 );
 
     long dt = -fd_tickcount();
-    if( FD_LIKELY( fd_progcache_rec_load( rec, join->wksp, &params->elf_info, &params->config, params->revision_slot, params->features, params->bin, params->bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
+    if( FD_LIKELY( fd_progcache_rec_load( rec, join->data_base, &params->elf_info, &params->config, params->revision_slot, params->features, params->bin, params->bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
       /* Valid program, allocate data */
       shmem->spill.spad_used = (uint)off1;
     } else {
@@ -527,7 +527,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
 
   if( FD_LIKELY( peek_err==FD_SBPF_ELF_SUCCESS ) ) {
     long dt = -fd_tickcount();
-    if( FD_UNLIKELY( !fd_progcache_rec_load( rec, ljoin->wksp, elf_info, config, revision_slot, features, bin, bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
+    if( FD_UNLIKELY( !fd_progcache_rec_load( rec, ljoin->data_base, elf_info, config, revision_slot, features, bin, bin_sz, cache->scratch, cache->scratch_sz ) ) ) {
       /* Not a valid program (mark cache entry as non-executable) */
       fd_progcache_val_free( rec, ljoin );
       fd_progcache_rec_nx( rec );

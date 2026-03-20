@@ -217,7 +217,11 @@ fd_progcache_shmem_join( fd_progcache_join_t *  ljoin,
   memset( ljoin, 0, sizeof(fd_progcache_join_t) );
 
   ljoin->shmem = shmem;
-  ljoin->wksp  = wksp;
+  if( FD_UNLIKELY( fd_progcache_use_malloc ) ) {
+    ljoin->data_base = NULL;
+  } else {
+    ljoin->data_base = wksp;
+  }
 
   ljoin->txn.pool = fd_prog_txnp_join( fd_wksp_laddr( wksp, shmem->txn.pool_gaddr ) );
   if( FD_UNLIKELY( !ljoin->txn.pool ) ) {
@@ -285,6 +289,7 @@ fd_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
     FD_LOG_WARNING(( "shmem must be part of a workspace" ));
     return NULL;
   }
+  void * data_base = fd_progcache_use_malloc ? NULL : wksp;
 
   if( FD_UNLIKELY( shmem->magic!=FD_PROGCACHE_SHMEM_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
@@ -320,7 +325,7 @@ fd_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
     ) {
       fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
       if( rec->data_gaddr ) {
-        fd_progcache_val_free1( rec, fd_wksp_laddr_fast( wksp, rec->data_gaddr ), alloc );
+        fd_progcache_val_free1( rec, fd_wksp_laddr_fast( data_base, rec->data_gaddr ), alloc );
       }
       rec->data_gaddr = 0UL;
       rec->data_max   = 0U;
