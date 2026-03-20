@@ -4,6 +4,7 @@
 #include "fd_progcache_clock.h"
 #include "fd_progcache_rec.h"
 #include "fd_progcache_reclaim.h"
+#include "../../util/racesan/fd_racesan_target.h"
 #include "../../util/wksp/fd_wksp_private.h"
 
 /* FIXME get rid of this thread-local */
@@ -124,6 +125,7 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (cancel_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
     atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
+    fd_racesan_hook( "prog_cancel_one:post_orphan" );
     fd_prog_delete_rec( cache, &cache->rec.pool->ele[ idx ] );
   }
 
@@ -257,6 +259,7 @@ fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
 
     /* Migrate record to root */
     fd_rwlock_write( &rec->lock );
+    fd_racesan_hook( "prog_publish_release:pre_retag" );
     rec->prev_idx = UINT_MAX;
     rec->next_idx = UINT_MAX;
     atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
@@ -287,6 +290,7 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   if( FD_UNLIKELY( txn->parent_idx!=UINT_MAX ) ) {
     FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid.ul[0], xid.ul[1] ));
   }
+  fd_racesan_hook( "prog_publish_one:pre_xid_store" );
   fd_funk_txn_xid_st_atomic( cache->shmem->txn.last_publish, &xid );
 
   /* Phase 2: Drain inserters from transaction */

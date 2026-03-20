@@ -251,6 +251,11 @@ custom instrumentation in our code.
 Compiler tool for detecting data races.  Integrates with
 progcache's use of C11 stdatomic.
 
+### fd_racesan
+
+Framework for testing deterministic interleavings of
+concurrent algorithms running on different threads.
+
 ### fd_progcache_verify
 
 Algorithm for verifying data structure integrity issues
@@ -263,5 +268,10 @@ These are then run over the following test harnesses.
 ### test_progcache
 
 Contains various unit and regression tests (ASan, MSan, Valgrind instrumented).
+
+### test_progcache_racesan
+
+Explores interleavings of progcache interactions on different simulated threads.
+(ASan, Valgrind, fd_racesan instrumented)
 
 ----------------

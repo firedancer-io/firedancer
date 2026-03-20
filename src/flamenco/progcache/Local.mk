@@ -20,6 +20,9 @@ ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_progcache,test_progcache,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_progcache)
+ifdef FD_HAS_RACESAN
+$(call make-unit-test,test_progcache_racesan,test_progcache_racesan,fd_flamenco fd_funk fd_ballet fd_util)
+endif
 endif
 endif
 
