@@ -593,7 +593,7 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
 
-  epoch_info_msg->staked_vote_cnt   = current_epoch ? *fd_bank_get_stake_weights_cnt_next( bank->data ) : *fd_bank_get_stake_weights_cnt( bank->data );;
+  epoch_info_msg->staked_vote_cnt   = current_epoch ? *fd_bank_get_stake_weights_cnt_next( bank->data ) : *fd_bank_get_stake_weights_cnt( bank->data );
   epoch_info_msg->staked_id_cnt     = current_epoch ? *fd_bank_get_id_weights_cnt_next( bank->data ) : *fd_bank_get_id_weights_cnt( bank->data );
   epoch_info_msg->epoch_schedule    = *schedule;
   epoch_info_msg->features          = *features;
