@@ -72,11 +72,14 @@ test_bundle_env_create( test_bundle_env_t * env,
   };
 
   state->tcp_sock        = -1;
-  state->grpc_buf_max    = 4096UL;
+  state->grpc_buf_max    = 16384UL + sizeof(fd_h2_frame_hdr_t);
   state->grpc_client_mem = fd_wksp_alloc_laddr( wksp, fd_grpc_client_align(), fd_grpc_client_footprint( state->grpc_buf_max ), 1UL );
   state->grpc_client     = fd_grpc_client_new( state->grpc_client_mem, &fd_bundle_client_grpc_callbacks, state->grpc_metrics, state, state->grpc_buf_max, 1UL );
   fd_h2_conn_t * h2_conn = fd_grpc_client_h2_conn( state->grpc_client );
   h2_conn->flags = 0;
+  /* Clamp max_frame_size to buffer capacity so oversized frames are
+     rejected by the H2 layer before filling the rx buffer. */
+  h2_conn->self_settings.max_frame_size = (uint)( state->grpc_buf_max - sizeof(fd_h2_frame_hdr_t) );
 
   const ulong pending_max  = mcache_depth;
   env->deque_mem      = fd_wksp_alloc_laddr( wksp, pending_txn_align(), pending_txn_footprint( pending_max ), 1UL );

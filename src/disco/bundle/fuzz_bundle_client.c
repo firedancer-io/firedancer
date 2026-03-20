@@ -65,8 +65,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
   if( seed & 16 ) test_bundle_env_mock_builder_info_req( env->state );
 
   while( size ) {
-    // ulong chunk_sz = 1UL;
     ulong const chunk_sz = fd_ulong_min( size, fd_h2_rbuf_free_sz( frame_rx ) );
+    if( FD_UNLIKELY( !chunk_sz ) ) FD_LOG_CRIT(( "H2 rx buffer full but not drained" ));
     fd_h2_rbuf_push( frame_rx, data, chunk_sz );
     data += chunk_sz;
     size -= chunk_sz;
