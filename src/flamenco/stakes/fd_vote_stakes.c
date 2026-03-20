@@ -57,7 +57,7 @@ fd_vote_stakes_new( void * shmem,
   void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
   void *             fork_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
   for( ulong i=0; i<max_fork_width; i++ ) {
-    void *    stakes_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
+    void *    stakes_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts * 2UL ) );
     stake_t * stakes_pool     = stakes_pool_join( stakes_pool_new( stakes_pool_mem, max_vote_accounts * 2UL ) );
     if( FD_UNLIKELY( !stakes_pool ) ) {
       FD_LOG_WARNING(( "Failed to create vote stakes ele pool" ));
