@@ -250,6 +250,10 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   epoch_info_msg->staked_vote_cnt = idx;
   sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
 
+  fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
+
+  epoch_info_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_weights, stake_weights, epoch_info_msg->staked_vote_cnt );
+
   FD_TEST( idx<=MAX_SHRED_DESTS );
 
   epoch_info_msg->epoch_schedule = *epoch_schedule;
