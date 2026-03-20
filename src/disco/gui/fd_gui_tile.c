@@ -259,9 +259,11 @@ during_frag( fd_gui_ctx_t * ctx,
       FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
       sz = 8UL + peer_cnt*112UL;
     } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
-      ulong staked_cnt = ((ulong *)src)[ 1 ];
-      FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
-      sz = fd_stake_weight_msg_sz( staked_cnt );
+      ulong staked_vote_cnt = ((ulong *)src)[ 1 ];
+      ulong staked_id_cnt   = ((ulong *)src)[ 2 ];
+      FD_TEST( staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+      FD_TEST( staked_id_cnt<=MAX_SHRED_DESTS );
+      sz = fd_stake_weight_msg_sz( staked_vote_cnt, staked_id_cnt );
     }
   }
 

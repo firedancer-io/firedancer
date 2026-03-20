@@ -4,6 +4,7 @@
 #include "../types/fd_types_custom.h"
 #include "../features/fd_features.h"
 
+#define MAX_SHRED_DESTS              40200UL /* 200 * 201 - 1 (exclude self) */
 #define MAX_SLOTS_PER_EPOCH          432000UL
 #define MAX_STAKED_LEADERS           108000UL
 #define MAX_COMPRESSED_STAKE_WEIGHTS (MAX_STAKED_LEADERS*2UL+1UL)
@@ -23,12 +24,14 @@ typedef struct fd_stake_weight_msg_t fd_stake_weight_msg_t;
 
 #define FD_STAKE_CI_STAKE_MSG_HEADER_SZ (sizeof(fd_stake_weight_msg_t))
 #define FD_STAKE_CI_STAKE_MSG_RECORD_SZ (sizeof(fd_vote_stake_weight_t))
-#define FD_STAKE_CI_STAKE_MSG_SZ (FD_STAKE_CI_STAKE_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * FD_STAKE_CI_STAKE_MSG_RECORD_SZ + 40200UL * sizeof(fd_stake_weight_t))
+#define FD_STAKE_CI_ID_WEIGHT_RECORD_SZ (sizeof(fd_stake_weight_t))
+#define FD_STAKE_CI_STAKE_MSG_SZ (FD_STAKE_CI_STAKE_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * FD_STAKE_CI_STAKE_MSG_RECORD_SZ + MAX_SHRED_DESTS * sizeof(fd_stake_weight_t))
 
 #define FD_STAKE_OUT_MTU FD_STAKE_CI_STAKE_MSG_SZ
 
-static inline ulong fd_stake_weight_msg_sz( ulong cnt ) {
-  return FD_STAKE_CI_STAKE_MSG_HEADER_SZ + cnt * FD_STAKE_CI_STAKE_MSG_RECORD_SZ;
+static inline ulong fd_stake_weight_msg_sz( ulong staked_vote_cnt,
+                                            ulong staked_id_cnt ) {
+  return FD_STAKE_CI_STAKE_MSG_HEADER_SZ + staked_vote_cnt * FD_STAKE_CI_STAKE_MSG_RECORD_SZ + staked_id_cnt * FD_STAKE_CI_ID_WEIGHT_RECORD_SZ;
 }
 
 static inline fd_vote_stake_weight_t *
@@ -90,7 +93,7 @@ typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
    they aren't inserted into any downstream data structures. */
 
 #define FD_EPOCH_INFO_MSG_HEADER_SZ (sizeof(fd_epoch_info_msg_t))
-#define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t) + 40200UL * sizeof(fd_stake_weight_t))
+#define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t) + MAX_SHRED_DESTS * sizeof(fd_stake_weight_t))
 #define FD_EPOCH_OUT_MTU            FD_EPOCH_INFO_MAX_MSG_SZ
 
 static inline ulong fd_epoch_info_msg_sz( ulong vote_cnt,
@@ -111,7 +114,7 @@ fd_epoch_info_msg_id_weights( fd_epoch_info_msg_t const * epoch_info_msg ) {
 }
 
 /* compute_id_weights_from_vote_weights() translates vote-based
-   stake weigths into (older) identity-based stake weigths.
+   stake weights into (older) identity-based stake weights.
 
    Before SIMD-0180, the leader schedule was generated starting from
    a list [(id, stake)] where `id` is the validator identity and

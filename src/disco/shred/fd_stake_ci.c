@@ -48,9 +48,14 @@ void * fd_stake_ci_delete( void          * mem  ) { return mem;          }
 void
 fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
                             fd_stake_weight_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_SHRED_DESTS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) ) {
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_SHRED_DESTS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
+  }
+  if( FD_UNLIKELY( msg->staked_id_cnt > MAX_SHRED_DESTS ) ) {
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu id weights in it,"
+                 " but the maximum allowed is %lu", msg->staked_id_cnt, MAX_SHRED_DESTS ));
+  }
 
   info->scratch->epoch             = msg->epoch;
   info->scratch->start_slot        = msg->start_slot;
@@ -67,9 +72,15 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t               * info,
 void
 fd_stake_ci_epoch_msg_init( fd_stake_ci_t *             info,
                             fd_epoch_info_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) ) {
     FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu stakes in it,"
                  " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
+  }
+  if( FD_UNLIKELY( msg->staked_id_cnt > MAX_SHRED_DESTS ) ) {
+    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu id weights in it,"
+                 " but the maximum allowed is %lu", msg->staked_id_cnt, MAX_SHRED_DESTS ));
+  }
+
 
   info->scratch->epoch               = msg->epoch;
   info->scratch->start_slot          = msg->start_slot;
@@ -178,12 +189,10 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( new_ei->lsched ) );
 
   /* And create the new one */
-  ulong excluded_stake = info->scratch->excluded_id_stake;
-
   new_ei->epoch             = epoch;
   new_ei->start_slot        = info->scratch->start_slot;
   new_ei->slot_cnt          = info->scratch->slot_cnt;
-  new_ei->excluded_stake    = excluded_stake;
+  new_ei->excluded_stake    = info->scratch->excluded_id_stake;
   new_ei->vote_keyed_lsched = vote_keyed_lsched;
 
   new_ei->lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( new_ei->_lsched, epoch, new_ei->start_slot, new_ei->slot_cnt,

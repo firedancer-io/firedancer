@@ -27,13 +27,9 @@ compute_id_weights_from_vote_weights( fd_stake_weight_t *            stake_weigh
                                       fd_vote_stake_weight_t const * vote_stake_weight,
                                       ulong                          staked_cnt ) {
 
-  if( FD_UNLIKELY( staked_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
-    FD_LOG_ERR(( "The stakes -> Firedancer splice sent a malformed update with %lu compressed stakes in it,"
-                 " but the maximum allowed is %lu", staked_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
   /* Copy from input message [(vote, id, stake)] into old format [(id, stake)]. */
   ulong idx = 0UL;
   for( ulong i=0UL; i<staked_cnt; i++ ) {
-    if( FD_UNLIKELY( fd_pubkey_eq( &vote_stake_weight[ i ].id_key, &FD_DUMMY_ACCOUNT_PUBKEY ) ) ) continue;
     memcpy( stake_weight[ idx ].key.uc, vote_stake_weight[ i ].id_key.uc, sizeof(fd_pubkey_t) );
     stake_weight[ idx ].stake = vote_stake_weight[ i ].stake;
     idx++;

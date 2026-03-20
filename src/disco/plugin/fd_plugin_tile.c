@@ -67,8 +67,10 @@ during_frag( fd_plugin_ctx_t * ctx,
     ctx->sz = 8UL + peer_cnt*112UL;
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     ulong staked_cnt = ((ulong *)src)[ 1 ];
-    FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
-    ctx->sz = fd_stake_weight_msg_sz( staked_cnt );
+    ulong id_cnt     = ((ulong *)src)[ 2 ];
+    FD_TEST( staked_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    FD_TEST( id_cnt<=MAX_SHRED_DESTS );
+    ctx->sz = fd_stake_weight_msg_sz( staked_cnt, id_cnt );
   }
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )

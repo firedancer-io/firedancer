@@ -670,7 +670,7 @@ struct fd_banks_data {
   fd_vote_stake_weight_t stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  stake_weights_cnt;
 
-  fd_stake_weight_t id_weights[ 40200UL ];
+  fd_stake_weight_t id_weights[ MAX_SHRED_DESTS ];
   ulong             id_weights_cnt;
 
   /* Set of compressed stake weights for the leader schedule for the
@@ -679,7 +679,7 @@ struct fd_banks_data {
   fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  next_stake_weights_cnt;
 
-  fd_stake_weight_t next_id_weights[ 40200UL ];
+  fd_stake_weight_t next_id_weights[ MAX_SHRED_DESTS ];
   ulong             next_id_weights_cnt;
 
   ulong             id_weights_excluded;
