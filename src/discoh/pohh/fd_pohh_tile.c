@@ -1674,19 +1674,16 @@ after_credit( fd_pohh_tile_t *    ctx,
      count to the current system clock, and clamp it to the allowed
      range. */
   long now = fd_log_wallclock();
-  ulong target_hashcnt;
-  if( FD_LIKELY( !is_leader ) ) {
-    target_hashcnt = (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns) - (ctx->slot-ctx->reset_slot)*ctx->hashcnt_per_slot;
-  } else {
+  ulong target_hashcnt = (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns) - (ctx->slot-ctx->reset_slot)*ctx->hashcnt_per_slot;
+  if( FD_LIKELY( is_leader ) ) {
     /* We might have gotten very behind on hashes, but if we are leader
        we want to catch up gradually over the remainder of our leader
        slot, not all at once right now.  This helps keep the tile from
        being oversubscribed and taking a long time to process incoming
-       microblocks. */
-    long expected_slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(ctx->slot-ctx->reset_slot)*ctx->slot_duration_ns);
-    double actual_slot_duration_ns = ctx->slot_duration_ns<(double)(ctx->leader_bank_start_ns - expected_slot_start_ns) ? 0.0 : ctx->slot_duration_ns - (double)(ctx->leader_bank_start_ns - expected_slot_start_ns);
-    double actual_hashcnt_duration_ns = actual_slot_duration_ns / (double)ctx->hashcnt_per_slot;
-    target_hashcnt = actual_hashcnt_duration_ns==0.0 ? restricted_hashcnt : (ulong)((double)(now - ctx->leader_bank_start_ns) / actual_hashcnt_duration_ns);
+       microblocks. fd_ulong_max(...,1UL) covers low-power mode where
+       hashcnt_per_tick/10 is zero so we still advance at least one
+       hash. */
+    target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, ctx->hashcnt+ctx->hashcnt_per_tick/10UL ), 1UL );
   }
   /* Clamp to [min_hashcnt, restricted_hashcnt] as above */
   target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, restricted_hashcnt ), min_hashcnt );

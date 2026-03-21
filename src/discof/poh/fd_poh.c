@@ -499,12 +499,16 @@ fd_poh_advance( fd_poh_t *          poh,
      count to the current system clock, and clamp it to the allowed
      range. */
   long now = fd_log_wallclock();
-  ulong target_hashcnt;
-  if( FD_LIKELY( poh->state==STATE_FOLLOWER ||poh->state==STATE_WAITING_FOR_SLOT ) ) {
-    target_hashcnt = (ulong)((double)(now - poh->reset_slot_start_ns) / poh->hashcnt_duration_ns) - (poh->slot-poh->reset_slot)*poh->hashcnt_per_slot;
-  } else {
-    FD_TEST( poh->state==STATE_LEADER );
-    target_hashcnt = (ulong)((double)(now - poh->leader_slot_start_ns) / poh->hashcnt_duration_ns);
+  ulong target_hashcnt = (ulong)((double)(now - poh->reset_slot_start_ns) / poh->hashcnt_duration_ns) - (poh->slot-poh->reset_slot)*poh->hashcnt_per_slot;
+  if( FD_LIKELY( poh->state==STATE_LEADER ) ) {
+    /* We might have gotten very behind on hashes, but if we are leader
+       we want to catch up gradually over the remainder of our leader
+       slot, not all at once right now.  This helps keep the tile from
+       being oversubscribed and taking a long time to process incoming
+       microblocks. fd_ulong_max(...,1UL) covers low-power mode where
+       hashcnt_per_tick/10 is zero so we still advance at least one
+       hash. */
+    target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, poh->hashcnt+poh->hashcnt_per_tick/10UL ), 1UL );
   }
   /* Clamp to [min_hashcnt, restricted_hashcnt] as above */
   target_hashcnt = fd_ulong_max( fd_ulong_min( target_hashcnt, restricted_hashcnt ), min_hashcnt );
