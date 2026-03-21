@@ -651,15 +651,16 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     };
     int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
 
-    /* Reject ContactInfos where any socket has a multicast
-       address.  A malicious peer could advertise a multicast address
-       for e.g. TVU to cause the validator to send traffic to
-       unintended destinations. */
+    /* Sanitize non-gossip sockets: zero out any with a multicast
+       address.  Matches Agave, which omits bad sockets from the cache
+       but still accepts the ContactInfo into CRDS. */
     for( ulong j=0UL; j<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT; j++ ) {
-      if( FD_UNLIKELY( drop ) ) break;
-      fd_gossip_socket_t const * sock = &value->contact_info->sockets[ j ];
+      fd_gossip_socket_t * sock = &values[ i ].contact_info->sockets[ j ];
       if( !sock->port || sock->is_ipv6 ) continue;
-      drop = fd_ip4_addr_is_mcast( sock->ip4 );
+      if( FD_UNLIKELY( fd_ip4_addr_is_mcast( sock->ip4 ) ) ) {
+        sock->ip4  = 0U;
+        sock->port = 0;
+      }
     }
 
     if( FD_UNLIKELY( drop ) ) {
