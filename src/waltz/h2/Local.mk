@@ -30,5 +30,6 @@ $(call run-unit-test,test_h2)
 
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_h2,fuzz_h2,fd_waltz fd_util)
+$(call make-fuzz-test,fuzz_h2_actor,fuzz_h2_actor,fd_waltz fd_util)
 $(call make-unit-test,test_h2_server,test_h2_server,fd_waltz fd_util)
 endif
