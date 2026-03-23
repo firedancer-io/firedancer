@@ -6,6 +6,8 @@ uchar _stake_ci_broadcast[ 64UL*1024UL*1024UL ] __attribute__((aligned(128UL)));
 
 uchar _stake_msg_mem[ FD_STAKE_CI_STAKE_MSG_SZ ];
 
+static fd_stake_weight_t id_scratch[ MAX_STAKED_LEADERS ];
+
 /* Cluster data from deterministic Rust test */
 static const struct {
   const char * pubkey_base58;
@@ -167,20 +169,23 @@ test_shred_dest_conformance(
   stake_msg->epoch = 123UL;
   stake_msg->start_slot = 0UL;
   stake_msg->slot_cnt = 432000UL;
-  stake_msg->excluded_stake = 0UL;
+  stake_msg->excluded_id_stake = 0UL;
   stake_msg->vote_keyed_lsched = 0UL;  /* Use identity-keyed leader schedule */
 
   /* Count staked nodes and build stake weights */
+  fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( stake_msg + 1 );
   ulong staked_cnt = 0UL;
   for( ulong i=0UL; i<20UL; i++ ) {
     if( CLUSTER_NODES[i].stake > 0UL ) {
-      memcpy( stake_msg->weights[staked_cnt].id_key.uc, pubkeys[i].uc, 32UL );
-      memcpy( stake_msg->weights[staked_cnt].vote_key.uc, pubkeys[i].uc, 32UL );
-      stake_msg->weights[staked_cnt].stake = CLUSTER_NODES[i].stake;
+      memcpy( vote_stake_weights[staked_cnt].id_key.uc, pubkeys[i].uc, 32UL );
+      memcpy( vote_stake_weights[staked_cnt].vote_key.uc, pubkeys[i].uc, 32UL );
+      vote_stake_weights[staked_cnt].stake = CLUSTER_NODES[i].stake;
       staked_cnt++;
     }
   }
-  stake_msg->staked_cnt = staked_cnt;
+  stake_msg->staked_vote_cnt = staked_cnt;
+  stake_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, vote_stake_weights, staked_cnt );
+  fd_memcpy( fd_stake_weight_msg_id_weights( stake_msg ), id_scratch, stake_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
   FD_LOG_NOTICE(( "Staked nodes: %lu / 20", staked_cnt ));
 

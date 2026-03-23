@@ -1677,7 +1677,7 @@ void
 fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
                                fd_stake_weight_msg_t const * leader_schedule,
                                long                          now ) {
-  FD_TEST( leader_schedule->staked_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( leader_schedule->staked_vote_cnt<=MAX_STAKED_LEADERS );
   FD_TEST( leader_schedule->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = leader_schedule->epoch % 2UL;
@@ -1686,7 +1686,6 @@ fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
   gui->epoch.epochs[ idx ].epoch            = leader_schedule->epoch;
   gui->epoch.epochs[ idx ].start_slot       = leader_schedule->start_slot;
   gui->epoch.epochs[ idx ].end_slot         = leader_schedule->start_slot + leader_schedule->slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].excluded_stake   = leader_schedule->excluded_stake;
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
 
@@ -1695,17 +1694,17 @@ fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
 
   gui->epoch.epochs[ idx ].rankings_slot = leader_schedule->start_slot;
 
-  fd_vote_stake_weight_t const * stake_weights = leader_schedule->weights;
-  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, leader_schedule->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t const * stake_weights = fd_stake_weight_msg_stake_weights( leader_schedule );
+  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, leader_schedule->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
 
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
                                                                                leader_schedule->epoch,
                                                                                gui->epoch.epochs[ idx ].start_slot,
                                                                                leader_schedule->slot_cnt,
-                                                                               leader_schedule->staked_cnt,
+                                                                               leader_schedule->staked_vote_cnt,
                                                                                gui->epoch.epochs[ idx ].stakes,
-                                                                               leader_schedule->excluded_stake,
+                                                                               0UL,
                                                                                leader_schedule->vote_keyed_lsched ) );
 
   if( FD_UNLIKELY( leader_schedule->start_slot==0UL ) ) {
@@ -1731,7 +1730,7 @@ void
 fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           fd_epoch_info_msg_t const * epoch_info,
                           long                        now ) {
-  FD_TEST( epoch_info->staked_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+  FD_TEST( epoch_info->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
   FD_TEST( epoch_info->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
   ulong idx = epoch_info->epoch % 2UL;
@@ -1740,7 +1739,6 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
   gui->epoch.epochs[ idx ].epoch            = epoch_info->epoch;
   gui->epoch.epochs[ idx ].start_slot       = epoch_info->start_slot;
   gui->epoch.epochs[ idx ].end_slot         = epoch_info->start_slot + epoch_info->slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].excluded_stake   = epoch_info->excluded_stake;
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
 
@@ -1749,17 +1747,17 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
 
   gui->epoch.epochs[ idx ].rankings_slot = epoch_info->start_slot;
 
-  fd_vote_stake_weight_t const * stake_weights = epoch_info->weights;
-  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, epoch_info->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t const * stake_weights = fd_epoch_info_msg_stake_weights( epoch_info );
+  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, epoch_info->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
 
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
                                                                                epoch_info->epoch,
                                                                                gui->epoch.epochs[ idx ].start_slot,
                                                                                epoch_info->slot_cnt,
-                                                                               epoch_info->staked_cnt,
+                                                                               epoch_info->staked_vote_cnt,
                                                                                gui->epoch.epochs[ idx ].stakes,
-                                                                               epoch_info->excluded_stake,
+                                                                               0UL,
                                                                                epoch_info->vote_keyed_lsched ) );
 
   if( FD_UNLIKELY( epoch_info->start_slot==0UL ) ) {
@@ -2955,7 +2953,7 @@ fd_gui_plugin_message( fd_gui_t *   gui,
       break;
     }
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
-      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==6*sizeof(ulong), "new fields breaks things" );
+      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==7*sizeof(ulong), "new fields breaks things" );
       fd_gui_handle_leader_schedule( gui, (fd_stake_weight_msg_t *)msg, now );
       break;
     }

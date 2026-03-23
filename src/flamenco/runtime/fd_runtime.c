@@ -39,6 +39,7 @@
 
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
+#include "../../disco/shred/fd_stake_ci.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -145,12 +146,14 @@ update_next_leaders( fd_bank_t *          bank,
   fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights_next( bank->data );
   ulong idx = 0UL;
 
+  int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
+
   for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
     fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
     fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
     ulong               stake       = epoch_weights[i].stake;
 
-    if( FD_LIKELY( fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
+    if( FD_LIKELY( !needs_compression || fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
       stake_weights[ idx ].stake = stake;
       memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
@@ -165,6 +168,21 @@ update_next_leaders( fd_bank_t *          bank,
     }
   }
   *fd_bank_get_stake_weights_cnt_next( bank->data ) = idx;
+
+  /* Produce truncated set of id weights to send to Shred tile for
+     Turbine tree computation. */
+  ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
+  ulong excluded_stake = 0UL;
+  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
+    for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
+      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
+    }
+  }
+  staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
+  fd_stake_weight_t * id_weights = fd_bank_get_id_weights_next( bank->data );
+  memcpy( id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  *fd_bank_get_id_weights_cnt_next( bank->data ) = staked_cnt;
+  *fd_bank_get_next_id_weights_excluded( bank->data ) = excluded_stake;
 }
 
 void
@@ -204,12 +222,15 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
      schedule. */
   fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights( bank->data );
   ulong idx = 0UL;
+
+  int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
+
   for( ulong i=0UL; i<leaders->pub_cnt; i++ ) {
     fd_pubkey_t const * vote_pubkey = &epoch_weights[i].vote_key;
     fd_pubkey_t const * node_pubkey = &epoch_weights[i].id_key;
     ulong               stake       = epoch_weights[i].stake;
 
-    if( fd_epoch_leaders_is_leader_idx( leaders, i ) ) {
+    if( FD_LIKELY( !needs_compression || fd_epoch_leaders_is_leader_idx( leaders, i ) ) ) {
       stake_weights[ idx ].stake = stake;
       memcpy( stake_weights[ idx ].id_key.uc,   node_pubkey, sizeof(fd_pubkey_t) );
       memcpy( stake_weights[ idx ].vote_key.uc, vote_pubkey, sizeof(fd_pubkey_t) );
@@ -224,6 +245,23 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     }
   }
   *fd_bank_get_stake_weights_cnt( bank->data ) = idx;
+
+  /* Produce truncated set of id weights to send to Shred tile for
+     Turbine tree computation. */
+  ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
+  ulong excluded_stake = 0UL;
+  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
+    for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
+      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
+    }
+  }
+  staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
+  fd_stake_weight_t * id_weights = fd_bank_get_id_weights( bank->data );
+  memcpy( id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  *fd_bank_get_id_weights_cnt( bank->data ) = staked_cnt;
+  *fd_bank_get_id_weights_excluded( bank->data ) = excluded_stake;
+
+
   fd_bank_vote_stakes_end_locking_modify( bank );
 }
 

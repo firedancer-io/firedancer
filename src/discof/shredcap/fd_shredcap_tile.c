@@ -219,12 +219,12 @@ generate_epoch_info_msg_manifest( ulong                                       ep
                                   fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
                                   ulong *                                     epoch_info_msg_out ) {
   fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
-  fd_vote_stake_weight_t * stake_weights  = epoch_info_msg->weights;
+  fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
 
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
-  epoch_info_msg->excluded_stake    = 0UL;
+  epoch_info_msg->excluded_id_stake = 0UL;
   epoch_info_msg->vote_keyed_lsched = 1UL;
 
   /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
@@ -247,12 +247,18 @@ generate_epoch_info_msg_manifest( ulong                                       ep
     memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
     idx++;
   }
-  epoch_info_msg->staked_cnt = idx;
+  epoch_info_msg->staked_vote_cnt = idx;
   sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
+
+  fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
+
+  epoch_info_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_weights, stake_weights, epoch_info_msg->staked_vote_cnt );
+
+  FD_TEST( idx<=MAX_SHRED_DESTS );
 
   epoch_info_msg->epoch_schedule = *epoch_schedule;
 
-  return fd_epoch_info_msg_sz( epoch_info_msg->staked_cnt );
+  return fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt, epoch_info_msg->staked_id_cnt );
 }
 
 static void

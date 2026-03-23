@@ -144,10 +144,10 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
   msg->epoch = ctx->epoch;
   msg->start_slot = ctx->epoch*MAX_SLOTS_PER_EPOCH;
   msg->slot_cnt = MAX_SLOTS_PER_EPOCH;
-  msg->excluded_stake = 0;
+  msg->excluded_id_stake = 0;
   msg->vote_keyed_lsched = 0;
 
-  fd_vote_stake_weight_t * stake_weights = msg->weights;
+  fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( msg );
   ulong stake_count = 0;
 
   FILE * file = fopen( ctx->stake_file, "r" );
@@ -155,13 +155,13 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
 
   char line[1024];
   while( fgets( line, sizeof(line), file ) ) {
-    stake_weights[stake_count++] = parse_stake_weight( line );
+    vote_stake_weights[stake_count++] = parse_stake_weight( line );
   }
   fclose( file );
 
   if( stake_count == 0 ) FD_LOG_ERR(( "No valid stake entries found in %s", ctx->stake_file ));
 
-  msg->staked_cnt = stake_count;
+  msg->staked_vote_cnt = stake_count;
   ulong const sz = sizeof(fd_stake_weight_msg_t) + stake_count * sizeof(fd_vote_stake_weight_t);
   FD_TEST( sz <= USHORT_MAX );
 
