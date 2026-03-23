@@ -17,6 +17,22 @@ test_cb_conn_established( fd_h2_conn_t * conn ) {
   cb_rec.cb_established_cnt++;
 }
 
+static void
+test_h2_push_settings_max_frame_size( fd_h2_rbuf_t * rbuf,
+                                      uint           max_frame_size ) {
+  fd_h2_frame_hdr_t hdr = {
+    .typlen = fd_h2_frame_typlen( FD_H2_FRAME_TYPE_SETTINGS, sizeof(fd_h2_setting_t) ),
+    .flags  = 0,
+    .r_stream_id = 0
+  };
+  fd_h2_setting_t setting = {
+    .id    = fd_ushort_bswap( FD_H2_SETTINGS_MAX_FRAME_SIZE ),
+    .value = fd_uint_bswap( max_frame_size )
+  };
+  fd_h2_rbuf_push( rbuf, &hdr, sizeof(hdr) );
+  fd_h2_rbuf_push( rbuf, &setting, sizeof(setting) );
+}
+
 /* test_h2_client_handshake exercises various client-side handshake
    state logic.  There are three possible successful client handshake
    sequences:
@@ -252,7 +268,53 @@ test_h2_ping_tx( void ) {
 }
 
 static void
+test_h2_invalid_max_frame_size( void ) {
+  static uint const invalid_values[] = {
+    0x00003fffU,
+    0x01000000U
+  };
+
+  uchar scratch [ 128 ];
+  uchar rbuf_rx_b[ 128 ];
+  uchar rbuf_tx_b[ 128 ];
+
+  fd_h2_callbacks_t cb[1];
+  fd_h2_callbacks_init( cb );
+
+  for( ulong i=0UL; i<sizeof(invalid_values)/sizeof(invalid_values[0]); i++ ) {
+    fd_h2_conn_t conn[1];
+    FD_TEST( fd_h2_conn_init_client( conn )==conn );
+    conn->flags = 0;
+
+    fd_h2_rbuf_t rbuf_rx[1];
+    fd_h2_rbuf_t rbuf_tx[1];
+    fd_h2_rbuf_init( rbuf_rx, rbuf_rx_b, sizeof(rbuf_rx_b) );
+    fd_h2_rbuf_init( rbuf_tx, rbuf_tx_b, sizeof(rbuf_tx_b) );
+
+    test_h2_push_settings_max_frame_size( rbuf_rx, invalid_values[i] );
+    fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+
+    FD_TEST( !!( conn->flags & FD_H2_CONN_FLAGS_SEND_GOAWAY ) );
+    FD_TEST( conn->conn_error==FD_H2_ERR_PROTOCOL );
+    FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==0UL );
+
+    fd_h2_tx_control( conn, rbuf_tx, cb );
+
+    FD_TEST( conn->flags==FD_H2_CONN_FLAGS_DEAD );
+    FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx )==sizeof(fd_h2_goaway_t) );
+
+    fd_h2_goaway_t goaway;
+    fd_h2_rbuf_pop_copy( rbuf_tx, &goaway, sizeof(goaway) );
+    FD_TEST( fd_h2_frame_type( goaway.hdr.typlen )==FD_H2_FRAME_TYPE_GOAWAY );
+    FD_TEST( fd_h2_frame_length( goaway.hdr.typlen )==8U );
+    FD_TEST( fd_h2_frame_stream_id( goaway.hdr.r_stream_id )==0U );
+    FD_TEST( fd_uint_bswap( goaway.error_code )==FD_H2_ERR_PROTOCOL );
+  }
+}
+
+static void
 test_h2_conn( void ) {
   test_h2_client_handshake();
+  test_h2_invalid_max_frame_size();
   test_h2_ping_tx();
 }
