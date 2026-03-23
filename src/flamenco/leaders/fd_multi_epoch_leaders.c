@@ -96,35 +96,34 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
 void
 fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t   * mleaders,
                                        fd_stake_weight_msg_t const * msg ) {
-  if( FD_UNLIKELY( msg->staked_cnt > MAX_STAKED_LEADERS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_STAKED_LEADERS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_cnt, MAX_STAKED_LEADERS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_STAKED_LEADERS ));
 
-  mleaders->scratch->epoch          = msg->epoch;
-  mleaders->scratch->start_slot     = msg->start_slot;
-  mleaders->scratch->slot_cnt       = msg->slot_cnt;
-  mleaders->scratch->staked_cnt     = msg->staked_cnt;
-  mleaders->scratch->excluded_stake = msg->excluded_stake;
+  mleaders->scratch->epoch             = msg->epoch;
+  mleaders->scratch->start_slot        = msg->start_slot;
+  mleaders->scratch->slot_cnt          = msg->slot_cnt;
+  mleaders->scratch->staked_cnt        = msg->staked_vote_cnt;
   mleaders->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
 
-  fd_memcpy( mleaders->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_memcpy( mleaders->vote_stake_weight, fd_stake_weight_msg_stake_weights( msg ), msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
 }
 
 void
 fd_multi_epoch_leaders_epoch_msg_init( fd_multi_epoch_leaders_t   * mleaders,
                                        fd_epoch_info_msg_t const  * msg ) {
-  if( FD_UNLIKELY( msg->staked_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
+  if( FD_UNLIKELY( msg->staked_vote_cnt > MAX_COMPRESSED_STAKE_WEIGHTS ) )
     FD_LOG_ERR(( "Multi-epoch leaders received a malformed update with %lu stakes in it,"
-                 " but the maximum allowed is %lu", msg->staked_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
+                 " but the maximum allowed is %lu", msg->staked_vote_cnt, MAX_COMPRESSED_STAKE_WEIGHTS ));
 
-  mleaders->scratch->epoch          = msg->epoch;
-  mleaders->scratch->start_slot     = msg->start_slot;
-  mleaders->scratch->slot_cnt       = msg->slot_cnt;
-  mleaders->scratch->staked_cnt     = msg->staked_cnt;
-  mleaders->scratch->excluded_stake = msg->excluded_stake;
+  mleaders->scratch->epoch             = msg->epoch;
+  mleaders->scratch->start_slot        = msg->start_slot;
+  mleaders->scratch->slot_cnt          = msg->slot_cnt;
+  mleaders->scratch->staked_cnt        = msg->staked_vote_cnt;
   mleaders->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
 
-  fd_memcpy( mleaders->vote_stake_weight, msg->weights, msg->staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t const * weights = fd_epoch_info_msg_stake_weights( msg );
+  fd_memcpy( mleaders->vote_stake_weight, weights, msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
 }
 
 void
@@ -133,7 +132,6 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
   const ulong slot0          = mleaders->scratch->start_slot;
   const ulong slot_cnt       = mleaders->scratch->slot_cnt;
   const ulong pub_cnt        = mleaders->scratch->staked_cnt;
-  const ulong excluded_stake = mleaders->scratch->excluded_stake;
   const ulong vote_keyed_lsched = mleaders->scratch->vote_keyed_lsched;
   const ulong epoch_idx      = epoch % MULTI_EPOCH_LEADERS_EPOCH_CNT;
 
@@ -146,7 +144,7 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
   uchar *  lsched_mem        = mleaders->_lsched[epoch_idx];
   mleaders->lsched[epoch_idx] = fd_epoch_leaders_join( fd_epoch_leaders_new(
                                     lsched_mem, epoch, slot0, slot_cnt,
-                                    pub_cnt, stakes, excluded_stake, vote_keyed_lsched ) );
+                                    pub_cnt, stakes, 0UL, vote_keyed_lsched ) );
   mleaders->init_done[epoch_idx] = 1;
 }
 

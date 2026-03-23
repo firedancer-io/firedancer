@@ -101,6 +101,7 @@ struct fd_runtime_stack {
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t * stake_weights;
+    fd_stake_weight_t *      id_weights;
 
     fd_vote_rewards_t * vote_ele;
     void *              vote_map_mem;
@@ -125,6 +126,7 @@ fd_runtime_stack_footprint( ulong max_vote_accounts,
   l = FD_LAYOUT_APPEND( l, alignof(fd_runtime_stack_t),           sizeof(fd_runtime_stack_t) );
   l = FD_LAYOUT_APPEND( l, alignof(ts_est_ele_t),                 sizeof(ts_est_ele_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),       sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),            sizeof(fd_stake_weight_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, 128UL,                                 sizeof(fd_vote_rewards_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, FD_VOTE_ELE_MAP_ALIGN,                 fd_vote_ele_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_epoch_credits_t),           sizeof(fd_epoch_credits_t) * expected_vote_accounts );
@@ -145,6 +147,7 @@ fd_runtime_stack_new( void * shmem,
   fd_runtime_stack_t *            runtime_stack        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_runtime_stack_t),            sizeof(fd_runtime_stack_t) );
   ts_est_ele_t *                  staked_ts            = FD_SCRATCH_ALLOC_APPEND( l, alignof(ts_est_ele_t),                  sizeof(ts_est_ele_t) * max_vote_accounts );
   fd_vote_stake_weight_t *        stake_weights        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t),        sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
+  fd_stake_weight_t *             id_weights           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),             sizeof(fd_stake_weight_t) * max_vote_accounts );
   fd_vote_rewards_t *             vote_ele             = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  sizeof(fd_vote_rewards_t) * max_vote_accounts );
   void *                          vote_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, FD_VOTE_ELE_MAP_ALIGN,                  fd_vote_ele_map_footprint( chain_cnt ) );
   fd_epoch_credits_t *            epoch_credits        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),            sizeof(fd_epoch_credits_t) * expected_vote_accounts );
@@ -160,6 +163,7 @@ fd_runtime_stack_new( void * shmem,
   runtime_stack->expected_stake_accounts     = expected_stake_accounts;
   runtime_stack->clock_ts.staked_ts          = staked_ts;
   runtime_stack->stakes.stake_weights        = stake_weights;
+  runtime_stack->stakes.id_weights           = id_weights;
   runtime_stack->stakes.vote_ele             = vote_ele;
   runtime_stack->stakes.vote_map_mem         = vote_map_mem;
   runtime_stack->stakes.epoch_credits        = epoch_credits;

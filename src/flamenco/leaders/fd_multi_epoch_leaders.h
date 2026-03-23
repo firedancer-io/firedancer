@@ -27,7 +27,6 @@ struct fd_multi_epoch_leaders_priv {
     ulong start_slot;
     ulong slot_cnt;
     ulong staked_cnt;
-    ulong excluded_stake;
     ulong vote_keyed_lsched;
   } scratch[1];
 
