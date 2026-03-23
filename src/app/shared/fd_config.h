@@ -171,10 +171,6 @@ struct fd_configf {
 
   struct {
     int hard_fork_fatal;
-
-    struct {
-      ulong scheduler_depth;
-    } replay;
     struct {
       int validate_genesis_hash;
     } genesis;
@@ -488,6 +484,7 @@ struct fd_config {
     } repair;
 
     struct {
+      ulong max_transaction_lookahead_buffer_size;
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
