@@ -354,7 +354,9 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
       break;
     case FD_H2_SETTINGS_MAX_FRAME_SIZE:
       if( FD_UNLIKELY( value<0x4000 || value>0xffffff ) ) {
-        fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
+        /* Values outside this range MUST be treated as a connection error
+           (Section 5.4.1) of type PROTOCOL_ERROR. */
+        fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
         return 0;
       }
       conn->peer_settings.max_frame_size = value;
