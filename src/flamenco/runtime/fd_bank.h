@@ -332,11 +332,48 @@ struct fd_bank_data {
      non-CoW field is just represented as a byte array. */
 
   struct {
-    fd_lthash_value_t lthash;
-
-    #define X(type, name) uchar name[sizeof(type)] __attribute__((aligned(alignof(type))));
-    FD_BANKS_ITER(X)
-    #undef X
+    fd_lthash_value_t                 lthash;
+    fd_blockhashes_t                  block_hash_queue;
+    fd_fee_rate_governor_t            fee_rate_governor;
+    ulong                             rbh_lamports_per_sig;
+    ulong                             slot;
+    ulong                             parent_slot;
+    ulong                             capitalization;
+    ulong                             transaction_count;
+    ulong                             parent_signature_cnt;
+    ulong                             tick_height;
+    ulong                             max_tick_height;
+    ulong                             hashes_per_tick;
+    fd_w_u128_t                       ns_per_slot;
+    ulong                             ticks_per_slot;
+    ulong                             genesis_creation_time;
+    double                            slots_per_year;
+    fd_inflation_t                    inflation;
+    ulong                             cluster_type;
+    ulong                             total_epoch_stake;
+    ulong                             block_height;
+    ulong                             execution_fees;
+    ulong                             priority_fees;
+    ulong                             tips;
+    ulong                             signature_count;
+    fd_hash_t                         poh;
+    fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+    fd_hash_t                         bank_hash;
+    fd_hash_t                         prev_bank_hash;
+    fd_hash_t                         genesis_hash;
+    fd_epoch_schedule_t               epoch_schedule;
+    fd_rent_t                         rent;
+    fd_sysvar_cache_t                 sysvar_cache;
+    fd_features_t                     features;
+    ulong                             txn_count;
+    ulong                             nonvote_txn_count;
+    ulong                             failed_txn_count;
+    ulong                             nonvote_failed_txn_count;
+    ulong                             total_compute_units_used;
+    ulong                             slots_per_epoch;
+    ulong                             shred_cnt;
+    ulong                             epoch;
+    ulong                             identity_vote_idx;
   } non_cow;
 
   /* Layout all information needed for non-templatized fields. */
@@ -365,23 +402,6 @@ struct fd_bank_data {
 typedef struct fd_bank_data fd_bank_data_t;
 
 struct fd_banks_locks {
-  /* This lock is only used to serialize banks fork tree reads with
-     respect to fork tree writes.  In other words, tree traversals
-     cannot happen at the same time as a tree pruning operation or a
-     tree insertion operation.  So the public APIs on banks take either
-     a read lock or a write lock depending on what they do on the fork
-     tree.  For example, publishing takes a write lock, and bank lookups
-     take a read lock.  Notably, individual banks can still be
-     concurrently accessed or modified, and this lock does not offer
-     synchronization on individual fields within a bank. */
-  fd_rwlock_t banks_lock;
-
-  /* These pools are shared between each fd_bank_t and fd_banks_t.
-     These locks are used to guard against concurrent access to the
-     pools (e.g. acquires and releases).  These locks are currently just
-     write locks and have no readers. */
-  fd_rwlock_t epoch_leaders_pool_lock;
-
   fd_rwlock_t vote_stakes_lock;
 
   /* These locks are per bank and are used to atomically update their
