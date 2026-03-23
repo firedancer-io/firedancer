@@ -375,7 +375,7 @@ static void
 get_vote_credits_commission( uchar const *        account_data,
                              ulong                account_data_len,
                              uchar *              buf,
-                             fd_vote_rewards_t *  vote_ele,
+                             uchar *              commission_t_1,
                              fd_pubkey_t *        node_account_t_1,
                              ulong *              last_vote_slot,
                              long *               last_vote_timestamp,
@@ -394,25 +394,25 @@ get_vote_credits_commission( uchar const *        account_data,
 
   switch( vsv->discriminant ) {
   case fd_vote_state_versioned_enum_v1_14_11:
-    vote_ele->commission_t_1 = vsv->inner.v1_14_11.commission;
-    *node_account_t_1        = vsv->inner.v1_14_11.node_pubkey;
-    *last_vote_slot          = vsv->inner.v1_14_11.last_timestamp.slot;
-    *last_vote_timestamp     = vsv->inner.v1_14_11.last_timestamp.timestamp;
-    vote_epoch_credits       = vsv->inner.v1_14_11.epoch_credits;
+    *commission_t_1      = vsv->inner.v1_14_11.commission;
+    *node_account_t_1    = vsv->inner.v1_14_11.node_pubkey;
+    *last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
+    *last_vote_timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
+    vote_epoch_credits   = vsv->inner.v1_14_11.epoch_credits;
     break;
   case fd_vote_state_versioned_enum_v3:
-    vote_ele->commission_t_1 = vsv->inner.v3.commission;
-    *node_account_t_1        = vsv->inner.v3.node_pubkey;
-    *last_vote_slot          = vsv->inner.v3.last_timestamp.slot;
-    *last_vote_timestamp     = vsv->inner.v3.last_timestamp.timestamp;
-    vote_epoch_credits       = vsv->inner.v3.epoch_credits;
+    *commission_t_1      = vsv->inner.v3.commission;
+    *node_account_t_1    = vsv->inner.v3.node_pubkey;
+    *last_vote_slot      = vsv->inner.v3.last_timestamp.slot;
+    *last_vote_timestamp = vsv->inner.v3.last_timestamp.timestamp;
+    vote_epoch_credits   = vsv->inner.v3.epoch_credits;
     break;
   case fd_vote_state_versioned_enum_v4:
-    vote_ele->commission_t_1 = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
-    *node_account_t_1        = vsv->inner.v4.node_pubkey;
-    *last_vote_slot          = vsv->inner.v4.last_timestamp.slot;
-    *last_vote_timestamp     = vsv->inner.v4.last_timestamp.timestamp;
-    vote_epoch_credits       = vsv->inner.v4.epoch_credits;
+    *commission_t_1      = (uchar)(vsv->inner.v4.inflation_rewards_commission_bps/100);
+    *node_account_t_1    = vsv->inner.v4.node_pubkey;
+    *last_vote_slot      = vsv->inner.v4.last_timestamp.slot;
+    *last_vote_timestamp = vsv->inner.v4.last_timestamp.timestamp;
+    vote_epoch_credits   = vsv->inner.v4.epoch_credits;
     break;
   default:
     FD_LOG_CRIT(( "invalid vote state version %u", vsv->discriminant ));
@@ -482,10 +482,10 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     if( FD_UNLIKELY( !fd_vote_stakes_query_pubkey( vote_stakes, child_idx, &stake_delegation->vote_account ) ) ) {
       fd_accdb_ro_t vote_ro[1];
 
-      ulong       old_stake_t_1        = 0UL;
-      fd_pubkey_t old_node_account_t_1 = {0};
-      uchar       old_commission_t_1   = 0;
-      int exists_prev = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_delegation->vote_account, &old_stake_t_1, &old_node_account_t_1, &old_commission_t_1 );
+      ulong       stake_t_2        = 0UL;
+      fd_pubkey_t node_account_t_2 = {0};
+      uchar       commission_t_2   = 0;
+      int exists_prev = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_delegation->vote_account, &stake_t_2, &node_account_t_2, &commission_t_2 );
       int exists_curr = 1;
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_delegation->vote_account ) ) ) {
         exists_curr = 0;
@@ -505,15 +505,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
            it still needs to be added to the top votes and the vote
            stakes data structure in case the vote account is revived
            again. */
-        fd_top_votes_insert(
-            top_votes,
-            &stake_delegation->vote_account,
-            &old_node_account_t_1,
-            old_stake_t_1,
-            0UL,
-            0L,
-            0 );
-        fd_top_votes_invalidate( top_votes, &stake_delegation->vote_account );
+        fd_top_votes_insert( top_votes, &stake_delegation->vote_account, &node_account_t_2, stake_t_2, 0UL, 0L, 0 );
 
         /* It doesn't matter what the values are for t-1 because we are
            effectively inserting a tombstone for the t-1 epoch since the
@@ -523,11 +515,11 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
             vote_stakes,
             child_idx,
             &stake_delegation->vote_account,
-            &old_node_account_t_1,
-            &old_node_account_t_1,
-            old_stake_t_1,
+            &node_account_t_2, /* doesn't matter */
+            &node_account_t_2,
+            stake_t_2,
             0,
-            old_commission_t_1,
+            commission_t_2,
             fd_bank_epoch_get( bank ),
             0 );
       } else {
@@ -535,19 +527,20 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
            into the vote stakes data structure.  We will treat the t-2
            stake as 0 if the account did not exist at the end of the
            last epoch boundary.*/
+        uchar       commission_t_1;
         fd_pubkey_t curr_node_account_t_1;
         ulong       last_vote_slot;
         long        last_vote_timestamp;
         fd_epoch_credits_t * epoch_credits = vote_ele_cnt<runtime_stack->expected_vote_accounts ? &runtime_stack->stakes.epoch_credits[ vote_ele_cnt ] : NULL;
-        runtime_stack->stakes.vote_ele[ vote_ele_cnt ].commission_t_2 = old_commission_t_1;
-        get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ),
-                                     fd_accdb_ref_data_sz( vote_ro ),
-                                     vsv_buf,
-                                     &runtime_stack->stakes.vote_ele[ vote_ele_cnt ],
-                                     &curr_node_account_t_1,
-                                     &last_vote_slot,
-                                     &last_vote_timestamp,
-                                     epoch_credits );
+        get_vote_credits_commission(
+            fd_accdb_ref_data_const( vote_ro ),
+            fd_accdb_ref_data_sz( vote_ro ),
+            vsv_buf,
+            &commission_t_1,
+            &curr_node_account_t_1,
+            &last_vote_slot,
+            &last_vote_timestamp,
+            epoch_credits );
         fd_accdb_close_ro( accdb, vote_ro );
 
         /* If old_node_account_t_1 gets zero-initialized which means
@@ -557,25 +550,20 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
             child_idx,
             &stake_delegation->vote_account,
             &curr_node_account_t_1,
-            &old_node_account_t_1,
-            old_stake_t_1,
-            runtime_stack->stakes.vote_ele[ vote_ele_cnt ].commission_t_1,
-            old_commission_t_1,
+            &node_account_t_2,
+            stake_t_2,
+            commission_t_1,
+            commission_t_2,
             fd_bank_epoch_get( bank ),
             1 );
 
-        fd_top_votes_insert(
-            top_votes,
-            &stake_delegation->vote_account,
-            &old_node_account_t_1,
-            old_stake_t_1,
-            last_vote_slot,
-            last_vote_timestamp,
-            1 );
+        fd_top_votes_insert( top_votes, &stake_delegation->vote_account, &node_account_t_2, stake_t_2, last_vote_slot, last_vote_timestamp, 1 );
 
         fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
         vote_ele->pubkey             = stake_delegation->vote_account;
         vote_ele->vote_rewards       = 0UL;
+        vote_ele->commission_t_1     = commission_t_1;
+        vote_ele->commission_t_2     = exists_prev ? commission_t_2 : commission_t_1;
         fd_vote_rewards_map_ele_insert( vote_ele_map, vote_ele, runtime_stack->stakes.vote_ele );
         vote_ele_cnt++;
       }
