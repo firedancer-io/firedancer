@@ -291,7 +291,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   ulong       stake;
   fd_pubkey_t node_account;
-  int found = fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->data->vote_stakes_fork_id, vote_address, &stake, &node_account );
+  int found = fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->data->vote_stakes_fork_id, vote_address, &stake, &node_account, NULL );
   *_ret = found ? stake : 0UL;
   fd_bank_vote_stakes_end_locking_modify( vm->instr_ctx->bank );
 

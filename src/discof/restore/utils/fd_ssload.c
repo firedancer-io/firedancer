@@ -238,13 +238,14 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
        to recalculate the stake reward partitions. */
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
-    vote_ele->commission = (uchar)elem->commission;
+    vote_ele->commission_t_2 = vote_ele->commission_t_1 = (uchar)elem->commission;
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
     fd_vote_stakes_root_insert_key(
         vote_stakes,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
+        vote_ele->commission_t_1,
         fd_bank_epoch_get( bank ) );
 
     if( i<runtime_stack->expected_vote_accounts ) {
@@ -263,11 +264,15 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
 
+    fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (const fd_pubkey_t *)elem->vote, NULL, runtime_stack->stakes.vote_ele );
+    if( FD_LIKELY( vote_ele ) ) vote_ele->commission_t_2 = (uchar)elem->commission;
+
     fd_vote_stakes_root_update_meta(
         vote_stakes,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
+        (uchar)elem->commission,
         fd_bank_epoch_get( bank ) );
   }
 

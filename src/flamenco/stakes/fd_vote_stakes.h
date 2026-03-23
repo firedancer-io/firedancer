@@ -125,7 +125,10 @@ fd_vote_stakes_footprint( ulong max_vote_accounts,
 
 
 /* fd_vote_stakes_new creates a new fd_vote_stakes_t object given a
-   region of memory sized out according to fd_vote_stakes_footprint. */
+   region of memory sized out according to fd_vote_stakes_footprint.
+   The underlying data storage will actually support
+   2 * max_vote_accounts entries because entries are deduped across
+   forks after all of the entries have already been inserted. */
 
 void *
 fd_vote_stakes_new( void * shmem,
@@ -164,6 +167,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account_t_1,
                                 ulong               stake_t_1,
+                                uchar               commission_t_1,
                                 ulong               epoch );
 
 void
@@ -171,6 +175,7 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * pubkey,
                                  fd_pubkey_t const * node_account_t_2,
                                  ulong               stake_t_2,
+                                 uchar               commission_t_2,
                                  ulong               epoch );
 
 /* fd_vote_stakes_insert_{key, update, fini} is API for inserting
@@ -201,6 +206,8 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
                            fd_pubkey_t const * node_account_t_1,
                            fd_pubkey_t const * node_account_t_2,
                            ulong               stake_t_2,
+                           uchar               commission_t_1,
+                           uchar               commission_t_2,
                            ulong               epoch,
                            uchar               exists_curr );
 
@@ -253,7 +260,9 @@ fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
                       ulong *                  stake_t_1_out_opt,
                       ulong *                  stake_t_2_out_opt,
                       fd_pubkey_t *            node_account_t_1_out_opt,
-                      fd_pubkey_t *            node_account_t_2_out_opt );
+                      fd_pubkey_t *            node_account_t_2_out_opt,
+                      uchar *                  commission_t_1_out_opt,
+                      uchar *                  commission_t_2_out_opt );
 
 int
 fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
@@ -263,22 +272,24 @@ fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
 /* fd_vote_stakes_query_t_1 and fd_vote_stakes_query_t_2 are shortcuts
    for querying the t_1 and t_2 stake for a given vote account in the
    given fork.  0 is returned if the vote account does not exist for the
-   epoch or if it has zero stake.  If the account is found, stake_out
-   and node_account_out will be set. */
+   epoch or if it has zero stake.  If the account is found, stake_out,
+   node_account_out, and commission_out will be set. */
 
 int
 fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
                           ushort                   fork_idx,
                           fd_pubkey_t const *      pubkey,
                           ulong *                  stake_out,
-                          fd_pubkey_t *            node_account_out );
+                          fd_pubkey_t *            node_account_out,
+                          uchar *                  commission_out );
 
 int
 fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
                           ushort                   fork_idx,
                           fd_pubkey_t const *      pubkey,
                           ulong *                  stake_out,
-                          fd_pubkey_t *            node_account_out );
+                          fd_pubkey_t *            node_account_out,
+                          uchar *                  commission_out );
 
 /* fd_vote_stakes_ele_cnt returns the number of entries for a given
    fork. */
@@ -321,7 +332,7 @@ typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
         !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2, &commission_t_1, &commission_t_2 );
    }
 
    Under the hood, the vote stakes iterator is a wrapper of the map
@@ -352,7 +363,9 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
                               ulong *                 stake_t_1_out_opt,
                               ulong *                 stake_t_2_out_opt,
                               fd_pubkey_t *           node_account_t_1_out_opt,
-                              fd_pubkey_t *           node_account_t_2_out_opt );
+                              fd_pubkey_t *           node_account_t_2_out_opt,
+                              uchar *                 commission_t_1_out_opt,
+                              uchar *                 commission_t_2_out_opt );
 
 FD_PROTOTYPES_END
 

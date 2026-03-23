@@ -151,7 +151,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL, NULL, NULL );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
     ulong last_vote_slot;
