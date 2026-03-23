@@ -146,16 +146,13 @@ def main():
         f.write('VERSION_MINOR := {}\n'.format(version_minor))
         f.write('VERSION_PATCH := {}\n'.format(version_patch))
 
-    try:
-        subprocess.run(
-            ['git', 'diff-index', '--quiet', 'HEAD', '--', 'src/disco/gui/dbip.bin.zst'],
-            check=True  # This will raise CalledProcessError if the exit code is non-zero (i.e. there are changes)
-        )
-        print("No staged changes for geoip database, skipping commit")
-    except subprocess.CalledProcessError:
+    subprocess.run(['git', 'add', 'src/disco/gui/dbip.bin.zst'], check=True)
+    result = subprocess.run(['git', 'diff', '--cached', '--quiet', '--', 'src/disco/gui/dbip.bin.zst'])
+    if result.returncode != 0:
         print(f"Creating commit and updating IP database")
-        subprocess.run(['git', 'add', 'src/disco/gui/dbip.bin.zst'], check=True)
         subprocess.run(['git', 'commit', '-m', f'Update IP databases'], check=True)
+    else:
+        print("No changes to geoip db. Skipping commit")
 
     print(f"Creating commit and tagging version v0.{version_minor}{version_patch:02d}.{solana_version}")
     subprocess.run(['git', 'add', 'src/app/fdctl/version.mk'], check=True)
