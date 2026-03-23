@@ -830,17 +830,10 @@ fd_features_prepopulate_upcoming( fd_bank_t *               bank,
                                   fd_accdb_user_t *         accdb,
                                   fd_funk_txn_xid_t const * xid ) {
   ulong slot = fd_bank_slot_get( bank );
-  if( FD_UNLIKELY( !slot ) ) {
-    return;
-  }
-
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong curr_epoch = fd_slot_to_epoch( epoch_schedule, slot,     NULL );
   ulong next_epoch = fd_slot_to_epoch( epoch_schedule, slot+1UL, NULL );
-
-  if( FD_LIKELY( curr_epoch==next_epoch ) ) {
-    return;
-  }
+  if( FD_LIKELY( curr_epoch==next_epoch ) ) return;
 
   fd_features_restore( bank, accdb, xid );
 }
@@ -853,14 +846,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
 
-  fd_bank_execution_fees_set( bank, 0UL );
-  fd_bank_priority_fees_set( bank, 0UL );
-  fd_bank_tips_set( bank, 0UL );
-  fd_bank_signature_count_set( bank, 0UL );
-  fd_bank_total_compute_units_used_set( bank, 0UL );
-  fd_bank_shred_cnt_set( bank, 0UL );
-  fd_bank_identity_vote_idx_set( bank, ULONG_MAX );
-
   fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
@@ -871,7 +856,6 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
     fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
   }
 
-  /* Update the active feature set with any upcoming features */
   fd_features_prepopulate_upcoming( bank, accdb, &xid );
 
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, &xid, runtime_stack, capture_ctx );

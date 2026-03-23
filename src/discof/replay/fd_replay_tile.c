@@ -786,10 +786,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   fd_bank_t parent_bank[1];
   if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) ) ) {
-    ulong total_txn_cnt          = fd_bank_txn_count_get( bank )                 - fd_bank_txn_count_get( parent_bank );
-    ulong nonvote_txn_cnt        = fd_bank_nonvote_txn_count_get( bank ) - fd_bank_nonvote_txn_count_get( parent_bank );
-    ulong failed_txn_cnt         = fd_bank_failed_txn_count_get( bank )          - fd_bank_failed_txn_count_get( parent_bank );
-    ulong nonvote_failed_txn_cnt = fd_bank_nonvote_failed_txn_count_get( bank )  - fd_bank_nonvote_failed_txn_count_get( parent_bank );
+    ulong total_txn_cnt          = fd_bank_txn_count_get( bank );
+    ulong nonvote_txn_cnt        = fd_bank_nonvote_txn_count_get( bank );
+    ulong failed_txn_cnt         = fd_bank_failed_txn_count_get( bank );
+    ulong nonvote_failed_txn_cnt = fd_bank_nonvote_failed_txn_count_get( bank );
 
     slot_info->nonvote_success = nonvote_txn_cnt - nonvote_failed_txn_cnt;
     slot_info->nonvote_failed  = nonvote_failed_txn_cnt;
