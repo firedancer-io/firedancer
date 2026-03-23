@@ -4,6 +4,7 @@
 #if FD_HAS_HOSTED
 #include "test_h2_rbuf.c"
 #endif
+#include "test_h2_server_sequences.c"
 #include "test_h2_hdr_match.c"
 #include "test_h2_conn.c"
 #include "test_h2_proto.c"
@@ -22,6 +23,9 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing h2_buf" ));
   test_h2_rbuf( rng );
 #endif
+
+  FD_LOG_NOTICE(( "Testing h2_server_stream_accounting" ));
+  test_h2_server_stream_accounting();
 
   FD_LOG_NOTICE(( "Testing h2_hdr_match" ));
   test_h2_hdr_match();

@@ -36,6 +36,20 @@ fd_h2_stream_init( fd_h2_stream_t * stream ) {
   return stream;
 }
 
+/* fd_h2_stream_is_tx returns 1 if the stream is a "TX stream" (i.e. a
+   stream initiated by this endpoint), or 0 if the stream is a "RX
+   stream" (i.e. a stream initiated by the peer). */
+static inline int
+fd_h2_stream_is_tx( fd_h2_stream_t * stream,
+                    fd_h2_conn_t *   conn ) {
+  /* Streams initiated by a client MUST use odd-numbered stream identifiers; */
+  uint is_client_stream = stream->stream_id & 1;
+  /* Are we a client or a server?  This is determined by the parity of the first stream ID we
+     send which stored in the parity of conn->tx_stream_next. */
+  uint is_client_self   = conn->tx_stream_next & 1;
+  return is_client_stream == is_client_self;
+}
+
 /* fd_h2_stream_open transitions a stream from 'IDLE' to 'OPEN'.
    In fd_h2, this happens when the local or peer side sends a HEADERS
    frame.  The TX side of the stream assumes the peer's default send
@@ -52,7 +66,7 @@ fd_h2_stream_open( fd_h2_stream_t * stream,
     .rx_wnd    = conn->self_settings.initial_window_size,
     .hdrs_seq  = 0U
   };
-  conn->stream_active_cnt[ (stream_id&1) ^ (conn->rx_stream_id&1) ]++;
+  conn->stream_active_cnt[ fd_h2_stream_is_tx( stream, conn ) ]++;
   return stream;
 }
 
@@ -77,7 +91,8 @@ fd_h2_rst_stream( fd_h2_conn_t *   conn,
 static inline void
 fd_h2_stream_private_deactivate( fd_h2_stream_t * stream,
                                  fd_h2_conn_t *   conn ) {
-  conn->stream_active_cnt[ (stream->stream_id&1) ^ (conn->rx_stream_id&1) ]--;
+  int is_tx_stream = fd_h2_stream_is_tx( stream, conn );
+  conn->stream_active_cnt[ is_tx_stream ]--;
 }
 
 static inline void
