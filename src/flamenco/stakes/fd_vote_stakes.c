@@ -156,7 +156,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
   index_ele_t * ele     = index_pool_ele_acquire( index_pool );
   ele->pubkey           = *pubkey;
   ele->refcnt           = 1;
-  ele->stake_t_1        = (stake_t_1 & 0x1FFFFFFFFFFFFFFFUL);
+  ele->stake_t_1        = (stake_t_1 & 0x3FFFFFFFFFFFFFFFUL);
   ele->commission_t_1   = commission_t_1;
   ele->node_account_t_1 = *node_account_t_1;
   ele->stake_t_2        = 0UL;
@@ -198,6 +198,7 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
     ele->node_account_t_1 = (fd_pubkey_t){0};
     ele->epoch            = epoch % 2;
     ele->exists_t_1       = 0U;
+    ele->commission_t_1   = 0U;
     ele->commission_t_2   = commission_t_2;
 
     FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
@@ -253,9 +254,8 @@ fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
                            uchar               exists_curr ) {
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
-  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
+  stake_t *           stakes_pool     = get_stakes_pool( vote_stakes, fork_idx );
+  stakes_map_t *      stakes_map      = get_stakes_map( vote_stakes, fork_idx );
 
   index_ele_t * index_ele = index_pool_ele_acquire( index_pool );
   index_ele->pubkey           = *pubkey;
@@ -296,7 +296,7 @@ fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
   index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
 
   if( FD_UNLIKELY( index_ele->exists_t_1==0U ) ) return;
-  index_ele->stake_t_1 += (stake & 0x1FFFFFFFFFFFFFFFUL); /* mask to 61 bits */
+  index_ele->stake_t_1 += (stake & 0x3FFFFFFFFFFFFFFFUL); /* mask to 61 bits */
 }
 
 void

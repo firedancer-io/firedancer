@@ -73,10 +73,10 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
     uchar       commission  = (uchar)vote_accounts[i].commission;
 
     if( is_t_1 ) {
-      fd_vote_stakes_root_insert_key( vote_stakes, &vote_pubkey, &node_pubkey, stake, 0, commission );
+      fd_vote_stakes_root_insert_key( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
     } else {
-      fd_vote_stakes_root_update_meta( vote_stakes, &vote_pubkey, &node_pubkey, stake, 0, commission );
-      fd_top_votes_insert( top_votes, &vote_pubkey, &node_pubkey, stake, 0, 0 );
+      fd_vote_stakes_root_update_meta( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
+      fd_top_votes_insert( top_votes, &vote_pubkey, &node_pubkey, stake, 0, 0, 1 );
     }
   }
 }

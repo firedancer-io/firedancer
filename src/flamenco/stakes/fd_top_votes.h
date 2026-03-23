@@ -81,7 +81,8 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * node_account,
                      ulong               stake,
                      ulong               last_vote_slot,
-                     long                last_vote_timestamp );
+                     long                last_vote_timestamp,
+                     int                 exists );
 
 
 /* fd_top_votes_update updates the last vote timestamp and slot for a

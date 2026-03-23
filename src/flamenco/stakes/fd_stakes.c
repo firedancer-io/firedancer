@@ -505,12 +505,14 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
            it still needs to be added to the top votes and the vote
            stakes data structure in case the vote account is revived
            again. */
-        fd_top_votes_insert( top_votes,
-                             &stake_delegation->vote_account,
-                             &old_node_account_t_1,
-                             old_stake_t_1,
-                             0UL,
-                             0L );
+        fd_top_votes_insert(
+            top_votes,
+            &stake_delegation->vote_account,
+            &old_node_account_t_1,
+            old_stake_t_1,
+            0UL,
+            0L,
+            0 );
         fd_top_votes_invalidate( top_votes, &stake_delegation->vote_account );
 
         /* It doesn't matter what the values are for t-1 because we are
@@ -568,7 +570,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
             &old_node_account_t_1,
             old_stake_t_1,
             last_vote_slot,
-            last_vote_timestamp );
+            last_vote_timestamp,
+            1 );
 
         fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
         vote_ele->pubkey             = stake_delegation->vote_account;
