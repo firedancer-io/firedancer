@@ -207,6 +207,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
   fd_memcpy( bank_hash, block_bank->parent_bank_hash, sizeof(fd_hash_t) );
 
+  /* Previous bank hash (used as input to the bank hash computation).
+     In production this is set by fd_banks_clone_from_parent. */
+  fd_bank_prev_bank_hash_set( bank, *(fd_hash_t const *)block_bank->parent_bank_hash );
+
   /* Parent signature count */
   fd_bank_parent_signature_cnt_set( bank, block_bank->parent_signature_count );
 
