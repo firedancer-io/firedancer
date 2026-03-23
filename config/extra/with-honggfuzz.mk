@@ -3,6 +3,12 @@ CXX:=hfuzz-clang++
 LD:=hfuzz-clang++
 CPPFLAGS+=-fno-omit-frame-pointer
 
+# Explicit coverage flags to ensure both modes regardless of hfuzz-clang version.
+# stack-depth OMITTED: uses __sancov_lowest_stack with initial-exec TLS,
+# which sets DF_STATIC_TLS and crashes dlopen on glibc 2.34.
+CPPFLAGS+=-fsanitize-coverage=trace-pc-guard,inline-8bit-counters,pc-table,trace-cmp,trace-div,indirect-calls,trace-gep
+LDFLAGS+=-fsanitize-coverage=trace-pc-guard,inline-8bit-counters,pc-table,trace-cmp,trace-div,indirect-calls,trace-gep
+
 FD_HAS_FUZZ:=1
 
 # The patched honggfuzz (master-patches) instrument.c references
