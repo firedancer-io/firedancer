@@ -118,7 +118,7 @@ fd_h2_rbuf_peek_used( fd_h2_rbuf_t * rbuf,
   uchar * end  = lo+used_sz;
   /* FIXME make this branchless */
   if( end<=buf1 ) {
-    *sz       = (ulong)( hi - lo );
+    *sz       = (ulong)( used_sz );
     *split_sz = 0UL;
   } else {
     *sz       = (ulong)( buf1 - lo   );
@@ -142,11 +142,11 @@ fd_h2_rbuf_peek_free( fd_h2_rbuf_t * rbuf,
   uchar * end  = hi+free_sz;
   /* FIXME make this branchless */
   if( end<=buf1 ) {
-    *sz       = (ulong)( buf1 - hi );
+    *sz       = (ulong)( free_sz );
     *split_sz = 0UL;
   } else {
     *sz       = (ulong)( buf1 - hi );
-    *split_sz = (ulong)( buf0 - lo );
+    *split_sz = (ulong)( lo - buf0 );
   }
   return hi;
 }
