@@ -73,7 +73,9 @@ fd_top_votes_init( fd_top_votes_t * top_votes );
    account isn't in the top max_vote_accounts in terms of stake, it is
    ignored and is treated as a no-op.  If the vote account ties the
    minimum stake and the struct is full, all elements with that stake
-   are removed.  */
+   are removed.  If an account existed in the t-2 epoch, but currently
+   doesn't than exists should be set to 0 in the case the account is
+   revived. */
 
 void
 fd_top_votes_insert( fd_top_votes_t *    top_votes,

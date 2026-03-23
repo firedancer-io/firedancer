@@ -272,8 +272,8 @@ fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
 /* fd_vote_stakes_query_t_1 and fd_vote_stakes_query_t_2 are shortcuts
    for querying the t_1 and t_2 stake for a given vote account in the
    given fork.  0 is returned if the vote account does not exist for the
-   epoch or if it has zero stake.  If the account is found, stake_out
-   and node_account_out will be set. */
+   epoch or if it has zero stake.  If the account is found, stake_out,
+   node_account_out, and commission_out will be set. */
 
 int
 fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
@@ -332,7 +332,7 @@ typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
         !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2 );
+     fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2, &commission_t_1, &commission_t_2 );
    }
 
    Under the hood, the vote stakes iterator is a wrapper of the map

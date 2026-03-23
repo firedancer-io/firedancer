@@ -20,7 +20,7 @@ fd_vote_stakes_footprint( ulong max_vote_accounts,
   l = FD_LAYOUT_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
   l = FD_LAYOUT_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
   for( ulong i=0; i<max_fork_width; i++ ) {
-    l = FD_LAYOUT_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts * 2UL ) );
+    l = FD_LAYOUT_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
     l = FD_LAYOUT_APPEND( l, stakes_map_align(),  stakes_map_footprint( map_chain_cnt ) );
   }
   return FD_LAYOUT_FINI( l, fd_vote_stakes_align() );
@@ -57,8 +57,8 @@ fd_vote_stakes_new( void * shmem,
   void *             fork_pool_mem       = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),       fork_pool_footprint( max_fork_width ) );
   void *             fork_dlist_mem      = FD_SCRATCH_ALLOC_APPEND( l, fork_dlist_align(),      fork_dlist_footprint() );
   for( ulong i=0; i<max_fork_width; i++ ) {
-    void *    stakes_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts * 2UL ) );
-    stake_t * stakes_pool     = stakes_pool_join( stakes_pool_new( stakes_pool_mem, max_vote_accounts * 2UL ) );
+    void *    stakes_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, stakes_pool_align(), stakes_pool_footprint( max_vote_accounts ) );
+    stake_t * stakes_pool     = stakes_pool_join( stakes_pool_new( stakes_pool_mem, max_vote_accounts ) );
     if( FD_UNLIKELY( !stakes_pool ) ) {
       FD_LOG_WARNING(( "Failed to create vote stakes ele pool" ));
       return NULL;
@@ -199,7 +199,6 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
     ele->epoch            = epoch % 2;
     ele->exists_t_1       = 0U;
     ele->commission_t_1   = 0U;
-    ele->commission_t_2   = commission_t_2;
 
     FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
     FD_TEST( index_map_multi_ele_insert( index_map_multi, ele, index_pool ) );
@@ -213,6 +212,7 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
     FD_TEST( stakes_map_ele_insert( stakes_map, new_stake, stakes_pool ) );
   }
 
+  ele->commission_t_2   = commission_t_2;
   ele->node_account_t_2 = *node_account_t_2;
   ele->stake_t_2        = stake_t_2;
 }
