@@ -198,14 +198,14 @@ struct out_ctx {
 
   /* Repair tile directly tracks credit outside of stem for these
      asynchronous sign links.  In particular, credits tracks the RETURN
-     sign_repair link.  This is because repair_sign is reliable, and
-     sign_repair is unreliable.  If both links were reliable, and the
-     links filled completely, stem would get into a deadlock. Neither
+     sign_repair link.  This is because repair_sign and
+     sign_repair are unreliable.  If both links were reliable, and the
+     links filled completely, stem would get into a deadlock.  Neither
      repair or sign would have credits, which would prevent frags from
      getting polled in repair or sign, which would prevent any credits
      from getting returned back to the tiles.  So the sign_repair return
      link must be unreliable. credits / max_credits are used by the
-     repair_sign link.  In particular, credits manages the RETURN
+     repair_sign link,  but credits tracks the RETURN
      sign_repair link.
 
      Consider the scenario:
@@ -232,17 +232,18 @@ struct out_ctx {
      We can furthermore ensure some nice properties by having the
      repair_sign link have a greater depth than the sign_repair link.
      This way, we exclusively use manual credit management to control
-     the rate at which we publish requests to sign.  We can then avoid
-     being stem backpressured, which allows us to keep polling frags and
-     reading incoming shreds, even when the repair sign link is "full."
-     This is a non-necessary property for good performance.
+     the rate at which we publish requests to sign.  This allows for
+     repair_sign to also be unreliable.  Even when the repair sign link
+     is "full", we can avoid backpressure and continue polling frags,
+     without overruning the sign_repair link.
 
      To lose a frag to overrun isn't necessarily critical, but in
      general the repair tile relies on the fact that a signing task
      published to sign tile will always come back.  If we lose a frag to
      overrun, then there will be an entry in the pending signs structure
      that is never removed, and theoretically the map could fill up.
-     Conceptually, with a reliable sign->repair->sign structure, there
+     Conceptually, with a reliable (unreliable links, but strictly
+     controlled count-per-link) sign->repair->sign structure, there
      should be no eviction needed in this pending signs structure. */
 
   ulong in_idx;      /* index of the incoming link */
@@ -1377,40 +1378,8 @@ metrics_write( ctx_t * ctx ) {
    message is published in after_frag. */
 #define STEM_BURST (2UL)
 
-/* Sign manual credit management, backpressuring, sign tile count, &
-   sign speed effect this lazy value. The main goal of repair's highest
-   workload (catchup) is to have high send packet rate.  Repair is
-   regularly idle, and mostly waiting for dispatched signs to come
-   in. Processing shreds from shred tile is a relatively fast operation.
-   Thus we only worry about fully utilizing the sign tiles' capacity.
-
-   Assuming standard 2 sign tiles & reasonably fast signing rate & if
-   repair_sign_depth==sign_repair_depth: the lower the LAZY, the less
-   time is spent in backpressure, and the higher the packet send rate
-   gets.  As expected, up until a certain point, credit return is slower
-   than signing. This starts to plateau at ~10k LAZY (for a box that can
-   sign at ~20k repair pps, but is fully dependent on the sign tile's
-   speed).
-
-   At this point we start returning credits faster than we actually get
-   them from the sign tile, so signing becomes the bottleneck.  The
-   extreme case is when we set it to standard lazy (289 ns);
-   housekeeping time spikes, but backpressure time drops (to a lower but
-   inconsistent value). But because we are usually idling in the repair
-   tile, higher housekeeping doesn't really effect the send packet rate.
-
-   Recall that repair_sign_depth is actually > sign_repair_depth (see
-   long comment in ctx_t struct).  So repair_sign is NEVER
-   backpressuring the repair tile.  When we set
-   repair_sign_depth>sign_repair_depth, we spend very little time in
-   backpressure (repair_sign always has available credits), and most of
-   the time idling.  Theoretically, this uncouples repair tile with
-   credit return and basically sends at rate as close to as we can sign.
-   This is a small improvement over the first case (low lazy,
-   repair_sign_depth==sign_repair_depth).
-
-   Since we don't ever fill up repair_sign link, we can set LAZY to any
-   reasonable value that keeps housekeeping time low. */
+/* Set LAZY to a reasonable value that keeps housekeeping time low.
+   Repair tile's only reliable consumer is replay. */
 #define STEM_LAZY  (64000)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
