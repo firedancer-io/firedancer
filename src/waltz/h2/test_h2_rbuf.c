@@ -1,6 +1,22 @@
 #include "fd_h2_rbuf_sock.h"
 #include "../../util/rng/fd_rng.h"
 
+static void
+test_h2_rbuf_fragments( fd_h2_rbuf_t * rbuf ) {
+  ulong used_sz = fd_h2_rbuf_used_sz( rbuf );
+  ulong free_sz = fd_h2_rbuf_free_sz( rbuf );
+
+  ulong used0, used1;
+  uchar * used = fd_h2_rbuf_peek_used( rbuf, &used0, &used1 );
+  FD_TEST( used==rbuf->lo );
+  FD_TEST( used0+used1==used_sz );
+
+  ulong free0, free1;
+  uchar * free = fd_h2_rbuf_peek_free( rbuf, &free0, &free1 );
+  FD_TEST( free==rbuf->hi );
+  FD_TEST( free0+free1==free_sz );
+}
+
 void
 test_h2_rbuf( fd_rng_t * rng ) {
   uchar scratch[64];
@@ -11,6 +27,33 @@ test_h2_rbuf( fd_rng_t * rng ) {
   fd_h2_rbuf_init( rbuf, buf, sizeof(buf) );
   FD_TEST( fd_h2_rbuf_free_sz( rbuf )==64 );
   FD_TEST( fd_h2_rbuf_used_sz( rbuf )== 0 );
+  test_h2_rbuf_fragments( rbuf );
+
+  fd_h2_rbuf_push( rbuf, scratch, sizeof(buf) );
+  FD_TEST( fd_h2_rbuf_used_sz( rbuf )==64 );
+  FD_TEST( fd_h2_rbuf_free_sz( rbuf )== 0 );
+  test_h2_rbuf_fragments( rbuf );
+
+  fd_h2_rbuf_skip( rbuf, 64UL );
+  FD_TEST( fd_h2_rbuf_used_sz( rbuf )==0 );
+  FD_TEST( fd_h2_rbuf_free_sz( rbuf )==64 );
+  test_h2_rbuf_fragments( rbuf );
+
+  fd_h2_rbuf_push( rbuf, scratch, 7UL );
+  fd_h2_rbuf_skip( rbuf, 7UL );
+  FD_TEST( fd_h2_rbuf_used_sz( rbuf )==0 );
+  FD_TEST( fd_h2_rbuf_free_sz( rbuf )==64 );
+  test_h2_rbuf_fragments( rbuf );
+
+  fd_h2_rbuf_push( rbuf, scratch, 64UL );
+  FD_TEST( fd_h2_rbuf_used_sz( rbuf )==64 );
+  FD_TEST( fd_h2_rbuf_free_sz( rbuf )== 0 );
+  test_h2_rbuf_fragments( rbuf );
+
+  fd_h2_rbuf_init( rbuf, buf, sizeof(buf) );
+  FD_TEST( fd_h2_rbuf_free_sz( rbuf )==64 );
+  FD_TEST( fd_h2_rbuf_used_sz( rbuf )== 0 );
+  test_h2_rbuf_fragments( rbuf );
 
   uchar shadow[64];
   ulong shadow_cons = 0UL;
@@ -25,6 +68,7 @@ test_h2_rbuf( fd_rng_t * rng ) {
     ulong free_sz = fd_h2_rbuf_free_sz( rbuf );
     ulong used_sz = fd_h2_rbuf_used_sz( rbuf );
     FD_TEST( used_sz==shadow_prod-shadow_cons );
+    test_h2_rbuf_fragments( rbuf );
     if( action & 1 ) {
       /* push */
       ulong push_sz = fd_rng_ulong_roll( rng, free_sz+1UL );
@@ -83,5 +127,6 @@ test_h2_rbuf( fd_rng_t * rng ) {
     FD_TEST( fd_h2_rbuf_used_sz( rbuf )<=rbuf->bufsz );
     FD_TEST( fd_h2_rbuf_used_sz( rbuf )+fd_h2_rbuf_free_sz( rbuf )<=64 );
     FD_TEST( shadow_cons==rbuf->lo_off );
+    test_h2_rbuf_fragments( rbuf );
   }
 }
