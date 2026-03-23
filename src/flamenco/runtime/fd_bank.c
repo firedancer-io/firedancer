@@ -69,7 +69,7 @@ fd_bank_cost_tracker_query( fd_bank_t * bank ) {
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank ) {
   fd_rwlock_read( &bank->locks->lthash_lock[ bank->data->idx ] );
-  return &bank->data->non_cow.lthash;
+  return &bank->data->f.lthash;
 }
 
 void
@@ -80,7 +80,7 @@ fd_bank_lthash_end_locking_query( fd_bank_t * bank ) {
 fd_lthash_value_t *
 fd_bank_lthash_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_write( &bank->locks->lthash_lock[ bank->data->idx ] );
-  return &bank->data->non_cow.lthash;
+  return &bank->data->f.lthash;
 }
 
 void
@@ -90,22 +90,22 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
 
 /* Bank accesssors */
 
-#define X(type, name)                                                    \
-  type const *                                                           \
-  fd_bank_##name##_query( fd_bank_t const * bank ) {                     \
-    return (type const *)fd_type_pun_const( &bank->data->non_cow.name ); \
-  }                                                                      \
-  type *                                                                 \
-  fd_bank_##name##_modify( fd_bank_t * bank ) {                          \
-    return (type *)fd_type_pun( &bank->data->non_cow.name );             \
-  }                                                                      \
-  void                                                                   \
-  fd_bank_##name##_set( fd_bank_t * bank, type value ) {                 \
-    bank->data->non_cow.name = value;                                    \
-  }                                                                      \
-  type                                                                   \
-  fd_bank_##name##_get( fd_bank_t const * bank ) {                       \
-    return bank->data->non_cow.name;                                     \
+#define X(type, name)                                              \
+  type const *                                                     \
+  fd_bank_##name##_query( fd_bank_t const * bank ) {               \
+    return (type const *)fd_type_pun_const( &bank->data->f.name ); \
+  }                                                                \
+  type *                                                           \
+  fd_bank_##name##_modify( fd_bank_t * bank ) {                    \
+    return (type *)fd_type_pun( &bank->data->f.name );             \
+  }                                                                \
+  void                                                             \
+  fd_bank_##name##_set( fd_bank_t * bank, type value ) {           \
+    bank->data->f.name = value;                                    \
+  }                                                                \
+  type                                                             \
+  fd_bank_##name##_get( fd_bank_t const * bank ) {                 \
+    return bank->data->f.name;                                     \
   }
 FD_BANKS_ITER(X)
 #undef X
@@ -415,7 +415,7 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   fd_bank_data_t * bank = fd_banks_pool_ele_acquire( bank_pool );
   bank->bank_seq = FD_ATOMIC_FETCH_AND_ADD( &banks->data->bank_seq, 1UL );
 
-  fd_memset( &bank->non_cow, 0, sizeof(bank->non_cow) );
+  fd_memset( &bank->f, 0, sizeof(bank->f) );
 
   ulong null_idx    = fd_banks_pool_idx_null( bank_pool );
   bank->idx         = fd_banks_pool_idx( bank_pool, bank );
@@ -496,7 +496,7 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   /* We can simply copy over all of the data in the bank struct that
      is not used for internal tracking that is laid out contiguously. */
 
-  child_bank->non_cow = parent_bank->non_cow;
+  child_bank->f = parent_bank->f;
 
   /* For the other fields reset the state from the parent bank. */
 
@@ -531,22 +531,22 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   fd_memcpy( child_bank->top_votes_mem, parent_bank->top_votes_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
 
-  child_bank->non_cow.block_height             = parent_bank->non_cow.block_height + 1UL;
-  child_bank->non_cow.tick_height              = parent_bank->non_cow.max_tick_height;
-  child_bank->non_cow.parent_slot              = parent_bank->non_cow.slot;
-  child_bank->non_cow.parent_signature_cnt     = parent_bank->non_cow.signature_count;
-  child_bank->non_cow.prev_bank_hash           = parent_bank->non_cow.bank_hash;
-  child_bank->non_cow.execution_fees           = 0UL;
-  child_bank->non_cow.priority_fees            = 0UL;
-  child_bank->non_cow.tips                     = 0UL;
-  child_bank->non_cow.signature_count          = 0UL;
-  child_bank->non_cow.total_compute_units_used = 0UL;
-  child_bank->non_cow.shred_cnt                = 0UL;
-  child_bank->non_cow.txn_count                = 0UL;
-  child_bank->non_cow.nonvote_txn_count        = 0UL;
-  child_bank->non_cow.failed_txn_count         = 0UL;
-  child_bank->non_cow.nonvote_failed_txn_count = 0UL;
-  child_bank->non_cow.identity_vote_idx        = ULONG_MAX;
+  child_bank->f.block_height             = parent_bank->f.block_height + 1UL;
+  child_bank->f.tick_height              = parent_bank->f.max_tick_height;
+  child_bank->f.parent_slot              = parent_bank->f.slot;
+  child_bank->f.parent_signature_cnt     = parent_bank->f.signature_count;
+  child_bank->f.prev_bank_hash           = parent_bank->f.bank_hash;
+  child_bank->f.execution_fees           = 0UL;
+  child_bank->f.priority_fees            = 0UL;
+  child_bank->f.tips                     = 0UL;
+  child_bank->f.signature_count          = 0UL;
+  child_bank->f.total_compute_units_used = 0UL;
+  child_bank->f.shred_cnt                = 0UL;
+  child_bank->f.txn_count                = 0UL;
+  child_bank->f.nonvote_txn_count        = 0UL;
+  child_bank->f.failed_txn_count         = 0UL;
+  child_bank->f.nonvote_failed_txn_count = 0UL;
+  child_bank->f.identity_vote_idx        = ULONG_MAX;
 
   bank_l->locks = banks->locks;
   bank_l->data  = child_bank;
@@ -1045,7 +1045,7 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
     int needs_cancel = !!(bank->flags&FD_BANK_FLAGS_REPLAYABLE);
     if( FD_LIKELY( needs_cancel ) ) {
       cancel->txncache_fork_id = bank->txncache_fork_id;
-      cancel->slot             = bank->non_cow.slot;
+      cancel->slot             = bank->f.slot;
       cancel->bank_idx         = bank->idx;
     }
 
@@ -1110,8 +1110,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank,
                      ulong        max_vote_accounts ) {
 
-
-  fd_memset( &bank->data->non_cow, 0, sizeof(bank->data->non_cow) );
+  fd_memset( &bank->data->f, 0, sizeof(bank->data->f) );
 
   fd_top_votes_init( fd_type_pun( bank->data->top_votes_mem ) );
 

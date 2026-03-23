@@ -369,7 +369,7 @@ struct fd_bank_data {
     ulong                             shred_cnt;
     ulong                             epoch;
     ulong                             identity_vote_idx;
-  } non_cow;
+  } f;
 
   /* Layout all information needed for non-templatized fields. */
 
