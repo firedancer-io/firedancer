@@ -532,9 +532,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
 
-  fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
-  ulong live_banks = fd_banks_pool_max( bank_pool ) - fd_banks_pool_free( bank_pool );
-  FD_MGAUGE_SET( REPLAY, LIVE_BANKS, live_banks );
+  FD_MGAUGE_SET( REPLAY, LIVE_BANKS, fd_banks_pool_used_cnt( ctx->banks ) );
 
   ulong reasm_free = fd_reasm_free( ctx->reasm );
   FD_MGAUGE_SET( REPLAY, REASM_FREE, reasm_free );
@@ -686,7 +684,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
 static void
 cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
-  if( bank->data->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank->data ) ) ) {
+  if( fd_bank_has_cost_tracker( bank ) ) {
     fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
     if( FD_UNLIKELY( cost_tracker->block_cost_limit==0UL ) ) {
       memset( &slot_info->cost_tracker, -1 /* ULONG_MAX */, sizeof(slot_info->cost_tracker) );
@@ -2843,8 +2841,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
 
-  fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( ctx->banks->data );
-  FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max( bank_pool ) );
+  FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max_cnt( ctx->banks ) );
 
   ctx->frontier_cnt = 0UL;
 

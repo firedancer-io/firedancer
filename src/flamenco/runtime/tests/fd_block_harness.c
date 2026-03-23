@@ -116,12 +116,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
 
 static void
 fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  /* Release the stake delegations fork allocated in ctx_create */
-  if( runner->bank->data->stake_delegations_fork_id!=USHORT_MAX ) {
-    fd_stake_delegations_t * sd = fd_stake_delegations_join( fd_banks_get_stake_delegations( runner->banks->data ) );
-    fd_stake_delegations_evict_fork( sd, runner->bank->data->stake_delegations_fork_id );
-    runner->bank->data->stake_delegations_fork_id = USHORT_MAX;
-  }
+  fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
   fd_accdb_v1_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache->join );
