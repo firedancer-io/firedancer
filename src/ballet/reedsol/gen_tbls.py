@@ -24,7 +24,7 @@ bytes_to_multiply = range(256)
 encoded = []
 for b in bytes_to_multiply:
     intv = gen_vgf2p8affineqb_matrix(GF(b))
-    encoded.append(struct.pack('<Q', intv)*4)
+    encoded.append(struct.pack('<Q', intv)*8)
 with open(out_dir + 'gfni_constants.bin', 'wb') as bin_file:
     bin_file.write(b''.join(encoded))
 

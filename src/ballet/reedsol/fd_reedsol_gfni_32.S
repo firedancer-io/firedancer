@@ -106,21 +106,21 @@ mov $0, %rax # Init shred_position
 .align 16
 outer_loop:
   # First handle the ones that we don't need to load from data_shred
-  vmovdqu64 (%r8 ,%rax,1),%ymm0
-  vmovdqu64 (%r9 ,%rax,1),%ymm1
-  vmovdqu64 (%r10,%rax,1),%ymm2
-  vmovdqu64 (%r11,%rax,1),%ymm3
-  vmovdqu64 (%r12,%rax,1),%ymm4
-  vmovdqu64 (%r13,%rax,1),%ymm5
-  vmovdqu64 (%r14,%rax,1),%ymm6
-  vmovdqu64 (%r15,%rax,1),%ymm7
+  vmovdqu64 (%r8 ,%rax,1),%zmm0
+  vmovdqu64 (%r9 ,%rax,1),%zmm1
+  vmovdqu64 (%r10,%rax,1),%zmm2
+  vmovdqu64 (%r11,%rax,1),%zmm3
+  vmovdqu64 (%r12,%rax,1),%zmm4
+  vmovdqu64 (%r13,%rax,1),%zmm5
+  vmovdqu64 (%r14,%rax,1),%zmm6
+  vmovdqu64 (%r15,%rax,1),%zmm7
 
 .altmacro
 # load_inputs: load one vector's worth of data from (data_shred[ reg ] +
 # shred_position) into ymm_reg
 .macro load_inputs reg
     mov (\reg* 8)(%rsi), %rbx
-    vmovdqu64 (%rbx, %rax, 1), %ymm\reg
+    vmovdqu64 (%rbx, %rax, 1), %zmm\reg
 .endm
 
   load_inputs  8
@@ -152,39 +152,39 @@ outer_loop:
   # that with a constant scalar of const (or 0 if _c0).  Use scratch_reg
   # for scratch, clobbering it.  reg0 and reg1 are modified in place.
   .macro ifft_butterfly reg0, reg1, const, scratch_reg
-    vpxord %ymm\reg0, %ymm\reg1, %ymm\reg1
-    vgf2p8affineqb $0x00, (gfni_const_tbl+32*(\const))(%rip), %ymm\reg1, %ymm\scratch_reg
-    vpxord %ymm\reg0, %ymm\scratch_reg, %ymm\reg0
+    vpxord %zmm\reg0, %zmm\reg1, %zmm\reg1
+    vgf2p8affineqb $0x00, (gfni_const_tbl+64*(\const))(%rip), %zmm\reg1, %zmm\scratch_reg
+    vpxord %zmm\reg0, %zmm\scratch_reg, %zmm\reg0
   .endm
   .macro ifft_butterfly_c0 reg0, reg1, scratch_reg
-    vpxord %ymm\reg0, %ymm\reg1, %ymm\reg1
+    vpxord %zmm\reg0, %zmm\reg1, %zmm\reg1
   .endm
 
   .macro fft_butterfly reg0, reg1, const, scratch_reg
-    vgf2p8affineqb $0x00, (gfni_const_tbl+32*(\const))(%rip), %ymm\reg1, %ymm\scratch_reg
-    vpxord %ymm\reg0, %ymm\scratch_reg, %ymm\reg0
-    vpxord %ymm\reg1, %ymm\reg0, %ymm\reg1
+    vgf2p8affineqb $0x00, (gfni_const_tbl+64*(\const))(%rip), %zmm\reg1, %zmm\scratch_reg
+    vpxord %zmm\reg0, %zmm\scratch_reg, %zmm\reg0
+    vpxord %zmm\reg1, %zmm\reg0, %zmm\reg1
   .endm
   .macro fft_butterfly_c0 reg0, reg1, scratch_reg
-    vpxord %ymm\reg1, %ymm\reg0, %ymm\reg1
+    vpxord %zmm\reg1, %zmm\reg0, %zmm\reg1
   .endm
 
-  # spill_reload: spill register ymm\spill to its spot in scratch memory
-  # and reload ymm\reload from its spot
+  # spill_reload: spill register zmm\spill to its spot in scratch memory
+  # and reload zmm\reload from its spot
   .macro spill_reload spill, reload
-    vmovdqa64 %ymm\spill, (32*(\spill))(%rcx)
-    vmovdqa64 (32*(\reload))(%rcx), %ymm\reload
+    vmovdqa64 %zmm\spill, (64*(\spill))(%rcx)
+    vmovdqa64 (64*(\reload))(%rcx), %zmm\reload
   .endm
 
-  # parity_store: store generated parity data in ymm\reg to
+  # parity_store: store generated parity data in zmm\reg to
   # parity_shred[ reg ] + shred_position
   .macro parity_store reg
     mov ((\reg )* 8)(%rdx), %rbx
-    vmovdqu64 %ymm\reg, (%rbx, %rax, 1)
+    vmovdqu64 %zmm\reg, (%rbx, %rax, 1)
   .endm
 
-  # Spill ymm31 to its spot so we can use it as scratch and reload it using the spill_reload macro later
-  vmovdqa64 %ymm31, (32*(31))(%rcx)
+  # Spill zmm31 to its spot so we can use it as scratch and reload it using the spill_reload macro later
+  vmovdqa64 %zmm31, (64*(31))(%rcx)
 
   ifft_butterfly_c0  0,  1,      31 # (0, 0, 0) and (0, 0, 1) => (0, 1, 0) and (1, 1, 0)
   ifft_butterfly     2,  3,   2, 31 # (0, 0, 2) and (0, 0, 3) => (0, 1, 2) and (1, 1, 2)
@@ -389,10 +389,10 @@ outer_loop:
   # 32==33.  That's false, so then we reset rax=min(rax, rdi-32), e.g. rax=1.
   # We run through the loop again.  The second time, we add 32, getting
   # rax==33, so then we break.
-  add   $0x20, %rax
+  add   $0x40, %rax
   cmp   %rdi, %rax
   je    done
-  lea   -0x20(%rdi), %rbx
+  lea   -0x40(%rdi), %rbx
   cmp   %rax, %rbx
   cmovb %rbx, %rax
   jmp   outer_loop
