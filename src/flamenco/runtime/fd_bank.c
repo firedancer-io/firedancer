@@ -1028,7 +1028,7 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
     int needs_cancel = !!(bank->flags&FD_BANK_FLAGS_REPLAYABLE);
     if( FD_LIKELY( needs_cancel ) ) {
       cancel->txncache_fork_id = bank->txncache_fork_id;
-      cancel->slot             = FD_LOAD( ulong, bank->non_cow.slot );
+      cancel->slot             = bank->non_cow.slot;
       cancel->bank_idx         = bank->idx;
     }
 
