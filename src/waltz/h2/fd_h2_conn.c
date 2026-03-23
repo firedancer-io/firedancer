@@ -88,7 +88,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   /* A receive might generate two WINDOW_UPDATE frames */
   if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx ) < 2*sizeof(fd_h2_window_update_t) ) ) return;
 
-  ulong frame_rem  = conn->rx_frame_rem;
+  ulong frame_rem  = conn->rx_data_cnt_rem;
   ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
   uint  stream_id  = conn->rx_stream_id;
   uint  chunk_sz   = (uint)fd_ulong_min( frame_rem, rbuf_avail );
@@ -137,7 +137,7 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
   }
 
 skip_frame:
-  conn->rx_frame_rem -= chunk_sz;
+  conn->rx_data_cnt_rem -= chunk_sz;
   fd_h2_rbuf_skip( rbuf_rx, chunk_sz );
   if( FD_UNLIKELY( conn->rx_wnd < conn->rx_wnd_wmark ) ) {
     conn->flags |= FD_H2_CONN_FLAGS_WINDOW_UPDATE;
@@ -354,7 +354,9 @@ fd_h2_rx_settings( fd_h2_conn_t *            conn,
       break;
     case FD_H2_SETTINGS_MAX_FRAME_SIZE:
       if( FD_UNLIKELY( value<0x4000 || value>0xffffff ) ) {
-        fd_h2_conn_error( conn, FD_H2_ERR_FLOW_CONTROL );
+        /* Values outside this range MUST be treated as a connection error
+           (Section 5.4.1) of type PROTOCOL_ERROR. */
+        fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
         return 0;
       }
       conn->peer_settings.max_frame_size = value;
@@ -599,8 +601,8 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
            ulong                     scratch_sz,
            fd_h2_callbacks_t const * cb ) {
   /* All frames except DATA are fully buffered, thus assume that current
-     frame is a DATA frame if rx_frame_rem != 0. */
-  if( conn->rx_frame_rem ) {
+     frame is a DATA frame if rx_data_cnt_rem != 0. */
+  if( conn->rx_data_cnt_rem ) {
     fd_h2_rx_data( conn, rbuf_rx, rbuf_tx, cb );
     return;
   }
@@ -636,15 +638,20 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   /* Peek padding */
   uint pad_sz = 0U;
-  uint rem_sz = frame_sz;
+  /* Bytes remaining in this frame payload excluding padding length and padding. */
+  uint payload_sz = frame_sz;
   if( ( frame_type==FD_H2_FRAME_TYPE_DATA    ||
         frame_type==FD_H2_FRAME_TYPE_HEADERS ||
         frame_type==FD_H2_FRAME_TYPE_PUSH_PROMISE ) &&
       !!( hdr.flags & FD_H2_FLAG_PADDED ) ) {
     if( FD_UNLIKELY( fd_h2_rbuf_used_sz( &rx_peek )<1UL ) ) return;
     pad_sz = rx_peek.lo[0];
-    rem_sz--;
-    if( FD_UNLIKELY( pad_sz>=rem_sz ) ) {
+    payload_sz -= 1U; // Exclude Pad Length field
+    payload_sz -= pad_sz; // Exclude padding
+    /* If the length of the padding is the length of the
+       frame payload or greater, the recipient MUST treat this as a
+       connection error (Section 5.4.1) of type PROTOCOL_ERROR. */
+    if( FD_UNLIKELY( pad_sz>=frame_sz ) ) {
       fd_h2_conn_error( conn, FD_H2_ERR_PROTOCOL );
       return;
     }
@@ -653,7 +660,10 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   /* Special case: Process data incrementally */
   if( frame_type==FD_H2_FRAME_TYPE_DATA ) {
-    conn->rx_frame_rem   = rem_sz;
+    /* The amount of data is the remainder of the
+      frame payload after subtracting the length of the other fields
+      that are present [that is, padding length and padding]. */
+    conn->rx_data_cnt_rem   = payload_sz;
     conn->rx_frame_flags = hdr.flags;
     conn->rx_stream_id   = fd_h2_frame_stream_id( hdr.r_stream_id );
     conn->rx_pad_rem     = (uchar)pad_sz;
@@ -673,7 +683,6 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     return;
   }
 
-  uint payload_sz = rem_sz-pad_sz;
   if( FD_UNLIKELY( scratch_sz < payload_sz ) ) {
     if( FD_UNLIKELY( scratch_sz < conn->self_settings.max_frame_size ) ) {
       FD_LOG_WARNING(( "scratch buffer too small: scratch_sz=%lu max_frame_size=%u)",

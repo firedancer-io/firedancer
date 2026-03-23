@@ -138,9 +138,9 @@ fd_gossip_set_shred_version( fd_gossip_t * gossip,
                              long          now );
 
 void
-fd_gossip_stakes_update( fd_gossip_t *                  gossip,
-                         fd_vote_stake_weight_t const * stake_weights,
-                         ulong                          stake_weights_cnt );
+fd_gossip_stakes_update( fd_gossip_t *             gossip,
+                         fd_stake_weight_t const * stake_weights,
+                         ulong                     stake_weights_cnt );
 
 /* fd_gossip_advance advances the gossip protocol to the provided time,
    performing any necessary updates and actions along the way.  The

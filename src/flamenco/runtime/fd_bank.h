@@ -392,6 +392,15 @@ struct fd_bank_data {
   ulong stake_weights_cnt_next_off;
   ulong stake_weights_next_off;
 
+  ulong id_weights_cnt_off;
+  ulong id_weights_off;
+
+  ulong id_weights_cnt_next_off;
+  ulong id_weights_next_off;
+
+  ulong id_weights_excluded_off;
+  ulong next_id_weights_excluded_off;
+
   uchar top_votes_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
 typedef struct fd_bank_data fd_bank_data_t;
@@ -457,6 +466,66 @@ fd_bank_set_stake_weights_cnt_next_off( fd_bank_data_t * bank, uchar * stake_wei
 static inline ulong *
 fd_bank_get_stake_weights_cnt_next( fd_bank_data_t * bank ) {
   return (ulong *)fd_type_pun( (uchar *)bank - bank->stake_weights_cnt_next_off );
+}
+
+static inline void
+fd_bank_set_id_weights( fd_bank_data_t * bank, uchar * id_weights_mem ) {
+  bank->id_weights_off = (ulong)bank - (ulong)id_weights_mem;
+}
+
+static inline fd_stake_weight_t *
+fd_bank_get_id_weights( fd_bank_data_t * bank ) {
+  return (fd_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->id_weights_off );
+}
+
+static inline void
+fd_bank_set_id_weights_cnt_off( fd_bank_data_t * bank, uchar * id_weights_cnt_mem ) {
+  bank->id_weights_cnt_off = (ulong)bank - (ulong)id_weights_cnt_mem;
+}
+
+static inline ulong *
+fd_bank_get_id_weights_cnt( fd_bank_data_t * bank ) {
+  return (ulong *)fd_type_pun( (uchar *)bank - bank->id_weights_cnt_off );
+}
+
+static inline void
+fd_bank_set_id_weights_next( fd_bank_data_t * bank, uchar * id_weights_mem ) {
+  bank->id_weights_next_off = (ulong)bank - (ulong)id_weights_mem;
+}
+
+static inline fd_stake_weight_t *
+fd_bank_get_id_weights_next( fd_bank_data_t * bank ) {
+  return (fd_stake_weight_t *)fd_type_pun( (uchar *)bank - bank->id_weights_next_off );
+}
+
+static inline void
+fd_bank_set_id_weights_cnt_next_off( fd_bank_data_t * bank, uchar * id_weights_cnt_next_mem ) {
+  bank->id_weights_cnt_next_off = (ulong)bank - (ulong)id_weights_cnt_next_mem;
+}
+
+static inline ulong *
+fd_bank_get_id_weights_cnt_next( fd_bank_data_t * bank ) {
+  return (ulong *)fd_type_pun( (uchar *)bank - bank->id_weights_cnt_next_off );
+}
+
+static inline void
+fd_bank_set_id_weights_excluded( fd_bank_data_t * bank, uchar * id_weights_excluded_mem ) {
+  bank->id_weights_excluded_off = (ulong)bank - (ulong)id_weights_excluded_mem;
+}
+
+static inline ulong *
+fd_bank_get_id_weights_excluded( fd_bank_data_t * bank ) {
+  return (ulong *)fd_type_pun( (uchar *)bank - bank->id_weights_excluded_off );
+}
+
+static inline void
+fd_bank_set_next_id_weights_excluded( fd_bank_data_t * bank, uchar * next_id_weights_excluded_mem ) {
+  bank->next_id_weights_excluded_off = (ulong)bank - (ulong)next_id_weights_excluded_mem;
+}
+
+static inline ulong *
+fd_bank_get_next_id_weights_excluded( fd_bank_data_t * bank ) {
+  return (ulong *)fd_type_pun( (uchar *)bank - bank->next_id_weights_excluded_off );
 }
 
 static inline void
@@ -589,11 +658,20 @@ struct fd_banks_data {
   fd_vote_stake_weight_t stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  stake_weights_cnt;
 
+  fd_stake_weight_t id_weights[ MAX_SHRED_DESTS ];
+  ulong             id_weights_cnt;
+
   /* Set of compressed stake weights for the leader schedule for the
      next epoch. */
 
   fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   ulong                  next_stake_weights_cnt;
+
+  fd_stake_weight_t next_id_weights[ MAX_SHRED_DESTS ];
+  ulong             next_id_weights_cnt;
+
+  ulong             id_weights_excluded;
+  ulong             next_id_weights_excluded;
 
   /* Lay out pool offsets */
 

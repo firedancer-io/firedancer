@@ -244,9 +244,12 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "plugin_out"   );
     fd_topob_wksp( topo, "plugin"       );
 
-    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    8UL+108000UL*(58UL+12UL*34UL), 1UL );
+    /* The size of plugin_out is the max of the message size from
+       gossip_plugi and stake_out. */
+    FD_TEST( FD_STAKE_OUT_MTU>=8UL+108000UL*(58UL+12UL*6UL) );
+    /**/                 fd_topob_link( topo, "plugin_out",   "plugin_out",   128UL,                                    FD_STAKE_OUT_MTU,             1UL  );
     /**/                 fd_topob_link( topo, "replay_plugi", "plugin_in",    128UL,                                    4098*8UL,                     1UL  );
-    /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    128UL,                                    8UL+108000UL*(58UL+12UL*34UL), 1UL );
+    /**/                 fd_topob_link( topo, "gossip_plugi", "plugin_in",    128UL,                                    8UL+108000UL*(58UL+12UL*6UL), 1UL  );
     /**/                 fd_topob_link( topo, "pohh_plugin",  "plugin_in",    128UL,                                    16UL,                         1UL  );
     /**/                 fd_topob_link( topo, "startp_plugi", "plugin_in",    128UL,                                    56UL,                         1UL  );
     /**/                 fd_topob_link( topo, "votel_plugin", "plugin_in",    128UL,                                    8UL,                          1UL  );

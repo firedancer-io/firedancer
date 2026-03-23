@@ -280,6 +280,12 @@ fd_banks_new( void * shmem,
     if( i==0UL ) {
       FD_TEST( fd_top_votes_join( fd_top_votes_new( bank->top_votes_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT, seed ) ) );
     }
+    fd_bank_set_id_weights( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, id_weights) );
+    fd_bank_set_id_weights_cnt_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, id_weights_cnt) );
+    fd_bank_set_id_weights_next( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_id_weights) );
+    fd_bank_set_id_weights_cnt_next_off( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_id_weights_cnt) );
+    fd_bank_set_id_weights_excluded( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, id_weights_excluded) );
+    fd_bank_set_next_id_weights_excluded( bank, (uchar *)banks_data + offsetof(fd_banks_data_t, next_id_weights_excluded) );
 
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks_data );
     fd_bank_set_cost_tracker_pool( bank, cost_tracker_pool );

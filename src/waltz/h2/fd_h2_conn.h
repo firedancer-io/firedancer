@@ -42,7 +42,7 @@ struct fd_h2_conn {
   ulong   tx_payload_off; /* in-progress frame: cum sent byte cnt before payload */
   ulong   rx_suppress;    /* skip frame handlers until this RX offset */
 
-  uint  rx_frame_rem;    /* current RX frame: payload bytes remaining */
+  uint  rx_data_cnt_rem; /* current RX frame: "Application data" remaining in DATA frame */
   uint  rx_stream_id;    /* current RX frame: stream ID */
   uint  rx_stream_next;  /* next unused RX stream ID */
 
