@@ -126,7 +126,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
-  CFG_POP      ( ulong,  development.replay.scheduler_depth                  );
   CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
 
   return config;
@@ -228,6 +227,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
   CFG_POP      ( cstr,   tiles.pack.schedule_strategy                     );
 
+  CFG_POP      ( ulong,  tiles.replay.max_transaction_lookahead_buffer_size );
+  CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                       );
+
   CFG_POP      ( bool,   tiles.pohh.lagged_consecutive_leader_start       );
 
   CFG_POP      ( uint,   tiles.shred.max_pending_shred_sets                   );
@@ -272,8 +274,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
   CFG_POP      ( bool,   capture.dump_txn_as_fixture                      );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
-
-  CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
 
   CFG_POP      ( ushort, tiles.txsend.txsend_src_port                     );
 

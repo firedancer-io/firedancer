@@ -1641,7 +1641,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
     tile->replay.wait_for_vote_to_start_leader = config->consensus.wait_for_vote_to_start_leader;
 
-    tile->replay.sched_depth       = config->firedancer.development.replay.scheduler_depth;
+    tile->replay.sched_depth = config->tiles.replay.max_transaction_lookahead_buffer_size;
     if( FD_LIKELY( !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ) ) ) {
       memset( tile->replay.wait_for_supermajority_with_bank_hash.uc, 0, sizeof(fd_pubkey_t) );
     } else if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, tile->replay.wait_for_supermajority_with_bank_hash.uc ) ) ) {

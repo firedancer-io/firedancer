@@ -926,8 +926,14 @@
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;slot</span> | gauge | Slot of the latest FEC set in the reassembly queue that can be replayed |
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;fec_&#8203;idx</span> | gauge | FEC set index of the latest FEC set in the reassembly queue that can be replayed |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;active_&#8203;bank_&#8203;idx</span> | gauge | The bank that the replay scheduler is currently dispatching work for |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;last_&#8203;dispatch_&#8203;bank_&#8203;idx</span> | gauge | The bank that the replay scheduler last dispatched work for |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;last_&#8203;dispatch_&#8203;time_&#8203;nanos</span> | gauge | Timestamp when the replay scheduler last dispatched work |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;popcnt</span> | gauge | The total number of staging lanes that are currently occupied in the replay scheduler. Up to four staging lanes can be occupied at once |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;popcnt_&#8203;wmk</span> | gauge | The high watermark number of staging lanes that were at one point occupied in the replay scheduler |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;head_&#8203;bank_&#8203;idx0</span> | gauge | The bank at the head of staging lane 0 of the replay dispatcher |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;head_&#8203;bank_&#8203;idx1</span> | gauge | The bank at the head of staging lane 1 of the replay dispatcher |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;head_&#8203;bank_&#8203;idx2</span> | gauge | The bank at the head of staging lane 2 of the replay dispatcher |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;head_&#8203;bank_&#8203;idx3</span> | gauge | The bank at the head of staging lane 3 of the replay dispatcher |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;pool_&#8203;popcnt</span> | gauge | The total number of transactions that are available to be scheduled in the replay scheduler |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;pool_&#8203;size</span> | gauge | The maximum number of transactions that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for TxnPoolPopcnt |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;pool_&#8203;popcnt</span> | gauge | The total number of microblocks that are available to be scheduled in the replay scheduler |
@@ -968,8 +974,8 @@
 | <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;ingested</span> | counter | Number of bytes that the replay scheduler has ingested |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;ingested_&#8203;padding</span> | counter | Number of bytes that the replay scheduler ingested but did not parse for being padding |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;dropped</span> | counter | Number of bytes that the replay scheduler refused to ingest because the block is considered abandoned |
-| <span class="metrics-name">replay_&#8203;fec</span> | counter | Number of FEC sets that the replay scheduler has been given |
-| <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;fec</span> | counter | Number of FEC sets that the replay scheduler has been given |
+| <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully or leader slots packed and shredded successfully |
 | <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;full</span> | counter | Times where sched is full and a FEC set can't be processed |
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;empty</span> | counter | Times where reasm is empty and a FEC set can't be processed |

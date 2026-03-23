@@ -849,7 +849,7 @@ telemetry = true
     # balanced scheduling modes.  Execle tiles execute transactions, so
     # the validator can include the results of the transaction into a
     # block when we are leader.  Because of current consensus limits
-    # restricting blocks to around 32,000 transactions per block, there
+    # restricting blocks to around 98,000 transactions per block, there
     # is typically no need to use more than 2 execle tiles on
     # mainnet-beta, except when using unique scheduling strategies.  For
     # development and benchmarking, it can be useful to increase this
@@ -1403,10 +1403,34 @@ telemetry = true
         # revert to the "balanced" strategy.
         schedule_strategy = "balanced"
 
+    # The replay tile is responsible for replaying and verifying blocks
+    # packed by other validators and for managing the lifecycle of both
+    # leader and follower slots.
+    [tiles.replay]
+        # Transactions are parsed and buffered for consideration by the
+        # replay dispatcher for out-of-order execution.  The larger this
+        # buffer is, the more transactions that the replay dispatcher
+        # can peek at and potentially reorder, and the better the odds
+        # of uncovering the fastest path through a block.  Under current
+        # mainnet conditions, full blocks typically have around 2,000
+        # transactions per block.  Since transactions cannot be
+        # reordered across block boundaries, a buffer size much larger
+        # than that is likely in the territory of diminishing marginal
+        # returns.  Empirically, a buffer size larger than the following
+        # offers no measurable performance advantage.  For development
+        # and benchmarking, it can be useful to increase this number
+        # further.
+        max_transaction_lookahead_buffer_size = 65536
+
     # The execle tile is what executes transactions when we are leader
     # and updates the accounting state as a result of any operations
     # performed by the transactions.
     [tiles.execle]
+
+    # The execrp tile is what executes transactions when we are not
+    # leader and updates the accounting state as a result of any
+    # operations performed by the transactions.
+    [tiles.execrp]
 
     # The proof of history tile receives transactions from execle tiles
     # and mixes their hashes into a continuous stream of hashes that
@@ -1886,10 +1910,3 @@ telemetry = true
     # the layout will be ignored.
     [development.snapshots]
         disable_lthash_verification = false
-
-    [development.replay]
-        # scheduler_depth controls the number of transactions tracked by
-        # the replay scheduler.  Larger values can result in faster
-        # replay times (particularly during heavy forking) at the cost
-        # of greater memory use.
-        scheduler_depth = 1048576
