@@ -173,8 +173,8 @@ update_next_leaders( fd_bank_t *          bank,
      Turbine tree computation. */
   ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
   ulong excluded_stake = 0UL;
-  if( FD_UNLIKELY( stake_weight_cnt>MAX_SHRED_DESTS ) ) {
-    for( ulong i=MAX_SHRED_DESTS; i<stake_weight_cnt; i++ ) {
+  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
+    for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
       excluded_stake += epoch_weights[i].stake;
     }
   }
@@ -250,8 +250,8 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
      Turbine tree computation. */
   ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
   ulong excluded_stake = 0UL;
-  if( FD_UNLIKELY( stake_weight_cnt>MAX_SHRED_DESTS ) ) {
-    for( ulong i=MAX_SHRED_DESTS; i<stake_weight_cnt; i++ ) {
+  if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
+    for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
       excluded_stake += epoch_weights[i].stake;
     }
   }

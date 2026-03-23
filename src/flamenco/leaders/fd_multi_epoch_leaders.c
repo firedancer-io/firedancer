@@ -122,7 +122,7 @@ fd_multi_epoch_leaders_epoch_msg_init( fd_multi_epoch_leaders_t   * mleaders,
   mleaders->scratch->staked_cnt        = msg->staked_vote_cnt;
   mleaders->scratch->vote_keyed_lsched = msg->vote_keyed_lsched;
 
-  fd_vote_stake_weight_t const * weights = fd_type_pun_const( msg + 1 );
+  fd_vote_stake_weight_t const * weights = fd_epoch_info_msg_stake_weights( msg );
   fd_memcpy( mleaders->vote_stake_weight, weights, msg->staked_vote_cnt*sizeof(fd_vote_stake_weight_t) );
 }
 
@@ -132,7 +132,6 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
   const ulong slot0          = mleaders->scratch->start_slot;
   const ulong slot_cnt       = mleaders->scratch->slot_cnt;
   const ulong pub_cnt        = mleaders->scratch->staked_cnt;
-  const ulong excluded_stake = mleaders->scratch->excluded_stake;
   const ulong vote_keyed_lsched = mleaders->scratch->vote_keyed_lsched;
   const ulong epoch_idx      = epoch % MULTI_EPOCH_LEADERS_EPOCH_CNT;
 
@@ -145,7 +144,7 @@ fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders ) {
   uchar *  lsched_mem        = mleaders->_lsched[epoch_idx];
   mleaders->lsched[epoch_idx] = fd_epoch_leaders_join( fd_epoch_leaders_new(
                                     lsched_mem, epoch, slot0, slot_cnt,
-                                    pub_cnt, stakes, excluded_stake, vote_keyed_lsched ) );
+                                    pub_cnt, stakes, 0UL, vote_keyed_lsched ) );
   mleaders->init_done[epoch_idx] = 1;
 }
 
