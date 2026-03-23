@@ -1288,6 +1288,144 @@ test_eviction_deep( fd_wksp_t * wksp ) {
   fd_forest_print( forest );
 }
 
+void
+test_sentinel_blocks( fd_wksp_t * wksp ) {
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
+
+  /* insert sentinel blocks */
+  for( ulong i = 1; i <= 5; i++ ) {
+    FD_TEST( fd_forest_blk_insert( forest, i, ULONG_MAX, NULL ) );
+    FD_TEST( fd_forest_subtrees_ele_query( subtrees, &i, NULL, fd_forest_pool( forest ) ) );
+  }
+
+  FD_TEST( fd_forest_blk_insert( forest, 2, 0, NULL ) );
+  FD_TEST( fd_forest_query( forest, 2 )->parent_slot == 0 );
+  FD_TEST( fd_forest_blk_insert( forest, 2, 0, NULL ) == fd_forest_query( forest, 2 ) );
+  FD_TEST( fd_forest_blk_insert( forest, 2, 1, NULL ) );
+  FD_TEST( fd_forest_query( forest, 2 )->parent_slot == 0 ); /* parent slot should not change */
+  FD_TEST( !fd_forest_verify( forest ) );
+}
+
+void
+test_parent_update( fd_wksp_t * wksp ) {
+  /*   o o
+        _ ` */
+
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  fd_hash_t mr_1 = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2 = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_3_2 = (fd_hash_t){ .key = { 3, 2 } };
+  fd_hash_t mr_3 = (fd_hash_t){ .key = { 3 } };
+  fd_hash_t mr_7_0 = (fd_hash_t){ .key = { 7, 0 } };
+  fd_hash_t mr_7_1 = (fd_hash_t){ .key = { 7, 1 } };
+  fd_hash_t mr_6_0  = (fd_hash_t){ .key = { 6, 0 } };
+  fd_hash_t mr_8_0 = (fd_hash_t){ .key =  { 8, 0 } };
+
+  fd_forest_blk_insert( forest, 1, 0, NULL );
+  fd_forest_blk_insert( forest, 3, 1, NULL );
+  fd_forest_fec_insert( forest, 3, 1, 31, 0, 1, 0, &mr_3_2, &mr_1 );
+  /* orphans */
+  fd_forest_blk_insert( forest, 7, 6, NULL );
+  fd_forest_fec_insert( forest, 7, 6, 31, 0, 1, 0, &mr_7_0, &mr_6_0 );
+  fd_forest_blk_insert( forest, 8, 7, NULL );
+  fd_forest_data_shred_insert( forest, 8, 7, 31, 0, 0, 0, SHRED_SRC_REPAIR, &mr_8_0, &mr_7_0 );
+
+  /* now confirm 7 with a different block id. */
+  FD_TEST( fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 7 ), &mr_7_1 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 7 ) ) == 0UL ); /* INCORRECT. */
+
+  /* now clear 7, 0. */
+  fd_forest_fec_clear( forest, 7, 0, 31 );
+
+  /* now get a data shred that is correct. */
+  fd_forest_fec_insert( forest, 7, 3, 31, 0, 1, 0, &mr_7_1, &mr_3 );
+  FD_TEST( fd_forest_query( forest, 7 )->parent_slot == 3 ); /* parent slot should be updated */
+  ulong _8 = 8;
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_8, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* an old data shred with the wrong parent_slot shouldn't cause the
+     parent_slot to update */
+  fd_forest_data_shred_insert( forest, 7, 6, 31, 0, 1, 0, 0, &mr_7_0, &mr_6_0 );
+  FD_TEST( fd_forest_query( forest, 7 )->parent_slot == 3 );
+  FD_TEST( fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 7 ), &mr_7_1 ) == fd_forest_query( forest, 3 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == 0UL );
+
+  /* SURPRISE! let's say slot 3's real parent should be slot 2 */
+
+  fd_forest_data_shred_insert( forest, 3, 2, 31, 0, 0, 0, SHRED_SRC_REPAIR, &mr_3, &mr_2 );
+  /*should get accepted*/
+  FD_TEST( fd_forest_query( forest, 3 )->parent_slot == 2 );
+  ulong _3 = 3; ulong _7 = 7;
+  fd_forest_print( forest );
+  FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_3, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_orphaned_ele_query( fd_forest_orphaned( forest ), &_8, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_orphaned_ele_query( fd_forest_orphaned( forest ), &_7, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* now get something thats an orphan, real parent keeps it an orphan */
+  ulong _9 = 9;
+  fd_hash_t mr_9_0 = (fd_hash_t){ .key = { 9, 0 } };
+  fd_forest_blk_insert( forest, 9, 8, NULL );
+  fd_forest_data_shred_insert( forest, 9, 8, 31, 0, 1, 1, SHRED_SRC_REPAIR, &mr_9_0, &mr_8_0 );
+
+  fd_hash_t mr_9_1 = (fd_hash_t){ .key = { 9, 1 } };
+  fd_hash_t mr_5   = (fd_hash_t){ .key = { 5 } };
+  FD_TEST( fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 9 ), &mr_9_1 ) == fd_forest_query( forest, 9 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 9 ) ) == 0UL );
+  fd_forest_fec_clear( forest, 9, 0, 31 );
+
+  fd_forest_data_shred_insert( forest, 9, 5, 31, 0, 0, 1, SHRED_SRC_REPAIR, &mr_9_1, &mr_5 );
+  FD_TEST( fd_forest_query( forest, 9 )->parent_slot == 5 );
+  FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_9, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+}
+
+void
+test_eqvoc_blk_wrong_parent( fd_wksp_t * wksp ) {
+  /* initial block 3 version has slot 1 as parent. correct version has slot 2 as parent. */
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+  fd_forest_blk_data_shred_insert( forest, 1, 0, 31, 0, 0, 1 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 31, 0, 0, 1 );
+
+  fd_hash_t mr1     = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_3_32 = (fd_hash_t){ .key = { 3, 1 } };
+  fd_hash_t mr_3_0  = (fd_hash_t){ .key = { 3, 0 } };
+  fd_forest_blk_insert( forest, 3, 1, NULL );
+  fd_forest_data_shred_insert( forest, 3, 1, 63, 32, 1, 0, SHRED_SRC_REPAIR, &mr_3_32, &mr_3_0 );
+  fd_forest_fec_insert( forest, 3, 1, 31, 0, 0, 0, &mr_3_0, &mr1 );
+
+  fd_hash_t mr_3_32_ = (fd_hash_t){ .key = { 3, 1, 1 } };
+  fd_hash_t mr_3_0_  = (fd_hash_t){ .key = { 3, 0, 1 } };
+
+  FD_TEST( fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == 32UL );
+
+  fd_forest_fec_clear( forest, 3, 32, 31 );
+  fd_forest_data_shred_insert( forest, 3, 2, 63, 32, 1, 0, SHRED_SRC_REPAIR, &mr_3_32_, &mr_3_0_ );
+  FD_TEST( fd_forest_query( forest, 3 )->parent_slot == 2 ); /* parent slot should be updated */
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_32_, &mr_3_0_ );
+  FD_TEST( fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == 0UL );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1317,6 +1455,9 @@ main( int argc, char ** argv ) {
   test_eviction_confirmations( wksp );
   test_verify_orphans( wksp );
   test_eviction_deep( wksp );
+  test_sentinel_blocks( wksp );
+  test_eqvoc_blk_wrong_parent( wksp );
+  test_parent_update( wksp );
 
   fd_halt();
   return 0;
