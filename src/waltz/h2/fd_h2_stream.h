@@ -92,6 +92,9 @@ static inline void
 fd_h2_stream_private_deactivate( fd_h2_stream_t * stream,
                                  fd_h2_conn_t *   conn ) {
   int is_tx_stream = fd_h2_stream_is_tx( stream, conn );
+#ifdef FD_H2_USE_HANDHOLDING
+  FD_TEST( conn->stream_active_cnt[ is_tx_stream ]>0U );
+#endif
   conn->stream_active_cnt[ is_tx_stream ]--;
 }
 
