@@ -52,6 +52,10 @@ fd_h2_rbuf_free_sz( fd_h2_rbuf_t const * rbuf ) {
   return (ulong)fd_long_max( 0L, rbuf->buf1 - rbuf->buf0 - used );
 }
 
+/* fd_h2_rbuf_validate_private validates invariants of rbuf. */
+static void
+fd_h2_rbuf_validate_private( fd_h2_rbuf_t * rbuf );
+
 /* fd_h2_rbuf_push appends a series of newly received bytes into rbuf.
    Returns chunk_sz.
 
@@ -62,6 +66,9 @@ static inline void
 fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
                  void const *   chunk,
                  ulong          chunk_sz ) {
+#ifdef FD_H2_USE_HANDHOLDING
+  FD_TEST( chunk_sz<=fd_h2_rbuf_free_sz( rbuf ) );
+#endif
   uchar * buf0 = rbuf->buf0;
   uchar * buf1 = rbuf->buf1;
   uchar * lo   = rbuf->lo;
@@ -79,6 +86,7 @@ fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
     fd_memcpy( hi,                    chunk,         part1 );
     fd_memcpy( buf0, (void *)( (ulong)chunk+part1 ), part2 );
     rbuf->hi = buf0+part2;
+    fd_h2_rbuf_validate_private( rbuf );
     return;
   }
 
@@ -87,6 +95,7 @@ fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
   if( new_hi==buf1 ) new_hi = buf0;
   fd_memcpy( hi, chunk, chunk_sz );
   rbuf->hi = new_hi;
+  fd_h2_rbuf_validate_private( rbuf );
   return;
 }
 
@@ -157,6 +166,7 @@ fd_h2_rbuf_skip( fd_h2_rbuf_t * rbuf,
     lo -= bufsz;
   }
   rbuf->lo = lo;
+  fd_h2_rbuf_validate_private( rbuf );
 }
 
 /* fd_h2_rbuf_alloc marks the next n free bytes as used. */
@@ -173,6 +183,7 @@ fd_h2_rbuf_alloc( fd_h2_rbuf_t * rbuf,
     hi -= bufsz;
   }
   rbuf->hi = hi;
+  fd_h2_rbuf_validate_private( rbuf );
 }
 
 /* fd_h2_rbuf_pop consumes n bytes from rbuf.  n is the number of bytes
@@ -187,6 +198,9 @@ static inline uchar *
 fd_h2_rbuf_pop( fd_h2_rbuf_t * rbuf,
                 uchar *        scratch,
                 ulong          n ) {
+#ifdef FD_H2_USE_HANDHOLDING
+  FD_TEST( n<=fd_h2_rbuf_used_sz( rbuf ) );
+#endif
   uchar * lo    = rbuf->lo;
   uchar * buf0  = rbuf->buf0;
   uchar * buf1  = rbuf->buf1;
@@ -205,6 +219,7 @@ fd_h2_rbuf_pop( fd_h2_rbuf_t * rbuf,
     ret = scratch;
   }
   rbuf->lo = end;
+  fd_h2_rbuf_validate_private( rbuf );
   return ret;
 }
 
@@ -212,6 +227,9 @@ static inline void
 fd_h2_rbuf_pop_copy( fd_h2_rbuf_t * rbuf,
                      void *         out,
                      ulong          n ) {
+#ifdef FD_H2_USE_HANDHOLDING
+  FD_TEST( n<=fd_h2_rbuf_used_sz( rbuf ) );
+#endif
   uchar * lo    = rbuf->lo;
   uchar * buf0  = rbuf->buf0;
   uchar * buf1  = rbuf->buf1;
@@ -230,11 +248,46 @@ fd_h2_rbuf_pop_copy( fd_h2_rbuf_t * rbuf,
     fd_memcpy( out, lo, n );
   }
   rbuf->lo = end;
+  fd_h2_rbuf_validate_private( rbuf );
 }
 
 FD_FN_PURE static inline int
 fd_h2_rbuf_is_empty( fd_h2_rbuf_t const * rbuf ) {
   return rbuf->lo_off==rbuf->hi_off;
+}
+
+static void
+fd_h2_rbuf_validate_private( fd_h2_rbuf_t * rbuf ) {
+#ifndef FD_H2_USE_HANDHOLDING
+  (void)rbuf;
+#endif
+#ifdef FD_H2_USE_HANDHOLDING
+  ulong used = fd_h2_rbuf_used_sz( rbuf );
+  ulong free = fd_h2_rbuf_free_sz( rbuf );
+
+  if( !( used <= rbuf->bufsz ) ) {
+    FD_LOG_NOTICE(( "used <= rbuf->bufsz failed: rbuf %p used %lu free %lu bufsz %lu", (void *)rbuf, used, free, rbuf->bufsz ));
+  }
+  if( !( free <= rbuf->bufsz ) ) {
+    FD_LOG_NOTICE(( "free <= rbuf->bufsz failed: rbuf %p used %lu free %lu bufsz %lu", (void *)rbuf, used, free, rbuf->bufsz ));
+  }
+  if( !( used + free == rbuf->bufsz ) ) {
+    FD_LOG_NOTICE(( "used + free == rbuf->bufsz failed: rbuf %p used %lu free %lu bufsz %lu", (void *)rbuf, used, free, rbuf->bufsz ));
+  }
+  FD_TEST( used <= rbuf->bufsz );
+  FD_TEST( free <= rbuf->bufsz );
+  FD_TEST( used + free == rbuf->bufsz );
+
+  ulong used0, used1;
+  uchar * used_p = fd_h2_rbuf_peek_used( rbuf, &used0, &used1 );
+  FD_TEST( used_p == rbuf->lo );
+  FD_TEST( used0 + used1 == used );
+
+  ulong free0, free1;
+  uchar * free_p = fd_h2_rbuf_peek_free( rbuf, &free0, &free1 );
+  FD_TEST( free_p == rbuf->hi );
+  FD_TEST( free0 + free1 == free );
+#endif /* FD_H2_USE_HANDHOLDING */
 }
 
 FD_PROTOTYPES_END
