@@ -19,7 +19,7 @@ generate_stake_msg( uchar *      _buf,
   buf->start_slot        = epoch * SLOTS_PER_EPOCH;
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = strlen(stakers);
-  buf->staked_id_cnt     = strlen(stakers);
+  buf->staked_id_cnt     = 0UL;
   buf->excluded_id_stake = 0UL;
   buf->vote_keyed_lsched = 0UL;
 
@@ -252,7 +252,6 @@ test_limits( void ) {
         FD_STORE( ulong, vote_stake_weights[i].id_key.uc, fd_ulong_bswap( i ) );
         vote_stake_weights[i].stake = stake;
         buf->staked_vote_cnt++;
-        buf->staked_id_cnt++;
       } else {
         buf->excluded_id_stake += stake;
       }

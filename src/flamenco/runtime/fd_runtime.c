@@ -175,7 +175,7 @@ update_next_leaders( fd_bank_t *          bank,
   ulong excluded_stake = 0UL;
   if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
     for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
-      excluded_stake += epoch_weights[i].stake;
+      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
@@ -252,7 +252,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong excluded_stake = 0UL;
   if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
     for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
-      excluded_stake += epoch_weights[i].stake;
+      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
