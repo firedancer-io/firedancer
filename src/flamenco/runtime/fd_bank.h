@@ -20,8 +20,6 @@ FD_PROTOTYPES_BEGIN
 #define FD_BANKS_MAX_BANKS (4096UL)
 #define FD_BANKS_ALIGN     (128UL)
 
-/* TODO:FIXME: REREVIEW ALL DOCUMENTATION FOR BANKS */
-
 /* A fd_bank_t struct is the representation of the bank state on Solana
    for a given block.  More specifically, the bank state corresponds to
    all information needed during execution that is not stored on-chain,
