@@ -653,7 +653,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   fd_bank_slot_set( bank, slot );
-  fd_bank_parent_slot_set( bank, parent_slot );
   bank->data->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->data->txncache_fork_id );
 
   /* Create a new funk txn for the block. */
@@ -665,8 +664,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   /* Update required runtime state and handle potential boundary. */
 
-  fd_bank_block_height_set( bank, fd_bank_block_height_get( bank ) + 1UL );
-
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 0 );
@@ -676,7 +673,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, fd_bank_ticks_per_slot_get( parent_bank ) ));
   }
   fd_bank_max_tick_height_set( bank, max_tick_height );
-  fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
   fd_sched_set_poh_params( ctx->sched, bank->data->idx, fd_bank_tick_height_get( bank ), fd_bank_max_tick_height_get( bank ), fd_bank_hashes_per_tick_get( bank ), fd_bank_poh_query( parent_bank ) );
 
   FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
@@ -943,15 +939,12 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   ctx->leader_bank->data->preparation_begin_nanos = before;
 
   fd_bank_slot_set( ctx->leader_bank, slot );
-  fd_bank_parent_slot_set( ctx->leader_bank, parent_slot );
   ctx->leader_bank->data->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->data->txncache_fork_id );
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->data->idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_txn_attach_child( ctx->progcache, &parent_xid, &xid );
-
-  fd_bank_block_height_set( ctx->leader_bank, fd_bank_block_height_get( ctx->leader_bank ) + 1UL );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
@@ -962,7 +955,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, fd_bank_ticks_per_slot_get( parent_bank ) ));
   }
   fd_bank_max_tick_height_set( ctx->leader_bank, max_tick_height );
-  fd_bank_tick_height_set( ctx->leader_bank, fd_bank_max_tick_height_get( parent_bank ) ); /* The parent's max tick height is our starting tick height. */
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */

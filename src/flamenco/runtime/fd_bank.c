@@ -531,6 +531,12 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   fd_memcpy( child_bank->top_votes_mem, parent_bank->top_votes_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
 
+  child_bank->non_cow.block_height         = parent_bank->non_cow.block_height + 1UL;
+  child_bank->non_cow.tick_height          = parent_bank->non_cow.max_tick_height;
+  child_bank->non_cow.parent_slot          = parent_bank->non_cow.slot;
+  child_bank->non_cow.parent_signature_cnt = parent_bank->non_cow.signature_count;
+  child_bank->non_cow.prev_bank_hash       = parent_bank->non_cow.bank_hash;
+
   bank_l->locks = banks->locks;
   bank_l->data  = child_bank;
   return bank_l;
