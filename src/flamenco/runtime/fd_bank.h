@@ -16,9 +16,9 @@
 
 FD_PROTOTYPES_BEGIN
 
-#define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
-
+#define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
 #define FD_BANKS_MAX_BANKS (4096UL)
+#define FD_BANKS_ALIGN     (128UL)
 
 /* TODO:FIXME: REREVIEW ALL DOCUMENTATION FOR BANKS */
 
@@ -267,18 +267,8 @@ struct fd_bank_cost_tracker {
 };
 typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
-struct fd_bank_top_votes {
-  ulong next;
-  uchar data[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
-};
-typedef struct fd_bank_top_votes fd_bank_top_votes_t;
-
 #define POOL_NAME fd_bank_cost_tracker_pool
 #define POOL_T    fd_bank_cost_tracker_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_top_votes_pool
-#define POOL_T    fd_bank_top_votes_t
 #include "../../util/tmpl/fd_pool.c"
 
 /* Initialized.  Not yet replayable. */
@@ -366,15 +356,13 @@ struct fd_bank_data {
   ulong epoch_leaders_offset;
   ulong epoch_leaders_footprint;
 
-  int   top_votes_dirty;
-  ulong top_votes_pool_idx;
-  ulong top_votes_pool_offset;
-
   ulong stake_weights_cnt_off;
   ulong stake_weights_off;
 
   ulong stake_weights_cnt_next_off;
   ulong stake_weights_next_off;
+
+  uchar top_votes_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
@@ -395,8 +383,6 @@ struct fd_banks_locks {
      pools (e.g. acquires and releases).  These locks are currently just
      write locks and have no readers. */
   fd_rwlock_t epoch_leaders_pool_lock;
-
-  fd_rwlock_t top_votes_pool_lock;
 
   fd_rwlock_t vote_stakes_lock;
 
@@ -488,16 +474,6 @@ fd_bank_set_cost_tracker_pool( fd_bank_data_t * bank, fd_bank_cost_tracker_t * c
 static inline fd_bank_cost_tracker_t *
 fd_bank_get_cost_tracker_pool( fd_bank_data_t * bank ) {
   return fd_bank_cost_tracker_pool_join( (uchar *)bank + bank->cost_tracker_pool_offset );
-}
-
-static inline void
-fd_bank_set_top_votes_pool( fd_bank_data_t * bank, fd_bank_top_votes_t * top_votes_pool ) {
-  bank->top_votes_pool_offset = (ulong)top_votes_pool - (ulong)bank;
-}
-
-static inline fd_bank_top_votes_t *
-fd_bank_get_top_votes_pool( fd_bank_data_t * bank ) {
-  return fd_type_pun( (uchar *)bank + bank->top_votes_pool_offset );
 }
 
 static inline void
@@ -759,17 +735,6 @@ static inline void
 fd_banks_set_stake_delegations( fd_banks_data_t * banks_data,
                                 uchar *           stake_delegations_mem ) {
   banks_data->stake_delegations_offset = (ulong)stake_delegations_mem - (ulong)banks_data;
-}
-
-static inline fd_bank_top_votes_t *
-fd_banks_get_top_votes_pool( fd_banks_data_t * banks_data ) {
-  return fd_type_pun( (uchar *)banks_data + banks_data->top_votes_pool_offset );
-}
-
-static inline void
-fd_banks_set_top_votes_pool( fd_banks_data_t *     banks_data,
-                             fd_bank_top_votes_t * top_votes_pool ) {
-  banks_data->top_votes_pool_offset = (ulong)top_votes_pool - (ulong)banks_data;
 }
 
 static inline fd_bank_cost_tracker_t *
@@ -1065,8 +1030,7 @@ fd_banks_get_frontier( fd_banks_t * banks,
 static inline int
 fd_banks_is_full( fd_banks_t * banks ) {
   return fd_banks_pool_free( fd_banks_get_bank_pool( banks->data ) )==0UL ||
-         fd_bank_cost_tracker_pool_free( fd_banks_get_cost_tracker_pool( banks->data ) )==0UL ||
-         fd_bank_top_votes_pool_free( fd_banks_get_top_votes_pool( banks->data ) )==0UL;
+         fd_bank_cost_tracker_pool_free( fd_banks_get_cost_tracker_pool( banks->data ) )==0UL;
 }
 
 FD_PROTOTYPES_END
