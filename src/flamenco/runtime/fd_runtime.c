@@ -143,7 +143,7 @@ update_next_leaders( fd_bank_t *          bank,
 
   /* Populate a compressed set of stake weights for a valid leader
      schedule. */
-  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights_next( bank->data );
+  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.next_stake_weights;
   ulong idx = 0UL;
 
   int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
@@ -167,7 +167,7 @@ update_next_leaders( fd_bank_t *          bank,
       idx++;
     }
   }
-  *fd_bank_get_stake_weights_cnt_next( bank->data ) = idx;
+  runtime_stack->epoch_weights.next_stake_weights_cnt = idx;
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
@@ -179,10 +179,9 @@ update_next_leaders( fd_bank_t *          bank,
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
-  fd_stake_weight_t * id_weights = fd_bank_get_id_weights_next( bank->data );
-  memcpy( id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  *fd_bank_get_id_weights_cnt_next( bank->data ) = staked_cnt;
-  *fd_bank_get_next_id_weights_excluded( bank->data ) = excluded_stake;
+  memcpy( runtime_stack->epoch_weights.next_id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  runtime_stack->epoch_weights.next_id_weights_cnt      = staked_cnt;
+  runtime_stack->epoch_weights.next_id_weights_excluded  = excluded_stake;
 }
 
 void
@@ -220,7 +219,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   /* Populate a compressed set of stake weights for a valid leader
      schedule. */
-  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights( bank->data );
+  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.stake_weights;
   ulong idx = 0UL;
 
   int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
@@ -244,7 +243,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
       idx++;
     }
   }
-  *fd_bank_get_stake_weights_cnt( bank->data ) = idx;
+  runtime_stack->epoch_weights.stake_weights_cnt = idx;
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
@@ -256,11 +255,9 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
-  fd_stake_weight_t * id_weights = fd_bank_get_id_weights( bank->data );
-  memcpy( id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  *fd_bank_get_id_weights_cnt( bank->data ) = staked_cnt;
-  *fd_bank_get_id_weights_excluded( bank->data ) = excluded_stake;
-
+  memcpy( runtime_stack->epoch_weights.id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  runtime_stack->epoch_weights.id_weights_cnt      = staked_cnt;
+  runtime_stack->epoch_weights.id_weights_excluded = excluded_stake;
 
   fd_bank_vote_stakes_end_locking_modify( bank );
 }

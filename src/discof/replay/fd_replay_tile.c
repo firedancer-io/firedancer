@@ -582,34 +582,36 @@ metrics_write( fd_replay_tile_t * ctx ) {
 }
 
 static void
-publish_epoch_info( fd_replay_tile_t *   ctx,
-                    fd_stem_context_t *  stem,
-                    fd_bank_t *          bank,
-                    int                  current_epoch ) {
+publish_epoch_info( fd_replay_tile_t *  ctx,
+                    fd_stem_context_t * stem,
+                    fd_bank_t *         bank,
+                    int                 current_epoch ) {
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL ) + fd_ulong_if( current_epoch, 1UL, 0UL );
 
   fd_features_t const * features = fd_bank_features_query( bank );
 
+  fd_runtime_stack_t * runtime_stack = ctx->runtime_stack;
+
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
 
-  epoch_info_msg->staked_vote_cnt   = current_epoch ? *fd_bank_get_stake_weights_cnt_next( bank->data ) : *fd_bank_get_stake_weights_cnt( bank->data );
-  epoch_info_msg->staked_id_cnt     = current_epoch ? *fd_bank_get_id_weights_cnt_next( bank->data ) : *fd_bank_get_id_weights_cnt( bank->data );
+  epoch_info_msg->staked_vote_cnt   = current_epoch ? runtime_stack->epoch_weights.next_stake_weights_cnt : runtime_stack->epoch_weights.stake_weights_cnt;
+  epoch_info_msg->staked_id_cnt     = current_epoch ? runtime_stack->epoch_weights.next_id_weights_cnt    : runtime_stack->epoch_weights.id_weights_cnt;
   epoch_info_msg->epoch_schedule    = *schedule;
   epoch_info_msg->features          = *features;
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( schedule, epoch );
-  epoch_info_msg->excluded_id_stake = current_epoch ? *fd_bank_get_next_id_weights_excluded( bank->data ) : *fd_bank_get_id_weights_excluded( bank->data );
+  epoch_info_msg->excluded_id_stake = current_epoch ? runtime_stack->epoch_weights.next_id_weights_excluded : runtime_stack->epoch_weights.id_weights_excluded;
   epoch_info_msg->vote_keyed_lsched = 1UL;
 
   fd_vote_stake_weight_t * stake_weights = fd_type_pun( epoch_info_msg + 1 );
-  fd_vote_stake_weight_t * bank_stake_weights = current_epoch ? fd_bank_get_stake_weights_next( bank->data ) : fd_bank_get_stake_weights( bank->data );
-  memcpy( stake_weights, bank_stake_weights, epoch_info_msg->staked_vote_cnt * sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t * src_stake_weights = current_epoch ? runtime_stack->epoch_weights.next_stake_weights : runtime_stack->epoch_weights.stake_weights;
+  memcpy( stake_weights, src_stake_weights, epoch_info_msg->staked_vote_cnt * sizeof(fd_vote_stake_weight_t) );
 
   fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
-  fd_stake_weight_t * bank_id_weights = current_epoch ? fd_bank_get_id_weights_next( bank->data ) : fd_bank_get_id_weights( bank->data );
-  fd_memcpy( id_weights, bank_id_weights, epoch_info_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
+  fd_stake_weight_t * src_id_weights = current_epoch ? runtime_stack->epoch_weights.next_id_weights : runtime_stack->epoch_weights.id_weights;
+  fd_memcpy( id_weights, src_id_weights, epoch_info_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt , epoch_info_msg->staked_id_cnt );
 
