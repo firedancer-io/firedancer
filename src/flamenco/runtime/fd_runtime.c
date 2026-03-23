@@ -866,10 +866,9 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
 
   if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
-    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
     FD_TEST( cost_tracker );
     fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
-    fd_bank_cost_tracker_end_locking_modify( bank );
   }
 
   /* Update the active feature set with any upcoming features */
@@ -1300,14 +1299,13 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
   /* Update the cost tracker. */
 
-  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
   int res = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
     txn_out->err.is_committable = 0;
     txn_out->err.txn_err        = fd_cost_tracker_err_to_runtime_err( res );
   }
-  fd_bank_cost_tracker_end_locking_modify( bank );
 
   /* Finally, update the status cache. */
 

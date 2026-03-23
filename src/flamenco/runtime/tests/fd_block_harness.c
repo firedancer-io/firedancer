@@ -597,13 +597,12 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */
-    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( runner->bank );
+    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( runner->bank );
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
       .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,
       .vote_cost  = cost_tracker ? cost_tracker->vote_cost  : 0UL,
     };
-    fd_bank_cost_tracker_end_locking_query( runner->bank );
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */
     fd_solfuzz_pb_build_leader_schedule_effects( runner, effects );

@@ -388,7 +388,6 @@ struct fd_banks_locks {
      corresponding fields in each bank.  The locks are indexed by the
      bank index. */
   fd_rwlock_t lthash_lock[ FD_BANKS_MAX_BANKS ];
-  fd_rwlock_t cost_tracker_lock[ FD_BANKS_MAX_BANKS ];
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
 
@@ -615,16 +614,10 @@ fd_top_votes_t *
 fd_bank_top_votes_modify( fd_bank_t * bank );
 
 fd_cost_tracker_t *
-fd_bank_cost_tracker_locking_modify( fd_bank_t * bank );
-
-void
-fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank );
+fd_bank_cost_tracker_modify( fd_bank_t * bank );
 
 fd_cost_tracker_t const *
-fd_bank_cost_tracker_locking_query( fd_bank_t * bank );
-
-void
-fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank );
+fd_bank_cost_tracker_query( fd_bank_t * bank );
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank );
