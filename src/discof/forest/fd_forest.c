@@ -924,18 +924,19 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
   fd_forest_ref_t *      conspool = fd_forest_conspool( forest );
   fd_forest_requests_t * requests = fd_forest_requests( forest );
   fd_forest_ref_t *      reqspool = fd_forest_reqspool( forest );
-  fd_forest_blk_t *      pool     = fd_forest_pool ( forest );
+  fd_forest_blk_t *      pool     = fd_forest_pool    ( forest );
   ulong *                bfs      = fd_forest_deque( forest );
   ulong                  null     = fd_forest_pool_idx_null( pool );
 
   fd_forest_blk_t * ele = query( forest, slot );
   if( FD_LIKELY( ele ) ) {
-    // potentially may need to update the parent_slot, if this
-    // this was a sentinel block that was created for a confirmed msg
+    /* potentially may need to update the parent_slot, if this
+       this was a sentinel block that was created for a confirmed msg.
+       This update is only allowed once */
     if( FD_UNLIKELY( ele->slot == ele->parent_slot && ele->parent_slot != parent_slot ) ) {
       ele->parent_slot = parent_slot;
       FD_TEST( fd_forest_subtrees_ele_query( subtrees, &slot, NULL, pool ) || fd_forest_orphaned_ele_query( orphaned, &slot, NULL, pool ) );
-      subtrees_orphaned_remove( forest, slot ); // if this is a sentinel block, then it must be in subtrees
+      subtrees_orphaned_remove( forest, slot ); // if this is a sentinel block, then it must be orphaned
     } else {
       return ele;
     }

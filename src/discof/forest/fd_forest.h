@@ -723,10 +723,22 @@ fd_forest_query( fd_forest_t * forest, ulong slot );
 /* Operations */
 
 /* fd_forest_blk_insert inserts a new block into the forest.  Assumes
-   slot >= forest->smr, and the blk pool has a free element (if
-   handholding is enabled, explicitly checks and errors).  This blk
-   insert is idempotent, and can be called multiple times with the same
-   slot. Returns the inserted forest ele. */
+   slot >= forest->root.  blk_insert can also be called to create a
+   sentinel block, i.e. a placeholder block that we know exists but
+   don't know the parent slot of.  The caller should pass in parent_slot
+   equal to the slot.  In this case, the block inserted will remain an
+   orphan/subtree at least until the next blk_insert is called with a
+   different parent_slot, after which point no more updates to the
+   parent_slot will be allowed.  For non-sentinel blocks, blk insert is
+   idempotent, and can be called multiple times with the same slot.
+
+   If the forest pool is full at the time of insertion, a block will be
+   chosen for eviction (see fd_forest.c:evict for more details).  If the
+   caller passes in a non-NULL evicted pointer, the evicted slot will be
+   stored to the pointer.
+
+   Returns the inserted (or existing) forest ele.  NULL if the forest
+   pool is full and no block could be evicted. */
 
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong * evicted );

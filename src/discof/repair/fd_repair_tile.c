@@ -951,17 +951,16 @@ after_frag( ctx_t *             ctx,
         if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
           fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
           if( FD_UNLIKELY( !blk ) ) {
-
             /* If we receive a confirmation for a slot we don't have,
                create a sentinel forest block that we can repair from. */
-
             ulong evicted = ULONG_MAX;
             blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot, &evicted );
-            if( FD_LIKELY( blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) {
-              blk->confirmed_bid = msg->block_id;
-              check_confirmed( ctx, blk, &msg->block_id );
-            }
+            if( FD_UNLIKELY( !blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) break;
           }
+
+          /* Confirm the block */
+          blk->confirmed_bid = msg->block_id;
+          check_confirmed( ctx, blk, &msg->block_id );
         }
       }
       break;
