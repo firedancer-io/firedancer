@@ -705,6 +705,156 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
+
+  fd_pubkey_t system_prog    = {0};
+  fd_pubkey_t payer          = { .ul[0] = 0xC0DE01UL };
+  fd_pubkey_t program_key    = { .ul[0] = 0xC0DE02UL };
+  fd_pubkey_t programdata_key= { .ul[0] = 0xC0DE03UL };
+  fd_pubkey_t authority_key  = { .ul[0] = 0xC0DE04UL };
+
+  create_test_account( env->accdb, &env->xid, &payer, 10000000UL, 0UL, NULL, 10UL, &system_prog );
+
+  /* Program account: owned by upgradeable BPF loader, state = program pointing at programdata. */
+  uchar program_data_buf[ SIZE_OF_PROGRAM ];
+  {
+    fd_bpf_upgradeable_loader_state_t state;
+    fd_memset( &state, 0, sizeof(state) );
+    state.discriminant                    = fd_bpf_upgradeable_loader_state_enum_program;
+    state.inner.program.programdata_address = programdata_key;
+    fd_bincode_encode_ctx_t ctx = { .data = program_data_buf, .dataend = program_data_buf + SIZE_OF_PROGRAM };
+    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &ctx ) == FD_BINCODE_SUCCESS );
+  }
+  create_test_account( env->accdb, &env->xid, &program_key, 1000000UL,
+                      SIZE_OF_PROGRAM, program_data_buf, 5UL,
+                      &fd_solana_bpf_loader_upgradeable_program_id );
+
+  /* Programdata account: state = program_data with OLD slot = 5 (< current slot 10).
+    A real upgrade would set slot to the current slot; we start with the pre-upgrade state. */
+  uchar programdata_data_buf[ PROGRAMDATA_METADATA_SIZE ];
+  {
+    fd_bpf_upgradeable_loader_state_t state;
+    fd_memset( &state, 0, sizeof(state) );
+    state.discriminant                                   = fd_bpf_upgradeable_loader_state_enum_program_data;
+    state.inner.program_data.slot                        = 5UL;
+    state.inner.program_data.upgrade_authority_address   = authority_key;
+    state.inner.program_data.has_upgrade_authority_address = 1;
+    fd_bincode_encode_ctx_t ctx = { .data = programdata_data_buf, .dataend = programdata_data_buf + PROGRAMDATA_METADATA_SIZE };
+    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &ctx ) == FD_BINCODE_SUCCESS );
+  }
+  create_test_account( env->accdb, &env->xid, &programdata_key, 1000000UL,
+                      PROGRAMDATA_METADATA_SIZE, programdata_data_buf, 5UL,
+                      &fd_solana_bpf_loader_upgradeable_program_id );
+
+
+/* test_bundle_program_coherency: regression test for the bundle program-cache coherency bug.
+   Bug summary: when txn1 in a bundle upgrades an upgradeable BPF program (updating the
+   programdata account), txn2 in the same bundle may observe stale programdata state from accdb
+   rather than the bundle-forwarded state from txn1.  This happens because
+   fd_executor_setup_executable_account loads the programdata account directly from accdb via
+   fd_accdb_open_ro, bypassing the prev_txn_outs bundle-forwarding path.
+
+   Specifically:
+   - When txn2 does NOT include programdata in its own account list, the bundle-forwarding path
+     (which only applies to accounts in the current transaction's account set) cannot help.
+   - fd_executor_setup_executable_account derives programdata_address from the program account
+     state and loads it from accdb — always using the committed (pre-bundle) state.
+   - The delayed-visibility check at fd_bpf_loader_program.c reads this stale programdata slot,
+     so it may incorrectly pass if the upgrade happened in the same bundle.
+
+   This test asserts the CORRECT behavior: after txn1 upgrades a program (setting
+   programdata.slot = current_slot), the programdata loaded into txn2's executable-account
+   table should reflect the bundle-updated state (slot == 10), not the stale accdb state
+   (slot == 5).
+
+   Expected result: FD_TEST( pd_state.slot == 10UL ) passes.
+   Current result with the bug present: FAIL — slot == 5 is observed. */
+
+  /* Transaction 1: simulated upgrade.  Accounts: [payer, program, programdata] (all writable).
+    We execute an empty transaction (no instructions) then manually update the programdata
+    slot field in txn_out[0] to simulate what a real upgrade instruction would write. */
+  txn_p = (fd_txn_p_t){0};
+  fd_pubkey_t txn1_keys[3] = { payer, program_key, programdata_key };
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 3UL, txn1_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+  env->txn_in.txn                 = &txn_p;
+  env->txn_in.bundle.is_bundle    = 1;
+  env->txn_in.bundle.prev_txn_cnt = 0;
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+  FD_TEST( env->txn_out[0].err.is_committable );
+  FD_TEST( env->txn_out[0].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
+
+  /* Locate programdata in txn1's output accounts. */
+  int pd_idx = -1;
+  for( ushort i = 0; i < env->txn_out[0].accounts.cnt; i++ ) {
+    if( fd_pubkey_eq( &env->txn_out[0].accounts.keys[i], &programdata_key ) ) {
+      pd_idx = i;
+      break;
+    }
+  }
+  FD_TEST( pd_idx >= 0 );
+  FD_TEST( env->txn_out[0].accounts.is_writable[ pd_idx ] );
+
+  /* Simulate the upgrade: set programdata.slot = 10 (= current slot) in txn1's output.
+    After a real upgrade instruction, the on-chain programdata.slot would equal the upgrade slot,
+    which triggers the delayed-visibility check for any same-slot invocation. */
+  uchar * pd_out_data = fd_account_meta_get_data( env->txn_out[0].accounts.account[ pd_idx ].meta );
+  {
+    fd_bpf_upgradeable_loader_state_t upgraded;
+    fd_memset( &upgraded, 0, sizeof(upgraded) );
+    upgraded.discriminant                                   = fd_bpf_upgradeable_loader_state_enum_program_data;
+    upgraded.inner.program_data.slot                        = 10UL; /* now equals current slot */
+    upgraded.inner.program_data.upgrade_authority_address   = authority_key;
+    upgraded.inner.program_data.has_upgrade_authority_address = 1;
+    fd_bincode_encode_ctx_t ctx = { .data = pd_out_data, .dataend = pd_out_data + PROGRAMDATA_METADATA_SIZE };
+    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &upgraded, &ctx ) == FD_BINCODE_SUCCESS );
+  }
+
+  /* Transaction 2: invoke the program WITHOUT listing programdata in the account set.
+    Accounts: [payer, program_key] only — programdata_key is intentionally absent.
+    This is the scenario in the bug: the invoking transaction does not explicitly include
+    programdata, so the bundle-forwarding path (which only covers accounts in the current
+    transaction's account list) cannot supply the updated programdata. */
+  fd_pubkey_t txn2_keys[2] = { payer, program_key };
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, txn2_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 1;
+  env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+  FD_TEST( env->txn_out[1].err.is_committable );
+
+  /* KEY ASSERTION: inspect the programdata that was loaded into runtime->accounts.executable
+    during txn2's account setup (fd_executor_setup_executable_account).
+
+    fd_executor_setup_executable_account derives programdata_key from the program account state
+    and opens it via fd_accdb_open_ro — directly from accdb, not from prev_txn_outs.  So the
+    loaded programdata reflects the committed (pre-bundle) accdb state: slot == 5.
+
+    The CORRECT bundle-coherent behavior would be to load the programdata from txn1's output
+    (slot == 10), so that the delayed-visibility check fires and txn2 is rejected.
+
+    When the bug is present:  pd_state.slot == 5  → assertion FAILS.
+    When the bug is fixed:    pd_state.slot == 10 → assertion PASSES. */
+  int found_programdata = 0;
+  for( ushort i = 0; i < env->runtime->accounts.executable_cnt; i++ ) {
+    fd_accdb_ro_t const * ro = &env->runtime->accounts.executable[i];
+    if( !fd_pubkey_eq( fd_accdb_ref_address( ro ), &programdata_key ) ) continue;
+
+    fd_bpf_upgradeable_loader_state_t pd_state[1];
+    FD_TEST( fd_bpf_loader_program_get_state( ro->meta, pd_state ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( fd_bpf_upgradeable_loader_state_is_program_data( pd_state ) );
+
+    /* Asserts correct (post-fix) behavior: programdata slot must reflect the bundle-updated
+      state from txn1 (slot == 10), not the stale accdb state (slot == 5). */
+    FD_TEST( pd_state->inner.program_data.slot == 10UL );
+    found_programdata = 1;
+    break;
+  }
+  FD_TEST( found_programdata );
+
 }
 
 int
