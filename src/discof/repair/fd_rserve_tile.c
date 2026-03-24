@@ -214,6 +214,7 @@ handle_net_request( ctx_t             * ctx,
 
   if( FD_UNLIKELY( !fd_pubkey_eq( &ctx->identity_public_key, &header->to ) ) ) {
     /* The message wasn't intended for us, ignore. */
+    FD_LOG_NOTICE(( "not for us?" ));
     return;
   }
   if( FD_UNLIKELY( fd_pubkey_eq( &ctx->identity_public_key, &header->from ) ) ) {
@@ -221,9 +222,12 @@ handle_net_request( ctx_t             * ctx,
     return;
   }
 
+  FD_LOG_NOTICE(( "got message: %u", tag ));
+
   long current = FD_NANOSEC_TO_MILLI( fd_log_wallclock() );
   if( FD_UNLIKELY( current-(long)header->ts > FD_RSERVE_SIGNED_REPAIR_WINDOW ) ) {
     /* The message was sent too long ago, ignore. */
+    FD_LOG_NOTICE(( "too old" ));
     return;
   }
 
@@ -238,11 +242,13 @@ handle_net_request( ctx_t             * ctx,
 
   if( FD_UNLIKELY( FD_ED25519_SIG_SZ!=fd_ed25519_verify( signable, signable_sz, header->sig, header->from.uc, ctx->sha512 ) ) ) {
     /* Invalid signature, ignore. */
+    FD_LOG_NOTICE(( "bad verify" ));
     return;
   }
 
   /* Check whether we've heard a pong response from them. */
   ping_cache_entry_t * entry = ping_cache_query( ctx->rserve->ping_cache, header->from, NULL );
+  FD_LOG_NOTICE(( "entry is null?: %d", entry == NULL )); 
   if( FD_LIKELY( entry ) ) {
     switch( tag ) {
       case FD_REPAIR_KIND_SHRED:
