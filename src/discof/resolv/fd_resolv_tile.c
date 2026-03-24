@@ -288,7 +288,7 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   uchar const *             txn_payload  = fd_txn_m_payload_const( txnm );
   ulong const               alut_cnt     = txn->addr_table_lookup_cnt;
   ulong const               slot         = fd_bank_slot_get( ctx->bank );
-  fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( ctx->bank ); FD_TEST( sysvar_cache );
+  fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->data->f.sysvar_cache; FD_TEST( sysvar_cache );
   fd_slot_hash_t const *    slot_hashes  = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
 
   /* Write indirect addrs into here */

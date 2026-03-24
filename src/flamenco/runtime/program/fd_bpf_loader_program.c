@@ -148,12 +148,12 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
 
   fd_vm_syscall_register_slot( syscalls,
                                deploy_slot,
-                               fd_bank_features_query( instr_ctx->bank ),
+                               &instr_ctx->bank->data->f.features,
                                1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
-  fd_prog_versions_t versions = fd_prog_versions( fd_bank_features_query( instr_ctx->bank ), deploy_slot );
+  fd_prog_versions_t versions = fd_prog_versions( &instr_ctx->bank->data->f.features, deploy_slot );
 
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = deploy_mode;
@@ -395,7 +395,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   /* TODO do we really need to re-do this on every instruction? */
   fd_vm_syscall_register_slot( syscalls,
                                fd_bank_slot_get( instr_ctx->bank ),
-                               fd_bank_features_query( instr_ctx->bank ),
+                               &instr_ctx->bank->data->f.features,
                                0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */

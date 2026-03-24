@@ -96,7 +96,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   inflation->foundation_term = manifest->inflation_params.foundation_term;
   inflation->unused          = 0.0;
 
-  fd_epoch_schedule_t * epoch_schedule = fd_bank_epoch_schedule_modify( bank );
+  fd_epoch_schedule_t * epoch_schedule = &bank->data->f.epoch_schedule;
   epoch_schedule->slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch;
   epoch_schedule->leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset;
   epoch_schedule->warmup                      = manifest->epoch_schedule_params.warmup;
@@ -104,9 +104,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   epoch_schedule->first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot;
 
   ulong epoch = fd_slot_to_epoch( epoch_schedule, manifest->slot, NULL );
-  fd_bank_epoch_set( bank, epoch );
+  bank->data->f.epoch = epoch;
 
-  fd_rent_t * rent = fd_bank_rent_modify( bank );
+  fd_rent_t * rent = &bank->data->f.rent;
   rent->lamports_per_uint8_year = manifest->rent_params.lamports_per_uint8_year;
   rent->exemption_threshold     = manifest->rent_params.exemption_threshold;
   rent->burn_percent            = manifest->rent_params.burn_percent;
@@ -133,7 +133,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
 
   fd_bank_capitalization_set( bank, manifest->capitalization );
-  fd_bank_txn_count_set( bank, manifest->transaction_count );
+  bank->data->f.txn_count = manifest->transaction_count;
   fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
   fd_bank_tick_height_set( bank, manifest->tick_height );
   fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
@@ -246,7 +246,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
         vote_ele->commission_t_1,
-        fd_bank_epoch_get( bank ) );
+        bank->data->f.epoch );
 
     if( i<runtime_stack->expected_vote_accounts ) {
       runtime_stack->stakes.epoch_credits[i].cnt = elem->epoch_credits_history_len;
@@ -273,7 +273,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
         (uchar)elem->commission,
-        fd_bank_epoch_get( bank ) );
+        bank->data->f.epoch );
   }
 
   fd_bank_vote_stakes_end_locking_modify( bank );

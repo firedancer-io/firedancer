@@ -69,7 +69,7 @@ fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
   fd_vote_state_v3_t * v3_vote_state = &versioned->inner.v3;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L420-L424 */
-  fd_rent_t const * rent               = fd_bank_rent_query( ctx->bank );
+  fd_rent_t const * rent               = &ctx->bank->data->f.rent;
   int               resize_needed      = fd_borrowed_account_get_data_len( vote_account ) < FD_VOTE_STATE_V3_SZ;
   int               resize_rent_exempt = fd_rent_exempt_minimum_balance( rent, FD_VOTE_STATE_V3_SZ ) <= fd_borrowed_account_get_lamports( vote_account );
 

@@ -236,21 +236,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_hash_t,                         poh                      ) /* PoH */                                                \
   X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot        ) /* Last restart slot */                                  \
   X(fd_hash_t,                         bank_hash                ) /* Bank hash */                                          \
-  X(fd_hash_t,                         prev_bank_hash           ) /* Previous bank hash */                                 \
-  X(fd_hash_t,                         genesis_hash             ) /* Genesis hash */                                       \
-  X(fd_epoch_schedule_t,               epoch_schedule           ) /* Epoch schedule */                                     \
-  X(fd_rent_t,                         rent                     ) /* Rent */                                               \
-  X(fd_sysvar_cache_t,                 sysvar_cache             ) /* Sysvar cache */                                       \
-  X(fd_features_t,                     features                 ) /* Features */                                           \
-  X(ulong,                             txn_count                ) /* Transaction count */                                  \
-  X(ulong,                             nonvote_txn_count        ) /* Nonvote transaction count */                          \
-  X(ulong,                             failed_txn_count         ) /* Failed transaction count */                           \
-  X(ulong,                             nonvote_failed_txn_count ) /* Nonvote failed transaction count */                   \
-  X(ulong,                             total_compute_units_used ) /* Total compute units used */                           \
-  X(ulong,                             slots_per_epoch          ) /* Slots per epoch */                                    \
-  X(ulong,                             shred_cnt                ) /* Shred count */                                        \
-  X(ulong,                             epoch                    ) /* Epoch */                                              \
-  X(ulong,                             identity_vote_idx        ) /* Identity vote index */
+  X(fd_hash_t,                         prev_bank_hash           ) /* Previous bank hash */
 
 /* Defining pooled fields. */
 

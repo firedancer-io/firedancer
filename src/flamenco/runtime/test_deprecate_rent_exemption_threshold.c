@@ -64,7 +64,7 @@ init_rent_sysvar( test_env_t * env,
     .exemption_threshold     = exemption_threshold,
     .burn_percent            = TEST_DEFAULT_BANK_BURN_PERCENT
   };
-  fd_bank_rent_set( env->bank, bank_rent );
+  env->bank->data->f.rent = bank_rent;
 
   fd_rent_t sysvar_rent = {
     .lamports_per_uint8_year = lamports_per_uint8_year,
@@ -84,7 +84,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_slot           = 0UL
   };
 
-  fd_bank_epoch_schedule_set( env->bank, epoch_schedule );
+  env->bank->data->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 }
 
@@ -248,7 +248,7 @@ test_env_create( test_env_t * env,
   init_blockhash_queue( env );
 
   fd_bank_slot_set( env->bank, 1UL );
-  fd_bank_epoch_set( env->bank, 1UL );
+  env->bank->data->f.epoch = 1UL;
 
   fd_bank_top_votes_modify( env->bank );
 
@@ -269,7 +269,7 @@ test_env_create( test_env_t * env,
   fd_features_t features = {0};
   fd_features_disable_all( &features );
   features.deprecate_rent_exemption_threshold = TEST_FEATURE_ACTIVATION_SLOT;
-  fd_bank_features_set( env->bank, features );
+  env->bank->data->f.features = features;
 
   fd_accdb_advance_root( env->accdb_admin, &env->xid );
 
@@ -309,13 +309,13 @@ verify_rent_values( test_env_t * env,
   FD_TEST( funk_rent->exemption_threshold     == expected_threshold );
   FD_TEST( funk_rent->burn_percent            == expected_sysvar_burn_percent );
 
-  fd_rent_t const * bank_rent = fd_bank_rent_query( env->bank );
+  fd_rent_t const * bank_rent = &env->bank->data->f.rent;
   FD_TEST( bank_rent );
   FD_TEST( bank_rent->lamports_per_uint8_year == expected_lamports );
   FD_TEST( bank_rent->exemption_threshold     == expected_threshold );
   FD_TEST( bank_rent->burn_percent            == expected_bank_burn_percent );
 
-  fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( env->bank );
+  fd_sysvar_cache_t const * sysvar_cache = &env->bank->data->f.sysvar_cache;
   fd_rent_t cache_rent[1];
   FD_TEST( fd_sysvar_cache_rent_read( sysvar_cache, cache_rent ) );
   FD_TEST( cache_rent->lamports_per_uint8_year == expected_lamports );
@@ -348,9 +348,9 @@ process_slot( test_env_t * env,
   fd_bank_slot_set( new_bank, slot );
   fd_bank_parent_slot_set( new_bank, parent_slot );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( new_bank );
+  fd_epoch_schedule_t const * epoch_schedule = &new_bank->data->f.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  fd_bank_epoch_set( new_bank, epoch );
+  new_bank->data->f.epoch = epoch;
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };

@@ -90,12 +90,12 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Features */
   FD_TEST( txn_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &txn_bank->features;
-  fd_features_t * features_bm = fd_bank_features_modify( runner->bank );
+  fd_features_t * features_bm = &runner->bank->data->f.features;
   FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
 
   /* Epoch */
-  ulong epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( runner->bank ), slot, NULL );
-  fd_bank_epoch_set( runner->bank, epoch );
+  ulong epoch = fd_slot_to_epoch( &runner->bank->data->f.epoch_schedule, slot, NULL );
+  runner->bank->data->f.epoch = epoch;
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk

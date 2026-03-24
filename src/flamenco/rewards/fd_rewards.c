@@ -45,15 +45,15 @@ validator( fd_inflation_t const * inflation, double year) {
 static FD_FN_CONST ulong
 get_inflation_start_slot( fd_bank_t const * bank ) {
   ulong devnet_and_testnet = FD_FEATURE_ACTIVE_BANK( bank, devnet_and_testnet )
-      ? fd_bank_features_query( bank )->devnet_and_testnet
+      ? bank->data->f.features.devnet_and_testnet
       : ULONG_MAX;
 
-  ulong enable = fd_bank_features_query( bank )->full_inflation_enable;
+  ulong enable = bank->data->f.features.full_inflation_enable;
 
   ulong min_slot = fd_ulong_min( enable, devnet_and_testnet );
   if( min_slot == ULONG_MAX ) {
     if( FD_FEATURE_ACTIVE_BANK( bank, pico_inflation ) ) {
-      min_slot = fd_bank_features_query( bank )->pico_inflation;
+      min_slot = bank->data->f.features.pico_inflation;
     } else {
       min_slot = 0;
     }
@@ -80,7 +80,7 @@ get_inflation_num_slots( fd_bank_t const *           bank,
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2121 */
 static double
 slot_in_year_for_inflation( fd_bank_t const * bank ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->f.epoch_schedule;
   ulong num_slots = get_inflation_num_slots( bank, epoch_schedule, fd_bank_slot_get( bank ) );
   return (double)num_slots / (double)fd_bank_slots_per_year_get( bank );
 }
@@ -341,7 +341,7 @@ get_slots_in_epoch( ulong                       epoch,
 static double
 epoch_duration_in_years( fd_bank_t const * bank,
                          ulong             prev_epoch ) {
-  ulong slots_in_epoch = get_slots_in_epoch( prev_epoch, fd_bank_epoch_schedule_query( bank ) );
+  ulong slots_in_epoch = get_slots_in_epoch( prev_epoch, &bank->data->f.epoch_schedule );
   return (double)slots_in_epoch / (double)fd_bank_slots_per_year_get( bank );
 }
 
@@ -411,8 +411,8 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
-      fd_bank_epoch_schedule_query( bank ),
-      fd_bank_features_query( bank ),
+      &bank->data->f.epoch_schedule,
+      &bank->data->f.features,
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -506,8 +506,8 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
-      fd_bank_epoch_schedule_query( bank ),
-      fd_bank_features_query( bank ),
+      &bank->data->f.epoch_schedule,
+      &bank->data->f.features,
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {
@@ -632,7 +632,7 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
                         uint128                        total_points ) {
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar fork_idx = fd_stake_rewards_init( stake_rewards, fd_bank_epoch_get( bank ), parent_blockhash, starting_block_height, (uint)num_partitions );
+  uchar fork_idx = fd_stake_rewards_init( stake_rewards, bank->data->f.epoch, parent_blockhash, starting_block_height, (uint)num_partitions );
   bank->data->stake_rewards_fork_id = fork_idx;
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
@@ -662,8 +662,8 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
       ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
       ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
       int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
-          fd_bank_epoch_schedule_query( bank ),
-          fd_bank_features_query( bank ),
+          &bank->data->f.epoch_schedule,
+          &bank->data->f.features,
           new_warmup_cooldown_rate_epoch,
           _err );
       if( FD_UNLIKELY( !is_some ) ) {
@@ -752,7 +752,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   *rewards_out = total_points>0UL ? *rewards_out: 0UL;
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
-    ulong epoch = fd_bank_epoch_get( bank );
+    ulong epoch = bank->data->f.epoch;
     ulong slot  = fd_bank_slot_get( bank );
     fd_capture_link_write_stake_rewards_begin( capture_ctx,
                                                slot,
@@ -779,7 +779,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   fd_hash_t const * parent_blockhash      = fd_blockhashes_peek_last_hash( fd_bank_block_hash_queue_query( bank ) );
   ulong             starting_block_height = fd_bank_block_height_get( bank ) + REWARD_CALCULATION_NUM_BLOCKS;
-  uint              num_partitions        = get_reward_distribution_num_blocks( fd_bank_epoch_schedule_query( bank ),
+  uint              num_partitions        = get_reward_distribution_num_blocks( &bank->data->f.epoch_schedule,
                                                                                 fd_bank_slot_get( bank ),
                                                                                 runtime_stack->stakes.stake_rewards_cnt );
 
@@ -1054,8 +1054,8 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
   ulong distribution_starting_block_height = fd_stake_rewards_starting_block_height( stake_rewards, bank->data->stake_rewards_fork_id );
   ulong distribution_end_exclusive         = fd_stake_rewards_exclusive_ending_block_height( stake_rewards, bank->data->stake_rewards_fork_id );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       epoch          = fd_bank_epoch_get( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->f.epoch_schedule;
+  ulong                       epoch          = bank->data->f.epoch;
 
   if( FD_UNLIKELY( get_slots_in_epoch( epoch, epoch_schedule ) <= fd_stake_rewards_num_partitions( stake_rewards, bank->data->stake_rewards_fork_id ) ) ) {
     FD_LOG_CRIT(( "Should not be distributing rewards" ));
@@ -1156,15 +1156,15 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L566 */
   FD_LOG_DEBUG(( "epoch rewards is active" ));
 
-  ulong const epoch          = fd_bank_epoch_get( bank );
+  ulong const epoch          = bank->data->f.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
   int _err[1] = {0};
   ulong new_warmup_cooldown_rate_epoch_;
   ulong * new_warmup_cooldown_rate_epoch = &new_warmup_cooldown_rate_epoch_;
   int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
-      fd_bank_epoch_schedule_query( bank ),
-      fd_bank_features_query( bank ),
+      &bank->data->f.epoch_schedule,
+      &bank->data->f.features,
       new_warmup_cooldown_rate_epoch,
       _err );
   if( FD_UNLIKELY( !is_some ) ) {

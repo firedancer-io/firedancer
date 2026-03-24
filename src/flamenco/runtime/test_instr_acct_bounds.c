@@ -55,7 +55,7 @@ typedef struct test_env test_env_t;
 static void
 init_sysvars( test_env_t * env ) {
   fd_rent_t rent = { .lamports_per_uint8_year = 3480UL, .exemption_threshold = 2.0, .burn_percent = 50 };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->f.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 
   fd_epoch_schedule_t epoch_schedule = {
@@ -65,7 +65,7 @@ init_sysvars( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  fd_bank_epoch_schedule_set( env->bank, epoch_schedule );
+  env->bank->data->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 
   fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
@@ -154,7 +154,7 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
 
   fd_bank_slot_set( env->bank, 10UL );
   fd_bank_parent_slot_set( env->bank, 9UL );
-  fd_bank_epoch_set( env->bank, 0UL );
+  env->bank->data->f.epoch = 0UL;
 
   env->runtime->accdb        = env->accdb;
   env->runtime->status_cache = NULL;
@@ -261,7 +261,7 @@ test_500_instr_accts( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  fd_bank_features_modify( env->bank )->limit_instruction_accounts = FD_FEATURE_DISABLED;
+  env->bank->data->f.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( env, txn_p, txn_out, txn_in, 500 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -278,7 +278,7 @@ test_1094_instr_accts( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  fd_bank_features_modify( env->bank )->limit_instruction_accounts = FD_FEATURE_DISABLED;
+  env->bank->data->f.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( env, txn_p, txn_out, txn_in, FD_INSTR_ACCT_MAX );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -296,7 +296,7 @@ test_limit_instr_accts_at_limit( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  fd_bank_features_modify( env->bank )->limit_instruction_accounts = 0UL;
+  env->bank->data->f.features.limit_instruction_accounts = 0UL;
   setup_txn( env, txn_p, txn_out, txn_in, 255 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -312,7 +312,7 @@ test_limit_instr_accts_exceeded( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  fd_bank_features_modify( env->bank )->limit_instruction_accounts = 0UL;
+  env->bank->data->f.features.limit_instruction_accounts = 0UL;
   setup_txn( env, txn_p, txn_out, txn_in, 256 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );

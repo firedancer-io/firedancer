@@ -463,7 +463,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_vote_rewards_map_reset( vote_ele_map );
   ulong vote_ele_cnt = 0UL;
 
-  ulong epoch = fd_bank_epoch_get( bank );
+  ulong epoch = bank->data->f.epoch;
 
   ulong total_stake = 0UL;
   fd_stake_delegations_iter_t iter_[1];
@@ -520,7 +520,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
             stake_t_2,
             0,
             commission_t_2,
-            fd_bank_epoch_get( bank ),
+            bank->data->f.epoch,
             0 );
       } else {
         /* If the account currently exists, we need to insert the entry
@@ -554,7 +554,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
             stake_t_2,
             commission_t_1,
             commission_t_2,
-            fd_bank_epoch_get( bank ),
+            bank->data->f.epoch,
             1 );
 
         fd_top_votes_insert( top_votes, &stake_delegation->vote_account, &node_account_t_2, stake_t_2, last_vote_slot, last_vote_timestamp, 1 );
@@ -605,7 +605,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   }
 
   fd_epoch_stake_history_entry_pair_t new_elem = {
-    .epoch = fd_bank_epoch_get( bank ),
+    .epoch = bank->data->f.epoch,
     .entry = {
       .effective    = 0UL,
       .activating   = 0UL,
@@ -621,7 +621,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
     fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating(
         stake_delegation,
-        fd_bank_epoch_get( bank ),
+        bank->data->f.epoch,
         stake_history,
         new_rate_activation_epoch );
     new_elem.entry.effective    += new_entry.effective;
@@ -637,7 +637,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   /* Now increment the epoch and recompute the stakes for the vote
      accounts for the new epoch value. */
 
-  fd_bank_epoch_set( bank, fd_bank_epoch_get( bank ) + 1UL );
+  bank->data->f.epoch = bank->data->f.epoch + 1UL;
 
   fd_refresh_vote_accounts( bank,
                             accdb,

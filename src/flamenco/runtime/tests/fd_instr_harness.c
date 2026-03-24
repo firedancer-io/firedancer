@@ -50,7 +50,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Restore features */
   FD_TEST( test_ctx->has_features );
-  fd_features_t * features = fd_bank_features_modify( runner->bank );
+  fd_features_t * features = &runner->bank->data->f.features;
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->features;
   FD_TEST( fd_solfuzz_pb_restore_features( features, feature_set ) );
 
@@ -248,7 +248,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_t * sysvar_cache = fd_bank_sysvar_cache_modify( runner->bank );
+  fd_sysvar_cache_t * sysvar_cache = &runner->bank->data->f.sysvar_cache;
   ctx->sysvar_cache = sysvar_cache;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     fd_sysvar_cache_restore_from_ref( sysvar_cache, txn_out->accounts.account[i].ro );
@@ -264,12 +264,12 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
   FD_TEST( epoch_schedule );
-  fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
+  runner->bank->data->f.epoch_schedule = *epoch_schedule;
 
   fd_rent_t rent_[1];
   fd_rent_t * rent = fd_sysvar_cache_rent_read( ctx->sysvar_cache, rent_ );
   FD_TEST( rent );
-  fd_bank_rent_set( runner->bank, *rent );
+  runner->bank->data->f.rent = *rent;
 
   fd_block_block_hash_entry_t const * deq = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
   FD_TEST( deq );

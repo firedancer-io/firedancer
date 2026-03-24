@@ -177,7 +177,7 @@ test_env_create( test_env_t * env,
 
   test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->bank_data, env->bank_locks, env->txn_out );
 
-  fd_features_t * features = fd_bank_features_modify( env->bank );
+  fd_features_t * features = &env->bank->data->f.features;
   fd_features_disable_all( features );
   fd_bank_slot_set( env->bank, 1UL );
 

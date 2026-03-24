@@ -82,7 +82,7 @@ init_rent_sysvar( test_env_t * env ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 50
   };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->f.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 }
 
@@ -95,7 +95,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  fd_bank_epoch_schedule_set( env->bank, epoch_schedule );
+  env->bank->data->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 }
 
@@ -172,7 +172,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   init_blockhash_queue( env );
 
   fd_bank_slot_set( env->bank, 9UL );
-  fd_bank_epoch_set( env->bank, 4UL );
+  env->bank->data->f.epoch = 4UL;
 
   fd_bank_top_votes_modify( env->bank );
 
@@ -180,7 +180,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
     fd_features_t features = {0};
     fd_features_disable_all( &features );
     features.enable_loader_v4 = 0UL;
-    fd_bank_features_set( env->bank, features );
+    env->bank->data->f.features = features;
   }
 
   fd_builtin_programs_init( env->bank, env->accdb, &env->xid, NULL );
@@ -254,9 +254,9 @@ process_slot( test_env_t * env, ulong slot ) {
   fd_bank_slot_set( new_bank, slot );
   fd_bank_parent_slot_set( new_bank, parent_slot );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( new_bank );
+  fd_epoch_schedule_t const * epoch_schedule = &new_bank->data->f.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  fd_bank_epoch_set( new_bank, epoch );
+  new_bank->data->f.epoch = epoch;
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
@@ -319,7 +319,7 @@ setup_account_initialize_txn( test_env_t * env ) {
 
   process_slot( env, 10UL );
   /* features */
-  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ) );
+  fd_features_enable_cleaned_up( &env->bank->data->f.features );
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
@@ -388,7 +388,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
 
   process_slot( env, 10UL );
   /* features */
-  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ) );
+  fd_features_enable_cleaned_up( &env->bank->data->f.features );
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
@@ -444,8 +444,8 @@ test_account_initialize_simd_0387( fd_wksp_t * wksp ) {
   setup_account_initialize_txn( env );
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
@@ -473,8 +473,8 @@ test_account_initialize_v2( fd_wksp_t * wksp ) {
   setup_account_initialize_v2_txn( env );
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
@@ -502,8 +502,8 @@ test_account_initialize_v2_invalid_proof( fd_wksp_t * wksp ) {
   env->txn_p->payload[ proof_off ] = 0xFF;
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );

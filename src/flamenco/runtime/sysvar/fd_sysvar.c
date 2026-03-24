@@ -14,7 +14,7 @@ fd_sysvar_account_update( fd_bank_t *               bank,
                           fd_pubkey_t const *       address,
                           void const *              data,
                           ulong                     sz ) {
-  fd_rent_t const * rent    = fd_bank_rent_query( bank );
+  fd_rent_t const * rent    = &bank->data->f.rent;
   ulong     const   min_bal = fd_rent_exempt_minimum_balance( rent, sz );
 
   fd_accdb_rw_t rw[1];

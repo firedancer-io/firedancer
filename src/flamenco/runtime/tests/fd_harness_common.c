@@ -24,7 +24,7 @@ fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                            
 void
 fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank,
                                       fd_exec_test_epoch_schedule_t const * epoch_schedule ) {
-  fd_epoch_schedule_t * es = fd_bank_epoch_schedule_modify( bank );
+  fd_epoch_schedule_t * es = &bank->data->f.epoch_schedule;
   *es = (fd_epoch_schedule_t){
     .slots_per_epoch             = epoch_schedule->slots_per_epoch,
     .leader_schedule_slot_offset = epoch_schedule->leader_schedule_slot_offset,
@@ -37,7 +37,7 @@ fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank
 void
 fd_solfuzz_pb_restore_rent( fd_bank_t *                 bank,
                             fd_exec_test_rent_t const * rent ) {
-  fd_rent_t * r = fd_bank_rent_modify( bank );
+  fd_rent_t * r = &bank->data->f.rent;
   *r = (fd_rent_t){
     .lamports_per_uint8_year = rent->lamports_per_byte_year,
     .exemption_threshold     = rent->exemption_threshold,

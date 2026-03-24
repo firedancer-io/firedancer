@@ -179,7 +179,7 @@ fd_bank_epoch_leaders_query( fd_bank_t const * bank ) {
 
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
-  ulong idx = fd_bank_epoch_get( bank ) % 2UL;
+  ulong idx = bank->data->f.epoch % 2UL;
   bank->data->epoch_leaders_idx = idx;
   fd_banks_data_t * banks_data = fd_type_pun( (uchar *)bank->data - bank->data->banks_data_offset );
   return (fd_epoch_leaders_t *)fd_type_pun( (uchar *)fd_banks_get_epoch_leaders( banks_data ) + idx * banks_data->epoch_leaders_footprint );

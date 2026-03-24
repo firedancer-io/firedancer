@@ -584,10 +584,10 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
                     fd_bank_t *         bank,
                     int                 current_epoch ) {
-  fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * schedule = &bank->data->f.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( bank ), NULL ) + fd_ulong_if( current_epoch, 1UL, 0UL );
 
-  fd_features_t const * features = fd_bank_features_query( bank );
+  fd_features_t const * features = &bank->data->f.features;
 
   fd_runtime_stack_t * runtime_stack = ctx->runtime_stack;
 
@@ -737,12 +737,12 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   if( FD_LIKELY( !is_initial ) ) fd_txncache_finalize_fork( ctx->txncache, bank->data->txncache_fork_id, 0UL, block_hash->uc );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->f.epoch_schedule;
   ulong slot_idx;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
 
   ctx->metrics.slots_total++;
-  ctx->metrics.transactions_total = fd_bank_txn_count_get( bank );
+  ctx->metrics.transactions_total = bank->data->f.txn_count;
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
@@ -757,7 +757,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
-  slot_info->transaction_count     = fd_bank_txn_count_get( bank );
+  slot_info->transaction_count     = bank->data->f.txn_count;
 
   fd_inflation_t inflation = fd_bank_inflation_get( bank );
   slot_info->inflation.foundation      = inflation.foundation;
@@ -766,7 +766,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->inflation.initial         = inflation.initial;
   slot_info->inflation.taper           = inflation.taper;
 
-  fd_rent_t rent = fd_bank_rent_get( bank );
+  fd_rent_t rent = bank->data->f.rent;
   slot_info->rent.burn_percent            = rent.burn_percent;
   slot_info->rent.lamports_per_uint8_year = rent.lamports_per_uint8_year;
   slot_info->rent.exemption_threshold     = rent.exemption_threshold;
@@ -790,10 +790,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   fd_bank_t parent_bank[1];
   if( FD_LIKELY( fd_banks_get_parent( parent_bank, ctx->banks, bank ) ) ) {
-    ulong total_txn_cnt          = fd_bank_txn_count_get( bank );
-    ulong nonvote_txn_cnt        = fd_bank_nonvote_txn_count_get( bank );
-    ulong failed_txn_cnt         = fd_bank_failed_txn_count_get( bank );
-    ulong nonvote_failed_txn_cnt = fd_bank_nonvote_failed_txn_count_get( bank );
+    ulong total_txn_cnt          = bank->data->f.txn_count;
+    ulong nonvote_txn_cnt        = bank->data->f.nonvote_txn_count;
+    ulong failed_txn_cnt         = bank->data->f.failed_txn_count;
+    ulong nonvote_failed_txn_cnt = bank->data->f.nonvote_failed_txn_count;
 
     slot_info->nonvote_success = nonvote_txn_cnt - nonvote_failed_txn_cnt;
     slot_info->nonvote_failed  = nonvote_failed_txn_cnt;
@@ -811,7 +811,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->transaction_fee -= (slot_info->transaction_fee>>1); /* burn */
   slot_info->priority_fee = fd_bank_priority_fees_get( bank );
   slot_info->tips = fd_bank_tips_get( bank );
-  slot_info->shred_cnt = fd_bank_shred_cnt_get( bank );
+  slot_info->shred_cnt = bank->data->f.shred_cnt;
 
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->data->idx ].latest_mr.uc, block_id_cstr );
   FD_BASE58_ENCODE_32_BYTES( fd_bank_bank_hash_query( bank )->uc, bank_hash_cstr );
@@ -865,7 +865,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_poh_set( bank, *poh );
 
   /* Set shred count in bank. */
-  fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, bank->data->idx ) );
+  bank->data->f.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->data->idx );
 
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
@@ -1045,7 +1045,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
-  if( FD_UNLIKELY( fd_bank_epoch_get( bank )>fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), fd_bank_parent_slot_get( bank ), NULL ) )) {
+  if( FD_UNLIKELY( bank->data->f.epoch>fd_slot_to_epoch( &bank->data->f.epoch_schedule, fd_bank_parent_slot_get( bank ), NULL ) )) {
     publish_epoch_info( ctx, stem, bank, 1 );
   }
 
@@ -1259,7 +1259,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     fd_acct_addr_t tip_payment_config[1];
     fd_acct_addr_t tip_receiver[1];
-    fd_bundle_crank_get_addresses( ctx->bundle.gen, fd_bank_epoch_get( bank ), tip_payment_config, tip_receiver );
+    fd_bundle_crank_get_addresses( ctx->bundle.gen, bank->data->f.epoch, tip_payment_config, tip_receiver );
 
     fd_accdb_ro_t tip_config_acc[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, tip_config_acc, &xid, tip_payment_config ) ) ) {
@@ -1307,7 +1307,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   }
 
   msg->total_skipped_ticks = msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
-  msg->epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), ctx->next_leader_slot, NULL );
+  msg->epoch = fd_slot_to_epoch( &bank->data->f.epoch_schedule, ctx->next_leader_slot, NULL );
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
 
@@ -2112,7 +2112,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
     fd_bank_t root_bank[1];
     if( FD_UNLIKELY( !fd_banks_bank_query( root_bank, ctx->banks, target_bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: root bank not found for bank index %lu", target_bank_idx ));
-    if( fd_bank_identity_vote_idx_get( root_bank )==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
+    if( root_bank->data->f.identity_vote_idx==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
@@ -2306,7 +2306,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
 
         fd_pubkey_t * identity_pubkey_out = NULL;
         if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
-          fd_bank_identity_vote_idx_set( bank, ctx->identity_idx );
+          bank->data->f.identity_vote_idx = ctx->identity_idx;
         }
       }
       if( FD_UNLIKELY( !msg->txn_exec->is_committable && !(bank->data->flags&FD_BANK_FLAGS_DEAD) ) ) {
@@ -2850,7 +2850,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_bank_slot_set( bank, 0UL );
   FD_TEST( bank->data->idx==FD_REPLAY_BOOT_BANK_IDX );
 
-;
+  ctx->consensus_root_slot = ULONG_MAX;
   ctx->consensus_root      = ctx->initial_block_id;
   ctx->published_root_slot = ULONG_MAX;
 
@@ -2876,7 +2876,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bundle.enabled = 0;
   }
 
-  fd_features_t * features = fd_bank_features_modify( bank );
+  fd_features_t * features = &bank->data->f.features;
   fd_features_enable_cleaned_up( features );
 
   char const * one_off_features[ 16UL ];

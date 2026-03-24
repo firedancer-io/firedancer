@@ -353,7 +353,7 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
                                             fd_runtime_stack_t * runtime_stack,
                                             uchar const *        elf,
                                             ulong                elf_sz ) {
-  fd_features_t const * features = fd_bank_features_query( bank );
+  fd_features_t const * features = &bank->data->f.features;
   ulong                 slot     = fd_bank_slot_get( bank );
 
   /* ELF verification with deploy checks enabled */
@@ -632,7 +632,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       config->verified_build_hash ) ) )
     return;
 
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_rent_t const * rent = &bank->data->f.rent;
   ulong const       slot = fd_bank_slot_get  ( bank );
 
   fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration.new_target_program;
@@ -731,7 +731,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   tmp_account_new( new_target_program_data, new_account_size );
   new_target_program_data->addr = program_data_address;
 
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_rent_t const * rent = &bank->data->f.rent;
   new_target_program_data->meta.lamports   = fd_rent_exempt_minimum_balance( rent, new_account_size );
   new_target_program_data->meta.executable = 0;
   fd_memcpy( new_target_program_data->meta.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) );
@@ -818,7 +818,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
   if( FD_UNLIKELY( !source_buffer_new_checked( source, accdb, xid, source_buffer_address, NULL ) ) )
     return;
 
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_rent_t const * rent = &bank->data->f.rent;
   ulong             slot = fd_bank_slot_get  ( bank );
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L416-L417 */

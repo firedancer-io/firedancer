@@ -96,7 +96,7 @@ init_rent_sysvar( test_env_t * env ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 50
   };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->f.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 }
 
@@ -109,7 +109,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  fd_bank_epoch_schedule_set( env->bank, epoch_schedule );
+  env->bank->data->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 }
 
@@ -186,7 +186,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp ) {
   init_blockhash_queue( env );
 
   fd_bank_slot_set( env->bank, 9UL );
-  fd_bank_epoch_set( env->bank, 4UL );
+  env->bank->data->f.epoch = 4UL;
 
   fd_bank_top_votes_modify( env->bank );
 
@@ -261,9 +261,9 @@ process_slot( test_env_t * env, ulong slot ) {
   fd_bank_slot_set( new_bank, slot );
   fd_bank_parent_slot_set( new_bank, parent_slot );
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( new_bank );
+  fd_epoch_schedule_t const * epoch_schedule = &new_bank->data->f.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  fd_bank_epoch_set( new_bank, epoch );
+  new_bank->data->f.epoch = epoch;
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
@@ -280,9 +280,9 @@ static void
 setup_test( test_env_t * env, fd_wksp_t * wksp, int enable_feature ) {
   test_env_init( env, wksp );
   process_slot( env, 10UL );
-  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ) );
+  fd_features_enable_cleaned_up( &env->bank->data->f.features );
   if( enable_feature ) {
-    FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), create_account_allow_prefund, 0UL );
+    FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, create_account_allow_prefund, 0UL );
   }
 }
 

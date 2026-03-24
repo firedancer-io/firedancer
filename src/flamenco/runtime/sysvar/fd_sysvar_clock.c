@@ -135,7 +135,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
 
   uint128 total_stake = 0UL;
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->f.epoch_schedule;
   ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
@@ -226,7 +226,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
 
   uint128 total_stake = 0UL;
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->f.epoch_schedule;
   ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
@@ -299,7 +299,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
                         fd_bank_t *               bank,
                         fd_sol_sysvar_clock_t *   clock,
                         fd_runtime_stack_t *      runtime_stack ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->f.epoch_schedule;
   ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
@@ -390,7 +390,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, xid, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->f.epoch_schedule;
   ulong                       current_slot   = fd_bank_slot_get( bank );
   ulong                       current_epoch  = fd_slot_to_epoch( epoch_schedule, current_slot, NULL );
 

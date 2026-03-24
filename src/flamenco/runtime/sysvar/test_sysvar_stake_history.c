@@ -32,7 +32,7 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 100
   };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->f.rent = rent;
 
   /* Stake History update requires epoch schedule */
   fd_epoch_schedule_t const schedule = {
@@ -42,7 +42,7 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
     .first_normal_epoch          =      0,
     .first_normal_slot           =      0
   };
-  fd_bank_epoch_schedule_set( env->bank, schedule );
+  env->bank->data->f.epoch_schedule = schedule;
 
   /* Update should be a no-op if not at the epoch boundary */
   fd_bank_slot_set( env->bank, 3UL );

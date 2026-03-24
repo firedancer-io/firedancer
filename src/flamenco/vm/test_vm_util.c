@@ -18,8 +18,8 @@ test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
   bank->locks = bank_locks;
 
   /* Setup feature flags */
-  fd_features_disable_all( fd_bank_features_modify( bank ) );
-  fd_features_set( fd_bank_features_modify( bank ), fd_feature_id_query( TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX ), 0UL );
+  fd_features_disable_all( &bank->data->f.features );
+  fd_features_set( &bank->data->f.features, fd_feature_id_query( TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX ), 0UL );
 
   fd_bank_slot_set( bank, 1UL );
 
