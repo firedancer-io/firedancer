@@ -10,6 +10,7 @@
 
 #include "../../util/net/fd_net_headers.h"
 #include "../../waltz/quic/fd_quic.h"
+#include "../../ballet/base58/fd_base58.h"
 
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
@@ -315,10 +316,20 @@ after_credit( fd_txsend_tile_t *  ctx,
 void
 send_vote_to_leader( fd_txsend_tile_t *  ctx,
                      fd_pubkey_t const * leader_pubkey,
+                     ulong               vote_slot,
+                     ulong               target_slot,
                      uchar const       * vote_payload,
                      ulong               vote_payload_sz ) {
+  FD_BASE58_ENCODE_32_BYTES( leader_pubkey->uc, leader_b58 );
+
   peer_entry_t const * peer = peer_map_ele_query_const( ctx->peer_map, leader_pubkey, NULL, ctx->peers );
-  if( FD_UNLIKELY( !peer ) ) return; /* no known contact info */
+  if( FD_UNLIKELY( !peer ) ) {
+    FD_LOG_DEBUG(( "vote send: no contact info for leader vote_slot=%lu target_slot=%lu leader=%s", vote_slot, target_slot, leader_b58 ));
+    return;
+  }
+
+  int udp_sent  = 0;
+  int quic_sent = 0;
 
   for( ulong i=0UL; i<2UL; i++ ) {
     if( FD_UNLIKELY( !peer->udp_ip_addrs[ i ] | !peer->udp_ports[ i ] ) ) continue;
@@ -335,6 +346,7 @@ send_vote_to_leader( fd_txsend_tile_t *  ctx,
     udp_hdr->net_dport = fd_ushort_bswap( peer->udp_ports[ i ] );
     udp_hdr->net_len   = fd_ushort_bswap( (ushort)( vote_payload_sz+sizeof(fd_udp_hdr_t) ) );
     send_to_net( ctx, ip4_hdr, udp_hdr, vote_payload, vote_payload_sz, fd_log_wallclock() );
+    udp_sent++;
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -342,10 +354,19 @@ send_vote_to_leader( fd_txsend_tile_t *  ctx,
     if( FD_UNLIKELY( !conn ) ) continue;
 
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
-    if( FD_UNLIKELY( !stream ) ) continue;
+    if( FD_UNLIKELY( !stream ) ) {
+      FD_LOG_DEBUG(( "vote send: quic stream creation failed vote_slot=%lu target_slot=%lu leader=%s", vote_slot, target_slot, leader_b58 ));
+      continue;
+    }
 
     fd_quic_stream_send( stream, vote_payload, vote_payload_sz, 1 );
+    quic_sent++;
   }
+
+  float rtt0 = peer->quic_conns[0] ? peer->quic_conns[0]->rtt->smoothed_rtt : -1.0f;
+  float rtt1 = peer->quic_conns[1] ? peer->quic_conns[1]->rtt->smoothed_rtt : -1.0f;
+  FD_LOG_DEBUG(( "vote send: vote_slot=%lu target_slot=%lu leader=%s udp_sent=%d quic_sent=%d rtt0=%.0f rtt1=%.0f",
+                 vote_slot, target_slot, leader_b58, udp_sent, quic_sent, (double)rtt0, (double)rtt1 ));
 }
 
 static inline void
@@ -431,10 +452,12 @@ static void
 handle_vote_msg( fd_txsend_tile_t *           ctx,
                  fd_stem_context_t *          stem,
                  fd_tower_slot_done_t const * slot_done ) {
-  if( FD_UNLIKELY( slot_done->vote_slot==ULONG_MAX ) ) return;
   if( FD_UNLIKELY( !slot_done->has_vote_txn ) ) return;
-
-  ctx->voted_slot = slot_done->vote_slot;
+  if( FD_LIKELY( slot_done->vote_slot!=ULONG_MAX ) ) {
+    ctx->voted_slot = slot_done->vote_slot;
+  }
+  if( FD_UNLIKELY( ctx->voted_slot==ULONG_MAX ) ) return; /* never voted yet */
+  int is_refresh = slot_done->vote_slot==ULONG_MAX;
 
   fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->txsend_out->mem, ctx->txsend_out->chunk );
   FD_TEST( slot_done->vote_txn_sz<=FD_TXN_MTU );
@@ -455,11 +478,14 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   ulong         message_sz = slot_done->vote_txn_sz - txn->message_off;
   fd_keyguard_client_vote_txn_sign( ctx->keyguard_client, signatures, slot_done->authority_idx, message, message_sz );
 
+  FD_LOG_DEBUG(( "vote send: vote_slot=%lu reset_slot=%lu root_slot=%lu txn_sz=%lu refresh=%d",
+                 ctx->voted_slot, slot_done->reset_slot, slot_done->root_slot, slot_done->vote_txn_sz, is_refresh ));
+
   for( ulong i=0UL; i<3UL; i++ ) {
-    ulong target_slot = slot_done->vote_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
+    ulong target_slot = ctx->voted_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
     FD_TEST( leader );
-    send_vote_to_leader( ctx, leader, payload, slot_done->vote_txn_sz );
+    send_vote_to_leader( ctx, leader, ctx->voted_slot, target_slot, payload, slot_done->vote_txn_sz );
   }
 
   ulong msg_sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
