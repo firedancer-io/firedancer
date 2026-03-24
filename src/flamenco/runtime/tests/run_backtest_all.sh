@@ -107,3 +107,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l create_account_allow_prefun
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_programdata_account_check_migration -y 1 -m 1000 -e 260
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary -y 2 -m 2000000 -e 391824016
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace_spl_token_with_p_token -y 1 -m 1000 -e 720
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.0.0-alpha.0 -y 1 -m 10000
