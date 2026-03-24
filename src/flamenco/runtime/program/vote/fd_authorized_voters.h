@@ -1,22 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_vote_fd_authorized_voters_h
 #define HEADER_fd_src_flamenco_runtime_program_vote_fd_authorized_voters_h
 
-#include "../../../types/fd_types.h"
+#include "fd_vote_codec.h"
 #include "../../../../util/fd_util_base.h"
 
 /* fd_authorized_voters mirrors Agave's AuthorizedVoters methods. */
 
 FD_PROTOTYPES_BEGIN
-
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L17 */
-fd_vote_authorized_voters_t *
-fd_authorized_voters_new( ulong               epoch,
-                          fd_pubkey_t const * pubkey,
-                          uchar *             mem );
-
-/* Helper to create an empty AuthorizedVoters structure (for default/uninitialized states) */
-fd_vote_authorized_voters_t *
-fd_authorized_voters_new_empty( uchar * mem );
 
 int
 fd_authorized_voters_is_empty( fd_vote_authorized_voters_t * self );

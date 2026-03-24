@@ -5,6 +5,7 @@
 #include "../fd_system_ids.h"
 #include "../program/fd_program_util.h"
 #include "../program/vote/fd_vote_state_versioned.h"
+#include "../program/vote/fd_vote_codec.h"
 #include "../../accdb/fd_accdb_sync.h"
 
 /* Syvar Clock Possible Values:
@@ -165,7 +166,8 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
         fd_accdb_close_ro( accdb, ro );
         continue;
       }
-      fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
+      fd_vote_block_timestamp_t last_vote;
+      FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( ro->meta ), ro->meta->dlen, &last_vote ) );
       fd_accdb_close_ro( accdb, ro );
       last_vote_slot      = last_vote.slot;
       last_vote_timestamp = last_vote.timestamp;

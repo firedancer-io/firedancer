@@ -41,6 +41,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
 #include <stdio.h>

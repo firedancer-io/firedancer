@@ -3,6 +3,7 @@
 
 #include "../fd_choreo_base.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 
 #define FD_VOTE_IX_KIND_TOWER_SYNC        (14)
 #define FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH (15)

@@ -171,8 +171,8 @@ fd_bls12_381_pairing_syscall( uchar       r[ 48*12 ], /* GT element */
 int
 fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
                                          ulong       msg_sz,
-                                         uchar const proof[ 96 ],        /* Compressed G2 point */
-                                         uchar const public_key[ 48 ] ); /* Compressed G1 point */
+                                         uchar const proof[ static 96 ],        /* Compressed G2 point */
+                                         uchar const public_key[ static 48 ] ); /* Compressed G1 point */
 
 FD_PROTOTYPES_END
 

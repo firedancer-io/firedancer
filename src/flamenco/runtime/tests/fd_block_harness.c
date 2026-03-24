@@ -7,6 +7,7 @@
 #include "../../stakes/fd_stake_types.h"
 #include "../../stakes/fd_stakes.h"
 #include "../program/vote/fd_vote_state_versioned.h"
+#include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
@@ -51,7 +52,8 @@ fd_solfuzz_block_register_vote_account( fd_top_votes_t *          top_votes,
     return;
   }
 
-  fd_vote_block_timestamp_t vote_block_timestamp = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
+  fd_vote_block_timestamp_t vote_block_timestamp;
+  FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( ro->meta ), ro->meta->dlen, &vote_block_timestamp ) );
   fd_top_votes_update( top_votes, pubkey, vote_block_timestamp.slot, vote_block_timestamp.timestamp );
 
   fd_accdb_close_ro( accdb, ro );

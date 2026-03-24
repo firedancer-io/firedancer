@@ -11,6 +11,7 @@
 #include "../capture/fd_capture_ctx.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "program/vote/fd_vote_codec.h"
 
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h

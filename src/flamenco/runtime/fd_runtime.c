@@ -24,6 +24,7 @@
 #include "program/fd_precompiles.h"
 #include "program/fd_program_util.h"
 #include "program/vote/fd_vote_state_versioned.h"
+#include "program/vote/fd_vote_codec.h"
 
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_last_restart_slot.h"
@@ -1247,7 +1248,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_and_initialized( account->meta ) ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
         } else {
-          fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( account->meta ), account->meta->dlen );
+          fd_vote_block_timestamp_t last_vote;
+          FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( account->meta ), account->meta->dlen, &last_vote ) );
           fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
         }
       }

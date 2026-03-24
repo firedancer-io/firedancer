@@ -4,6 +4,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_vote_program.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../types/fd_types.h"
 
@@ -120,31 +121,23 @@ genesis_create( void *                       buf,
   uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
 
   FD_SCRATCH_SCOPE_BEGIN {
-    fd_vote_state_versioned_t vsv[1];
-    fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_v3 );
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
 
-    fd_vote_state_v3_t * vs = &vsv->inner.v3;
-    vs->node_pubkey             = options->identity_pubkey;
-    vs->authorized_withdrawer   = options->identity_pubkey;
-    vs->commission              = 100;
-    uchar * pool_mem = fd_scratch_alloc( fd_vote_authorized_voters_pool_align(), fd_vote_authorized_voters_pool_footprint( 1UL ) );
-    vs->authorized_voters.pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( pool_mem, 1UL ) );
-    uchar * mem = fd_scratch_alloc( fd_vote_authorized_voters_treap_align(), fd_vote_authorized_voters_treap_footprint( 1UL ) );
-    vs->authorized_voters.treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( mem, 1UL ) );
+    fd_vote_state_v3_t * vote_state   = &versioned->v3;
+    vote_state->node_pubkey           = options->identity_pubkey;
+    vote_state->authorized_withdrawer = options->identity_pubkey;
+    vote_state->commission            = 100;
 
-    fd_vote_authorized_voter_t * ele =
-      fd_vote_authorized_voters_pool_ele_acquire( vs->authorized_voters.pool );
-    *ele = (fd_vote_authorized_voter_t) {
+    fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
+    *voter = (fd_vote_authorized_voter_t) {
       .epoch  = 0UL,
       .pubkey = options->identity_pubkey,
-      .prio   = options->identity_pubkey.ul[0],  /* treap prio */
+      .prio   = options->identity_pubkey.uc[0],
     };
-    fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
+    fd_vote_authorized_voters_treap_ele_insert( vote_state->authorized_voters.treap, voter, vote_state->authorized_voters.pool );
 
-    fd_bincode_encode_ctx_t encode =
-      { .data    = vote_state_data,
-        .dataend = vote_state_data + sizeof(vote_state_data) };
-    REQUIRE( fd_vote_state_versioned_encode( vsv, &encode ) == FD_BINCODE_SUCCESS );
+    REQUIRE( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
   }
   FD_SCRATCH_SCOPE_END;
 

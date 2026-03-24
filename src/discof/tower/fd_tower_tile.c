@@ -23,6 +23,7 @@
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../util/pod/fd_pod.h"
 
 #include <errno.h>
@@ -676,23 +677,16 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
 
   if( FD_UNLIKELY( !vote_acc_found ) ) return 0;
 
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = ctx->our_vote_acct,
-    .dataend = ctx->our_vote_acct + ctx->our_vote_acct_sz,
-  };
-
-  uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) vote_state_versioned[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
-
-  fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( vote_state_versioned, &decode_ctx );
-  FD_CRIT( vsv, "unable to decode vote state versioned" );
+  fd_vote_state_versioned_t vsv[1];
+  FD_CRIT( fd_vote_state_versioned_deserialize( vsv, ctx->our_vote_acct, ctx->our_vote_acct_sz ), "unable to decode vote state versioned" );
 
   fd_pubkey_t const * auth_vtr_addr = NULL;
-  switch( vsv->discriminant ) {
+  switch( vsv->kind ) {
     case fd_vote_state_versioned_enum_v1_14_11:
-      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v1_14_11.authorized_voters.treap, vsv->inner.v1_14_11.authorized_voters.pool );
+      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v1_14_11.authorized_voters.treap, vsv->v1_14_11.authorized_voters.pool );
            !fd_vote_authorized_voters_treap_rev_iter_done( iter );
-           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v1_14_11.authorized_voters.pool ) ) {
-        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v1_14_11.authorized_voters.pool );
+           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v1_14_11.authorized_voters.pool ) ) {
+        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->v1_14_11.authorized_voters.pool );
         if( FD_LIKELY( ele->epoch<=epoch ) ) {
           auth_vtr_addr = &ele->pubkey;
           break;
@@ -700,10 +694,10 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
       }
       break;
     case fd_vote_state_versioned_enum_v3:
-      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v3.authorized_voters.treap, vsv->inner.v3.authorized_voters.pool );
+      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v3.authorized_voters.treap, vsv->v3.authorized_voters.pool );
           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
-          iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v3.authorized_voters.pool ) ) {
-        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v3.authorized_voters.pool );
+          iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v3.authorized_voters.pool ) ) {
+        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->v3.authorized_voters.pool );
         if( FD_LIKELY( ele->epoch<=epoch ) ) {
           auth_vtr_addr = &ele->pubkey;
           break;
@@ -711,10 +705,10 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
       }
       break;
     case fd_vote_state_versioned_enum_v4:
-      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v4.authorized_voters.treap, vsv->inner.v4.authorized_voters.pool );
+      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->v4.authorized_voters.treap, vsv->v4.authorized_voters.pool );
           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
-          iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v4.authorized_voters.pool ) ) {
-        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v4.authorized_voters.pool );
+          iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->v4.authorized_voters.pool ) ) {
+        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->v4.authorized_voters.pool );
         if( FD_LIKELY( ele->epoch<=epoch ) ) {
           auth_vtr_addr = &ele->pubkey;
           break;
@@ -722,7 +716,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
       }
       break;
     default:
-      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", vsv->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", vsv->kind ));
   }
 
   FD_CRIT( auth_vtr_addr, "unable to find authorized voter, likely corrupt vote account state" );
@@ -798,11 +792,11 @@ update_voters( fd_tower_tile_t * ctx,
       fd_tower_voters_t * acct = fd_tower_voters_push_tail_nocopy( tower_voters );
       fd_tower_remove_all( acct->tower );
       fd_tower_from_vote_acc( acct->tower, &acct->root, fd_accdb_ref_data_const( ro ) );
-      acct->id_key   = fd_vsv_get_node_account( fd_accdb_ref_data_const( ro ) );
+      FD_TEST( !fd_vote_account_node_pubkey( fd_accdb_ref_data_const( ro ), ro->meta->dlen, &acct->id_key ) );
       acct->vote_acc = *vote_acc;
       acct->stake    = stake;
       prev_voter_idx = fd_tower_stakes_insert( ctx->tower_stakes, slot, vote_acc, stake, prev_voter_idx );
-      }
+    }
   }
 
   fd_accdb_ro_pipe_fini( ro_pipe );

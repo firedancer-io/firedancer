@@ -279,31 +279,22 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
     {
       uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
 
-      fd_vote_state_versioned_t vsv[1];
-      fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_v3 );
-      fd_vote_state_v3_t * vs = &vsv->inner.v3;
+      fd_vote_state_versioned_t versioned[1];
+      fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
+
+      fd_vote_state_v3_t * vs   = &versioned->v3;
       vs->node_pubkey           = identity_key;
       vs->authorized_withdrawer = identity_key;
       vs->commission            = 100;
-
-      uchar auth_mem[ 1024 ] __attribute__((aligned(128)));
-      void * alloc_mem = auth_mem;
-      vs->authorized_voters.pool  = fd_vote_authorized_voters_pool_join_new( &alloc_mem, 1UL );
-      vs->authorized_voters.treap = fd_vote_authorized_voters_treap_join_new( &alloc_mem, 1UL );
 
       fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( vs->authorized_voters.pool );
       *ele = (fd_vote_authorized_voter_t){
         .epoch  = 0UL,
         .pubkey = identity_key,
-        .prio   = identity_key.ul[0],
+        .prio   = identity_key.uc[0],
       };
       fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
-
-      fd_bincode_encode_ctx_t encode = {
-        .data    = vote_state_data,
-        .dataend = vote_state_data + sizeof(vote_state_data)
-      };
-      FD_TEST( fd_vote_state_versioned_encode( vsv, &encode )==FD_BINCODE_SUCCESS );
+      FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
       fd_account_meta_t meta = { .lamports = vote_min_bal, .dlen = FD_VOTE_STATE_V3_SZ };
       memcpy( meta.owner, fd_solana_vote_program_id.uc, 32UL );

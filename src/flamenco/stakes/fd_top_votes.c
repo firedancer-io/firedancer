@@ -1,6 +1,7 @@
 #include "fd_top_votes.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 
 #define FD_TOP_VOTES_MAGIC (0xF17EDA2CE7401E70UL) /* FIREDANCER TOP VOTES V0 */
 
@@ -307,7 +308,8 @@ fd_top_votes_refresh( fd_top_votes_t *          top_votes,
     }
 
     if( FD_LIKELY( is_valid ) ) {
-      fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( acc->meta ), acc->meta->dlen );
+      fd_vote_block_timestamp_t last_vote;
+      FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( acc->meta ), acc->meta->dlen, &last_vote ) );
       fd_top_votes_update( top_votes, &pubkey, last_vote.slot, last_vote.timestamp );
       fd_accdb_close_ro( accdb, acc );
     } else {
