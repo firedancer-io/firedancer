@@ -3,11 +3,13 @@
 #include "fd_runtime_stack.h"
 #include "fd_bank.h"
 #include "fd_system_ids.h"
+#include "fd_alut.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_cache.h"
+#include "sysvar/fd_sysvar_slot_hashes.h"
 #include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../features/fd_features.h"
@@ -705,6 +707,398 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
+
+  fd_pubkey_t system_prog    = {0};
+  fd_pubkey_t payer          = { .ul[0] = 0xC0DE01UL };
+  fd_pubkey_t program_key    = { .ul[0] = 0xC0DE02UL };
+  fd_pubkey_t programdata_key= { .ul[0] = 0xC0DE03UL };
+  fd_pubkey_t authority_key  = { .ul[0] = 0xC0DE04UL };
+
+  create_test_account( env->accdb, &env->xid, &payer, 10000000UL, 0UL, NULL, 10UL, &system_prog );
+
+  /* Program account: owned by upgradeable BPF loader, state = program pointing at programdata. */
+  uchar program_data_buf[ SIZE_OF_PROGRAM ];
+  {
+    fd_bpf_upgradeable_loader_state_t state;
+    fd_memset( &state, 0, sizeof(state) );
+    state.discriminant                    = fd_bpf_upgradeable_loader_state_enum_program;
+    state.inner.program.programdata_address = programdata_key;
+    fd_bincode_encode_ctx_t ctx = { .data = program_data_buf, .dataend = program_data_buf + SIZE_OF_PROGRAM };
+    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &ctx ) == FD_BINCODE_SUCCESS );
+  }
+  create_test_account( env->accdb, &env->xid, &program_key, 1000000UL,
+                      SIZE_OF_PROGRAM, program_data_buf, 5UL,
+                      &fd_solana_bpf_loader_upgradeable_program_id );
+
+  /* Programdata account: state = program_data with OLD slot = 5 (< current slot 10).
+    A real upgrade would set slot to the current slot; we start with the pre-upgrade state. */
+  uchar programdata_data_buf[ PROGRAMDATA_METADATA_SIZE ];
+  {
+    fd_bpf_upgradeable_loader_state_t state;
+    fd_memset( &state, 0, sizeof(state) );
+    state.discriminant                                   = fd_bpf_upgradeable_loader_state_enum_program_data;
+    state.inner.program_data.slot                        = 5UL;
+    state.inner.program_data.upgrade_authority_address   = authority_key;
+    state.inner.program_data.has_upgrade_authority_address = 1;
+    fd_bincode_encode_ctx_t ctx = { .data = programdata_data_buf, .dataend = programdata_data_buf + PROGRAMDATA_METADATA_SIZE };
+    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &ctx ) == FD_BINCODE_SUCCESS );
+  }
+  create_test_account( env->accdb, &env->xid, &programdata_key, 1000000UL,
+                      PROGRAMDATA_METADATA_SIZE, programdata_data_buf, 5UL,
+                      &fd_solana_bpf_loader_upgradeable_program_id );
+
+
+/* test_bundle_program_coherency: regression test for the bundle program-cache coherency bug.
+   Bug summary: when txn1 in a bundle upgrades an upgradeable BPF program (updating the
+   programdata account), txn2 in the same bundle may observe stale programdata state from accdb
+   rather than the bundle-forwarded state from txn1.  This happens because
+   fd_executor_setup_executable_account loads the programdata account directly from accdb via
+   fd_accdb_open_ro, bypassing the prev_txn_outs bundle-forwarding path.
+
+   Specifically:
+   - When txn2 does NOT include programdata in its own account list, the bundle-forwarding path
+     (which only applies to accounts in the current transaction's account set) cannot help.
+   - fd_executor_setup_executable_account derives programdata_address from the program account
+     state and loads it from accdb — always using the committed (pre-bundle) state.
+   - The delayed-visibility check at fd_bpf_loader_program.c reads this stale programdata slot,
+     so it may incorrectly pass if the upgrade happened in the same bundle.
+
+   This test asserts the CORRECT behavior: after txn1 upgrades a program (setting
+   programdata.slot = current_slot), the programdata loaded into txn2's executable-account
+   table should reflect the bundle-updated state (slot == 10), not the stale accdb state
+   (slot == 5).
+
+   Expected result: FD_TEST( pd_state.slot == 10UL ) passes.
+   Current result with the bug present: FAIL — slot == 5 is observed. */
+
+  /* Transaction 1: simulated upgrade.  Accounts: [payer, program, programdata] (all writable).
+    We execute an empty transaction (no instructions) then manually update the programdata
+    slot field in txn_out[0] to simulate what a real upgrade instruction would write. */
+  txn_p = (fd_txn_p_t){0};
+  fd_pubkey_t txn1_keys[3] = { payer, program_key, programdata_key };
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 3UL, txn1_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+  env->txn_in.txn                 = &txn_p;
+  env->txn_in.bundle.is_bundle    = 1;
+  env->txn_in.bundle.prev_txn_cnt = 0;
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+  FD_TEST( env->txn_out[0].err.is_committable );
+  FD_TEST( env->txn_out[0].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
+
+  /* Locate programdata in txn1's output accounts. */
+  int pd_idx = -1;
+  for( ushort i = 0; i < env->txn_out[0].accounts.cnt; i++ ) {
+    if( fd_pubkey_eq( &env->txn_out[0].accounts.keys[i], &programdata_key ) ) {
+      pd_idx = i;
+      break;
+    }
+  }
+  FD_TEST( pd_idx >= 0 );
+  FD_TEST( env->txn_out[0].accounts.is_writable[ pd_idx ] );
+
+  /* Simulate the upgrade: set programdata.slot = 10 (= current slot) in txn1's output.
+    After a real upgrade instruction, the on-chain programdata.slot would equal the upgrade slot,
+    which triggers the delayed-visibility check for any same-slot invocation. */
+  uchar * pd_out_data = fd_account_meta_get_data( env->txn_out[0].accounts.account[ pd_idx ].meta );
+  {
+    fd_bpf_upgradeable_loader_state_t upgraded;
+    fd_memset( &upgraded, 0, sizeof(upgraded) );
+    upgraded.discriminant                                   = fd_bpf_upgradeable_loader_state_enum_program_data;
+    upgraded.inner.program_data.slot                        = 10UL; /* now equals current slot */
+    upgraded.inner.program_data.upgrade_authority_address   = authority_key;
+    upgraded.inner.program_data.has_upgrade_authority_address = 1;
+    fd_bincode_encode_ctx_t ctx = { .data = pd_out_data, .dataend = pd_out_data + PROGRAMDATA_METADATA_SIZE };
+    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &upgraded, &ctx ) == FD_BINCODE_SUCCESS );
+  }
+
+  /* Transaction 2: invoke the program WITHOUT listing programdata in the account set.
+    Accounts: [payer, program_key] only — programdata_key is intentionally absent.
+    This is the scenario in the bug: the invoking transaction does not explicitly include
+    programdata, so the bundle-forwarding path (which only covers accounts in the current
+    transaction's account list) cannot supply the updated programdata. */
+  fd_pubkey_t txn2_keys[2] = { payer, program_key };
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, txn2_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 1;
+  env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+  FD_TEST( env->txn_out[1].err.is_committable );
+
+  /* KEY ASSERTION: inspect the programdata that was loaded into runtime->accounts.executable
+    during txn2's account setup (fd_executor_setup_executable_account).
+
+    fd_executor_setup_executable_account derives programdata_key from the program account state
+    and opens it via fd_accdb_open_ro — directly from accdb, not from prev_txn_outs.  So the
+    loaded programdata reflects the committed (pre-bundle) accdb state: slot == 5.
+
+    The CORRECT bundle-coherent behavior would be to load the programdata from txn1's output
+    (slot == 10), so that the delayed-visibility check fires and txn2 is rejected.
+
+    When the bug is present:  pd_state.slot == 5  → assertion FAILS.
+    When the bug is fixed:    pd_state.slot == 10 → assertion PASSES. */
+  int found_programdata = 0;
+  for( ushort i = 0; i < env->runtime->accounts.executable_cnt; i++ ) {
+    fd_accdb_ro_t const * ro = &env->runtime->accounts.executable[i];
+    if( !fd_pubkey_eq( fd_accdb_ref_address( ro ), &programdata_key ) ) continue;
+
+    fd_bpf_upgradeable_loader_state_t pd_state[1];
+    FD_TEST( fd_bpf_loader_program_get_state( ro->meta, pd_state ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( fd_bpf_upgradeable_loader_state_is_program_data( pd_state ) );
+
+    /* Asserts correct (post-fix) behavior: programdata slot must reflect the bundle-updated
+      state from txn1 (slot == 10), not the stale accdb state (slot == 5). */
+    FD_TEST( pd_state->inner.program_data.slot == 10UL );
+    found_programdata = 1;
+    break;
+  }
+  FD_TEST( found_programdata );
+
+  /* Clean up outstanding txn_outs from previous test */
+  env->txn_out[0].err.is_committable = 0;
+  env->txn_out[1].err.is_committable = 0;
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[0] );
+  fd_runtime_cancel_txn( env->runtime, &env->txn_out[1] );
+
+  /* ==========================================================================
+     Test: Bundle ALT stale read (regression)
+     ==========================================================================
+     Regression test for a bug where fd_executor_setup_txn_alut_account_keys
+     was reading ALT accounts directly from funk rather than from
+     prev_txn_outs.  When an earlier transaction in a bundle modifies an
+     ALT (e.g. extends it), a later transaction must see those changes.
+
+     Scenario:
+       - An ALT account exists in funk with 4 addresses, but only 2 are
+         initially active (last_extended_slot == current_slot, start_index == 2).
+       - Txn0 in the bundle includes the ALT as writable and simulates an
+         extension by setting last_extended_slot_start_index = 4 (all active).
+       - Txn1 in the bundle is a V0 transaction that uses the ALT to resolve
+         address at index 3, which is only valid after the extension.
+       - Txn1 should succeed because it sees the extended ALT from txn0.
+     ========================================================================== */
+
+  {
+    FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
+
+    /* Initialize slot hashes sysvar so the sysvar cache can serve them
+       to fd_executor_setup_txn_alut_account_keys. */
+
+    uchar __attribute__((aligned(FD_SYSVAR_SLOT_HASHES_ALIGN)))
+        slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
+    fd_sysvar_slot_hashes_new( slot_hashes_mem, FD_SYSVAR_SLOT_HASHES_CAP );
+
+    fd_slot_hash_t * sh_deq = NULL;
+    fd_slot_hashes_global_t * sh_global = fd_sysvar_slot_hashes_join( slot_hashes_mem, &sh_deq );
+    FD_TEST( sh_global && sh_deq );
+
+    for( ulong i = 0UL; i < 10UL; i++ ) {
+      fd_slot_hash_t entry = { .slot = 10UL - i };
+      fd_memset( entry.hash.hash, 0, 32UL );
+      deq_fd_slot_hash_t_push_tail( sh_deq, entry );
+    }
+
+    fd_sysvar_slot_hashes_write( env->bank, env->accdb, &env->xid, NULL, sh_global );
+    fd_sysvar_slot_hashes_leave( sh_global, sh_deq );
+    fd_sysvar_slot_hashes_delete( slot_hashes_mem );
+
+    fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+
+    /* Create an ALT account with 4 address entries but only 2 are
+       initially active (last_extended_slot == current_slot == 10,
+       last_extended_slot_start_index == 2).
+
+       The on-disk format is:
+         [56 bytes]  fd_address_lookup_table_state_t (bincode-encoded)
+         [N * 32 bytes]  addresses */
+
+    fd_pubkey_t alut_key = { .ul[0] = 0xA107UL };
+
+    ulong num_alut_addrs = 4UL;
+    ulong alut_data_sz   = FD_LOOKUP_TABLE_META_SIZE + num_alut_addrs * 32UL;
+    uchar alut_data[ FD_LOOKUP_TABLE_META_SIZE + 4 * 32 ];
+
+    fd_address_lookup_table_state_t alut_state = {
+      .discriminant = fd_address_lookup_table_state_enum_lookup_table,
+      .inner = { .lookup_table = { .meta = {
+        .deactivation_slot              = ULONG_MAX,
+        .last_extended_slot             = 10UL,
+        .last_extended_slot_start_index = 2,
+        .authority                      = {{0}},
+        .has_authority                  = 0,
+      } } }
+    };
+    fd_bincode_encode_ctx_t enc_ctx = {
+      .data    = alut_data,
+      .dataend = alut_data + FD_LOOKUP_TABLE_META_SIZE
+    };
+    FD_TEST( fd_address_lookup_table_state_encode( &alut_state, &enc_ctx ) == FD_BINCODE_SUCCESS );
+
+    fd_acct_addr_t * alut_addrs = (fd_acct_addr_t *)( alut_data + FD_LOOKUP_TABLE_META_SIZE );
+    for( ulong i = 0UL; i < num_alut_addrs; i++ ) {
+      fd_memset( alut_addrs[i].b, 0, 32UL );
+      alut_addrs[i].b[0] = (uchar)( 0xE0 + i );
+      alut_addrs[i].b[1] = (uchar)( 0xF0 + i );
+    }
+
+    create_test_account( env->accdb, &env->xid, &alut_key, 1000000UL,
+                         (uint)alut_data_sz, alut_data, 10UL,
+                         &fd_solana_address_lookup_table_program_id );
+
+    /* ------------------------------------------------------------------
+       Txn0: include the ALT as a writable account in a legacy-style
+       transaction (no ALT lookups in this txn itself).  After execution,
+       simulate the extension by modifying the ALT metadata in txn_out.
+       ------------------------------------------------------------------ */
+
+    fd_pubkey_t txn0_keys[2] = { pubkey1, alut_key };
+    txn_p = (fd_txn_p_t){0};
+    sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL,
+                        2UL, txn0_keys, &dummy_hash );
+    FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+    env->txn_in.txn                 = &txn_p;
+    env->txn_in.bundle.is_bundle    = 1;
+    env->txn_in.bundle.prev_txn_cnt = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank,
+                                        &env->txn_in, &env->txn_out[0] );
+    FD_TEST( env->txn_out[0].err.is_committable );
+    FD_TEST( env->txn_out[0].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
+
+    /* Find the ALT account in txn0's output and verify it's writable. */
+    int alut_idx = -1;
+    for( ushort i = 0; i < env->txn_out[0].accounts.cnt; i++ ) {
+      if( fd_pubkey_eq( &env->txn_out[0].accounts.keys[i], &alut_key ) ) {
+        alut_idx = i;
+        break;
+      }
+    }
+    FD_TEST( alut_idx >= 0 );
+    FD_TEST( env->txn_out[0].accounts.is_writable[ alut_idx ] );
+
+    /* Simulate extending the ALT: update last_extended_slot_start_index
+       from 2 to 4 so that all 4 addresses become active. */
+    uchar * alut_out_data = fd_account_meta_get_data(
+        env->txn_out[0].accounts.account[ alut_idx ].meta );
+    fd_address_lookup_table_state_t extended_state = alut_state;
+    extended_state.inner.lookup_table.meta.last_extended_slot_start_index = 4;
+    fd_bincode_encode_ctx_t enc_ctx2 = {
+      .data    = alut_out_data,
+      .dataend = alut_out_data + FD_LOOKUP_TABLE_META_SIZE
+    };
+    FD_TEST( fd_address_lookup_table_state_encode( &extended_state, &enc_ctx2 )
+             == FD_BINCODE_SUCCESS );
+
+    /* ------------------------------------------------------------------
+       Txn1: a V0 transaction that uses the ALT to resolve address at
+       index 3 (writable).  Index 3 is only valid if the extension from
+       txn0 is visible.
+
+       We manually construct the fd_txn_t descriptor and payload since
+       the existing txn_serialize helper doesn't support ALT references.
+       ------------------------------------------------------------------ */
+
+    fd_txn_p_t txn1_p = {0};
+    uchar * pl = txn1_p.payload;
+    ulong   off = 0UL;
+
+    /* signature count (compact-u16 == 1 byte for values < 128) */
+    pl[off++] = 1;
+    fd_memset( pl + off, 0, 64UL );  /* one empty signature */
+    off += 64UL;
+
+    /* V0 prefix byte */
+    pl[off++] = 0x80;
+
+    /* message header */
+    pl[off++] = 1;   /* num_required_signatures */
+    pl[off++] = 0;   /* num_readonly_signed */
+    pl[off++] = 0;   /* num_readonly_unsigned */
+
+    /* static account keys: just pubkey1 (fee payer) */
+    pl[off++] = 1;   /* compact-u16 account count */
+    fd_memcpy( pl + off, &pubkey1, 32UL );
+    ulong acct_addr_off = off;
+    off += 32UL;
+
+    /* recent blockhash */
+    ulong rbh_off = off;
+    fd_memcpy( pl + off, &dummy_hash, 32UL );
+    off += 32UL;
+
+    /* instruction count = 0 */
+    pl[off++] = 0;
+
+    /* address table lookups: 1 lookup referencing alut_key,
+       writable_indices = [3], readonly_indices = [] */
+    pl[off++] = 1;   /* addr_table_lookup_cnt */
+    ulong alut_addr_payload_off = off;
+    fd_memcpy( pl + off, &alut_key, 32UL );
+    off += 32UL;
+    pl[off++] = 1;   /* writable count */
+    pl[off++] = 3;   /* writable index: address at position 3 */
+    ulong writable_off = off - 1UL;
+    pl[off++] = 0;   /* readonly count */
+
+    txn1_p.payload_sz = (ushort)off;
+
+    /* Build a matching fd_txn_t descriptor.  We use a union with enough
+       room for 0 instructions + 1 ALT lookup. */
+    uchar txn1_mem[ sizeof(fd_txn_t) + sizeof(fd_txn_acct_addr_lut_t) ] __attribute__((aligned(16UL)));
+    fd_txn_t * txn1 = (fd_txn_t *)txn1_mem;
+    fd_memset( txn1, 0, sizeof(txn1_mem) );
+
+    txn1->transaction_version       = FD_TXN_V0;
+    txn1->signature_cnt             = 1;
+    txn1->signature_off             = 1;
+    txn1->message_off               = 65;
+    txn1->readonly_signed_cnt       = 0;
+    txn1->readonly_unsigned_cnt     = 0;
+    txn1->acct_addr_cnt             = 1;
+    txn1->acct_addr_off             = (ushort)acct_addr_off;
+    txn1->recent_blockhash_off      = (ushort)rbh_off;
+    txn1->instr_cnt                 = 0;
+    txn1->addr_table_lookup_cnt     = 1;
+    txn1->addr_table_adtl_writable_cnt = 1;
+    txn1->addr_table_adtl_cnt       = 1;
+
+    fd_txn_acct_addr_lut_t * lut = fd_txn_get_address_tables( txn1 );
+    lut->addr_off     = (ushort)alut_addr_payload_off;
+    lut->writable_cnt = 1;
+    lut->writable_off = (ushort)writable_off;
+    lut->readonly_cnt = 0;
+    lut->readonly_off = (ushort)off;
+
+    FD_TEST( sizeof(txn1_mem) <= sizeof(txn1_p._) );
+    fd_memcpy( txn1_p._, txn1_mem, sizeof(txn1_mem) );
+
+    env->txn_in.txn                     = &txn1_p;
+    env->txn_in.bundle.is_bundle        = 1;
+    env->txn_in.bundle.prev_txn_cnt     = 1;
+    env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank,
+                                        &env->txn_in, &env->txn_out[1] );
+
+    FD_TEST( env->txn_out[1].err.is_committable );
+    FD_TEST( env->txn_out[1].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
+
+    /* Verify the resolved address matches what we put into index 3. */
+    fd_pubkey_t expected_addr = {{0}};
+    expected_addr.uc[0] = 0xE3;
+    expected_addr.uc[1] = 0xF3;
+    FD_TEST( fd_pubkey_eq( &env->txn_out[1].accounts.keys[1], &expected_addr ) );
+
+    /* Clean up */
+    if( env->txn_out[1].err.is_committable ) {
+      fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+    } else {
+      fd_runtime_cancel_txn( env->runtime, &env->txn_out[1] );
+    }
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+  }
 }
 
 int
