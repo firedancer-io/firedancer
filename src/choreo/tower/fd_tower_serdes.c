@@ -139,9 +139,213 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
   return 0;
 }
 
+int
+fd_vote_acc_de( fd_vote_acc_t * serde,
+                uchar const *   buf,
+                ulong           buf_sz ) {
+  ulong off = 0;
+
+  /* common fields */
+  DE( uint, kind );
+  DE( fd_pubkey_t, v4.node_pubkey );
+  DE( fd_pubkey_t, v4.authorized_withdrawer );
+
+  switch( serde->kind ) {
+  case FD_VOTE_ACC_V2: {
+    DE( uchar, v2.commission );
+    DE( ulong, v2.votes_cnt );
+    if( FD_UNLIKELY( serde->v2.votes_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v2.votes_cnt; i++ ) {
+      DE( ulong, v2.votes[i].slot );
+      DE( uint,  v2.votes[i].conf );
+    }
+    DE( uchar, v2.root_option );
+    if( serde->v2.root_option ) {
+      DE( ulong, v2.root );
+    }
+    DE( ulong, v2.authorized_voters_cnt );
+    if( FD_UNLIKELY( serde->v2.authorized_voters_cnt>FD_VOTE_ACC_AUTH_VOTERS_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v2.authorized_voters_cnt; i++ ) {
+      DE( ulong,       v2.authorized_voters[i].epoch );
+      DE( fd_pubkey_t, v2.authorized_voters[i].pubkey );
+    }
+    break;
+  }
+  case FD_VOTE_ACC_V3: {
+    DE( uchar, v3.commission );
+    DE( ulong, v3.votes_cnt );
+    if( FD_UNLIKELY( serde->v3.votes_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v3.votes_cnt; i++ ) {
+      DE( uchar, v3.votes[i].latency );
+      DE( ulong, v3.votes[i].slot );
+      DE( uint,  v3.votes[i].conf );
+    }
+    DE( uchar, v3.root_option );
+    if( serde->v3.root_option ) {
+      DE( ulong, v3.root );
+    }
+    DE( ulong, v3.authorized_voters_cnt );
+    if( FD_UNLIKELY( serde->v3.authorized_voters_cnt>FD_VOTE_ACC_AUTH_VOTERS_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v3.authorized_voters_cnt; i++ ) {
+      DE( ulong,       v3.authorized_voters[i].epoch );
+      DE( fd_pubkey_t, v3.authorized_voters[i].pubkey );
+    }
+    break;
+  }
+  case FD_VOTE_ACC_V4: {
+    DE( fd_pubkey_t, v4.inflation_rewards_collector );
+    DE( fd_pubkey_t, v4.block_revenue_collector );
+    DE( ushort,      v4.inflation_rewards_commission_bps );
+    DE( ushort,      v4.block_revenue_commission_bps );
+    DE( ulong,       v4.pending_delegator_rewards );
+    DE( uchar,       v4.has_bls_pubkey_compressed );
+    if( serde->v4.has_bls_pubkey_compressed ) {
+      if( FD_UNLIKELY( off+48UL>buf_sz ) ) return -1;
+      fd_memcpy( serde->v4.bls_pubkey_compressed, buf+off, 48UL );
+      off += 48UL;
+    }
+    DE( ulong, v4.votes_cnt );
+    if( FD_UNLIKELY( serde->v4.votes_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v4.votes_cnt; i++ ) {
+      DE( uchar, v4.votes[i].latency );
+      DE( ulong, v4.votes[i].slot );
+      DE( uint,  v4.votes[i].conf );
+    }
+    DE( uchar, v4.root_option );
+    if( serde->v4.root_option ) {
+      DE( ulong, v4.root );
+    }
+    DE( ulong, v4.authorized_voters_cnt );
+    if( FD_UNLIKELY( serde->v4.authorized_voters_cnt>FD_VOTE_ACC_AUTH_VOTERS_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v4.authorized_voters_cnt; i++ ) {
+      DE( ulong,       v4.authorized_voters[i].epoch );
+      DE( fd_pubkey_t, v4.authorized_voters[i].pubkey );
+    }
+    break;
+  }
+  default: return -1;
+  }
+  return 0;
+}
+
+int
+fd_vote_acc_ser( fd_vote_acc_t const * serde,
+                 uchar *               buf,
+                 ulong                 buf_max,
+                 ulong *               out_sz ) {
+  ulong off = 0;
+
+  SER( uint, kind );
+
+  switch( serde->kind ) {
+  case FD_VOTE_ACC_V2: {
+    SER( fd_pubkey_t, v2.node_pubkey );
+    SER( fd_pubkey_t, v2.authorized_withdrawer );
+    SER( uchar,       v2.commission );
+    SER( ulong,       v2.votes_cnt );
+    if( FD_UNLIKELY( serde->v2.votes_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v2.votes_cnt; i++ ) {
+      SER( ulong, v2.votes[i].slot );
+      SER( uint,  v2.votes[i].conf );
+    }
+    SER( uchar, v2.root_option );
+    if( serde->v2.root_option ) {
+      SER( ulong, v2.root );
+    }
+    SER( ulong, v2.authorized_voters_cnt );
+    if( FD_UNLIKELY( serde->v2.authorized_voters_cnt>FD_VOTE_ACC_AUTH_VOTERS_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v2.authorized_voters_cnt; i++ ) {
+      SER( ulong,       v2.authorized_voters[i].epoch );
+      SER( fd_pubkey_t, v2.authorized_voters[i].pubkey );
+    }
+    break;
+  }
+  case FD_VOTE_ACC_V3: {
+    SER( fd_pubkey_t, v3.node_pubkey );
+    SER( fd_pubkey_t, v3.authorized_withdrawer );
+    SER( uchar,       v3.commission );
+    SER( ulong,       v3.votes_cnt );
+    if( FD_UNLIKELY( serde->v3.votes_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v3.votes_cnt; i++ ) {
+      SER( uchar, v3.votes[i].latency );
+      SER( ulong, v3.votes[i].slot );
+      SER( uint,  v3.votes[i].conf );
+    }
+    SER( uchar, v3.root_option );
+    if( serde->v3.root_option ) {
+      SER( ulong, v3.root );
+    }
+    SER( ulong, v3.authorized_voters_cnt );
+    if( FD_UNLIKELY( serde->v3.authorized_voters_cnt>FD_VOTE_ACC_AUTH_VOTERS_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v3.authorized_voters_cnt; i++ ) {
+      SER( ulong,       v3.authorized_voters[i].epoch );
+      SER( fd_pubkey_t, v3.authorized_voters[i].pubkey );
+    }
+    break;
+  }
+  case FD_VOTE_ACC_V4: {
+    SER( fd_pubkey_t, v4.node_pubkey );
+    SER( fd_pubkey_t, v4.authorized_withdrawer );
+    SER( fd_pubkey_t, v4.inflation_rewards_collector );
+    SER( fd_pubkey_t, v4.block_revenue_collector );
+    SER( ushort,      v4.inflation_rewards_commission_bps );
+    SER( ushort,      v4.block_revenue_commission_bps );
+    SER( ulong,       v4.pending_delegator_rewards );
+    SER( uchar,       v4.has_bls_pubkey_compressed );
+    if( serde->v4.has_bls_pubkey_compressed ) {
+      if( FD_UNLIKELY( off+48UL>buf_max ) ) return -1;
+      fd_memcpy( buf+off, serde->v4.bls_pubkey_compressed, 48UL );
+      off += 48UL;
+    }
+    SER( ulong, v4.votes_cnt );
+    if( FD_UNLIKELY( serde->v4.votes_cnt>FD_TOWER_VOTE_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v4.votes_cnt; i++ ) {
+      SER( uchar, v4.votes[i].latency );
+      SER( ulong, v4.votes[i].slot );
+      SER( uint,  v4.votes[i].conf );
+    }
+    SER( uchar, v4.root_option );
+    if( serde->v4.root_option ) {
+      SER( ulong, v4.root );
+    }
+    SER( ulong, v4.authorized_voters_cnt );
+    if( FD_UNLIKELY( serde->v4.authorized_voters_cnt>FD_VOTE_ACC_AUTH_VOTERS_MAX ) ) return -1;
+    for( ulong i=0; i<serde->v4.authorized_voters_cnt; i++ ) {
+      SER( ulong,       v4.authorized_voters[i].epoch );
+      SER( fd_pubkey_t, v4.authorized_voters[i].pubkey );
+    }
+    break;
+  }
+  default: return -1;
+  }
+
+  if( FD_LIKELY( out_sz ) ) *out_sz = off;
+  return 0;
+}
+
 static fd_vote_acc_vote_t const *
 v4_off( fd_vote_acc_t const * voter ) {
   return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
+}
+
+ulong
+fd_vote_acc_authorized_voters_cnt( fd_vote_acc_t const * vote_acc ) {
+  switch( vote_acc->kind ) {
+  case FD_VOTE_ACC_V4: return vote_acc->v4.authorized_voters_cnt;
+  case FD_VOTE_ACC_V3: return vote_acc->v3.authorized_voters_cnt;
+  case FD_VOTE_ACC_V2: return vote_acc->v2.authorized_voters_cnt;
+  default: FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_acc, 3762 ));
+  }
+}
+
+fd_vote_acc_auth_voter_t const *
+fd_vote_acc_authorized_voters( fd_vote_acc_t const * vote_acc ) {
+  switch( vote_acc->kind ) {
+  case FD_VOTE_ACC_V4: return vote_acc->v4.authorized_voters;
+  case FD_VOTE_ACC_V3: return vote_acc->v3.authorized_voters;
+  case FD_VOTE_ACC_V2: return vote_acc->v2.authorized_voters;
+  default: FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_acc, 3762 ));
+  }
 }
 
 ulong

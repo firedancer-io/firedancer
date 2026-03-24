@@ -676,53 +676,20 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
 
   if( FD_UNLIKELY( !vote_acc_found ) ) return 0;
 
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = ctx->our_vote_acct,
-    .dataend = ctx->our_vote_acct + ctx->our_vote_acct_sz,
-  };
-
-  uchar __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN))) vote_state_versioned[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
-
-  fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( vote_state_versioned, &decode_ctx );
-  FD_CRIT( vsv, "unable to decode vote state versioned" );
+  fd_vote_acc_t vote_acc[1];
+  int err = fd_vote_acc_de( vote_acc, ctx->our_vote_acct, ctx->our_vote_acct_sz );
+  FD_CRIT( !err, "unable to decode vote state versioned" );
 
   fd_pubkey_t const * auth_vtr_addr = NULL;
-  switch( vsv->discriminant ) {
-    case fd_vote_state_versioned_enum_v1_14_11:
-      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v1_14_11.authorized_voters.treap, vsv->inner.v1_14_11.authorized_voters.pool );
-           !fd_vote_authorized_voters_treap_rev_iter_done( iter );
-           iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v1_14_11.authorized_voters.pool ) ) {
-        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v1_14_11.authorized_voters.pool );
-        if( FD_LIKELY( ele->epoch<=epoch ) ) {
-          auth_vtr_addr = &ele->pubkey;
-          break;
-        }
-      }
+  ulong max_effective_epoch = 0;
+  /* filter for max epoch <= the current epoch */
+  fd_vote_acc_auth_voter_t const * authorized_voters = fd_vote_acc_authorized_voters( vote_acc );
+  for( ulong i=fd_vote_acc_authorized_voters_cnt( vote_acc ); i>0; i-- ) {
+    if( FD_LIKELY( authorized_voters[i-1].epoch<=epoch && authorized_voters[i-1].epoch>max_effective_epoch ) ) {
+      max_effective_epoch =  authorized_voters[i-1].epoch;
+      auth_vtr_addr       = &authorized_voters[i-1].pubkey;
       break;
-    case fd_vote_state_versioned_enum_v3:
-      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v3.authorized_voters.treap, vsv->inner.v3.authorized_voters.pool );
-          !fd_vote_authorized_voters_treap_rev_iter_done( iter );
-          iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v3.authorized_voters.pool ) ) {
-        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v3.authorized_voters.pool );
-        if( FD_LIKELY( ele->epoch<=epoch ) ) {
-          auth_vtr_addr = &ele->pubkey;
-          break;
-        }
-      }
-      break;
-    case fd_vote_state_versioned_enum_v4:
-      for( fd_vote_authorized_voters_treap_rev_iter_t iter = fd_vote_authorized_voters_treap_rev_iter_init( vsv->inner.v4.authorized_voters.treap, vsv->inner.v4.authorized_voters.pool );
-          !fd_vote_authorized_voters_treap_rev_iter_done( iter );
-          iter = fd_vote_authorized_voters_treap_rev_iter_next( iter, vsv->inner.v4.authorized_voters.pool ) ) {
-        fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_treap_rev_iter_ele( iter, vsv->inner.v4.authorized_voters.pool );
-        if( FD_LIKELY( ele->epoch<=epoch ) ) {
-          auth_vtr_addr = &ele->pubkey;
-          break;
-        }
-      }
-      break;
-    default:
-      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", vsv->discriminant ));
+    }
   }
 
   FD_CRIT( auth_vtr_addr, "unable to find authorized voter, likely corrupt vote account state" );
