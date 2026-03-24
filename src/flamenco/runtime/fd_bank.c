@@ -166,6 +166,7 @@ fd_bank_t *
 fd_banks_get_parent( fd_bank_t *  bank_l,
                      fd_banks_t * banks,
                      fd_bank_t *  bank ) {
+  if( FD_UNLIKELY( bank->data->parent_idx==ULONG_MAX ) ) return NULL;
   bank_l->data  = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank->data->parent_idx );
   bank_l->locks = banks->locks;
   return bank_l;
@@ -453,10 +454,15 @@ fd_banks_join( fd_banks_t * banks_ljoin,
     return NULL;
   }
 
-  /* TODO: Not critical, but consider verifying stake rewards and vote
-     stakes are joined correctly. */
-  (void)stake_rewards_mem;
-  (void)vote_stakes_mem;
+  if( FD_UNLIKELY( !fd_stake_rewards_join( stake_rewards_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join stake rewards" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_vote_stakes_join( vote_stakes_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join vote stakes" ));
+    return NULL;
+  }
 
   banks_ljoin->data  = banks_data;
   banks_ljoin->locks = banks_locks;
@@ -767,21 +773,14 @@ fd_banks_advance_root( fd_banks_t * banks,
 static int
 fd_banks_subtree_can_be_pruned( fd_bank_data_t * bank_pool,
                                 fd_bank_data_t * bank ) {
-  if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
-  }
 
-  if( bank->refcnt!=0UL ) {
-    return 0;
-  }
+  if( bank->refcnt!=0UL ) return 0;
 
   /* Recursively check all children. */
   ulong child_idx = bank->child_idx;
   while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
     fd_bank_data_t * child = fd_banks_pool_ele( bank_pool, child_idx );
-    if( !fd_banks_subtree_can_be_pruned( bank_pool, child ) ) {
-      return 0;
-    }
+    if( !fd_banks_subtree_can_be_pruned( bank_pool, child ) ) return 0;
     child_idx = child->sibling_idx;
   }
 
@@ -879,25 +878,11 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
                    long         now ) {
 
   fd_bank_data_t * bank_pool = fd_banks_get_bank_pool( banks->data );
-  if( FD_UNLIKELY( !bank_pool ) ) {
-    FD_LOG_CRIT(( "invariant violation: failed to get bank pool" ));
-  }
+  FD_CRIT( fd_banks_pool_free( bank_pool )!=0UL, "invariant violation: no free bank indices available" );
 
-  if( FD_UNLIKELY( fd_banks_pool_free( bank_pool )==0UL ) ) {
-    FD_LOG_CRIT(( "invariant violation: no free bank indices available" ));
-  }
-
-  ulong child_bank_idx = fd_banks_pool_idx_acquire( bank_pool );
-
-  /* Make sure that the bank is valid. */
-
-  fd_bank_data_t * child_bank = fd_banks_pool_ele( bank_pool, child_bank_idx );
-  if( FD_UNLIKELY( !child_bank ) ) {
-    FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu does not exist", child_bank_idx ));
-  }
-  if( FD_UNLIKELY( child_bank->flags&FD_BANK_FLAGS_INIT ) ) {
-    FD_LOG_CRIT(( "Invariant violation: bank for bank index %lu is already initialized", child_bank_idx ));
-  }
+  ulong            child_bank_idx = fd_banks_pool_idx_acquire( bank_pool );
+  fd_bank_data_t * child_bank     = fd_banks_pool_ele( bank_pool, child_bank_idx );
+  FD_CRIT( !(child_bank->flags&FD_BANK_FLAGS_INIT), "invariant violation: bank for bank index is already initialized" );
 
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
 
@@ -915,38 +900,20 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
   /* Then make sure that the parent bank is valid and frozen. */
 
   fd_bank_data_t * parent_bank = fd_banks_pool_ele( bank_pool, parent_bank_idx );
-  if( FD_UNLIKELY( !parent_bank ) ) {
-    FD_LOG_CRIT(( "Invariant violation: parent bank for bank index %lu does not exist", parent_bank_idx ));
-  }
-  if( FD_UNLIKELY( !(parent_bank->flags&FD_BANK_FLAGS_INIT) ) ) {
-    FD_LOG_CRIT(( "Invariant violation: parent bank with index %lu is uninitialized", parent_bank_idx ));
-  }
-  if( FD_UNLIKELY( parent_bank->flags&FD_BANK_FLAGS_DEAD ) ) {
-    FD_LOG_CRIT(( "Invariant violation: parent bank with index %lu is dead", parent_bank_idx ));
-  }
+  FD_CRIT( parent_bank->flags&FD_BANK_FLAGS_INIT, "invariant violation: parent bank for bank index is uninitialized" );
+  FD_CRIT( !(parent_bank->flags&FD_BANK_FLAGS_DEAD), "invariant violation: parent bank for bank index is dead" );
   /* Link node->parent */
-
   child_bank->parent_idx = parent_bank_idx;
-
   /* Link parent->node and sibling->node */
-
   if( FD_LIKELY( parent_bank->child_idx==null_idx ) ) {
-
     /* This is the first child so set as left-most child */
-
     parent_bank->child_idx = child_bank_idx;
 
   } else {
     /* Already have children so iterate to right-most sibling. */
-
     fd_bank_data_t * curr_bank = fd_banks_pool_ele( bank_pool, parent_bank->child_idx );
-    if( FD_UNLIKELY( !curr_bank ) ) {
-      FD_LOG_CRIT(( "Invariant violation: child bank for bank index %lu does not exist", parent_bank->child_idx ));
-    }
     while( curr_bank->sibling_idx != null_idx ) curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->sibling_idx );
-
     /* Link to right-most sibling. */
-
     curr_bank->sibling_idx = child_bank_idx;
   }
 
@@ -1064,19 +1031,12 @@ void
 fd_banks_mark_bank_frozen( fd_banks_t * banks,
                            fd_bank_t *  bank ) {
   /* TODO: Get rid of banks param */
-
-  if( FD_UNLIKELY( bank->data->flags&FD_BANK_FLAGS_FROZEN ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank for idx %lu is already frozen", bank->data->idx ));
-  }
-
+  FD_CRIT( !(bank->data->flags&FD_BANK_FLAGS_FROZEN), "invariant violation: cost tracker pool index is null" );
   bank->data->flags |= FD_BANK_FLAGS_FROZEN;
 
-  fd_bank_cost_tracker_t * ct_pool = fd_banks_get_cost_tracker_pool( banks->data );
-  if( FD_UNLIKELY( bank->data->cost_tracker_pool_idx==fd_bank_cost_tracker_pool_idx_null( ct_pool ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: cost tracker pool index is null" ));
-  }
-  fd_bank_cost_tracker_pool_idx_release( ct_pool, bank->data->cost_tracker_pool_idx );
-  bank->data->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( ct_pool );
+  FD_CRIT( bank->data->cost_tracker_pool_idx!=ULONG_MAX, "invariant violation: cost tracker pool index is null" );
+  fd_bank_cost_tracker_pool_idx_release( fd_banks_get_cost_tracker_pool( banks->data ), bank->data->cost_tracker_pool_idx );
+  bank->data->cost_tracker_pool_idx = ULONG_MAX;
 }
 
 static void
