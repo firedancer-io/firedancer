@@ -51,7 +51,7 @@ fd_banks_get_stake_delegations( fd_banks_data_t * banks_data ) {
 
 static fd_bank_cost_tracker_t *
 fd_banks_get_cost_tracker_pool( fd_banks_data_t * banks_data ) {
-  return fd_bank_cost_tracker_pool_join( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
+  return fd_type_pun( (uchar *)banks_data + banks_data->cost_tracker_pool_offset );
 }
 
 static fd_stake_rewards_t *
@@ -317,6 +317,7 @@ fd_banks_new( void * shmem,
     return NULL;
   }
   banks_data->cost_tracker_pool_offset = (ulong)cost_tracker_pool - (ulong)banks_data;
+
   for( ulong i=0UL; i<max_fork_width; i++ ) {
     fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
     if( FD_UNLIKELY( !fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, larger_max_cost_per_block, seed ) ) ) ) {
