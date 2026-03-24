@@ -5,9 +5,6 @@ CPPFLAGS+=-fno-omit-frame-pointer
 CPPFLAGS+=-fsanitize-coverage=trace-pc-guard,inline-8bit-counters,pc-table
 CPPFLAGS+=-fno-sanitize-coverage=stack-depth
 
-LDFLAGS+=-fsanitize-coverage=trace-pc-guard,inline-8bit-counters,pc-table
-LDFLAGS+=-fno-sanitize-coverage=stack-depth
-
 FD_HAS_FUZZ:=1
 
 # The patched honggfuzz (master-patches) instrument.c references
