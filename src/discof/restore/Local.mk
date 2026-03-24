@@ -29,9 +29,11 @@ endif
 $(call make-unit-test,test_slot_delta_parser,utils/test_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_sspeer_selector,utils/test_sspeer_selector,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_ssarchive,utils/test_ssarchive,fd_discof fdctl_platform fd_ballet fd_util)
+$(call make-unit-test,test_sshead,utils/test_sshead,fd_discof fd_waltz fd_flamenco fd_ballet fd_util,$(OPENSSL_LIBS))
 $(call run-unit-test,test_slot_delta_parser)
 $(call run-unit-test,test_sspeer_selector)
 $(call run-unit-test,test_ssarchive)
+$(call run-unit-test,test_sshead)
 
 $(call make-fuzz-test,fuzz_snapshot_parser,utils/fuzz_snapshot_parser,fd_discof fd_flamenco fd_ballet fd_util)
 ifdef FD_HAS_INT128
@@ -42,6 +44,7 @@ $(call make-fuzz-test,fuzz_slot_delta_parser,utils/fuzz_slot_delta_parser,fd_dis
 $(call make-fuzz-test,fuzz_sshttp,utils/fuzz_sshttp,fd_discof fd_waltz fd_flamenco fd_ballet fd_util,$(OPENSSL_LIBS))
 
 $(call add-objs,utils/fd_ssresolve,fd_discof)
+$(call add-objs,utils/fd_sshead,fd_discof)
 $(call add-objs,utils/fd_sshttp,fd_discof)
 $(call add-objs,utils/fd_ssarchive,fd_discof)
 $(call add-objs,utils/fd_sspeer_selector,fd_discof)

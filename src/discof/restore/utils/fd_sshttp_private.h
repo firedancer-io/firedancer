@@ -18,7 +18,7 @@
 #define FD_SSHTTP_STATE_REDIRECT      (6) /* redirect after shutting down ssl */
 #define FD_SSHTTP_STATE_DONE          (7) /* done */
 
-#define FD_SSHTTP_DEADLINE_NANOS (1L*1000L*1000L*1000L) /* 1 second  */
+#define FD_SSHTTP_DEADLINE_NANOS (2L*1000L*1000L*1000L) /* 2 seconds  */
 
 struct fd_sshttp_private {
   int   state;

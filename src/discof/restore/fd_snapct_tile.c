@@ -4,6 +4,7 @@
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssarchive.h"
 #include "utils/fd_http_resolver.h"
+#include "utils/fd_sshead.h"
 #include "utils/fd_ssmsg.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -102,6 +103,9 @@ struct fd_snapct_tile {
     int   pending;
   } predicted_incremental;
 
+  fd_sshead_t * incr_resolve;
+  fd_sspeer_t   incr_resolve_peer; /* the peer being pre-resolved */
+
   struct {
     ulong full_snapshot_slot;
     char  full_snapshot_path[ PATH_MAX ];
@@ -172,7 +176,8 @@ scratch_align( void ) {
          fd_ulong_max( alignof(gossip_ci_entry_t),
          fd_ulong_max( gossip_ci_map_align(),
          fd_ulong_max( fd_http_resolver_align(),
-                       fd_sspeer_selector_align() ) ) ) ) );
+         fd_ulong_max( fd_sspeer_selector_align(),
+                       fd_sshead_align() ) ) ) ) ) );
 }
 
 static ulong
@@ -184,6 +189,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
   l = FD_LAYOUT_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX )                             );
   l = FD_LAYOUT_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                            );
+  l = FD_LAYOUT_APPEND( l, fd_sshead_align(),          fd_sshead_footprint()                                                      );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()                                                       );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -358,7 +364,8 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
               tile->snapct.sources.servers_cnt; /* http resolver peer full sockets */
     if( tile->snapct.incremental_snapshots ) {
       cnt +=  1UL +                             /* incr snapshot download temp fd */
-              tile->snapct.sources.servers_cnt; /* http resolver peer incr sockets */
+              tile->snapct.sources.servers_cnt + /* http resolver peer incr sockets */
+              1UL;                              /* incr_resolve HEAD socket */
     }
   }
   return cnt;
@@ -695,38 +702,140 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL: {
       if( FD_UNLIKELY( now<ctx->deadline_nanos ) ) break;
 
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
-      if( FD_UNLIKELY( !best.addr.l ) ) {
-        if( !ctx->gossip_enabled ) {
-          FD_LOG_ERR(( "no incremental snapshot peers are available and discovery of new peers via gossip is disabled. aborting." ));
+      /* Phase 1: No HEAD resolve in flight, select a peer and start
+         one. */
+      if( !fd_sshead_active( ctx->incr_resolve ) ) {
+        fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
+        if( FD_UNLIKELY( !best.addr.l ) ) {
+          if( !ctx->gossip_enabled ) {
+            FD_LOG_ERR(( "no incremental snapshot peers are available and discovery of new peers via gossip is disabled. aborting." ));
+          }
+          ctx->deadline_nanos = now + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
+          ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL;
+          break;
         }
-        ctx->deadline_nanos = now + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
-        ctx->state = FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL;
+        /* decide whether to use the local incremental snapshot if one
+           exists and is not too old, otherwise download a new
+           incremental snapshot. */
+        ulong cluster_slot  = fd_sspeer_selector_cluster_slot( ctx->selector ).incremental;
+        ulong local_slot    = ctx->local_in.incremental_snapshot_slot;
+        int   local_too_old = cluster_slot!=ULONG_MAX && local_slot<fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age );
+        if( FD_LIKELY( local_slot!=ULONG_MAX && !local_too_old ) ) {
+          ctx->predicted_incremental.slot = local_slot;
+          send_expected_slot( ctx, stem, local_slot );
+
+          FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
+          ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
+          init_load( ctx, stem, 0, 1 );
+          break;
+        }
+        /* Check if this peer is a configured HTTPS server.  For HTTPS
+           peers the http_resolver already performs periodic HEAD
+           resolves so the slot data is fresh.  Skip the pre-resolve. */
+        int is_https = 0;
+        for( ulong i=0UL; i<ctx->config.sources.servers_cnt; i++ ) {
+          if( FD_UNLIKELY( best.addr.l==ctx->config.sources.servers[ i ].addr.l ) ) {
+            is_https = ctx->config.sources.servers[ i ].is_https;
+            break;
+          }
+        }
+        if( FD_UNLIKELY( is_https ) ) {
+          ctx->predicted_incremental.slot = best.incr_slot;
+          send_expected_slot( ctx, stem, best.incr_slot );
+          ctx->peer  = best;
+          ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+          init_load( ctx, stem, 0, 0 );
+          log_download( ctx, 0, best.addr, best.incr_slot );
+          break;
+        }
+        /* Start a HEAD pre-resolve before downloading. */
+        int err = fd_sshead_start( ctx->incr_resolve, best.addr, 0/*incremental*/, now, FD_SSHEAD_DEFAULT_TIMEOUT );
+        if( FD_UNLIKELY( err ) ) {
+          if( FD_UNLIKELY( fd_sshead_active( ctx->incr_resolve ) ) ) {
+            fd_sshead_cancel( ctx->incr_resolve );
+          }
+          fd_ssping_invalidate( ctx->ssping, best.addr, now );
+          fd_sspeer_selector_remove_by_addr( ctx->selector, best.addr );
+          ctx->deadline_nanos = 0L; /* retry immediately with next peer */
+          break;
+        }
+        ctx->incr_resolve_peer = best;
+        FD_LOG_NOTICE(( "starting incremental pre-resolve HEAD to " FD_IP4_ADDR_FMT ":%hu (gossip incr_slot=%lu)",
+                        FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), fd_ushort_bswap( best.addr.port ), best.incr_slot ));
         break;
       }
 
-      /* decide whether to use the local incremental snapshot if one
-         exists and is not too old, otherwise download a new incremental
-         snapshot. */
-      ulong cluster_slot  = fd_sspeer_selector_cluster_slot( ctx->selector ).incremental;
-      ulong local_slot    = ctx->local_in.incremental_snapshot_slot;
-      int   local_too_old = local_slot<fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age );
-      if( FD_LIKELY( local_slot!=ULONG_MAX && !local_too_old ) ) {
-        ctx->predicted_incremental.slot = local_slot;
-        send_expected_slot( ctx, stem, local_slot );
+      /* Phase 2: Drive the HEAD resolve. */
+      fd_ssresolve_result_t resolve_result;
+      int rc = fd_sshead_advance( ctx->incr_resolve, &resolve_result, now );
+      if( FD_LIKELY( rc==FD_SSHEAD_ADVANCE_AGAIN ) ) break;
+      if( FD_LIKELY( rc==FD_SSHEAD_ADVANCE_DONE ) ) {
+        int resolve_error = 0;
+        /* Validate: base_slot from HEAD must match the full snapshot
+           we already downloaded. */
+        if( FD_UNLIKELY( resolve_result.base_slot!=ctx->predicted_incremental.full_slot ) ) {
+          FD_LOG_WARNING(( "incremental pre-resolve: peer " FD_IP4_ADDR_FMT ":%hu serves base_slot %lu "
+                           "but we need base_slot %lu, skipping peer",
+                           FD_IP4_ADDR_FMT_ARGS( ctx->incr_resolve_peer.addr.addr ),
+                           fd_ushort_bswap( ctx->incr_resolve_peer.addr.port ),
+                           resolve_result.base_slot, ctx->predicted_incremental.full_slot ));
+          resolve_error = 1;
+        } else if( FD_UNLIKELY( resolve_result.slot<ctx->incr_resolve_peer.incr_slot ) ) {
+          /* Validate: resolved slot must not be older than what gossip
+             advertised.  The peer is serving stale data, skip it. */
+          FD_LOG_WARNING(( "incremental pre-resolve: peer " FD_IP4_ADDR_FMT ":%hu serves incr_slot=%lu "
+                           "which is older than gossip incr_slot=%lu, skipping peer",
+                           FD_IP4_ADDR_FMT_ARGS( ctx->incr_resolve_peer.addr.addr ),
+                           fd_ushort_bswap( ctx->incr_resolve_peer.addr.port ),
+                           resolve_result.slot, ctx->incr_resolve_peer.incr_slot ));
+          resolve_error = 1;
+        }
+        if( FD_UNLIKELY( resolve_error ) ) {
+          fd_ssping_invalidate( ctx->ssping, ctx->incr_resolve_peer.addr, now );
+          fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->incr_resolve_peer.addr );
+          ctx->deadline_nanos = 0L; /* retry immediately with next peer */
+          break;
+        }
+        if( FD_UNLIKELY( resolve_result.slot!=ctx->incr_resolve_peer.incr_slot ) ) {
+          FD_LOG_WARNING(( "incremental pre-resolve: peer " FD_IP4_ADDR_FMT ":%hu serves incr_slot=%lu "
+                           "but gossip advertised incr_slot=%lu",
+                           FD_IP4_ADDR_FMT_ARGS( ctx->incr_resolve_peer.addr.addr ),
+                           fd_ushort_bswap( ctx->incr_resolve_peer.addr.port ),
+                           resolve_result.slot, ctx->incr_resolve_peer.incr_slot ));
+        } else {
+          FD_LOG_NOTICE(( "incremental pre-resolve: peer " FD_IP4_ADDR_FMT ":%hu confirmed incr_slot=%lu (gossip=%lu)",
+                          FD_IP4_ADDR_FMT_ARGS( ctx->incr_resolve_peer.addr.addr ),
+                          fd_ushort_bswap( ctx->incr_resolve_peer.addr.port ),
+                          resolve_result.slot, ctx->incr_resolve_peer.incr_slot ));
+        }
+        /* Success: use the resolved slot/hash for the download */
+        ctx->incr_resolve_peer.incr_slot = resolve_result.slot;
+        ctx->incr_resolve_peer.full_slot = resolve_result.base_slot;
+        fd_memcpy( ctx->incr_resolve_peer.incr_hash, resolve_result.hash, FD_HASH_FOOTPRINT );
 
-        FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
-        ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
-        init_load( ctx, stem, 0, 1 );
-      } else {
-        ctx->predicted_incremental.slot = best.incr_slot;
-        send_expected_slot( ctx, stem, best.incr_slot );
+        ctx->predicted_incremental.slot = resolve_result.slot;
+        send_expected_slot( ctx, stem, resolve_result.slot );
 
-        ctx->peer  = best;
+        ctx->peer  = ctx->incr_resolve_peer;
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
         init_load( ctx, stem, 0, 0 );
-        log_download( ctx, 0, best.addr, best.incr_slot );
+        log_download( ctx, 0, ctx->peer.addr, resolve_result.slot );
+        break;
       }
+
+      /* FD_SSHEAD_ADVANCE_ERROR or FD_SSHEAD_ADVANCE_TIMEOUT. */
+      if( FD_UNLIKELY( rc==FD_SSHEAD_ADVANCE_TIMEOUT ) ) {
+        FD_LOG_WARNING(( "incremental pre-resolve HEAD timed out for " FD_IP4_ADDR_FMT ":%hu",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->incr_resolve_peer.addr.addr ),
+                         fd_ushort_bswap( ctx->incr_resolve_peer.addr.port ) ));
+      } else {
+        FD_LOG_WARNING(( "incremental pre-resolve failed with error for " FD_IP4_ADDR_FMT ":%hu, trying next peer",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->incr_resolve_peer.addr.addr ),
+                         fd_ushort_bswap( ctx->incr_resolve_peer.addr.port ) ));
+      }
+      fd_ssping_invalidate( ctx->ssping, ctx->incr_resolve_peer.addr, now );
+      fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->incr_resolve_peer.addr );
+      ctx->deadline_nanos = 0L; /* retry immediately with next peer */
       break;
     }
 
@@ -925,27 +1034,20 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      /* Get the best incremental peer to download from */
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
-      if( FD_UNLIKELY( !best.addr.l ) ) {
-        ctx->deadline_nanos = now;
-        ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
-        break;
-      }
-
-      ctx->predicted_incremental.slot = best.incr_slot;
-      send_expected_slot( ctx, stem, best.incr_slot );
-
-      ctx->peer  = best;
-      ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
-      init_load( ctx, stem, 0, 0 );
-      log_download( ctx, 0, best.addr, best.incr_slot );
+      /* Always go through COLLECTING_PEERS_INCREMENTAL which performs
+         a HEAD pre-resolve before starting the incremental download.
+         This ensures the peer's incremental slot is verified fresh. */
+      ctx->deadline_nanos = 0L;
+      ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
       break;
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
       if( !ctx->flush_ack ) break;
+
+      /* Cancel any in-flight HEAD pre-resolve. */
+      fd_sshead_cancel( ctx->incr_resolve );
 
       if( ctx->metrics.full.num_retries==ctx->config.max_retry_abort ) {
         FD_LOG_ERR(( "hit retry limit of %u for full snapshot, aborting", ctx->config.max_retry_abort ));
@@ -978,6 +1080,9 @@ after_credit( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
       if( !ctx->flush_ack ) break;
+
+      /* Cancel any in-flight HEAD pre-resolve. */
+      fd_sshead_cancel( ctx->incr_resolve );
 
       if( ctx->metrics.incremental.num_retries==ctx->config.max_retry_abort ) {
         FD_LOG_ERR(("hit retry limit of %u for incremental snapshot. aborting", ctx->config.max_retry_abort ));
@@ -1468,6 +1573,7 @@ privileged_init( fd_topo_t *      topo,
                                    FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
   void *             _ssresolver = FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX )  );
                                    FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
+  void *            _incr_sshead = FD_SCRATCH_ALLOC_APPEND( l, fd_sshead_align(),          fd_sshead_footprint() );
 
 #if FD_HAS_OPENSSL
   void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
@@ -1479,6 +1585,8 @@ privileged_init( fd_topo_t *      topo,
   if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, 1UL, on_ping, ctx ) );
   if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, tile->snapct.incremental_snapshots, on_resolve, ctx ) );
   else                                                ctx->ssresolver = NULL;
+
+  ctx->incr_resolve = fd_sshead_join( fd_sshead_new( _incr_sshead ) );
 
   fd_ssarchive_remove_old_snapshots( tile->snapct.snapshots_path,
                                      tile->snapct.max_full_snapshots_to_keep,
@@ -1600,6 +1708,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * _ci_map          = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
                             FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX ) );
   void * _selector        = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
+                            FD_SCRATCH_ALLOC_APPEND( l, fd_sshead_align(),          fd_sshead_footprint() );
 
   ctx->config = tile->snapct;
   ctx->gossip_enabled   = gossip_enabled( tile );
