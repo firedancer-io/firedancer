@@ -179,7 +179,7 @@ test_env_create( test_env_t * env,
 
   fd_features_t * features = &env->bank->data->f.features;
   fd_features_disable_all( features );
-  fd_bank_slot_set( env->bank, 1UL );
+  env->bank->data->f.slot = 1UL;
 
   if( enable_increase_cpi_account_info_limit ) features->increase_cpi_account_info_limit = 0UL;
   if( enable_increase_tx_account_lock_limit )  features->increase_tx_account_lock_limit  = 0UL;

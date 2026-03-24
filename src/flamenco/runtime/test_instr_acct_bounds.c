@@ -74,11 +74,11 @@ init_sysvars( test_env_t * env ) {
 
 static void
 init_blockhash_queue( test_env_t * env ) {
-  fd_blockhashes_t * bhq = fd_blockhashes_init( fd_bank_block_hash_queue_modify( env->bank ), 12345UL );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->data->f.block_hash_queue, 12345UL );
   fd_hash_t dummy_hash = {0};
   fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
   info->fee_calculator.lamports_per_signature = 0UL;
-  fd_bank_poh_set( env->bank, dummy_hash );
+  env->bank->data->f.poh = dummy_hash;
 }
 
 static void
@@ -152,8 +152,8 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
   fd_progcache_txn_attach_child( env->progcache->join, root, &env->xid );
 
-  fd_bank_slot_set( env->bank, 10UL );
-  fd_bank_parent_slot_set( env->bank, 9UL );
+  env->bank->data->f.slot = 10UL;
+  env->bank->data->f.parent_slot = 9UL;
   env->bank->data->f.epoch = 0UL;
 
   env->runtime->accdb        = env->accdb;

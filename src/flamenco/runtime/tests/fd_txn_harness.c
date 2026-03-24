@@ -60,24 +60,24 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
 
   /* Slot*/
-  fd_bank_slot_set( runner->bank, slot );
+  runner->bank->data->f.slot = slot;
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
 
   /* RBH lamports per signature. In the Agave harness this is set inside
      the fee rate governor itself. */
-  fd_bank_rbh_lamports_per_sig_set( runner->bank, txn_bank->rbh_lamports_per_signature );
+  runner->bank->data->f.rbh_lamports_per_sig = txn_bank->rbh_lamports_per_signature;
 
   /* Fee rate governor */
   FD_TEST( txn_bank->has_fee_rate_governor );
   fd_solfuzz_pb_restore_fee_rate_governor( runner->bank, &txn_bank->fee_rate_governor );
 
   /* Parent slot */
-  fd_bank_parent_slot_set( runner->bank, slot-1UL );
+  runner->bank->data->f.parent_slot = slot-1UL;
 
   /* Total epoch stake */
-  fd_bank_total_epoch_stake_set( runner->bank, txn_bank->total_epoch_stake );
+  runner->bank->data->f.total_epoch_stake = txn_bank->total_epoch_stake;
 
   /* Epoch schedule */
   FD_TEST( txn_bank->has_epoch_schedule );
@@ -106,8 +106,8 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], i );
   }
 
-  fd_bank_ticks_per_slot_set( runner->bank, 64 );
-  fd_bank_slots_per_year_set( runner->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( runner->bank )) );
+  runner->bank->data->f.ticks_per_slot = 64;
+  runner->bank->data->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->data->f.ticks_per_slot);
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );

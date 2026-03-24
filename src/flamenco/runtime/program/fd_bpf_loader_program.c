@@ -144,7 +144,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
      epoch boundaries where features activate: a deployment at the last
      slot of an epoch should see features that activate at the boundary.
      https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank.rs#L3280-L3295 */
-  ulong deploy_slot = fd_bank_slot_get( instr_ctx->bank )+1UL;
+  ulong deploy_slot = instr_ctx->bank->data->f.slot+1UL;
 
   fd_vm_syscall_register_slot( syscalls,
                                deploy_slot,
@@ -394,7 +394,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* TODO do we really need to re-do this on every instruction? */
   fd_vm_syscall_register_slot( syscalls,
-                               fd_bank_slot_get( instr_ctx->bank ),
+                               instr_ctx->bank->data->f.slot,
                                &instr_ctx->bank->data->f.features,
                                0 );
 
@@ -438,7 +438,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* For dumping syscalls for seed corpora */
   int dump_syscall_to_pb = instr_ctx->runtime->log.dump_proto_ctx &&
-                           fd_bank_slot_get( instr_ctx->bank )>=instr_ctx->runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                           instr_ctx->bank->data->f.slot>=instr_ctx->runtime->log.dump_proto_ctx->dump_proto_start_slot &&
                            instr_ctx->runtime->log.dump_proto_ctx->dump_syscall_to_pb;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/bpf_loader/src/lib.rs#L1525-L1528 */
@@ -2568,7 +2568,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     ulong program_data_slot = program_data_account_state->inner.program_data.slot;
-    if( FD_UNLIKELY( program_data_slot>=fd_bank_slot_get( ctx->bank ) ) ) {
+    if( FD_UNLIKELY( program_data_slot>=ctx->bank->data->f.slot ) ) {
       /* The account was likely just deployed or upgraded. Corresponds to
          'LoadedProgramType::DelayVisibility' */
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
@@ -2577,7 +2577,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), ctx->bank->data->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { ctx->bank->data->f.slot, ctx->bank->data->idx } };
   fd_progcache_t * progcache = ctx->runtime->progcache;
   fd_progcache_rec_t * cache_entry =
       fd_progcache_pull( progcache,

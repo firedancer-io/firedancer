@@ -66,29 +66,29 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    int                      is_incremental ) {
   /* Slot */
 
-  fd_bank_slot_set( bank, manifest->slot );
-  fd_bank_parent_slot_set( bank, manifest->parent_slot );
+  bank->data->f.slot = manifest->slot;
+  bank->data->f.parent_slot = manifest->parent_slot;
 
   /* Bank Hash */
 
   fd_hash_t hash;
   fd_memcpy( &hash.uc, manifest->bank_hash, 32UL );
-  fd_bank_bank_hash_set( bank, hash );
+  bank->data->f.bank_hash = hash;
 
   fd_hash_t parent_hash;
   fd_memcpy( &parent_hash.uc, manifest->parent_bank_hash, 32UL );
-  fd_bank_prev_bank_hash_set( bank, parent_hash );
+  bank->data->f.prev_bank_hash = parent_hash;
 
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( bank );
+  fd_fee_rate_governor_t * fee_rate_governor = &bank->data->f.fee_rate_governor;
   fee_rate_governor->target_lamports_per_signature = manifest->fee_rate_governor.target_lamports_per_signature;
   fee_rate_governor->target_signatures_per_slot    = manifest->fee_rate_governor.target_signatures_per_slot;
   fee_rate_governor->min_lamports_per_signature    = manifest->fee_rate_governor.min_lamports_per_signature;
   fee_rate_governor->max_lamports_per_signature    = manifest->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = manifest->fee_rate_governor.burn_percent;
   /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/serde_snapshot.rs#L464-L466 */
-  fd_bank_rbh_lamports_per_sig_set( bank, manifest->lamports_per_signature );
+  bank->data->f.rbh_lamports_per_sig = manifest->lamports_per_signature;
 
-  fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
+  fd_inflation_t * inflation = &bank->data->f.inflation;
   inflation->initial         = manifest->inflation_params.initial;
   inflation->terminal        = manifest->inflation_params.terminal;
   inflation->taper           = manifest->inflation_params.taper;
@@ -113,8 +113,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   /* https://github.com/anza-xyz/agave/blob/v3.0.6/ledger/src/blockstore_processor.rs#L1118
      None gets treated as 0 for hash verification. */
-  if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( bank, manifest->hashes_per_tick );
-  else                                             fd_bank_hashes_per_tick_set( bank, 0UL );
+  if( FD_LIKELY( manifest->has_hashes_per_tick ) ) bank->data->f.hashes_per_tick = manifest->hashes_per_tick;
+  else                                             bank->data->f.hashes_per_tick = 0UL;
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
@@ -124,41 +124,41 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
   fd_bank_lthash_end_locking_modify( bank );
 
-  fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( bank );
+  fd_blockhashes_t * blockhashes = &bank->data->f.block_hash_queue;
   blockhashes_recover( blockhashes, manifest->blockhashes, manifest->blockhashes_len, 42UL /* TODO */ );
 
   /* PoH */
-  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
+  fd_blockhashes_t const * bhq = &bank->data->f.block_hash_queue;
   fd_hash_t const * last_hash = fd_blockhashes_peek_last_hash( bhq );
-  if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
+  if( FD_LIKELY( last_hash ) ) bank->data->f.poh = *last_hash;
 
-  fd_bank_capitalization_set( bank, manifest->capitalization );
+  bank->data->f.capitalization = manifest->capitalization;
   bank->data->f.txn_count = manifest->transaction_count;
-  fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
-  fd_bank_tick_height_set( bank, manifest->tick_height );
-  fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
-  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } } );
-  fd_bank_ticks_per_slot_set( bank, manifest->ticks_per_slot );
-  fd_bank_genesis_creation_time_set( bank, manifest->creation_time_seconds );
-  fd_bank_slots_per_year_set( bank, manifest->slots_per_year );
-  fd_bank_block_height_set( bank, manifest->block_height );
-  fd_bank_execution_fees_set( bank, manifest->collector_fees );
-  fd_bank_priority_fees_set( bank, 0UL );
+  bank->data->f.parent_signature_cnt = manifest->signature_count;
+  bank->data->f.tick_height = manifest->tick_height;
+  bank->data->f.max_tick_height = manifest->max_tick_height;
+  bank->data->f.ns_per_slot = (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } };
+  bank->data->f.ticks_per_slot = manifest->ticks_per_slot;
+  bank->data->f.genesis_creation_time = manifest->creation_time_seconds;
+  bank->data->f.slots_per_year = manifest->slots_per_year;
+  bank->data->f.block_height = manifest->block_height;
+  bank->data->f.execution_fees = manifest->collector_fees;
+  bank->data->f.priority_fees = 0UL;
 
   /* Set the cluster type based on the genesis creation time.  This is
      later cross referenced against the genesis hash. */
-  switch( fd_bank_genesis_creation_time_get( bank ) ) {
+  switch( bank->data->f.genesis_creation_time ) {
     case FD_RUNTIME_GENESIS_CREATION_TIME_TESTNET:
-      fd_bank_cluster_type_set( bank, FD_CLUSTER_TESTNET );
+      bank->data->f.cluster_type = FD_CLUSTER_TESTNET;
       break;
     case FD_RUNTIME_GENESIS_CREATION_TIME_MAINNET:
-      fd_bank_cluster_type_set( bank, FD_CLUSTER_MAINNET_BETA );
+      bank->data->f.cluster_type = FD_CLUSTER_MAINNET_BETA;
       break;
     case FD_RUNTIME_GENESIS_CREATION_TIME_DEVNET:
-      fd_bank_cluster_type_set( bank, FD_CLUSTER_DEVNET );
+      bank->data->f.cluster_type = FD_CLUSTER_DEVNET;
       break;
     default:
-      fd_bank_cluster_type_set( bank, FD_CLUSTER_UNKNOWN );
+      bank->data->f.cluster_type = FD_CLUSTER_UNKNOWN;
   }
 
   /* Update last restart slot
@@ -170,7 +170,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      (There might be some hard forks in the future, ignore these)
 
      SIMD-0047: The first restart slot should be `0` */
-  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( bank );
+  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = &bank->data->f.last_restart_slot;
   last_restart_slot->slot = 0UL;
   if( FD_LIKELY( manifest->hard_forks_len ) ) {
     for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
@@ -221,7 +221,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      stakes at the end of epoch 6.  Therefore, we save the total
      epoch stake by querying for epoch+1.  This logic is encapsulated
      in fd_ssmanifest_parser.c. */
-  fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
+  bank->data->f.total_epoch_stake = manifest->epoch_stakes[1].total_stake;
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );

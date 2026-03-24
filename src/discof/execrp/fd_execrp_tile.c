@@ -236,7 +236,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         /* Notify replay. */
         ctx->txn_idx = msg->txn_idx;
         ctx->dispatch_time_comp = tspub;
-        ctx->slot = fd_bank_slot_get( ctx->bank );
+        ctx->slot = ctx->bank->data->f.slot;
         publish_txn_finalized_msg( ctx, stem );
 
         /* Update metrics */

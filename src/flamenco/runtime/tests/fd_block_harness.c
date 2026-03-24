@@ -160,14 +160,14 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Slot */
   ulong slot = block_bank->slot;
-  fd_bank_slot_set( bank, slot );
+  bank->data->f.slot = slot;
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( bank, block_bank->blockhash_queue, block_bank->blockhash_queue_count );
 
   /* RBH lamports per signature. In the Agave harness this is set inside
      the fee rate governor itself. */
-  fd_bank_rbh_lamports_per_sig_set( runner->bank, block_bank->rbh_lamports_per_signature );
+  runner->bank->data->f.rbh_lamports_per_sig = block_bank->rbh_lamports_per_signature;
 
   /* Fee rate governor */
   FD_TEST( block_bank->has_fee_rate_governor );
@@ -175,10 +175,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Parent slot */
   ulong parent_slot = block_bank->parent_slot;
-  fd_bank_parent_slot_set( bank, parent_slot );
+  bank->data->f.parent_slot = parent_slot;
 
   /* Capitalization */
-  fd_bank_capitalization_set( bank, block_bank->capitalization );
+  bank->data->f.capitalization = block_bank->capitalization;
 
   /* Inflation */
   FD_TEST( block_bank->has_inflation );
@@ -189,25 +189,25 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     .foundation      = block_bank->inflation.foundation,
     .foundation_term = block_bank->inflation.foundation_term,
   };
-  fd_bank_inflation_set( bank, inflation );
+  bank->data->f.inflation = inflation;
 
   /* Block height */
-  fd_bank_block_height_set( bank, block_bank->block_height );
+  bank->data->f.block_height = block_bank->block_height;
 
   /* POH (set right before finalize since we don't fuzz POH calculation) */
   fd_memcpy( poh, block_bank->poh, sizeof(fd_hash_t) );
 
   /* Bank hash (parent bank hash because current bank hash gets computed
      after the block executes) */
-  fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
+  fd_hash_t * bank_hash = &bank->data->f.bank_hash;
   fd_memcpy( bank_hash, block_bank->parent_bank_hash, sizeof(fd_hash_t) );
 
   /* Previous bank hash (used as input to the bank hash computation).
      In production this is set by fd_banks_clone_from_parent. */
-  fd_bank_prev_bank_hash_set( bank, *(fd_hash_t const *)block_bank->parent_bank_hash );
+  bank->data->f.prev_bank_hash = *(fd_hash_t const *)block_bank->parent_bank_hash;
 
   /* Parent signature count */
-  fd_bank_parent_signature_cnt_set( bank, block_bank->parent_signature_count );
+  bank->data->f.parent_signature_cnt = block_bank->parent_signature_count;
 
   /* Epoch schedule */
   FD_TEST( block_bank->has_epoch_schedule );
@@ -228,15 +228,15 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     total_epoch_stake += block_bank->vote_accounts_t_1[i].stake;
   }
-  fd_bank_total_epoch_stake_set( bank, total_epoch_stake );
+  bank->data->f.total_epoch_stake = total_epoch_stake;
 
   /* Using default configuration of 64 ticks per slot
      https://github.com/anza-xyz/solana-sdk/blob/time-utils%40v3.0.0/time-utils/src/lib.rs#L18-L27 */
   uint128 ns_per_slot = FD_LOAD(uint128, block_bank->ns_per_slot );
-  fd_bank_ns_per_slot_set( bank, (fd_w_u128_t){ .ud = ns_per_slot } );
-  fd_bank_ticks_per_slot_set( bank, 64UL );
-  fd_bank_slots_per_year_set( runner->bank, (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot );
-  fd_bank_hashes_per_tick_set( bank, (slot+1UL)*64UL );
+  bank->data->f.ns_per_slot = (fd_w_u128_t){ .ud = ns_per_slot };
+  bank->data->f.ticks_per_slot = 64UL;
+  runner->bank->data->f.slots_per_year = (double)SECONDS_PER_YEAR * 1e9 / (double)ns_per_slot;
+  bank->data->f.hashes_per_tick = (slot+1UL)*64UL;
 
   /* Load in accounts, populate stake delegations and vote accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
@@ -396,7 +396,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       capture_link_file->fd          = solcap_fd;
       capture_ctx->capture_link      = &capture_link_file->base;
       capture_ctx->capctx_type.file  = capture_link_file;
-      capture_ctx->solcap_start_slot = fd_bank_slot_get( runner->bank );
+      capture_ctx->solcap_start_slot = runner->bank->data->f.slot;
       capture_ctx->capture_solcap    = 1;
 
       fd_solcap_writer_init( capture_ctx->capture, solcap_fd );
@@ -404,7 +404,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
     /* TODO: Make sure this is able to work with booting up inside
        the partitioned epoch rewards distribution phase. */
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), runner->bank->data->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { runner->bank->data->f.slot, runner->bank->data->idx } };
     fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb, &xid, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
@@ -443,7 +443,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
     /* At this point we want to set the poh.  This is what will get
        updated in the blockhash queue. */
-    fd_bank_poh_set( runner->bank, *poh );
+    runner->bank->data->f.poh = *poh;
     /* Finalize the block */
     fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx );
   } FD_SPAD_FRAME_END;
@@ -589,10 +589,10 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     effects->has_error = !is_committable;
 
     /* Capture capitalization */
-    effects->slot_capitalization = !effects->has_error ? fd_bank_capitalization_get( runner->bank ) : 0UL;
+    effects->slot_capitalization = !effects->has_error ? runner->bank->data->f.capitalization : 0UL;
 
     /* Capture hashes */
-    fd_hash_t bank_hash = !effects->has_error ? fd_bank_bank_hash_get( runner->bank ) : (fd_hash_t){0};
+    fd_hash_t bank_hash = !effects->has_error ? runner->bank->data->f.bank_hash : (fd_hash_t){0};
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */

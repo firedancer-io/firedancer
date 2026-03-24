@@ -11,7 +11,7 @@
 void
 fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
                                          fd_exec_test_fee_rate_governor_t const * fee_rate_governor ) {
-  fd_fee_rate_governor_t * frg = fd_bank_fee_rate_governor_modify( bank );
+  fd_fee_rate_governor_t * frg = &bank->data->f.fee_rate_governor;
   *frg = (fd_fee_rate_governor_t){
     .target_lamports_per_signature = fee_rate_governor->target_lamports_per_signature,
     .target_signatures_per_slot    = fee_rate_governor->target_signatures_per_slot,
@@ -50,7 +50,7 @@ fd_solfuzz_pb_restore_blockhash_queue( fd_bank_t *                              
                                        fd_exec_test_blockhash_queue_entry_t const *   entries,
                                        ulong                                          entries_cnt ) {
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
-  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( bank ), blockhash_seed );
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( &bank->data->f.block_hash_queue, blockhash_seed );
   for( ulong i=0UL; i<entries_cnt; i++ ) {
     fd_hash_t hash                   = FD_LOAD( fd_hash_t, entries[i].blockhash );
     ulong     lamports_per_signature = entries[i].lamports_per_signature;

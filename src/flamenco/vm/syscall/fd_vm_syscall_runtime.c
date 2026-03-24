@@ -273,7 +273,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = fd_bank_total_epoch_stake_get( vm->instr_ctx->bank );
+    *_ret = vm->instr_ctx->bank->data->f.total_epoch_stake;
     return FD_VM_SUCCESS;
   }
 

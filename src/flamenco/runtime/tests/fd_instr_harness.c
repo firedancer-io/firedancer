@@ -56,7 +56,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Blockhash queue init */
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
-  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( runner->bank ), blockhash_seed );
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( &runner->bank->data->f.block_hash_queue, blockhash_seed );
   fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );
 
   /* Set up mock txn descriptor and payload
@@ -230,13 +230,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                owner,
                                meta,
                                features,
-                               fd_bank_slot_get( runner->bank ),
+                               runner->bank->data->f.slot,
                                scratch,
                                meta->dlen );
     } FD_SPAD_FRAME_END;
   }
 
-  fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ fd_bank_slot_get( runner->bank ), runner->bank->data->idx } }};
+  fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ runner->bank->data->f.slot, runner->bank->data->idx } }};
   fd_accdb_attach_child        ( runner->accdb_admin,     xid, exec_xid );
   fd_progcache_txn_attach_child( runner->progcache->join, xid, exec_xid );
 
@@ -259,7 +259,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, clock_ );
   FD_TEST( clock );
-  fd_bank_slot_set( runner->bank, clock->slot );
+  runner->bank->data->f.slot = clock->slot;
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
@@ -276,12 +276,12 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   if( !deq_fd_block_block_hash_entry_t_empty( deq ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( deq );
     if( last ) {
-      fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( runner->bank );
+      fd_blockhashes_t * blockhashes = &runner->bank->data->f.block_hash_queue;
       fd_blockhashes_pop_new( blockhashes );
       fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
       info->fee_calculator = last->fee_calculator;
 
-      fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
+      runner->bank->data->f.rbh_lamports_per_sig = last->fee_calculator.lamports_per_signature;
     }
   }
   fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, deq );

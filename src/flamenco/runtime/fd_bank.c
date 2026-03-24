@@ -24,28 +24,6 @@ fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->locks->lthash_lock[ bank->data->idx ] );
 }
 
-/* Bank accesssors */
-
-#define X(type, name)                                              \
-  type const *                                                     \
-  fd_bank_##name##_query( fd_bank_t const * bank ) {               \
-    return (type const *)fd_type_pun_const( &bank->data->f.name ); \
-  }                                                                \
-  type *                                                           \
-  fd_bank_##name##_modify( fd_bank_t * bank ) {                    \
-    return (type *)fd_type_pun( &bank->data->f.name );             \
-  }                                                                \
-  void                                                             \
-  fd_bank_##name##_set( fd_bank_t * bank, type value ) {           \
-    bank->data->f.name = value;                                    \
-  }                                                                \
-  type                                                             \
-  fd_bank_##name##_get( fd_bank_t const * bank ) {                 \
-    return bank->data->f.name;                                     \
-  }
-FD_BANKS_ITER(X)
-#undef X
-
 ulong
 fd_banks_align( void ) {
   return FD_BANKS_ALIGN;

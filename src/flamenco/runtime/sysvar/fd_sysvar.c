@@ -36,8 +36,8 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   }
 
   if( lamports_minted ) {
-    ulong cap = fd_bank_capitalization_get( bank );
-    fd_bank_capitalization_set( bank, cap+lamports_minted );
+    ulong cap = bank->data->f.capitalization;
+    bank->data->f.capitalization = cap+lamports_minted;
   }
 
   fd_hashes_update_lthash( fd_accdb_ref_address( rw->ro ), rw->meta, prev_hash, bank, capture_ctx );
