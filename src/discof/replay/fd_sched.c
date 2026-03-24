@@ -2076,7 +2076,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb, alut_ctx->xid, slot_hashes_mem );
     if( FD_LIKELY( slot_hashes_global ) ) {
       fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
-      serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, block->fec_buf+block->fec_buf_soff, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hash, block->aluts );
+      serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, block->fec_buf+block->fec_buf_soff, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hash, block->aluts );
       sched->metrics->alut_success_cnt += (uint)!serializing;
     } else {
       serializing = 1;

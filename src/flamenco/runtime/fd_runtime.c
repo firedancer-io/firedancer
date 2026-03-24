@@ -791,14 +791,14 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
 }
 
 int
-fd_runtime_load_txn_address_lookup_tables(
-    fd_txn_t const *          txn,
-    uchar const *             payload,
-    fd_accdb_user_t *         accdb,
-    fd_funk_txn_xid_t const * xid,
-    ulong                     slot,
-    fd_slot_hash_t const *    hashes, /* deque */
-    fd_acct_addr_t *          out_accts_alt ) {
+fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
+                                           fd_txn_t const *          txn,
+                                           uchar const *             payload,
+                                           fd_accdb_user_t *         accdb,
+                                           fd_funk_txn_xid_t const * xid,
+                                           ulong                     slot,
+                                           fd_slot_hash_t const *    hashes, /* deque */
+                                           fd_acct_addr_t *          out_accts_alt ) {
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 
@@ -818,7 +818,22 @@ fd_runtime_load_txn_address_lookup_tables(
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
     fd_accdb_ro_t alut_ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, alut_ro, xid, &addr_lut_acc ) ) ) {
+
+    int is_found = 0;
+    if( FD_UNLIKELY( txn_in && txn_in->bundle.is_bundle ) ) {
+      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
+        fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
+        for( ushort j=0; j<prev_txn_out->accounts.cnt; j++ ) {
+          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], &addr_lut_acc ) && prev_txn_out->accounts.is_writable[ j ] ) {
+            fd_accdb_ro_init_nodb( alut_ro, &addr_lut_acc, prev_txn_out->accounts.account[ j ].meta );
+            is_found = 1;
+            break;
+          }
+        }
+      }
+    }
+
+    if( FD_UNLIKELY( !is_found && !fd_accdb_open_ro( accdb, alut_ro, xid, &addr_lut_acc ) ) ) {
       fd_alut_interp_delete( interp );
       return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
     }
