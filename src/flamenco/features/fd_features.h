@@ -25,11 +25,11 @@
 
 #define FD_FEATURE_SET_ACTIVE(_features, _feature_name, _slot)            ( (_features)-> _feature_name = _slot )
 #define FD_FEATURE_ACTIVE_OFFSET(_slot, _features, _offset)               FD_FEATURE_ACTIVE_OFFSET_( _slot, _features, _offset )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_bank, _offset)                  FD_FEATURE_JUST_ACTIVATED_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_bank, _offset)                  FD_FEATURE_JUST_ACTIVATED_OFFSET_( (_bank)->data->f.slot, &(_bank)->data->f.features, _offset )
 #define FD_FEATURE_ACTIVE(_slot, _features, _feature_name)                FD_FEATURE_ACTIVE_( _slot, _features, _feature_name )
-#define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _feature_name )
-#define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
-#define FD_FEATURE_JUST_ACTIVATED_BANK(_bank, _feature_name)              FD_FEATURE_JUST_ACTIVATED_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _feature_name )
+#define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_( (_bank)->data->f.slot, &(_bank)->data->f.features, _feature_name )
+#define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( (_bank)->data->f.slot, &(_bank)->data->f.features, _offset )
+#define FD_FEATURE_JUST_ACTIVATED_BANK(_bank, _feature_name)              FD_FEATURE_JUST_ACTIVATED_( (_bank)->data->f.slot, &(_bank)->data->f.features, _feature_name )
 
 struct __attribute__((packed)) fd_feature {
   uchar is_active;  /* 0 or 1 */

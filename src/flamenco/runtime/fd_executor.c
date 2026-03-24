@@ -534,7 +534,7 @@ fd_executor_load_transaction_accounts_old( fd_runtime_t *      runtime,
   ushort            instr_cnt             = TXN( txn_in->txn )->instr_cnt;
   fd_pubkey_t       validated_loaders[instr_cnt];
   ushort            validated_loaders_cnt = 0;
-  fd_funk_txn_xid_t xid                   = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+  fd_funk_txn_xid_t xid                   = { .ul = { bank->data->f.slot, bank->data->idx } };
 
   /* The logic below handles special casing with loading instruction accounts.
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L445-L525 */
@@ -953,7 +953,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     } else {
       /* Copy from account database */
-      fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+      fd_funk_txn_xid_t xid = { .ul = { bank->data->f.slot, bank->data->idx } };
       fd_accdb_ro_t fee_payer_ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, fee_payer_ro, &xid, fee_payer_key ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( fee_payer_key->uc, fee_payer_key_b58 );
@@ -1004,7 +1004,7 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
   ulong total_fee = fd_ulong_sat_add( execution_fee, priority_fee );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
-  err = fd_validate_fee_payer( fee_payer_key, fee_payer_meta, fd_bank_rent_query( bank ), total_fee );
+  err = fd_validate_fee_payer( fee_payer_key, fee_payer_meta, &bank->data->f.rent, total_fee );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1046,19 +1046,19 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                          fd_txn_out_t *      txn_out ) {
   if( TXN( txn_in->txn )->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
-    fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( bank );
+    fd_sysvar_cache_t const * sysvar_cache = &bank->data->f.sysvar_cache;
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
     if( FD_UNLIKELY( !slot_hashes ) ) {
       FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
-    fd_funk_txn_xid_t xid       = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+    fd_funk_txn_xid_t xid       = { .ul = { bank->data->f.slot, bank->data->idx } };
     fd_acct_addr_t *  accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_out->accounts.keys[txn_out->accounts.cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
                                                          runtime->accdb,
                                                          &xid,
-                                                         fd_bank_slot_get( bank ),
+                                                         bank->data->f.slot,
                                                          slot_hashes,
                                                          accts_alt );
     fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
@@ -1281,7 +1281,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
                   fd_txn_in_t const * txn_in,
                   fd_txn_out_t *      txn_out,
                   fd_instr_info_t *   instr ) {
-  fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( bank );
+  fd_sysvar_cache_t const * sysvar_cache = &bank->data->f.sysvar_cache;
   int instr_exec_result = fd_instr_stack_push( runtime, txn_in, txn_out, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
@@ -1430,7 +1430,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
   }
 
   if( FD_LIKELY( !account ) ) {
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { bank->data->f.slot, bank->data->idx } };
     account = (fd_accdb_rw_t *)fd_accdb_open_ro( runtime->accdb, ref_slot->ro, &xid, address );
     /* creates a database reference, which is explicitly dropped here
        or in commit/cancel */
@@ -1507,7 +1507,7 @@ fd_executor_setup_executable_account( fd_runtime_t *            runtime,
       invoked, the call will fail at the instruction execution level since the programdata
       account will not exist within the executable accounts list. */
   fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
-  fd_funk_txn_xid_t xid             = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+  fd_funk_txn_xid_t xid             = { .ul = { bank->data->f.slot, bank->data->idx } };
 
   fd_accdb_ro_t * ro = &runtime->accounts.executable[ *executable_idx ];
   ro = fd_accdb_open_ro( runtime->accdb, ro, &xid, programdata_acc );
@@ -1584,7 +1584,7 @@ static int
 fd_executor_txn_check( fd_runtime_t * runtime,
                        fd_bank_t *    bank,
                        fd_txn_out_t * txn_out ) {
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_rent_t const * rent = &bank->data->f.rent;
 
   ulong starting_lamports_l = 0UL;
   ulong starting_lamports_h = 0UL;
@@ -1639,7 +1639,7 @@ fd_executor_txn_check( fd_runtime_t * runtime,
     else if( !memcmp( meta->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[i] = 1;
 
     if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
-      fd_executor_reclaim_account( meta, fd_bank_slot_get( bank ) );
+      fd_executor_reclaim_account( meta, bank->data->f.slot );
     }
   }
 
@@ -1660,7 +1660,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
   fd_accdb_user_t * accdb = runtime->accdb;
 
   bool dump_insn = runtime->log.dump_proto_ctx &&
-                   fd_bank_slot_get( bank )>=runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                   bank->data->f.slot>=runtime->log.dump_proto_ctx->dump_proto_start_slot &&
                    runtime->log.dump_proto_ctx->dump_instr_to_pb;
   (void)dump_insn;
 

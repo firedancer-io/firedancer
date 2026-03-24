@@ -187,7 +187,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
-  ulong bank_slot = fd_bank_slot_get( bank );
+  ulong bank_slot = bank->data->f.slot;
   FD_TEST( bank_slot==slot );
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -372,7 +372,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
   fd_bank_t bank[1];
   FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
-  ulong bank_slot = fd_bank_slot_get( bank );
+  ulong bank_slot = bank->data->f.slot;
   FD_TEST( bank_slot==slot );
 
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ];

@@ -910,13 +910,13 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* Handle `DelayedVisibility` case */
-    if( FD_UNLIKELY( state->slot>=fd_bank_slot_get( instr_ctx->bank ) ) ) {
+    if( FD_UNLIKELY( state->slot>=instr_ctx->bank->data->f.slot ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( instr_ctx->bank ), instr_ctx->bank->data->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { instr_ctx->bank->data->f.slot, instr_ctx->bank->data->idx } };
     fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->bank );
     fd_progcache_t * progcache = instr_ctx->runtime->progcache;
     fd_progcache_rec_t * cache_entry = fd_progcache_pull(

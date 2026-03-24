@@ -232,7 +232,7 @@ typedef struct test_env test_env_t;
 static void
 init_sysvars( test_env_t * env ) {
   fd_rent_t rent = { .lamports_per_uint8_year = 3480UL, .exemption_threshold = 2.0, .burn_percent = 50 };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->data->f.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 
   fd_epoch_schedule_t epoch_schedule = {
@@ -242,7 +242,7 @@ init_sysvars( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  fd_bank_epoch_schedule_set( env->bank, epoch_schedule );
+  env->bank->data->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 
   fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
@@ -362,9 +362,9 @@ test_env_create( test_env_t * env,
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
   fd_progcache_txn_attach_child( env->progcache->join, root, &env->xid );
 
-  fd_bank_slot_set( env->bank, 10UL );
-  fd_bank_parent_slot_set( env->bank, 9UL );
-  fd_bank_epoch_set( env->bank, 0UL );
+  env->bank->data->f.slot = 10UL;
+  env->bank->data->f.parent_slot = 9UL;
+  env->bank->data->f.epoch = 0UL;
 
   env->runtime->accdb        = env->accdb;
   env->runtime->status_cache = NULL;
@@ -376,7 +376,7 @@ test_env_create( test_env_t * env,
   env->runtime->log.log_collector = env->log_collector;
 
   /* Features: legacy mode (no direct_mapping, no stricter_abi) */
-  fd_features_t * features = fd_bank_features_modify( env->bank );
+  fd_features_t * features = &env->bank->data->f.features;
   fd_features_disable_all( features );
   features->loosen_cpi_size_restriction = 0UL;
 
@@ -412,7 +412,7 @@ test_env_create( test_env_t * env,
                              inject_meta->owner,
                              inject_meta,
                              features,
-                             fd_bank_slot_get( env->bank ),
+                             env->bank->data->f.slot,
                              scratch,
                              elf_sz );
     fd_wksp_free_laddr( scratch );
@@ -427,7 +427,7 @@ test_env_create( test_env_t * env,
 
   test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->bank->data, env->banks->locks, env->txn_out );
 
-  features = fd_bank_features_modify( env->bank );
+  features = &env->bank->data->f.features;
   fd_features_disable_all( features );
   features->loosen_cpi_size_restriction = 0UL;
 

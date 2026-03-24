@@ -11,7 +11,7 @@
 void
 fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                              bank,
                                          fd_exec_test_fee_rate_governor_t const * fee_rate_governor ) {
-  fd_fee_rate_governor_t * frg = fd_bank_fee_rate_governor_modify( bank );
+  fd_fee_rate_governor_t * frg = &bank->data->f.fee_rate_governor;
   *frg = (fd_fee_rate_governor_t){
     .target_lamports_per_signature = fee_rate_governor->target_lamports_per_signature,
     .target_signatures_per_slot    = fee_rate_governor->target_signatures_per_slot,
@@ -24,7 +24,7 @@ fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                            
 void
 fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank,
                                       fd_exec_test_epoch_schedule_t const * epoch_schedule ) {
-  fd_epoch_schedule_t * es = fd_bank_epoch_schedule_modify( bank );
+  fd_epoch_schedule_t * es = &bank->data->f.epoch_schedule;
   *es = (fd_epoch_schedule_t){
     .slots_per_epoch             = epoch_schedule->slots_per_epoch,
     .leader_schedule_slot_offset = epoch_schedule->leader_schedule_slot_offset,
@@ -37,7 +37,7 @@ fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank
 void
 fd_solfuzz_pb_restore_rent( fd_bank_t *                 bank,
                             fd_exec_test_rent_t const * rent ) {
-  fd_rent_t * r = fd_bank_rent_modify( bank );
+  fd_rent_t * r = &bank->data->f.rent;
   *r = (fd_rent_t){
     .lamports_per_uint8_year = rent->lamports_per_byte_year,
     .exemption_threshold     = rent->exemption_threshold,
@@ -50,7 +50,7 @@ fd_solfuzz_pb_restore_blockhash_queue( fd_bank_t *                              
                                        fd_exec_test_blockhash_queue_entry_t const *   entries,
                                        ulong                                          entries_cnt ) {
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
-  fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( bank ), blockhash_seed );
+  fd_blockhashes_t * blockhashes = fd_blockhashes_init( &bank->data->f.block_hash_queue, blockhash_seed );
   for( ulong i=0UL; i<entries_cnt; i++ ) {
     fd_hash_t hash                   = FD_LOAD( fd_hash_t, entries[i].blockhash );
     ulong     lamports_per_signature = entries[i].lamports_per_signature;

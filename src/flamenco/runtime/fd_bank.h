@@ -79,9 +79,8 @@ FD_PROTOTYPES_BEGIN
 
   The fields in fd_bank_t can be categorized into two groups:
   1. Simple fields: these are fields which don't need any special
-     handling and are laid out contiguously in the fd_bank_t struct.
-     These types are also templatized out and are defined in the
-     FD_BANKS_ITER macro.
+     handling and are laid out contiguously in the fd_bank_t struct
+     at bank->data->f.<field>.
   2. Complex fields: these are fields which need special handling
      (e.g. locking, copy on write semantics, delta-based semantics).
      These types are not templatized and are manually defined below.
@@ -208,51 +207,6 @@ FD_PROTOTYPES_BEGIN
   If the fields are not templatized, their accessor and modifier
   patterns vary and are documented below.
 */
-#define FD_BANKS_ITER(X)                                                                                                   \
-  /* type,                             name */                                                                             \
-  X(fd_blockhashes_t,                  block_hash_queue         ) /* Block hash queue */                                   \
-  X(fd_fee_rate_governor_t,            fee_rate_governor        ) /* Fee rate governor */                                  \
-  X(ulong,                             rbh_lamports_per_sig     ) /* Recent Block Hashes lamports per signature */         \
-  X(ulong,                             slot                     ) /* Slot */                                               \
-  X(ulong,                             parent_slot              ) /* Parent slot */                                        \
-  X(ulong,                             capitalization           ) /* Capitalization */                                     \
-  X(ulong,                             transaction_count        ) /* Transaction count */                                  \
-  X(ulong,                             parent_signature_cnt     ) /* Parent signature count */                             \
-  X(ulong,                             tick_height              ) /* Tick height */                                        \
-  X(ulong,                             max_tick_height          ) /* Max tick height */                                    \
-  X(ulong,                             hashes_per_tick          ) /* Hashes per tick */                                    \
-  X(fd_w_u128_t,                       ns_per_slot              ) /* NS per slot */                                        \
-  X(ulong,                             ticks_per_slot           ) /* Ticks per slot */                                     \
-  X(ulong,                             genesis_creation_time    ) /* Genesis creation time */                              \
-  X(double,                            slots_per_year           ) /* Slots per year */                                     \
-  X(fd_inflation_t,                    inflation                ) /* Inflation */                                          \
-  X(ulong,                             cluster_type             ) /* Cluster type */                                       \
-  X(ulong,                             total_epoch_stake        ) /* Total epoch stake */                                  \
-  X(ulong,                             block_height             ) /* Block height */                                       \
-  X(ulong,                             execution_fees           ) /* Execution fees */                                     \
-  X(ulong,                             priority_fees            ) /* Priority fees */                                      \
-  X(ulong,                             tips                     ) /* Tips collected */                                     \
-  X(ulong,                             signature_count          ) /* Signature count */                                    \
-  X(fd_hash_t,                         poh                      ) /* PoH */                                                \
-  X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot        ) /* Last restart slot */                                  \
-  X(fd_hash_t,                         bank_hash                ) /* Bank hash */                                          \
-  X(fd_hash_t,                         prev_bank_hash           ) /* Previous bank hash */                                 \
-  X(fd_hash_t,                         genesis_hash             ) /* Genesis hash */                                       \
-  X(fd_epoch_schedule_t,               epoch_schedule           ) /* Epoch schedule */                                     \
-  X(fd_rent_t,                         rent                     ) /* Rent */                                               \
-  X(fd_sysvar_cache_t,                 sysvar_cache             ) /* Sysvar cache */                                       \
-  X(fd_features_t,                     features                 ) /* Features */                                           \
-  X(ulong,                             txn_count                ) /* Transaction count */                                  \
-  X(ulong,                             nonvote_txn_count        ) /* Nonvote transaction count */                          \
-  X(ulong,                             failed_txn_count         ) /* Failed transaction count */                           \
-  X(ulong,                             nonvote_failed_txn_count ) /* Nonvote failed transaction count */                   \
-  X(ulong,                             total_compute_units_used ) /* Total compute units used */                           \
-  X(ulong,                             slots_per_epoch          ) /* Slots per epoch */                                    \
-  X(ulong,                             shred_cnt                ) /* Shred count */                                        \
-  X(ulong,                             epoch                    ) /* Epoch */                                              \
-  X(ulong,                             identity_vote_idx        ) /* Identity vote index */
-
-/* Defining pooled fields. */
 
 struct fd_bank_cost_tracker {
   ulong next;
@@ -507,14 +461,6 @@ fd_bank_lthash_locking_modify( fd_bank_t * bank );
 
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
-
-#define X(type, name)                                            \
-  void fd_bank_##name##_set( fd_bank_t * bank, type value );     \
-  type fd_bank_##name##_get( fd_bank_t const * bank );           \
-  type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
-  type * fd_bank_##name##_modify( fd_bank_t * bank );
-FD_BANKS_ITER(X)
-#undef X
 
 /* fd_bank_stake_delegations_frontier_query() will return a pointer to
    the full stake delegations for the current frontier. The caller is
