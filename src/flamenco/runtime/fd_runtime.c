@@ -829,6 +829,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
             if( FD_UNLIKELY( !alut_ro->meta->lamports ) ) {
               fd_alut_interp_delete( interp );
               return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+            }
             is_found = 1;
             break;
           }
