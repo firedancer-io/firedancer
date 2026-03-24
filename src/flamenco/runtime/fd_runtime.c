@@ -824,8 +824,9 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
       for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
         fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0; j<prev_txn_out->accounts.cnt; j++ ) {
-          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], &addr_lut_acc ) && prev_txn_out->accounts.is_writable[ j ] ) {
+          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], &addr_lut_acc ) && prev_txn_out->accounts.is_writable[ j ]  ) {
             fd_accdb_ro_init_nodb( alut_ro, &addr_lut_acc, prev_txn_out->accounts.account[ j ].meta );
+            if( FD_UNLIKELY( !alut_ro->meta->lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
             is_found = 1;
             break;
           }
