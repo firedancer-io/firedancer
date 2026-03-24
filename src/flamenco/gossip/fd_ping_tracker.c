@@ -311,7 +311,6 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
       peer_map_ele_remove_fast( ping_tracker->peers, peer, ping_tracker->pool );
       lru_list_ele_remove( ping_tracker->lru, peer, ping_tracker->pool );
       remove_tracking( ping_tracker, peer );
-      pool_ele_release( ping_tracker->pool, peer );
       if( FD_LIKELY( peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING ) ) {
         ping_tracker->change_fn( ping_tracker->change_fn_ctx, peer->identity_pubkey.b, peer->address, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED );
       }
@@ -323,6 +322,7 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
         case FD_PING_TRACKER_STATE_VALID_REFRESHING: ping_tracker->metrics->refreshing_cnt--; break;
         default: FD_LOG_ERR(( "Unknown state %d", peer->state )); return;
       }
+      pool_ele_release( ping_tracker->pool, peer );
       return;
     }
 
@@ -460,7 +460,6 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
       peer_map_ele_remove_fast( ping_tracker->peers, next, ping_tracker->pool );
       lru_list_ele_remove( ping_tracker->lru, next, ping_tracker->pool );
       remove_tracking( ping_tracker, next );
-      pool_ele_release( ping_tracker->pool, next );
       if( FD_LIKELY( next->state==FD_PING_TRACKER_STATE_VALID || next->state==FD_PING_TRACKER_STATE_VALID_REFRESHING ) ) {
         ping_tracker->change_fn( ping_tracker->change_fn_ctx, next->identity_pubkey.b, next->address, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
       }
@@ -471,6 +470,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
         case FD_PING_TRACKER_STATE_VALID_REFRESHING: ping_tracker->metrics->refreshing_cnt--; break;
         default: FD_LOG_ERR(( "Unknown state %d", next->state ));
       }
+      pool_ele_release( ping_tracker->pool, next );
       continue;
     }
 
