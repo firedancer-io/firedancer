@@ -318,7 +318,7 @@ fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations ) {
 ushort
 fd_stake_delegations_new_fork( fd_stake_delegations_t * stake_delegations ) {
   fork_pool_ele_t * fork_pool = get_fork_pool( stake_delegations );
-  FD_CRIT( fork_pool_free( fork_pool ), "no free forks in pool" );
+  FD_CRIT( fork_pool_free( fork_pool ), "no free forks in pool. The system has forked too wide." );
   ushort fork_idx = (ushort)fork_pool_idx_acquire( fork_pool );
 
   return fork_idx;
