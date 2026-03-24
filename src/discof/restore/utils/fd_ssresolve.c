@@ -183,16 +183,16 @@ fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
            "User-Agent: Firedancer\r\n"
            "Accept: */*\r\n"
            "Accept-Encoding: identity\r\n"
-           "Host: %s\r\n\r\n",
-           path, ssresolve->hostname ) );
+           "Host: %s:%u\r\n\r\n",
+           path, ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ) ) );
   } else {
     FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
            "HEAD %s HTTP/1.1\r\n"
            "User-Agent: Firedancer\r\n"
            "Accept: */*\r\n"
            "Accept-Encoding: identity\r\n"
-           "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-           path, FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
+           "Host: " FD_IP4_ADDR_FMT ":%u\r\n\r\n",
+           path, FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ), fd_ushort_bswap( ssresolve->addr.port ) ) );
   }
 }
 
@@ -281,8 +281,12 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
   uchar decoded_hash[ FD_HASH_FOOTPRINT ];
   int err = fd_ssarchive_parse_filename( snapshot_name, &full_entry_slot, &incremental_entry_slot, decoded_hash, &is_zstd );
 
-  if( FD_UNLIKELY( err || !is_zstd ) ) {
+  if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "unrecognized snapshot file `%s` in redirect location header", snapshot_name ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+  if( FD_UNLIKELY( !is_zstd ) ) {
+    FD_LOG_WARNING(( "snapshot file `%s` in redirect is not zstd-compressed", snapshot_name ));
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
@@ -304,6 +308,11 @@ static int
 fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
                             fd_ssresolve_result_t * result ) {
   FD_TEST( ssresolve->state==FD_SSRESOLVE_STATE_RESP );
+
+  if( FD_UNLIKELY( ssresolve->response_len==sizeof(ssresolve->response) ) ) {
+    FD_LOG_WARNING(( "response buffer full before complete HTTP response received" ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
 
   long read = 0L;
   if( FD_LIKELY( ssresolve->is_https ) ) {
@@ -329,6 +338,9 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
     if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
     else if( FD_UNLIKELY( -1==read ) ) {
       FD_LOG_WARNING(( "recvfrom() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      return FD_SSRESOLVE_ADVANCE_ERROR;
+    } else if( FD_UNLIKELY( 0==read ) ) {
+      FD_LOG_WARNING(( "peer disconnected before sending complete response" ));
       return FD_SSRESOLVE_ADVANCE_ERROR;
     }
   }
@@ -364,12 +376,15 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
 
   if( FD_UNLIKELY( status!=200 ) ) {
     char req_path[ 4096UL ];
-    if( FD_LIKELY( ssresolve->is_https ) ) {
+    char const * path = ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2";
+    if( FD_LIKELY( ssresolve->hostname && ssresolve->hostname[ 0 ]!='\0' ) ) {
       FD_TEST( fd_cstr_printf_check( req_path, sizeof(req_path), NULL,
-               "https://%s:%u%s", ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ), ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+               "%s://%s:%u%s", ssresolve->is_https ? "https" : "http",
+               ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ), path ) );
     } else {
       FD_TEST( fd_cstr_printf_check( req_path, sizeof(req_path), NULL,
-               "http://%s:%u%s", ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ), ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+               "http://" FD_IP4_ADDR_FMT ":%u%s",
+               FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ), fd_ushort_bswap( ssresolve->addr.port ), path ) );
     }
     FD_LOG_WARNING(( "unexpected response code %d accessing %s", status, req_path ));
     return FD_SSRESOLVE_ADVANCE_ERROR;
@@ -504,4 +519,5 @@ fd_ssresolve_cancel( fd_ssresolve_t * ssresolve ) {
     ssresolve->ssl = NULL;
   }
 #endif
+  ssresolve->state = FD_SSRESOLVE_STATE_DONE;
 }
