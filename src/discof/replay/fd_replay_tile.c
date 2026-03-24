@@ -684,7 +684,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
 static void
 cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
-  if( fd_bank_has_cost_tracker( bank ) ) {
+  if( FD_LIKELY( bank->data->cost_tracker_pool_idx!=ULONG_MAX ) ) {
     fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( bank );
     if( FD_UNLIKELY( cost_tracker->block_cost_limit==0UL ) ) {
       memset( &slot_info->cost_tracker, -1 /* ULONG_MAX */, sizeof(slot_info->cost_tracker) );
@@ -2850,7 +2850,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_bank_slot_set( bank, 0UL );
   FD_TEST( bank->data->idx==FD_REPLAY_BOOT_BANK_IDX );
 
-  ctx->consensus_root_slot = ULONG_MAX;
+;
   ctx->consensus_root      = ctx->initial_block_id;
   ctx->published_root_slot = ULONG_MAX;
 

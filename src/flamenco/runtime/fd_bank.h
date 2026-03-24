@@ -308,12 +308,13 @@ struct fd_bank_data {
   ulong refcnt; /* reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
+  ushort                vote_stakes_fork_id; /* fork id used by the vote stakes */
+  uchar                 stake_rewards_fork_id; /* fork id used by stake rewards */
+  ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
+  ulong                 cost_tracker_pool_idx;
+  ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
 
-  ushort vote_stakes_fork_id; /* fork id used by the vote stakes */
-
-  uchar stake_rewards_fork_id; /* fork id used by stake rewards */
-
-  ushort stake_delegations_fork_id; /* fork id used by stake delegations deltas */
+  ulong banks_data_offset; /* offset from this fd_bank_data_t back to fd_banks_data_t */
 
   /* Timestamps written and read only by replay */
 
@@ -367,21 +368,6 @@ struct fd_bank_data {
     ulong                             identity_vote_idx;
   } f;
 
-  /* Layout all information needed for non-templatized fields. */
-
-  ulong stake_rewards_offset;
-
-  ulong cost_tracker_pool_idx;
-  ulong cost_tracker_pool_offset;
-
-  ulong vote_stakes_offset;
-
-  ulong stake_delegations_offset;
-
-  ulong epoch_leaders_idx; /* always 0 or 1 based on % epoch */
-  ulong epoch_leaders_offset;
-  ulong epoch_leaders_footprint;
-
   uchar top_votes_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
 typedef struct fd_bank_data fd_bank_data_t;
@@ -418,7 +404,6 @@ fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank );
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank );
 
-/**********************************************************************/
 /* fd_banks_t is the main struct used to manage the bank state.  It can
    be used to query/modify/clone/publish the bank state.
 
@@ -576,12 +561,6 @@ fd_banks_pool_used_cnt( fd_banks_t * banks );
 
 ulong
 fd_banks_pool_max_cnt( fd_banks_t * banks );
-
-/* fd_bank_has_cost_tracker returns 1 if the bank has a cost tracker
-   allocated, 0 otherwise. */
-
-int
-fd_bank_has_cost_tracker( fd_bank_t * bank );
 
 /* fd_banks_stake_delegations_evict_bank_fork evicts the stake
    delegations fork for the given bank.  This is used to clean up
