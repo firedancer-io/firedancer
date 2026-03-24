@@ -116,12 +116,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
 
 static void
 fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  /* Release the stake delegations fork allocated in ctx_create */
-  if( runner->bank->data->stake_delegations_fork_id!=USHORT_MAX ) {
-    fd_stake_delegations_t * sd = fd_stake_delegations_join( fd_banks_get_stake_delegations( runner->banks->data ) );
-    fd_stake_delegations_evict_fork( sd, runner->bank->data->stake_delegations_fork_id );
-    runner->bank->data->stake_delegations_fork_id = USHORT_MAX;
-  }
+  fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
   fd_accdb_v1_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache->join );
@@ -206,6 +201,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
      after the block executes) */
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
   fd_memcpy( bank_hash, block_bank->parent_bank_hash, sizeof(fd_hash_t) );
+
+  /* Previous bank hash (used as input to the bank hash computation).
+     In production this is set by fd_banks_clone_from_parent. */
+  fd_bank_prev_bank_hash_set( bank, *(fd_hash_t const *)block_bank->parent_bank_hash );
 
   /* Parent signature count */
   fd_bank_parent_signature_cnt_set( bank, block_bank->parent_signature_count );
@@ -597,13 +596,12 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */
-    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( runner->bank );
+    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_query( runner->bank );
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
       .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,
       .vote_cost  = cost_tracker ? cost_tracker->vote_cost  : 0UL,
     };
-    fd_bank_cost_tracker_end_locking_query( runner->bank );
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */
     fd_solfuzz_pb_build_leader_schedule_effects( runner, effects );

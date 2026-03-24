@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h
 
 #include "../types/fd_types_custom.h"
+#include "../leaders/fd_leaders_base.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "program/fd_builtin_programs.h"
 #include "fd_runtime_const.h"
@@ -119,6 +120,22 @@ struct fd_runtime_stack {
     fd_epoch_credits_t * epoch_credits;
 
   } stakes;
+
+  struct {
+    fd_vote_stake_weight_t stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    ulong                  stake_weights_cnt;
+
+    fd_stake_weight_t      id_weights[ MAX_SHRED_DESTS ];
+    ulong                  id_weights_cnt;
+    ulong                  id_weights_excluded;
+
+    fd_vote_stake_weight_t next_stake_weights[ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    ulong                  next_stake_weights_cnt;
+
+    fd_stake_weight_t      next_id_weights[ MAX_SHRED_DESTS ];
+    ulong                  next_id_weights_cnt;
+    ulong                  next_id_weights_excluded;
+  } epoch_weights;
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;
 

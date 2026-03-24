@@ -143,7 +143,7 @@ update_next_leaders( fd_bank_t *          bank,
 
   /* Populate a compressed set of stake weights for a valid leader
      schedule. */
-  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights_next( bank->data );
+  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.next_stake_weights;
   ulong idx = 0UL;
 
   int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
@@ -167,7 +167,7 @@ update_next_leaders( fd_bank_t *          bank,
       idx++;
     }
   }
-  *fd_bank_get_stake_weights_cnt_next( bank->data ) = idx;
+  runtime_stack->epoch_weights.next_stake_weights_cnt = idx;
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
@@ -179,10 +179,9 @@ update_next_leaders( fd_bank_t *          bank,
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
-  fd_stake_weight_t * id_weights = fd_bank_get_id_weights_next( bank->data );
-  memcpy( id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  *fd_bank_get_id_weights_cnt_next( bank->data ) = staked_cnt;
-  *fd_bank_get_next_id_weights_excluded( bank->data ) = excluded_stake;
+  memcpy( runtime_stack->epoch_weights.next_id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  runtime_stack->epoch_weights.next_id_weights_cnt      = staked_cnt;
+  runtime_stack->epoch_weights.next_id_weights_excluded  = excluded_stake;
 }
 
 void
@@ -220,7 +219,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   /* Populate a compressed set of stake weights for a valid leader
      schedule. */
-  fd_vote_stake_weight_t * stake_weights = fd_bank_get_stake_weights( bank->data );
+  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.stake_weights;
   ulong idx = 0UL;
 
   int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
@@ -244,7 +243,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
       idx++;
     }
   }
-  *fd_bank_get_stake_weights_cnt( bank->data ) = idx;
+  runtime_stack->epoch_weights.stake_weights_cnt = idx;
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
@@ -256,11 +255,9 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
-  fd_stake_weight_t * id_weights = fd_bank_get_id_weights( bank->data );
-  memcpy( id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  *fd_bank_get_id_weights_cnt( bank->data ) = staked_cnt;
-  *fd_bank_get_id_weights_excluded( bank->data ) = excluded_stake;
-
+  memcpy( runtime_stack->epoch_weights.id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  runtime_stack->epoch_weights.id_weights_cnt      = staked_cnt;
+  runtime_stack->epoch_weights.id_weights_excluded = excluded_stake;
 
   fd_bank_vote_stakes_end_locking_modify( bank );
 }
@@ -868,17 +865,10 @@ fd_features_prepopulate_upcoming( fd_bank_t *               bank,
                                   fd_accdb_user_t *         accdb,
                                   fd_funk_txn_xid_t const * xid ) {
   ulong slot = fd_bank_slot_get( bank );
-  if( FD_UNLIKELY( !slot ) ) {
-    return;
-  }
-
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong curr_epoch = fd_slot_to_epoch( epoch_schedule, slot,     NULL );
   ulong next_epoch = fd_slot_to_epoch( epoch_schedule, slot+1UL, NULL );
-
-  if( FD_LIKELY( curr_epoch==next_epoch ) ) {
-    return;
-  }
+  if( FD_LIKELY( curr_epoch==next_epoch ) ) return;
 
   fd_features_restore( bank, accdb, xid );
 }
@@ -891,26 +881,16 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
 
-  fd_bank_execution_fees_set( bank, 0UL );
-  fd_bank_priority_fees_set( bank, 0UL );
-  fd_bank_tips_set( bank, 0UL );
-  fd_bank_signature_count_set( bank, 0UL );
-  fd_bank_total_compute_units_used_set( bank, 0UL );
-  fd_bank_shred_cnt_set( bank, 0UL );
-  fd_bank_identity_vote_idx_set( bank, ULONG_MAX );
-
   fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
 
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
 
   if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
-    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
     FD_TEST( cost_tracker );
     fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
-    fd_bank_cost_tracker_end_locking_modify( bank );
   }
 
-  /* Update the active feature set with any upcoming features */
   fd_features_prepopulate_upcoming( bank, accdb, &xid );
 
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, &xid, runtime_stack, capture_ctx );
@@ -923,23 +903,12 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 static void
 fd_runtime_update_bank_hash( fd_bank_t *        bank,
                              fd_capture_ctx_t * capture_ctx ) {
-  /* Save the previous bank hash, and the parents signature count */
-  fd_hash_t const * prev_bank_hash = NULL;
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    prev_bank_hash = fd_bank_bank_hash_query( bank );
-    fd_bank_prev_bank_hash_set( bank, *prev_bank_hash );
-  } else {
-    prev_bank_hash = fd_bank_prev_bank_hash_query( bank );
-  }
-
-  fd_bank_parent_signature_cnt_set( bank, fd_bank_signature_count_get( bank ) );
-
   /* Compute the new bank hash */
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
   fd_hash_t new_bank_hash[1] = { 0 };
   fd_hashes_hash_bank(
       lthash,
-      prev_bank_hash,
+      fd_bank_prev_bank_hash_query( bank ),
       (fd_hash_t *)fd_bank_poh_query( bank )->hash,
       fd_bank_signature_count_get( bank ),
       new_bank_hash );
@@ -1338,14 +1307,13 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
   /* Update the cost tracker. */
 
-  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
   int res = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     FD_LOG_DEBUG(( "fd_runtime_commit_txn: transaction failed to fit into block %d", res ));
     txn_out->err.is_committable = 0;
     txn_out->err.txn_err        = fd_cost_tracker_err_to_runtime_err( res );
   }
-  fd_bank_cost_tracker_end_locking_modify( bank );
 
   /* Finally, update the status cache. */
 
