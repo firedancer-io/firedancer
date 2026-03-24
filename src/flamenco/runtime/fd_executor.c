@@ -618,11 +618,6 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
 
         https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L644-L648 */
     if( FD_UNLIKELY( i==FD_FEE_PAYER_TXN_IDX ) ) {
-      /* Note that the dlen for most fee payers is 0, but we want to
-         consider the case where the fee payer is a nonce account.
-         We also must add a base account size to this value
-         because this branch would only be taken AFTER SIMD-0186
-         is enabled. */
       ulong loaded_acc_size = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE,
                                                 meta->dlen );
       int err = fd_collect_loaded_account(
