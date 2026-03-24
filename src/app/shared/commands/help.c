@@ -10,12 +10,10 @@ extern char const * FD_BINARY_NAME;
 
 extern action_t * ACTIONS[];
 
-static int
-action_name_cmp( void const * left, void const * right ) {
-  action_t const * const * l = left;
-  action_t const * const * r = right;
-  return strcmp( (*l)->name, (*r)->name );
-}
+#define SORT_NAME        sort_action_name
+#define SORT_KEY_T       action_t *
+#define SORT_BEFORE(a,b) (strcmp( (a)->name, (b)->name )<0)
+#include "../../../util/tmpl/fd_sort.c"
 
 void
 help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
@@ -36,16 +34,20 @@ help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
   }
 
   if( FD_LIKELY( action_cnt ) ) {
-    action_t * sorted[ action_cnt ];
+    action_t ** sorted = malloc( action_cnt * sizeof(action_t *) );
+    if( FD_UNLIKELY( !sorted ) ) FD_LOG_ERR(( "malloc failed" ));
+
     for( ulong i=0UL; i<action_cnt; i++ ) {
       sorted[ i ] = ACTIONS[ i ];
     }
 
-    qsort( sorted, action_cnt, sizeof( action_t * ), action_name_cmp );
+    sort_action_name_inplace( sorted, action_cnt );
 
     for( ulong i=0UL; i<action_cnt; i++ ) {
       FD_LOG_STDOUT(( "   %13s    %s\n", sorted[ i ]->name, sorted[ i ]->description ));
     }
+
+    free( sorted );
   }
 }
 
