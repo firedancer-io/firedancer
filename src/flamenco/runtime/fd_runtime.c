@@ -821,12 +821,14 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
 
     int is_found = 0;
     if( FD_UNLIKELY( txn_in && txn_in->bundle.is_bundle ) ) {
-      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
-        fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
-        for( ushort j=0; j<prev_txn_out->accounts.cnt; j++ ) {
-          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], &addr_lut_acc ) && prev_txn_out->accounts.is_writable[ j ]  ) {
-            fd_accdb_ro_init_nodb( alut_ro, &addr_lut_acc, prev_txn_out->accounts.account[ j ].meta );
-            if( FD_UNLIKELY( !alut_ro->meta->lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+      for( ulong j=txn_in->bundle.prev_txn_cnt; j>0UL && !is_found; j-- ) {
+        fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ j-1 ];
+        for( ushort k=0; k<prev_txn_out->accounts.cnt; k++ ) {
+          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ k ], &addr_lut_acc ) && prev_txn_out->accounts.is_writable[ k ]  ) {
+            fd_accdb_ro_init_nodb( alut_ro, &addr_lut_acc, prev_txn_out->accounts.account[ k ].meta );
+            if( FD_UNLIKELY( !alut_ro->meta->lamports ) ) {
+              fd_alut_interp_delete( interp );
+              return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
             is_found = 1;
             break;
           }
