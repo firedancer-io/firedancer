@@ -1047,7 +1047,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
 
     /* Build a matching fd_txn_t descriptor.  We use a union with enough
        room for 0 instructions + 1 ALT lookup. */
-    uchar txn1_mem[ sizeof(fd_txn_t) + sizeof(fd_txn_acct_addr_lut_t) ];
+    uchar txn1_mem[ sizeof(fd_txn_t) + sizeof(fd_txn_acct_addr_lut_t) ] __attribute__((aligned(16UL)));
     fd_txn_t * txn1 = (fd_txn_t *)txn1_mem;
     fd_memset( txn1, 0, sizeof(txn1_mem) );
 
@@ -1072,12 +1072,6 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     lut->readonly_cnt = 0;
     lut->readonly_off = (ushort)off;
 
-    /* Point the fd_txn_p_t at our hand-crafted descriptor.  fd_txn_p_t
-       normally stores the txn inline, but tests can override by storing
-       the descriptor in txn1_mem and pointing fd_txn_p_t's payload at
-       the serialized bytes while the parsing metadata lives separately.
-       However the TXN() macro dereferences from the payload, so we need
-       to copy the descriptor into the txn_p's inline buffer. */
     FD_TEST( sizeof(txn1_mem) <= sizeof(txn1_p._) );
     fd_memcpy( txn1_p._, txn1_mem, sizeof(txn1_mem) );
 

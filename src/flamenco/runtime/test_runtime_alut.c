@@ -1241,7 +1241,7 @@ test_alt_just_activated( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all 10 addresses active */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL,txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
+    NULL, txn, payload, ctx->accdb, &ctx->xid, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 

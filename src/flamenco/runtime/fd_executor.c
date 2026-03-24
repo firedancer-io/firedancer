@@ -598,7 +598,7 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
   ulong       additional_loaded_account_keys_cnt                     = 0UL;
 
   /* Charge a base fee for each address lookup table.
-      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L570-L576 */
+     https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L570-L576 */
   ulong aluts_size = fd_ulong_sat_mul( TXN( txn_in->txn )->addr_table_lookup_cnt,
                                         FD_ADDRESS_LOOKUP_TABLE_BASE_SIZE );
   int err = fd_increase_calculated_data_size( txn_out, aluts_size );
@@ -619,10 +619,10 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
         https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L644-L648 */
     if( FD_UNLIKELY( i==FD_FEE_PAYER_TXN_IDX ) ) {
       /* Note that the dlen for most fee payers is 0, but we want to
-          consider the case where the fee payer is a nonce account.
-          We also must add a base account size to this value
-          because this branch would only be taken AFTER SIMD-0186
-          is enabled. */
+         consider the case where the fee payer is a nonce account.
+         We also must add a base account size to this value
+         because this branch would only be taken AFTER SIMD-0186
+         is enabled. */
       ulong loaded_acc_size = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE,
                                                 meta->dlen );
       int err = fd_collect_loaded_account(
@@ -639,7 +639,7 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
     }
 
     /* Load and collect any remaining accounts
-        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
+       https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
     ulong loaded_acc_size = load_transaction_account( runtime, bank, txn_in, txn_out, &txn_out->accounts.keys[i], meta, unknown_acc, i );
     int err = fd_collect_loaded_account(
       runtime,
@@ -659,12 +659,12 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
     fd_txn_instr_t const * instr = &TXN( txn_in->txn )->instr[i];
 
     /* Mimicking `load_account()` here with 0-lamport check as well.
-        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L663-L666 */
+       https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L663-L666 */
     fd_account_meta_t * program_meta = txn_out->accounts.account[instr->program_id].meta;
     int err = fd_runtime_get_account_at_index( txn_in,
-                                                txn_out,
-                                                instr->program_id,
-                                                fd_runtime_account_check_exists );
+                                               txn_out,
+                                               instr->program_id,
+                                               fd_runtime_account_check_exists );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || program_meta->lamports==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
@@ -672,7 +672,7 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L677-L681 */
     fd_pubkey_t const * owner_id = (fd_pubkey_t const *)program_meta->owner;
     if( FD_UNLIKELY( memcmp( owner_id->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) &&
-                      !fd_executor_pubkey_is_bpf_loader( owner_id ) ) ) {
+                     !fd_executor_pubkey_is_bpf_loader( owner_id ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
   }
