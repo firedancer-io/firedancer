@@ -546,6 +546,37 @@ test_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
   fd_tower_lockos_remove( lockos, 113 );
 }
 
+void
+test_tower_stakes_npow2_init( fd_wksp_t * wksp ) {
+  ulong npow2_slot_maxs[] = { 50, 65, 100, 33, 17 };
+  ulong cnt = sizeof(npow2_slot_maxs) / sizeof(npow2_slot_maxs[0]);
+
+  for( ulong i = 0; i < cnt; i++ ) {
+    ulong slot_max = npow2_slot_maxs[i];
+
+    /* Verify footprint is nonzero. */
+    ulong footprint = fd_tower_stakes_footprint( slot_max );
+    FD_TEST( footprint );
+
+    /* new / join */
+    void * mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), footprint, 1UL );
+    FD_TEST( mem );
+    fd_tower_stakes_t * stakes = fd_tower_stakes_join( fd_tower_stakes_new( mem, slot_max, 0UL ) );
+    FD_TEST( stakes );
+
+    /* Smoke test: insert a few voters for a slot and remove them. */
+    fd_hash_t va0 = { .ul = { 0xaa } };
+    fd_hash_t va1 = { .ul = { 0xbb } };
+    ulong prev = fd_tower_stakes_insert( stakes, 1, &va0, 100, ULONG_MAX );
+    prev       = fd_tower_stakes_insert( stakes, 1, &va1, 200, prev );
+    (void)prev;
+    fd_tower_stakes_remove( stakes, 1 );
+
+    /* Cleanup */
+    fd_wksp_free_laddr( fd_tower_stakes_delete( fd_tower_stakes_leave( stakes ) ) );
+  }
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -564,6 +595,7 @@ main( int argc, char ** argv ) {
   test_switch_simple( wksp );
   test_switch_threshold( wksp );
   test_switch_threshold_common_ancestor( wksp );
+  test_tower_stakes_npow2_init( wksp );
 
   fd_halt();
   return 0;

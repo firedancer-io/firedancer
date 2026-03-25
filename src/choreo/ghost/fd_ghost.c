@@ -9,6 +9,9 @@ fd_ghost_align( void ) {
 ulong
 fd_ghost_footprint( ulong blk_max,
                     ulong vtr_max ) {
+  ulong blk_chain_cnt = blk_map_chain_cnt_est( blk_max );
+  ulong vtr_chain_cnt = vtr_map_chain_cnt_est( vtr_max );
+
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -16,11 +19,11 @@ fd_ghost_footprint( ulong blk_max,
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_ghost_t), sizeof(fd_ghost_t)            ),
-      blk_pool_align(),    blk_pool_footprint( blk_max ) ),
-      blk_map_align(),     blk_map_footprint ( blk_max ) ),
-      vtr_pool_align(),    vtr_pool_footprint( vtr_max ) ),
-      vtr_map_align(),     vtr_map_footprint ( vtr_max ) ),
+      alignof(fd_ghost_t), sizeof(fd_ghost_t)                  ),
+      blk_pool_align(),    blk_pool_footprint( blk_max )       ),
+      blk_map_align(),     blk_map_footprint ( blk_chain_cnt ) ),
+      vtr_pool_align(),    vtr_pool_footprint( vtr_max )       ),
+      vtr_map_align(),     vtr_map_footprint ( vtr_chain_cnt ) ),
     fd_ghost_align() );
 }
 
@@ -54,19 +57,22 @@ fd_ghost_new( void * shmem,
 
   fd_memset( shmem, 0, footprint );
 
+  ulong blk_chain_cnt = blk_map_chain_cnt_est( blk_max );
+  ulong vtr_chain_cnt = vtr_map_chain_cnt_est( vtr_max );
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_ghost_t * ghost    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ghost_t), sizeof(fd_ghost_t)            );
-  void *       blk_pool = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),    blk_pool_footprint( blk_max ) );
-  void *       blk_map  = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),     blk_map_footprint ( blk_max ) );
-  void *       vtr_pool = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),    vtr_pool_footprint( vtr_max ) );
-  void *       vtr_map  = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),     vtr_map_footprint ( vtr_max ) );
+  fd_ghost_t * ghost    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ghost_t), sizeof(fd_ghost_t)                  );
+  void *       blk_pool = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),    blk_pool_footprint( blk_max )       );
+  void *       blk_map  = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),     blk_map_footprint ( blk_chain_cnt ) );
+  void *       vtr_pool = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),    vtr_pool_footprint( vtr_max )       );
+  void *       vtr_map  = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),     vtr_map_footprint ( vtr_chain_cnt ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_ghost_align() ) == (ulong)shmem + footprint );
 
   ghost->root           = ULONG_MAX;
-  ghost->blk_pool_gaddr = fd_wksp_gaddr_fast( wksp, blk_pool_join( blk_pool_new ( blk_pool, blk_max       ) ) );
-  ghost->blk_map_gaddr  = fd_wksp_gaddr_fast( wksp, blk_map_join ( blk_map_new  ( blk_map,  blk_max, seed ) ) );
-  ghost->vtr_pool_gaddr = fd_wksp_gaddr_fast( wksp, vtr_pool_join( vtr_pool_new ( vtr_pool, vtr_max       ) ) );
-  ghost->vtr_map_gaddr  = fd_wksp_gaddr_fast( wksp, vtr_map_join ( vtr_map_new  ( vtr_map,  vtr_max, seed ) ) );
+  ghost->blk_pool_gaddr = fd_wksp_gaddr_fast( wksp, blk_pool_join( blk_pool_new ( blk_pool, blk_max             ) ) );
+  ghost->blk_map_gaddr  = fd_wksp_gaddr_fast( wksp, blk_map_join ( blk_map_new  ( blk_map,  blk_chain_cnt, seed ) ) );
+  ghost->vtr_pool_gaddr = fd_wksp_gaddr_fast( wksp, vtr_pool_join( vtr_pool_new ( vtr_pool, vtr_max             ) ) );
+  ghost->vtr_map_gaddr  = fd_wksp_gaddr_fast( wksp, vtr_map_join ( vtr_map_new  ( vtr_map,  vtr_chain_cnt, seed ) ) );
 
   return shmem;
 }
