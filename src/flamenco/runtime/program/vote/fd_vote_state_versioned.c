@@ -1,4 +1,3 @@
-
 #include "../fd_vote_program.h"
 #include "fd_vote_state_versioned.h"
 #include "fd_vote_common.h"
