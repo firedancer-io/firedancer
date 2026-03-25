@@ -1,3 +1,4 @@
+#include "fd_accdb_svm.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_builtin_programs.h"
@@ -5,7 +6,6 @@
 #include "fd_runtime_stack.h"
 #include "fd_pubkey_utils.h"
 #include "fd_system_ids.h"
-#include "fd_hashes.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
@@ -62,18 +62,15 @@ tmp_account_store( fd_tmp_account_t *        acc,
     FD_LOG_ERR(( "Attempted to write to the system program account" ));
   }
 
-  fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( accdb, rw, xid, &acc->addr, acc->data_sz, FD_ACCDB_FLAG_CREATE );
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( &acc->addr, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
+  fd_accdb_rw_t rw[1]; fd_accdb_svm_update_t update[1];
+  FD_TEST( fd_accdb_svm_open_rw( accdb, bank, xid, rw, update, &acc->addr, acc->data_sz, FD_ACCDB_FLAG_CREATE ) );
 
   fd_accdb_ref_exec_bit_set( rw, acc->meta.executable );
   fd_accdb_ref_owner_set   ( rw, acc->meta.owner      );
   fd_accdb_ref_lamports_set( rw, acc->meta.lamports   );
   fd_accdb_ref_data_set    ( accdb, rw, acc->data, acc->data_sz );
 
-  fd_hashes_update_lthash( &acc->addr, rw->meta, prev_hash, bank, capture_ctx );
-  fd_accdb_close_rw( accdb, rw );
+  fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L12 */

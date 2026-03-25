@@ -37,6 +37,7 @@ ifdef FD_HAS_INT128
 $(call add-hdrs,fd_svm_mini.h)
 $(call add-objs,fd_svm_mini,fd_flamenco_test)
 $(call make-unit-test,test_svm_mini,test_svm_mini,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
+$(call make-unit-test,test_accdb_svm,test_accdb_svm,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
 endif
 endif
 
