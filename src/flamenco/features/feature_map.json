@@ -208,7 +208,7 @@
   {"name":"reenable_sbpf_v0_execution","pubkey":"TestFeature21111111111111111111111111111111","comment":"for test only"},
   {"name":"enable_sbpf_v1_deployment_and_execution","pubkey":"JE86WkYvTrzW8HgNmrHY7dFYpCmSptUpKupbo2AdQ9cG","hardcode_for_fuzzing":1},
   {"name":"enable_sbpf_v2_deployment_and_execution","pubkey":"F6UVKh1ujTEFK3en2SyAL3cdVnqko1FVEXWhmdLRu6WP","hardcode_for_fuzzing":1},
-  {"name":"enable_sbpf_v3_deployment_and_execution","pubkey":"BUwGLeF3Lxyfv1J1wY8biFHBB2hrk2QhbNftQf3VV3cC"},
+  {"name":"enable_sbpf_v3_deployment_and_execution","pubkey":"5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC"},
   {"name":"migrate_feature_gate_program_to_core_bpf","pubkey":"4eohviozzEeivk1y9UbrnekbAFMDQyJz5JjA9Y6gyvky","hardcode_for_fuzzing":1},
   {"name":"migrate_config_program_to_core_bpf","pubkey":"2Fr57nzzkLYXW695UdDxDeR5fhnZWSttZeZYemrnpGFV","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"migrate_address_lookup_table_program_to_core_bpf","pubkey":"C97eKZygrkU4JxJsZdjgbUY7iQR7rKTr4NyDWo2E5pRm","cleaned_up":1,"hardcode_for_fuzzing":1},
