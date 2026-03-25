@@ -226,7 +226,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
 
-  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   fd_vote_rewards_map_reset( vote_ele_map );
 
   /* Vote stakes for the previous epoch (E-1). */
