@@ -1,11 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_stakes_h
 #define HEADER_fd_src_flamenco_stakes_fd_stakes_h
 
-#include "../fd_flamenco_base.h"
-#include "../types/fd_types.h"
 #include "fd_stake_delegations.h"
-
-#define FD_STAKE_STATE_V2_SZ (200UL)
+#include "fd_stake_types.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -21,9 +18,8 @@ void
 fd_stakes_config_init( fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid );
 
-int
-fd_stakes_get_state( fd_account_meta_t const * meta,
-                     fd_stake_state_v2_t *     out );
+fd_stake_state_t const *
+fd_stakes_get_state( fd_account_meta_t const * meta );
 
 fd_stake_history_entry_t
 fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * self,

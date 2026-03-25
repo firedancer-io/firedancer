@@ -256,6 +256,8 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
   root_pool_idx_release( pool, delegation_idx );
 }
 
+#if FD_HAS_DOUBLE
+
 void
 fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
                               fd_accdb_user_t *         accdb,
@@ -282,22 +284,19 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       fd_stake_delegation_t * delegation = root_map_ele_query( map, address, NULL, pool );
       if( FD_UNLIKELY( !delegation ) ) continue;
 
-      if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) goto remove;
-
-      fd_stake_state_v2_t stake;
-      int err = fd_stakes_get_state( ro->meta, &stake );
-      if( FD_UNLIKELY( err ) ) goto remove;
-      if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake ) ) ) goto remove;
+      fd_stake_state_t const * stake = fd_stakes_get_state( ro->meta );
+      if( FD_UNLIKELY( !stake ) ) goto remove;
+      if( FD_UNLIKELY( stake->stake_type != FD_STAKE_STATE_STAKE ) ) goto remove;
 
       fd_stake_delegations_root_update(
           stake_delegations,
           address,
-          &stake.inner.stake.stake.delegation.voter_pubkey,
-          stake.inner.stake.stake.delegation.stake,
-          stake.inner.stake.stake.delegation.activation_epoch,
-          stake.inner.stake.stake.delegation.deactivation_epoch,
-          stake.inner.stake.stake.credits_observed,
-          stake.inner.stake.stake.delegation.warmup_cooldown_rate );
+          &stake->stake.stake.delegation.voter_pubkey,
+          stake->stake.stake.delegation.stake,
+          stake->stake.stake.delegation.activation_epoch,
+          stake->stake.stake.delegation.deactivation_epoch,
+          stake->stake.stake.credits_observed,
+          stake->stake.stake.delegation.warmup_cooldown_rate );
       continue; /* ok */
 
     remove:
@@ -307,6 +306,8 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
   }
   fd_accdb_ro_pipe_fini( ro_pipe );
 }
+
+#endif
 
 ulong
 fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations ) {

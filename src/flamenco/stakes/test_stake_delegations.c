@@ -1,5 +1,30 @@
 #include "fd_stake_delegations.h"
+#include "fd_stake_types.h"
 #include "../runtime/fd_runtime_const.h"
+
+FD_STATIC_ASSERT( offsetof( fd_stake_state_t, stake_type  )==  0UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_state_t, initialized )==  4UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_state_t, stake       )==  4UL, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_stake_state_t              )==197UL, layout );
+
+FD_STATIC_ASSERT( offsetof( fd_stake_meta_t, rent_exempt_reserve )==  0UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_meta_t, staker              )==  8UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_meta_t, withdrawer          )== 40UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_meta_t, unix_timestamp      )== 72UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_meta_t, epoch               )== 80UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_meta_t, custodian           )== 88UL, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_stake_meta_t                      )==120UL, layout );
+
+FD_STATIC_ASSERT( offsetof( fd_delegation_t, voter_pubkey              )== 0UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_delegation_t, stake                     )==32UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_delegation_t, activation_epoch          )==40UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_delegation_t, deactivation_epoch        )==48UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_delegation_t, warmup_cooldown_rate_bits )==56UL, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_delegation_t                            )==64UL, layout );
+
+FD_STATIC_ASSERT( offsetof( fd_stake_t, delegation       )== 0UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_stake_t, credits_observed )==64UL, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_stake_t                   )==72UL, layout );
 
 static fd_stake_delegation_t const *
 test_stake_delegations_find( fd_stake_delegations_t const * stake_delegations,

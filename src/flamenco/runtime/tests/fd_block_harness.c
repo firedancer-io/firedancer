@@ -4,7 +4,7 @@
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime_stack.h"
-#include "../../stakes/fd_stakes.h"
+#include "../../stakes/fd_stake_types.h"
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
@@ -90,12 +90,12 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
   fd_accdb_ro_t ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
 
-  fd_stake_state_v2_t stake_state;
+  fd_stake_state_t const * stake_state = NULL;
   if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_stake_program_id ) ||
       fd_accdb_ref_lamports( ro )==0UL ||
-      0!=fd_stakes_get_state( ro->meta, &stake_state ) ||
-      !fd_stake_state_v2_is_stake( &stake_state ) ||
-      stake_state.inner.stake.stake.delegation.stake==0UL ) {
+      !( stake_state = fd_stake_state_view( fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ) ) ||
+      stake_state->stake_type!=FD_STAKE_STATE_STAKE ||
+      stake_state->stake.stake.delegation.stake==0UL ) {
     fd_accdb_close_ro( accdb, ro );
     return;
   }
@@ -103,12 +103,12 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
   fd_stake_delegations_root_update(
       stake_delegations,
       pubkey,
-      &stake_state.inner.stake.stake.delegation.voter_pubkey,
-      stake_state.inner.stake.stake.delegation.stake,
-      stake_state.inner.stake.stake.delegation.activation_epoch,
-      stake_state.inner.stake.stake.delegation.deactivation_epoch,
-      stake_state.inner.stake.stake.credits_observed,
-      stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+      &stake_state->stake.stake.delegation.voter_pubkey,
+      stake_state->stake.stake.delegation.stake,
+      stake_state->stake.stake.delegation.activation_epoch,
+      stake_state->stake.stake.delegation.deactivation_epoch,
+      stake_state->stake.stake.credits_observed,
+      stake_state->stake.stake.delegation.warmup_cooldown_rate );
   fd_accdb_close_ro( accdb, ro );
 }
 

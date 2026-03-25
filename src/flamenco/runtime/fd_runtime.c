@@ -19,7 +19,6 @@
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
 #include "../accdb/fd_accdb_sync.h"
-#include "../progcache/fd_progcache_user.h"
 
 #include "program/fd_builtin_programs.h"
 #include "program/fd_precompiles.h"
@@ -37,9 +36,7 @@
 
 #include "fd_system_ids.h"
 
-#include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
-#include "../../disco/shred/fd_stake_ci.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -1634,31 +1631,26 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       /* If an account is a stake account, then it must be added to the
          stake delegations cache. We should only add stake accounts that
          have a valid non-zero stake. */
-      fd_stake_state_v2_t stake_state = {0};
-      if( FD_UNLIKELY( !fd_bincode_decode_static(
-          stake_state_v2, &stake_state,
-          acc_data, account->meta.dlen ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 );
-        FD_LOG_ERR(( "Failed to deserialize genesis stake account %s", stake_b58 ));
-      }
-      if( !fd_stake_state_v2_is_stake( &stake_state )     ) continue;
-      if( !stake_state.inner.stake.stake.delegation.stake ) continue;
+      fd_stake_state_t const * stake_state = fd_stake_state_view( acc_data, account->meta.dlen );
+      if( FD_UNLIKELY( !stake_state ) ) { FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 ); FD_LOG_ERR(( "invalid stake account %s", stake_b58 )); }
+      if( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) continue;
+      if( !stake_state->stake.stake.delegation.stake ) continue;
 
-      if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.warmup_cooldown_rate!=0.25 &&
-                       stake_state.inner.stake.stake.delegation.warmup_cooldown_rate!=0.09 ) ) {
+      if( FD_UNLIKELY( stake_state->stake.stake.delegation.warmup_cooldown_rate!=0.25 &&
+                       stake_state->stake.stake.delegation.warmup_cooldown_rate!=0.09 ) ) {
         FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 );
-        FD_LOG_ERR(( "Invalid warmup cooldown rate %f for stake account %s", stake_state.inner.stake.stake.delegation.warmup_cooldown_rate, stake_b58 ));
+        FD_LOG_ERR(( "Invalid warmup cooldown rate %f for stake account %s", stake_state->stake.stake.delegation.warmup_cooldown_rate, stake_b58 ));
       }
 
       fd_stake_delegations_root_update(
           stake_delegations,
           &account->pubkey,
-          &stake_state.inner.stake.stake.delegation.voter_pubkey,
-          stake_state.inner.stake.stake.delegation.stake,
-          stake_state.inner.stake.stake.delegation.activation_epoch,
-          stake_state.inner.stake.stake.delegation.deactivation_epoch,
-          stake_state.inner.stake.stake.credits_observed,
-          stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+          &stake_state->stake.stake.delegation.voter_pubkey,
+          stake_state->stake.stake.delegation.stake,
+          stake_state->stake.stake.delegation.activation_epoch,
+          stake_state->stake.stake.delegation.deactivation_epoch,
+          stake_state->stake.stake.credits_observed,
+          stake_state->stake.stake.delegation.warmup_cooldown_rate );
 
     } else if( !memcmp( account->meta.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* Feature Account */

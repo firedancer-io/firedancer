@@ -8,9 +8,9 @@
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_system_ids.h"
 #include "fd_stake_delegations.h"
-#include "../accdb/fd_accdb_impl_v1.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "../../util/bits/fd_sat.h"
+#include "fd_stake_types.h"
 
 /**********************************************************************/
 /* Constants                                                          */
@@ -283,25 +283,35 @@ fd_stakes_config_init( fd_accdb_user_t *         accdb,
   write_stake_config( accdb, xid, &stake_config );
 }
 
-int
-fd_stakes_get_state( fd_account_meta_t const * meta,
-                     fd_stake_state_v2_t *     out ) {
-  int rc;
-
-  fd_bincode_decode_ctx_t bincode_ctx = {
-    .data    = fd_account_data( meta ),
-    .dataend = fd_account_data( meta ) + meta->dlen,
-  };
-
-  ulong total_sz = 0UL;
-  rc = fd_stake_state_v2_decode_footprint( &bincode_ctx, &total_sz );
-  if( FD_UNLIKELY( rc!=FD_BINCODE_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+fd_stake_state_t const *
+fd_stake_state_view( uchar const * data,
+                     ulong         data_sz ) {
+  if( FD_UNLIKELY( data_sz<4UL ) ) return NULL;
+  uint stake_type = FD_LOAD( uint, data );
+  switch( stake_type ) {
+  case FD_STAKE_STATE_UNINITIALIZED:
+    break;
+  case FD_STAKE_STATE_INITIALIZED:
+    if( FD_UNLIKELY( data_sz<124 ) ) return NULL;
+    break;
+  case FD_STAKE_STATE_STAKE:
+    if( FD_UNLIKELY( data_sz<197 ) ) return NULL;
+    break;
+  case FD_STAKE_STATE_REWARDS_POOL:
+    break;
+  default:
+    return NULL;
   }
+  return fd_type_pun_const( data );
+}
 
-  fd_stake_state_v2_decode( out, &bincode_ctx );
-
-  return 0;
+fd_stake_state_t const *
+fd_stakes_get_state( fd_account_meta_t const * meta ) {
+  if( FD_UNLIKELY( 0!=memcmp( meta->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) ) {
+    return NULL;
+  }
+  if( FD_UNLIKELY( meta->lamports==0UL ) ) return NULL;
+  return fd_stake_state_view( fd_account_data( meta ), meta->dlen );
 }
 
 fd_stake_history_entry_t
@@ -661,33 +671,27 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
     return;
   }
 
-  fd_stake_state_v2_t stake_state;
-  int err = fd_stakes_get_state( meta, &stake_state );
-  if( FD_UNLIKELY( err!=0 ) ) {
+  fd_stake_state_t const * stake_state = fd_stakes_get_state( meta );
+  if( FD_UNLIKELY( !stake_state ) ) {
     fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
-  if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+  if( FD_UNLIKELY( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) ) {
     fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
-  if( FD_UNLIKELY( fd_stake_state_v2_is_uninitialized( &stake_state ) ) ) {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
-    return;
-  }
-
-  if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
+  if( FD_UNLIKELY( stake_state->stake.stake.delegation.stake==0UL ) ) {
     fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
     return;
   }
 
   fd_stake_delegations_fork_update( stake_delegations, bank->data->stake_delegations_fork_id, pubkey,
-                                    &stake_state.inner.stake.stake.delegation.voter_pubkey,
-                                    stake_state.inner.stake.stake.delegation.stake,
-                                    stake_state.inner.stake.stake.delegation.activation_epoch,
-                                    stake_state.inner.stake.stake.delegation.deactivation_epoch,
-                                    stake_state.inner.stake.stake.credits_observed,
-                                    stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+                                    &stake_state->stake.stake.delegation.voter_pubkey,
+                                    stake_state->stake.stake.delegation.stake,
+                                    stake_state->stake.stake.delegation.activation_epoch,
+                                    stake_state->stake.stake.delegation.deactivation_epoch,
+                                    stake_state->stake.stake.credits_observed,
+                                    stake_state->stake.stake.delegation.warmup_cooldown_rate );
 }
