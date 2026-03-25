@@ -730,24 +730,46 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
         early_exit = fd_snapin_process_account_header( ctx, result );
+
+        if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX
+                      && !memcmp( result->account_header.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) )
+                      && result->account_header.data_len
+                      && result->account_header.data_len<=FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ ) ) {
+          ctx->gui_config_acct_sz  = result->account_header.data_len;
+          ctx->gui_config_acct_off = 0UL;
+        } else {
+          ctx->gui_config_acct_sz  = 0UL;
+        }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
         early_exit = fd_snapin_process_account_data( ctx, result );
 
-        /* We exepect ConfigKeys Vec to be length 2.  We expect the size
-           of ConfigProgram-owned accounts to be
-           FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, since this the size
-           that the solana CLI allocates for them.  Although the Config
-           program itself does not enforce this limit, the vast majority
-           of accounts (with a tiny number of excpetions on devnet) are
-           maintained with the solana cli. */
-        if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX && !memcmp( result->account_data.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) && result->account_data.data_sz && *(uchar *)result->account_data.data==2UL && result->account_data.data_sz<=FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ ) ) {
-          uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
-          fd_memcpy( acct, result->account_data.data, result->account_data.data_sz );
+        /* Account data may span multiple input chunks (when an account
+           straddles a decompressed chunk boundary), so we copy each
+           piece into the gui_out dcache and only publish once the full
+           account has been received.
 
-          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz, 0UL, 0UL, 0UL );
-          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz, ctx->gui_out.chunk0, ctx->gui_out.wmark );
-          early_exit = 1;
+           We expect ConfigKeys Vec to be length 2 (checked via the
+           first byte of the accumulated data).  We expect the size of
+           ConfigProgram-owned accounts to be at most
+           FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ, since this is the
+           size that the Solana CLI allocates for them. Although the
+           ConfigProgram itself does not enforce these invariants, the
+           vast majority of accounts (with a tiny number of excpetions
+           on devnet) are maintained with the Solana CLI. */
+        if( FD_UNLIKELY( ctx->gui_config_acct_sz ) ) {
+          uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
+          fd_memcpy( acct + ctx->gui_config_acct_off, result->account_data.data, result->account_data.data_sz );
+          ctx->gui_config_acct_off += result->account_data.data_sz;
+
+          if( FD_LIKELY( ctx->gui_config_acct_off>=ctx->gui_config_acct_sz ) ) {
+            ctx->gui_config_acct_sz = 0UL;
+            if( FD_LIKELY( acct[ 0 ]==2UL ) ) {
+              fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, ctx->gui_config_acct_off, 0UL, 0UL, 0UL );
+              ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, ctx->gui_config_acct_off, ctx->gui_out.chunk0, ctx->gui_out.wmark );
+              early_exit = 1;
+            }
+          }
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
@@ -1164,6 +1186,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
   ctx->in.pos                    = 0UL;
+
+  ctx->gui_config_acct_sz  = 0UL;
+  ctx->gui_config_acct_off = 0UL;
 
   ctx->buffered_batch.batch_cnt     = 0UL;
   ctx->buffered_batch.remaining_idx = 0UL;

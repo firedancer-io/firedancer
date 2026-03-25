@@ -132,6 +132,9 @@ struct fd_snapin_tile {
   fd_snapin_out_link_t gui_out;
   fd_snapin_out_link_t hash_out;
 
+  ulong gui_config_acct_sz;   /* total expected account data length (0 when not accumulating) */
+  ulong gui_config_acct_off;  /* bytes accumulated so far into the current gui_out link chunk */
+
   struct {
     uchar * pair;
     ulong   pair_sz;
