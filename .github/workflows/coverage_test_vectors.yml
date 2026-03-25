@@ -175,8 +175,12 @@ jobs:
                 const sfM = record.match(/^SF:(.+)$/m);
                 if (!sfM) continue;
                 const path = sfM[1];
-                const lh = parseInt((record.match(/^LH:(\d+)$/m) || ['','0'])[1]);
-                const lf = parseInt((record.match(/^LF:(\d+)$/m) || ['','0'])[1]);
+                // Count DA records directly (llvm-cov export can emit incorrect LH/LF
+                // summary fields; genhtml also counts from DA records, so this matches
+                // the HTML report).
+                const daEntries = [...record.matchAll(/^DA:(\d+),(\d+)$/gm)];
+                const lf = daEntries.length;
+                const lh = daEntries.filter(m => parseInt(m[2]) > 0).length;
                 for (const dir of DIRS) {
                   if (path.includes('/' + dir + '/')) {
                     stats[dir].lh += lh;
