@@ -2512,7 +2512,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &program_account );
   uchar is_deprecated = !memcmp( metadata->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
-  fd_accdb_ro_t progdata_ro[1]; fd_borrowed_account_ro( &program_account, progdata_ro );
+  fd_accdb_ro_t prog_ro[1];
+  fd_borrowed_account_ro( &program_account, prog_ro );
+  fd_accdb_ro_t * progdata_ro = prog_ro;
   if( !memcmp( metadata->owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
     fd_bpf_upgradeable_loader_state_t program_account_state[1];
     err = fd_bpf_loader_program_get_state( program_account.meta, program_account_state );
@@ -2536,26 +2538,21 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
-    fd_account_meta_t const * programdata_meta   = NULL;
-    fd_pubkey_t *             programdata_pubkey = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
-    err = fd_runtime_get_executable_account( ctx->runtime,
-                                             ctx->txn_in,
-                                             ctx->txn_out,
-                                             programdata_pubkey,
-                                             &programdata_meta );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    fd_pubkey_t * programdata_pubkey = &program_account_state->inner.program.programdata_address;
+    progdata_ro = fd_runtime_get_executable_account(
+        ctx->runtime, ctx->txn_in, ctx->txn_out, programdata_pubkey );
+    if( FD_UNLIKELY( !progdata_ro ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
-    fd_accdb_ro_init_nodb( progdata_ro, programdata_pubkey, programdata_meta );
 
-    if( FD_UNLIKELY( programdata_meta->dlen<PROGRAMDATA_METADATA_SIZE ) ) {
+    if( FD_UNLIKELY( fd_accdb_ref_data_sz( progdata_ro ) < PROGRAMDATA_METADATA_SIZE ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     fd_bpf_upgradeable_loader_state_t program_data_account_state[1];
-    err = fd_bpf_loader_program_get_state( programdata_meta, program_data_account_state );
+    err = fd_bpf_loader_program_get_state( progdata_ro->meta, program_data_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

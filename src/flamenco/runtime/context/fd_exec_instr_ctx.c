@@ -46,11 +46,9 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
                                       fd_borrowed_account_t *     account ) {
   /* Get the account from the transaction context using idx_in_txn.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L600-L602 */
-  int err = fd_runtime_get_account_at_index( ctx->txn_in,
-                                             ctx->txn_out,
-                                             idx_in_txn,
-                                             NULL );
-  if( FD_UNLIKELY( err ) ) {
+  fd_accdb_ref_t * ref = fd_runtime_get_account_at_index(
+      ctx->txn_in, ctx->txn_out, idx_in_txn, NULL );
+  if( FD_UNLIKELY( !ref ) ) {
     /* Return a MissingAccount error if the account is not found.
        https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L603 */
     FD_TXN_ERR_FOR_LOG_INSTR( ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, ctx->txn_out->err.exec_err_idx );

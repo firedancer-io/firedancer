@@ -203,6 +203,19 @@ fd_accdb_ref_slot_set( fd_accdb_rw_t * rw,
   rw->meta->slot = slot;
 }
 
+/* Upcast */
+
+static inline fd_accdb_ro_t *
+fd_accdb_ref_ro( fd_accdb_ref_t * ref ) {
+  return fd_type_pun( ref );
+}
+
+static inline fd_accdb_rw_t *
+fd_accdb_ref_rw( fd_accdb_ref_t * ref ) {
+  FD_TEST( ref->ref_type==FD_ACCDB_REF_RW );
+  return fd_type_pun( ref );
+}
+
 FD_PROTOTYPES_END
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_ref_t)==sizeof(fd_accdb_ro_t), layout );

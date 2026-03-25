@@ -132,7 +132,7 @@ typedef int fd_txn_account_condition_fn_t ( fd_txn_in_t const * txn_in,
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L223-L230 */
 
-int
+fd_accdb_ref_t *
 fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  ushort                          idx,
@@ -141,7 +141,7 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
 /* A wrapper around fd_exec_txn_ctx_get_account_at_index that obtains an
    account from the transaction context by its pubkey. */
 
-int
+fd_accdb_ref_t *
 fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  fd_pubkey_t const *             pubkey,
@@ -150,12 +150,11 @@ fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
 
 /* Gets an executable (program data) account via its pubkey. */
 
-int
-fd_runtime_get_executable_account( fd_runtime_t *              runtime,
-                                   fd_txn_in_t const *         txn_in,
-                                   fd_txn_out_t *              txn_out,
-                                   fd_pubkey_t const *         pubkey,
-                                   fd_account_meta_t const * * meta );
+fd_accdb_ro_t *
+fd_runtime_get_executable_account( fd_runtime_t *      runtime,
+                                   fd_txn_in_t const * txn_in,
+                                   fd_txn_out_t *      txn_out,
+                                   fd_pubkey_t const * pubkey );
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
 

@@ -800,7 +800,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* Simulate the upgrade: set programdata.slot = 10 (= current slot) in txn1's output.
     After a real upgrade instruction, the on-chain programdata.slot would equal the upgrade slot,
     which triggers the delayed-visibility check for any same-slot invocation. */
-  uchar * pd_out_data = fd_account_meta_get_data( env->txn_out[0].accounts.account[ pd_idx ].meta );
+  uchar * pd_out_data = fd_account_data( env->txn_out[0].accounts.account[ pd_idx ].meta );
   {
     fd_bpf_upgradeable_loader_state_t upgraded;
     fd_memset( &upgraded, 0, sizeof(upgraded) );
@@ -981,7 +981,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
 
     /* Simulate extending the ALT: update last_extended_slot_start_index
        from 2 to 4 so that all 4 addresses become active. */
-    uchar * alut_out_data = fd_account_meta_get_data(
+    uchar * alut_out_data = fd_account_data(
         env->txn_out[0].accounts.account[ alut_idx ].meta );
     fd_address_lookup_table_state_t extended_state = alut_state;
     extended_state.inner.lookup_table.meta.last_extended_slot_start_index = 4;

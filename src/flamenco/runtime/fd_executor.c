@@ -610,7 +610,7 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     fd_account_meta_t * meta = txn_out->accounts.account[i].meta;
 
-    uchar unknown_acc = !!(fd_runtime_get_account_at_index( txn_in, txn_out, i, fd_runtime_account_check_exists ) ||
+    uchar unknown_acc = !!( !fd_runtime_get_account_at_index( txn_in, txn_out, i, fd_runtime_account_check_exists ) ||
                             meta->lamports==0UL);
 
     /* Collect the fee payer account separately (since it was already)
@@ -655,18 +655,19 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
 
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L663-L666 */
-    fd_account_meta_t * program_meta = txn_out->accounts.account[instr->program_id].meta;
-    int err = fd_runtime_get_account_at_index( txn_in,
-                                               txn_out,
-                                               instr->program_id,
-                                               fd_runtime_account_check_exists );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || program_meta->lamports==0UL ) ) {
+    fd_accdb_ref_t * ref = fd_runtime_get_account_at_index(
+        txn_in, txn_out, instr->program_id, fd_runtime_account_check_exists );
+    if( FD_UNLIKELY( !ref ) ) {
+      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+    }
+    fd_accdb_ro_t * ro = fd_accdb_ref_ro( ref );
+    if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L677-L681 */
-    fd_pubkey_t const * owner_id = (fd_pubkey_t const *)program_meta->owner;
-    if( FD_UNLIKELY( memcmp( owner_id->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) &&
+    fd_pubkey_t const * owner_id = fd_accdb_ref_owner( ro );
+    if( FD_UNLIKELY( !fd_pubkey_eq( owner_id, &fd_solana_native_loader_id ) &&
                      !fd_executor_pubkey_is_bpf_loader( owner_id ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
@@ -820,11 +821,9 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
                                             fd_txn_in_t const * txn_in,
                                             fd_txn_out_t *      txn_out ) {
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L574-L580 */
-  int err = fd_runtime_get_account_at_index( txn_in,
-                                             txn_out,
-                                             FD_FEE_PAYER_TXN_IDX,
-                                             fd_runtime_account_check_fee_payer_writable );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ref_t * ref = fd_runtime_get_account_at_index(
+      txn_in, txn_out, FD_FEE_PAYER_TXN_IDX, fd_runtime_account_check_fee_payer_writable );
+  if( FD_UNLIKELY( !ref ) ) {
     FD_BASE58_ENCODE_32_BYTES( txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX].uc, pubkey_b58 );
     FD_LOG_DEBUG(( "Fee payer isn't writable %s", pubkey_b58 ));
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
@@ -842,10 +841,8 @@ fd_executor_validate_transaction_fee_payer( fd_runtime_t *      runtime,
   ulong total_fee = fd_ulong_sat_add( execution_fee, priority_fee );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
-  err = fd_validate_fee_payer( fee_payer_key, fee_payer_meta, &bank->data->f.rent, total_fee );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
-  }
+  int err = fd_validate_fee_payer( fee_payer_key, fee_payer_meta, &bank->data->f.rent, total_fee );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* Create the rollback fee payer account
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L620-L626 */
@@ -975,8 +972,8 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
   int idx = fd_runtime_find_index_of_account( txn_out, &fd_sysvar_instructions_id );
   if( FD_UNLIKELY( idx!=-1 ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.12/transaction-context/src/lib.rs#L397-L400 */
-    err = fd_runtime_get_account_at_index( txn_in, txn_out, (ushort)idx, NULL );
-    if( FD_UNLIKELY( err ) ) {
+    fd_accdb_ref_t * ref = fd_runtime_get_account_at_index( txn_in, txn_out, (ushort)idx, NULL );
+    if( FD_UNLIKELY( !ref ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 

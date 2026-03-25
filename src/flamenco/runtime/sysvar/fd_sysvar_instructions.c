@@ -39,19 +39,6 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
   fd_txn_t const * txn           = TXN( txn_in->txn );
   ulong            serialized_sz = instructions_serialized_size( txn );
 
-  int index;
-  int err = fd_runtime_get_account_with_key( txn_in,
-                                             txn_out,
-                                             &fd_sysvar_instructions_id,
-                                             &index,
-                                             fd_runtime_account_check_exists );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && index==-1 ) ) {
-    /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
-       before this is called, and this is only called if the sysvar instructions account is in
-       the borrowed accounts list. */
-    FD_LOG_ERR(( "Failed to view sysvar instructions borrowed account. It may not be included in the txn account keys." ));
-  }
-
   fd_account_meta_t * meta = txn_out->accounts.account[ txn_idx ].meta;
   /* Agave sets up the borrowed account for the instructions sysvar to contain
      default values except for the data which is serialized into the account. */
@@ -79,7 +66,7 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
   // serialize instructions
   for( ushort i=0; i<instr_cnt; ++i ) {
     // set the instruction offset
-    FD_STORE( ushort, serialized_instruction_offsets, (ushort) offset );
+    FD_STORE( ushort, serialized_instruction_offsets, (ushort)offset );
     serialized_instruction_offsets += sizeof(ushort);
 
     fd_txn_instr_t const * instr = &txn->instr[i];

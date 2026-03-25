@@ -3,28 +3,17 @@
 
 /* fd_acc_mgr provides APIs for the Solana account database. */
 
-#include "../../funk/fd_funk_base.h"
 #include "../types/fd_types_custom.h"
 
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
 #endif
 
-/* FD_ACC_MGR_{SUCCESS,ERR{...}} are account management specific error codes.
-   To be stored in an int. */
-
-#define FD_ACC_MGR_SUCCESS             (0)
-#define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
-
-#define FD_ACC_NONCE_SZ_MAX (80UL)     /* 80 bytes */
-
 /* FD_ACC_TOT_SZ_MAX is the size limit of a Solana account in the firedancer
    client. This means that it includes the max size of the account (10MiB)
    and the associated metadata. */
 
-#define FD_ACC_TOT_SZ_MAX       (FD_RUNTIME_ACC_SZ_MAX + sizeof(fd_account_meta_t))
-
-#define FD_ACC_NONCE_TOT_SZ_MAX (FD_ACC_NONCE_SZ_MAX + sizeof(fd_account_meta_t))
+#define FD_ACC_TOT_SZ_MAX (FD_RUNTIME_ACC_SZ_MAX + sizeof(fd_account_meta_t))
 
 FD_PROTOTYPES_BEGIN
 
@@ -63,22 +52,6 @@ fd_account_meta_exists( fd_account_meta_t const * m ) {
           (m->dlen     > 0UL) |
           (has_owner        ) );
 
-}
-
-/* Account meta helpers */
-static inline void *
-fd_account_meta_get_data( fd_account_meta_t * m ) {
-  return ((uchar *) m) + sizeof(fd_account_meta_t);
-}
-
-static inline void const *
-fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
-  return ((uchar const *) m) + sizeof(fd_account_meta_t);
-}
-
-static inline ulong
-fd_account_meta_get_record_sz( fd_account_meta_t const * m ) {
-  return sizeof(fd_account_meta_t) + m->dlen;
 }
 
 FD_PROTOTYPES_END
