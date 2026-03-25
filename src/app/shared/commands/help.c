@@ -38,7 +38,7 @@ help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
                    action_cnt,
                    (ulong)sizeof( action_t * ),
                    action_cnt * (ulong)sizeof( action_t * ) ));
-      }
+    }
 
     for( ulong i=0UL; i<action_cnt; i++ ) {
       sorted[ i ] = ACTIONS[ i ];
