@@ -2661,7 +2661,7 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
 
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
-    /* change notarization levels and rebroadcast */
+    /* change votes levels and rebroadcast */
     slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
     fd_gui_printf_slot( gui, parent_slot );
     fd_http_server_ws_broadcast( gui->http );
@@ -2722,10 +2722,10 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
 }
 
 void
-fd_gui_handle_notarization_update( fd_gui_t *                        gui,
-                                   fd_tower_slot_confirmed_t const * notar ) {
-  if( FD_UNLIKELY( notar->slot!=ULONG_MAX && gui->summary.slot_optimistically_confirmed!=notar->slot && notar->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC && !notar->fwd ) ) {
-    fd_gui_handle_optimistically_confirmed_slot( gui, notar->slot );
+fd_gui_handle_votes_update( fd_gui_t *                        gui,
+                                   fd_tower_slot_confirmed_t const * votes ) {
+  if( FD_UNLIKELY( votes->slot!=ULONG_MAX && gui->summary.slot_optimistically_confirmed!=votes->slot && votes->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC && !votes->fwd ) ) {
+    fd_gui_handle_optimistically_confirmed_slot( gui, votes->slot );
   }
 }
 

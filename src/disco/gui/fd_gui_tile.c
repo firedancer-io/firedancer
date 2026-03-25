@@ -399,7 +399,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_now( ctx->clock ) );
       }
       if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-        fd_gui_handle_notarization_update( ctx->gui, (fd_tower_slot_confirmed_t const *)src );
+        fd_gui_handle_votes_update( ctx->gui, (fd_tower_slot_confirmed_t const *)src );
       }
       break;
     }

@@ -1101,8 +1101,11 @@
 | <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
 | <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
 | <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;invalid</span> | counter | Number of invalid vote txns (malformed, bad signature, etc.) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;ignored</span> | counter | Number of ignored vote txns (unrecognized slot or block id) |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;bad_&#8203;deser</span> | counter | Vote txn failed to deserialize |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;not_&#8203;tower_&#8203;sync</span> | counter | Vote txn was not a TowerSync instruction |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;empty_&#8203;tower</span> | counter | Vote txn had an empty tower |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;unknown_&#8203;slot</span> | counter | Vote txn was for a slot we haven't replayed |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;unknown_&#8203;block_&#8203;id</span> | counter | Vote txn was for a block id we don't recognize |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;merkle</span> | counter | Merkle root conflict |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;meta</span> | counter | Coding metadata conflict |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;last</span> | counter | Last shred index conflict |
@@ -1121,10 +1124,8 @@
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;ignored_&#8203;slot</span> | counter | Slot older than root or unable to derive leader schedule |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;proof_&#8203;constructed</span> | counter | Number of duplicate proofs we constructed from shreds |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;proof_&#8203;verified</span> | counter | Number of duplicate proofs we verified from gossip |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;seen</span> | counter | Number of hard forks we've seen (block ids with multiple candidate bank hashes) |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;pruned</span> | counter | Number of hard forks (candidate bank hashes) we've pruned |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;max_&#8203;width</span> | gauge | Max number of candidate bank hashes for a given block id |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;matched_&#8203;slot</span> | gauge | Highest slot where 52%+ of stake agreed on our bank hash |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;mismatched_&#8203;slot</span> | gauge | Highest slot where 52%+ of stake agreed on a different bank hash than ours (we hard forked) |
 
 </div>
 

@@ -1290,8 +1290,11 @@ metric introduced.
 
     <!-- Vote txns from TPU / Gossip -->
 
-    <counter name="VoteTxnInvalid" summary="Number of invalid vote txns (malformed, bad signature, etc.)" />
-    <counter name="VoteTxnIgnored" summary="Number of ignored vote txns (unrecognized slot or block id)" />
+    <counter name="VoteTxnBadDeser" summary="Vote txn failed to deserialize" />
+    <counter name="VoteTxnNotTowerSync" summary="Vote txn was not a TowerSync instruction" />
+    <counter name="VoteTxnEmptyTower" summary="Vote txn had an empty tower" />
+    <counter name="VoteTxnUnknownSlot" summary="Vote txn was for a slot we haven't replayed" />
+    <counter name="VoteTxnUnknownBlockId" summary="Vote txn was for a block id we don't recognize" />
 
     <!-- Rx duplicate shreds -->
 
@@ -1322,10 +1325,8 @@ metric introduced.
 
     <!-- Hard forks / bank hash cmp tracking -->
 
-    <counter name="HardForksSeen" summary="Number of hard forks we've seen (block ids with multiple candidate bank hashes)" />
-    <counter name="HardForksPruned" summary="Number of hard forks (candidate bank hashes) we've pruned" />
-    <gauge name="HardForksActive" summary="Currently active hard forks" />
-    <gauge name="HardForksMaxWidth" summary="Max number of candidate bank hashes for a given block id" />
+    <gauge name="HforkMatchedSlot" summary="Highest slot where 52%+ of stake agreed on our bank hash" />
+    <gauge name="HforkMismatchedSlot" summary="Highest slot where 52%+ of stake agreed on a different bank hash than ours (we hard forked)" />
 </tile>
 
 <tile name="gui">

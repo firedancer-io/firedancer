@@ -12,7 +12,7 @@
    intended to be as of the same slot. */
 
 struct fd_tower_voters {
-  fd_pubkey_t id;                           /* validator identity */
+  fd_pubkey_t id_key;                        /* validator identity */
   fd_pubkey_t vote_acc;                     /* vote account address */
   ulong       stake;                        /* vote account stake */
   uchar       data[FD_VOTE_STATE_DATA_MAX]; /* vote account data (max 3762 bytes) */

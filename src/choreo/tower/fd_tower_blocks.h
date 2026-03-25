@@ -41,6 +41,9 @@ struct fd_tower_blk {
   int       confirmed;          /* whether this slot has been duplicate confirmed */
   fd_hash_t confirmed_block_id; /* the block_id that was duplicate confirmed */
   ulong     bank_idx;           /* pool idx of the bank as of this replayed block */
+  int       leader;             /* whether this slot was our own leader slot */
+  int       propagated;         /* whether this slot has been propagation confirmed (1/3 stake) */
+  ulong     prev_leader_slot;   /* previous slot in which we were leader as of this slot */
 };
 typedef struct fd_tower_blk fd_tower_blk_t;
 
