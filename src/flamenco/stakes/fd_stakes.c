@@ -541,7 +541,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
        fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
     fd_pubkey_t pubkey;
     uchar       commission_t_2;
-    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2 );
+    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL );
 
 
     fd_accdb_ro_t vote_ro[1];

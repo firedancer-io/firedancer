@@ -161,7 +161,7 @@ typedef struct map_iter fd_top_votes_iter_t;
    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
         !fd_top_votes_iter_done( top_votes, iter );
         fd_top_votes_iter_next( top_votes, iter ) ) {
-     int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &last_vote_slot, &last_vote_timestamp );
+     int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, &last_vote_slot, &last_vote_timestamp );
    } */
 
 fd_top_votes_iter_t *
@@ -182,9 +182,9 @@ fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        fd_pubkey_t *          pubkey_out,
                        fd_pubkey_t *          node_account_out_opt,
                        ulong *                stake_out_opt,
+                       uchar *                commission_out_opt,
                        ulong *                last_vote_slot_out_opt,
-                       long *                 last_vote_timestamp_out_opt,
-                       uchar *                commission_out_opt );
+                       long *                 last_vote_timestamp_out_opt );
 
 FD_PROTOTYPES_END
 

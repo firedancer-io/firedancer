@@ -239,7 +239,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
     ulong       stake_t_2;
     ulong       last_vote_slot;
     long        last_vote_timestamp;
-    int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, &last_vote_slot, &last_vote_timestamp, NULL );
+    int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp );
     if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
