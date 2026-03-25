@@ -143,7 +143,6 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
   ushort             fork_idx    = bank->data->vote_stakes_fork_id;
 
   fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
-  FD_TEST( top_votes );
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
@@ -231,7 +230,6 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
   ulong                       current_slot   = bank->data->f.slot;
 
   fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
-  FD_TEST( top_votes );
 
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
   for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
@@ -242,7 +240,6 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
     ulong       last_vote_slot;
     long        last_vote_timestamp;
     fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, &last_vote_slot, &last_vote_timestamp );
-    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
     ulong slot_delta;

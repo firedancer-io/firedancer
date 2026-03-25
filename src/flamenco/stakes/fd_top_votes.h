@@ -30,7 +30,9 @@
    top 2000 staked vote accounts into the epoch stakes.  This means for
    the t-1 epoch, the top voters set contains the top 2000 staked vote
    accounts (with a BLS pubkey) and the account must exist at the epoch
-   boundary. */
+   boundary.  However, a vote account can be deleted even if it is in
+   the top votes set.  If this is the case, the account will be marked
+   as invalid since it can be recreated. */
 
 struct fd_top_votes;
 typedef struct fd_top_votes fd_top_votes_t;
