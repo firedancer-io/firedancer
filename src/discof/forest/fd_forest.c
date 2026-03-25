@@ -1089,6 +1089,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
      and invalidating the merkle root if we see more than 1 version of
      the FEC. */
   uint fec_idx = fec_set_idx / 32UL;
+  if( FD_UNLIKELY( fec_idx + 1 >= FD_FEC_BLK_MAX ) ) return NULL;
   if( FD_UNLIKELY( merkle_verified( ele, fec_idx + 1 ) ) ) { /* if the cmr pointing to this FEC has been verified, then... */
     if( FD_UNLIKELY(
          ( fec_idx == (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->confirmed_bid, mr ) ) ||
