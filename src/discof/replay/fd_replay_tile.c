@@ -1143,7 +1143,9 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     fd_pubkey_t node_account_t_2;
     ulong       stake_t_1;
     ulong       stake_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2, NULL, NULL );
+    uchar       commission_t_1;
+    uchar       commission_t_2;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2, &commission_t_1, &commission_t_2 );
 
     int is_valid = 1;
     fd_accdb_ro_t acc[1];
@@ -1156,12 +1158,12 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
     if( FD_LIKELY( is_valid ) ) {
       fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( acc->meta ), acc->meta->dlen );
-      fd_top_votes_insert( top_votes_t_2, &pubkey, &node_account_t_2, stake_t_2, last_vote.slot, last_vote.timestamp, 1 );
-      fd_top_votes_insert( top_votes_t_1, &pubkey, &node_account_t_1, stake_t_1, last_vote.slot, last_vote.timestamp, 1 );
+      fd_top_votes_insert( top_votes_t_1, &pubkey, &node_account_t_1, stake_t_1, last_vote.slot, last_vote.timestamp, 1, commission_t_1 );
+      fd_top_votes_insert( top_votes_t_2, &pubkey, &node_account_t_2, stake_t_2, last_vote.slot, last_vote.timestamp, 1, commission_t_2 );
       fd_accdb_close_ro( ctx->accdb, acc );
     } else {
-      fd_top_votes_insert( top_votes_t_1, &pubkey, &node_account_t_1, stake_t_1, 0UL, 0L, 0 );
-      fd_top_votes_insert( top_votes_t_2, &pubkey, &node_account_t_2, stake_t_2, 0UL, 0L, 0 );
+      fd_top_votes_insert( top_votes_t_1, &pubkey, &node_account_t_1, stake_t_1, 0UL, 0L, 0, commission_t_1  );
+      fd_top_votes_insert( top_votes_t_2, &pubkey, &node_account_t_2, stake_t_2, 0UL, 0L, 0, commission_t_2 );
       fd_top_votes_invalidate( top_votes_t_2, &pubkey );
     }
   }

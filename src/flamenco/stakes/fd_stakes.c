@@ -336,7 +336,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
       fd_pubkey_t pubkey;
       ulong       stake_t_2;
       fd_pubkey_t node_account_t_2;
-      fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, &node_account_t_2, &stake_t_2, NULL, NULL );
+      fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, &node_account_t_2, &stake_t_2, NULL, NULL, NULL );
 
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
@@ -382,7 +382,7 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
       fd_pubkey_t pubkey;
       ulong       stake_t_1;
       fd_pubkey_t node_account_t_1;
-      fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, &node_account_t_1, &stake_t_1, NULL, NULL );
+      fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, &node_account_t_1, &stake_t_1, NULL, NULL, NULL );
 
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
@@ -542,17 +542,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
            effectively inserting a tombstone for the t-1 epoch since the
            account doesn't exist going into the epoch boundary. */
 
-        fd_vote_stakes_insert_key(
-            vote_stakes,
-            child_idx,
-            &stake_delegation->vote_account,
-            &node_account_t_2, /* doesn't matter */
-            &node_account_t_2,
-            stake_t_2,
-            0,
-            commission_t_2,
-            bank->data->f.epoch,
-            0 );
+        fd_vote_stakes_insert_key( vote_stakes, child_idx, &stake_delegation->vote_account, &node_account_t_2, &node_account_t_2, stake_t_2, 0, commission_t_2, bank->data->f.epoch, 0 );
       } else {
         /* If the account currently exists, we need to insert the entry
            into the vote stakes data structure.  We will treat the t-2
@@ -563,32 +553,14 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         ulong       last_vote_slot;
         long        last_vote_timestamp;
         fd_epoch_credits_t * epoch_credits = vote_ele_cnt<runtime_stack->expected_vote_accounts ? &runtime_stack->stakes.epoch_credits[ vote_ele_cnt ] : NULL;
-        get_vote_credits_commission(
-            fd_accdb_ref_data_const( vote_ro ),
-            fd_accdb_ref_data_sz( vote_ro ),
-            vsv_buf,
-            &commission_t_1,
-            &curr_node_account_t_1,
-            &last_vote_slot,
-            &last_vote_timestamp,
-            epoch_credits );
+        get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), vsv_buf, &commission_t_1, &curr_node_account_t_1, &last_vote_slot, &last_vote_timestamp, epoch_credits );
         fd_accdb_close_ro( accdb, vote_ro );
 
         /* If old_node_account_t_1 gets zero-initialized which means
            that it is still valid to use.  Even if the account exists
            now, and it didn't at the end of the t-2 epoch, it's still
            treated as though it didn't exist at the end of t-2. */
-        fd_vote_stakes_insert_key(
-            vote_stakes,
-            child_idx,
-            &stake_delegation->vote_account,
-            &curr_node_account_t_1,
-            &node_account_t_2,
-            stake_t_2,
-            commission_t_1,
-            commission_t_2,
-            bank->data->f.epoch,
-            1 );
+        fd_vote_stakes_insert_key( vote_stakes, child_idx, &stake_delegation->vote_account, &curr_node_account_t_1, &node_account_t_2, stake_t_2, commission_t_1, commission_t_2, bank->data->f.epoch, 1 );
 
         fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
         vote_ele->pubkey             = stake_delegation->vote_account;
@@ -614,7 +586,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   /* Once validator admission ticket is active, the above stake
      accumulation can greatly be simplified: only accumulate stake for
      all staked accounts (only need to accumulate the t-1 stake and
-     nothing else). */
+     nothing else).  Also the vote reward map should at that point just
+     correspond to the entries in the t-2 top votes. */
 
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
@@ -631,9 +604,10 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_pubkey_t pubkey;
     ulong       stake_t_1;
     fd_pubkey_t node_account_t_1;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, child_idx, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL, NULL, NULL );
+    uchar       commission_t_1;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, child_idx, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL, &commission_t_1, NULL );
     if( FD_UNLIKELY( !stake_t_1 ) ) continue;
-    fd_top_votes_insert( top_votes_t_1, &pubkey, &node_account_t_1, stake_t_1, 0UL, 0UL, 1 );
+    fd_top_votes_insert( top_votes_t_1, &pubkey, &node_account_t_1, stake_t_1, 0UL, 0UL, 1, commission_t_1 );
   }
 
   /* Update the state of the vote accounts in the top votes set for the
@@ -643,7 +617,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
        !fd_top_votes_iter_done( top_votes_t_2, iter );
        fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
     fd_pubkey_t pubkey;
-    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, NULL, NULL, NULL );
 
 
     fd_accdb_ro_t vote_ro[1];
