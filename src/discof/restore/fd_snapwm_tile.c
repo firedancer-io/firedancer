@@ -456,6 +456,18 @@ unprivileged_init( fd_topo_t *      topo,
   if( 0==strcmp( snapwm_out_link->name, "snapwm_lv" ) ) {
     ctx->hash_out = out1( topo, tile, "snapwm_lv" );
     FD_TEST( ctx->hash_out.mtu==FD_SNAPWM_DUP_META_BATCH_SZ );
+    /* The link mtu is FD_SNAPWM_DUP_META_BATCH_SZ, but snapwm also
+       forwards one fd_ssctrl_hash_result_t message per snapshot which
+       is larger than mtu.  Set wmark for the larger message so the
+       write does not exceed chunk1.  The link burst provides enough
+       extra dcache capacity for this. */
+    ulong wm_lv_mtu       = snapwm_out_link->mtu;
+    FD_TEST( wm_lv_mtu>0UL );
+    ulong wm_lv_burst     = snapwm_out_link->burst;
+    ulong wm_lv_burst_min = ( sizeof(fd_ssctrl_hash_result_t) + wm_lv_mtu - 1UL ) / wm_lv_mtu;
+    FD_TEST( wm_lv_burst>=wm_lv_burst_min );
+    void * dcache = snapwm_out_link->dcache;
+    ctx->hash_out.wmark = fd_dcache_compact_wmark( ctx->hash_out.mem, dcache, sizeof(fd_ssctrl_hash_result_t) );
   }
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
