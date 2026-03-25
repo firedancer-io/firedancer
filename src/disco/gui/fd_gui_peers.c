@@ -646,6 +646,16 @@ geoip_lookup( fd_gui_ip_db_t const * ip_db,
 #define SORT_BEFORE(a,b) (memcmp( (a).identity_key.uc, (b).identity_key.uc, 32UL )<0)
 #include "../../util/tmpl/fd_sort.c"
 
+#define SORT_NAME fd_gui_peers_voter_sort_iden_desc
+#define SORT_KEY_T fd_gui_peers_voter_t
+#define SORT_BEFORE(a,b) (memcmp( (a).weight.id_key.uc, (b).weight.id_key.uc, 32UL )>0)
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME fd_gui_peers_voter_idx_sort_vote_desc
+#define SORT_KEY_T fd_gui_peers_voter_idx_t
+#define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )>0)
+#include "../../util/tmpl/fd_sort.c"
+
 static void
 wfs_handle_contact_info_update( fd_gui_peers_ctx_t * peers,
                                 fd_pubkey_t const *  identity,
@@ -686,6 +696,26 @@ wfs_handle_contact_info_remove( fd_gui_peers_ctx_t * peers,
     fd_gui_peers_printf_wfs_remove( peers, &idx, 1UL );
     fd_http_server_ws_broadcast( peers->http );
   }
+}
+
+static inline fd_gui_peers_voter_t const *
+fd_gui_peers_voter_best_for_identity( fd_gui_peers_voter_t const * voters,
+                                      ulong                        voter_cnt,
+                                      ulong *                      p_i ) {
+  ulong i = *p_i;
+  ulong j = i + 1UL;
+  fd_gui_peers_voter_t const * best = &voters[ i ];
+  while( j<voter_cnt && !memcmp( voters[ j ].weight.id_key.uc, best->weight.id_key.uc, sizeof(fd_pubkey_t) ) ) {
+    fd_gui_peers_voter_t const * candidate  = &voters[ j ];
+    ulong                        slot_best  = fd_ulong_if( best->vote_slot==ULONG_MAX, 0UL, best->vote_slot );
+    ulong                        slot_cand  = fd_ulong_if( candidate->vote_slot==ULONG_MAX, 0UL, candidate->vote_slot );
+    if( (slot_cand>slot_best) || ((slot_cand==slot_best) && (candidate->weight.stake>best->weight.stake)) ) {
+      best = candidate;
+    }
+    j++;
+  }
+  *p_i = j;
+  return best;
 }
 
 void
@@ -774,6 +804,33 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           peer->delinquent = 0;
           peer->stake = ULONG_MAX;
 
+          /* Backfill stake from already-received epoch data.  This
+             handles the case where epoch info arrived before this peer
+             was known via gossip.  If both epoch slots are populated,
+             use the larger (current) epoch. */
+          fd_vote_stake_weight_t best_weight = {0};
+          int                    found       = 0;
+          int   have_0 = peers->epochs[ 0 ].epoch!=ULONG_MAX;
+          int   have_1 = peers->epochs[ 1 ].epoch!=ULONG_MAX;
+          ulong ep = fd_ulong_if( have_0 & have_1, fd_ulong_if( peers->epochs[ 0 ].epoch>peers->epochs[ 1 ].epoch, 0UL, 1UL ), fd_ulong_if( have_0, 0UL, fd_ulong_if( have_1, 1UL, ULONG_MAX ) ) );
+          if( FD_LIKELY( ep!=ULONG_MAX ) ) {
+            fd_gui_peers_voter_t const * stakes = peers->epochs[ ep ].stakes;
+            ulong                        cnt    = peers->epochs[ ep ].stakes_cnt;
+
+            fd_gui_peers_voter_t query = { .weight = { .id_key = peer->pubkey } };
+            ulong idx = fd_gui_peers_voter_sort_iden_desc_split( stakes, cnt, query );
+            if( FD_LIKELY( idx<cnt && !memcmp( stakes[ idx ].weight.id_key.uc, peer->pubkey.uc, sizeof(fd_pubkey_t) ) ) ) {
+              fd_gui_peers_voter_t const * best = fd_gui_peers_voter_best_for_identity( stakes, cnt, &idx );
+              best_weight = best->weight;
+              found       = 1;
+            }
+          }
+          if( FD_UNLIKELY( found ) ) {
+            peer->has_vote_info = 1;
+            peer->vote_account  = best_weight.vote_key;
+            peer->stake         = best_weight.stake;
+          }
+
           fd_gui_config_parse_info_t * info =  fd_gui_peers_node_info_map_ele_query( peers->node_info_map, fd_type_pun_const(update->origin ), NULL, peers->node_info_pool );
           if( FD_LIKELY( info ) ) fd_memcpy( peer->name, info->name, sizeof(info->name) );
           else                    peer->name[ 0 ] = '\0';
@@ -858,16 +915,6 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
     }
 }
 
-#define SORT_NAME fd_gui_peers_voter_sort_iden_desc
-#define SORT_KEY_T fd_gui_peers_voter_t
-#define SORT_BEFORE(a,b) (memcmp( (a).weight.id_key.uc, (b).weight.id_key.uc, 32UL )>0)
-#include "../../util/tmpl/fd_sort.c"
-
-#define SORT_NAME fd_gui_peers_voter_sort_vote_desc
-#define SORT_KEY_T fd_gui_peers_voter_t
-#define SORT_BEFORE(a,b) (memcmp( (a).weight.vote_key.uc, (b).weight.vote_key.uc, 32UL )>0)
-#include "../../util/tmpl/fd_sort.c"
-
 void
 fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
                           fd_pubkey_t const *  vote_account,
@@ -880,32 +927,14 @@ fd_gui_peers_handle_vote( fd_gui_peers_ctx_t * peers,
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
-    ulong peer_idx = fd_gui_peers_voter_sort_vote_desc_split( peers->epochs[ i ].stakes, peers->epochs[ i ].stakes_cnt, (fd_gui_peers_voter_t){ .weight = { .vote_key = *vote_account } } );
-    if( FD_UNLIKELY( peer_idx>=peers->epochs[ i ].stakes_cnt || memcmp( peers->epochs[ i ].stakes[ peer_idx ].weight.vote_key.uc, vote_account->uc, sizeof(fd_pubkey_t) ) ) ) continue;
+    fd_gui_peers_voter_idx_t * vidx = peers->epochs[ i ].vote_idx;
+    ulong                      cnt  = peers->epochs[ i ].stakes_cnt;
+    ulong pos = fd_gui_peers_voter_idx_sort_vote_desc_split( vidx, cnt, (fd_gui_peers_voter_idx_t){ .key = *vote_account } );
+    if( FD_UNLIKELY( pos>=cnt || memcmp( vidx[ pos ].key.uc, vote_account->uc, sizeof(fd_pubkey_t) ) ) ) continue;
 
-    fd_gui_peers_voter_t * voter = &peers->epochs[ i ].stakes[ peer_idx ];
+    fd_gui_peers_voter_t * voter = &peers->epochs[ i ].stakes[ vidx[ pos ].idx ];
     voter->vote_slot = fd_ulong_if( voter->vote_slot==ULONG_MAX, vote_slot, fd_ulong_max( voter->vote_slot, vote_slot ) );
   }
-}
-
-static inline fd_gui_peers_voter_t const *
-fd_gui_peers_voter_best_for_identity( fd_gui_peers_voter_t const * voters,
-                                      ulong                        voter_cnt,
-                                      ulong *                      p_i ) {
-  ulong i = *p_i;
-  ulong j = i + 1UL;
-  fd_gui_peers_voter_t const * best = &voters[ i ];
-  while( j<voter_cnt && !memcmp( voters[ j ].weight.id_key.uc, best->weight.id_key.uc, 32UL ) ) {
-    fd_gui_peers_voter_t const * candidate  = &voters[ j ];
-    ulong                        slot_best  = fd_ulong_if( best->vote_slot==ULONG_MAX, 0UL, best->vote_slot );
-    ulong                        slot_cand  = fd_ulong_if( candidate->vote_slot==ULONG_MAX, 0UL, candidate->vote_slot );
-    if( ( slot_cand>slot_best ) || ( ( slot_cand==slot_best ) && ( candidate->weight.stake>best->weight.stake ) ) ) {
-      best = candidate;
-    }
-    j++;
-  }
-  *p_i = j;
-  return best;
 }
 
 void
@@ -971,8 +1000,14 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
     fd_http_server_ws_broadcast( peers->http );
   }
 
-  /* maintain invariant for fd_gui_peers_handle_vote */
-  fd_gui_peers_voter_sort_vote_desc_inplace( peers->epochs[ epoch_idx ].stakes, peers->epochs[ epoch_idx ].stakes_cnt );
+  /* Build vote account index for fd_gui_peers_handle_vote */
+  for( ulong j=0UL; j<stakes_cnt; j++ ) {
+    peers->epochs[ epoch_idx ].vote_idx[ j ] = (fd_gui_peers_voter_idx_t){
+      .key = peers->epochs[ epoch_idx ].stakes[ j ].weight.vote_key,
+      .idx = j,
+    };
+  }
+  fd_gui_peers_voter_idx_sort_vote_desc_inplace( peers->epochs[ epoch_idx ].vote_idx, stakes_cnt );
 }
 
 #define SORT_NAME        fd_gui_peers_voter_sort_slot_stake_desc
@@ -983,38 +1018,39 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
 void
 fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
                                  long                 now FD_PARAM_UNUSED ) {
-  ulong epoch_t_2     = ULONG_MAX;
-  for( ulong i=0UL; i<2UL; i++ ) if( epoch_t_2==ULONG_MAX || peers->epochs[ i ].epoch<epoch_t_2 ) epoch_t_2 = peers->epochs[ i ].epoch;
-  ulong epoch_idx = epoch_t_2 % 2UL;
+  ulong epoch_t_1 = ULONG_MAX;
+  for( ulong i=0UL; i<2UL; i++ ) {
+    ulong epoch = peers->epochs[ i ].epoch;
+    if( FD_UNLIKELY( epoch==ULONG_MAX ) ) continue;
+    if( FD_LIKELY( epoch_t_1==ULONG_MAX || epoch>epoch_t_1 ) ) epoch_t_1 = epoch;
+  }
+  ulong epoch_idx = epoch_t_1 % 2UL;
 
   fd_gui_peers_voter_t * voters     = peers->epochs[ epoch_idx ].stakes;
   ulong                  voters_cnt = peers->epochs[ epoch_idx ].stakes_cnt;
 
-  /* Sort for p67 computation */
-  fd_gui_peers_voter_sort_slot_stake_desc_inplace( voters, voters_cnt );
+  /* Copy to scratch and sort for p67 computation.  We use a scratch
+     copy to avoid clobbering the identity sort order of stakes. */
+  fd_gui_peers_voter_t * scratch = peers->scratch.voters_scratch;
+  fd_memcpy( scratch, voters, voters_cnt * sizeof(fd_gui_peers_voter_t) );
+  fd_gui_peers_voter_sort_slot_stake_desc_inplace( scratch, voters_cnt );
 
   ulong total_stake = 0UL;
-  for( ulong i=0UL; i<voters_cnt; i++ ) total_stake += voters[ i ].weight.stake;
+  for( ulong i=0UL; i<voters_cnt; i++ ) total_stake += scratch[ i ].weight.stake;
 
   ulong cumulative_stake   = 0UL;
   ulong last_vote_slot_p33 = ULONG_MAX;
   for( ulong i=0UL; i<voters_cnt; i++ ) {
-    if( FD_UNLIKELY( voters[ i ].vote_slot==ULONG_MAX ) ) continue;
-    cumulative_stake += voters[ i ].weight.stake;
+    if( FD_UNLIKELY( scratch[ i ].vote_slot==ULONG_MAX ) ) continue;
+    cumulative_stake += scratch[ i ].weight.stake;
     if( FD_LIKELY( 3UL*cumulative_stake > 1UL*total_stake ) ) {
-      last_vote_slot_p33 = voters[ i ].vote_slot;
+      last_vote_slot_p33 = scratch[ i ].vote_slot;
       break;
     }
   }
   if( FD_UNLIKELY( last_vote_slot_p33==ULONG_MAX ) ) {
-    /* maintain invariant for fd_gui_peers_handle_vote */
-    fd_gui_peers_voter_sort_vote_desc_inplace( voters, voters_cnt );
-
     return; /* not enough observed votes */
   }
-
-  /* sort by identity for deduplication */
-  fd_gui_peers_voter_sort_iden_desc_inplace( voters, voters_cnt );
 
   ulong updated_cnt = 0UL;
   for( ulong i=0UL; i<voters_cnt; i++ ) {
@@ -1044,9 +1080,6 @@ fd_gui_peers_update_delinquency( fd_gui_peers_ctx_t * peers,
     fd_gui_peers_printf_nodes( peers, peers->scratch.actions, peers->scratch.idxs, updated_cnt );
     fd_http_server_ws_broadcast( peers->http );
   }
-
-  /* maintain invariant for fd_gui_peers_handle_vote */
-  fd_gui_peers_voter_sort_vote_desc_inplace( voters, voters_cnt );
 }
 
 void
