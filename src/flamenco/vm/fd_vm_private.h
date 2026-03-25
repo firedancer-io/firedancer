@@ -100,6 +100,8 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
 #define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  FD_SBPF_V2 )
 #define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= FD_SBPF_V2 )
 #define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= FD_SBPF_V2 )
+/* SIMD-0189: https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L83-L85 */
+#define FD_VM_SBPF_LOWER_BYTECODE_VADDR(v)         ( v >= FD_SBPF_V3 )
 
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
 
@@ -202,11 +204,25 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 
 static inline fd_vm_t *
 fd_vm_mem_cfg( fd_vm_t * vm ) {
-  vm->region_haddr[0] = 0UL;                                vm->region_ld_sz[0]                  = (uint)0UL;             vm->region_st_sz[0]                  = (uint)0UL;
-  vm->region_haddr[FD_VM_PROG_REGION]  = (ulong)vm->rodata; vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)vm->rodata_sz;   vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
-  vm->region_haddr[FD_VM_STACK_REGION] = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
-  vm->region_haddr[FD_VM_HEAP_REGION]  = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
-  vm->region_haddr[5]                  = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
+  if( FD_VM_SBPF_LOWER_BYTECODE_VADDR( vm->sbpf_version ) ) {
+    /* In SBPF V3, rodata is at vaddr 0:
+       [rodata@0, empty@0x100000000, stack@0x200000000, heap@0x300000000, input@0x400000000]
+
+       This is so that we don't need to do any relocations - all rodata
+       accesses are direct offsets from 0.
+
+       https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L358-L362
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/syscalls/src/lib.rs#L346 */
+    vm->region_haddr[0]                  = (ulong)vm->rodata; vm->region_ld_sz[0]                  = (uint)vm->rodata_sz;   vm->region_st_sz[0]                  = (uint)0UL;
+    vm->region_haddr[FD_VM_PROG_REGION]  = 0UL;               vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)0UL;             vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
+  } else {
+    /* V0-V2: region 0 unused, rodata at region 1 (vaddr 0x100000000) */
+    vm->region_haddr[0]                  = 0UL;               vm->region_ld_sz[0]                  = (uint)0UL;             vm->region_st_sz[0]                  = (uint)0UL;
+    vm->region_haddr[FD_VM_PROG_REGION]  = (ulong)vm->rodata; vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)vm->rodata_sz;   vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
+  }
+  vm->region_haddr[FD_VM_STACK_REGION]   = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
+  vm->region_haddr[FD_VM_HEAP_REGION]    = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
+  vm->region_haddr[5]                    = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
   if( vm->direct_mapping || !vm->input_mem_regions_cnt ) {
     /* When direct mapping is enabled, we don't use these fields because
        the load and stores are fragmented. */
