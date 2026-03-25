@@ -38,11 +38,11 @@ struct fd_epoch_credits {
 typedef struct fd_epoch_credits fd_epoch_credits_t;
 
 struct fd_vote_rewards {
-  fd_pubkey_t        pubkey;
-  ulong              vote_rewards;
-  uint               next;
-  uchar              commission_t_1;
-  uchar              commission_t_2;
+  fd_pubkey_t pubkey;
+  ulong       vote_rewards;
+  uint        next;
+  uchar       commission_t_1;
+  uchar       commission_t_2;
 };
 typedef struct fd_vote_rewards fd_vote_rewards_t;
 
@@ -56,12 +56,22 @@ typedef struct fd_vote_rewards fd_vote_rewards_t;
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define FD_VOTE_ELE_MAP_ALIGN     (128UL)
+struct fd_stake_accum {
+  fd_pubkey_t pubkey;
+  ulong       stake;
+  uint        next;
+};
+typedef struct fd_stake_accum fd_stake_accum_t;
 
-FD_FN_PURE static inline ulong
-fd_vote_ele_map_footprint( ulong max_vote_accounts ) {
-  return sizeof(fd_vote_rewards_map_t) + max_vote_accounts * sizeof(uint);
-}
+#define MAP_NAME               fd_stake_accum_map
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_ELE_T              fd_stake_accum_t
+#define MAP_KEY                pubkey
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( k0, k1, sizeof(fd_pubkey_t) ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_NEXT               next
+#define MAP_IDX_T              uint
+#include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_runtime_stack_t serves as stack memory to store temporary data
    for the runtime.  This object should only be used and owned by the
@@ -103,6 +113,12 @@ struct fd_runtime_stack {
 
     fd_calculated_stake_rewards_t * stake_rewards_result;
 
+    fd_stake_accum_t *     stake_accum;
+    fd_stake_accum_map_t * stake_accum_map;
+
+    fd_vote_rewards_t *     vote_ele;
+    fd_vote_rewards_map_t * vote_map;
+
     ulong       total_rewards;
     ulong       distributed_rewards;
     fd_w_u128_t total_points;
@@ -113,9 +129,6 @@ struct fd_runtime_stack {
        stake weights for the leader schedule calculation. */
     fd_vote_stake_weight_t * stake_weights;
     fd_stake_weight_t *      id_weights;
-
-    fd_vote_rewards_t * vote_ele;
-    void *              vote_map_mem;
 
     fd_epoch_credits_t * epoch_credits;
 
@@ -155,7 +168,9 @@ fd_runtime_stack_footprint( ulong max_vote_accounts,
   l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),       sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),            sizeof(fd_stake_weight_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, 128UL,                                 sizeof(fd_vote_rewards_t) * max_vote_accounts );
-  l = FD_LAYOUT_APPEND( l, FD_VOTE_ELE_MAP_ALIGN,                 fd_vote_ele_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_vote_rewards_map_align(),           fd_vote_rewards_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, 128UL,                                 sizeof(fd_stake_accum_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, fd_stake_accum_map_align(),            fd_stake_accum_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_epoch_credits_t),           sizeof(fd_epoch_credits_t) * expected_vote_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_calculated_stake_points_t), sizeof(fd_calculated_stake_points_t) * expected_stake_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_calculated_stake_rewards_t),sizeof(fd_calculated_stake_rewards_t) * expected_stake_accounts );
@@ -176,7 +191,9 @@ fd_runtime_stack_new( void * shmem,
   fd_vote_stake_weight_t *        stake_weights        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_vote_stake_weight_t),        sizeof(fd_vote_stake_weight_t) * max_vote_accounts );
   fd_stake_weight_t *             id_weights           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),             sizeof(fd_stake_weight_t) * max_vote_accounts );
   fd_vote_rewards_t *             vote_ele             = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  sizeof(fd_vote_rewards_t) * max_vote_accounts );
-  void *                          vote_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, FD_VOTE_ELE_MAP_ALIGN,                  fd_vote_ele_map_footprint( chain_cnt ) );
+  void *                          vote_map_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_rewards_map_align(),            fd_vote_rewards_map_footprint( chain_cnt ) );
+  fd_stake_accum_t *              stake_accum          = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                                  sizeof(fd_stake_accum_t) * max_vote_accounts );
+  void *                          stake_accum_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_accum_map_align(),             fd_stake_accum_map_footprint( chain_cnt ) );
   fd_epoch_credits_t *            epoch_credits        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),            sizeof(fd_epoch_credits_t) * expected_vote_accounts );
   fd_calculated_stake_points_t *  stake_points_result  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_calculated_stake_points_t),  sizeof(fd_calculated_stake_points_t) * expected_stake_accounts );
   fd_calculated_stake_rewards_t * stake_rewards_result = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_calculated_stake_rewards_t), sizeof(fd_calculated_stake_rewards_t) * expected_stake_accounts );
@@ -192,15 +209,23 @@ fd_runtime_stack_new( void * shmem,
   runtime_stack->stakes.stake_weights        = stake_weights;
   runtime_stack->stakes.id_weights           = id_weights;
   runtime_stack->stakes.vote_ele             = vote_ele;
-  runtime_stack->stakes.vote_map_mem         = vote_map_mem;
   runtime_stack->stakes.epoch_credits        = epoch_credits;
   runtime_stack->stakes.stake_points_result  = stake_points_result;
   runtime_stack->stakes.stake_rewards_result = stake_rewards_result;
+  runtime_stack->stakes.stake_accum          = stake_accum;
 
-  if( FD_UNLIKELY( !fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, chain_cnt, seed ) ) ) ) {
+  runtime_stack->stakes.stake_accum_map = fd_stake_accum_map_join( fd_stake_accum_map_new( stake_accum_map_mem, chain_cnt, seed ) );
+  if( FD_UNLIKELY( !runtime_stack->stakes.stake_accum_map ) ) {
     FD_LOG_WARNING(( "fd_runtime_stack_new: bad map" ));
     return NULL;
   }
+
+  runtime_stack->stakes.vote_map = fd_vote_rewards_map_join( fd_vote_rewards_map_new( vote_map_mem, chain_cnt, seed ) );
+  if( FD_UNLIKELY( !runtime_stack->stakes.vote_map ) ) {
+    FD_LOG_WARNING(( "fd_runtime_stack_new: bad map" ));
+    return NULL;
+  }
+
   return shmem;
 }
 

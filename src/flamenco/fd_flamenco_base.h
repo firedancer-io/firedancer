@@ -69,6 +69,9 @@ typedef struct fd_genesis fd_genesis_t;
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
+struct fd_top_votes;
+typedef struct fd_top_votes fd_top_votes_t;
+
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;

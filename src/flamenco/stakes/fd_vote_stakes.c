@@ -242,100 +242,51 @@ fd_vote_stakes_root_purge_key( fd_vote_stakes_t *  vote_stakes,
 }
 
 void
-fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
-                           ushort              fork_idx,
-                           fd_pubkey_t const * pubkey,
-                           fd_pubkey_t const * node_account_t_1,
-                           fd_pubkey_t const * node_account_t_2,
-                           ulong               stake_t_2,
-                           uchar               commission_t_1,
-                           uchar               commission_t_2,
-                           ulong               epoch,
-                           uchar               exists_curr ) {
+fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
+                       ushort              fork_idx,
+                       fd_pubkey_t const * pubkey,
+                       fd_pubkey_t const * node_account_t_1,
+                       fd_pubkey_t const * node_account_t_2,
+                       ulong               stake_t_1,
+                       ulong               stake_t_2,
+                       uchar               commission_t_1,
+                       uchar               commission_t_2,
+                       ulong               epoch ) {
+
   index_ele_t *       index_pool      = get_index_pool( vote_stakes );
+  index_map_t *       index_map       = get_index_map( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
   stake_t *           stakes_pool     = get_stakes_pool( vote_stakes, fork_idx );
   stakes_map_t *      stakes_map      = get_stakes_map( vote_stakes, fork_idx );
 
-  index_ele_t * index_ele = index_pool_ele_acquire( index_pool );
-  index_ele->pubkey           = *pubkey;
-  index_ele->node_account_t_1 = *node_account_t_1;
-  index_ele->node_account_t_2 = *node_account_t_2;
-  index_ele->commission_t_1   = commission_t_1;
-  index_ele->commission_t_2   = commission_t_2;
-  index_ele->stake_t_1        = 0UL;
-  index_ele->stake_t_2        = stake_t_2;
-  index_ele->epoch            = epoch % 2;
-  index_ele->exists_t_1       = !!exists_curr;
-  FD_TEST( index_map_multi_ele_insert( index_map_multi, index_ele, index_pool ) );
+  index_key_t index_key = {
+    .pubkey           = *pubkey,
+    .node_account_t_1 = *node_account_t_1,
+    .stake_t_1        = stake_t_1 & 0x7FFFFFFFFFFFFFFFUL,
+    .epoch            = epoch % 2,
+    .commission_t_1   = commission_t_1,
+  };
+  index_ele_t * index_ele = index_map_ele_query( index_map, &index_key, NULL, index_pool );
+  if( FD_LIKELY( !index_ele ) ) {
+    index_ele                   = index_pool_ele_acquire( index_pool );
+    index_ele->pubkey           = *pubkey;
+    index_ele->node_account_t_1 = *node_account_t_1;
+    index_ele->node_account_t_2 = *node_account_t_2;
+    index_ele->commission_t_1   = commission_t_1;
+    index_ele->commission_t_2   = commission_t_2;
+    index_ele->stake_t_1        = stake_t_1 & 0x7FFFFFFFFFFFFFFFUL;
+    index_ele->stake_t_2        = stake_t_2;
+    index_ele->epoch            = epoch % 2;
+    index_ele->refcnt           = 1;
+    FD_TEST( index_map_multi_ele_insert( index_map_multi, index_ele, index_pool ) );
+    FD_TEST( index_map_ele_insert( index_map, index_ele, index_pool ) );
+  } else {
+    index_ele->refcnt++;
+  }
 
   stake_t * stake = stakes_pool_ele_acquire( stakes_pool );
   stake->idx = (uint)index_pool_idx( index_pool, index_ele );
   FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
-}
-
-void
-fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
-                              ushort              fork_idx,
-                              fd_pubkey_t const * pubkey,
-                              ulong               stake ) {
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
-  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
-
-  uint ele_idx = (uint)index_map_multi_idx_query_const( index_map_multi, pubkey, UINT_MAX, index_pool );
-  FD_TEST( ele_idx!=UINT_MAX );
-
-  while( !stakes_map_ele_query( stakes_map, &ele_idx, NULL, stakes_pool ) ) {
-    ele_idx = (uint)index_map_multi_idx_next_const( ele_idx, UINT_MAX, index_pool );
-    FD_TEST( ele_idx!=UINT_MAX );
-  }
-
-  index_ele_t * index_ele = index_pool_ele( index_pool, ele_idx );
-
-  if( FD_UNLIKELY( index_ele->exists_t_1==0U ) ) return;
-  index_ele->stake_t_1 += (stake & 0x7FFFFFFFFFFFFFFFUL); /* mask to 63 bits */
-}
-
-void
-fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
-                            ushort             fork_idx ) {
-  index_ele_t *       index_pool      = get_index_pool( vote_stakes );
-  index_map_t *       index_map       = get_index_map( vote_stakes );
-  index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
-
-  stake_t *      stakes_pool = get_stakes_pool( vote_stakes, fork_idx );
-  stakes_map_t * stakes_map  = get_stakes_map( vote_stakes, fork_idx );
-
-  ulong stakes_pool_cnt = stakes_pool_used( stakes_pool );
-  for( ulong i=0UL; i<stakes_pool_cnt; i++ ) {
-    stake_t *     stake           = stakes_pool_ele( stakes_pool, i );
-    index_ele_t * index_ele       = index_pool_ele( index_pool, stake->idx );
-    index_ele_t * index_ele_query = index_map_ele_query( index_map, &index_ele->index_key, NULL, index_pool );
-    if( FD_UNLIKELY( index_ele_query ) ) {
-      /* The element that we inserted into the index matches up with an
-         existing element.  It is safe to release it from the stakes map
-         stakes index, index_pool, and index_map_multi.  Simply,
-         increase the reference to the existing element and add it to
-         the stakes map/pool.  The iteration we are doing is safe,
-         because the pool freelist has a lifo policy. */
-      index_ele_query->refcnt++;
-      index_map_multi_ele_remove_fast( index_map_multi, index_ele, index_pool );
-      index_pool_ele_release( index_pool, index_ele );
-      stakes_map_ele_remove( stakes_map, &stake->idx, NULL, stakes_pool );
-      stakes_pool_ele_release( stakes_pool, stake );
-
-      stake = stakes_pool_ele_acquire( stakes_pool );
-      stake->idx = (uint)index_pool_idx( index_pool, index_ele_query );
-      FD_TEST( stakes_map_ele_insert( stakes_map, stake, stakes_pool ) );
-    } else {
-      /* If the element is new, add it to the index map. */
-      index_ele->refcnt = 1;
-      index_map_ele_insert( index_map, index_ele, index_pool );
-    }
-  }
 }
 
 void

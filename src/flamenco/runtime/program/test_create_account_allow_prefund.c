@@ -188,7 +188,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp ) {
   env->bank->data->f.slot = 9UL;
   env->bank->data->f.epoch = 4UL;
 
-  fd_bank_top_votes_modify( env->bank );
+  fd_bank_top_votes_t_2_modify( env->bank );
 
   fd_builtin_programs_init( env->bank, env->accdb, &env->xid, NULL );
 

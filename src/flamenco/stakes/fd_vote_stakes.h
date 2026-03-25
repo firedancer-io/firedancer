@@ -96,7 +96,10 @@
    As an important note, the vote stakes object can be used globally
    across different threads, but it is not safe to access concurrently.
    The caller is responsible for ensuring that reads and writes are
-   properly synchronized. */
+   properly synchronized.
+
+   fd_vote_stakes is the Firedancer equivalent to the Agave client
+   epoch stakes data structure. */
 
 FD_PROTOTYPES_BEGIN
 
@@ -178,48 +181,22 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  uchar               commission_t_2,
                                  ulong               epoch );
 
-/* fd_vote_stakes_insert_{key, update, fini} is API for inserting
-   entries into a given fork.  It reflects the access pattern during
-   epoch rewards, where the current stake for a vote account is
-   accumulated by iterating over the set of vote accounts.  The caller
-   is responsible for ensuring that fd_vote_stakes_insert_key is only
-   called once for each vote account.  It is unsafe to call any
-   other vote_stakes API between calls to insert_key and insert_fini
-   except other insert_* APIs.
-
-   The calling pattern is as follows:
-
-   for each vote account: call fd_vote_stakes_insert_key() once
-   for each stake delegation: call fd_vote_stakes_insert_update()
-
-   after all entries are inserted, call fd_vote_stakes_insert_fini()
-
-   Under the hood, insert_key inserts an entry into the fork's map and
-   into the index.  Each call to insert_update increments the stake for
-   the given vote account.  insert_fini will either dedup the entry if
-   one already exists, or insert a new map entry.  */
+/* fd_vote_stakes_insert inserts a new vote account stake into a given
+   fork.  If the element already exists on a different fork, then the
+   reference is incremented in the index and the fork will now have an
+   element which points to the vote stake index element. */
 
 void
-fd_vote_stakes_insert_key( fd_vote_stakes_t *  vote_stakes,
-                           ushort              fork_idx,
-                           fd_pubkey_t const * pubkey,
-                           fd_pubkey_t const * node_account_t_1,
-                           fd_pubkey_t const * node_account_t_2,
-                           ulong               stake_t_2,
-                           uchar               commission_t_1,
-                           uchar               commission_t_2,
-                           ulong               epoch,
-                           uchar               exists_curr );
-
-void
-fd_vote_stakes_insert_update( fd_vote_stakes_t *  vote_stakes,
-                              ushort              fork_idx,
-                              fd_pubkey_t const * pubkey,
-                              ulong               stake );
-
-void
-fd_vote_stakes_insert_fini( fd_vote_stakes_t * vote_stakes,
-                            ushort             fork_idx );
+fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
+                       ushort              fork_idx,
+                       fd_pubkey_t const * pubkey,
+                       fd_pubkey_t const * node_account_t_1,
+                       fd_pubkey_t const * node_account_t_2,
+                       ulong               stake_t_1,
+                       ulong               stake_t_2,
+                       uchar               commission_t_1,
+                       uchar               commission_t_2,
+                       ulong               epoch );
 
 /* fd_vote_stakes_genesis_fini finalizes the vote stakes on the genesis
    block.  Any vote stakes that have been inserted will be updated to

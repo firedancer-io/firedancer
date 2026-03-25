@@ -174,7 +174,7 @@ init_rent_sysvar( test_env_t * env,
     features.deprecate_rent_exemption_threshold = TEST_FEATURE_ACTIVATION_SLOT;
     env->bank->data->f.features = features;
 
-    fd_bank_top_votes_modify( env->bank );
+    fd_bank_top_votes_t_2_modify( env->bank );
 
     fd_accdb_advance_root( env->accdb_admin, &env->xid );
 

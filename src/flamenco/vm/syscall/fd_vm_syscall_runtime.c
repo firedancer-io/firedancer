@@ -287,13 +287,18 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   fd_pubkey_t const * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( vm->instr_ctx->bank );
 
-  ulong       stake;
-  fd_pubkey_t node_account;
-  int found = fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->data->vote_stakes_fork_id, vote_address, &stake, &node_account, NULL );
-  *_ret = found ? stake : 0UL;
-  fd_bank_vote_stakes_end_locking_modify( vm->instr_ctx->bank );
+  ulong stake = 0UL;
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket ) ) {
+    fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
+    fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL );
+  } else {
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( vm->instr_ctx->bank );
+    fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->data->vote_stakes_fork_id, vote_address, &stake, NULL, NULL );
+    fd_bank_vote_stakes_end_locking_modify( vm->instr_ctx->bank );
+  }
+
+  *_ret = stake;
 
   return FD_VM_SUCCESS;
 }

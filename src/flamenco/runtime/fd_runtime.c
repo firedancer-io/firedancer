@@ -121,8 +121,9 @@ update_next_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
+  fd_top_votes_t const *   top_votes_t_1    = fd_bank_top_votes_t_1_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( top_votes_t_1, vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
@@ -195,8 +196,9 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   update_next_leaders( bank, runtime_stack, vote_stakes );
 
+  fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->data->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
@@ -1250,7 +1252,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   } else {
 
 
-    fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
+    fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
@@ -1271,7 +1273,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       if( txn_out->accounts.stake_update[i] ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
-      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_vote_program_id ) ) {
+
+      if( txn_out->accounts.vote_update[i] ) {
         if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_and_initialized( account->meta ) ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
         } else {
@@ -1279,8 +1282,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
           fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
         }
       }
-
-      /* TODO: vote update is currently unused */
 
       int save_type = fd_runtime_save_account( runtime->accdb, &xid, pubkey, account->meta, bank, runtime->log.capture_ctx );
       runtime->metrics.txn_account_save[ save_type ]++;

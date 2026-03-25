@@ -74,7 +74,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
       fd_vote_stakes_root_insert_key( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
     } else {
       fd_vote_stakes_root_update_meta( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
-      fd_top_votes_insert( top_votes, &vote_pubkey, &node_pubkey, stake, 0, 0, 1 );
+      fd_top_votes_insert( top_votes, &vote_pubkey, &node_pubkey, stake, commission );
     }
   }
 }
@@ -245,7 +245,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
 
-  fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
+  fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_init( top_votes );
 
   /* Cap number of vote accounts at FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS */
@@ -294,12 +294,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */
 
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->expected_vote_accounts );
-  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map_mem, chain_cnt, 999 ) ) );
+  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map, chain_cnt, 999 ) ) );
 
   /* Populate vote_ele and vote_ele_map for partitioned epoch rewards.
      Use epoch_credits from the proto if available (captured at epoch
      boundary time), otherwise fall back to the vote account in funk. */
-  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     fd_exec_test_prev_vote_account_t const * prev_vote_accs = &block_bank->vote_accounts_t_1[i];
     fd_pubkey_t                              vote_pubkey    = FD_LOAD( fd_pubkey_t, prev_vote_accs->address );

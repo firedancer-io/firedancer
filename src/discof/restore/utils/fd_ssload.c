@@ -226,8 +226,13 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
 
-  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   fd_vote_rewards_map_reset( vote_ele_map );
+
+  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
+  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
+  fd_top_votes_init( top_votes_t_1 );
+  fd_top_votes_init( top_votes_t_2 );
 
   /* Vote stakes for the previous epoch (E-1). */
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
@@ -248,6 +253,12 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         vote_ele->commission_t_1,
         bank->data->f.epoch );
 
+    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
+    }
+
+    fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
+
     if( i<runtime_stack->expected_vote_accounts ) {
       runtime_stack->stakes.epoch_credits[i].cnt = elem->epoch_credits_history_len;
       for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
@@ -267,6 +278,10 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (const fd_pubkey_t *)elem->vote, NULL, runtime_stack->stakes.vote_ele );
     if( FD_LIKELY( vote_ele ) ) vote_ele->commission_t_2 = (uchar)elem->commission;
 
+    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
+    }
+    fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
     fd_vote_stakes_root_update_meta(
         vote_stakes,
         (fd_pubkey_t *)elem->vote,

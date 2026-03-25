@@ -2,7 +2,9 @@
 #define HEADER_fd_src_flamenco_stakes_fd_top_votes_h
 
 #include "../../util/fd_util_base.h"
+#include "../../funk/fd_funk_base.h"
 #include "../types/fd_types_custom.h"
+#include "../accdb/fd_accdb_base.h"
 
 /* With the introduction of VAT, the set of vote accounts that receive
    epoch rewards, participate in clock calculation, and are eligible for
@@ -17,7 +19,22 @@
 
    An important tiebreaking rule is that if the minimum stake value has
    a tie, all accounts with that stake value will be excluded from the
-   top voters set. */
+   top voters set.
+
+   The semantics around whether an account should be included in the
+   top voters set is quite subtle and is based off of how Agave handles
+   its stakes cache and epoch stakes.  The stakes cache is a cache of
+   vote and stake accounts that is updated through an epoch.  It will
+   always contain the full set of vote/stake accounts that are active
+   for the current epoch.  The Agave epoch stakes are effectively
+   snapshots of the stakes cache that are taken at the end of each
+   epoch.  After VAT is enabled, the Agave client will only include the
+   top 2000 staked vote accounts into the epoch stakes.  This means for
+   the t-1 epoch, the top voters set contains the top 2000 staked vote
+   accounts (with a BLS pubkey) and the account must exist at the epoch
+   boundary.  However, a vote account can be deleted even if it is in
+   the top votes set.  If this is the case, the account will be marked
+   as invalid since it can be recreated. */
 
 struct fd_top_votes;
 typedef struct fd_top_votes fd_top_votes_t;
@@ -67,25 +84,18 @@ fd_top_votes_init( fd_top_votes_t * top_votes );
 
 
 /* fd_top_votes_insert inserts a new vote account into the top votes set
-   given a vote account, node account, last vote slot, last vote
-   timestamp, and a stake.  The node account, last vote slot, and last
-   vote timestamp are just metadata for the structure.  If the vote
+   given a vote account, node account, and commission.  If the vote
    account isn't in the top max_vote_accounts in terms of stake, it is
    ignored and is treated as a no-op.  If the vote account ties the
    minimum stake and the struct is full, all elements with that stake
-   are removed.  If an account existed in the t-2 epoch, but currently
-   doesn't, then exists should be set to 0 in the case the account is
-   revived. */
+   are removed. */
 
 void
 fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * pubkey,
                      fd_pubkey_t const * node_account,
                      ulong               stake,
-                     ulong               last_vote_slot,
-                     long                last_vote_timestamp,
-                     int                 exists );
-
+                     uchar               commission );
 
 /* fd_top_votes_update updates the last vote timestamp and slot for a
    given vote account in the top votes set.  If the vote account is not
@@ -119,7 +129,19 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
                     fd_pubkey_t *          node_account_out_opt,
                     ulong *                stake_out_opt,
                     ulong *                last_vote_slot_out_opt,
-                    long *                 last_vote_timestamp_out_opt );
+                    long *                 last_vote_timestamp_out_opt,
+                    uchar *                commission_out_opt );
+
+/* fd_top_votes_refresh refreshes the top votes set given an accdb
+   user and a transaction xid.  The top votes are populated with a
+   snapshot manifest before the account data is loaded in.  Information
+   about latest votes and if the account still exists must be refreshed
+   using the accounts database afterwards. */
+
+void
+fd_top_votes_refresh( fd_top_votes_t *          top_votes,
+                      fd_accdb_user_t *         accdb,
+                      fd_funk_txn_xid_t const * xid );
 
 #define FD_TOP_VOTES_ITER_FOOTPRINT (16UL)
 #define FD_TOP_VOTES_ITER_ALIGN     (8UL)
@@ -139,7 +161,7 @@ typedef struct map_iter fd_top_votes_iter_t;
    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
         !fd_top_votes_iter_done( top_votes, iter );
         fd_top_votes_iter_next( top_votes, iter ) ) {
-     fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &last_vote_slot, &last_vote_timestamp );
+     int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, &last_vote_slot, &last_vote_timestamp );
    } */
 
 fd_top_votes_iter_t *
@@ -154,12 +176,13 @@ void
 fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
                         fd_top_votes_iter_t *  iter );
 
-void
+int
 fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        fd_top_votes_iter_t *  iter,
                        fd_pubkey_t *          pubkey_out,
                        fd_pubkey_t *          node_account_out_opt,
                        ulong *                stake_out_opt,
+                       uchar *                commission_out_opt,
                        ulong *                last_vote_slot_out_opt,
                        long *                 last_vote_timestamp_out_opt );
 

@@ -421,7 +421,7 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
   uint128 total_points = 0;
 
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
-  fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -545,7 +545,7 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
     calculated_stake_rewards->success = 0;
 
     fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
-    fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+    fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
@@ -653,7 +653,7 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
       calculated_stake_rewards = calculated_stake_rewards_;
 
       fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
-      fd_vote_rewards_map_t * vote_ele_map = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+      fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
       uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
       if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
@@ -852,7 +852,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                                ulong                          prev_epoch ) {
 
   fd_vote_rewards_t *     vote_ele_pool = runtime_stack->stakes.vote_ele;
-  fd_vote_rewards_map_t * vote_ele_map  = fd_type_pun( runtime_stack->stakes.vote_map_mem );
+  fd_vote_rewards_map_t * vote_ele_map  = runtime_stack->stakes.vote_map;
 
   /* First we must compute the stake and vote rewards for the just
      completed epoch.  We store the stake account rewards and vote

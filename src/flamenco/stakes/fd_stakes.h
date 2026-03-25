@@ -41,15 +41,19 @@ fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * self,
    Returns the number of items in weights (which is <= no of vote accs). */
 
 ulong
-fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
+fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
+                          fd_vote_stakes_t *       vote_stakes,
                           ushort                   fork_idx,
-                          fd_vote_stake_weight_t * weights );
+                          fd_vote_stake_weight_t * weights,
+                          int                      vat_enabled );
 
 
 ulong
-fd_stake_weights_by_node_next( fd_vote_stakes_t *       vote_stakes,
+fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
+                               fd_vote_stakes_t *       vote_stakes,
                                ushort                   fork_idx,
-                               fd_vote_stake_weight_t * weights );
+                               fd_vote_stake_weight_t * weights,
+                               int                      vat_enabled );
 
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,

@@ -6,6 +6,7 @@
 #include "fd_vote_state_v4.h"
 #include "fd_authorized_voters.h"
 #include "../../fd_runtime.h"
+#include "../../../../choreo/tower/fd_tower_serdes.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42 */
 #define DEFAULT_PRIOR_VOTERS_OFFSET 114
@@ -745,6 +746,13 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
   }
 
   return 0;
+}
+
+int
+fd_vsv_is_v4_with_bls_pubkey( fd_account_meta_t const * meta ) {
+  uchar const * data     = fd_account_data( meta );
+  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( data );
+  return voter->kind == FD_VOTE_ACC_V4 && voter->v4.has_bls_pubkey_compressed;
 }
 
 fd_vote_block_timestamp_t

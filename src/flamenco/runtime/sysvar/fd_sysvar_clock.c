@@ -142,8 +142,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ushort             fork_idx    = bank->data->vote_stakes_fork_id;
 
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
-  FD_TEST( top_votes );
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
@@ -156,7 +155,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
 
     ulong last_vote_slot;
     long  last_vote_timestamp;
-    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp );
+    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL );
     if( FD_UNLIKELY( !found ) ) {
       fd_accdb_ro_t ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
@@ -230,8 +229,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
   ulong                       slot_duration  = bank->data->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->data->f.slot;
 
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
-  FD_TEST( top_votes );
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
 
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
   for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
@@ -241,8 +239,8 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
     ulong       stake_t_2;
     ulong       last_vote_slot;
     long        last_vote_timestamp;
-    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, &last_vote_slot, &last_vote_timestamp );
-    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
+    int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp );
+    if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
     ulong slot_delta;
