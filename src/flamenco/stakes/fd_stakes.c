@@ -513,6 +513,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
     fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, &stake_delegation->vote_account, NULL, stake_accum_pool );
     if( FD_UNLIKELY( !stake_accum ) ) {
+      if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
+        FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
+      }
       stake_accum = &runtime_stack->stakes.stake_accum[ staked_accounts ];
       stake_accum->pubkey = stake_delegation->vote_account;
       stake_accum->stake  = new_entry.effective;
@@ -543,7 +546,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     uchar       commission_t_2;
     fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL );
 
-
     fd_accdb_ro_t vote_ro[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &pubkey ) ) ) {
       fd_top_votes_invalidate( top_votes_t_2, &pubkey );
@@ -556,7 +558,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     }
 
     fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen );
-    fd_accdb_close_ro( accdb, vote_ro );
     fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
 
     if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
@@ -572,6 +573,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
       vote_reward_cnt++;
     }
+    fd_accdb_close_ro( accdb, vote_ro );
   }
 
   /* Now for each staked vote account, figure out if it is a valid
@@ -579,7 +581,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      but still be inserted into the vote stakes if it existed in the
      previous epoch or vice versa).  The only condition an account is
      not inserted into the vote stakes is if it didn't exist in the
-     previous epoch or in the current one. */
+     previous epoch and in the current one. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ushort parent_idx = bank->data->vote_stakes_fork_id;
@@ -624,7 +626,10 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         vote_reward_cnt++;
       }
 
-      /* TODO:FIXME: Make sure the BLS pubkey is being checked here. */
+
+      if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+        if( FD_UNLIKELY( !fd_vsv_is_v4_with_bls_pubkey( vote_ro->meta ) ) ) continue;
+      }
       fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
     }
 

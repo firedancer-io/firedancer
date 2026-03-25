@@ -309,10 +309,10 @@ fd_top_votes_refresh( fd_top_votes_t *          top_votes,
     if( FD_LIKELY( is_valid ) ) {
       fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( acc->meta ), acc->meta->dlen );
       fd_top_votes_update( top_votes, &pubkey, last_vote.slot, last_vote.timestamp );
+      fd_accdb_close_ro( accdb, acc );
     } else {
       fd_top_votes_invalidate( top_votes, &pubkey );
     }
-    fd_accdb_close_ro( accdb, acc );
   }
 }
 

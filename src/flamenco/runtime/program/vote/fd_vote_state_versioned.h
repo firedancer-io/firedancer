@@ -188,6 +188,13 @@ fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self );
 int
 fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta );
 
+/* Returns 1 if the vote account is a v4 account with a bls pubkey and
+   0 otherwise.  This assumes that the account is correctly sized and
+   initialized. */
+
+int
+fd_vsv_is_v4_with_bls_pubkey( fd_account_meta_t const * meta );
+
 /* Accessor to get the vote block timestamp from a vote account data
    buffer.  This function assumes that the vote account data is
    correctly sized and initialized. */
