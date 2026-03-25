@@ -5,7 +5,6 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
-#include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
@@ -939,12 +938,12 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
 
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash( stake_pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
-  fd_stake_state_v2_t stake_state[1] = {0};
-  if( 0!=fd_stakes_get_state( rw->meta, stake_state ) ||
-      !fd_stake_state_v2_is_stake( stake_state ) ) {
+  fd_stake_state_t const * stake_state_orig = fd_stakes_get_state( rw->meta );
+  if( !stake_state_orig || stake_state_orig->stake_type != FD_STAKE_STATE_STAKE ) {
     fd_accdb_close_rw( accdb, rw );
     return 1;  /* not a valid stake account */
   }
+  fd_stake_state_t stake_state[1] = { *stake_state_orig };
 
   /* Credit rewards to stake account */
   ulong acc_lamports = fd_accdb_ref_lamports( rw->ro );
@@ -955,21 +954,20 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   }
   fd_accdb_ref_lamports_set( rw, acc_lamports );
 
-  ulong old_credits_observed                      = stake_state->inner.stake.stake.credits_observed;
-  stake_state->inner.stake.stake.credits_observed = new_credits_observed;
-  stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake,
-                                                                      reward_lamports );
+  ulong old_credits_observed                = stake_state->stake.stake.credits_observed;
+  stake_state->stake.stake.credits_observed = new_credits_observed;
+  stake_state->stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->stake.stake.delegation.stake, reward_lamports );
 
   fd_stake_delegations_t * stake_delegations_upd = fd_bank_stake_delegations_modify( bank );
   fd_stake_delegations_fork_update( stake_delegations_upd,
                                     bank->data->stake_delegations_fork_id,
                                     stake_pubkey,
-                                    &stake_state->inner.stake.stake.delegation.voter_pubkey,
-                                    stake_state->inner.stake.stake.delegation.stake,
-                                    stake_state->inner.stake.stake.delegation.activation_epoch,
-                                    stake_state->inner.stake.stake.delegation.deactivation_epoch,
-                                    stake_state->inner.stake.stake.credits_observed,
-                                    stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
+                                    &stake_state->stake.stake.delegation.voter_pubkey,
+                                    stake_state->stake.stake.delegation.stake,
+                                    stake_state->stake.stake.delegation.activation_epoch,
+                                    stake_state->stake.stake.delegation.deactivation_epoch,
+                                    stake_state->stake.stake.credits_observed,
+                                    stake_state->stake.stake.delegation.warmup_cooldown_rate );
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,
@@ -980,15 +978,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
                                                 (long)reward_lamports,
                                                 new_credits_observed,
                                                 (long)( new_credits_observed - old_credits_observed ),
-                                                stake_state->inner.stake.stake.delegation.stake,
+                                                stake_state->stake.stake.delegation.stake,
                                                 (long)reward_lamports );
   }
 
-  fd_bincode_encode_ctx_t ctx = { .data=fd_accdb_ref_data( rw ), .dataend=(uchar *)fd_accdb_ref_data( rw )+fd_accdb_ref_data_sz( rw->ro ) };
-  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx )!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_stake_state_encode failed" ));
-  }
-
+  FD_STORE( fd_stake_state_t, fd_accdb_ref_data( rw ), *stake_state );
   fd_hashes_update_lthash( stake_pubkey, rw->meta, prev_hash, bank, capture_ctx );
   fd_accdb_close_rw( accdb, rw );
 

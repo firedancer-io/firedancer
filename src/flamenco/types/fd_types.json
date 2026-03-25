@@ -131,27 +131,6 @@
       "comment": "https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37"
     },
     {
-      "name": "delegation",
-      "type": "struct",
-      "fields": [
-        { "name": "voter_pubkey", "type": "pubkey" },
-        { "name": "stake", "type": "ulong" },
-        { "name": "activation_epoch", "type": "ulong" },
-        { "name": "deactivation_epoch", "type": "ulong" },
-        { "name": "warmup_cooldown_rate", "type": "double" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303"
-    },
-    {
-      "name": "stake",
-      "type": "struct",
-      "fields": [
-        { "name": "delegation", "type": "delegation" },
-        { "name": "credits_observed", "type": "ulong" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
-    },
-    {
       "name": "rust_duration",
       "type": "struct",
       "normalizer": "fd_rust_duration_normalize",
@@ -807,72 +786,6 @@
         { "name": "create_account_allow_prefund", "type": "system_program_instruction_create_account" }
       ],
       "comment": "https://github.com/anza-xyz/solana-sdk/blob/system-interface%40v3.0.0/system-interface/src/instruction.rs#L92-L299"
-    },
-    {
-      "name": "stake_authorized",
-      "type": "struct",
-      "fields": [
-        { "name": "staker", "type": "pubkey" },
-        { "name": "withdrawer", "type": "pubkey" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169"
-    },
-    {
-      "name": "stake_lockup",
-      "type": "struct",
-      "fields": [
-        { "name": "unix_timestamp", "type": "long" },
-        { "name": "epoch", "type": "ulong" },
-        { "name": "custodian", "type": "pubkey" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L135"
-    },
-    {
-      "name": "stake_meta",
-      "type": "struct",
-      "fields": [
-        { "name": "rent_exempt_reserve", "type": "ulong" },
-        { "name": "authorized", "type": "stake_authorized" },
-        { "name": "lockup", "type": "stake_lockup" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248"
-    },
-    {
-      "name": "stake_flags",
-      "type": "struct",
-      "fields": [
-        { "name": "bits", "type": "uchar" }
-      ],
-      "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/stake_flags.rs#L21"
-    },
-    {
-      "name": "stake_state_v2_initialized",
-      "type": "struct",
-      "fields": [
-        { "name": "meta", "type": "stake_meta" }
-      ],
-      "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L135"
-    },
-    {
-      "name": "stake_state_v2_stake",
-      "type": "struct",
-      "fields": [
-        { "name": "meta", "type": "stake_meta" },
-        { "name": "stake", "type": "stake" },
-        { "name": "stake_flags", "type": "stake_flags" }
-      ],
-      "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L136"
-    },
-    {
-      "name": "stake_state_v2",
-      "type": "enum",
-      "variants": [
-        { "name": "uninitialized" },
-        { "name": "initialized", "type": "stake_state_v2_initialized" },
-        { "name": "stake", "type": "stake_state_v2_stake" },
-        { "name": "rewards_pool" }
-      ],
-      "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L132"
     },
     {
       "name": "nonce_data",

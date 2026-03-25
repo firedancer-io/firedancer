@@ -148,27 +148,6 @@ FD_FN_UNUSED static uchar * fd_solana_account_data_join( fd_solana_account_globa
 FD_FN_UNUSED static void fd_solana_account_data_update( fd_solana_account_global_t * struct_mem, uchar * vec ) {
   struct_mem->data_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
-/* Encoded Size: Fixed (64 bytes) */
-struct fd_delegation {
-  fd_pubkey_t voter_pubkey;
-  ulong stake;
-  ulong activation_epoch;
-  ulong deactivation_epoch;
-  double warmup_cooldown_rate;
-};
-typedef struct fd_delegation fd_delegation_t;
-#define FD_DELEGATION_ALIGN alignof(fd_delegation_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539 */
-/* Encoded Size: Fixed (72 bytes) */
-struct fd_stake {
-  fd_delegation_t delegation;
-  ulong credits_observed;
-};
-typedef struct fd_stake fd_stake_t;
-#define FD_STAKE_ALIGN alignof(fd_stake_t)
-
 /* Encoded Size: Fixed (12 bytes) */
 struct fd_rust_duration {
   ulong seconds;
@@ -1076,75 +1055,6 @@ struct fd_system_program_instruction {
 typedef struct fd_system_program_instruction fd_system_program_instruction_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN alignof(fd_system_program_instruction_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L169 */
-/* Encoded Size: Fixed (64 bytes) */
-struct fd_stake_authorized {
-  fd_pubkey_t staker;
-  fd_pubkey_t withdrawer;
-};
-typedef struct fd_stake_authorized fd_stake_authorized_t;
-#define FD_STAKE_AUTHORIZED_ALIGN alignof(fd_stake_authorized_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L135 */
-/* Encoded Size: Fixed (48 bytes) */
-struct fd_stake_lockup {
-  long unix_timestamp;
-  ulong epoch;
-  fd_pubkey_t custodian;
-};
-typedef struct fd_stake_lockup fd_stake_lockup_t;
-#define FD_STAKE_LOCKUP_ALIGN alignof(fd_stake_lockup_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L248 */
-/* Encoded Size: Fixed (120 bytes) */
-struct fd_stake_meta {
-  ulong rent_exempt_reserve;
-  fd_stake_authorized_t authorized;
-  fd_stake_lockup_t lockup;
-};
-typedef struct fd_stake_meta fd_stake_meta_t;
-#define FD_STAKE_META_ALIGN alignof(fd_stake_meta_t)
-
-/* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/stake_flags.rs#L21 */
-/* Encoded Size: Fixed (1 bytes) */
-struct fd_stake_flags {
-  uchar bits;
-};
-typedef struct fd_stake_flags fd_stake_flags_t;
-#define FD_STAKE_FLAGS_ALIGN alignof(fd_stake_flags_t)
-
-/* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L135 */
-/* Encoded Size: Fixed (120 bytes) */
-struct fd_stake_state_v2_initialized {
-  fd_stake_meta_t meta;
-};
-typedef struct fd_stake_state_v2_initialized fd_stake_state_v2_initialized_t;
-#define FD_STAKE_STATE_V2_INITIALIZED_ALIGN alignof(fd_stake_state_v2_initialized_t)
-
-/* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L136 */
-/* Encoded Size: Fixed (193 bytes) */
-struct fd_stake_state_v2_stake {
-  fd_stake_meta_t meta;
-  fd_stake_t stake;
-  fd_stake_flags_t stake_flags;
-};
-typedef struct fd_stake_state_v2_stake fd_stake_state_v2_stake_t;
-#define FD_STAKE_STATE_V2_STAKE_ALIGN alignof(fd_stake_state_v2_stake_t)
-
-union fd_stake_state_v2_inner {
-  fd_stake_state_v2_initialized_t initialized;
-  fd_stake_state_v2_stake_t stake;
-};
-typedef union fd_stake_state_v2_inner fd_stake_state_v2_inner_t;
-
-/* https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake/state.rs#L132 */
-struct fd_stake_state_v2 {
-  uint discriminant;
-  fd_stake_state_v2_inner_t inner;
-};
-typedef struct fd_stake_state_v2 fd_stake_state_v2_t;
-#define FD_STAKE_STATE_V2_ALIGN alignof(fd_stake_state_v2_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L17 */
 /* Encoded Size: Fixed (72 bytes) */
 struct fd_nonce_data {
@@ -1531,28 +1441,6 @@ void * fd_solana_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_solana_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_solana_account_encode_global( fd_solana_account_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_solana_account_size_global( fd_solana_account_global_t const * self );
-
-static inline void fd_delegation_new( fd_delegation_t * self ) { fd_memset( self, 0, sizeof(fd_delegation_t) ); }
-int fd_delegation_encode( fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_delegation_size( fd_delegation_t const * self ) { (void)self; return 64UL; }
-static inline ulong fd_delegation_align( void ) { return FD_DELEGATION_ALIGN; }
-static inline int fd_delegation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_delegation_t);
-  if( (ulong)ctx->data + 64UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_delegation_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_stake_new( fd_stake_t * self ) { fd_memset( self, 0, sizeof(fd_stake_t) ); }
-int fd_stake_encode( fd_stake_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_size( fd_stake_t const * self ) { (void)self; return 72UL; }
-static inline ulong fd_stake_align( void ) { return FD_STAKE_ALIGN; }
-static inline int fd_stake_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_t);
-  if( (ulong)ctx->data + 72UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_rust_duration_new( fd_rust_duration_t * self ) { fd_memset( self, 0, sizeof(fd_rust_duration_t) ); }
 int fd_rust_duration_encode( fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2187,90 +2075,6 @@ fd_system_program_instruction_enum_assign_with_seed = 10,
 fd_system_program_instruction_enum_transfer_with_seed = 11,
 fd_system_program_instruction_enum_upgrade_nonce_account = 12,
 fd_system_program_instruction_enum_create_account_allow_prefund = 13,
-};
-static inline void fd_stake_authorized_new( fd_stake_authorized_t * self ) { fd_memset( self, 0, sizeof(fd_stake_authorized_t) ); }
-int fd_stake_authorized_encode( fd_stake_authorized_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_authorized_size( fd_stake_authorized_t const * self ) { (void)self; return 64UL; }
-static inline ulong fd_stake_authorized_align( void ) { return FD_STAKE_AUTHORIZED_ALIGN; }
-static inline int fd_stake_authorized_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_authorized_t);
-  if( (ulong)ctx->data + 64UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_authorized_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_stake_lockup_new( fd_stake_lockup_t * self ) { fd_memset( self, 0, sizeof(fd_stake_lockup_t) ); }
-int fd_stake_lockup_encode( fd_stake_lockup_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_lockup_size( fd_stake_lockup_t const * self ) { (void)self; return 48UL; }
-static inline ulong fd_stake_lockup_align( void ) { return FD_STAKE_LOCKUP_ALIGN; }
-static inline int fd_stake_lockup_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_lockup_t);
-  if( (ulong)ctx->data + 48UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_lockup_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_stake_meta_new( fd_stake_meta_t * self ) { fd_memset( self, 0, sizeof(fd_stake_meta_t) ); }
-int fd_stake_meta_encode( fd_stake_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_meta_size( fd_stake_meta_t const * self ) { (void)self; return 120UL; }
-static inline ulong fd_stake_meta_align( void ) { return FD_STAKE_META_ALIGN; }
-static inline int fd_stake_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_meta_t);
-  if( (ulong)ctx->data + 120UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_stake_flags_new( fd_stake_flags_t * self ) { fd_memset( self, 0, sizeof(fd_stake_flags_t) ); }
-int fd_stake_flags_encode( fd_stake_flags_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_flags_size( fd_stake_flags_t const * self ) { (void)self; return 1UL; }
-static inline ulong fd_stake_flags_align( void ) { return FD_STAKE_FLAGS_ALIGN; }
-static inline int fd_stake_flags_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_flags_t);
-  if( (ulong)ctx->data + 1UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_flags_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_stake_state_v2_initialized_new( fd_stake_state_v2_initialized_t * self ) { fd_memset( self, 0, sizeof(fd_stake_state_v2_initialized_t) ); }
-int fd_stake_state_v2_initialized_encode( fd_stake_state_v2_initialized_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_state_v2_initialized_size( fd_stake_state_v2_initialized_t const * self ) { (void)self; return 120UL; }
-static inline ulong fd_stake_state_v2_initialized_align( void ) { return FD_STAKE_STATE_V2_INITIALIZED_ALIGN; }
-static inline int fd_stake_state_v2_initialized_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_state_v2_initialized_t);
-  if( (ulong)ctx->data + 120UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_state_v2_initialized_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_stake_state_v2_stake_new( fd_stake_state_v2_stake_t * self ) { fd_memset( self, 0, sizeof(fd_stake_state_v2_stake_t) ); }
-int fd_stake_state_v2_stake_encode( fd_stake_state_v2_stake_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_stake_state_v2_stake_size( fd_stake_state_v2_stake_t const * self ) { (void)self; return 193UL; }
-static inline ulong fd_stake_state_v2_stake_align( void ) { return FD_STAKE_STATE_V2_STAKE_ALIGN; }
-static inline int fd_stake_state_v2_stake_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_stake_state_v2_stake_t);
-  if( (ulong)ctx->data + 193UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_stake_state_v2_stake_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_stake_state_v2_new_disc( fd_stake_state_v2_t * self, uint discriminant );
-void fd_stake_state_v2_new( fd_stake_state_v2_t * self );
-int fd_stake_state_v2_encode( fd_stake_state_v2_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_stake_state_v2_size( fd_stake_state_v2_t const * self );
-static inline ulong fd_stake_state_v2_align( void ) { return FD_STAKE_STATE_V2_ALIGN; }
-int fd_stake_state_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_state_v2_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_stake_state_v2_is_uninitialized( fd_stake_state_v2_t const * self );
-FD_FN_PURE uchar fd_stake_state_v2_is_initialized( fd_stake_state_v2_t const * self );
-FD_FN_PURE uchar fd_stake_state_v2_is_stake( fd_stake_state_v2_t const * self );
-FD_FN_PURE uchar fd_stake_state_v2_is_rewards_pool( fd_stake_state_v2_t const * self );
-enum {
-fd_stake_state_v2_enum_uninitialized = 0,
-fd_stake_state_v2_enum_initialized = 1,
-fd_stake_state_v2_enum_stake = 2,
-fd_stake_state_v2_enum_rewards_pool = 3,
 };
 static inline void fd_nonce_data_new( fd_nonce_data_t * self ) { fd_memset( self, 0, sizeof(fd_nonce_data_t) ); }
 int fd_nonce_data_encode( fd_nonce_data_t const * self, fd_bincode_encode_ctx_t * ctx );

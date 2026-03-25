@@ -152,38 +152,32 @@ genesis_create( void *                       buf,
 
   ulong const stake_account_index = genesis->accounts_len++;
 
-  uchar stake_data[ FD_STAKE_STATE_V2_SZ ] = {0};
+  uchar stake_data[ FD_STAKE_STATE_SZ ] = {0};
 
-  ulong stake_state_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, FD_STAKE_STATE_V2_SZ );
-  ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V3_SZ  );
+  ulong stake_state_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, FD_STAKE_STATE_SZ   );
+  ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V3_SZ );
 
   do {
-    fd_stake_state_v2_t state[1];
-    fd_stake_state_v2_new_disc( state, fd_stake_state_v2_enum_stake );
-
-    fd_stake_state_v2_stake_t * stake = &state->inner.stake;
-    stake->meta = (fd_stake_meta_t) {
-      .rent_exempt_reserve = stake_state_min_bal,
-      .authorized = {
-        .staker     = options->identity_pubkey,
-        .withdrawer = options->identity_pubkey,
+    FD_STORE( fd_stake_state_t, stake_data, ((fd_stake_state_t) {
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = {
+        .meta = {
+          .rent_exempt_reserve = stake_state_min_bal,
+          .staker              = options->identity_pubkey,
+          .withdrawer          = options->identity_pubkey,
+        },
+        .stake = (fd_stake_t) {
+          .delegation = (fd_delegation_t) {
+            .voter_pubkey         = options->vote_pubkey,
+            .stake                = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
+            .activation_epoch     = ULONG_MAX, /* bootstrap stake denoted with ULONG_MAX */
+            .deactivation_epoch   = ULONG_MAX,
+            .warmup_cooldown_rate = 0.25
+          },
+          .credits_observed = 0UL
+        }
       }
-    };
-    stake->stake = (fd_stake_t) {
-      .delegation = (fd_delegation_t) {
-        .voter_pubkey         = options->vote_pubkey,
-        .stake                = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
-        .activation_epoch     = ULONG_MAX, /* bootstrap stake denoted with ULONG_MAX */
-        .deactivation_epoch   = ULONG_MAX,
-        .warmup_cooldown_rate = 0.25
-      },
-      .credits_observed = 0UL
-    };
-
-    fd_bincode_encode_ctx_t encode =
-      { .data    = stake_data,
-        .dataend = stake_data + sizeof(stake_data) };
-    REQUIRE( fd_stake_state_v2_encode( state, &encode ) == FD_BINCODE_SUCCESS );
+    }) );
   } while(0);
 
   /* Create stake config account */
@@ -237,7 +231,7 @@ genesis_create( void *                       buf,
     .key     = options->stake_pubkey,
     .account = (fd_solana_account_t) {
       .lamports   = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
-      .data_len   = FD_STAKE_STATE_V2_SZ,
+      .data_len   = FD_STAKE_STATE_SZ,
       .data       = stake_data,
       .owner      = fd_solana_stake_program_id
     }

@@ -18,8 +18,8 @@
 #include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../accdb/fd_accdb_sync.h"
-
 #include "../features/fd_features.h"
+#include "../stakes/fd_stake_types.h"
 
 /* Values before deprecate_rent_exemption_threshold is activated */
 #define TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR (3480UL)
@@ -151,33 +151,33 @@ add_vote_account( test_env_t *        env,
 }
 
 static void
-add_delegated_stake_account( test_env_t *           env,
-                             fd_pubkey_t const *    stake_account,
-                             fd_pubkey_t const *    vote_account ) {
-  fd_stake_state_v2_t stake_state = {0};
-  stake_state.discriminant = fd_stake_state_v2_enum_stake;
-  stake_state.inner.stake.meta.authorized.staker     = *stake_account;
-  stake_state.inner.stake.meta.authorized.withdrawer = *stake_account;
-  stake_state.inner.stake.stake.delegation.voter_pubkey         = *vote_account;
-  stake_state.inner.stake.stake.delegation.stake                = 1000000000UL;
-  stake_state.inner.stake.stake.delegation.activation_epoch     = 0UL;
-  stake_state.inner.stake.stake.delegation.deactivation_epoch   = (ulong)-1;
-  stake_state.inner.stake.stake.delegation.warmup_cooldown_rate = 0.25;
-
-  ulong data_sz = fd_stake_state_v2_size( &stake_state );
-
+add_delegated_stake_account( test_env_t *        env,
+                             fd_pubkey_t const * stake_account,
+                             fd_pubkey_t const * vote_account ) {
   fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, stake_account, (uint)data_sz, FD_ACCDB_FLAG_CREATE ) );
+  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, stake_account, FD_STAKE_STATE_SZ, FD_ACCDB_FLAG_CREATE ) );
   fd_accdb_ref_lamports_set( rw, 2000000000UL );
   fd_accdb_ref_exec_bit_set( rw, 0 );
   fd_memcpy( rw->meta->owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
-  fd_accdb_ref_data_sz_set( env->accdb, rw, data_sz, 0 );
-
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = fd_accdb_ref_data( rw ),
-    .dataend = (uchar *)fd_accdb_ref_data( rw ) + data_sz
-  };
-  FD_TEST( fd_stake_state_v2_encode( &stake_state, &encode_ctx )==FD_BINCODE_SUCCESS );
+  fd_accdb_ref_data_sz_set( env->accdb, rw, FD_STAKE_STATE_SZ, 0 );
+  FD_STORE( fd_stake_state_t, fd_accdb_ref_data( rw ), ((fd_stake_state_t) {
+    .stake_type = FD_STAKE_STATE_STAKE,
+    .stake = {
+      .meta = {
+        .staker     = *stake_account,
+        .withdrawer = *stake_account
+      },
+      .stake = {
+        .delegation = {
+          .voter_pubkey         = *vote_account,
+          .stake                = 1000000000UL,
+          .activation_epoch     = 0UL,
+          .deactivation_epoch   = (ulong)-1,
+          .warmup_cooldown_rate = 0.25
+        }
+      }
+    }
+  }) );
   fd_accdb_close_rw( env->accdb, rw );
 }
 
