@@ -5,6 +5,7 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../progcache/fd_prog_load.h"
 #include "../../progcache/fd_progcache_user.h"
+#include "../tests/fd_dump_pb.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../fd_pubkey_utils.h"
 #include "../fd_borrowed_account.h"
@@ -123,7 +124,6 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
    'account_size' argument because we do not update the funk record here. */
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                   fd_pubkey_t const *   program_key,
                    uchar const *         programdata,
                    ulong                 programdata_size ) {
   int deploy_mode                          = 1;
@@ -138,14 +138,21 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
+  /* Agave uses the feature set from the next slot for deployment
+     verification (DELAY_VISIBILITY_SLOT_OFFSET = 1).  This matters at
+     epoch boundaries where features activate: a deployment at the last
+     slot of an epoch should see features that activate at the boundary.
+     https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank.rs#L3280-L3295 */
+  ulong deploy_slot = instr_ctx->bank->data->f.slot+1UL;
+
   fd_vm_syscall_register_slot( syscalls,
-                               fd_bank_slot_get( instr_ctx->bank ),
-                               fd_bank_features_query( instr_ctx->bank ),
+                               deploy_slot,
+                               &instr_ctx->bank->data->f.features,
                                1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
-  fd_prog_versions_t versions = fd_prog_versions( fd_bank_features_query( instr_ctx->bank ), fd_bank_slot_get( instr_ctx->bank ) );
+  fd_prog_versions_t versions = fd_prog_versions( &instr_ctx->bank->data->f.features, deploy_slot );
 
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = deploy_mode;
@@ -216,9 +223,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  /* Queue the program for reverification */
-  instr_ctx->txn_out->details.programs_to_reverify[instr_ctx->txn_out->details.programs_to_reverify_cnt++] = *program_key;
-
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -247,7 +251,7 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
   if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &program )<write_offset ) ) {
     /* Max msg_sz: 24 - 6 + 2*20 = 58 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( instr_ctx,
-      "Write overflow %lu < %lu", fd_borrowed_account_get_data_len( &program ), write_offset );
+      "Write overflow: %lu < %lu", fd_borrowed_account_get_data_len( &program ), write_offset );
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
@@ -263,16 +267,11 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
 }
 
 int
-fd_bpf_loader_program_get_state( fd_txn_account_t const *            acct,
+fd_bpf_loader_program_get_state( fd_account_meta_t const *           meta,
                                  fd_bpf_upgradeable_loader_state_t * state ) {
-
-  int err = 0;
-  fd_bincode_decode_static( bpf_upgradeable_loader_state,
-                            state,
-                            fd_txn_account_get_data( acct ),
-                            fd_txn_account_get_data_len( acct ),
-                            &err );
-  if( FD_UNLIKELY( err ) ) {
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      bpf_upgradeable_loader_state, state,
+      fd_account_data( meta ), meta->dlen ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -319,6 +318,7 @@ common_close_account( fd_pubkey_t * authority_address,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L1307 */
   if( FD_UNLIKELY( !authority_address ) ) {
+    fd_log_collector_msg_literal( instr_ctx, "Account is immutable" );
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 
@@ -330,6 +330,7 @@ common_close_account( fd_pubkey_t * authority_address,
   }
 
   if( FD_UNLIKELY( memcmp( authority_address, acc_key, sizeof(fd_pubkey_t) ) ) ) {
+    fd_log_collector_msg_literal( instr_ctx, "Incorrect authority provided" );
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
   }
 
@@ -337,6 +338,7 @@ common_close_account( fd_pubkey_t * authority_address,
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL, &err ) ) ) {
     /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
     if( FD_UNLIKELY( !!err ) ) return err;
+    fd_log_collector_msg_literal( instr_ctx, "Authority did not sign" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -376,6 +378,7 @@ int
 fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                 fd_progcache_rec_t const * cache_entry,
                 uchar                      is_deprecated ) {
+  long const regime0 = fd_tickcount();
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
 
@@ -387,8 +390,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* TODO do we really need to re-do this on every instruction? */
   fd_vm_syscall_register_slot( syscalls,
-                               fd_bank_slot_get( instr_ctx->bank ),
-                               fd_bank_features_query( instr_ctx->bank ),
+                               instr_ctx->bank->data->f.slot,
+                               &instr_ctx->bank->data->f.features,
                                0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
@@ -402,17 +405,15 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
 
   ulong instruction_data_offset = 0UL;
-  uchar * input = NULL;
-  err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
+  /* 16-byte aligned buffer:
+     https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
+  uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
+  err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated,
-                                                  &instruction_data_offset, &input );
+                                                  &instruction_data_offset, &input_sz );
   if( FD_UNLIKELY( err ) ) {
     return err;
-  }
-
-  if( FD_UNLIKELY( input==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   fd_sha256_t _sha[1];
@@ -432,27 +433,29 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   /* For dumping syscalls for seed corpora */
-  int dump_syscall_to_pb = instr_ctx->runtime->log.capture_ctx &&
-                           fd_bank_slot_get( instr_ctx->bank ) >= instr_ctx->runtime->log.capture_ctx->dump_proto_start_slot &&
-                           instr_ctx->runtime->log.capture_ctx->dump_syscall_to_pb;
+  int dump_syscall_to_pb = instr_ctx->runtime->log.dump_proto_ctx &&
+                           instr_ctx->bank->data->f.slot>=instr_ctx->runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                           instr_ctx->runtime->log.dump_proto_ctx->dump_syscall_to_pb;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/bpf_loader/src/lib.rs#L1525-L1528 */
   ulong r2_initial_value = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
 
   /* TODO: (topointon): correctly set check_size in vm setup */
+  fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->data_base;
+  void const * rodata = fd_progcache_rec_rodata( cache_entry, progcache_wksp );
   vm = fd_vm_init(
     /* vm                                   */ vm,
     /* instr_ctx                            */ instr_ctx,
     /* heap_max                             */ heap_size,
     /* entry_cu                             */ instr_ctx->txn_out->details.compute_budget.compute_meter,
-    /* rodata                               */ fd_progcache_rec_rodata( cache_entry ),
+    /* rodata                               */ rodata,
     /* rodata_sz                            */ cache_entry->rodata_sz,
-    /* text (note: text_off is byte offset) */ (ulong *)((ulong)fd_progcache_rec_rodata( cache_entry ) + (ulong)cache_entry->text_off),
+    /* text (note: text_off is byte offset) */ (ulong *)( (ulong)rodata + cache_entry->text_off ),
     /* text_cnt                             */ cache_entry->text_cnt,
     /* text_off                             */ cache_entry->text_off,
     /* text_sz                              */ cache_entry->text_sz,
     /* entry_pc                             */ cache_entry->entry_pc,
-    /* calldests                            */ fd_progcache_rec_calldests( cache_entry ),
+    /* calldests                            */ fd_progcache_rec_calldests( cache_entry, progcache_wksp ),
     /* sbpf_version                         */ cache_entry->sbpf_version,
     /* syscalls                             */ syscalls,
     /* trace                                */ NULL,
@@ -479,8 +482,19 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 
+  long const regime1 = fd_tickcount();
+
   int exec_err = fd_vm_exec( vm );
   instr_ctx->txn_out->details.compute_budget.compute_meter = vm->cu;
+
+  long const regime2 = fd_tickcount();
+
+  if( instr_ctx->instr->stack_height==1 ) {
+    instr_ctx->runtime->metrics.vm_setup_cum_ticks  += (ulong)( regime1-regime0 );
+    instr_ctx->runtime->metrics.vm_exec_cum_ticks   += (ulong)( regime2-regime1 );
+  } else {
+    instr_ctx->runtime->metrics.cpi_setup_cum_ticks += (ulong)( regime1-regime0 );
+  }
 
   if( FD_UNLIKELY( vm->trace ) ) {
     err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -527,17 +541,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                      ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
                      vm->segv_vaddr!=ULONG_MAX ) ) {
 
-      /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
-      if( FD_UNLIKELY( vm->segv_vaddr>>32UL==0UL ) ) {
-        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-      }
-
-      /* If the vaddr doesn't live in the input region, then we don't need to
-         bother trying to iterate through all of the borrowed accounts. */
-      if( FD_VADDR_TO_REGION( vm->segv_vaddr )!=FD_VM_INPUT_REGION ) {
-        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
-      }
-
       /* If the vaddr of the access violation falls within the bounds of a
          serialized account vaddr range, then try to retrieve a more specific
          vm error based on the account's accesss permissions. */
@@ -566,21 +569,27 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
           /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1581-L1616 */
           if( fd_ulong_sat_add( vm->segv_vaddr, vm->segv_access_len ) <= region_data_vaddr_end ) {
             /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1592-L1601 */
-            if( vm->segv_access_type == FD_VM_ACCESS_TYPE_ST ) {
+            if( vm->segv_access_type==FD_VM_ACCESS_TYPE_ST ) {
               int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
               if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-                return borrow_err;
+                err = borrow_err;
               } else {
-                return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+                err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
               }
-            } else if ( vm->segv_access_type == FD_VM_ACCESS_TYPE_LD ) {
+            } else if( vm->segv_access_type==FD_VM_ACCESS_TYPE_LD ) {
               int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
               if( !fd_borrowed_account_can_data_be_changed( &instr_acc, &borrow_err ) || borrow_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-                return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+                err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
               } else {
-                return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+                err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
               }
+            } else {
+              FD_LOG_CRIT(( "invariant violation: unsupported access type: %i", vm->segv_access_type ));
             }
+
+            FD_VM_PREPARE_ERR_OVERWRITE( vm );
+            FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+            return err;
           }
         }
       }
@@ -625,11 +634,15 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   err = fd_bpf_loader_input_deserialize_parameters(
     instr_ctx, pre_lens, input, input_sz, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
+
+  long const regime3 = fd_tickcount();
+  if( instr_ctx->instr->stack_height==1 ) {
+    instr_ctx->runtime->metrics.vm_commit_cum_ticks += (ulong)( regime3-regime2 );
+  } else {
+    instr_ctx->runtime->metrics.cpi_commit_cum_ticks  += (ulong)( regime3-regime2 );
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return err;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1358-L1539 */
@@ -663,7 +676,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1379-L1381 */
   fd_guarded_borrowed_account_t programdata_account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, PROGRAM_DATA_ACCOUNT_INDEX, &programdata_account );
-  fd_pubkey_t * programdata_key = programdata_account.acct->pubkey;
+  fd_pubkey_t const * programdata_key = programdata_account.pubkey;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1383-L1386 */
   if( FD_UNLIKELY( memcmp( program_id, fd_borrowed_account_get_owner( &programdata_account ), sizeof(fd_pubkey_t) ) ) ) {
@@ -695,7 +708,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1403-L1419 */
   fd_bpf_upgradeable_loader_state_t program_state[1];
-  err = fd_bpf_loader_program_get_state( program_account.acct, program_state );
+  err = fd_bpf_loader_program_get_state( program_account.meta, program_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return err;
   }
@@ -733,7 +746,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1439-L1478 */
   fd_pubkey_t * upgrade_authority_address = NULL;
   fd_bpf_upgradeable_loader_state_t programdata_state[1];
-  err = fd_bpf_loader_program_get_state( programdata_account.acct, programdata_state );
+  err = fd_bpf_loader_program_get_state( programdata_account.meta, programdata_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return err;
   }
@@ -784,10 +797,15 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1480-L1485 */
-  fd_rent_t const * rent             = fd_bank_rent_query( instr_ctx->bank );
-  ulong             balance          = fd_borrowed_account_get_lamports( &programdata_account );
-  ulong             min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_len ), 1UL );
-  ulong             required_payment = fd_ulong_sat_sub( min_balance, balance );
+  fd_rent_t rent_;
+  fd_rent_t const * rent = fd_sysvar_cache_rent_read( instr_ctx->sysvar_cache, &rent_ );
+  if( FD_UNLIKELY( !rent ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  }
+
+  ulong balance          = fd_borrowed_account_get_lamports( &programdata_account );
+  ulong min_balance      = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_len ), 1UL );
+  ulong required_payment = fd_ulong_sat_sub( min_balance, balance );
 
   /* Borrowed accounts need to be dropped before native invocations. Note:
      the programdata account is manually released and acquired within the
@@ -866,7 +884,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   ulong         programdata_size = new_len - PROGRAMDATA_METADATA_SIZE;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1512-L1522 */
-  err = fd_deploy_program( instr_ctx, program_account.acct->pubkey, programdata_data, programdata_size );
+  err = fd_deploy_program( instr_ctx, programdata_data, programdata_size );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -916,8 +934,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       instruction_mem,
       instr_ctx->instr->data,
       instr_ctx->instr->data_sz,
-      FD_TXN_MTU,
-      NULL );
+      FD_TXN_MTU );
   if( FD_UNLIKELY( !instruction ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -940,13 +957,13 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &buffer );
 
       fd_bpf_upgradeable_loader_state_t buffer_state[1];
-      err = fd_bpf_loader_program_get_state( buffer.acct, buffer_state );
+      err = fd_bpf_loader_program_get_state( buffer.meta, buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
 
       if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_uninitialized( buffer_state ) ) ) {
-        fd_log_collector_msg_literal( instr_ctx, "Buffer account is already initialized" );
+        fd_log_collector_msg_literal( instr_ctx, "Buffer account already initialized" );
         return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
       }
 
@@ -981,7 +998,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &buffer );
 
       fd_bpf_upgradeable_loader_state_t loader_state[1];
-      err = fd_bpf_loader_program_get_state( buffer.acct, loader_state );
+      err = fd_bpf_loader_program_get_state( buffer.meta, loader_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
@@ -1050,13 +1067,17 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      /* rent is accessed directly from the epoch bank and the clock from the
-        slot context. However, a check must be done to make sure that the
-        sysvars are correctly included in the set of transaction accounts. */
       err = fd_sysvar_instr_acct_check( instr_ctx, 4UL, &fd_sysvar_rent_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
+
+      fd_rent_t rent_;
+      fd_rent_t const * rent = fd_sysvar_cache_rent_read( instr_ctx->sysvar_cache, &rent_ );
+      if( FD_UNLIKELY( !rent ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      }
+
       err = fd_sysvar_instr_acct_check( instr_ctx, 5UL, &fd_sysvar_clock_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
@@ -1065,7 +1086,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_sol_sysvar_clock_t clock_;
       fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
       if( FD_UNLIKELY( !clock ) ) {
-        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L538 */
@@ -1080,16 +1101,14 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L542-L560 */
       /* Verify Program account */
-
-      fd_pubkey_t *     new_program_id = NULL;
-      fd_rent_t const * rent           = fd_bank_rent_query( instr_ctx->bank );
+      fd_pubkey_t const * new_program_id = NULL;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L545 */
       fd_guarded_borrowed_account_t program = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &program );
 
       fd_bpf_upgradeable_loader_state_t loader_state[1];
-      int err = fd_bpf_loader_program_get_state( program.acct, loader_state );
+      int err = fd_bpf_loader_program_get_state( program.meta, loader_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1106,7 +1125,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not rent-exempt" );
         return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
       }
-      new_program_id = program.acct->pubkey;
+      new_program_id = program.pubkey;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L560 */
       fd_borrowed_account_drop( &program );
@@ -1114,17 +1133,17 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L561-L600 */
       /* Verify Buffer account */
 
-      fd_pubkey_t * buffer_key       = NULL;
-      ulong buffer_data_offset       = 0UL;
-      ulong buffer_data_len          = 0UL;
-      ulong programdata_len          = 0UL;
+      fd_pubkey_t const* buffer_key         = NULL;
+      ulong              buffer_data_offset = 0UL;
+      ulong              buffer_data_len    = 0UL;
+      ulong              programdata_len    = 0UL;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L564-L565 */
       fd_guarded_borrowed_account_t buffer = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &buffer );
 
       fd_bpf_upgradeable_loader_state_t buffer_state[1];
-      err = fd_bpf_loader_program_get_state( buffer.acct, buffer_state );
+      err = fd_bpf_loader_program_get_state( buffer.meta, buffer_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
@@ -1145,7 +1164,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Invalid Buffer account" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }
-      buffer_key         = buffer.acct->pubkey;
+      buffer_key         = buffer.pubkey;
       buffer_data_offset = BUFFER_METADATA_SIZE;
       buffer_data_len    = fd_ulong_sat_sub( fd_borrowed_account_get_data_len( &buffer ), buffer_data_offset );
       /* UpgradeableLoaderState::size_of_program_data( max_data_len ) */
@@ -1280,7 +1299,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
 
-      err = fd_deploy_program( instr_ctx, program.acct->pubkey, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1312,9 +1331,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>fd_borrowed_account_get_data_len( &programdata ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
         }
-        if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ) {
-          return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
-        }
 
         uchar * programdata_data = NULL;
         ulong   programdata_dlen = 0UL;
@@ -1343,9 +1359,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
       } while(0);
 
-      /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Deployed program %s", FD_BASE58_ENC_32_ALLOCA( program_id ) );
-
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L692-L699 */
 
       /* Update the Program account
@@ -1363,7 +1376,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
 
-      FD_LOG_INFO(( "Program deployed %s", FD_BASE58_ENC_32_ALLOCA( program.acct->pubkey ) ));
+      FD_BASE58_ENCODE_32_BYTES( program.pubkey->uc, program_b58 );
+      FD_LOG_INFO(( "Program deployed %s", program_b58 ));
+
+      /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
+      FD_BASE58_ENCODE_32_BYTES( program_id->uc, program_id_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Deployed program %s", program_id_b58 );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L700 */
       fd_borrowed_account_drop( &program );
@@ -1391,9 +1409,22 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
+
+      fd_rent_t rent_;
+      fd_rent_t const * rent = fd_sysvar_cache_rent_read( instr_ctx->sysvar_cache, &rent_ );
+      if( FD_UNLIKELY( !rent ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      }
+
       err = fd_sysvar_instr_acct_check( instr_ctx, 5UL, &fd_sysvar_clock_id );
       if( FD_UNLIKELY( err ) ) {
         return err;
+      }
+
+      fd_sol_sysvar_clock_t clock_;
+      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
+      if( FD_UNLIKELY( !clock ) ) {
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
 
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 7U ) ) ) {
@@ -1421,7 +1452,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
       fd_bpf_upgradeable_loader_state_t program_state[1];
-      err = fd_bpf_loader_program_get_state( program.acct, program_state );
+      err = fd_bpf_loader_program_get_state( program.meta, program_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
@@ -1450,7 +1481,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &buffer );
 
       fd_bpf_upgradeable_loader_state_t buffer_state[1];
-      err = fd_bpf_loader_program_get_state( buffer.acct, buffer_state );
+      err = fd_bpf_loader_program_get_state( buffer.meta, buffer_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
@@ -1491,8 +1522,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t programdata = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata );
 
-      fd_rent_t const * rent = fd_bank_rent_query( instr_ctx->bank );
-
       programdata_balance_required = fd_ulong_max( 1UL, fd_rent_exempt_minimum_balance( rent, fd_borrowed_account_get_data_len( &programdata ) ) );
 
       if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &programdata )<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
@@ -1505,15 +1534,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       fd_bpf_upgradeable_loader_state_t programdata_state[1];
-      err = fd_bpf_loader_program_get_state( programdata.acct, programdata_state );
+      err = fd_bpf_loader_program_get_state( programdata.meta, programdata_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
-      }
-
-      fd_sol_sysvar_clock_t clock_;
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, &clock_ );
-      if( FD_UNLIKELY( !clock ) ) {
-        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
       }
 
       if( fd_bpf_upgradeable_loader_state_is_program_data( programdata_state ) ) {
@@ -1554,7 +1577,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
-      err = fd_deploy_program( instr_ctx, program.acct->pubkey, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1644,7 +1667,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
       //TODO: this is likely the incorrect program_id, do we have new_program_id?
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", FD_BASE58_ENC_32_ALLOCA( program_id ) );
+      FD_BASE58_ENCODE_32_BYTES( program_id->uc, program_id_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", program_id_b58 );
 
       break;
     }
@@ -1672,7 +1696,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 2UL, &new_authority );
 
       fd_bpf_upgradeable_loader_state_t account_state[1];
-      err = fd_bpf_loader_program_get_state( account.acct, account_state );
+      err = fd_bpf_loader_program_get_state( account.meta, account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1742,7 +1766,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
       if( new_authority ) {
-        fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority Some(%s)", FD_BASE58_ENC_32_ALLOCA( new_authority ) );
+        FD_BASE58_ENCODE_32_BYTES( new_authority->uc, new_authority_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority Some(%s)", new_authority_b58 );
       } else {
         fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority None" );
       }
@@ -1777,7 +1802,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( err ) ) return err;
 
       fd_bpf_upgradeable_loader_state_t account_state[1];
-      err = fd_bpf_loader_program_get_state( account.acct, account_state );
+      err = fd_bpf_loader_program_get_state( account.meta, account_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
@@ -1846,7 +1871,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", FD_BASE58_ENC_32_ALLOCA( new_authority_key ) );
+      FD_BASE58_ENCODE_32_BYTES( new_authority_key->uc, new_authority_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "New authority %s", new_authority_b58 );
 
       /* implicit drop of account */
 
@@ -1873,9 +1899,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_guarded_borrowed_account_t close_account = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &close_account );
 
-      fd_pubkey_t * close_key = close_account.acct->pubkey;
+      fd_pubkey_t const * close_key = close_account.pubkey;
       fd_bpf_upgradeable_loader_state_t close_account_state[1];
-      err = fd_bpf_loader_program_get_state( close_account.acct, close_account_state );
+      err = fd_bpf_loader_program_get_state( close_account.meta, close_account_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
@@ -1901,8 +1927,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return err;
         }
         /* Max msg_sz: 23 - 2 + 45 = 66 < 127 => we can use printf */
-        fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Uninitialized %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
+        FD_BASE58_ENCODE_32_BYTES( close_key->uc, close_key_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Uninitialized %s", close_key_b58 );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1057-L1068 */
       } else if( fd_bpf_upgradeable_loader_state_is_buffer( close_account_state ) ) {
@@ -1922,8 +1948,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( err ) ) return err;
 
         /* Max msg_sz: 16 - 2 + 45 = 63 < 127 => we can use printf */
-        fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Buffer %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
+        FD_BASE58_ENCODE_32_BYTES( close_key->uc, close_key_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Buffer %s", close_key_b58 );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1069-L1129 */
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( close_account_state ) ) {
@@ -1958,7 +1984,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         fd_bpf_upgradeable_loader_state_t program_state[1];
-        err = fd_bpf_loader_program_get_state( program_account.acct, program_state );
+        err = fd_bpf_loader_program_get_state( program_account.meta, program_state );
         if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
@@ -1993,8 +2019,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         /* Max msg_sz: 17 - 2 + 45 = 60 < 127 => we can use printf */
-        fd_log_collector_printf_dangerous_max_127( instr_ctx,
-          "Closed Program %s", FD_BASE58_ENC_32_ALLOCA( close_key ) );
+        FD_BASE58_ENCODE_32_BYTES( program_account.pubkey->uc, program_account_b58 );
+        fd_log_collector_printf_dangerous_max_127( instr_ctx, "Closed Program %s", program_account_b58 );
 
         /* program account is dropped when it goes out of scope */
       } else {
@@ -2086,7 +2112,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       ulong         program_len               = 0UL;
       fd_pubkey_t * upgrade_authority_address = NULL;
       fd_bpf_upgradeable_loader_state_t programdata_state[1];
-      err = fd_bpf_loader_program_get_state( programdata.acct, programdata_state );
+      err = fd_bpf_loader_program_get_state( programdata.meta, programdata_state );
       if( FD_LIKELY( err==FD_EXECUTOR_INSTR_SUCCESS && fd_bpf_upgradeable_loader_state_is_program_data( programdata_state ) ) ) {
 
         /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1374-L1377 */
@@ -2141,7 +2167,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1415-L1426 */
       fd_bpf_upgradeable_loader_state_t program_state[1];
-      err = fd_bpf_loader_program_get_state( program.acct, program_state );
+      err = fd_bpf_loader_program_get_state( program.meta, program_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
@@ -2401,7 +2427,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_drop( &programdata );
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1506 */
-      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Migrated program %s", FD_BASE58_ENC_32_ALLOCA( program_address ) );
+      FD_BASE58_ENCODE_32_BYTES( program_address->uc, program_address_b58 );
+      fd_log_collector_printf_dangerous_max_127( instr_ctx, "Migrated program %s", program_address_b58 );
 
       break;
     }
@@ -2481,9 +2508,10 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &program_account );
   uchar is_deprecated = !memcmp( metadata->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
+  fd_accdb_ro_t progdata_ro[1]; fd_borrowed_account_ro( &program_account, progdata_ro );
   if( !memcmp( metadata->owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
     fd_bpf_upgradeable_loader_state_t program_account_state[1];
-    err = fd_bpf_loader_program_get_state( program_account.acct, program_account_state );
+    err = fd_bpf_loader_program_get_state( program_account.meta, program_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -2504,26 +2532,26 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
-    fd_txn_account_t * program_data_account = NULL;
-    fd_pubkey_t *      programdata_pubkey   = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
+    fd_account_meta_t const * programdata_meta   = NULL;
+    fd_pubkey_t *             programdata_pubkey = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
     err = fd_runtime_get_executable_account( ctx->runtime,
                                              ctx->txn_in,
                                              ctx->txn_out,
                                              programdata_pubkey,
-                                             &program_data_account,
-                                             fd_runtime_account_check_exists );
+                                             &programdata_meta );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
+    fd_accdb_ro_init_nodb( progdata_ro, programdata_pubkey, programdata_meta );
 
-    if( FD_UNLIKELY( fd_txn_account_get_data_len( program_data_account )<PROGRAMDATA_METADATA_SIZE ) ) {
+    if( FD_UNLIKELY( programdata_meta->dlen<PROGRAMDATA_METADATA_SIZE ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     fd_bpf_upgradeable_loader_state_t program_data_account_state[1];
-    err = fd_bpf_loader_program_get_state( program_data_account, program_data_account_state );
+    err = fd_bpf_loader_program_get_state( programdata_meta, program_data_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -2538,7 +2566,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     ulong program_data_slot = program_data_account_state->inner.program_data.slot;
-    if( FD_UNLIKELY( program_data_slot>=fd_bank_slot_get( ctx->bank ) ) ) {
+    if( FD_UNLIKELY( program_data_slot>=ctx->bank->data->f.slot ) ) {
       /* The account was likely just deployed or upgraded. Corresponds to
          'LoadedProgramType::DelayVisibility' */
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
@@ -2547,20 +2575,18 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), ctx->bank->idx } };
-  fd_progcache_rec_t const * cache_entry =
-      fd_progcache_pull( ctx->runtime->progcache,
-                         ctx->runtime->accdb,
-                         &xid,
-                         program_id,
-                         load_env );
+  fd_funk_txn_xid_t xid = { .ul = { ctx->bank->data->f.slot, ctx->bank->data->idx } };
+  fd_progcache_t * progcache = ctx->runtime->progcache;
+  fd_progcache_rec_t * cache_entry =
+      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro );
   if( FD_UNLIKELY( !cache_entry ) ) {
     fd_log_collector_msg_literal( ctx, "Program is not cached" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
   /* The program may be in the cache but could have failed verification in the current epoch. */
-  if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
+  if( FD_UNLIKELY( !cache_entry->data_gaddr ) ) {
+    fd_progcache_rec_close( progcache, cache_entry );
     fd_log_collector_msg_literal( ctx, "Program is not deployed" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
@@ -2568,76 +2594,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L446 */
   fd_borrowed_account_drop( &program_account );
 
-  return fd_bpf_execute( ctx, cache_entry, is_deprecated );
-}
-
-
-/* Public APIs */
-
-int
-fd_directly_invoke_loader_v3_deploy( fd_bank_t *         bank,
-                                     fd_funk_t *         funk,
-                                     void *              accdb_shfunk,
-                                     fd_pubkey_t const * program_key,
-                                     uchar const *       elf,
-                                     ulong               elf_sz ) {
-  FD_LOG_ERR(( "fd_directly_invoke_loader_v3_deploy is not implemented" ));
-
-  (void)bank;
-  (void)funk;
-  (void)accdb_shfunk;
-  (void)program_key;
-  (void)elf;
-  (void)elf_sz;
-
-  // /* Set up a dummy instr and txn context.
-  //    FIXME: Memory for a txn context needs to be allocated */
-  // fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( NULL ) );
-
-  // if( FD_UNLIKELY( !fd_funk_join( funk, accdb_shfunk ) ) ) {
-  //   FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
-  // }
-  // txn_ctx->bank_hash_cmp             = NULL;
-  // txn_ctx->log.enable_exec_recording = !!(bank->flags & FD_BANK_FLAGS_EXEC_RECORDING);
-  // txn_ctx->bank                      = bank;
-
-  // fd_txn_out_t txn_out;
-  // fd_compute_budget_details_new( &txn_out.details.compute_budget );
-  // txn_out.accounts.accounts_cnt     = 0UL;
-  // txn_out.accounts.executable_cnt   = 0UL;
-
-  // txn_out.details.programs_to_reverify_cnt       = 0UL;
-  // txn_out.details.loaded_accounts_data_size      = 0UL;
-  // txn_out.details.loaded_accounts_data_size_cost = 0UL;
-  // txn_out.details.accounts_resize_delta          = 0UL;
-
-  // memset( txn_out.details.return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  // txn_out.details.return_data.len = 0;
-
-  // txn_ctx->log.capture_ctx   = NULL;
-
-  // txn_ctx->instr.info_cnt     = 0UL;
-  // txn_ctx->instr.trace_length = 0UL;
-
-  // txn_out.err.exec_err          = 0;
-  // txn_out.err.exec_err_kind     = FD_EXECUTOR_ERR_KIND_NONE;
-  // txn_ctx->instr.current_idx = 0;
-
-  // txn_ctx->instr.stack_sz = 1;
-  // fd_exec_instr_ctx_t * instr_ctx = &txn_ctx->instr.stack[0];
-  // *instr_ctx = (fd_exec_instr_ctx_t) {
-  //   .instr     = NULL,
-  //   .txn_ctx   = txn_ctx,
-  //   .txn_out   = &txn_out,
-  // };
-
-  /* Important note: this function is called at the epoch boundary and
-     does not do anything with the `programs_to_reverify` field in the
-     transaction context. This is fine though because when this function
-     is called, the program will not exist in the cache yet (because it
-     does not exist on-chain as a BPF program yet). There is no queueing
-     needed because the next time the program is invoked, the program
-     cache updating logic will see that the cache entry is missing and
-     will insert it then. */
-  // return fd_deploy_program( instr_ctx, program_key, elf, elf_sz );
+  int exec_err = fd_bpf_execute( ctx, cache_entry, is_deprecated );
+  fd_progcache_rec_close( progcache, cache_entry );
+  return exec_err;
 }

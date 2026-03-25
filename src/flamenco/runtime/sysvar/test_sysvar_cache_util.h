@@ -9,6 +9,7 @@
 
 struct test_sysvar_cache_env {
   void *              shfunk;
+  void *              shlocks;
   fd_accdb_user_t     accdb[1];
   fd_funk_txn_xid_t   xid;
   fd_bank_t *         bank;

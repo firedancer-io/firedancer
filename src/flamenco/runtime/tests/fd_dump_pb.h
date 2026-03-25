@@ -1,61 +1,81 @@
 #ifndef HEADER_fd_src_flamenco_runtime_tests_fd_dump_pb_h
 #define HEADER_fd_src_flamenco_runtime_tests_fd_dump_pb_h
 
-/* fd_dump_pb.h provides APIs for dumping syscalls, instructions, transactions, and blocks
-   into a digestable and replayable Protobuf message. This is useful for debugging
-   ledger test mismatches, collecting seed corpora, and gathering real data to test
-   new harnesses.
+/* fd_dump_pb.h provides APIs for dumping syscalls, instructions,
+   transactions, and blocks into a digestable and replayable Protobuf
+   message. This is useful for debugging ledger test mismatches,
+   collecting seed corpora, and gathering real data to test new
+   harnesses.
 
-   The following arguments can be added when replaying ledger transactions:
+   The following arguments can be added to the [capture] section of
+   the TOML configuration file when running backtest:
       COMMON:
-        --dump-proto-output-dir <output_dir>
+        - dump_proto_dir <output_dir>
             * Defines the output directory to dump Protobuf messages to
-        --dump-proto-start-slot <slot_number>
-            * Defines the starting slot to dump Protobuf messages from
+        - capture_start_slot <slot_number>
+            * If present, defines the starting slot to dump Protobuf
+              messages from
 
       HARNESS-SPECIFIC FILTERS:
         Instructions:
-            --dump-insn-to-pb <0/1>
-                * If enabled, instructions will be dumped to the specified output directory
-                * File name format is "instr-<base58_enc_sig>-<instruction_idx>.bin", where instruction_idx is 1-indexed
-                * Each file represents a single instruction as a serialized InstrContext Protobuf message
-            --dump-proto-sig-filter <base_58_enc_sig>
-                * If enabled, only instructions with the specified signature will be dumped
+            - dump_instr_to_pb <0/1>
+                * If enabled, instructions will be dumped to the
+                  specified output directory
+                * File name format is "instr-<base58_enc_sig>-<instruction_idx>.bin",
+                  where instruction_idx is 1-indexed
+                * Each file represents a single instruction as a
+                  serialized InstrContext Protobuf message
+            - dump_instr_program_id_filter <base58_enc_program_id>
+                * If present, only instructions from the specified
+                  program will be dumped
 
         Transactions:
-            --dump-txn-to-pb <0/1>
-                * If enabled, transactions will be dumped to the specified output directory
-                * File name format is "txn-<base58_enc_sig>.bin"
-                * Each file represents a single transaction as a serialized TxnContext Protobuf message
-            --dump-proto-sig-filter <base_58_enc_sig>
-                * If enabled, only transactions with the specified signature will be dumped
+            - dump_txn_to_pb <0/1>
+                * If enabled, transactions will be dumped to the
+                  specified output directory
+                * By default, file name format is
+                  "txn-<base58_enc_sig>.txnctx" containing a
+                  serialized TxnContext Protobuf message
+                * If dump_txn_as_fixture is also set, the file format
+                  is "txn-<base58_enc_sig>.fix" containing a
+                  serialized TxnFixture (TxnContext + TxnResult)
+            - dump_txn_as_fixture <0/1>
+                * If enabled (requires dump_txn_to_pb), transactions
+                  are dumped as TxnFixture messages containing both
+                  the input context (captured before execution) and
+                  the output result (captured after execution)
+                * Useful for verifying transaction harness accuracy
+                  against backtest results
 
         Blocks
-            --dump-block-to-pb <0/1>
-                * If enabled, blocks will be dumped to the specified output directory
+            - dump_block_to_pb <0/1>
+                * If enabled, blocks will be dumped to the specified
+                  output directory
                 * File name format is "block-<slot_number>.bin"
-                * Each file represents a single block as a serialized BlockContext Protobuf message
+                * Each file represents a single block as a serialized
+                  BlockContext Protobuf message
 
         Syscalls:
-            --dump-syscall-to-pb <0/1>
-                * If enabled, syscalls will be dumped to the specified output directory
+            - dump_syscall_to_pb <0/1>
+                * If enabled, syscalls will be dumped to the specified
+                  output directory
                 * File name format is "syscall-<fn_name>-<base58_enc_sig>-<program_id_idx>-<instr_stack_sz>-<cus_remaining>.bin"
-
-        ELF:
-            --dump-elf-to-pb <0/1>
-                * If enabled, ELF files will be dumped to the specified output directory
-                * File name format is "elf-<base58_enc_sig>-<base58_enc_program_id>-<slot_number>.elfctx"
+            - dump_syscall_name_filter <fn_name>
+                * If present, only syscalls with the specified name will
+                  be dumped, e.g. sol_memcpy_, sol_invoke_signed_rust
 
     Other notes:
         solana-conformance (https://github.com/firedancer-io/solana-conformance)
-            * Allows decoding / executing / debugging of above Protobuf messages in an isolated environment
-            * Allows execution result(s) comparison between Firedancer and Solana / Agave
-            * See solana-conformance/README.md for functionality and use cases */
+            * Allows decoding / executing / debugging of above Protobuf
+              messages in an isolated environment
+            * Allows execution result(s) comparison between Firedancer
+              and Solana / Agave
+            * See solana-conformance/README.md for functionality and use
+              cases */
 
 #include "../info/fd_instr_info.h"
 #include "../../vm/fd_vm.h"
 #include "generated/block.pb.h"
-#include "generated/elf.pb.h"
 #include "../../../disco/fd_txn_p.h"
 
 /* The amount of memory allocated towards dumping blocks from ledgers */
@@ -65,6 +85,30 @@
 FD_PROTOTYPES_BEGIN
 
 /***** Dumping context *****/
+
+/* Generic struct to hold options for dumping protobuf messages */
+struct fd_dump_proto_ctx {
+  /* General dumping options */
+  char const *             dump_proto_output_dir;
+  ulong                    dump_proto_start_slot;
+
+  /* Instruction Capture */
+  uint                     dump_instr_to_pb : 1;
+  uint                     has_dump_instr_program_id_filter : 1;
+  uchar                    dump_instr_program_id_filter[ 32 ];
+
+  /* Transaction Capture */
+  uint                     dump_txn_to_pb : 1;
+  uint                     dump_txn_as_fixture : 1;
+
+  /* Block Capture */
+  uint                     dump_block_to_pb : 1;
+
+  /* Syscall Capture */
+  uint                     dump_syscall_to_pb : 1;
+  char const *             dump_syscall_name_filter;
+
+};
 
 /* Persistent context for block dumping.  Maintains state about
    in-progress block dumping, such as any dynamic memory allocations
@@ -150,6 +194,85 @@ fd_block_dump_context_reset( fd_block_dump_ctx_t * ctx ) {
   ctx->txns_to_dump_cnt = 0UL;
 }
 
+/* Persistent context for transaction dumping.  Holds the in-progress
+   fixture message across the two dump phases (context before execution,
+   effects after execution).  The spad is used for dynamic memory
+   allocations referenced by the protobuf message. */
+
+#define FD_TXN_DUMP_CTX_SPAD_MEM_MAX (1UL<<28) /* 256 MB */
+
+struct fd_txn_dump_ctx {
+  fd_exec_test_txn_fixture_t fixture;
+  fd_spad_t *                spad;
+};
+typedef struct fd_txn_dump_ctx fd_txn_dump_ctx_t;
+
+static inline ulong
+fd_txn_dump_context_align( void ) {
+  return alignof(fd_txn_dump_ctx_t);
+}
+
+static inline ulong
+fd_txn_dump_context_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txn_dump_ctx_t), sizeof(fd_txn_dump_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_TXN_DUMP_CTX_SPAD_MEM_MAX ) );
+  l = FD_LAYOUT_FINI( l, fd_spad_align() );
+  return l;
+}
+
+static inline void *
+fd_txn_dump_context_new( void * mem ) {
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_txn_dump_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txn_dump_ctx_t), sizeof(fd_txn_dump_ctx_t) );
+  fd_spad_t *         spad = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),             fd_spad_footprint( FD_TXN_DUMP_CTX_SPAD_MEM_MAX ) );
+
+  ctx->spad = fd_spad_new( spad, FD_TXN_DUMP_CTX_SPAD_MEM_MAX );
+  fd_memset( &ctx->fixture, 0, sizeof(ctx->fixture) );
+  return ctx;
+}
+
+static inline fd_txn_dump_ctx_t *
+fd_txn_dump_context_join( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_txn_dump_context_align() ) ) ) {
+    FD_LOG_ERR(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_txn_dump_ctx_t * ctx = (fd_txn_dump_ctx_t *)mem;
+  ctx->spad               = fd_spad_join( ctx->spad );
+  return ctx;
+}
+
+static inline void *
+fd_txn_dump_context_delete( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "NULL mem" ));
+    return NULL;
+  }
+  return mem;
+}
+
+static inline void *
+fd_txn_dump_context_leave( fd_txn_dump_ctx_t * ctx ) {
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_LOG_ERR(( "NULL ctx" ));
+    return NULL;
+  }
+  return (void *)ctx;
+}
+
+static inline void
+fd_txn_dump_context_reset( fd_txn_dump_ctx_t * ctx ) {
+  fd_memset( &ctx->fixture, 0, sizeof(ctx->fixture) );
+  fd_spad_reset( ctx->spad );
+}
+
 /****** Actual dumping functions ******/
 
 void
@@ -165,6 +288,57 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
                          fd_bank_t *         bank,
                          fd_txn_in_t const * txn_in,
                          fd_txn_out_t *      txn_out );
+
+/* Builds a TxnResult protobuf message from the transaction execution
+   results into a caller-provided buffer.  The result struct and all
+   sub-allocations (account data, return data) are bump-allocated
+   within [out_buf, out_buf+out_bufsz).  Returns the number of bytes
+   consumed from out_buf.  *txn_result_out is set to point to the
+   result struct within out_buf.
+
+   Shared between the transaction dumper and the fuzz harness. */
+ulong
+create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out,
+                                     void *                       out_buf,
+                                     ulong                        out_bufsz,
+                                     fd_txn_in_t const *          txn_in,
+                                     fd_txn_out_t *               txn_out,
+                                     int                          exec_res );
+
+/* Transaction dumping (two-phase approach):
+
+   Phase 1: fd_dump_txn_context_to_protobuf() captures the TxnContext
+   before transaction execution into the txn dump context's fixture.
+
+   Phase 2: fd_dump_txn_result_to_protobuf() captures the TxnResult
+   after transaction execution into the txn dump context's fixture.
+
+   fd_dump_txn_fixture_to_file() serializes and writes the fixture
+   (or just the context) to disk.
+
+   How it works in fd_runtime_prepare_and_execute_txn:
+
+     fd_dump_txn_context_to_protobuf()   // before execution
+     ... execute transaction ...
+     fd_dump_txn_result_to_protobuf()    // after execution
+     fd_dump_txn_fixture_to_file()       // write to disk */
+void
+fd_dump_txn_context_to_protobuf( fd_txn_dump_ctx_t * txn_dump_ctx,
+                                 fd_runtime_t *      runtime,
+                                 fd_bank_t *         bank,
+                                 fd_txn_in_t const * txn_in,
+                                 fd_txn_out_t *      txn_out );
+
+void
+fd_dump_txn_result_to_protobuf( fd_txn_dump_ctx_t * txn_dump_ctx,
+                                fd_txn_in_t const * txn_in,
+                                fd_txn_out_t *      txn_out,
+                                int                 exec_res );
+
+void
+fd_dump_txn_fixture_to_file( fd_txn_dump_ctx_t *       txn_dump_ctx,
+                             fd_dump_proto_ctx_t const * dump_proto_ctx,
+                             fd_txn_in_t const *         txn_in );
 
 /* Block dumping is a little bit different than the other harnesses due
    to the architecture of our system.  Unlike the other dumping
@@ -195,25 +369,20 @@ fd_dump_txn_to_protobuf( fd_runtime_t *      runtime,
    fd_dump_block_to_protobuf()
    fd_block_dump_context_reset() */
 void
-fd_dump_block_to_protobuf_collect_tx( fd_block_dump_ctx_t * dump_ctx,
+fd_dump_block_to_protobuf_collect_tx( fd_block_dump_ctx_t * dump_block_ctx,
                                       fd_txn_p_t const *    txn );
 
 void
-fd_dump_block_to_protobuf( fd_block_dump_ctx_t *     dump_ctx,
-                           fd_banks_t *              banks,
-                           fd_bank_t *               bank,
-                           fd_funk_t *               funk,
-                           fd_capture_ctx_t const *  capture_ctx );
+fd_dump_block_to_protobuf( fd_block_dump_ctx_t *       dump_block_ctx,
+                           fd_banks_t *                banks,
+                           fd_bank_t *                 bank,
+                           fd_accdb_user_t *           accdb,
+                           fd_dump_proto_ctx_t const * dump_proto_ctx,
+                           fd_runtime_stack_t *        runtime_stack );
 
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
                                 char const *    fn_name );
-
-void
-fd_dump_elf_to_protobuf( fd_runtime_t *      runtime,
-                         fd_bank_t *         bank,
-                         fd_txn_in_t const * txn_in,
-                         fd_txn_account_t *  program_acc );
 
 FD_PROTOTYPES_END
 

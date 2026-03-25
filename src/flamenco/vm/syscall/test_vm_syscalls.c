@@ -2,13 +2,15 @@
 #include "../test_vm_util.h"
 #include "../../runtime/fd_bank.h"
 
+#include <stdlib.h> // ARM64: malloc(3), free(3)
+
 static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
 static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
   char const * one_offs[] = { "9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ", "CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM" };
-  fd_features_enable_one_offs( fd_bank_features_modify( vm_ctx->instr_ctx->bank ), one_offs, 1U, slot );
+  fd_features_enable_one_offs( &vm_ctx->instr_ctx->bank->data->f.features, one_offs, 1U, slot );
   vm_ctx->direct_mapping = enable;
   vm_ctx->stricter_abi_and_runtime_constraints = enable;
 }
@@ -256,6 +258,8 @@ main( int     argc,
   uchar input[ input_sz ];
   ulong const mem_regions_cnt = 4UL;
   fd_vm_input_region_t input_mem_regions[ mem_regions_cnt ];
+  set_memory_region( input, input_sz );
+
   input_mem_regions[0] = (fd_vm_input_region_t){ .haddr = (ulong)input,         .region_sz = 100UL, .address_space_reserved = 100UL, .is_writable = 1, .vaddr_offset = 0UL };
   input_mem_regions[1] = (fd_vm_input_region_t){ .haddr = (ulong)input + 100UL, .region_sz = 1UL,   .address_space_reserved = 1UL,   .is_writable = 1, .vaddr_offset = 100UL };
   input_mem_regions[2] = (fd_vm_input_region_t){ .haddr = (ulong)input + 101UL, .region_sz = 400UL, .address_space_reserved = 400UL, .is_writable = 1, .vaddr_offset = 101UL };
@@ -263,10 +267,12 @@ main( int     argc,
 
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_bank_t           bank[1];
+  fd_bank_data_t      bank_data[1];
+  fd_banks_locks_t    bank_locks[1];
   fd_txn_out_t        txn_out[1];
   fd_log_collector_t  log_collector[1];
   runtime->log.log_collector = log_collector;
-  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, bank_data, bank_locks, txn_out );
 
   int vm_ok = !!fd_vm_init(
       /* vm                                   */ vm,

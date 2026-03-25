@@ -153,7 +153,7 @@ fd_vinyl_main( int     argc,
         bstream_type = 1;
 
         fd_shmem_join_info_t info[1];
-        mmio = fd_shmem_join( path, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info );
+        mmio = fd_shmem_join( path, FD_SHMEM_JOIN_MODE_READ_WRITE, 0, NULL, NULL, info );
         TEST( mmio, "fd_shmem_join failed" );
         mmio_sz = info->page_sz * info->page_cnt;
 
@@ -180,6 +180,8 @@ fd_vinyl_main( int     argc,
     TEST( io, "fd_vinyl_io mm_init failed" );
 
   } else if( !strcmp( type, "bd" ) ) {
+
+    if( FD_VINYL_BSTREAM_BLOCK_SZ<512UL ) TEST( !direct, "--direct 1 not supported with --type bd and BLOCK_SZ<512" );
 
     TEST( path, "--path not specified for --type bd" );
 

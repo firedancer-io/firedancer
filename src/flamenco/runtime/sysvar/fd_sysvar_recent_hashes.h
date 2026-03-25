@@ -41,7 +41,7 @@ fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
    lamports, this function returns NULL. */
 
 fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t *               funk,
+fd_sysvar_recent_hashes_read( fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               uchar                     rbh_mem[ static FD_SYSVAR_RECENT_HASHES_FOOTPRINT ] );
 

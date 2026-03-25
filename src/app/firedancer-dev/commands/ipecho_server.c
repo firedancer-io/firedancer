@@ -24,7 +24,7 @@ ipecho_topo( fd_topo_t *  topo,
   fd_topob_wksp( topo, "all" );
   fd_topo_link_t * link = fd_topob_link( topo, "ipecho_out", "all", 4UL, 0UL, 1UL );
   link->permit_no_consumers = 1;
-  fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0 );
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "ipecho", "all", "all", 0UL, 0, 0, 0 );
   tile->ipecho.expected_shred_version = 32;
   tile->ipecho.entrypoints_cnt = 0UL;
   tile->ipecho.bind_address = FD_IP4_ADDR(127,0,0,1);
@@ -75,7 +75,7 @@ ipecho_server_cmd_fn( args_t *   args,
   run_firedancer_init( config, 1, 0 );
 
   fd_log_private_shared_lock[ 1 ] = 0;
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
   ulong tile_idx1 = fd_topo_find_tile( &config->topo, "ipecho", 0UL );

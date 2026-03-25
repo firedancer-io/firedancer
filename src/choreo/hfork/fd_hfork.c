@@ -9,7 +9,8 @@ check( fd_hfork_t *  hfork,
        fd_hash_t *   our_bank_hash ) {
 
   if( FD_LIKELY( candidate->checked ) ) return; /* already checked this bank hash against our own */
-  if( FD_LIKELY( candidate->stake * 100UL / total_stake < 52UL ) ) return; /* not enough stake to compare */
+  double pct = (double)candidate->stake * 100.0 / (double)total_stake;
+  if( FD_LIKELY( pct < 52.0 ) ) return; /* not enough stake to compare */
 
   if( FD_UNLIKELY( dead ) ) {
     char msg[ 4096UL ];
@@ -19,7 +20,7 @@ check( fd_hfork_t *  hfork,
                                   candidate->slot,
                                   _block_id,
                                   candidate->cnt,
-                                  100.0*(double)candidate->stake/(double)total_stake ) );
+                                  pct ) );
 
     if( FD_UNLIKELY( hfork->fatal ) ) FD_LOG_ERR    (( "%s", msg ));
     else                              FD_LOG_WARNING(( "%s", msg ));
@@ -34,7 +35,7 @@ check( fd_hfork_t *  hfork,
                                   candidate->slot,
                                   _block_id,
                                   candidate->cnt,
-                                  100.0*(double)candidate->stake/(double)total_stake,
+                                  pct,
                                   _bank_hash ) );
 
     if( FD_UNLIKELY( hfork->fatal ) ) FD_LOG_ERR    (( "%s", msg ));
@@ -73,7 +74,6 @@ fd_hfork_new( void * shmem,
               ulong  max_vote_accounts,
               ulong  seed,
               int    fatal ) {
-  (void)seed; /* TODO map seed */
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -98,20 +98,21 @@ fd_hfork_new( void * shmem,
   int   lg_vtr_max = fd_ulong_find_msb( fd_ulong_pow2_up( max_vote_accounts ) ) + 1;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_hfork_t * hfork          = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),       sizeof( fd_hfork_t )                        );
-  void *       blk_map        = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),        blk_map_footprint( lg_blk_max )             );
-  void *       vtr_map        = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),        vtr_map_footprint( lg_vtr_max )             );
-  void *       candidate_map  = FD_SCRATCH_ALLOC_APPEND( l, candidate_map_align(),  candidate_map_footprint( lg_blk_max )       );
-  void *       bank_hash_pool = FD_SCRATCH_ALLOC_APPEND( l, bank_hash_pool_align(), bank_hash_pool_footprint( fork_max )        );
+  fd_hfork_t * hfork          = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),       sizeof( fd_hfork_t )                  );
+  void *       blk_map        = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),        blk_map_footprint( lg_blk_max )       );
+  void *       vtr_map        = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),        vtr_map_footprint( lg_vtr_max )       );
+  void *       candidate_map  = FD_SCRATCH_ALLOC_APPEND( l, candidate_map_align(),  candidate_map_footprint( lg_blk_max ) );
+  void *       bank_hash_pool = FD_SCRATCH_ALLOC_APPEND( l, bank_hash_pool_align(), bank_hash_pool_footprint( fork_max )  );
 
-  hfork->blk_map        = blk_map_new( blk_map, lg_blk_max, 0UL );             /* FIXME seed */
-  hfork->vtr_map        = vtr_map_new( vtr_map, lg_vtr_max, 0UL );             /* FIXME seed */
-  hfork->candidate_map  = candidate_map_new( candidate_map, lg_blk_max, 0UL ); /* FIXME seed */
+  hfork->blk_map        = blk_map_new( blk_map, lg_blk_max, seed );
+  hfork->vtr_map        = vtr_map_new( vtr_map, lg_vtr_max, seed );
+  hfork->candidate_map  = candidate_map_new( candidate_map, lg_blk_max, seed );
   hfork->bank_hash_pool = bank_hash_pool_new( bank_hash_pool, fork_max );
+
+  vtr_t * vtr_map_ = vtr_map_join( hfork->vtr_map );
   for( ulong i = 0UL; i < fd_ulong_pow2( lg_vtr_max ); i++ ) {
-    void *  votes = FD_SCRATCH_ALLOC_APPEND( l, votes_align(), votes_footprint( max_live_slots ) );
-    vtr_t * join  = vtr_map_join( hfork->vtr_map );
-    join[i].votes = votes_new( votes, max_live_slots );
+    void * votes      = FD_SCRATCH_ALLOC_APPEND( l, votes_align(), votes_footprint( max_live_slots ) );
+    vtr_map_[i].votes = votes_new( votes, max_live_slots );
   }
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_hfork_align() ) == (ulong)shmem + footprint );
   hfork->fatal = fatal;
@@ -191,13 +192,13 @@ remove( blk_t * blk, fd_hash_t * bank_hash, bank_hash_t * pool ) {
 
 void
 fd_hfork_count_vote( fd_hfork_t *         hfork,
+                     fd_hfork_metrics_t * metrics,
                      fd_hash_t const *    vote_acc,
                      fd_hash_t const *    block_id,
                      fd_hash_t const *    bank_hash,
                      ulong                slot,
                      ulong                stake,
-                     ulong                total_stake,
-                     fd_hfork_metrics_t * metrics ) {
+                     ulong                total_stake ) {
 
   /* Get the vtr. */
 
@@ -205,14 +206,12 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
   if( FD_UNLIKELY( !vtr ) ) {
     FD_TEST( vtr_map_key_cnt( hfork->vtr_map ) < vtr_map_key_max( hfork->vtr_map ) );
     vtr = vtr_map_insert( hfork->vtr_map, *vote_acc );
+    votes_remove_all( vtr->votes );
   }
 
-  /* Ignore out of order or duplicate votes. */
+  /* Only process newer votes (by vote slot) from a given voter. */
 
-  if( FD_UNLIKELY( !votes_empty( vtr->votes ) ) ) {
-    vote_t const * tail = votes_peek_tail_const( vtr->votes );
-    if( FD_UNLIKELY( tail && tail->slot >= slot ) ) return;
-  }
+  if( FD_UNLIKELY( !votes_empty( vtr->votes ) && votes_peek_tail_const( vtr->votes )->slot >= slot ) ) return;
 
   /* Evict the candidate's oldest vote (by vote slot). */
 
@@ -247,10 +246,11 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
   candidate_key_t key       = { .block_id = *block_id, .bank_hash = *bank_hash };
   candidate_t *   candidate = candidate_map_query( hfork->candidate_map, key, NULL );
   if( FD_UNLIKELY( !candidate ) ) {
-    candidate        = candidate_map_insert( hfork->candidate_map, key );
-    candidate->slot  = slot;
-    candidate->stake = 0UL;
-    candidate->cnt   = 0UL;
+    candidate          = candidate_map_insert( hfork->candidate_map, key );
+    candidate->slot    = slot;
+    candidate->stake   = 0UL;
+    candidate->cnt     = 0UL;
+    candidate->checked = 0;
   }
   candidate->cnt++;
   candidate->stake += stake;
@@ -261,9 +261,10 @@ fd_hfork_count_vote( fd_hfork_t *         hfork,
   if( FD_UNLIKELY( !blk ) ) {
     FD_TEST( blk_map_key_cnt( hfork->blk_map ) < blk_map_key_max( hfork->blk_map ) ); /* invariant violation: blk_map full */
     blk              = blk_map_insert( hfork->blk_map, *block_id );
-    blk->bank_hashes = NULL;
-    blk->replayed    = 0;
     blk->dead        = 0;
+    blk->forked      = 0;
+    blk->replayed    = 0;
+    blk->bank_hashes = NULL;
   }
   int           found = 0;
   ulong         cnt   = 0;
@@ -304,11 +305,14 @@ fd_hfork_record_our_bank_hash( fd_hfork_t * hfork,
   blk_t * blk = blk_map_query( hfork->blk_map, *block_id, NULL );
   if( FD_UNLIKELY( !blk ) ) {
     blk              = blk_map_insert( hfork->blk_map, *block_id );
-    blk->replayed    = 1;
+    /* blk->dead set later */
+    blk->forked      = 0;
+    /* blk->replayed set later */
+    /* blk->our_bank_hash set later */
     blk->bank_hashes = NULL;
   }
-  if( FD_LIKELY( bank_hash ) ) { blk->dead = 0; blk->our_bank_hash = *bank_hash; }
-  else                           blk->dead = 1;
+  if( FD_LIKELY( bank_hash ) ) { blk->dead = 0; blk->replayed = 1; blk->our_bank_hash = *bank_hash; }
+  else                         { blk->dead = 1; blk->replayed = 0; /* our_bank_hash undefined */    }
 
   bank_hash_t * curr  = blk->bank_hashes;
   while( FD_LIKELY( curr ) ) {

@@ -21,6 +21,7 @@
 #define FD_MAX_BLOCK_UNITS_SIMD_0256          ( 60000000UL) /* https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56 */
 #define FD_MAX_BLOCK_UNITS_SIMD_0286          (100000000UL) /* https://github.com/anza-xyz/agave/blob/v3.0.0/cost-model/src/block_cost_limits.rs#L30 */
 #define FD_MAX_VOTE_UNITS                     ( 36000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
+#define FD_SIMPLE_VOTE_USAGE_COST             (     3428UL) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
 #define FD_COST_TRACKER_SUCCESS                                     (0)
@@ -81,6 +82,7 @@ struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
   ulong account_cost_limit;
 
   int larger_max_cost_per_block;
+  int remove_simple_vote_from_cost_model;
 };
 
 typedef struct fd_cost_tracker fd_cost_tracker_t;
@@ -129,7 +131,7 @@ fd_cost_tracker_err_to_runtime_err( int err ) {
     case FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT:
       return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT;
     default:
-      __builtin_unreachable();
+      FD_LOG_CRIT(( "unexpected cost tracker error %d", err ));
   }
 }
 
@@ -167,18 +169,30 @@ fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * t
    This function assumes that the caller is responsible for managing
    concurrent callers.
 
-   This function represents the combination of Agave client functions:
-   `CostModel::calculate_cost_for_executed_transaction()` and
-   `CostTracker::try_add()`.
+   This function represents the Agave client function:
+   `CostModel::calculate_cost_for_executed_transaction()`
 
     https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L69-L95
-    https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
+*/
+
+void
+fd_cost_tracker_calculate_cost( fd_bank_t *         bank,
+                                fd_txn_in_t const * txn_in,
+                                fd_txn_out_t *      txn_out );
+
+/* fd_cost_tracker_try_add_cost takes the cost as calculated by
+   fd_cost_tracker_calculate_cost and tries to accumulate it into the
+   cost tracker.  If the cost fits, the cost is added and
+   FD_COST_TRACKER_SUCCESS is returned.  If the cost does not fit, the
+   cost will not be updated and FD_COST_TRACKER_ERROR_* is returned
+   depending on what limit is violated.
+
+   This function is the Agave client function: 'CostTracker::try_add()'
+   https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
 
 int
-fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t * cost_tracker,
-                                        fd_bank_t *         bank,
-                                        fd_txn_in_t const * txn_in,
-                                        fd_txn_out_t *      txn_out );
+fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,
+                              fd_txn_out_t *      txn_out );
 
 FD_PROTOTYPES_END
 

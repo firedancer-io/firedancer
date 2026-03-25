@@ -20,6 +20,9 @@
 struct fd_wsample_private;
 typedef struct fd_wsample_private fd_wsample_t;
 
+#define FD_WSAMPLE_RNG_CHACHA20 (0U)
+#define FD_WSAMPLE_RNG_CHACHA8  (1U)
+
 #define FD_WSAMPLE_ALIGN (64UL)
 /* fd_leaders really wants a compile time-compatible footprint... The
    internal count is 1/8 * (9^ceil(log_9(ele_cnt)) - 1) */
@@ -135,10 +138,12 @@ void * fd_wsample_new_fini( void * shmem, ulong poisoned_weight );
 /* fd_wsample_get_rng returns the value provided for rng in new. */
 fd_chacha_rng_t * fd_wsample_get_rng( fd_wsample_t * sampler );
 
-/* fd_wsample_seed_rng seeds the ChaCha20 rng with the provided seed in
+/* fd_wsample_seed_rng seeds the ChaCha rng with the provided seed in
    preparation for sampling.  This function is compatible with Solana's
    ChaChaRng::from_seed. */
-void fd_wsample_seed_rng( fd_chacha_rng_t * rng, uchar seed[static 32] );
+void fd_wsample_seed_rng( fd_wsample_t * sampler,
+                          uchar          seed[ 32 ],
+                          int            use_chacha8 );
 
 /* fd_wsample_sample{_and_remove}{,_many} produces one or cnt (in the
    _many case) weighted random samples from the sampler.  If the
@@ -190,7 +195,5 @@ void fd_wsample_remove_idx( fd_wsample_t * sampler, ulong idx );
    error case is if sampler was constructed with restore_enabled set to 0,
    in which case no elements are restored. */
 fd_wsample_t * fd_wsample_restore_all( fd_wsample_t * sampler );
-
-
 
 #endif /* HEADER_fd_src_ballet_wsample_fd_wsample_h */

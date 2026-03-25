@@ -1,17 +1,14 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_h
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_h
 
-#include "fd_gossip_types.h"
+#include "fd_gossip_message.h"
 #include "fd_gossip_out.h"
+#include "fd_gossip_purged.h"
 #include "fd_ping_tracker.h"
-#include "crds/fd_crds.h"
+#include "fd_active_set.h"
 
-#include "../../disco/metrics/fd_metrics.h"
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
-
-/* TODO: When we get a pull request, respond with ContactInfos first if
-   we have any available that are responsive. */
 
 /* The Solana gossip protocol is used so that distributed nodes can
    share key-value pairs and reach an eventually consistent consensus on
@@ -77,13 +74,8 @@ struct fd_gossip_metrics {
   ulong message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
   ulong message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ];
 
-  ulong crds_tx_push[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-  ulong crds_tx_push_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong crds_tx_pull_response[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong crds_tx_pull_response_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
-
-  ulong ci_rx_unrecognized_socket_tag_cnt;
-  ulong ci_rx_ipv6_address_cnt;
 };
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;
@@ -98,21 +90,24 @@ fd_gossip_footprint( ulong max_values,
                      ulong entrypoints_len );
 
 void *
-fd_gossip_new( void *                    shmem,
-               fd_rng_t *                rng,
-               ulong                     max_values,
-               ulong                     entrypoints_len,
-               fd_ip4_port_t const *     entrypoints,
-               fd_contact_info_t const * my_contact_info,
-               long                      now,
-               fd_gossip_send_fn         send_fn,
-               void *                    send_ctx,
-               fd_gossip_sign_fn         sign_fn,
-               void *                    sign_ctx,
-               fd_ping_tracker_change_fn ping_tracker_change_fn,
-               void *                    ping_tracker_change_fn_ctx,
-               fd_gossip_out_ctx_t *     gossip_update_out,
-               fd_gossip_out_ctx_t *     gossip_net_out );
+fd_gossip_new( void *                           shmem,
+               fd_rng_t *                       rng,
+               ulong                            max_values,
+               ulong                            entrypoints_len,
+               fd_ip4_port_t const *            entrypoints,
+               uchar const *                    identity_pubkey,
+               fd_gossip_contact_info_t const * my_contact_info,
+               long                             now,
+               fd_gossip_send_fn                send_fn,
+               void *                           send_ctx,
+               fd_gossip_sign_fn                sign_fn,
+               void *                           sign_ctx,
+               fd_ping_tracker_change_fn        ping_tracker_change_fn,
+               void *                           ping_tracker_change_fn_ctx,
+               fd_gossip_activity_update_fn     activity_update_fn,
+               void *                           activity_update_fn_ctx,
+               fd_gossip_out_ctx_t *            gossip_update_out,
+               fd_gossip_out_ctx_t *            gossip_net_out );
 
 fd_gossip_t *
 fd_gossip_join( void * shgossip );
@@ -126,26 +121,21 @@ fd_gossip_crds_metrics( fd_gossip_t const * gossip );
 fd_ping_tracker_metrics_t const *
 fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip );
 
-/* fd_gossip stores the node's contact info for various purposes:
+fd_gossip_purged_metrics_t const *
+fd_gossip_purged_metrics2( fd_gossip_t const * gossip );
 
-      - The pubkey specified in contact_info will serve as the
-        identity key, used in various checks of the rx path.
+fd_active_set_metrics_t const *
+fd_gossip_active_set_metrics2( fd_gossip_t const * gossip );
 
-      - If the shred version specified in the contact_info is non-zero,
-        it will be used to determine whether to accept or drop incoming
-        messages from peers.
-
-      - The contact info will be periodically gossiped to peers via
-        push messages.
-
-        - contact_info should have its wallclock correctly updated
-          in order to avoid timeouts on peers
-
-          TODO: update wallclock ourselves? */
 void
-fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
-                               fd_contact_info_t const * contact_info,
-                               long                      now );
+fd_gossip_set_identity( fd_gossip_t * gossip,
+                        uchar const * identity_pubkey,
+                        long          now );
+
+void
+fd_gossip_set_shred_version( fd_gossip_t * gossip,
+                             ushort        shred_version,
+                             long          now );
 
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
@@ -184,7 +174,8 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
 void
 fd_gossip_advance( fd_gossip_t *       gossip,
                    long                now,
-                   fd_stem_context_t * stem );
+                   fd_stem_context_t * stem,
+                   int *               charge_busy );
 
 /* fd_gossip_rx handles an incoming packet received on the gossip socket
    from the network.  It is expected that the packet is a UDP packet but
@@ -228,6 +219,12 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
                      ulong               txn_sz,
                      fd_stem_context_t * stem,
                      long                now );
+
+int
+fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
+                                fd_gossip_duplicate_shred_t const * duplicate_shred,
+                                fd_stem_context_t *                 stem,
+                                long                                now );
 
 FD_PROTOTYPES_END
 

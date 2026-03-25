@@ -1,10 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_impl_v1_h
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_impl_v1_h
 
-/* fd_accdb_impl_v1.h implements "v1" of Firedancer's account database,
-   which is in-memory (funk) only. */
+/* fd_accdb_impl_v1.h implements "v1" of Firedancer's account database.
+   This database engine stores all account records in "funk", which is
+   a fork-aware in-memory key-value store. */
 
 #include "fd_accdb_user.h"
+#include "fd_accdb_lineage.h"
 #include "../../funk/fd_funk.h"
 
 struct fd_accdb_user_v1 {
@@ -13,12 +15,7 @@ struct fd_accdb_user_v1 {
   /* Funk client */
   fd_funk_t funk[1];
 
-  /* Current fork cache */
-  fd_funk_txn_xid_t fork[ FD_ACCDB_DEPTH_MAX ];
-  ulong             fork_depth;
-
-  /* Current funk txn cache */
-  ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
+  fd_accdb_lineage_t lineage[1];
 };
 
 typedef struct fd_accdb_user_v1 fd_accdb_user_v1_t;
@@ -29,42 +26,12 @@ extern fd_accdb_user_vt_t const fd_accdb_user_v1_vt;
 
 fd_accdb_user_t *
 fd_accdb_user_v1_init( fd_accdb_user_t * ljoin,
-                       void *            shfunk );
+                       void *            shfunk,
+                       void *            shlocks,
+                       ulong             max_depth );
 
 fd_funk_t *
 fd_accdb_user_v1_funk( fd_accdb_user_t * accdb );
-
-/* Methods (don't call directly, prefer the wrappers fd_accdb_user.h) */
-
-fd_accdb_peek_t *
-fd_accdb_user_v1_peek( fd_accdb_user_t *         accdb,
-                       fd_accdb_peek_t *         peek,
-                       fd_funk_txn_xid_t const * xid,
-                       void const *              address );
-
-void
-fd_accdb_user_v1_fini( fd_accdb_user_t * accdb );
-
-fd_accdb_ro_t *
-fd_accdb_user_v1_open_ro( fd_accdb_user_t *         accdb,
-                          fd_accdb_ro_t *           ro,
-                          fd_funk_txn_xid_t const * xid,
-                          void const *              address );
-
-void
-fd_accdb_user_v1_close_ro( fd_accdb_user_t * accdb,
-                           fd_accdb_ro_t *   ro );
-
-fd_accdb_rw_t *
-fd_accdb_user_v1_open_rw( fd_accdb_user_t *         accdb,
-                          fd_accdb_rw_t *           rw,
-                          fd_funk_txn_xid_t const * xid,
-                          void const *              address,
-                          ulong                     data_max,
-                          int                       do_create );
-void
-fd_accdb_user_v1_close_rw( fd_accdb_user_t * accdb,
-                           fd_accdb_rw_t *   write );
 
 FD_PROTOTYPES_END
 

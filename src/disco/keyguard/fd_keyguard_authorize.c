@@ -1,7 +1,15 @@
 #include "fd_keyguard.h"
 #include "fd_keyguard_client.h"
 #include "../bundle/fd_bundle_crank_constants.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/gossip/fd_gossip_value.h"
+#include "../../ballet/txn/fd_compact_u16.h"
 #include "../../waltz/tls/fd_tls.h"
+/* manually include just fd_features_generated.h so we can get
+   FD_FEATURE_SET_ID without anything else that we don't need. */
+#define HEADER_fd_src_flamenco_features_fd_features_h
+#include "../../flamenco/features/fd_features_generated.h"
+#undef HEADER_fd_src_flamenco_features_fd_features_h
 
 struct fd_keyguard_sign_req {
   fd_keyguard_authority_t * authority;
@@ -14,8 +22,72 @@ fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
                                 uchar const *                   data,
                                 ulong                           sz,
                                 int                             sign_type ) {
-  /* FIXME Add vote transaction authorization here */
-  (void)authority; (void)data; (void)sz; (void)sign_type;
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+  if( sz > FD_TXN_MTU ) return 0;
+  /* Each vote transaction may have 1 or 2 signers.  The first byte in
+     the transaction message is the number of signers. */
+  ulong off = 0UL;
+  uchar signer_cnt = data[off];
+  if( signer_cnt!=1 && signer_cnt!=2 ) return 0;
+  if( signer_cnt==1 && sz<=140 ) return 0;
+  if( signer_cnt==2 && sz<=172 ) return 0;
+  /* The authority's public key will be the first listed account in the
+     transaction message. */
+
+  /* r/o signers = 1 when there are 2 signers and 1 otherwise. */
+  off++;
+  if( data[off]!=signer_cnt-1 ) return 0;
+
+  /* There will always be 1 r/o unsigned account. */
+  off++;
+  if( data[off]!=1 ) return 0;
+
+  /* The only accounts should be the 1 or 2 signers, the vote account,
+     and the vote program.  The number of accounts is represented as a
+     compact u16. */
+  off++;
+  ulong bytes = fd_cu16_dec_sz( data+off, 3UL );
+  if( bytes!=1UL ) return 0;
+  ulong acc_cnt = 2+signer_cnt;
+  if( data[off]!=acc_cnt ) return 0;
+
+  /* The first account should always be the authority's public key. */
+  off++;
+  ulong acct_off = off;
+  if( memcmp( authority->identity_pubkey, data + acct_off, 32 ) ) return 0;
+
+  /* Each transaction account key is listed out and is followed by a 32
+     byte blockhash.  The instruction count is after this. */
+  off += (acc_cnt+1) * 32;
+  bytes = fd_cu16_dec_sz( data+off, 3UL );
+  uchar instr_cnt = data[ off ];
+  if( bytes!=1UL ) return 0;
+  if( instr_cnt!=1 ) return 0;
+
+  /* The program id will be the first byte of the instruction payload
+     and should be the vote program. */
+  off++;
+  uchar program_id = data[ off ];
+  if( program_id != acc_cnt-1 ) return 0;
+  ulong program_acct_off = 4UL + (program_id * 32UL);
+  if( memcmp( &fd_solana_vote_program_id, data+program_acct_off, 32 ) ) return 0;
+
+  off++;
+  bytes = fd_cu16_dec_sz( data+off, 3UL );
+  if( bytes!=1UL ) return 0;
+
+  /* Vote account count will always be 2.  One byte is used to list the
+     account count for the transaction and 1 byte for each account. */
+  if( data[ off ]!=2 ) return 0;
+  off += 3UL;
+
+  /* Move the cursor forward by the instruction data size.  The first
+     byte of the instruction data will be the discriminant.  Only allow
+     tower sync vote instructions (14). */
+  bytes = fd_cu16_dec_sz( data+off, 3UL );
+  off += bytes;
+  if( data[off]!=14 ) return 0;
+
   return 1;
 }
 
@@ -24,9 +96,96 @@ fd_keyguard_authorize_gossip( fd_keyguard_authority_t const * authority,
                               uchar const *                   data,
                               ulong                           sz,
                               int                             sign_type ) {
-  /* FIXME Add gossip message authorization here */
-  (void)authority; (void)data; (void)sz; (void)sign_type;
-  return 1;
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
+  /* Every gossip message contains a 4 byte enum variant tag (at the
+     beginning of the message) and a 32 byte public key (at an arbitrary
+     location). */
+  if( sz<36UL        ) return 0;
+  if( sz>1188UL-64UL ) return 0;
+
+  uint tag = FD_LOAD( uint, data );
+  ulong origin_off = ULONG_MAX;
+  switch( tag ) {
+    case FD_GOSSIP_VALUE_VOTE:
+      origin_off = 1UL;
+      if( sz<4UL+1UL+32UL+FD_TXN_MIN_SERIALIZED_SZ+8UL ) return 0;
+      ulong sig_cnt = data[ 4UL+1UL+32UL ];
+      if( (sig_cnt==0UL) | (sig_cnt>2UL) ) return 0;
+      ulong vote_off = 4UL+1UL+32UL+1UL+64UL*sig_cnt;
+      if( !fd_keyguard_authorize_vote_txn( authority, data+vote_off, sz-(vote_off+8UL), FD_KEYGUARD_SIGN_TYPE_ED25519 ) )
+        return 0;
+      break;
+    case FD_GOSSIP_VALUE_CONTACT_INFO:
+      origin_off = 0UL;
+      /* Contact info is pretty tough to parse.  The best we can do is
+         check the feature set and client ID.
+         min sz
+          4B      tag
+         32B      origin
+          1B-10B  wallclock
+          8B      outset
+          2B      shred version
+          1B-3B   major version
+          1B-3B   minor version
+          1B-3B   patch version
+          4B      commit
+          4B      feature set
+          1B-3B   client ID
+          1B-3B   unique addr cnt
+          ???     IP addresses
+          1B-3B   socket cnt
+          ???     ports
+          1B-3B   extension len
+          ...
+
+        Total: 62B+
+         */
+      if( sz<62UL     ) return 0;
+      ulong off = 4UL+32UL;
+      for( ulong i=0UL; i<10UL; i++ ) if( !(data[ off++ ]&0x80) ) break;
+      off += 8UL+2UL;
+      /* off<56, so we're still safe here */
+      if( sz<off+15UL ) return 0;
+      for( ulong i=0UL; i<3UL;  i++ ) if( !(data[ off++ ]&0x80) ) break;
+      for( ulong i=0UL; i<3UL;  i++ ) if( !(data[ off++ ]&0x80) ) break;
+      for( ulong i=0UL; i<3UL;  i++ ) if( !(data[ off++ ]&0x80) ) break;
+      if( sz<off+12UL ) return 0;
+      uint  commit      = FD_LOAD( uint, data+off ); off += 4UL;
+      uint  feature_set = FD_LOAD( uint, data+off ); off += 4UL;
+      uchar client_id   = data[ off ];
+      (void)commit; /* Checking commit introduces a circular dependency between disco and app :'( */
+      if( feature_set!=FD_FEATURE_SET_ID ) return 0;
+      if( client_id  !=5                 ) return 0; /* FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER */
+
+      break;
+    case FD_GOSSIP_VALUE_DUPLICATE_SHRED:
+      origin_off = 2UL;
+      if( sz< 4UL+65UL           ) return 0;
+      ulong chunk_len = FD_LOAD( ulong, data+4UL+57UL );
+      if( sz!=4UL+65UL+chunk_len ) return 0;
+      break;
+
+    /* We don't sign these yet. */
+    case FD_GOSSIP_VALUE_NODE_INSTANCE:   /* origin_off = 0UL; break; */ return 0;
+    case FD_GOSSIP_VALUE_SNAPSHOT_HASHES: /* origin_off = 0UL; break; */ return 0;
+
+    /* We refuse to serialize these */
+    case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:
+    case FD_GOSSIP_VALUE_LOWEST_SLOT:
+    case FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES:
+    case FD_GOSSIP_VALUE_ACCOUNT_HASHES:
+    case FD_GOSSIP_VALUE_EPOCH_SLOTS:
+    case FD_GOSSIP_VALUE_LEGACY_VERSION:
+    case FD_GOSSIP_VALUE_VERSION:
+    case FD_GOSSIP_VALUE_RESTART_LAST_VOTED_FORK_SLOTS:
+    case FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK:
+    default:
+                                          return 0;
+  }
+  if( sz<sizeof(uint)+origin_off+32UL ) return 0;
+
+  return fd_memeq( authority->identity_pubkey, data+sizeof(uint)+origin_off, 32UL );
 }
 
 static int
@@ -85,9 +244,11 @@ fd_keyguard_authorize_gossip_prune( fd_keyguard_authority_t const * authority,
                                     ulong                           sz,
                                     int                             sign_type ) {
   if( FD_UNLIKELY( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0;
-  /* Prune messages always begin with the node's pubkey */
-  if( sz<40UL ) return 0;
-  if( 0!=memcmp( authority->identity_pubkey, data, 32 ) ) return 0;
+  /* Prune messages always start with the prefix followed by the pubkey. */
+  if( sz<66UL ) return 0;
+  if( FD_LOAD( ulong, data )!=18UL ) return 0;
+  if( 0!=memcmp( data+8UL, "\xffSOLANA_PRUNE_DATA",     18 ) ) return 0;
+  if( 0!=memcmp( authority->identity_pubkey, data+26UL, 32 ) ) return 0;
   return 1;
 }
 
@@ -150,8 +311,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   int is_gossip_repair =
     0==( payload_mask &
         (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
-            FD_KEYGUARD_PAYLOAD_REPAIR |
-            FD_KEYGUARD_PAYLOAD_PRUNE  ) ) );
+            FD_KEYGUARD_PAYLOAD_REPAIR ) ) );
   /* Also allow ambiguities between shred and gossip ping messages
      until shred sign type is fixed... */
   int is_shred_ping =
@@ -167,7 +327,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   switch( role ) {
 
-  case FD_KEYGUARD_ROLE_SEND: {
+  case FD_KEYGUARD_ROLE_TXSEND: {
     int txn_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TXN )) &&
                  fd_keyguard_authorize_vote_txn( authority, data, sz, sign_type );
     int tls_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&

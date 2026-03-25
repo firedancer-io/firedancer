@@ -5,6 +5,7 @@
    functions for creating a useful topology. */
 
 #include "../../disco/topo/fd_topo.h"
+#include "fd_cpu_topo.h"
 
 /* A link in the topology is either unpolled or polled.  Almost all
    links are polled, which means a tile which has this link as an in
@@ -40,7 +41,7 @@ fd_topo_wksp_t *
 fd_topob_wksp( fd_topo_t *  topo,
                char const * name );
 
-/* Add an object with the given name to the toplogy.  An object is
+/* Add an object with the given type to the toplogy.  An object is
    something that takes up space in memory, in a workspace.
 
    The workspace must exist and have been added to the topology.
@@ -50,8 +51,16 @@ fd_topob_wksp( fd_topo_t *  topo,
 
 fd_topo_obj_t *
 fd_topob_obj( fd_topo_t *  topo,
-              char const * obj_name,
+              char const * obj_type,
               char const * wksp_name );
+
+/* Same as fd_topo_obj, but labels the object. */
+
+fd_topo_obj_t *
+fd_topob_obj_named( fd_topo_t *  topo,
+                    char const * obj_type,
+                    char const * wksp_name,
+                    char const * label );
 
 /* Add a relationship saying that a certain tile uses a given object.
    This has the effect that when memory mapping required workspaces
@@ -62,10 +71,10 @@ fd_topob_obj( fd_topo_t *  topo,
    FD_SHMEM_JOIN_MODE_READ_WRITE. */
 
 void
-fd_topob_tile_uses( fd_topo_t *      topo,
-                    fd_topo_tile_t * tile,
-                    fd_topo_obj_t *  obj,
-                    int              mode );
+fd_topob_tile_uses( fd_topo_t *           topo,
+                    fd_topo_tile_t *      tile,
+                    fd_topo_obj_t const * obj,
+                    int                   mode );
 
 /* Add a link to the toplogy.  The link will not have any producer or
    consumer(s) by default, and those need to be added after.  The link
@@ -93,7 +102,8 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave,
-               int            uses_keyswitch );
+               int            uses_id_keyswitch,
+               int            uses_av_keyswitch );
 
 /* Add an input link to the tile.  If the tile is created with fd_stem,
    it will automatically poll the in link and forward fragments to the
@@ -128,11 +138,18 @@ fd_topob_tile_out( fd_topo_t *  topo,
                    ulong        link_kind_id );
 
 /* Automatically layout the tiles onto CPUs in the topology for a
-   best effort. */
+   best effort.  fd_topob_auto_layout reads CPU topology from the OS.
+   fd_topob_auto_layout_cpus takes a pre-built CPU topology, useful
+   for testing. */
 
 void
 fd_topob_auto_layout( fd_topo_t * topo,
                       int         reserve_agave_cores );
+
+void
+fd_topob_auto_layout_cpus( fd_topo_t *      topo,
+                           fd_topo_cpus_t * cpus,
+                           int              reserve_agave_cores );
 
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates

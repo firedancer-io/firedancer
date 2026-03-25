@@ -4,8 +4,11 @@
 fd_stake_ci_t _info[1];
 
 uchar stake_msg[ FD_STAKE_CI_STAKE_MSG_SZ ];
+uchar epoch_msg[ FD_EPOCH_INFO_MAX_MSG_SZ ];
 
 fd_pubkey_t identity_key[1];
+
+static fd_stake_weight_t id_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
 
 static fd_stake_weight_msg_t *
 generate_stake_msg( uchar *      _buf,
@@ -13,22 +16,48 @@ generate_stake_msg( uchar *      _buf,
                     char const * stakers ) {
   fd_stake_weight_msg_t *buf = fd_type_pun( _buf );
 
-  buf->epoch          = epoch;
-  buf->start_slot     = epoch * SLOTS_PER_EPOCH;
-  buf->slot_cnt       = SLOTS_PER_EPOCH;
-  buf->staked_cnt     = strlen(stakers);
-  buf->excluded_stake = 0UL;
+  buf->epoch             = epoch;
+  buf->start_slot        = epoch * SLOTS_PER_EPOCH;
+  buf->slot_cnt          = SLOTS_PER_EPOCH;
+  buf->staked_vote_cnt   = strlen(stakers);
+  buf->excluded_id_stake = 0UL;
   buf->vote_keyed_lsched = 0UL;
 
-  ulong i = 0UL;
-  for(; *stakers; stakers++, i++ ) {
-    /* for simplicity use vote==id, but see test_staked_by_vote()
-       where we test cases in which id is repeated.
-       (vote is not used, so it doesn't matter if it's repeated or not) */
-    memset( buf->weights[i].vote_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    memset( buf->weights[i].id_key.uc, *stakers, sizeof(fd_pubkey_t) );
-    buf->weights[i].stake = 1000UL/(i+1UL);
+  fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( buf );
+  for( ulong i=0UL; i<buf->staked_vote_cnt; i++ ) {
+    memset( vote_stake_weights[i].vote_key.uc, stakers[i], sizeof(fd_pubkey_t) );
+    memset( vote_stake_weights[i].id_key.uc,   stakers[i], sizeof(fd_pubkey_t) );
+    vote_stake_weights[i].stake = 1000UL/(i+1UL);
   }
+
+  buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, vote_stake_weights, buf->staked_vote_cnt );
+  fd_memcpy( fd_stake_weight_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
+  return fd_type_pun( _buf );
+}
+
+static fd_epoch_info_msg_t *
+generate_epoch_msg( uchar *      _buf,
+                    ulong        epoch,
+                    char const * stakers ) {
+  fd_epoch_info_msg_t *buf = fd_type_pun( _buf );
+
+  buf->epoch             = epoch;
+  buf->start_slot        = epoch * SLOTS_PER_EPOCH;
+  buf->slot_cnt          = SLOTS_PER_EPOCH;
+  buf->staked_vote_cnt   = strlen(stakers);
+  buf->excluded_id_stake = 0UL;
+  buf->vote_keyed_lsched = 0UL;
+  memset( &buf->features, 0, sizeof(fd_features_t) );
+
+  fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );
+  for( ulong i=0UL; i<buf->staked_vote_cnt; i++ ) {
+    memset( weights[i].vote_key.uc, stakers[i], sizeof(fd_pubkey_t) );
+    memset( weights[i].id_key.uc,   stakers[i], sizeof(fd_pubkey_t) );
+    weights[i].stake = 1000UL/(i+1UL);
+  }
+
+  buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, weights, buf->staked_vote_cnt );
+  fd_memcpy( fd_epoch_info_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
   return fd_type_pun( _buf );
 }
 
@@ -89,8 +118,8 @@ check_destinations( fd_stake_ci_t const * info,
     memset( buf, *c, 32UL );
     FD_TEST( fd_memeq( buf, fd_shred_dest_idx_to_dest( sdest, (fd_shred_dest_idx_t)i )->pubkey.uc, 32UL ) );
   }
-  c = unstaked_dests;
-  for(; *c; c++, i++ ) {
+  c = unstaked_dests + strlen( unstaked_dests ) - 1;
+  for(; c >= unstaked_dests; c--, i++ ) { /* unstaked nodes are in reverse order: ABC -> CBA */
     uchar buf[ 32 ];
     memset( buf, *c, 32UL );
     FD_TEST( fd_memeq( buf, fd_shred_dest_idx_to_dest( sdest, (fd_shred_dest_idx_t)i )->pubkey.uc, 32UL ) );
@@ -118,7 +147,7 @@ check_destinations( fd_stake_ci_t const * info,
 }
 
 static void
-test_staked_only( void ) {
+test_stake_msg_staked_only( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );  fd_stake_ci_stake_msg_fini( info );
@@ -137,7 +166,7 @@ test_staked_only( void ) {
 }
 
 static void
-test_unstaked_only( void ) {
+test_stake_msg_unstaked_only( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   /* We need one epoch and one staked node */
@@ -157,7 +186,7 @@ test_unstaked_only( void ) {
 }
 
 static void
-test_transitions( void ) {
+test_stake_msg_transitions( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABCD" ) );  fd_stake_ci_stake_msg_fini( info );
@@ -193,7 +222,7 @@ test_transitions( void ) {
 }
 
 static void
-test_startup( void ) {
+test_stake_msg_startup( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   /* Before it has any information, no epoch should be known */
@@ -218,7 +247,7 @@ test_startup( void ) {
 }
 
 static void
-test_skip_ahead( void ) {
+test_stake_msg_skip_ahead( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );  fd_stake_ci_stake_msg_fini( info );
@@ -236,7 +265,7 @@ test_skip_ahead( void ) {
 }
 
 static void
-test_cancel( void ) {
+test_stake_msg_cancel( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );  fd_stake_ci_stake_msg_fini( info );
@@ -256,7 +285,7 @@ test_cancel( void ) {
 }
 
 static void
-test_ordering( void ) {
+test_stake_msg_ordering( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABC"   ) );  fd_stake_ci_stake_msg_fini( info );
@@ -278,7 +307,7 @@ test_ordering( void ) {
 }
 
 static void
-test_destaking( void ) {
+test_stake_msg_destaking( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABCDEF" ) );  fd_stake_ci_stake_msg_fini( info );
@@ -303,6 +332,271 @@ test_destaking( void ) {
 }
 
 static void
+test_stake_msg_staked_by_vote( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_weight_msg_t * msg;
+
+  msg = generate_stake_msg( stake_msg, 0UL, "I"   );
+  msg->vote_keyed_lsched = 1;
+  fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "I",   "" );
+
+  msg = generate_stake_msg( stake_msg, 0UL, "ABC"   );
+  msg->vote_keyed_lsched = 1;
+  fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I" );
+
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABBB"   ) );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "BA",   "I" );
+
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABBA"   ) );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "AB",   "I" );
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "ABACBADACBE" ) );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 0UL, "AB",   "I" );
+  check_destinations( info, 1UL, "ABCDE", "I" );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_stake_msg( void ) {
+  test_stake_msg_staked_only();
+  test_stake_msg_unstaked_only();
+  test_stake_msg_transitions();
+  test_stake_msg_startup();
+  test_stake_msg_skip_ahead();
+  test_stake_msg_cancel();
+  test_stake_msg_ordering();
+  test_stake_msg_destaking();
+  test_stake_msg_staked_by_vote();
+}
+
+static void
+test_epoch_msg_staked_only( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "ABC"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I" );
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 1UL, "ABCDE" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I" );
+  check_destinations( info, 1UL, "ABCDE", "I" );
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 2UL, "ABCF" ) );   fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 2UL, "ABCF",  "I" );
+  check_destinations( info, 1UL, "ABCDE", "I" );
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 3UL, "I"    ) );   fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 2UL, "ABCF",  "I" );
+  check_destinations( info, 3UL, "I",     ""  );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg_unstaked_only( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  /* We need one epoch and one staked node */
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "I"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "I", ""       );
+
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABC" ) );
+  check_destinations( info, 0UL, "I", "ABC"    );
+
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCDEF" ) );
+  check_destinations( info, 0UL, "I", "ABCDEF" );
+
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABC" ) );
+  check_destinations( info, 0UL, "I", "ABC" );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg_transitions( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "ABCD" ) );  fd_stake_ci_epoch_msg_fini( info );
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCDEFGH" ) );
+  check_destinations( info, 0UL, "ABCD", "EFGHI" );
+
+  /* Transition half of unstaked to staked */
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 1UL, "ABCDEF" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABCD",   "EFGHI" );
+  check_destinations( info, 1UL, "ABCDEF",   "GHI" );
+
+  /* Transition them back */
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 2UL, "AB" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 1UL, "ABCDEF",   "GHI" );
+  check_destinations( info, 2UL, "AB",   "CDEFGHI" );
+
+  /* Completely swap */
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 3UL, "GI" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 2UL, "AB",   "CDEFGHI" );
+  check_destinations( info, 3UL, "GI",   "ABCDEFH" );
+
+  /* Delete a bunch of the unstaked ones */
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "" ) );
+  check_destinations( info, 2UL, "AB",  "I" );
+  check_destinations( info, 3UL, "GI",  ""  );
+
+  /* Add new unstaked */
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "KL" ) );
+  check_destinations( info, 2UL, "AB",  "IKL" );
+  check_destinations( info, 3UL, "GI",   "KL" );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg_startup( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  /* Before it has any information, no epoch should be known */
+  check_destinations( info, 0UL, NULL, NULL );
+  check_destinations( info, 1UL, NULL, NULL );
+
+  /* We need one epoch and one staked node */
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "I"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "I", ""       );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 1UL, "A"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 1UL, "A", "I"      );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+
+  /* Start over and make just A staked, which means I is unstaked */
+  info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "A"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "A", "I"      );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg_skip_ahead( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "ABC"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I");
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 1UL, "ABCDE" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I");
+  check_destinations( info, 1UL, "ABCDE", "I");
+  /* Pretend something happens and we skip a few epochs */
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 6UL, "ABCF" ) );   fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 6UL, "ABCF",  "I");
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 9UL, "GH"    ) );   fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 9UL, "GH",    "I");
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg_cancel( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "ABC"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I");
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 1UL, "ABCDE" ) );  /* Don't fini */
+  check_destinations( info, 0UL, "ABC",   "I");
+  check_destinations( info, 1UL, NULL,  NULL );
+
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "EFG" ) );
+  check_destinations( info, 0UL, "ABC", "EFGI");
+  check_destinations( info, 1UL, NULL,   NULL );
+  generate_dest_add( fd_stake_ci_dest_add_init( info ), "EFGHIJ" ); /* Don't fini */
+  check_destinations( info, 0UL, "ABC", "EFGI");
+  check_destinations( info, 1UL, NULL,   NULL );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg_ordering( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "ABC"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I" );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 1UL, "BCA"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I" );
+  check_destinations( info, 1UL, "BCA",   "I" );
+
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "EFG" ) );
+  check_destinations( info, 0UL, "ABC", "EFGI" );
+  check_destinations( info, 1UL, "BCA", "EFGI" );
+
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "LKJ" ) );
+  check_destinations( info, 0UL, "ABC", "IJKL" );
+  check_destinations( info, 1UL, "BCA", "IJKL" );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg_destaking( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "ABCDEF" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABCDEF",   "I" );
+
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCH" ) );
+  check_destinations( info, 0UL, "ABCDEF",  "HI" );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 1UL, "DCAF" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABCDEF",  "HI" );
+  check_destinations( info, 1UL, "DCAF",   "BHI" );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 2UL, "H" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 1UL, "DCAF",   "BHI" );
+  check_destinations( info, 2UL, "H",     "ABCI" );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 3UL, "A" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 2UL, "H",     "ABCI" );
+  check_destinations( info, 3UL, "A",     "BCHI" );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg_staked_by_vote( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  fd_epoch_info_msg_t * msg;
+
+  msg = generate_epoch_msg( epoch_msg, 0UL, "I"   );
+  msg->vote_keyed_lsched = 1;
+  fd_stake_ci_epoch_msg_init( info, msg );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "I",   "" );
+
+  msg = generate_epoch_msg( epoch_msg, 0UL, "ABC"   );
+  msg->vote_keyed_lsched = 1;
+  fd_stake_ci_epoch_msg_init( info, msg );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "ABC",   "I" );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "ABBB"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "BA",   "I" );
+
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 0UL, "ABBA"   ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "AB",   "I" );
+  fd_stake_ci_epoch_msg_init( info, generate_epoch_msg( epoch_msg, 1UL, "ABACBADACBE" ) );  fd_stake_ci_epoch_msg_fini( info );
+  check_destinations( info, 0UL, "AB",   "I" );
+  check_destinations( info, 1UL, "ABCDE", "I" );
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_epoch_msg( void ) {
+  test_epoch_msg_staked_only();
+  test_epoch_msg_unstaked_only();
+  test_epoch_msg_transitions();
+  test_epoch_msg_startup();
+  test_epoch_msg_skip_ahead();
+  test_epoch_msg_cancel();
+  test_epoch_msg_ordering();
+  test_epoch_msg_destaking();
+  test_epoch_msg_staked_by_vote();
+}
+
+static void
 test_changing_contact_info( void ) {
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
@@ -322,60 +616,72 @@ test_changing_contact_info( void ) {
   fd_stake_ci_dest_add_fini( info, 2UL );
 
   fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->ip4  == 0x11111111U );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->ip4  == 0x11111111U ); /* A, staked */
   FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->port == 0x2222      );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->ip4  == 0x33333333U );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->port == 0x5555      );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->ip4  == 1 );           /* I, unstaked */
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->port == 0 );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 2 )->ip4  == 0x33333333U ); /* B, unstaked */
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 2 )->port == 0x5555      );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
 static void
 test_limits( void ) {
-  /* Cluster info cannot include more than 40,199 validators.  Any
-     beyond that get truncated.
+  /* Cluster info cannot include more than MAX_SHRED_DESTS-1 validators.
+     Any beyond that get truncated.
 
-     Stake weights cannot include more than 40,200 public keys.  Any
-     beyond that get truncated and counted as excluded stake.  more than
-     40,200. */
+     Vote stake weights cannot include more than MAX_COMPRESSED_STAKE_WEIGHTS.
+     Any beyond that get truncated and counted as excluded stake.
+
+     Id weights cannot include more than MAX_SHRED_DESTS public keys.
+     Any beyond that get truncated and counted as excluded stake. */
   fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
 
-  for( ulong stake_weight_cnt=40198UL; stake_weight_cnt<=40201UL; stake_weight_cnt++ ) {
+  for( ulong stake_weight_cnt=MAX_COMPRESSED_STAKE_WEIGHTS-2UL; stake_weight_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS+1UL; stake_weight_cnt++ ) {
     fd_stake_weight_msg_t * buf = fd_type_pun( stake_msg );
     buf->epoch                  = stake_weight_cnt;
     buf->start_slot             = stake_weight_cnt * SLOTS_PER_EPOCH;
     buf->slot_cnt               = SLOTS_PER_EPOCH;
-    buf->staked_cnt             = 0UL;
-    buf->excluded_stake         = 0UL;
+    buf->staked_vote_cnt        = 0UL;
+    buf->staked_id_cnt          = 0UL;
+    buf->excluded_id_stake      = 0UL;
     buf->vote_keyed_lsched      = 0UL;
 
+    fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( buf );
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
-      if( FD_LIKELY( i<40200UL ) ) {
-        memset( buf->weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
-        memset( buf->weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+      if( FD_LIKELY( i<MAX_COMPRESSED_STAKE_WEIGHTS ) ) {
+        memset( vote_stake_weights[i].vote_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
+        memset( vote_stake_weights[i].id_key.uc, 127-((int)i%96), sizeof(fd_pubkey_t) );
         if( FD_LIKELY( 127UL-i!=(ulong)'I' ) ) {
-          FD_STORE( ulong, buf->weights[i].vote_key.uc, fd_ulong_bswap( i ) );
-          FD_STORE( ulong, buf->weights[i].id_key.uc, fd_ulong_bswap( i ) );
+          FD_STORE( ulong, vote_stake_weights[i].vote_key.uc, fd_ulong_bswap( i ) );
+          FD_STORE( ulong, vote_stake_weights[i].id_key.uc, fd_ulong_bswap( i ) );
         }
-        buf->weights[i].stake = stake;
-        buf->staked_cnt++;
+        vote_stake_weights[i].stake = stake;
+        buf->staked_vote_cnt++;
       } else {
-        buf->excluded_stake += stake;
+        buf->excluded_id_stake += stake;
       }
     }
+
+    ulong full_id_cnt  = compute_id_weights_from_vote_weights( id_scratch, vote_stake_weights, buf->staked_vote_cnt );
+    buf->staked_id_cnt = fd_ulong_min( full_id_cnt, MAX_SHRED_DESTS );
+    for( ulong i=buf->staked_id_cnt; i<full_id_cnt; i++ ) buf->excluded_id_stake += id_scratch[ i ].stake;
+    fd_memcpy( fd_stake_weight_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
+
     fd_stake_ci_stake_msg_init( info, buf );
     fd_stake_ci_stake_msg_fini( info );
 
-    for( ulong cluster_info_cnt=40198UL; cluster_info_cnt<=40201UL; cluster_info_cnt++ ) {
+    for( ulong cluster_info_cnt=MAX_SHRED_DESTS-2UL; cluster_info_cnt<=MAX_SHRED_DESTS+1UL; cluster_info_cnt++ ) {
       fd_shred_dest_weighted_t * dests = fd_stake_ci_dest_add_init( info );
       for( ulong j=0UL; j<cluster_info_cnt; j++ ) {
-        if( FD_LIKELY( j<40199UL ) ) {
+        if( FD_LIKELY( j<MAX_SHRED_DESTS-1UL ) ) {
           memset( dests[j].pubkey.uc, 127-((int)j%96), sizeof(fd_pubkey_t) );
           FD_STORE( ulong, dests[j].pubkey.uc, fd_ulong_bswap( j ) );
         }
       }
-      fd_stake_ci_dest_add_fini( info, fd_ulong_min( cluster_info_cnt, 40199UL ) );
+      fd_stake_ci_dest_add_fini( info, fd_ulong_min( cluster_info_cnt, MAX_SHRED_DESTS-1UL ) );
 
       FD_TEST( fd_stake_ci_get_sdest_for_slot ( info, stake_weight_cnt*SLOTS_PER_EPOCH ) );
       FD_TEST( fd_stake_ci_get_lsched_for_slot( info, stake_weight_cnt*SLOTS_PER_EPOCH ) );
@@ -391,6 +697,7 @@ test_set_identity( void ) {
 
   fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABCDEF" ) );  fd_stake_ci_stake_msg_fini( info );
   fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCHJZ" ) );
+  check_destinations( info, 0UL, "ABCDEF",  "HIJZ" );
   /* ABCDEF staked, HIJZ unstaked */
 
   fd_pubkey_t new[1];
@@ -416,33 +723,7 @@ test_set_identity( void ) {
   /* staked->staked */
   fd_memset( new, 'B', sizeof(fd_pubkey_t) );
   fd_stake_ci_set_identity( info, new );
-}
-
- void
-test_staked_by_vote( void ) {
-  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
-  fd_stake_weight_msg_t * msg;
-
-  msg = generate_stake_msg( stake_msg, 0UL, "I"   );
-  msg->vote_keyed_lsched = 1;
-  fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
-  check_destinations( info, 0UL, "I",   "" );
-
-  msg = generate_stake_msg( stake_msg, 0UL, "ABC"   );
-  msg->vote_keyed_lsched = 1;
-  fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
-  check_destinations( info, 0UL, "ABC",   "I" );
-
-  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABBB"   ) );  fd_stake_ci_stake_msg_fini( info );
-  check_destinations( info, 0UL, "BA",   "I" );
-
-  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABBA"   ) );  fd_stake_ci_stake_msg_fini( info );
-  check_destinations( info, 0UL, "AB",   "I" );
-  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "ABACBADACBE" ) );  fd_stake_ci_stake_msg_fini( info );
-  check_destinations( info, 0UL, "AB",   "I" );
-  check_destinations( info, 1UL, "ABCDE", "I" );
-
-  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+  check_destinations( info, 1UL, "ABCDN",  "HIJZ" );
 }
 
 static void
@@ -544,6 +825,70 @@ test_dest_update( void ) {
   /* C should now be unstaked and present in epoch 1 */
   check_destinations( info, 1UL, "AB", "CDEFIZ" );
 
+
+  fd_stake_ci_delete( fd_stake_ci_leave( info ) );
+}
+
+static void
+test_dest_update_overflow( void ) {
+  /* Fill the shred dest table to MAX_SHRED_DESTS staked validators,
+     then try to add one more unstaked validator via
+     fd_stake_ci_dest_update.  This exercises ci_dest_add_one_unstaked
+     when the table is already at capacity and should hit the
+     FD_LOG_WARNING. */
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+  /* Verify the table contains the identity and is otherwise empty */
+  FD_TEST( fd_shred_dest_cnt_all( info->epoch_info[0].sdest )==1 );
+
+  /* Add MAX_SHRED_DESTS-2 entries*/
+  fd_epoch_info_msg_t *buf = fd_type_pun( epoch_msg );
+  buf->epoch             = 0UL;
+  buf->start_slot        = 0UL;
+  buf->slot_cnt          = SLOTS_PER_EPOCH;
+  buf->staked_vote_cnt   = MAX_SHRED_DESTS - 2UL;
+  buf->excluded_id_stake = 0UL;
+  buf->vote_keyed_lsched = 0UL;
+  memset( &buf->features, 0, sizeof(fd_features_t) );
+
+  fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );
+  for(ulong i = 0UL; i<buf->staked_vote_cnt; i++ ) {
+    FD_STORE( ulong, weights[i].vote_key.uc, fd_ulong_bswap( i ) );
+    FD_STORE( ulong, weights[i].id_key.uc, fd_ulong_bswap( i ) );
+    weights[i].stake = i+1UL;
+  }
+
+  buf->staked_id_cnt = compute_id_weights_from_vote_weights( id_scratch, weights, buf->staked_vote_cnt );
+  fd_memcpy( fd_epoch_info_msg_id_weights( buf ), id_scratch, buf->staked_id_cnt * sizeof(fd_stake_weight_t) );
+
+  fd_stake_ci_epoch_msg_init( info, buf );  fd_stake_ci_epoch_msg_fini( info );
+
+  /* Verify the table contains MAX_SHRED_DESTS-1 entries (identity + MAX_SHRED_DESTS-2 staked) */
+  fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
+  FD_TEST( sdest );
+  FD_TEST( fd_shred_dest_cnt_all( sdest )==MAX_SHRED_DESTS-1UL );
+
+  /* Add another entry */
+  fd_pubkey_t pubkey;
+  memset( pubkey.uc, 0x01, sizeof(fd_pubkey_t) );
+  FD_STORE( ulong, pubkey.uc, fd_ulong_bswap( MAX_SHRED_DESTS-1UL ) );
+  fd_stake_ci_dest_update( info, &pubkey, 0x11111111U, 1111 );
+
+  /* Verify the table is full with MAX_SHRED_DESTS */
+  sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
+  FD_TEST( sdest );
+  FD_TEST( fd_shred_dest_cnt_all( sdest )==MAX_SHRED_DESTS );
+
+  /* Try to add a new unstaked validator. This calls
+     ci_dest_add_one_unstaked which should now warn and return early
+     instead of overflowing the array. */
+  fd_pubkey_t new_pubkey;
+  memset( new_pubkey.uc, 0x01, sizeof(fd_pubkey_t) );
+  FD_STORE( ulong, new_pubkey.uc, fd_ulong_bswap( MAX_SHRED_DESTS ) );
+  fd_stake_ci_dest_update( info, &new_pubkey, 0xAABBCCDDU, 7777 );
+
+  /* The table should still be at MAX_SHRED_DESTS (new entry rejected) */
+  sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
+  FD_TEST( fd_shred_dest_cnt_all( sdest )==MAX_SHRED_DESTS );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
@@ -660,20 +1005,14 @@ main( int     argc,
 
   memset( identity_key, 'I', sizeof(fd_pubkey_t) );
 
-  test_staked_only();
-  test_unstaked_only();
-  test_transitions();
-  test_startup();
-  test_skip_ahead();
-  test_cancel();
-  test_ordering();
-  test_destaking();
+  test_stake_msg();
+  test_epoch_msg();
+
   test_changing_contact_info();
   test_limits();
   test_set_identity();
-  test_staked_by_vote();
-
   test_dest_update();
+  test_dest_update_overflow();
   test_dest_remove();
 
   FD_LOG_NOTICE(( "pass" ));

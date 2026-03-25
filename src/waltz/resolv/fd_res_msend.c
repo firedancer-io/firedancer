@@ -136,7 +136,7 @@ fd_res_msend_rc( int                     nqueries,
 
   /* Handle case where system lacks IPv6 support */
   if( fd < 0 && family == AF_INET6 && errno == EAFNOSUPPORT ) {
-    for( i=0; i<nns && conf->ns[nns].family == AF_INET6; i++ );
+    for( i=0; i<nns && conf->ns[i].family == AF_INET6; i++ );
     if( i==nns ) {
       return -1;
     }

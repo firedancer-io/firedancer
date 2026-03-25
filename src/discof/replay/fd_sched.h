@@ -50,9 +50,11 @@
    more ingest, more ready, more done ...
    ... */
 
+#define FD_SCHED_MIN_DEPTH 478
+#define FD_SCHED_MAX_DEPTH FD_RDISP_MAX_DEPTH
+
 struct fd_sched;
 typedef struct fd_sched fd_sched_t;
-
 
 struct fd_sched_alut_ctx {
   fd_accdb_user_t   accdb[1];
@@ -75,11 +77,29 @@ struct fd_sched_fec {
   uint             is_last_in_batch:1;  /* Set if this is the last FEC set in the batch; relevant because the
                                            parser should ignore trailing bytes at the end of a batch. */
   uint             is_last_in_block:1;  /* Set if this is the last FEC set in the block. */
-  uint             is_first_in_block:1; /* Set if this is the first FEC set in the block. */
+  uint             is_first_in_block:1; /* Set if this is the first FEC set in the block.  Bank should increment refcnt for sched if such a FEC set has been ingested by sched. */
 
   fd_sched_alut_ctx_t alut_ctx[ 1 ];
 };
 typedef struct fd_sched_fec fd_sched_fec_t;
+
+/* The state of a transaction.  Non mutually exclusive. */
+#define FD_SCHED_TXN_EXEC_DONE      (0x0001UL)
+#define FD_SCHED_TXN_SIGVERIFY_DONE (0x0002UL)
+#define FD_SCHED_TXN_IS_COMMITTABLE (0x0004UL)
+#define FD_SCHED_TXN_IS_FEES_ONLY   (0x0008UL)
+#define FD_SCHED_TXN_REPLAY_DONE    (FD_SCHED_TXN_EXEC_DONE|FD_SCHED_TXN_SIGVERIFY_DONE)
+
+struct fd_sched_txn_info {
+   ulong flags;
+   int   txn_err;
+   long  tick_parsed;
+   long  tick_sigverify_disp;
+   long  tick_sigverify_done;
+   long  tick_exec_disp;
+   long  tick_exec_done;
+};
+typedef struct fd_sched_txn_info fd_sched_txn_info_t;
 
 /* The scheduler may return one of the following types of tasks for the
    replay tile.
@@ -93,7 +113,8 @@ typedef struct fd_sched_fec fd_sched_fec_t;
 #define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
 #define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
 #define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
-#define FD_SCHED_TT_POH_VERIFY    (6UL) /* (e) PoH hash verification. */
+#define FD_SCHED_TT_POH_HASH      (6UL) /* (e) PoH hashing. */
+#define FD_SCHED_TT_MARK_DEAD     (7UL) /* (i) Mark the block dead. */
 
 struct fd_sched_block_start {
   ulong bank_idx;        /* Same as in fd_sched_fec_t. */
@@ -122,6 +143,20 @@ struct fd_sched_txn_sigverify {
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
+struct fd_sched_poh_hash {
+  ulong     bank_idx;
+  ulong     mblk_idx;
+  ulong     exec_idx;
+  ulong     hashcnt;
+  fd_hash_t hash[ 1 ];
+};
+typedef struct fd_sched_poh_hash fd_sched_poh_hash_t;
+
+struct fd_sched_mark_dead {
+  ulong     bank_idx;
+};
+typedef struct fd_sched_mark_dead fd_sched_mark_dead_t;
+
 struct fd_sched_task {
   ulong task_type; /* Set to one of the task types defined above. */
   union {
@@ -129,6 +164,8 @@ struct fd_sched_task {
     fd_sched_block_end_t     block_end[ 1 ];
     fd_sched_txn_exec_t      txn_exec[ 1 ];
     fd_sched_txn_sigverify_t txn_sigverify[ 1 ];
+    fd_sched_poh_hash_t      poh_hash[ 1 ];
+    fd_sched_mark_dead_t     mark_dead[ 1 ];
   };
 };
 typedef struct fd_sched_task fd_sched_task_t;
@@ -137,16 +174,33 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_sched_{align,footprint} return the required alignment and
    footprint in bytes for a region of memory to be used as a scheduler.
+   footprint silently returns 0 if params are invalid (thus convenient
+   to validate params).
+
+   depth controls the reorder buffer transaction count (~1 million
+   recommended for live replay, ~10k recommended for async replay).
    block_cnt_max is the maximum number of blocks that will be tracked by
    the scheduler. */
-ulong fd_sched_align    ( void );
-ulong fd_sched_footprint( ulong block_cnt_max );
+
+ulong
+fd_sched_align( void );
+
+ulong
+fd_sched_footprint( ulong depth,           /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MAX_DEPTH] */
+                    ulong block_cnt_max ); /* >= 1 */
+
+/* fd_sched_new creates a sched object backed by the given memory region
+   (conforming to align() and footprint()).  Returns NULL if any
+   parameter is invalid. */
 
 void *
-fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt );
+fd_sched_new( void * mem,
+              ulong  depth,
+              ulong  block_cnt_max,
+              ulong  exec_cnt );
 
 fd_sched_t *
-fd_sched_join( void * mem, ulong block_cnt_max );
+fd_sched_join( void * mem );
 
 /* Add the data in the FEC set to the scheduler.  If is_last_fec is 1,
    then this is the last FEC set in the block.  Transactions may span
@@ -170,12 +224,16 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 int
 fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 
-/* Check if there is enough space in the scheduler to ingest fec_cnt
-   worst-case FEC sets.  Returns 1 if there is, 0 otherwise.  This is a
-   cheap and conservative check, and has less precision than
-   fd_sched_fec_can_ingest(). */
+/* Returns the number of worst-case FEC sets sched can ingest. This is a
+   cheap and conservative check. */
+ulong
+fd_sched_can_ingest_cnt( fd_sched_t * sched );
+
+/* Returns 1 if sched is drained, 0 otherwise.  A drained scheduler will
+   not return more work.  Otherwise, next_ready will return more work,
+   so long as there are exec tiles available. */
 int
-fd_sched_can_ingest( fd_sched_t * sched, ulong fec_cnt );
+fd_sched_is_drained( fd_sched_t * sched );
 
 /* Obtain a transaction eligible for execution.  This implies that all
    prior transactions with w-r or w-w conflicts have completed.
@@ -209,15 +267,34 @@ fd_sched_can_ingest( fd_sched_t * sched, ulong fec_cnt );
    transactions over sigverify, and in general sigverify tasks are only
    returned when no real transaction can be dispatched.  In other words,
    the scheduler tries to exploit idle cycles in the exec tiles during
-   times of low parallelism critical path progression. */
+   times of low parallelism critical path progression.
+
+   This function may also return a PoH hashing task.  These tasks are
+   lower priority than transaction execution, but higher priority than
+   sigverify.  This is because sigverify tasks are generally bite-sized,
+   whereas PoH hashing can be longer, so we would like to get started on
+   hashing sooner rather than later. */
 ulong
 fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
 /* Mark a task as complete.  For transaction execution, this means that
    the effects of the execution are now visible on any core that could
-   execute a subsequent transaction. */
-void
-fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx );
+   execute a subsequent transaction.  Returns 0 on success, -1 if given
+   the result of the task, the block turns out to be bad.  -1 is only
+   returned from PoH tasks.
+
+   If a block has been abandoned or marked dead for any reason, it'll be
+   pruned the moment in-flight task count hits 0 due to the last task
+   completing.  Then, in the immediate ensuing stem run loop,
+   sched_pruned_next() will return the index for the corresponding bank
+   so the refcnt can be decremented for sched.
+
+   The transaction at the given index may be freed upon return from this
+   function.  Nonetheless, as long as there is no intervening FEC
+   ingestion, it would still be safe to query the transaction using
+   get_txn(). */
+int
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx, void * data );
 
 /* Abandon a block.  This means that we are no longer interested in
    executing the block.  This also implies that any block which chains
@@ -226,7 +303,14 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
    dead/invalid block, and so there's no point in spending resources
    executing it.  The scheduler will no longer return transactions from
    abandoned blocks for execution.  This should only be invoked on an
-   actively replayed block, and should only be invoked once on it. */
+   actively replayed block, and should only be invoked once on it.
+
+   An abandoned block will be pruned from sched as soon as, and only if,
+   the block has no more in-flight tasks associated with it.  No sooner,
+   no later.  In the immediate ensuing stem run loop,
+   sched_pruned_next() will return the index for the corresponding bank
+   so the refcnt can be decremented for sched.  After that point, the
+   bank_idx may be recycled for another block. */
 void
 fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx );
 
@@ -254,14 +338,31 @@ fd_sched_advance_root( fd_sched_t * sched, ulong root_idx );
 void
 fd_sched_root_notify( fd_sched_t * sched, ulong root_idx );
 
+/* Returns the index of a bank whose refcnt should be decremented for
+   sched.  This function should be called in a loop to drain all
+   outstanding refcnt decrements before any other sched API is called in
+   a stem run loop.  Returns ULONG_MAX when there are no more
+   outstanding refrences from sched and the loop should break. */
+ulong
+fd_sched_pruned_block_next( fd_sched_t * sched );
+
+void
+fd_sched_set_poh_params( fd_sched_t * sched, ulong bank_idx, ulong tick_height, ulong max_tick_height, ulong hashes_per_tick, fd_hash_t const * start_poh );
+
 fd_txn_p_t *
 fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx );
+
+fd_sched_txn_info_t *
+fd_sched_get_txn_info( fd_sched_t * sched, ulong txn_idx );
 
 fd_hash_t *
 fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
+
+void
+fd_sched_metrics_write( fd_sched_t * sched );
 
 /* Serialize the current state as a cstr to the returned buffer.  Caller
    may read from the buffer until the next invocation of any fd_sched

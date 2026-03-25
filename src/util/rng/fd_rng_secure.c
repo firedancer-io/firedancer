@@ -24,7 +24,7 @@ fd_rng_secure( void * d,
     sz -= (ulong)res;
   }
   return d;
-} 
+}
 
 #elif defined(__APPLE__)
 
@@ -50,8 +50,9 @@ FD_FN_SENSITIVE __attribute__((warn_unused_result))
 void *
 fd_rng_secure( void * d,
                ulong  sz ) {
+  (void)d; (void)sz;
   FD_LOG_WARNING(( "fd_rng_secure failed (not supported by this build)" ));
   return NULL;
-} 
+}
 
 #endif

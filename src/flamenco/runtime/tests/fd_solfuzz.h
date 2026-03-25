@@ -13,8 +13,8 @@
 #include "../../capture/fd_solcap_writer.h"
 #include "../../accdb/fd_accdb_admin.h"
 #include "../../accdb/fd_accdb_user.h"
-#include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
+#include "../fd_bank.h"
 #if FD_HAS_FLATCC
 #include "flatcc/flatcc_builder.h"
 #endif
@@ -27,16 +27,16 @@
    each other (or any other allocations) just fine. */
 
 struct fd_solfuzz_runner {
-  fd_wksp_t *    wksp;
-  ulong          wksp_tag;
-  ulong          wksp_baseline_used_sz;
-  fd_spad_t *    spad;
-  fd_banks_t *   banks;
-  fd_bank_t *    bank;
-  fd_runtime_t * runtime;
+  fd_wksp_t *     wksp;
+  ulong           wksp_tag;
+  ulong           wksp_baseline_used_sz;
+  fd_spad_t *     spad;
+  fd_banks_t      banks[1];
+  fd_bank_t       bank[1];
+  fd_runtime_t *  runtime;
+  fd_acc_pool_t * acc_pool;
 
   fd_progcache_t       progcache[1];
-  fd_progcache_admin_t progcache_admin[1];
 
   fd_accdb_user_t      accdb[1];
   fd_accdb_admin_t     accdb_admin[1];
@@ -44,7 +44,6 @@ struct fd_solfuzz_runner {
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
 
-  fd_exec_accounts_t * exec_accounts;
   fd_runtime_stack_t * runtime_stack;
 
 # if FD_HAS_FLATCC
@@ -164,34 +163,13 @@ fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
                              uchar const *         in,
                              ulong                 in_sz );
 
-/* SVM Program Loading
-
-   Loads an ELF binary (in input->elf.data).
-   output_buf points to a memory region of output_bufsz bytes where the
-   result is allocated into. During execution, the contents of
-   fd_sbpf_program_t are wrapped in *output (backed by output_buf).
-
-   Returns number of bytes allocated at output_buf OR 0UL on any
-   harness-specific failures. Execution failures still return number of allocated bytes,
-   but output is incomplete/undefined. */
-
-ulong
-fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
-                              void const *          input_,
-                              void **               output_,
-                              void *                output_buf,
-                              ulong                 output_bufsz );
+/* SVM Program Loading */
 
 #if FD_HAS_FLATCC
 int
 fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
                               void const *          input_ );
 #endif
-
-int
-fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
-                                  uchar const *         in,
-                                  ulong                 in_sz );
 
 /* SVM sBPF Syscall Handling */
 
@@ -206,20 +184,6 @@ int
 fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
                                uchar const *         in,
                                ulong                 in_sz );
-
-/* SVM sBPF Bytecode Execution */
-
-ulong
-fd_solfuzz_pb_vm_interp_run( fd_solfuzz_runner_t * runner,
-                             void const *          input,
-                             void **               output,
-                             void *                output_buf,
-                             ulong                 output_bufsz );
-
-int
-fd_solfuzz_pb_vm_interp_fixture( fd_solfuzz_runner_t * runner,
-                                 uchar const *         in,
-                                 ulong                 in_sz );
 
 /* Flatbuffers */
 int

@@ -3,10 +3,10 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../replay/fd_replay_tile.h"
 #include "generated/fd_resolv_tile_seccomp.h"
+#include "../../discof/fd_accdb_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
-#include "../../flamenco/runtime/fd_alut_interp.h"
+#include "../../flamenco/runtime/fd_alut.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -146,8 +146,8 @@ typedef struct {
      freeing the bank when it is no longer needed.  To facilitate this,
      the resolv tile sends a message to replay when it is done with a
      rooted bank (after exchanging it for a new rooted bank). */
-  fd_banks_t * banks;
-  fd_bank_t *  bank;
+  fd_banks_t banks[1];
+  fd_bank_t  bank[1];
 
   fd_accdb_user_t accdb[1];
 
@@ -167,7 +167,6 @@ typedef struct {
     ulong blockhash_expired;
     ulong bundle_peer_failure;
     ulong stash[ FD_METRICS_COUNTER_RESOLV_STASH_OPERATION_CNT ];
-    ulong db_race;
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -194,11 +193,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_resolv_ctx_t * ctx ) {
-  FD_MCNT_SET(       RESOLF, BLOCKHASH_EXPIRED,               ctx->metrics.blockhash_expired );
-  FD_MCNT_ENUM_COPY( RESOLF, LUT_RESOLVED,                    ctx->metrics.lut );
-  FD_MCNT_ENUM_COPY( RESOLF, STASH_OPERATION,                 ctx->metrics.stash );
-  FD_MCNT_SET(       RESOLF, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure );
-  FD_MCNT_SET(       RESOLF, DB_RACES,                        ctx->metrics.db_race );
+  FD_MCNT_SET(       RESOLV, BLOCKHASH_EXPIRED,               ctx->metrics.blockhash_expired );
+  FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED,                    ctx->metrics.lut );
+  FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION,                 ctx->metrics.stash );
+  FD_MCNT_SET(       RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure );
 }
 
 static int
@@ -252,11 +250,7 @@ peek_alut( fd_resolv_ctx_t *  ctx,
            fd_txn_m_t *       txnm,
            fd_alut_interp_t * interp,
            ulong              alut_idx ) {
-  fd_funk_txn_xid_t const xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
-
-  ulong ro_indir_cnt_old = interp->ro_indir_cnt;
-  ulong rw_indir_cnt_old = interp->rw_indir_cnt;
-  ulong alut_idx_old     = interp->alut_idx;
+  fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->data->f.slot, ctx->bank->data->f.slot } };
 
   fd_txn_t const * txn         = fd_txn_m_txn_t_const  ( txnm );
   uchar const *    txn_payload = fd_txn_m_payload_const( txnm );
@@ -264,34 +258,20 @@ peek_alut( fd_resolv_ctx_t *  ctx,
       &fd_txn_get_address_tables_const( txn )[ alut_idx ];
   fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, txn_payload+addr_lut->addr_off );
 
-  int err = 0;
-  for(;;) {
-    fd_accdb_peek_t _peek[1];
-    fd_accdb_peek_t * peek = fd_accdb_peek(
-        ctx->accdb, _peek, &xid, &addr_lut_acc );
-    if( FD_UNLIKELY( !peek ) ) {
-      err = FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-      break;
-    }
-
-    err = fd_alut_interp_next(
-        interp,
-        &addr_lut_acc,
-        fd_accdb_ref_owner     ( peek->acc ),
-        fd_accdb_ref_data_const( peek->acc ),
-        fd_accdb_ref_data_sz   ( peek->acc ) );
-
-    int peek_ok = fd_accdb_peek_test( peek );
-    fd_accdb_peek_drop( peek );
-    if( FD_LIKELY( peek_ok ) ) break;
-
-    /* Restore old interp state and retry */
-    FD_SPIN_PAUSE();
-    ctx->metrics.db_race++;
-    interp->ro_indir_cnt = ro_indir_cnt_old;
-    interp->rw_indir_cnt = rw_indir_cnt_old;
-    interp->alut_idx     = alut_idx_old;
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, &addr_lut_acc ) ) ) {
+    return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
   }
+
+  int err = fd_alut_interp_next(
+      interp,
+      &addr_lut_acc,
+      fd_accdb_ref_owner     ( ro ),
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ) );
+
+  fd_accdb_close_ro( ctx->accdb, ro );
 
   return err;
 }
@@ -307,8 +287,8 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   fd_txn_t const *          txn          = fd_txn_m_txn_t_const  ( txnm );
   uchar const *             txn_payload  = fd_txn_m_payload_const( txnm );
   ulong const               alut_cnt     = txn->addr_table_lookup_cnt;
-  ulong const               slot         = fd_bank_slot_get( ctx->bank );
-  fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( ctx->bank ); FD_TEST( sysvar_cache );
+  ulong const               slot         = ctx->bank->data->f.slot;
+  fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->data->f.sysvar_cache; FD_TEST( sysvar_cache );
   fd_slot_hash_t const *    slot_hashes  = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
 
   /* Write indirect addrs into here */
@@ -349,8 +329,8 @@ publish_txn( fd_resolv_ctx_t *          ctx,
   txnm->reference_slot = ctx->flushing_slot;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank ) ) {
-      FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
+    if( FD_UNLIKELY( !ctx->bank->data ) ) {
+      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
       return 0;
     }
     int err = peek_aluts( ctx, txnm );
@@ -426,6 +406,13 @@ after_frag( fd_resolv_ctx_t *   ctx,
       case REPLAY_SIG_SLOT_COMPLETED: {
         fd_replay_slot_completed_t const * msg = &ctx->_completed_slot_msg;
 
+        /* Equivocating slot with same blockhash, ignore.  See fd_txncache.h on how this is possible.
+           TODO make sure matches how agave handles it */
+        if( FD_UNLIKELY( map_query( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc, NULL ) ) ) {
+          FD_LOG_WARNING(( "slot with same blockhash, ignoring: %lu", msg->slot ));
+          return;
+        }
+
         /* blockhash_ring is initalized to all zeros. blockhash=0 is an illegal map query */
         if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
           blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], NULL );
@@ -449,10 +436,9 @@ after_frag( fd_resolv_ctx_t *   ctx,
         fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
 
         /* Replace current bank with new bank */
-        fd_bank_t * prev_bank = ctx->bank;
+        fd_bank_data_t * prev_bank = ctx->bank->data;
 
-        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
-        FD_TEST( ctx->bank );
+        FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, msg->bank_idx ) );
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */
@@ -555,8 +541,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank ) ) {
-      FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
+    if( FD_UNLIKELY( !ctx->bank->data ) ) {
+      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }
@@ -632,13 +618,14 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_replay->wmark  = fd_dcache_compact_wmark ( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
   ctx->out_replay->chunk  = ctx->out_replay->chunk0;
 
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, tile->resolv.funk_obj_id ) ) );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->resolv.accdb_max_depth );
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
-  FD_TEST( ctx->banks );
-  ctx->bank = NULL;
+  ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
+  FD_TEST( banks_locks_obj_id!=ULONG_MAX );
+  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
+  ctx->bank->data = NULL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

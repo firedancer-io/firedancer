@@ -1,18 +1,16 @@
-#include "../tiles.h"
-
+#include "../topo/fd_topo.h"
 #include "generated/fd_plugin_tile_seccomp.h"
-
 #include "../plugin/fd_plugin.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_GOSSIP (1)
 #define IN_KIND_STAKE  (2)
-#define IN_KIND_POH    (3)
+#define IN_KIND_POHH   (3)
 #define IN_KIND_VOTE   (4)
 #define IN_KIND_STARTP (5)
 #define IN_KIND_VOTEL  (6)
-#define IN_KIND_BUNDLE (7)
-#define IN_KIND_VALCFG (8)
+#define IN_KIND_VALCFG (7)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -61,16 +59,18 @@ during_frag( fd_plugin_ctx_t * ctx,
   ctx->sz = sz;
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP && sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
-    FD_TEST( peer_cnt<=40200 );
+    FD_TEST( peer_cnt<=108000UL );
     ctx->sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_POH || ctx->in_kind[ in_idx ]==IN_KIND_VOTE ) && FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_POHH || ctx->in_kind[ in_idx ]==IN_KIND_VOTE ) && FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
-    FD_TEST( peer_cnt<=40200 );
+    FD_TEST( peer_cnt<=108000UL );
     ctx->sz = 8UL + peer_cnt*112UL;
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
     ulong staked_cnt = ((ulong *)src)[ 1 ];
-    FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
-    ctx->sz = fd_stake_weight_msg_sz( staked_cnt );
+    ulong id_cnt     = ((ulong *)src)[ 2 ];
+    FD_TEST( staked_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    FD_TEST( id_cnt<=MAX_SHRED_DESTS );
+    ctx->sz = fd_stake_weight_msg_sz( staked_cnt, id_cnt );
   }
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
@@ -106,7 +106,7 @@ after_frag( fd_plugin_ctx_t *   ctx,
       sig = FD_PLUGIN_MSG_LEADER_SCHEDULE;
       break;
     }
-    case IN_KIND_POH: {
+    case IN_KIND_POHH: {
       FD_TEST( sig==FD_PLUGIN_MSG_SLOT_START || sig==FD_PLUGIN_MSG_SLOT_END );
       break;
     }
@@ -120,10 +120,6 @@ after_frag( fd_plugin_ctx_t *   ctx,
     }
     case IN_KIND_VOTEL: {
       FD_TEST( sig==FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED );
-      break;
-    }
-    case IN_KIND_BUNDLE: {
-      FD_TEST( sig==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE );
       break;
     }
     case IN_KIND_VALCFG: {
@@ -160,12 +156,10 @@ unprivileged_init( fd_topo_t *      topo,
     if(      !strcmp( link->name, "replay_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "gossip_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
     else if( !strcmp( link->name, "stake_out"    ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
-    else if( !strcmp( link->name, "replay_stake" ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
-    else if( !strcmp( link->name, "poh_plugin"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( !strcmp( link->name, "pohh_plugin"  ) ) ctx->in_kind[ i ] = IN_KIND_POHH;
     else if( !strcmp( link->name, "votes_plugin" ) ) ctx->in_kind[ i ] = IN_KIND_VOTE;
     else if( !strcmp( link->name, "startp_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_STARTP;
     else if( !strcmp( link->name, "votel_plugin" ) ) ctx->in_kind[ i ] = IN_KIND_VOTEL;
-    else if( !strcmp( link->name, "bundle_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
     else if( !strcmp( link->name, "valcfg_plugi" ) ) ctx->in_kind[ i ] = IN_KIND_VALCFG;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }

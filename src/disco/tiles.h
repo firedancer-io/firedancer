@@ -12,30 +12,6 @@
 
 #include <linux/filter.h>
 
-/* fd_shred34 is a collection of up to 34 shreds batched in a way that's
-   convenient for use in a dcache and for access from Rust. The limit of
-   34 comes so that sizeof( fd_shred34_t ) < USHORT_MAX. */
-
-struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
-  ulong shred_cnt;
-
-  /* est_txn_cnt: An estimate of the number of transactions contained in this
-     shred34_t.  The true value might not be a whole number, but this is
-     helpful for diagnostic purposes. */
-  ulong est_txn_cnt;
-  ulong stride;
-  ulong offset;
-  ulong shred_sz; /* The size of each shred */
-  /* For i in [0, shred_cnt), shred i's payload spans bytes
-     [i*stride+offset, i*stride+offset+shred_sz ), counting from the
-     start of the struct, not this point. */
-  union {
-    fd_shred_t shred;
-    uchar      buffer[ FD_SHRED_MAX_SZ ];
-  } pkts[ 34 ];
-};
-typedef struct fd_shred34 fd_shred34_t;
-
 struct fd_became_leader {
    ulong slot;
 
@@ -134,7 +110,7 @@ struct fd_microblock_trailer {
 
   /* If the duration of a microblock is the difference between the
      publish timestamp of the microblock from pack and the publish
-     timestamp of the microblock from bank, then these represent the
+     timestamp of the microblock from execle, then these represent the
      elapsed time between the start of the microblock and the 3 state
      transitions (ready->start loading, loading -> execute, execute ->
      done) for the first transaction.
@@ -169,7 +145,7 @@ struct fd_done_packing {
 };
 typedef struct fd_done_packing fd_done_packing_t;
 
-struct fd_microblock_bank_trailer {
+struct fd_microblock_execle_trailer {
   /* An opaque pointer to the bank to use when executing and committing
      transactions.  The lifetime of the bank is owned by the PoH tile,
      which guarantees it is valid while pack or bank tiles might be
@@ -183,7 +159,7 @@ struct fd_microblock_bank_trailer {
   ulong bank_idx;
 
   /* The sequentially increasing index of the microblock, across all
-     banks.  This is used by PoH to ensure microblocks get committed
+     execles.  This is used by PoH to ensure microblocks get committed
      in the same order they are executed. */
   ulong microblock_idx;
   uint  pack_idx;
@@ -199,7 +175,7 @@ struct fd_microblock_bank_trailer {
      all either commit or fail atomically. */
   int is_bundle;
 };
-typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
+typedef struct fd_microblock_execle_trailer fd_microblock_execle_trailer_t;
 
 typedef struct __attribute__((packed)) {
   ulong  tick_duration_ns;

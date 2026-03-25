@@ -62,6 +62,8 @@ metrics_record_cmd_args( int *    pargc,
     struct fd_action_metrics_record_selector * selector = &args->metrics_record.selectors[ args->metrics_record.selectors_cnt++ ];
 
     char * name = *pargv[ 0 ];
+    if( FD_UNLIKELY( NULL==name || strlen( name )>=sizeof(selector->name)) ) FD_LOG_ERR(( "invalid metric selector name %s", name ));
+
     char * kind = strchr( name, ',' );
     char * kind_id = NULL;
     if( kind!=NULL ) {
@@ -77,7 +79,6 @@ metrics_record_cmd_args( int *    pargc,
     *pargc -= 1;
     *pargv += 1;
 
-    if( FD_UNLIKELY( NULL==name || strlen( name )>=sizeof(selector->name)) ) FD_LOG_ERR(( "invalid metric selector name %s", name ));
     fd_cstr_ncpy( selector->name, name, sizeof(selector->name) );
     if( FD_UNLIKELY( NULL!=kind && strlen( kind )>=sizeof(selector->kind)) ) FD_LOG_ERR(( "invalid metric selector kind %s", kind ));
     fd_cstr_ncpy( selector->kind, kind, sizeof(selector->kind) );
@@ -102,7 +103,7 @@ reconstruct_topo( fd_config_t * config,
   if( !topo_name[0] ) return; /* keep default action topo */
 
   action_t const * selected = NULL;
-  for( action_t ** a=ACTIONS; a!=NULL; a++ ) {
+  for( action_t ** a=ACTIONS; *a!=NULL; a++ ) {
     action_t const * action = *a;
     if( 0==strcmp( action->name, topo_name ) ) {
       selected = action;
@@ -126,7 +127,7 @@ metrics_record_cmd_fn( args_t *      args,
 
   reconstruct_topo( config, args->metrics_record.topo );
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
   uchar write_buf[ 4096 ];
@@ -146,9 +147,8 @@ metrics_record_cmd_fn( args_t *      args,
     if( metric->type!=FD_METRICS_TYPE_GAUGE && metric->type!=FD_METRICS_TYPE_COUNTER ) continue;
     for( ulong j=0UL; j<config->topo.tile_cnt; j++ ) {
       fd_topo_tile_t const * tile      = &config->topo.tiles[ j ];
-      char const *           tile_name = tile->metrics_name[ 0 ] ? tile->metrics_name : tile->name;
       for( ulong s=0UL; s<args->metrics_record.selectors_cnt; s++ ) {
-        if( FD_LIKELY( !selector_matches( &args->metrics_record.selectors[ s ], metric->name, tile_name, tile->kind_id ) ) ) continue;
+        if( FD_LIKELY( !selector_matches( &args->metrics_record.selectors[ s ], metric->name, tile->name, tile->kind_id ) ) ) continue;
         if( FD_UNLIKELY( metrics_cnt>=(sizeof(metrics)/sizeof(metrics[0])) ) ) FD_LOG_ERR(( "too many metrics %lu", metrics_cnt ));
         metrics[ metrics_cnt ].meta  = metric;
         metrics[ metrics_cnt ].value = fd_metrics_tile( tile->metrics ) + metric->offset;
@@ -172,10 +172,9 @@ metrics_record_cmd_fn( args_t *      args,
       if( metric->type!=FD_METRICS_TYPE_GAUGE && metric->type!=FD_METRICS_TYPE_COUNTER ) continue;
       for( ulong k=0UL; k<config->topo.tile_cnt; k++ ) {
         fd_topo_tile_t const * tile      = &config->topo.tiles[ k ];
-        char const *           tile_name = tile->metrics_name[ 0 ] ? tile->metrics_name : tile->name;
-        if( 0!=strcmp( tile_name, FD_METRICS_TILE_KIND_NAMES[ i ] ) ) continue;
+        if( 0!=strcmp( tile->name, FD_METRICS_TILE_KIND_NAMES[ i ] ) ) continue;
         for( ulong s=0UL; s<args->metrics_record.selectors_cnt; s++ ) {
-          if( FD_LIKELY( !selector_matches( &args->metrics_record.selectors[ s ], metric->name, tile_name, tile->kind_id ) ) ) continue;
+          if( FD_LIKELY( !selector_matches( &args->metrics_record.selectors[ s ], metric->name, tile->name, tile->kind_id ) ) ) continue;
           if( FD_UNLIKELY( metrics_cnt>=(sizeof(metrics)/sizeof(metrics[0])) ) ) FD_LOG_ERR(( "too many metrics %lu", metrics_cnt ));
           metrics[ metrics_cnt ].meta  = metric;
           metrics[ metrics_cnt ].value = fd_metrics_tile( tile->metrics ) + metric->offset;

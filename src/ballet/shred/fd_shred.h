@@ -130,7 +130,7 @@
 /* FD_SHRED_MERKLE_NODE_SZ: the size of a merkle inclusion proof node in bytes. */
 #define FD_SHRED_MERKLE_NODE_SZ (20UL)
 /* FD_SHRED_MERKLE_LAYER_CNT: the count of inclusion proof layers in the binary merkle tree. */
-#define FD_SHRED_MERKLE_LAYER_CNT (10UL)
+#define FD_SHRED_MERKLE_LAYER_CNT (7UL)
 /* FD_SHRED_SIGNATURE_SZ: the size of a signature in a shred. */
 #define FD_SHRED_SIGNATURE_SZ (64UL)
 /* A merkle inclusion proof node. */
@@ -150,7 +150,6 @@ FD_STATIC_ASSERT( sizeof(fd_bmtree_node_t) == FD_SHRED_MERKLE_ROOT_SZ, update FD
 
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
 #define FD_SHRED_BLK_MAX (1 << 15UL) /* 32,768 shreds */
-#define FD_SHRED_IDX_MAX (FD_SHRED_BLK_MAX - 1)
 
 /* Many static bounds are specified around the assumption that this is a
    protocol limit on the max number of shreds in a slot. If this limit

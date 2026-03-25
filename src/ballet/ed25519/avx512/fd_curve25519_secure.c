@@ -9,23 +9,25 @@
    - Clear registers via FD_FN_SENSITIVE
  */
 
-/* FD_R43X6_GE_ADD_TABLE_ALT is similar to FD_R43X6_GE_ADD_TABLE,
+/* FD_R43X6_GE_ADD_TABLE_ALT is similar to FD_R43X6_GE_ADD,
    with 3 minor differences:
-   1. order of arguments: P3, P2 points in extended Edwards coordinates,
-      T1 precomputed table point
-   2. T1 = (Y-X : Y+X : Z==1 : kT)
+   1. order of arguments: P3, P1 points in extended Edwards coordinates,
+      T2 precomputed table point
+   2. T2 = (Y-X : Y+X : Z==1 : kT), all coords are u44
    3. temp vars as input, so we can safely clear them in the caller
 */
-#define FD_R43X6_GE_ADD_TABLE_ALT( P3, P2, T1, _ta, _tb ) do {                                                                  \
-    FD_R43X6_QUAD_MOV          ( _ta, T1 );                     /* _ta = (Y1-X1,Y1+X1,Z1  ,T1*2d), s61|s61|s61|s61 */ \
-    FD_R43X6_QUAD_PERMUTE      ( _tb, 1,0,2,3, P2 );            /* _tb = (Y2,   X2,   Z2,  T2   ), s61|s61|s61|s61 */ \
-    FD_R43X6_QUAD_LANE_SUB_FAST( _tb, _tb, 1,0,0,0, _tb, P2 );  /* _tb = (Y2-X2,X2,   Z2,  T2   ), s62|s61|s61|s61 */ \
-    FD_R43X6_QUAD_LANE_ADD_FAST( _tb, _tb, 0,1,1,0, _tb, P2 );  /* _tb = (Y2-X2,Y2+X2,Z2*2,T2   ), s62|s62|s61|s61 */ \
+#define FD_R43X6_GE_ADD_TABLE_ALT( P3, P1, T2, _ta, _tb ) do {                                                                  \
+    FD_R43X6_QUAD_MOV          ( _ta, T2 );                     /* _ta = (Y2-X2,Y2+X2,Z2=1,T2*2d), u44|u44|u44|u44 */ \
+    FD_R43X6_QUAD_PERMUTE      ( _tb, 1,0,2,3, P1 );            /* _tb = (Y1,   X1,   Z1,  T1   ), s61|s61|s61|s61 */ \
+    FD_R43X6_QUAD_LANE_SUB_FAST( _tb, _tb, 1,0,0,0, _tb, P1 );  /* _tb = (Y1-X1,X1,   Z1,  T1   ), s62|s61|s61|s61 */ \
+    FD_R43X6_QUAD_LANE_ADD_FAST( _tb, _tb, 0,1,1,0, _tb, P1 );  /* _tb = (Y1-X1,Y1+X1,Z1*2,T1   ), s62|s62|s62|s61 */ \
+    FD_R43X6_QUAD_FOLD_SIGNED  ( _tb, _tb );                    /* _tb = (Y1-X1,Y1+X1,Z1*2,T1   ), u44|u44|u44|u44 */ \
     FD_R43X6_QUAD_MUL_FAST     ( _ta, _ta, _tb );               /* _ta = (A,    B,    D,   C    ), u62|u62|u62|u62 */ \
-    FD_R43X6_QUAD_FOLD_UNSIGNED( _ta, _ta );                    /* P3  = (A,    B,    D,   C    ), u44|u44|u44|u44 */ \
-    FD_R43X6_QUAD_PERMUTE      ( _tb, 1,0,3,2, _ta );           /* _tb = (B,    A,    C,   D    ), u62|u62|u62|u62 */ \
-    FD_R43X6_QUAD_LANE_SUB_FAST( _tb, _tb, 1,0,0,1, _tb, _ta ); /* _tb = (E,    A,    C,   F    ), s62|u62|u62|s62 */ \
-    FD_R43X6_QUAD_LANE_ADD_FAST( _tb, _tb, 0,1,1,0, _tb, _ta ); /* _tb = (E,    H,    G,   F    ), s62|u63|u63|s62 */ \
+    FD_R43X6_QUAD_FOLD_UNSIGNED( _ta, _ta );                    /* _ta = (A,    B,    D,   C    ), u44|u44|u44|u44 */ \
+    FD_R43X6_QUAD_PERMUTE      ( _tb, 1,0,3,2, _ta );           /* _tb = (B,    A,    C,   D    ), u44|u44|u44|u44 */ \
+    FD_R43X6_QUAD_LANE_SUB_FAST( _tb, _tb, 1,0,0,1, _tb, _ta ); /* _tb = (E,    A,    C,   F    ), s45|u44|u44|s45 */ \
+    FD_R43X6_QUAD_LANE_ADD_FAST( _tb, _tb, 0,1,1,0, _tb, _ta ); /* _tb = (E,    H,    G,   F    ), s45|u45|u45|s45 */ \
+    FD_R43X6_QUAD_FOLD_SIGNED  ( _tb, _tb );                    /* _tb = (E,    H,    G,   F    ), u44|u44|u44|u44 */ \
     FD_R43X6_QUAD_PERMUTE      ( _ta, 0,2,2,0, _tb );           /* _ta = (E,    G,    G,   E    ), u44|u44|u44|u44 */ \
     FD_R43X6_QUAD_PERMUTE      ( _tb, 3,1,3,1, _tb );           /* _tb = (F,    H,    F,   H    ), u44|u44|u44|u44 */ \
     FD_R43X6_QUAD_MUL_FAST     ( _ta, _ta, _tb );               /* _ta = (X3,   Y3,   Z3,  T3   ), u62|u62|u62|u62 */ \
@@ -60,16 +62,16 @@ fd_ed25519_point_add_secure( fd_ed25519_point_t *       restrict r,
     FD_R43X6_QUAD_PERMUTE      ( _ta, 1,1,2,0, P1 );            /* _ta = (Y1,       Y1,Z1,  X1), u44/u44/u44/u44 */ \
     FD_R43X6_QUAD_LANE_ADD_FAST( _ta, _ta, 1,0,0,0, _ta, P1 );  /* _ta = (X1+Y1,    Y1,Z1,  X1), u45/u44/u44/u44 */ \
     FD_R43X6_QUAD_SQR_FAST     ( _ta, _ta );                    /* _ta = ((X1+Y1)^2,B, Z1^2,A ), u61/u61/u61/u61 */ \
-    FD_R43X6_QUAD_FOLD_UNSIGNED( _ta, _ta );                    /* _ta = ((X1+Y1)^2,B, Z1^2,A ), u44/u44/u44/u44 */ \
-    FD_R43X6_QUAD_LANE_ADD_FAST( _ta, _ta, 0,0,1,0, _ta, _ta ); /* _ta = ((X1+Y1)^2,B, C,   A ), u44/u44/u45/u44 */ \
-    FD_R43X6_QUAD_PERMUTE      ( _tb, 3,3,3,3, _ta );           /* _tb = (A,        A, A,   A ), u44/u44/u44/u44 */ \
-    FD_R43X6_QUAD_LANE_ADD_FAST( _tb, _tb, 0,0,1,0, _tb, _ta ); /* _tb = (A,        A, A+C, A ), u44/u44/u45/u44 */ \
-    FD_R43X6_QUAD_LANE_SUB_FAST( _tb, _tb, 1,0,0,0, _tb, _ta ); /* _tb = (A-(sum)^2,A, A+C, A ), u45/u44/u45/u44 */ \
-    FD_R43X6_QUAD_PERMUTE      ( _ta, 1,1,1,1, _ta );           /* _ta = (B,        B, B,   B ), u44/u44/u44/u44 */ \
-    FD_R43X6_QUAD_LANE_ADD_FAST( _tb, _tb, 1,0,0,1, _tb, _ta ); /* _tb = (E,        A, A+C, H ), u46/u44/u45/u45 */ \
-    FD_R43X6_QUAD_LANE_SUB_FAST( _tb, _tb, 0,1,1,0, _tb, _ta ); /* _tb = (E,        G, F,   H ), u46/u45/u46/u45 */ \
-    FD_R43X6_QUAD_PERMUTE      ( _ta, 0,1,1,0, _tb );           /* _tb = (E,        G, G,   E ), u46/u45/u45/u46 */ \
-    FD_R43X6_QUAD_PERMUTE      ( _tb, 2,3,2,3, _tb );           /* _tb = (F,        H, F,   H ), u46/u45/u46/u45 */ \
+    FD_R43X6_QUAD_LANE_ADD_FAST( _ta, _ta, 0,0,1,0, _ta, _ta ); /* _ta = ((X1+Y1)^2,B, C,   A ), u61/u61/u62/u61 */ \
+    FD_R43X6_QUAD_PERMUTE      ( _tb, 3,3,3,3, _ta );           /* _tb = (A,        A, A,   A ), u61/u61/u61/u61 */ \
+    FD_R43X6_QUAD_LANE_ADD_FAST( _tb, _tb, 0,0,1,0, _tb, _ta ); /* _tb = (A,        A, A+C, A ), u61/u61/u63/u61 */ \
+    FD_R43X6_QUAD_LANE_SUB_FAST( _tb, _tb, 1,0,0,0, _tb, _ta ); /* _tb = (A-(sum)^2,A, A+C, A ), s61/u61/u63/u61 */ \
+    FD_R43X6_QUAD_PERMUTE      ( _ta, 1,1,1,1, _ta );           /* _ta = (B,        B, B,   B ), u61/u61/u61/u61 */ \
+    FD_R43X6_QUAD_LANE_ADD_FAST( _tb, _tb, 1,0,0,1, _tb, _ta ); /* _tb = (E,        A, A+C, H ), s62/u61/u63/u62 */ \
+    FD_R43X6_QUAD_LANE_SUB_FAST( _tb, _tb, 0,1,1,0, _tb, _ta ); /* _tb = (E,        G, F,   H ), s62/s61/s63/u62 */ \
+    FD_R43X6_QUAD_FOLD_SIGNED  ( _tb, _tb );                    /* _tb = (E,        G, F,   H ), u44/u44/u44/u44 */ \
+    FD_R43X6_QUAD_PERMUTE      ( _ta, 0,1,1,0, _tb );           /* _tb = (E,        G, G,   E ), u44/u44/u44/u44 */ \
+    FD_R43X6_QUAD_PERMUTE      ( _tb, 2,3,2,3, _tb );           /* _tb = (F,        H, F,   H ), u44/u44/u44/u44 */ \
     FD_R43X6_QUAD_MUL_FAST     ( _ta, _ta, _tb );               /* _ta = (X3,       Y3,Z3,  T3), u62/u62/u62/u62 */ \
     FD_R43X6_QUAD_FOLD_UNSIGNED( P3, _ta );                     /* P3  = (X3,       Y3,Z3,  T3), u44/u44/u44/u44 */ \
   } while(0)

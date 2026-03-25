@@ -99,7 +99,7 @@ update_config_for_dev( fd_config_t * config ) {
   else FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
 
   ushort shred_version = 0;
-  int result = compute_shred_version( genesis_path, &shred_version, NULL );
+  int result = read_genesis_bin( genesis_path, &shred_version, NULL );
   if( FD_UNLIKELY( -1==result && errno!=ENOENT ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   for( ulong i=0UL; i<config->layout.shred_tile_count; i++ ) {
@@ -124,7 +124,6 @@ run_firedancer_threaded( config_t * config,
   fd_topo_print_log( 0, &config->topo );
 
   run_firedancer_init( config, init_workspaces, 1 );
-  fdctl_setup_netns( config, 1 );
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     fd_log_private_shared_lock[ 1 ] = 1;
@@ -139,7 +138,7 @@ run_firedancer_threaded( config_t * config,
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, config->development.core_dump_level );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   if( FD_UNLIKELY( agave_main && !config->development.no_agave ) ) {

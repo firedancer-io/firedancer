@@ -4,37 +4,30 @@
 #include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
-#include "../rewards/fd_epoch_rewards.h"
 #include "../stakes/fd_stake_delegations.h"
-#include "../stakes/fd_vote_states.h"
+#include "../stakes/fd_top_votes.h"
+#include "../stakes/fd_vote_stakes.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "fd_txncache_shmem.h"
 
+
 FD_PROTOTYPES_BEGIN
 
-#define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
-
-/* TODO: Some optimizations, cleanups, future work:
-   1. Simple data types (ulong, int, etc) should be stored as their
-      underlying type instead of a byte array.
-   2. Perhaps make the query/modify scoping more explicit. Right now,
-      the caller is free to use the API wrong if there are no locks.
-      Maybe just expose a different API if there are no locks?
-   3. Rename locks to suffix with _query_locking and _query_locking_end
-   4. Don't templatize out more complex types.
-  */
+#define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
+#define FD_BANKS_MAX_BANKS (4096UL)
+#define FD_BANKS_ALIGN     (128UL)
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
-   for a given block. More specifically, the bank state corresponds to
+   for a given block.  More specifically, the bank state corresponds to
    all information needed during execution that is not stored on-chain,
-   but is instead cached in a validator's memory. Each of these bank
+   but is instead cached in a validator's memory.  Each of these bank
    fields are repesented by a member of the fd_bank_t struct.
 
    Management of fd_bank_t structs must be fork-aware: the state of each
-   fd_bank_t must be based on the fd_bank_t of it's parent block. This
+   fd_bank_t must be based on the fd_bank_t of its parent block.  This
    state is managed by the fd_banks_t struct.
 
    In order to support fork-awareness, there are several key features
@@ -48,34 +41,28 @@ FD_PROTOTYPES_BEGIN
    3. Prune the set of active banks to keep the root updated as the
       network progresses: free resources of fd_bank_t structs that
       are are not direct descendants of the root bank (remove parents
-      and any competing lineages).
+      and any competing lineages).  When a bank is marked as dead (ie.
+      if the block corresponding to the bank is invalid), it also must
+      be able to be eagerly pruned away.
    4. Each bank will have field(s) that are concurrently read/write
       from multiple threads: add read-write locks to the fields that are
       concurrently written to.
    5. In practice, a bank state for a given block can be very large and
-      not all of the fields are written to every block. Therefore, it can
-      be very expensive to copy the entire bank state for a given block
-      each time a bank is created. In order to avoid large memcpys, we
-      can use a CoW mechanism for certain fields.
+      not all of the fields are written to every block.  Therefore, it
+      can be very expensive to copy the entire bank state for a given
+      block each time a bank is created.  In order to avoid large
+      memcpys, we can use a CoW mechanism for certain fields.
    6. In a similar vein, some fields are very large and are not written
-      to very often, and are only read at the epoch boundary. The most
-      notable example is the stake delegations cache. In order to handle
-      this, we can use a delta-based approach where each bank only has
-      a delta of the stake delegations. The root bank will own the full
-      set of stake delegations. This means that the deltas are only
-      applied to the root bank as each bank gets rooted. If the caller
-      needs to access the full set of stake delegations for a given
-      bank, they can assemble the full set of stake delegations by
+      to very often, and are only read at the epoch boundary.  The most
+      notable example is the stake delegations cache.  In order to
+      handle this, we can use a delta-based approach where each bank
+      only has a delta of the stake delegations.  The root bank will own
+      the full set of stake delegations.  This means that the deltas are
+      only applied to the root bank as each bank gets rooted.  If the
+      caller needs to access the full set of stake delegations for a
+      given bank, they can assemble the full set of stake delegations by
       applying all of the deltas from the current bank and all of its
       ancestors up to the root bank.
-
-  Each field of a fd_bank_t has a pre-specified set of fields including
-    - name: the name of the field
-    - footprint: the size of the field in bytes
-    - align: the alignment of the field
-    - CoW: whether the field is CoW
-    - has_lock: whether the field has a rw-lock
-    - type: type of the field
 
   fd_banks_t is represented by a left-child, right-sibling n-ary tree
   (inspired by fd_ghost) to keep track of the parent-child fork tree.
@@ -90,12 +77,13 @@ FD_PROTOTYPES_BEGIN
   establishing a mapping from the bank index (which is managed by
   fd_banks_t) and runtime state (e.g. slot number).
 
-  Most of the fields a fd_bank_t are templatized and can support CoW
-  sematics or locking semantics.
-
-  Each field in fd_bank_t that is not CoW is laid out contiguously in
-  the fd_bank_t struct as simple uchar buffers. This allows for a simple
-  memcpy to clone the bank state from a parent to a child.
+  The fields in fd_bank_t can be categorized into two groups:
+  1. Simple fields: these are fields which don't need any special
+     handling and are laid out contiguously in the fd_bank_t struct
+     at bank->data->f.<field>.
+  2. Complex fields: these are fields which need special handling
+     (e.g. locking, copy on write semantics, delta-based semantics).
+     These types are not templatized and are manually defined below.
 
   Each field that is CoW has its own memory pool. The memory
   corresponding to the field is not located in the fd_bank_t struct and
@@ -103,21 +91,21 @@ FD_PROTOTYPES_BEGIN
   is modified, then the dirty flag is set, and an element of the pool
   is acquired and the data is copied over from the parent pool idx.
 
-  Not all fields in the bank are templatized: stake_delegations and
-  the cost_tracker.
-
   Currently, there is a delta-based field, fd_stake_delegations_t.
   Each bank stores a delta-based representation in the form of an
-  aligned uchar buffer.  The full state is stored in fd_banks_t also as
-  a uchar buffer which corresponds to the full state of stake
-  delegations for the current root.  fd_banks_t also reserves another
-  buffer which can store the full state of the stake delegations.
+  aligned uchar buffer.  The full state is stored in fd_banks_t in
+  out-of-line memory sized using max_stake_accounts, and fd_banks_t
+  also reserves another out-of-line buffer which can store the full
+  state of the stake delegations for frontier queries.
 
   The cost tracker is allocated from a pool.  The lifetime of a cost
   tracker element starts when the bank is linked to a parent with a
   call to fd_banks_clone_from_parent() which makes the bank replayable.
   The lifetime of a cost tracker element ends when the bank is marked
   dead or when the bank is frozen.
+
+  The lthash is a simple field that is laid out contiguously in the
+  fd_bank_t struct, but is not templatized and it has its own lock.
 
   So, when a bank is cloned from a parent, the non CoW fields are copied
   over and the CoW fields just copy over a pool index. The CoW behavior
@@ -142,156 +130,83 @@ FD_PROTOTYPES_BEGIN
     replayable, it must've been initialized beforehand.
   - Dead: This bank has been marked as dead.  This means that the block
     that this bank is associated with is invalid.  A bank can be marked
-    dead before, during, or after it has finished replaying.  A bank
+    dead before, during, or after it has finished replaying (i.e. the
+    bank being marked dead just needs to be initialized).  A bank
     can still be executing transactions while it is marked dead, but it
-    shouldn't be dispatched any more work.
+    shouldn't be dispatched any more work.  In other words, a key
+    invariant is that a bank's reference count should NEVER be increased
+    after it has been marked dead.
   - Frozen: This bank has been marked as frozen and no other tasks
     should be dispatched to it.  Any bank-specific resources will be
     released (e.g. cost tracker element).  A bank can be marked frozen
-    in two cases:
-      1. The bank has finished executing all of its transactions
-      2. The bank has been marked dead and there are no outstanding
-         references to the bank.
-    A bank can only be copied from a parent bank
-    (fd_banks_clone_from_parent) if the parent bank has been frozen.
-    The program will crash if this invariant is violated.
-
-  NOTE: An important invariant is that if a templatized field is CoW,
-  then it must have a rw-lock.
-
-  NOTE: Another important invariant is that if a templatized field is
-  limiting its fork width, then it must be CoW.
+    if the bank has finished executing all of its transactions or if the
+    bank is marked as dead and has no outstanding references.  A bank
+    can only be copied from a parent bank (fd_banks_clone_from_parent)
+    if the parent bank has been frozen.  The program will crash if this
+    invariant is violated.
 
   The usage pattern is as follows:
 
    To create an initial bank:
-   fd_bank_t * bank_init = fd_bank_init_bank( banks );
+   fd_banks_t bank[1];
+   fd_bank_t * bank_init = fd_bank_init_bank( bank, banks );
 
-   To create a new bank:
-   ulong bank_index = fd_banks_new_bank( banks, parent_bank_index );
+   To create a new bank.  This simply provisions the memory for the bank
+   but it should not be used to execute transactions against.
+   ulong bank_index = fd_banks_new_bank( bank, banks, parent_bank_index )->data->idx;
 
-   To clone bank from parent banks:
-   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, bank_index, parent_bank_index );
+   To clone bank from parent banks.  This makes a bank replayable by
+   copying over the state from the parent bank into the child.  It
+   assumes that the bank index has been previously provisioned by a call
+   to fd_banks_new_bank and that the parent bank index has been frozen.
+   fd_bank_t * bank_clone = fd_banks_clone_from_parent( bank, banks, bank_index );
 
-   To advance the root bank
-   fd_bank_t * root_bank = fd_banks_advance_root( banks, bank_index );
+   To ensure that the bank index we want to advance our root to is safe
+   and that there are no outstanding references to the banks that are
+   not descendants of the target bank.
+   fd_banks_advance_root_prepare( banks, target_bank_idx, &advanceable_bank_idx_out );
+
+   To advance the root bank.  This assumes that the bank index is "safe"
+   to advance to.  This means that none of the ancestors of the bank
+   index have a non-zero reference count.
+   fd_banks_advance_root( banks, bank_index );
 
    To query some arbitrary bank:
-   fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
+   fd_bank_t * bank_query = fd_banks_bank_query( bank, banks, bank_index );
 
-  To access fields in the bank if a field does not have a lock:
+  To access the fields in the bank if they are templatized:
 
   fd_struct_t const * field = fd_bank_field_query( bank );
   OR
   fd_struct field = fd_bank_field_get( bank );
 
-  To modify fields in the bank if a field does not have a lock:
-
   fd_struct_t * field = fd_bank_field_modify( bank );
   OR
   fd_bank_field_set( bank, value );
 
-  To access fields in the bank if the field has a lock:
+  If a bank is marked dead, the caller should call
+  fd_banks_mark_bank_dead() to mark the bank and all of its descendants
+  as dead.  This does not actually free the underlying resources that
+  the dead bank has allocated and instead just queues them up for
+  pruning:
+  fd_banks_mark_bank_dead( banks, dead_bank_idx );
 
-  fd_struct_t const * field = fd_bank_field_locking_query( bank );
-  ... use field ...
-  fd_bank_field_locking_end_query( bank );
+  To actually prune away any dead banks, the caller should call:
+  fd_banks_prune_one_dead_bank( banks, cancel_info )
 
-  To modify fields in the bank if the field has a lock:
+  The locks and data used by an fd_bank_t or an fd_banks_t are stored as
+  separate objects.  The locks are stored in an fd_banks_locks_t struct
+  and the data is stored in an fd_banks_data_t struct for an fd_banks_t.
+  Each fd_bank_t uses a fd_bank_data_t struct to store its state and
+  fd_banks_locks_t to store the locks for the bank.  The reason for
+  splitting out the locks and data is to allow for more fine-grained
+  security isolation: this allows for the data for the banks to be
+  mapped in read-only to specific tiles while still being able to use
+  locks to access concurrent fields in the banks.
 
-  fd_struct_t * field = fd_bank_field_locking_modify( bank );
-  ... use field ...
-  fd_bank_field_locking_end_locking_modify( bank ); */
-
-/* Define additional fields to the bank struct here. If trying to add
-   a CoW field to the bank, define a pool for it as done below. */
-
-#define FD_BANKS_ITER(X)                                                                                                                                                                                                                               \
-  /* type,                             name,                        footprint,                                 align,                                      CoW, limit fork width, has lock */                                                          \
-  X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0,                0    )  /* Block hash queue */                                       \
-  X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0,                0    )  /* Fee rate governor */                                      \
-  X(ulong,                             rbh_lamports_per_sig,        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Recent Block Hashes lamports per signature */             \
-  X(ulong,                             slot,                        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slot */                                                   \
-  X(ulong,                             parent_slot,                 sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Parent slot */                                            \
-  X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Capitalization */                                         \
-  X(ulong,                             transaction_count,           sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Transaction count */                                      \
-  X(ulong,                             parent_signature_cnt,        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Parent signature count */                                 \
-  X(ulong,                             tick_height,                 sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Tick height */                                            \
-  X(ulong,                             max_tick_height,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Max tick height */                                        \
-  X(ulong,                             hashes_per_tick,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Hashes per tick */                                        \
-  X(fd_w_u128_t,                       ns_per_slot,                 sizeof(fd_w_u128_t),                       alignof(fd_w_u128_t),                       0,   0,                0    )  /* NS per slot */                                            \
-  X(ulong,                             ticks_per_slot,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Ticks per slot */                                         \
-  X(ulong,                             genesis_creation_time,       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Genesis creation time */                                  \
-  X(double,                            slots_per_year,              sizeof(double),                            alignof(double),                            0,   0,                0    )  /* Slots per year */                                         \
-  X(fd_inflation_t,                    inflation,                   sizeof(fd_inflation_t),                    alignof(fd_inflation_t),                    0,   0,                0    )  /* Inflation */                                              \
-  X(ulong,                             cluster_type,                sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Cluster type */                                           \
-  X(ulong,                             total_epoch_stake,           sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Total epoch stake */                                      \
-                                                                                                                                                                                          /* This is only used for the get_epoch_stake syscall. */     \
-                                                                                                                                                                                          /* If we are executing in epoch E, this is the total */      \
-                                                                                                                                                                                          /* stake at the end of epoch E-1. */                         \
-  X(ulong,                             block_height,                sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Block height */                                           \
-  X(ulong,                             execution_fees,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Execution fees */                                         \
-  X(ulong,                             priority_fees,               sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Priority fees */                                          \
-  X(ulong,                             tips,                        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Tips collected */                                         \
-  X(ulong,                             signature_count,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Signature count */                                        \
-  X(fd_hash_t,                         poh,                         sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* PoH */                                                    \
-  X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot,           sizeof(fd_sol_sysvar_last_restart_slot_t), alignof(fd_sol_sysvar_last_restart_slot_t), 0,   0,                0    )  /* Last restart slot */                                      \
-  X(fd_hash_t,                         bank_hash,                   sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Bank hash */                                              \
-  X(fd_hash_t,                         prev_bank_hash,              sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Previous bank hash */                                     \
-  X(fd_hash_t,                         genesis_hash,                sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Genesis hash */                                           \
-  X(fd_epoch_schedule_t,               epoch_schedule,              sizeof(fd_epoch_schedule_t),               alignof(fd_epoch_schedule_t),               0,   0,                0    )  /* Epoch schedule */                                         \
-  X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0,                0    )  /* Rent */                                                   \
-  X(fd_lthash_value_t,                 lthash,                      sizeof(fd_lthash_value_t),                 alignof(fd_lthash_value_t),                 0,   0,                1    )  /* LTHash */                                                 \
-  X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t),                 0,   0,                0    )  /* Sysvar cache */                                           \
-                                                                                                                                                                                          /* then there can be 100k unique leaders in the worst */     \
-                                                                                                                                                                                          /* case. We also can assume 432k slots per epoch. */         \
-  X(fd_features_t,                     features,                    sizeof(fd_features_t),                     alignof(fd_features_t),                     0,   0,                0    )  /* Features */                                               \
-  X(ulong,                             txn_count,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Transaction count */                                      \
-  X(ulong,                             nonvote_txn_count,           sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Nonvote transaction count */                              \
-  X(ulong,                             failed_txn_count,            sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Failed transaction count */                               \
-  X(ulong,                             nonvote_failed_txn_count,    sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Nonvote failed transaction count */                       \
-  X(ulong,                             total_compute_units_used,    sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Total compute units used */                               \
-  X(ulong,                             slots_per_epoch,             sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slots per epoch */                                        \
-  X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
-  X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */                                                  \
-  X(int,                               has_identity_vote,           sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Has identity vote */                                      \
-  X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
-  X(fd_epoch_leaders_t,                epoch_leaders,               FD_EPOCH_LEADERS_MAX_FOOTPRINT,            FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
-  X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
-                                                                                                                                                                                          /* epoch E is the one that is currently being executed */    \
-  X(fd_vote_states_t,                  vote_states_prev,            FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of of the end of */  \
-                                                                                                                                                                                          /* epoch E-1 if epoch E is currently being executed */       \
-  X(fd_vote_states_t,                  vote_states_prev_prev,       FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of the end of */     \
-                                                                                                                                                                                          /* epoch E-2 if epoch E is currently being executed */
-
-/* Invariant Every CoW field must have a rw-lock */
-#define X(type, name, footprint, align, cow, limit_fork_width, has_lock)                                              \
-  FD_STATIC_ASSERT( (cow == 1 && has_lock == 1        ) || (cow == 0            ),  CoW fields must have a rw-lock ); \
-  FD_STATIC_ASSERT( (cow == 1 && limit_fork_width == 1) || (limit_fork_width == 0), CoW must be 1 if limit_fork_width is 1 );
-  FD_BANKS_ITER(X)
-#undef X
-
-/* If a member of the bank is CoW then it needs a corresponding pool
-   which is defined here. If a type if not a CoW then it does not need
-   to be in a pool and is laid out contigiously in the bank struct. */
-
-/* Declare a pool object wrapper for all CoW fields. */
-#define HAS_COW_1(name, footprint, align)                    \
-  static const ulong fd_bank_##name##_align     = align;     \
-  static const ulong fd_bank_##name##_footprint = footprint; \
-                                                             \
-  struct fd_bank_##name {                                    \
-    ulong next;                                              \
-    uchar data[footprint]__attribute__((aligned(align)));    \
-  };                                                         \
-  typedef struct fd_bank_##name fd_bank_##name##_t;
-
-/* Do nothing if CoW is not enabled. */
-#define HAS_COW_0(name, footprint, align)
-
-#define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-  HAS_COW_##cow(name, footprint, align)
-  FD_BANKS_ITER(X)
+  If the fields are not templatized, their accessor and modifier
+  patterns vary and are documented below.
+*/
 
 struct fd_bank_cost_tracker {
   ulong next;
@@ -299,39 +214,25 @@ struct fd_bank_cost_tracker {
 };
 typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
-#undef X
-#undef HAS_COW_0
-#undef HAS_COW_1
-
-#define POOL_NAME fd_bank_epoch_leaders_pool
-#define POOL_T    fd_bank_epoch_leaders_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_epoch_rewards_pool
-#define POOL_T    fd_bank_epoch_rewards_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_vote_states_pool
-#define POOL_T    fd_bank_vote_states_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_vote_states_prev_pool
-#define POOL_T    fd_bank_vote_states_prev_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define POOL_NAME fd_bank_vote_states_prev_prev_pool
-#define POOL_T    fd_bank_vote_states_prev_prev_t
-#include "../../util/tmpl/fd_pool.c"
-
 #define POOL_NAME fd_bank_cost_tracker_pool
 #define POOL_T    fd_bank_cost_tracker_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define FD_BANK_FLAGS_INIT              (0x00000001UL) /* Initialized.  Not yet replayable. */
-#define FD_BANK_FLAGS_REPLAYABLE        (0x00000002UL) /* Replayable. */
-#define FD_BANK_FLAGS_FROZEN            (0x00000004UL) /* Frozen.  We finished replaying or because it was a snapshot/genesis loaded bank. */
-#define FD_BANK_FLAGS_DEAD              (0x00000008UL) /* Dead.  We stopped replaying it before we could finish it (e.g. invalid block or pruned minority fork). */
-#define FD_BANK_FLAGS_ROOTED            (0x00000010UL) /* Rooted.  Part of the consnensus root fork.  */
+/* Initialized.  Not yet replayable. */
+#define FD_BANK_FLAGS_INIT       (0x00000001UL)
+/* Replayable.  Implies that FD_BANK_FLAGS_INIT is also set. */
+#define FD_BANK_FLAGS_REPLAYABLE (0x00000002UL)
+/* Frozen.  We finished replaying or because it was a snapshot/genesis
+   loaded bank.  Implies that FD_BANK_FLAGS_REPLAYABLE is also set. */
+#define FD_BANK_FLAGS_FROZEN     (0x00000004UL)
+/* Dead.  We stopped replaying it before we could finish it (e.g.
+   invalid block or pruned minority fork).  It is implied that
+   FD_BANK_FLAGS_INIT is set, but not necessarily
+   FD_BANK_FLAGS_REPLAYABLE. */
+#define FD_BANK_FLAGS_DEAD       (0x00000008UL)
+ /* Rooted.  Part of the consnensus root fork.  Implies that
+    FD_BANK_FLAGS_FROZEN is also set. */
+#define FD_BANK_FLAGS_ROOTED     (0x00000010UL)
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management
@@ -347,7 +248,7 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
        the replay tile.
 */
 
-struct fd_bank {
+struct fd_bank_data {
 
   /* Fields used for internal pool and bank management */
   ulong idx;         /* current fork idx of the bank (synchronized with the pool index) */
@@ -355,25 +256,19 @@ struct fd_bank {
   ulong parent_idx;  /* index of the parent in the node pool */
   ulong child_idx;   /* index of the left-child in the node pool */
   ulong sibling_idx; /* index of the right-sibling in the node pool */
-  ulong flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
+  ulong flags;       /* keeps track of the state of the bank */
+  ulong bank_seq;    /* app-wide bank sequence number */
 
-  /* Define non-templatized types here. */
-
-  /* Cost tracker. */
-
-  ulong       cost_tracker_pool_idx;
-  ulong       cost_tracker_pool_offset;
-  fd_rwlock_t cost_tracker_lock;
-
-  /* Stake delegations delta. */
-
-  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-  int         stake_delegations_delta_dirty;
-  fd_rwlock_t stake_delegations_delta_lock;
-
-  ulong refcnt; /* (r) reference count on the bank, see replay for more details */
+  ulong refcnt; /* reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
+  ushort                vote_stakes_fork_id; /* fork id used by the vote stakes */
+  uchar                 stake_rewards_fork_id; /* fork id used by stake rewards */
+  ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
+  ulong                 cost_tracker_pool_idx;
+  ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
+
+  ulong banks_data_offset; /* offset from this fd_bank_data_t back to fd_banks_data_t */
 
   /* Timestamps written and read only by replay */
 
@@ -382,121 +277,87 @@ struct fd_bank {
   long first_transaction_scheduled_nanos;
   long last_transaction_finished_nanos;
 
-  /* First, layout all non-CoW fields contiguously. This is done to
-     allow for cloning the bank state with a simple memcpy. Each
-     non-CoW field is just represented as a byte array. */
-
   struct {
+    fd_lthash_value_t                 lthash;
+    fd_blockhashes_t                  block_hash_queue;
+    fd_fee_rate_governor_t            fee_rate_governor;
+    ulong                             rbh_lamports_per_sig;
+    ulong                             slot;
+    ulong                             parent_slot;
+    ulong                             capitalization;
+    ulong                             transaction_count;
+    ulong                             parent_signature_cnt;
+    ulong                             tick_height;
+    ulong                             max_tick_height;
+    ulong                             hashes_per_tick;
+    fd_w_u128_t                       ns_per_slot;
+    ulong                             ticks_per_slot;
+    ulong                             genesis_creation_time;
+    double                            slots_per_year;
+    fd_inflation_t                    inflation;
+    ulong                             cluster_type;
+    ulong                             total_epoch_stake;
+    ulong                             block_height;
+    ulong                             execution_fees;
+    ulong                             priority_fees;
+    ulong                             tips;
+    ulong                             signature_count;
+    fd_hash_t                         poh;
+    fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+    fd_hash_t                         bank_hash;
+    fd_hash_t                         prev_bank_hash;
+    fd_hash_t                         genesis_hash;
+    fd_epoch_schedule_t               epoch_schedule;
+    fd_rent_t                         rent;
+    fd_sysvar_cache_t                 sysvar_cache;
+    fd_features_t                     features;
+    ulong                             txn_count;
+    ulong                             nonvote_txn_count;
+    ulong                             failed_txn_count;
+    ulong                             nonvote_failed_txn_count;
+    ulong                             total_compute_units_used;
+    ulong                             slots_per_epoch;
+    ulong                             shred_cnt;
+    ulong                             epoch;
+    ulong                             identity_vote_idx;
+  } f;
 
-  #define HAS_COW_1(type, name, footprint, align)
+  uchar top_votes_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
+};
+typedef struct fd_bank_data fd_bank_data_t;
 
-  #define HAS_COW_0(type, name, footprint, align) \
-    uchar name[footprint] __attribute__((aligned(align)));
+struct fd_banks_locks {
+  fd_rwlock_t vote_stakes_lock;
 
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint, align)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  /* These locks are per bank and are used to atomically update their
+     corresponding fields in each bank.  The locks are indexed by the
+     bank index. */
+  fd_rwlock_t lthash_lock[ FD_BANKS_MAX_BANKS ];
+};
+typedef struct fd_banks_locks fd_banks_locks_t;
 
-  } non_cow;
-
-  /* Now, layout all information needed for CoW fields. These are only
-     copied when explicitly requested by the caller. The field's data
-     is located at teh pool idx in the pool. If the dirty flag has been
-     set, then the element has been copied over for this bank. */
-
-  #define HAS_COW_1(type, name, footprint, align) \
-    int   name##_dirty;                           \
-    ulong name##_pool_idx;                        \
-    ulong name##_pool_offset;                     \
-    ulong name##_pool_lock_offset;
-
-  #define HAS_COW_0(type, name, footprint, align)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint, align)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
-
-  /* Now emit locks for all fields that need a rwlock. */
-
-  #define HAS_LOCK_1(type, name, footprint, align) \
-    fd_rwlock_t name##_lock;
-
-  #define HAS_LOCK_0(type, name, footprint, align) /* Do nothing for these. */
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_LOCK_##has_lock(type, name, footprint, align)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_LOCK_0
-  #undef HAS_LOCK_1
-
+struct fd_bank {
+  fd_bank_data_t *   data;
+  fd_banks_locks_t * locks;
 };
 typedef struct fd_bank fd_bank_t;
 
-#define HAS_COW_1(type, name, footprint, align)                                  \
-static inline void                                                               \
-fd_bank_set_##name##_pool( fd_bank_t * bank, fd_bank_##name##_t * bank_pool ) {  \
-  void * bank_pool_mem = fd_bank_##name##_pool_leave( bank_pool );               \
-  if( FD_UNLIKELY( !bank_pool_mem ) ) {                                          \
-    FD_LOG_CRIT(( "Failed to leave bank pool" ));                                \
-  }                                                                              \
-  bank->name##_pool_offset = (ulong)bank_pool_mem - (ulong)bank;                 \
-}                                                                                \
-static inline fd_bank_##name##_t *                                               \
-fd_bank_get_##name##_pool( fd_bank_t * bank ) {                                  \
-  return fd_bank_##name##_pool_join( (uchar *)bank + bank->name##_pool_offset ); \
-}                                                                                \
-static inline void                                                               \
-fd_bank_set_##name##_pool_lock( fd_bank_t * bank, fd_rwlock_t * rwlock ) {       \
-  bank->name##_pool_lock_offset = (ulong)rwlock - (ulong)bank;                   \
-}                                                                                \
-static inline fd_rwlock_t *                                                      \
-fd_bank_get_##name##_pool_lock( fd_bank_t * bank ) {                             \
-  return (fd_rwlock_t *)( (uchar *)bank + bank->name##_pool_lock_offset );       \
-}
-#define HAS_COW_0(type, name, footprint, align) /* Do nothing for these. */
+struct fd_banks_prune_cancel_info {
+  fd_txncache_fork_id_t txncache_fork_id;
+  ulong                 slot;
+  ulong                 bank_idx;
+};
+typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 
-#define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-  HAS_COW_##cow(type, name, footprint, align)
-FD_BANKS_ITER(X)
-#undef X
-#undef HAS_COW_0
-#undef HAS_COW_1
+fd_vote_stakes_t *
+fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank );
 
-/* Do the same setup for the cost tracker pool. */
+void
+fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank );
 
-static inline void
-fd_bank_set_cost_tracker_pool( fd_bank_t * bank, fd_bank_cost_tracker_t * cost_tracker_pool ) {
-  void * cost_tracker_pool_mem = fd_bank_cost_tracker_pool_leave( cost_tracker_pool );
-  if( FD_UNLIKELY( !cost_tracker_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
-  }
-  bank->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)bank;
-}
+fd_stake_delegations_t *
+fd_bank_stake_delegations_modify( fd_bank_t * bank );
 
-static inline fd_bank_cost_tracker_t *
-fd_bank_get_cost_tracker_pool( fd_bank_t * bank ) {
-  return fd_bank_cost_tracker_pool_join( (uchar *)bank + bank->cost_tracker_pool_offset );
-}
-
-/* fd_bank_t is the alignment for the bank state. */
-
-ulong
-fd_bank_align( void );
-
-/* fd_bank_t is the footprint for the bank state. This does NOT
-   include the footprint for the CoW state. */
-
-ulong
-fd_bank_footprint( void );
-
-/**********************************************************************/
 /* fd_banks_t is the main struct used to manage the bank state.  It can
    be used to query/modify/clone/publish the bank state.
 
@@ -507,177 +368,127 @@ fd_bank_footprint( void );
    this can be seen in fd_banks_footprint(). */
 
 #define POOL_NAME fd_banks_pool
-#define POOL_T    fd_bank_t
+#define POOL_T    fd_bank_data_t
 #include "../../util/tmpl/fd_pool.c"
 
+struct fd_bank_idx_seq {
+  ulong idx;
+  ulong seq;
+};
+typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
+
+#define DEQUE_NAME fd_banks_dead
+#define DEQUE_T    fd_bank_idx_seq_t
+#define DEQUE_MAX  FD_BANKS_MAX_BANKS
+#include "../../util/tmpl/fd_deque.c"
+
+struct fd_banks_data {
+  ulong magic;              /* ==FD_BANKS_MAGIC */
+  ulong max_total_banks;    /* Maximum number of banks */
+  ulong max_fork_width;     /* Maximum fork width executing through any given slot. */
+  ulong max_stake_accounts; /* Maximum number of stake accounts */
+  ulong max_vote_accounts;  /* Maximum number of vote accounts */
+  ulong root_idx;           /* root idx */
+  ulong bank_seq;           /* app-wide bank sequence number */
+
+  ulong pool_offset;        /* offset of pool from banks */
+
+  ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
+
+  ulong vote_stakes_pool_offset;
+
+  ulong stake_rewards_offset;
+
+  ulong dead_banks_deque_offset;
+
+  /* The set of epoch leaders for the current and previous epochs is
+     allocated out-of-line and tracked by epoch_leaders_offset.  Only
+     two need to be stored because in the worst case we will have a root
+     that sits behind an epoch boundary, with leaf banks executing into
+     the next epoch.  All banks that execute behind the boundary, will
+     use the previous epoch's leader schedule, and all nodes after the
+     epoch boundary are guaranteed to produce identical leader
+     schedules. */
+
+  ulong epoch_leaders_offset;
+  ulong epoch_leaders_footprint;
+
+  ulong stake_delegations_offset;
+};
+typedef struct fd_banks_data fd_banks_data_t;
+
 struct fd_banks {
-  ulong       magic;           /* ==FD_BANKS_MAGIC */
-  ulong       max_total_banks; /* Maximum number of banks */
-  ulong       max_fork_width;  /* Maximum fork width executing through
-                                  any given slot. */
-  ulong       root_idx;        /* root idx */
-
-  /* This lock is only used to serialize banks fork tree reads with
-     respect to fork tree writes.  In other words, tree traversals
-     cannot happen at the same time as a tree pruning operation or a
-     tree insertion operation.  So the public APIs on banks take either
-     a read lock or a write lock depending on what they do on the fork
-     tree.  For example, publishing takes a write lock, and bank lookups
-     take a read lock.  Notably, individual banks can still be
-     concurrently accessed or modified, and this lock does not offer
-     synchronization on individual fields within a bank. */
-  fd_rwlock_t rwlock;
-
-  ulong       pool_offset;     /* offset of pool from banks */
-
-  ulong       cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
-
-  /* stake_delegations_root will be the full state of stake delegations
-     for the current root. It can get updated in two ways:
-     1. On boot the snapshot will be directly read into the rooted
-        stake delegations because we assume that any and all snapshots
-        are a rooted slot.
-     2. Calls to fd_banks_publish() will apply all of the stake
-        delegation deltas from each of the banks that are about to be
-        published.  */
-
-  uchar stake_delegations_root[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-
-  /* stake_delegations_frontier is reserved memory that can represent
-     the full state of stake delegations for the current frontier. This
-     is done by taking the stake_delegations_root and applying all of
-     the deltas from the current bank and all of its ancestors up to the
-     root bank. */
-
-  uchar stake_delegations_frontier[FD_STAKE_DELEGATIONS_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-
-  /* Layout all CoW pools. */
-
-  #define HAS_COW_1(type, name, footprint, align)                   \
-    ulong       name##_pool_offset; /* offset of pool from banks */ \
-    fd_rwlock_t name##_pool_lock;   /* lock for the pool */
-
-  #define HAS_COW_0(type, name, footprint, align) /* Do nothing for these. */
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(type, name, footprint, align)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
+  fd_banks_data_t *  data;
+  fd_banks_locks_t * locks;
 };
 typedef struct fd_banks fd_banks_t;
 
-/* Bank accesssors. Different accessors are emitted for different types
-   depending on if the field has a lock or not. */
+/* Bank accesssors and mutators.  Different accessors are emitted for
+   different types depending on if the field has a lock or not. */
 
-#define HAS_LOCK_1(type, name)                                     \
-  type const * fd_bank_##name##_locking_query( fd_bank_t * bank ); \
-  void fd_bank_##name##_end_locking_query( fd_bank_t * bank );     \
-  type * fd_bank_##name##_locking_modify( fd_bank_t * bank );      \
-  void fd_bank_##name##_end_locking_modify( fd_bank_t * bank );
+fd_stake_rewards_t const *
+fd_bank_stake_rewards_query( fd_bank_t * bank );
 
-#define HAS_LOCK_0(type, name)                                   \
-  type const * fd_bank_##name##_query( fd_bank_t const * bank ); \
-  type * fd_bank_##name##_modify( fd_bank_t * bank );
+fd_stake_rewards_t *
+fd_bank_stake_rewards_modify( fd_bank_t * bank );
 
-#define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-  void fd_bank_##name##_set( fd_bank_t * bank, type value );             \
-  type fd_bank_##name##_get( fd_bank_t const * bank );                   \
-  HAS_LOCK_##has_lock(type, name)
-FD_BANKS_ITER(X)
-#undef X
+fd_epoch_leaders_t const *
+fd_bank_epoch_leaders_query( fd_bank_t const * bank );
 
-/* Define accessor and mutator functions for the non-templatized
-   fields. */
+fd_epoch_leaders_t *
+fd_bank_epoch_leaders_modify( fd_bank_t * bank );
 
-static inline fd_cost_tracker_t *
-fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
-  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
-  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
-  FD_TEST( cost_tracker_mem );
-  fd_rwlock_write( &bank->cost_tracker_lock );
-  return fd_type_pun( cost_tracker_mem );
-}
+fd_top_votes_t const *
+fd_bank_top_votes_query( fd_bank_t const * bank );
 
-static inline void
-fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->cost_tracker_lock );
-}
+fd_top_votes_t *
+fd_bank_top_votes_modify( fd_bank_t * bank );
 
-static inline fd_cost_tracker_t const *
-fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
-  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
-  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
-  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
-  FD_TEST( cost_tracker_mem );
-  fd_rwlock_read( &bank->cost_tracker_lock );
-  return fd_type_pun_const( cost_tracker_mem );
-}
+fd_cost_tracker_t *
+fd_bank_cost_tracker_modify( fd_bank_t * bank );
 
-static inline void
-fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->cost_tracker_lock );
-}
+fd_cost_tracker_t const *
+fd_bank_cost_tracker_query( fd_bank_t * bank );
 
-#undef HAS_LOCK_0
-#undef HAS_LOCK_1
+fd_lthash_value_t const *
+fd_bank_lthash_locking_query( fd_bank_t * bank );
 
-/* Each bank has a fd_stake_delegations_t object which is delta-based.
-   The usage pattern is the same as other bank fields:
-   1. fd_bank_stake_dleegations_delta_locking_modify( bank ) will return
-      a mutable pointer to the stake delegations delta object. If the
-      caller has not yet initialized the delta object, then it will
-      be initialized. Because it is a delta it is not copied over from
-      a parent bank.
-   2. fd_bank_stake_delegations_delta_locking_query( bank ) will return
-      a const pointer to the stake delegations delta object. If the
-      delta object has not been initialized, then NULL is returned.
-   3. fd_bank_stake_delegations_delta_locking_end_modify( bank ) will
-      release the write lock on the object.
-   4. fd_bank_stake_delegations_delta_locking_end_query( bank ) will
-      release a read lock on the object.
-*/
+void
+fd_bank_lthash_end_locking_query( fd_bank_t * bank );
 
-static inline fd_stake_delegations_t *
-fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->stake_delegations_delta_lock );
-  if( !bank->stake_delegations_delta_dirty ) {
-    bank->stake_delegations_delta_dirty = 1;
-    fd_stake_delegations_new( bank->stake_delegations_delta, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 );
-  }
-  return fd_stake_delegations_join( bank->stake_delegations_delta );
-}
+fd_lthash_value_t *
+fd_bank_lthash_locking_modify( fd_bank_t * bank );
 
-static inline void
-fd_bank_stake_delegations_delta_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
-}
-
-static inline fd_stake_delegations_t *
-fd_bank_stake_delegations_delta_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->stake_delegations_delta_lock );
-  return bank->stake_delegations_delta_dirty ? fd_stake_delegations_join( bank->stake_delegations_delta ) : NULL;
-}
-
-static inline void
-fd_bank_stake_delegations_delta_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->stake_delegations_delta_lock );
-}
+void
+fd_bank_lthash_end_locking_modify( fd_bank_t * bank );
 
 /* fd_bank_stake_delegations_frontier_query() will return a pointer to
    the full stake delegations for the current frontier. The caller is
    responsible that there are no concurrent readers or writers to
    the stake delegations returned by this function.
 
-   Under the hood, the function copies the rooted stake delegations and
-   applies all of the deltas for the direct ancestry from the current
-   bank up to the rooted bank to the copy. */
+   Under the hood, the function applies all of the stake delegation
+   deltas from all banks starting from the root down to the current bank
+   to the rooted version of the stake delegations.  This is done in a
+   reversible way and is unwound with a call to
+   fd_bank_stake_delegations_end_frontier_query(). */
 
 fd_stake_delegations_t *
 fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
                                           fd_bank_t *  bank );
+
+/* fd_bank_stake_delegations_end_frontier_query() will finish the
+   reversible operation started by
+   fd_bank_stake_delegations_frontier_query().  It is unsafe to call
+   fd_bank_stake_delegations_frontier_query multiple times without
+   calling this function in between.
+
+   Under the hood, it undoes any references to the stake delegation
+   deltas that were applied. */
+
+void
+fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
+                                              fd_bank_t *  bank );
 
 /* fd_banks_stake_delegations_root_query() will return a pointer to the
    full stake delegations for the current root. This function should
@@ -686,163 +497,117 @@ fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks );
 
-/* Simple getters and setters for the pools/maps in fd_banks_t.  Notably,
-   the pool for the fd_bank_t structs as well as a map and pool pair of
-   the CoW structs in the banks. */
+/* fd_banks_pool_used_cnt returns the number of bank pool elements
+   currently in use. */
 
-static inline fd_bank_t *
-fd_banks_get_bank_pool( fd_banks_t const * banks ) {
-  return fd_banks_pool_join( ((uchar *)banks + banks->pool_offset) );
-}
+ulong
+fd_banks_pool_used_cnt( fd_banks_t * banks );
 
-static inline void
-fd_banks_set_bank_pool( fd_banks_t * banks,
-                        fd_bank_t *  bank_pool ) {
-  void * bank_pool_mem = fd_banks_pool_leave( bank_pool );
-  if( FD_UNLIKELY( !bank_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave bank pool" ));
-  }
-  banks->pool_offset = (ulong)bank_pool_mem - (ulong)banks;
-}
+/* fd_banks_pool_max_cnt returns the max number of bank pool elements. */
 
-#define HAS_COW_1(type, name, footprint, align)                                    \
-static inline fd_bank_##name##_t *                                                 \
-fd_banks_get_##name##_pool( fd_banks_t * banks ) {                                 \
-  return fd_bank_##name##_pool_join( (uchar *)banks + banks->name##_pool_offset ); \
-}                                                                                  \
-static inline void                                                                 \
-fd_banks_set_##name##_pool( fd_banks_t * banks, fd_bank_##name##_t * bank_pool ) { \
-  void * bank_pool_mem = fd_bank_##name##_pool_leave( bank_pool );                 \
-  if( FD_UNLIKELY( !bank_pool_mem ) ) {                                            \
-    FD_LOG_CRIT(( "Failed to leave bank pool" ));                                  \
-  }                                                                                \
-  banks->name##_pool_offset = (ulong)bank_pool_mem - (ulong)banks;                 \
-}
+ulong
+fd_banks_pool_max_cnt( fd_banks_t * banks );
 
-#define HAS_COW_0(type, name, footprint, align) /* Do nothing for these. */
+/* fd_banks_stake_delegations_evict_bank_fork evicts the stake
+   delegations fork for the given bank.  This is used to clean up
+   resources during teardown. */
 
-#define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-  HAS_COW_##cow(type, name, footprint, align)
-FD_BANKS_ITER(X)
-#undef X
-#undef HAS_COW_0
-#undef HAS_COW_1
+void
+fd_banks_stake_delegations_evict_bank_fork( fd_banks_t * banks,
+                                            fd_bank_t *  bank );
 
-static inline fd_bank_cost_tracker_t *
-fd_banks_get_cost_tracker_pool( fd_banks_t * banks ) {
-  return fd_bank_cost_tracker_pool_join( (uchar *)banks + banks->cost_tracker_pool_offset );
-}
+/* fd_banks_root() returns a pointer to the root bank respectively. */
 
-static inline void
-fd_banks_set_cost_tracker_pool( fd_banks_t *             banks,
-                                fd_bank_cost_tracker_t * cost_tracker_pool ) {
-  void * cost_tracker_pool_mem = fd_bank_cost_tracker_pool_leave( cost_tracker_pool );
-  if( FD_UNLIKELY( !cost_tracker_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
-  }
-  banks->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)banks;
-}
+fd_bank_t *
+fd_banks_root( fd_bank_t *  bank_l,
+               fd_banks_t * banks );
 
-/* fd_banks_root() and fd_banks_root_const() returns a non-const and
-   const pointer to the root bank respectively. */
-
-FD_FN_PURE static inline fd_bank_t const *
-fd_banks_root_const( fd_banks_t const * banks ) {
-  return fd_banks_pool_ele_const( fd_banks_get_bank_pool( banks ), banks->root_idx );
-}
-
-FD_FN_PURE static inline fd_bank_t *
-fd_banks_root( fd_banks_t * banks ) {
-  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), banks->root_idx );
-}
-
-/* fd_banks_align() returns the alignment of fd_banks_t */
+/* fd_banks_align() returns the alignment of fd_banks_data_t */
 
 ulong
 fd_banks_align( void );
 
-/* fd_banks_footprint() returns the footprint of fd_banks_t.  This
+/* fd_banks_footprint() returns the footprint of fd_banks_data_t.  This
    includes the struct itself but also the footprint for all of the
    pools.
 
-   The footprint of fd_banks_t is determined by the total number
+   The footprint of fd_banks_data_t is determined by the total number
    of banks that the bank manages.  This is an analog for the max number
    of unrooted blocks the bank can manage at any given time.
 
    We can also further bound the memory footprint of the banks by the
    max width of forks that can exist at any given time.  The reason for
    this is that there are several large CoW structs that are only
-   written to during the epoch boundary (e.g. epoch_rewards,
-   epoch_stakes, etc.).  These structs are read-only afterwards. This
+   written to during the epoch boundary (e.g. epoch_stakes, etc.).
+   These structs are read-only afterwards.  This
    means if we also bound the max number of forks that can execute
    through the epoch boundary, we can bound the memory footprint of
    the banks. */
 
 ulong
 fd_banks_footprint( ulong max_total_banks,
-                    ulong max_fork_width );
+                    ulong max_fork_width,
+                    ulong max_stake_accounts,
+                    ulong max_vote_accounts );
 
-/* fd_banks_new() creates a new fd_banks_t struct.  This function lays
-   out the memory for all of the constituent fd_bank_t structs and
-   pools depending on the max_total_banks and the max_fork_width for a
-   given block. */
+
+/* fd_banks_locks_init() initializes the locks for the fd_banks_t
+   struct.  In practice, this initializes all of the locks used by the
+   underlying banks. */
+
+void
+fd_banks_locks_init( fd_banks_locks_t * locks );
+
+/* fd_banks_new() creates a new fd_banks_data_t struct.  This function
+   lays out the memory for all of the constituent fd_bank_data_t structs
+   and pools depending on the max_total_banks and the max_fork_width for
+   a given block. */
 
 void *
 fd_banks_new( void * mem,
               ulong  max_total_banks,
               ulong  max_fork_width,
+              ulong  max_stake_accounts,
+              ulong  max_vote_accounts,
               int    larger_max_cost_per_block,
               ulong  seed );
 
-/* fd_banks_join() joins a new fd_banks_t struct. */
+/* fd_banks_join() joins a new fd_banks_t struct.  It takes in a local
+   handle to an fd_banks_t struct along with a valid banks_data_mem and
+   banks_locks_mem.  It returns the local handle to the joined
+   fd_banks_t struct on success and NULL on failure (logs details). */
 
 fd_banks_t *
-fd_banks_join( void * mem );
-
-/* fd_banks_leave() leaves a bank. */
-
-void *
-fd_banks_leave( fd_banks_t * banks );
-
-/* fd_banks_delete() deletes a bank. */
-
-void *
-fd_banks_delete( void * shmem );
+fd_banks_join( fd_banks_t * banks_ljoin,
+               void *       banks_data_mem,
+               void *       bank_locks_mem );
 
 /* fd_banks_init_bank() initializes a new bank in the bank manager.
-   This should only be used during bootup. This returns an initial
+   This should only be used during bootup.  This returns an initial
    fd_bank_t with the corresponding bank index set to 0. */
 
 fd_bank_t *
-fd_banks_init_bank( fd_banks_t * banks );
+fd_banks_init_bank( fd_bank_t *  bank_l,
+                    fd_banks_t * banks );
 
 /* fd_banks_get_bank_idx returns a bank for a given bank index. */
 
-static inline fd_bank_t *
-fd_banks_bank_mem_query( fd_banks_t * banks,
-                         ulong        bank_idx ) {
-  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank_idx );
-}
+fd_bank_t *
+fd_banks_bank_query( fd_bank_t *  bank_l,
+                     fd_banks_t * banks,
+                     ulong        bank_idx );
 
-static inline fd_bank_t *
-fd_banks_bank_query( fd_banks_t * banks,
-                     ulong        bank_idx ) {
-  fd_bank_t * bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank_idx );
-  return (bank->flags&FD_BANK_FLAGS_INIT) ? bank : NULL;
-}
-
-static inline fd_bank_t *
-fd_banks_get_parent( fd_banks_t * banks,
-                     fd_bank_t *  bank ) {
-  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
-}
+fd_bank_t *
+fd_banks_get_parent( fd_bank_t *  bank_l,
+                     fd_banks_t * banks,
+                     fd_bank_t *  bank );
 
 /* fd_banks_clone_from_parent() clones a bank from a parent bank.
    This function links the child bank to its parent bank and copies
    over the data from the parent bank to the child.  This function
    assumes that the child and parent banks both have been allocated.
    The parent bank must be frozen and the child bank must be initialized
-   but not yet used.
+   but not yet used.  It also assumes that the parent bank is not dead.
 
    A more detailed note: not all of the data is copied over and this
    is a shallow clone.  All of the CoW fields are not copied over and
@@ -851,9 +616,9 @@ fd_banks_get_parent( fd_banks_t * banks,
    semantics of the Agave client. */
 
 fd_bank_t *
-fd_banks_clone_from_parent( fd_banks_t * banks,
-                            ulong        bank_idx,
-                            ulong        parent_bank_idx );
+fd_banks_clone_from_parent( fd_bank_t *  bank_l,
+                            fd_banks_t * banks,
+                            ulong        bank_idx );
 
 /* fd_banks_advance_root() advances the root bank to the bank manager.
    This should only be used when a bank is no longer needed and has no
@@ -864,7 +629,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
    All banks that are ancestors or siblings of the new root bank will be
    cancelled and their resources will be released back to the pool. */
 
-fd_bank_t const *
+void
 fd_banks_advance_root( fd_banks_t * banks,
                        ulong        bank_idx );
 
@@ -878,7 +643,8 @@ fd_banks_advance_root( fd_banks_t * banks,
 
 void
 fd_banks_clear_bank( fd_banks_t * banks,
-                     fd_bank_t *  bank );
+                     fd_bank_t *  bank,
+                     ulong        max_vote_accounts );
 
 /* fd_banks_advance_root_prepare returns the highest block that can be
    safely advanced between the current root of the fork tree and the
@@ -909,17 +675,32 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
 
 /* fd_banks_mark_bank_dead marks the current bank (and all of its
    descendants) as dead.  The caller is still responsible for handling
-   the behavior of the dead bank correctly. */
+   the behavior of the dead bank correctly.  The function should not be
+   called on a bank that is already dead nor on any ancestor of an
+   already dead bank.  After a bank is marked dead, the caller should
+   never increment the reference count on the bank. */
 
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
-                         fd_bank_t *  bank );
+                         ulong        bank_idx );
+
+/* fd_banks_prune_one_dead_bank will try to prune one bank that was
+   marked as dead.  It will not prune a dead bank that has a non-zero
+   reference count.  Returns 0 if nothing was pruned, 1 if a bank was
+   pruned but no accdb/txncache cancellation is needed, or 2 if a bank
+   was pruned and cancellation is needed, in which case opt_cancel will
+   be populated if non-NULL. */
+
+int
+fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
+                              fd_banks_prune_cancel_info_t * cancel );
 
 /* fd_banks_mark_bank_frozen marks the current bank as frozen.  This
    should be done when the bank is no longer being updated: it should be
    done at the end of a slot.  This also releases the memory for the
    cost tracker which only has to be persisted from the start of a slot
-   to the end. */
+   to the end.
+   TODO: bank param should be replaced with bank_idx */
 
 void
 fd_banks_mark_bank_frozen( fd_banks_t * banks,
@@ -930,20 +711,39 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
    the bank will be linked to its parent bank, but not yet replayable.
    After a call to fd_banks_clone_from_parent, the bank will be
    replayable.  This assumes that there is a parent bank which exists
-   and the there are available bank indices in the bank pool. */
+   and that there are available bank indices in the bank pool.  It also
+   assumes that the parent bank is not dead. */
 
 fd_bank_t *
-fd_banks_new_bank( fd_banks_t * banks,
+fd_banks_new_bank( fd_bank_t *  bank_l,
+                   fd_banks_t * banks,
                    ulong        parent_bank_idx,
                    long         now );
 
 
-/* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */
+/* fd_banks_get_frontier returns the frontier set of bank indices in the
+   banks tree.  The frontier is defined as any bank which has no
+   no children and is initialized or replayable but not dead or frozen.
+   The caller is expected to have enough memory to store the bank
+   indices for the frontier.  The bank indices are written to
+   frontier_indices_out in no particular order.  The number of banks in
+   the frontier is written to the frontier_cnt_out pointer. */
 
-static inline int
-fd_banks_is_full( fd_banks_t * banks ) {
-  return fd_banks_pool_free( fd_banks_get_bank_pool( banks ) )==0UL;
-}
+void
+fd_banks_get_frontier( fd_banks_t * banks,
+                       ulong *      frontier_indices_out,
+                       ulong *      frontier_cnt_out );
+
+/* fd_banks_is_full returns 1 if the banks are full, 0 otherwise.  Banks
+   can be full in two cases:
+   1. All banks have been allocated
+   2. There are too many active forks
+      a. There are too many cost tracker elements.  This happens from
+         wide forking across blocks.
+      b. Too many forks have crossed the epoch boundary.  */
+
+int
+fd_banks_is_full( fd_banks_t * banks );
 
 FD_PROTOTYPES_END
 

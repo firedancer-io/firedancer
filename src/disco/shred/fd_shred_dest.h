@@ -153,7 +153,9 @@ static inline ulong fd_shred_dest_cnt_all     ( fd_shred_dest_t * sdest ) { retu
    input_shreds[i] for i in [0, shred_cnt).  shred_cnt must be in [0,
    67].  The destination index for input_shreds[i] is stored at out[i].
    input_shreds==NULL is fine if shred_cnt==0, in which case this
-   function is a no-op.  Returns out on success and NULL on failure.
+   function is a no-op.  If use_chacha8 is non-zero, the tree is computed
+   using chacha8 otherwise chacha20 according to SIMD-0332.
+   Returns out on success and NULL on failure.
    This function uses the sha256 batch API internally for performance,
    which is why it operates on several shreds at the same time as
    opposed to one at a time. */
@@ -161,7 +163,8 @@ fd_shred_dest_idx_t *
 fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
                              fd_shred_t const * const * input_shreds,
                              ulong                      shred_cnt,
-                             fd_shred_dest_idx_t      * out );
+                             fd_shred_dest_idx_t      * out,
+                             int                        use_chacha8 );
 
 /* fd_shred_dest_compute_children computes the source validator's
    children in the Turbine tree for each of the provided shreds.
@@ -193,6 +196,8 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
    opt_max_dest_cnt.  This value is always <= dest_cnt, but in many
    cases may be much lower (especially if the source validator has low
    stake).
+   If use_chacha8 is non-zero, the tree is computed using chacha8
+   otherwise chacha20 according to SIMD-0332.
 
    Returns out on success and NULL on failure. */
 /* TODO: Would it be better if out were transposed? Should I get rid of
@@ -205,7 +210,8 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
                                 ulong                      out_stride,
                                 ulong                      fanout,
                                 ulong                      dest_cnt,
-                                ulong                    * opt_max_dest_cnt );
+                                ulong                    * opt_max_dest_cnt,
+                                int                        use_chacha8 );
 
 /* fd_shred_dest_idx_to_dest maps a destination index (as produced by
    fd_shred_dest_compute_children or fd_shred_dest_compute_first) to an

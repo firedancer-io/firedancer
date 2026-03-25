@@ -1,5 +1,6 @@
 #include "fd_vinyl_io_wd.h"
 #include "fd_ssctrl.h"
+#include "../../../util/cstr/fd_cstr.h"
 
 /* fd_vinyl_io_wd manages a pool of DMA-friendly buffers.
 
@@ -65,8 +66,7 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
 
   FD_CRIT( buf->bstream_seq+block_sz==wd->base->seq_future, "corrupt bstream io state" );
   if( FD_UNLIKELY( wd->base->seq_future > wd->dev_sz ) ) {
-    /* FIXME log vinyl instance name */
-    FD_LOG_ERR(( "vinyl database is out of space (dev_sz=%lu)", wd->dev_sz ));
+    FD_LOG_ERR(( "vinyl database %s is out of space (dev_sz=%lu)", wd->bstream_path, wd->dev_sz ));
   }
   ulong dev_off = wd->dev_base + buf->bstream_seq;
 
@@ -75,8 +75,8 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
   ulong ctl   = FD_SNAPSHOT_MSG_DATA;
   ulong chunk = fd_laddr_to_chunk( wd->wr_base, buf->buf );
   ulong sz    = block_sz>>FD_VINYL_BSTREAM_BLOCK_LG_SZ;
-  FD_CRIT( sz<=USHORT_MAX, "block_sz too large" );
-  fd_mcache_publish( wd->wr_mcache, wd->wr_depth, seq, sig, chunk, sz, ctl, 0UL, 0UL );
+  FD_CRIT( sz<=UINT_MAX, "block_sz too large" );
+  fd_mcache_publish( wd->wr_mcache, wd->wr_depth, seq, sig, chunk, 0UL, ctl, sz, 0UL );
   wd->wr_seq = fd_seq_inc( seq, 1UL );
 
   buf->next           = NULL;
@@ -168,7 +168,12 @@ wd_poll_write( fd_vinyl_io_t * io ) {
     FD_CRIT( buf->state==WD_BUF_IOWAIT, "corrupt wd_buf" );
 
     ulong comp_seq  = buf->io_seq;
-    ulong found_seq = fd_fseq_query( wd->wr_fseq );
+    ulong min_fseq  = ULONG_MAX;
+    for( ulong i=0; i<wd->wr_fseq_cnt; i++ ) {
+      ulong wr_fseq = fd_fseq_query( wd->wr_fseq[ i ] );
+      min_fseq      = fd_ulong_min( min_fseq, wr_fseq );
+    }
+    ulong found_seq = min_fseq;
     /* each seq in [0,found_seq) is consumed (non-inclusive) */
     if( fd_seq_ge( comp_seq, found_seq ) ) break;
     FD_CRIT( fd_seq_le( found_seq, wd->wr_seq ), "got completion for a sequence number not yet submitted" );
@@ -371,8 +376,10 @@ fd_vinyl_io_wd_init( void *           lmem,
                      ulong            io_seed,
                      fd_frag_meta_t * block_mcache,
                      uchar *          block_dcache,
-                     ulong const *    block_fseq,
-                     ulong            block_mtu ) {
+                     ulong const **   block_fseq,
+                     ulong            block_fseq_cnt,
+                     ulong            block_mtu,
+                     char const *     bstream_path ) {
   /* Mostly copied from fd_vinyl_io_bd.c */
 
   fd_vinyl_io_wd_t * wd = (fd_vinyl_io_wd_t *)lmem;
@@ -407,7 +414,7 @@ fd_vinyl_io_wd_init( void *           lmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( block_mtu > (USHORT_MAX<<FD_VINYL_BSTREAM_BLOCK_LG_SZ) ) ) {
+  if( FD_UNLIKELY( block_mtu > (UINT_MAX<<FD_VINYL_BSTREAM_BLOCK_LG_SZ) ) ) {
     FD_LOG_WARNING(( "oversz block_mtu (%lu)", block_mtu ));
     return NULL;
   }
@@ -433,7 +440,7 @@ fd_vinyl_io_wd_init( void *           lmem,
 
   memset( wd, 0, footprint );
 
-  wd->base->type = FD_VINYL_IO_TYPE_BD;
+  wd->base->type = FD_VINYL_IO_TYPE_WD;
 
   /* Base class members.  Note that vinyl_io does not have an actual
      scratch pad (emplaces writes directly into dcache).  Instead,
@@ -459,7 +466,11 @@ fd_vinyl_io_wd_init( void *           lmem,
   wd->wr_base   = block_dcache;
   wd->wr_chunk0 = wd->wr_base;
   wd->wr_chunk1 = wd->wr_base + (block_depth*block_mtu);
-  wd->wr_fseq   = block_fseq;
+  FD_TEST( block_fseq_cnt<=WD_WR_FSEQ_CNT_MAX );
+  for( ulong i=0UL; i<block_fseq_cnt; i++ ) {
+    wd->wr_fseq[i] = block_fseq[i];
+  }
+  wd->wr_fseq_cnt = block_fseq_cnt;
   wd->wr_mtu    = block_mtu;
 
   /* Set vinyl io_seed */
@@ -491,6 +502,8 @@ fd_vinyl_io_wd_init( void *           lmem,
   wd->base->seq_past    = 0UL;
   wd->base->seq_present = 0UL;
   wd->base->seq_future  = 0UL;
+
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( wd->bstream_path ), bstream_path, PATH_MAX-1UL ) );
 
   FD_LOG_INFO(( "IO config"
                 "\n\ttype        wd"

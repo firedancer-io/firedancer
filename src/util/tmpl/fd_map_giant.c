@@ -475,6 +475,7 @@ MAP_(iter_done)( MAP_T const * join,
   return !ele_rem;
 }
 
+__attribute__((warn_unused_result))
 FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_T const * join,
                  MAP_(iter_t)  ele_rem ) {

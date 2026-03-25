@@ -77,14 +77,35 @@ fd_slot_delta_parser_delete( void * shmem );
 void
 fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
 
+/* VerifySlotDeltasError::SlotIsNotRoot
+   https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L135 */
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT           (-1)
+/* VerifySlotDeltasError:SlotHasMultipleEntries
+   https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L141 */
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES (-2)
+/* VerifySlotDeltasError::TooManyEntries
+   https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L132 */
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES           (-3)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER      (-4)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN                            ( 0)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY                            ( 1)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_GROUP                            ( 2)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_DONE                             ( 3)
+
+static inline const char *
+fd_slot_delta_parser_advance_str( int err ) {
+  switch( err ) {
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT:           return "error_slot_is_not_root";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES: return "error_slot_hash_multiple_entries";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES:           return "error_too_many_entries";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER:      return "error_excess_data_in_buffer";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN:                            return "again";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY:                            return "entry";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_GROUP:                            return "group";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_DONE:                             return "done";
+    default:                                                            return "unknown";
+  }
+}
 
 struct fd_slot_delta_parser_advance_result {
   ulong bytes_consumed;
@@ -105,6 +126,17 @@ fd_slot_delta_parser_consume( fd_slot_delta_parser_t *                parser,
                               uchar const *                           buf,
                               ulong                                   bufsz,
                               fd_slot_delta_parser_advance_result_t * result );
+
+/* fd_slot_delta_slot_set is a hash set of slots from the txncache. */
+struct fd_slot_delta_slot_set {
+  slot_set_t *      map;
+  fd_slot_entry_t * pool;
+  ulong             ele_cnt; /* number of slots */
+};
+typedef struct fd_slot_delta_slot_set fd_slot_delta_slot_set_t;
+
+fd_slot_delta_slot_set_t
+fd_slot_delta_parser_slot_set( fd_slot_delta_parser_t * parser );
 
 FD_PROTOTYPES_END
 

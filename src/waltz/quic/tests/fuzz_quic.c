@@ -110,6 +110,7 @@ destroy_quic( void ) {
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
   /* Set up shell without signal handlers */
   putenv("FD_LOG_BACKTRACE=0");
+  putenv("FD_LOG_PATH=");
   fd_boot(argc, argv);
 # ifndef FD_DEBUG_MODE
   fd_log_level_core_set(3); /* crash on warning log */

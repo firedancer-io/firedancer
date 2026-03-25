@@ -32,23 +32,6 @@ typedef struct fd_exec_test_acct_state {
     pb_byte_t owner[32];
 } fd_exec_test_acct_state_t;
 
-typedef struct fd_exec_test_vote_account {
-    /* Account state of the vote account */
-    bool has_vote_account;
-    fd_exec_test_acct_state_t vote_account;
-    /* How much stake has been delegated to this account */
-    uint64_t stake;
-} fd_exec_test_vote_account_t;
-
-/* Epoch bank inflation parameters */
-typedef struct fd_exec_test_inflation {
-    double initial;
-    double terminal;
-    double taper;
-    double foundation;
-    double foundation_term;
-} fd_exec_test_inflation_t;
-
 /* Fee rate governor parameters */
 typedef struct fd_exec_test_fee_rate_governor {
     uint64_t target_lamports_per_signature;
@@ -58,55 +41,34 @@ typedef struct fd_exec_test_fee_rate_governor {
     uint32_t burn_percent;
 } fd_exec_test_fee_rate_governor_t;
 
-/* EpochContext includes context scoped to an epoch.
- On "real" ledgers, it is created during the epoch boundary. */
-typedef struct fd_exec_test_epoch_context {
-    /* Active feature set */
-    bool has_features;
-    fd_exec_test_feature_set_t features;
-    /* Hashes per tick */
-    uint64_t hashes_per_tick;
-    /* Ticks per slot */
-    uint64_t ticks_per_slot;
-    /* Slots per year */
-    double slots_per_year;
-    /* Inflation */
-    bool has_inflation;
-    fd_exec_test_inflation_t inflation;
-    /* Genesis creation time */
-    uint64_t genesis_creation_time;
-    /* Epoch vote accounts for epochs T-1 and T-2 */
-    pb_size_t vote_accounts_t_1_count;
-    struct fd_exec_test_vote_account *vote_accounts_t_1;
-    pb_size_t vote_accounts_t_2_count;
-    struct fd_exec_test_vote_account *vote_accounts_t_2;
-} fd_exec_test_epoch_context_t;
+typedef struct fd_exec_test_epoch_schedule {
+    /* The maximum number of slots in each epoch. */
+    uint64_t slots_per_epoch;
+    /* A number of slots before beginning of an epoch to calculate
+ a leader schedule for that epoch. */
+    uint64_t leader_schedule_slot_offset;
+    /* Whether epochs start short and grow. */
+    bool warmup;
+    /* The first epoch after the warmup period. */
+    uint64_t first_normal_epoch;
+    /* The first slot after the warmup period. */
+    uint64_t first_normal_slot;
+} fd_exec_test_epoch_schedule_t;
 
-/* SlotContext includes context scoped to a block.
- On "real" ledgers, it is created during the slot boundary. */
-typedef struct fd_exec_test_slot_context {
-    /* Current slot number */
-    uint64_t slot;
-    uint64_t block_height;
-    /* POH hash */
-    pb_byte_t poh[32];
-    /* Parent bank hash */
-    pb_byte_t parent_bank_hash[32];
-    /* Parent lt hash */
-    pb_byte_t parent_lthash[2048];
-    /* The last executed slot */
-    uint64_t prev_slot;
-    /* Last slot lamports per signature */
-    uint64_t prev_lps;
-    /* Previous slot's capitalization.
- TODO: I was very smart and named this incorrectly. This should be fixed in the future. */
-    uint64_t prev_epoch_capitalization;
-    /* Fee rate governor */
-    bool has_fee_rate_governor;
-    fd_exec_test_fee_rate_governor_t fee_rate_governor;
-    /* Parent signature count (used for fee rate governor) */
-    uint64_t parent_signature_count;
-} fd_exec_test_slot_context_t;
+typedef struct fd_exec_test_rent {
+    /* Rental rate in lamports/byte-year. */
+    uint64_t lamports_per_byte_year;
+    /* Amount of time (in years) a balance must include rent for the account to be rent exempt. */
+    double exemption_threshold;
+    /* The percentage of collected rent that is burned. */
+    uint32_t burn_percent;
+} fd_exec_test_rent_t;
+
+/* A single entry in the blockhash queue. */
+typedef struct fd_exec_test_blockhash_queue_entry {
+    pb_byte_t blockhash[32];
+    uint64_t lamports_per_signature;
+} fd_exec_test_blockhash_queue_entry_t;
 
 
 #ifdef __cplusplus
@@ -116,18 +78,16 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, {0}}
-#define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT   {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, 0}
-#define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT {0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT {0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_RENT_INIT_DEFAULT           {0, 0, 0}
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_DEFAULT {{0}, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, {0}}
-#define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO      {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, 0}
-#define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO {0, 0, 0, 0, 0}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0}
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO    {0, 0, 0, 0, 0}
+#define FD_EXEC_TEST_RENT_INIT_ZERO              {0, 0, 0}
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_ZERO {{0}, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
@@ -136,36 +96,21 @@ extern "C" {
 #define FD_EXEC_TEST_ACCT_STATE_DATA_TAG         3
 #define FD_EXEC_TEST_ACCT_STATE_EXECUTABLE_TAG   4
 #define FD_EXEC_TEST_ACCT_STATE_OWNER_TAG        6
-#define FD_EXEC_TEST_VOTE_ACCOUNT_VOTE_ACCOUNT_TAG 1
-#define FD_EXEC_TEST_VOTE_ACCOUNT_STAKE_TAG      2
-#define FD_EXEC_TEST_INFLATION_INITIAL_TAG       1
-#define FD_EXEC_TEST_INFLATION_TERMINAL_TAG      2
-#define FD_EXEC_TEST_INFLATION_TAPER_TAG         3
-#define FD_EXEC_TEST_INFLATION_FOUNDATION_TAG    4
-#define FD_EXEC_TEST_INFLATION_FOUNDATION_TERM_TAG 5
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_TARGET_LAMPORTS_PER_SIGNATURE_TAG 1
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_TARGET_SIGNATURES_PER_SLOT_TAG 2
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_MIN_LAMPORTS_PER_SIGNATURE_TAG 3
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_MAX_LAMPORTS_PER_SIGNATURE_TAG 4
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_BURN_PERCENT_TAG 5
-#define FD_EXEC_TEST_EPOCH_CONTEXT_FEATURES_TAG  1
-#define FD_EXEC_TEST_EPOCH_CONTEXT_HASHES_PER_TICK_TAG 2
-#define FD_EXEC_TEST_EPOCH_CONTEXT_TICKS_PER_SLOT_TAG 3
-#define FD_EXEC_TEST_EPOCH_CONTEXT_SLOTS_PER_YEAR_TAG 4
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INFLATION_TAG 5
-#define FD_EXEC_TEST_EPOCH_CONTEXT_GENESIS_CREATION_TIME_TAG 6
-#define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_1_TAG 11
-#define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_2_TAG 12
-#define FD_EXEC_TEST_SLOT_CONTEXT_SLOT_TAG       1
-#define FD_EXEC_TEST_SLOT_CONTEXT_BLOCK_HEIGHT_TAG 2
-#define FD_EXEC_TEST_SLOT_CONTEXT_POH_TAG        3
-#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_BANK_HASH_TAG 4
-#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_LTHASH_TAG 5
-#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_SLOT_TAG  6
-#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_LPS_TAG   7
-#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_EPOCH_CAPITALIZATION_TAG 8
-#define FD_EXEC_TEST_SLOT_CONTEXT_FEE_RATE_GOVERNOR_TAG 9
-#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_SIGNATURE_COUNT_TAG 10
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_SLOTS_PER_EPOCH_TAG 1
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_LEADER_SCHEDULE_SLOT_OFFSET_TAG 2
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_WARMUP_TAG   3
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_FIRST_NORMAL_EPOCH_TAG 4
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_FIRST_NORMAL_SLOT_TAG 5
+#define FD_EXEC_TEST_RENT_LAMPORTS_PER_BYTE_YEAR_TAG 1
+#define FD_EXEC_TEST_RENT_EXEMPTION_THRESHOLD_TAG 2
+#define FD_EXEC_TEST_RENT_BURN_PERCENT_TAG       3
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_BLOCKHASH_TAG 1
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_LAMPORTS_PER_SIGNATURE_TAG 2
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDLIST(X, a) \
@@ -182,22 +127,6 @@ X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             6)
 #define FD_EXEC_TEST_ACCT_STATE_CALLBACK NULL
 #define FD_EXEC_TEST_ACCT_STATE_DEFAULT NULL
 
-#define FD_EXEC_TEST_VOTE_ACCOUNT_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  vote_account,      1) \
-X(a, STATIC,   SINGULAR, UINT64,   stake,             2)
-#define FD_EXEC_TEST_VOTE_ACCOUNT_CALLBACK NULL
-#define FD_EXEC_TEST_VOTE_ACCOUNT_DEFAULT NULL
-#define fd_exec_test_vote_account_t_vote_account_MSGTYPE fd_exec_test_acct_state_t
-
-#define FD_EXEC_TEST_INFLATION_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, DOUBLE,   initial,           1) \
-X(a, STATIC,   SINGULAR, DOUBLE,   terminal,          2) \
-X(a, STATIC,   SINGULAR, DOUBLE,   taper,             3) \
-X(a, STATIC,   SINGULAR, DOUBLE,   foundation,        4) \
-X(a, STATIC,   SINGULAR, DOUBLE,   foundation_term,   5)
-#define FD_EXEC_TEST_INFLATION_CALLBACK NULL
-#define FD_EXEC_TEST_INFLATION_DEFAULT NULL
-
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT64,   target_lamports_per_signature,   1) \
 X(a, STATIC,   SINGULAR, UINT64,   target_signatures_per_slot,   2) \
@@ -207,86 +136,71 @@ X(a, STATIC,   SINGULAR, UINT32,   burn_percent,      5)
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_CALLBACK NULL
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_DEFAULT NULL
 
-#define FD_EXEC_TEST_EPOCH_CONTEXT_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  features,          1) \
-X(a, STATIC,   SINGULAR, UINT64,   hashes_per_tick,   2) \
-X(a, STATIC,   SINGULAR, UINT64,   ticks_per_slot,    3) \
-X(a, STATIC,   SINGULAR, DOUBLE,   slots_per_year,    4) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  inflation,         5) \
-X(a, STATIC,   SINGULAR, UINT64,   genesis_creation_time,   6) \
-X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_1,  11) \
-X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_2,  12)
-#define FD_EXEC_TEST_EPOCH_CONTEXT_CALLBACK NULL
-#define FD_EXEC_TEST_EPOCH_CONTEXT_DEFAULT NULL
-#define fd_exec_test_epoch_context_t_features_MSGTYPE fd_exec_test_feature_set_t
-#define fd_exec_test_epoch_context_t_inflation_MSGTYPE fd_exec_test_inflation_t
-#define fd_exec_test_epoch_context_t_vote_accounts_t_1_MSGTYPE fd_exec_test_vote_account_t
-#define fd_exec_test_epoch_context_t_vote_accounts_t_2_MSGTYPE fd_exec_test_vote_account_t
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   slots_per_epoch,   1) \
+X(a, STATIC,   SINGULAR, UINT64,   leader_schedule_slot_offset,   2) \
+X(a, STATIC,   SINGULAR, BOOL,     warmup,            3) \
+X(a, STATIC,   SINGULAR, UINT64,   first_normal_epoch,   4) \
+X(a, STATIC,   SINGULAR, UINT64,   first_normal_slot,   5)
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_CALLBACK NULL
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_DEFAULT NULL
 
-#define FD_EXEC_TEST_SLOT_CONTEXT_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, FIXED64,  slot,              1) \
-X(a, STATIC,   SINGULAR, FIXED64,  block_height,      2) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, poh,               3) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_bank_hash,   4) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_lthash,     5) \
-X(a, STATIC,   SINGULAR, FIXED64,  prev_slot,         6) \
-X(a, STATIC,   SINGULAR, UINT64,   prev_lps,          7) \
-X(a, STATIC,   SINGULAR, UINT64,   prev_epoch_capitalization,   8) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  fee_rate_governor,   9) \
-X(a, STATIC,   SINGULAR, UINT64,   parent_signature_count,  10)
-#define FD_EXEC_TEST_SLOT_CONTEXT_CALLBACK NULL
-#define FD_EXEC_TEST_SLOT_CONTEXT_DEFAULT NULL
-#define fd_exec_test_slot_context_t_fee_rate_governor_MSGTYPE fd_exec_test_fee_rate_governor_t
+#define FD_EXEC_TEST_RENT_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   lamports_per_byte_year,   1) \
+X(a, STATIC,   SINGULAR, DOUBLE,   exemption_threshold,   2) \
+X(a, STATIC,   SINGULAR, UINT32,   burn_percent,      3)
+#define FD_EXEC_TEST_RENT_CALLBACK NULL
+#define FD_EXEC_TEST_RENT_DEFAULT NULL
+
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, blockhash,         1) \
+X(a, STATIC,   SINGULAR, UINT64,   lamports_per_signature,   2)
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_CALLBACK NULL
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_DEFAULT NULL
 
 extern const pb_msgdesc_t fd_exec_test_feature_set_t_msg;
 extern const pb_msgdesc_t fd_exec_test_acct_state_t_msg;
-extern const pb_msgdesc_t fd_exec_test_vote_account_t_msg;
-extern const pb_msgdesc_t fd_exec_test_inflation_t_msg;
 extern const pb_msgdesc_t fd_exec_test_fee_rate_governor_t_msg;
-extern const pb_msgdesc_t fd_exec_test_epoch_context_t_msg;
-extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
+extern const pb_msgdesc_t fd_exec_test_epoch_schedule_t_msg;
+extern const pb_msgdesc_t fd_exec_test_rent_t_msg;
+extern const pb_msgdesc_t fd_exec_test_blockhash_queue_entry_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDS &fd_exec_test_feature_set_t_msg
 #define FD_EXEC_TEST_ACCT_STATE_FIELDS &fd_exec_test_acct_state_t_msg
-#define FD_EXEC_TEST_VOTE_ACCOUNT_FIELDS &fd_exec_test_vote_account_t_msg
-#define FD_EXEC_TEST_INFLATION_FIELDS &fd_exec_test_inflation_t_msg
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_FIELDS &fd_exec_test_fee_rate_governor_t_msg
-#define FD_EXEC_TEST_EPOCH_CONTEXT_FIELDS &fd_exec_test_epoch_context_t_msg
-#define FD_EXEC_TEST_SLOT_CONTEXT_FIELDS &fd_exec_test_slot_context_t_msg
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_FIELDS &fd_exec_test_epoch_schedule_t_msg
+#define FD_EXEC_TEST_RENT_FIELDS &fd_exec_test_rent_t_msg
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_FIELDS &fd_exec_test_blockhash_queue_entry_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_FeatureSet_size depends on runtime parameters */
 /* fd_exec_test_AcctState_size depends on runtime parameters */
-/* fd_exec_test_VoteAccount_size depends on runtime parameters */
-/* fd_exec_test_EpochContext_size depends on runtime parameters */
+#define FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_SIZE  45
+#define FD_EXEC_TEST_EPOCH_SCHEDULE_SIZE         46
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_SIZE      50
-#define FD_EXEC_TEST_INFLATION_SIZE              45
-#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           2231
-#define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_SLOT_CONTEXT_SIZE
+#define FD_EXEC_TEST_RENT_SIZE                   26
+#define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_FEE_RATE_GOVERNOR_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_FeatureSet fd_exec_test_FeatureSet
 #define org_solana_sealevel_v1_AcctState fd_exec_test_AcctState
-#define org_solana_sealevel_v1_VoteAccount fd_exec_test_VoteAccount
-#define org_solana_sealevel_v1_Inflation fd_exec_test_Inflation
 #define org_solana_sealevel_v1_FeeRateGovernor fd_exec_test_FeeRateGovernor
-#define org_solana_sealevel_v1_EpochContext fd_exec_test_EpochContext
-#define org_solana_sealevel_v1_SlotContext fd_exec_test_SlotContext
+#define org_solana_sealevel_v1_EpochSchedule fd_exec_test_EpochSchedule
+#define org_solana_sealevel_v1_Rent fd_exec_test_Rent
+#define org_solana_sealevel_v1_BlockhashQueueEntry fd_exec_test_BlockhashQueueEntry
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_DEFAULT FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_DEFAULT FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_INIT_DEFAULT FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_DEFAULT FD_EXEC_TEST_INFLATION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FEE_RATE_GOVERNOR_INIT_DEFAULT FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_SLOT_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_EPOCH_SCHEDULE_INIT_DEFAULT FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_RENT_INIT_DEFAULT FD_EXEC_TEST_RENT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_BLOCKHASH_QUEUE_ENTRY_INIT_DEFAULT FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_FEATURE_SET_INIT_ZERO FD_EXEC_TEST_FEATURE_SET_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_ACCT_STATE_INIT_ZERO FD_EXEC_TEST_ACCT_STATE_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_VOTE_ACCOUNT_INIT_ZERO FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_ZERO FD_EXEC_TEST_INFLATION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_FEE_RATE_GOVERNOR_INIT_ZERO FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_EPOCH_CONTEXT_INIT_ZERO FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_SLOT_CONTEXT_INIT_ZERO FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_EPOCH_SCHEDULE_INIT_ZERO FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_RENT_INIT_ZERO FD_EXEC_TEST_RENT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_BLOCKHASH_QUEUE_ENTRY_INIT_ZERO FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY_INIT_ZERO
 
 #ifdef __cplusplus
 } /* extern "C" */

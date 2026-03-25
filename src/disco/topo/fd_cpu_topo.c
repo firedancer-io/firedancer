@@ -1,6 +1,7 @@
 #include "fd_cpu_topo.h"
 
 #include "../../util/shmem/fd_shmem_private.h"
+#include "../../util/tile/fd_tile_private.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -47,42 +48,6 @@ fd_topo_cpu_cnt( void ) {
   return end+1UL;
 }
 
-/* Return the sibling CPU (hyperthreaded pair) of the provided CPU, if
-   there is one, otherwise return ULONG_MAX.  On error, logs an error
-   and exits the process. */
-
-ulong
-fd_topob_sibling_idx( ulong cpu_idx ) {
-  char path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/devices/system/cpu/cpu%lu/topology/thread_siblings_list", cpu_idx ) );
-
-  int fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  char line[ 1024 ] = {0};
-  long bytes_read = read( fd, line, sizeof( line ) );
-  if( FD_UNLIKELY( -1==bytes_read ) ) FD_LOG_ERR(( "read( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  else if ( FD_UNLIKELY( (ulong)bytes_read>=sizeof( line ) ) ) FD_LOG_ERR(( "read( \"%s\" ) failed: buffer too small", path ));
-
-  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-  char * sep = strchr( line, ',' );
-  if( FD_UNLIKELY( !sep ) ) return ULONG_MAX;
-
-  *sep = '\0';
-  errno = 0;
-  char * endptr;
-  ulong pair1 = strtoul( line, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr!='\0' || errno==ERANGE || errno==EINVAL ) ) FD_LOG_ERR(( "failed to parse cpu siblings list of cpu%lu `%s`", cpu_idx, line ));
-
-  ulong pair2 = strtoul( sep+1UL, &endptr, 10 );
-  if( FD_UNLIKELY( *endptr!='\n' || errno==ERANGE || errno==EINVAL ) ) FD_LOG_ERR(( "failed to parse cpu siblings list of cpu%lu `%s`", pair1, sep+1UL ));
-
-  if( FD_LIKELY( pair1==cpu_idx ) )      return pair2;
-  else if( FD_LIKELY( pair2==cpu_idx ) ) return pair1;
-  else FD_LOG_ERR(( "failed to find sibling of cpu%lu", cpu_idx ));
-}
-
 static int
 fd_topo_cpus_online( ulong cpu_idx ) {
   if( FD_UNLIKELY( cpu_idx==0UL ) ) return 1; /* Cannot set cpu0 to offline */
@@ -101,7 +66,7 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
     cpus->cpu[ i ].idx = i;
     cpus->cpu[ i ].online = fd_topo_cpus_online( i );
     cpus->cpu[ i ].numa_node = fd_numa_node_idx( i );
-    if( FD_LIKELY( cpus->cpu[ i ].online ) ) cpus->cpu[ i ].sibling = fd_topob_sibling_idx( i );
+    if( FD_LIKELY( cpus->cpu[ i ].online ) ) cpus->cpu[ i ].sibling = fd_tile_private_sibling_idx( i );
     else                                     cpus->cpu[ i ].sibling = ULONG_MAX;
   }
 }

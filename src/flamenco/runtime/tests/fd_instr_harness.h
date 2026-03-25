@@ -13,16 +13,15 @@ FD_PROTOTYPES_BEGIN
    protobuf and creates an fd_exec_instr_ctx_t that can be used in
    runtime.
 
-   Setting is_syscall avoids some operations/checks only relevant for
-   program instructions.
+   This function is infallible, it will abort with FD_LOG_ERR on
+   invariant violations (malformed test inputs).
 
    Should be coupled with fd_solfuzz_pb_instr_ctx_destroy when the
    instr_ctx is no longer needed. */
-int
+void
 fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                 fd_exec_instr_ctx_t *                ctx,
-                                fd_exec_test_instr_context_t const * test_ctx,
-                                bool                                 is_syscall );
+                                fd_exec_test_instr_context_t const * test_ctx );
 
 /* Frees an instr_ctx created by fd_solfuzz_pb_instr_ctx_create */
 void

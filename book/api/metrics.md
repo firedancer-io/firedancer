@@ -2,7 +2,7 @@
 
 ## Overview
 Firedancer maintains many internal performance counters for use by
-developers and monitoring tools, and exposes them via. a
+developers and monitoring tools, and exposes them via a
 [Prometheus](https://prometheus.io/docs/introduction/overview/) HTTP
 endpoint:
 

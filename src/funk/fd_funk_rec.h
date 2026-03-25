@@ -10,7 +10,7 @@
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
-#define FD_FUNK_REC_ALIGN     (32UL)
+#define FD_FUNK_REC_ALIGN     (16UL)
 
 /* FD_FUNK_REC_IDX_NULL gives the map record idx value used to represent
    NULL.  This value also set a limit on how large rec_max can be. */
@@ -26,12 +26,7 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   fd_funk_xid_key_pair_t pair;     /* Transaction id and record key pair */
   uint                   map_next; /* Internal use by map */
 
-  /* These fields are managed by the user */
-
-  uchar user[ 12 ];
-
-  /* These fields are managed by funk.  TODO: Consider using record
-     index compression here (much more debatable than in txn itself). */
+  /* These fields are managed by funk */
 
   uint  next_idx;  /* Record map index of next record in its transaction */
   uint  prev_idx;  /* Record map index of previous record in its transaction */
@@ -51,7 +46,13 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
 
 typedef struct fd_funk_rec fd_funk_rec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*FD_FUNK_REC_ALIGN, record size is wrong );
+FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 5U*FD_FUNK_REC_ALIGN, record size is wrong );
+
+#define FD_FUNK_REC_PAIR_FMT "xid=%lu:%lu,key=%016lx:%016lx:%016lx:%016lx"
+#define FD_FUNK_REC_PAIR_FMT_ARGS(p) \
+  (p).xid->ul[0], (p).xid->ul[1], \
+  fd_ulong_bswap( (p).key->ul[0] ), fd_ulong_bswap( (p).key->ul[1] ), \
+  fd_ulong_bswap( (p).key->ul[2] ), fd_ulong_bswap( (p).key->ul[3] )
 
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and
@@ -107,59 +108,13 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==
 
 /* Accessors */
 
-/* fd_funk_rec_query_try queries the in-preparation transaction pointed to
-   by txn for the record whose key matches the key pointed to by key.
-   If txn is NULL, the query will be done for the funk's last published
-   transaction.  Returns a pointer to current record on success and NULL
-   on failure.  Reasons for failure include txn is neither NULL nor a
-   pointer to a in-preparation transaction, key is NULL or not a record
-   in the given transaction.
-
-   The returned pointer is in the caller's address space if the
-   return value is non-NULL.
-
-   Assumes funk is a current local join (NULL returns NULL), txn is NULL
-   or points to an in-preparation transaction in the caller's address
-   space, key points to a record key in the caller's address space (NULL
-   returns NULL), and no concurrent operations on funk, txn or key.
-   funk retains no interest in key.  The funk retains ownership of any
-   returned record.
-
-   The query argument remembers the query for later validity testing.
-
-   This is reasonably fast O(1).
-
-   Important safety tip!  This function can encounter records
-   that have the ERASE flag set (i.e. are tombstones of erased
-   records). fd_funk_rec_query_try will still return the record in this
-   case, and the application should check for the flag. */
+/* FIXME deprecate */
 
 fd_funk_rec_t *
 fd_funk_rec_query_try( fd_funk_t *               funk,
                        fd_funk_txn_xid_t const * xid,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query );
-
-/* fd_funk_rec_query_try_global is the same as fd_funk_rec_query_try but
-   will query txn's ancestors for key from youngest to oldest if key is
-   not part of txn.  As such, the txn of the returned record may not
-   match txn but will be the txn of most recent ancestor with the key
-   otherwise.   If xid_out!=NULLL, *xid_out is set to the XID in which
-   the record was created.
-
-   This is reasonably fast O(in_prep_ancestor_cnt).
-
-   Important safety tip!  This function can encounter records
-   that have the ERASE flag set (i.e. are tombstones of erased
-   records). fd_funk_rec_query_try_global will return a NULL in this case
-   but still set *txn_out to the relevant transaction. This behavior
-   differs from fd_funk_rec_query_try. */
-fd_funk_rec_t const *
-fd_funk_rec_query_try_global( fd_funk_t const *         funk,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_funk_rec_key_t const * key,
-                              fd_funk_txn_xid_t *       xid_out,
-                              fd_funk_rec_query_t *     query );
 
 /* fd_funk_rec_{pair,xid,key} returns a pointer in the local address
    space of the {(transaction id,record key) pair,transaction id,record
@@ -208,6 +163,67 @@ fd_funk_rec_publish( fd_funk_t *             funk,
 
 int
 fd_funk_rec_verify( fd_funk_t * funk );
+
+/* Record locking ******************************************************
+
+   The funk_rec 'ver_lock' field synchronizes record accesses via atomic
+   CAS.  There exist three access types:
+   - 'read':  read-only record access
+   - 'write': record creation or modification
+   - 'admin': record destruction (during rooting)
+
+   Record locking has two goals:
+   - Delay destruction of records until other accesses complete
+   - Detect usage bugs (e.g. conflicting write attempts to the same
+     record)
+
+   'ver_lock' is encoded as two integers packed into a 64-bit ulong:
+   - 'ver':  version counter incremented on every record destruction
+             and creation (lsb=0 implies record is dead, lsb=1 implies
+             record is alive)
+   - 'lock': max implies record is write locked.  Otherwise, equals
+             the number of active read locks.
+
+   There further exist the following transitions:
+   - 'write lock acquire': lock=0   --> lock=max
+   - 'write lock release': lock=max --> lock=0
+   - 'read lock acquire':  lock=n   --> lock=n+1
+   - 'read lock release':  lock=n+1 --> lock=n
+   - 'destroy':            ver=n    --> ver=n+1  (where n%2 == 0)
+   - 'create':             ver=n    --> ver=n+1  (where n%2 == 1)
+
+***********************************************************************/
+
+#define FD_FUNK_REC_LOCK_BIT_CNT (11)
+#define FD_FUNK_REC_LOCK_MASK    ( (1UL<<FD_FUNK_REC_LOCK_BIT_CNT)-1UL )
+#define FD_FUNK_REC_VER_BIT_CNT  (64 - FD_FUNK_REC_LOCK_BIT_CNT)
+#define FD_FUNK_REC_VER_MASK     ( (1UL<<FD_FUNK_REC_VER_BIT_CNT)-1UL )
+
+FD_FN_CONST static inline ulong
+fd_funk_rec_ver_lock( ulong ver,
+                      ulong lock ) {
+  return ver<<FD_FUNK_REC_LOCK_BIT_CNT | lock;
+}
+
+FD_FN_CONST static inline ulong
+fd_funk_rec_ver_bits( ulong ver_lock ) {
+  return ver_lock >> FD_FUNK_REC_LOCK_BIT_CNT;
+}
+
+FD_FN_CONST static inline ulong
+fd_funk_rec_ver_inc( ulong ver ) {
+  return (ver+1UL) & FD_FUNK_REC_VER_MASK;
+}
+
+FD_FN_CONST static inline ulong
+fd_funk_rec_lock_bits( ulong ver_lock ) {
+  return ver_lock & ( (1UL<<FD_FUNK_REC_LOCK_BIT_CNT)-1UL );
+}
+
+FD_FN_CONST static inline int
+fd_funk_rec_ver_alive( ulong ver ) {
+  return !!( ver & 1UL );
+}
 
 FD_PROTOTYPES_END
 

@@ -1,20 +1,20 @@
 #include "../fd_vinyl.h"
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_SZC_CNT==188UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_SZC_CNT==327UL, unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_TYPE_FREEVOL   ==0xf7eef7eef7eef7eeUL, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_TYPE_ALLOC     ==0xa11ca11ca11ca11cUL, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_TYPE_SUPERBLOCK==0x59e759e759e759e7UL, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_GUARD_SZ==384UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_GUARD_SZ==0UL, unit_test );
 
 FD_STATIC_ASSERT( alignof(fd_vinyl_data_obj_t)==FD_VINYL_BSTREAM_BLOCK_SZ, unit_test );
 FD_STATIC_ASSERT( sizeof (fd_vinyl_data_obj_t)==FD_VINYL_BSTREAM_BLOCK_SZ, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_VOL_FOOTPRINT==114211328UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_VOL_FOOTPRINT==34078592UL, unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_DATA_ALIGN    == 128UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_DATA_FOOTPRINT==3072UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_FOOTPRINT==5376UL, unit_test );
 
 FD_STATIC_ASSERT( alignof(fd_vinyl_data_vol_t)==FD_VINYL_BSTREAM_BLOCK_SZ,   unit_test );
 FD_STATIC_ASSERT( sizeof (fd_vinyl_data_vol_t)==FD_VINYL_DATA_VOL_FOOTPRINT, unit_test );
@@ -142,7 +142,7 @@ main( int     argc,
 
     FD_LOG_NOTICE(( "Joining to --name %s", name ));
     fd_shmem_join_info_t info[1];
-    shmem    = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info ); /* logs details */
+    shmem    = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, 0, NULL, NULL, info ); /* logs details */
     if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
     page_cnt = info->page_cnt;
     page_sz  = info->page_sz;

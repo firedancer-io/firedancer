@@ -1,6 +1,6 @@
 #include "fd_prometheus.h"
 #include "fd_metrics.h"
-#include "../../waltz/http/fd_http_server.h"
+#include "../../waltz/http/fd_http_server_private.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <sys/types.h>
@@ -9,8 +9,6 @@
 #include <string.h>
 
 #include "generated/fd_metric_tile_seccomp.h"
-#include "../../waltz/http/fd_http_server.h"
-#include "../../waltz/http/fd_http_server_private.h"
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128
 #define FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN    8192

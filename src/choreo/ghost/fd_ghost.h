@@ -84,14 +84,7 @@
    fd_ghost API for how that works. */
 
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower_accts.h"
-
-/* FD_GHOST_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks. */
-
-#ifndef FD_GHOST_USE_HANDHOLDING
-#define FD_GHOST_USE_HANDHOLDING 1
-#endif
+#include "../tower/fd_tower_voters.h"
 
 typedef struct fd_ghost fd_ghost_t; /* forward decl*/
 
@@ -117,6 +110,17 @@ struct __attribute__((aligned(128UL))) fd_ghost_blk {
   int       valid;       /* whether this block is valid for fork choice. an equivocating block is valid iff duplicate confirmed */
 };
 typedef struct fd_ghost_blk fd_ghost_blk_t;
+
+/* fd_ghost_vtr_t keeps track of what a voter's previously voted for. */
+
+struct __attribute__((aligned(128UL))) fd_ghost_vtr {
+  fd_pubkey_t addr;          /* map key, vote account address */
+  ulong       next;          /* reserved for internal use by fd_pool and fd_map_chain */
+  ulong       prev_stake;    /* previous vote stake (vote can be from prior epoch) */
+  ulong       prev_slot;     /* previous vote slot */
+  fd_hash_t   prev_block_id; /* previous vote block_id  */
+};
+typedef struct fd_ghost_vtr fd_ghost_vtr_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -171,14 +175,18 @@ fd_ghost_delete( void * ghost );
 
 /* Accessors */
 
-/* fd_ghost_{root,parent,child,sibling} returns a pointer in the
-   caller's address space to the {root,parent,left-child,right-sibling}.
-   Assumes ghost is a current local join and blk is a valid pointer to a
-   pool element inside ghost.  const versions for each are also
-   provided. */
+/* fd_ghost_root returns a pointer in the caller's address space to the
+   root.  Assumes ghost is a current local join. */
 
 fd_ghost_blk_t *
 fd_ghost_root( fd_ghost_t * ghost );
+
+/* fd_ghost_parent returns a pointer in the caller's address space to
+   blk's parent.  Assumes ghost is a current local join and blk is a
+   valid pointer to a pool element inside ghost. */
+
+fd_ghost_blk_t *
+fd_ghost_parent( fd_ghost_t * ghost, fd_ghost_blk_t * blk );
 
 /* fd_ghost_query returns the block keyed by block_id.  Returns NULL if
    not found. */
@@ -226,7 +234,7 @@ fd_ghost_slot_ancestor( fd_ghost_t     * ghost,
                         ulong            ancestor_slot );
 
 /* fd_ghost_invalid_ancestor returns the first ancestor on the same fork
-   as descendant that is marked invalid.  Does not include descendant
+   as descendant that is marked invalid.  Includes checking descendant
    itself.  Returns NULL if there are no invalid ancestors. */
 
 fd_ghost_blk_t *
@@ -277,35 +285,34 @@ fd_ghost_publish( fd_ghost_t     * ghost,
 
 /* Misc */
 
-/* fd_ghost_verify checks the ghost is not obviously corrupt, as well as
-   that ghost invariants are being preserved ie. the weight of every
-   ele is >= the sum of weights of its direct children.  Returns 0 if
-   verify succeeds, -1 otherwise. */
+/* fd_ghost_verify checks the ghost is not obviously corrupt.  Returns 0
+   if verify succeeds, -1 otherwise. */
 
 int
 fd_ghost_verify( fd_ghost_t * ghost );
 
-/* fd_ghost_print pretty-prints a formatted ghost tree.  Printing begins
-   from `ele` (it will appear as the root in the print output).
+/* fd_ghost_to_cstr pretty-prints a formatted ghost tree beginning from
+   root (arbitrary node, not necessarily the current ghost root) to the
+   buffer cstr of at least cstr_max capacity.  Returns a pointer to cstr
+   and on return cstr_len contains actual bytes written including NUL.
 
-   The most straightforward and commonly used printing pattern is:
-   `fd_ghost_print( ghost, fd_ghost_root( ghost ) )`
+   Typical usage:
 
-   This would print ghost beginning from the root.
+     fd_ghost_to_cstr( ghost, fd_ghost_root( ghost ) );  // stringify ghost beginning from the current ghost root
 
-   Alternatively, caller can print a more localized view, for example
-   starting from the grandparent of the most recently executed slot:
+   Alternative usage:
 
-   ```
-   fd_ghost_ele_t const * ele = fd_ghost_query( slot );
-   fd_ghost_print( ghost, fd_ghost_parent( fd_ghost_parent( ele ) ) )
-   ```
+     fd_ghost_ele_t const * ele = fd_ghost_query( slot );
+     fd_ghost_to_cstr( ghost, fd_ghost_parent( fd_ghost_parent( ele ) ) ); // print from ele's grandparent
 
-   Callers should add null-checks as appropriate in actual usage. */
+   */
 
-void
-fd_ghost_print( fd_ghost_t const *     ghost,
-                fd_ghost_blk_t const * root );
+char *
+fd_ghost_to_cstr( fd_ghost_t const *     ghost,
+                  fd_ghost_blk_t const * root,
+                  char *                 cstr,
+                  ulong                  cstr_max,
+                  ulong *                cstr_len );
 
 FD_PROTOTYPES_END
 

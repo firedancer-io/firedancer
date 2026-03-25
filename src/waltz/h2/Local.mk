@@ -26,9 +26,12 @@ $(call add-objs,fd_h2_tx,fd_waltz)
 
 # Tests
 $(call make-unit-test,test_h2,test_h2,fd_waltz fd_ballet fd_util)
+$(call make-unit-test,test_h2_padded_data,test_h2_padded_data,fd_waltz fd_ballet fd_util)
 $(call run-unit-test,test_h2)
+$(call run-unit-test,test_h2_padded_data)
 
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_h2,fuzz_h2,fd_waltz fd_util)
+$(call make-fuzz-test,fuzz_h2_actor,fuzz_h2_actor,fd_waltz fd_util)
 $(call make-unit-test,test_h2_server,test_h2_server,fd_waltz fd_util)
 endif

@@ -16,7 +16,7 @@
 import cpp
 import semmle.code.cpp.ir.IR
 import semmle.code.cpp.ir.dataflow.MustFlow
-import PathGraph
+import ReturnStackAllocatedMemory::PathGraph
 import filter
 
 /** Holds if `f` has a name that we interpret as evidence of intentionally returning the value of the stack pointer. */
@@ -24,13 +24,11 @@ predicate intentionallyReturnsStackPointer(Function f) {
   f.getName().toLowerCase().matches(["%stack%", "%sp%"])
 }
 
-class ReturnStackAllocatedMemoryConfig extends MustFlowConfiguration {
-  ReturnStackAllocatedMemoryConfig() { this = "ReturnStackAllocatedMemoryConfig" }
-
-  override predicate isSource(Instruction source) {
+module ReturnStackAllocatedMemoryConfig implements MustFlow::ConfigSig {
+  predicate isSource(Instruction source) {
     exists(Function func |
       // Rule out FPs caused by extraction errors.
-      not any(ErrorExpr e).getEnclosingFunction() = func and
+      not func.hasErrors() and
       not intentionallyReturnsStackPointer(func) and
       func = source.getEnclosingFunction()
     |
@@ -51,7 +49,7 @@ class ReturnStackAllocatedMemoryConfig extends MustFlowConfiguration {
     )
   }
 
-  override predicate isSink(Operand sink) {
+  predicate isSink(Operand sink) {
     // Holds if `sink` is a node that represents the `StoreInstruction` that is subsequently used in
     // a `ReturnValueInstruction`.
     // We use the `StoreInstruction` instead of the instruction that defines the
@@ -73,7 +71,7 @@ class ReturnStackAllocatedMemoryConfig extends MustFlowConfiguration {
   //   int* px = id(&x);
   //  }
   //   ```
-  override predicate allowInterproceduralFlow() { none() }
+  predicate allowInterproceduralFlow() { none() }
 
   /**
    * This configuration intentionally conflates addresses of fields and their object, and pointer offsets
@@ -88,18 +86,22 @@ class ReturnStackAllocatedMemoryConfig extends MustFlowConfiguration {
    * }
    * ```
    */
-  override predicate isAdditionalFlowStep(Operand node1, Instruction node2) {
+  predicate isAdditionalFlowStep(Operand node1, Instruction node2) {
     node2.(FieldAddressInstruction).getObjectAddressOperand() = node1
     or
     node2.(PointerOffsetInstruction).getLeftOperand() = node1
   }
+
+  predicate isBarrier(Instruction n) { n.getResultType() instanceof ErroneousType }
 }
 
+module ReturnStackAllocatedMemory = MustFlow::Global<ReturnStackAllocatedMemoryConfig>;
+
 from
-  MustFlowPathNode source, MustFlowPathNode sink, Instruction instr,
-  ReturnStackAllocatedMemoryConfig conf
+  ReturnStackAllocatedMemory::PathNode source, ReturnStackAllocatedMemory::PathNode sink,
+  Instruction instr
 where
-  conf.hasFlowPath(pragma[only_bind_into](source), pragma[only_bind_into](sink)) and
+  ReturnStackAllocatedMemory::flowPath(pragma[only_bind_into](source), pragma[only_bind_into](sink)) and
   source.getInstruction() = instr and
   included(instr.getEnclosingFunction().getLocation())
 select sink.getInstruction(), source, sink, "May return stack-allocated memory from $@.",

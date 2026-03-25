@@ -10,7 +10,6 @@ FD_PROTOTYPES_BEGIN
 
 int
 fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
-                                          ulong *                   sz,
                                           ulong *                   pre_lens,
                                           fd_vm_input_region_t *    input_mem_regions,
                                           uint *                    input_mem_regions_cnt,
@@ -19,7 +18,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           int                       direct_mapping,
                                           uchar                     is_deprecated,
                                           ulong *                   instr_data_offset,
-                                          uchar **                  out /* output */ );
+                                          ulong *                   serialized_bytes_written );
 
 int
 fd_bpf_loader_input_deserialize_parameters( fd_exec_instr_ctx_t * ctx,

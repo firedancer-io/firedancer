@@ -101,6 +101,7 @@ metrics_write( fd_snapla_tile_t * ctx ) {
 static void
 transition_malformed( fd_snapla_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, FD_SNAPLA_OUT_CTRL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -141,6 +142,7 @@ streamlined_hash( fd_snapla_tile_t * ctx,
 static int
 handle_data_frag( fd_snapla_tile_t *  ctx,
                   ulong               chunk,
+                  ulong               sig,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
@@ -152,7 +154,9 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
        we receive fail & init control messages to restart processing. */
     return 0;
   } else if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-    FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
+    FD_LOG_ERR(( "received unexpected data frag %s (%lu) in state %s (%lu)",
+                 fd_ssctrl_msg_ctrl_str( sig ), sig,
+                 fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
@@ -165,6 +169,7 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
     int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
     switch( res ) {
       case FD_SSPARSE_ADVANCE_ERROR:
+        FD_LOG_WARNING(( "error while parsing snapshot stream" ));
         transition_malformed( ctx, stem );
         return 0;
       case FD_SSPARSE_ADVANCE_AGAIN:
@@ -179,6 +184,7 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
           result->manifest.acc_vec_map,
           result->manifest.acc_vec_pool );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
         }
@@ -244,59 +250,78 @@ static void
 handle_control_frag( fd_snapla_tile_t *  ctx,
                      fd_stem_context_t *  stem,
                      ulong                sig ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    return;
+  };
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full          = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->state         = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->accounts_seen = 0UL;
+      ctx->hash_account  = 0;
+      ctx->acc_data_sz   = 0UL;
+      fd_memset( &ctx->account_hdr, 0, sizeof(ctx->account_hdr) );
       fd_lthash_zero( &ctx->running_lthash );
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
       fd_lthash_adder_new( ctx->adder );
+      if( ctx->full ) ctx->metrics.full.accounts_hashed = 0UL;
+      ctx->metrics.incremental.accounts_hashed = 0UL;
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      fd_lthash_zero( &ctx->running_lthash );
-      fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
-      fd_lthash_adder_new( ctx->adder );
-      break;
-
-    case FD_SNAPSHOT_MSG_CTRL_NEXT:
-    case FD_SNAPSHOT_MSG_CTRL_DONE:{
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        transition_malformed( ctx, stem );
-        return;
-      }
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      /* This is a special case: handle_data_frag must have already
+         processed FD_SSPARSE_ADVANCE_DONE and moved the state into
+         FD_SNAPSHOT_STATE_FINISHING. */
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
       ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, FD_LTHASH_LEN_BYTES, ctx->out.chunk0, ctx->out.wmark );
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_NEXT:
+    case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
+    }
 
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+    default: {
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
       break;
-
-    default:
-      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
+    }
   }
 
   /* Forward the control message down the pipeline */
@@ -316,7 +341,7 @@ returnable_frag( fd_snapla_tile_t *  ctx,
                  fd_stem_context_t *  stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sig, sz, stem );
   else                                           handle_control_frag( ctx, stem, sig );
 
   return 0;
@@ -434,4 +459,3 @@ fd_topo_run_tile_t fd_tile_snapla = {
 };
 
 #undef NAME
-

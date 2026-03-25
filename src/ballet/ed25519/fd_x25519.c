@@ -105,9 +105,9 @@ fd_x25519_montgomery_ladder( fd_f25519_t *       x2,
 
   /* Sanitize */
 
-  fd_memset_explicit( secret_tmp_f, 0, sizeof(secret_tmp_f) );
-  fd_memset_explicit( &b, 0, sizeof(int) );
-  fd_memset_explicit( &swap, 0, sizeof(int) );
+  fd_memzero_explicit( secret_tmp_f, sizeof(secret_tmp_f) );
+  fd_memzero_explicit( &b, sizeof(int) );
+  fd_memzero_explicit( &swap, sizeof(int) );
 }
 #else
 
@@ -183,24 +183,24 @@ fd_x25519_montgomery_ladder( fd_f25519_t *       x2,
 
   /* Sanitize */
 
-  fd_memset_explicit( &P03,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &P14,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &P25,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &U03,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &U14,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &U25,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &Q03,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &Q14,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &Q25,  0, sizeof(wwl_t) );
-  fd_memset_explicit( &AA,   0, sizeof(wwl_t) );
-  fd_memset_explicit( &E,    0, sizeof(wwl_t) );
-  fd_memset_explicit( &F,    0, sizeof(wwl_t) );
-  fd_memset_explicit( &G,    0, sizeof(wwl_t) );
-  fd_memset_explicit( &H,    0, sizeof(wwl_t) );
-  fd_memset_explicit( &GG,   0, sizeof(wwl_t) );
-  fd_memset_explicit( &perm, 0, sizeof(wwl_t) );
-  fd_memset_explicit( &swap, 0, sizeof(int) );
-  fd_memset_explicit( &k_t,  0, sizeof(int) );
+  fd_memzero_explicit( &P03,  sizeof(wwl_t) );
+  fd_memzero_explicit( &P14,  sizeof(wwl_t) );
+  fd_memzero_explicit( &P25,  sizeof(wwl_t) );
+  fd_memzero_explicit( &U03,  sizeof(wwl_t) );
+  fd_memzero_explicit( &U14,  sizeof(wwl_t) );
+  fd_memzero_explicit( &U25,  sizeof(wwl_t) );
+  fd_memzero_explicit( &Q03,  sizeof(wwl_t) );
+  fd_memzero_explicit( &Q14,  sizeof(wwl_t) );
+  fd_memzero_explicit( &Q25,  sizeof(wwl_t) );
+  fd_memzero_explicit( &AA,   sizeof(wwl_t) );
+  fd_memzero_explicit( &E,    sizeof(wwl_t) );
+  fd_memzero_explicit( &F,    sizeof(wwl_t) );
+  fd_memzero_explicit( &G,    sizeof(wwl_t) );
+  fd_memzero_explicit( &H,    sizeof(wwl_t) );
+  fd_memzero_explicit( &GG,   sizeof(wwl_t) );
+  fd_memzero_explicit( &perm, sizeof(wwl_t) );
+  fd_memzero_explicit( &swap, sizeof(int) );
+  fd_memzero_explicit( &k_t,  sizeof(int) );
 
 }
 #endif
@@ -300,7 +300,7 @@ fd_x25519_exchange( uchar       shared_secret   [ 32 ],
   fd_x25519_scalar_mul_const_time( shared_secret, secret_scalar, peer_public_key_point_u );
 
   /* Sanitize */
-  fd_memset_explicit( secret_scalar, 0, 32UL );
+  fd_memzero_explicit( secret_scalar, 32UL );
 
   /* Reject low order points */
   if( FD_UNLIKELY( fd_x25519_is_zero_const_time( shared_secret ) ) ) {

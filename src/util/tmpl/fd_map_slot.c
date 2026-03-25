@@ -805,7 +805,7 @@ MAP_(iter_done)( MAP_(t) const * join,
   return iter > join->probe_rem;
 }
 
-FD_FN_PURE static inline MAP_(iter_t)
+__attribute__((warn_unused_result)) FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_(t) const * join,
                  ulong           memo,
                  MAP_(iter_t)    iter ) {

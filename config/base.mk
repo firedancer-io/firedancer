@@ -4,11 +4,8 @@ OPT?=opt
 SHELL:=bash
 CPPFLAGS:=-isystem ./$(OPT)/include
 RUSTFLAGS:=-C force-frame-pointers=yes
-CC:=gcc
 CFLAGS=-std=c17 -fwrapv
-CXX:=g++
 CXXFLAGS=-std=c++17
-LD:=g++
 LDFLAGS:=-lm -ldl -L./$(OPT)/lib
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
@@ -28,10 +25,19 @@ FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
 DATE:=date
 CAT:=cat
+CBMC?=cbmc
+
+# Default compiler configuration, if not already set
+CC?=gcc
+CXX?=g++
+LD?=$(CXX)
 
 # LLVM toolchain
 LLVM_COV?=llvm-cov
 LLVM_PROFDATA?=llvm-profdata
+
+# C++ support (libstdc++ and default exception handler)
+#FD_HAS_CXX:=1
 
 # Rust
 RUST_PROFILE=debug

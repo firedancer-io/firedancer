@@ -5,7 +5,8 @@
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../flamenco/runtime/fd_system_ids.h"
 
-#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
 
 #define FD_SSPARSE_STATE_TAR_HEADER             (0)
 #define FD_SSPARSE_STATE_SCROLL_TAR_HEADER      (1)
@@ -166,12 +167,59 @@ fd_ssparse_reset( fd_ssparse_t * ssparse ) {
 }
 
 static int
+parse_tar_header_name( char const * name,
+                       ulong *      id,
+                       ulong *      slot ) {
+  char name_buf[ FD_TAR_NAME_SZ ];
+  fd_memcpy( name_buf, name, FD_TAR_NAME_SZ );
+  name_buf[ FD_TAR_NAME_SZ-1 ] = '\0';
+
+  char const * ptr = name_buf;
+
+  if( FD_UNLIKELY( strncmp( ptr, "accounts/", 9UL ) ) ) {
+    *id   = ULONG_MAX;
+    *slot = ULONG_MAX;
+    return -1;
+  }
+
+  ptr += 9UL;
+  char const * next = strchr( ptr, '.' );
+  if( FD_UNLIKELY( !next ) ) {
+    *id   = ULONG_MAX;
+    *slot = ULONG_MAX;
+    return -1;
+  }
+  errno = 0;
+  char * endptr;
+  *slot = strtoul( ptr, &endptr, 10 );
+  if( FD_UNLIKELY( errno==ERANGE || *endptr!='.' || endptr==ptr ) ) {
+    *id   = ULONG_MAX;
+    *slot = ULONG_MAX;
+    return -1;
+  }
+
+  errno = 0;
+  ptr = next + 1;
+  *id = strtoul( ptr, &endptr, 10 );
+  if( FD_UNLIKELY( errno==ERANGE || *endptr!='\0' || endptr==ptr ) ) {
+    *id   = ULONG_MAX;
+    *slot = ULONG_MAX;
+    return -1;
+  }
+
+  return 0;
+}
+
+static int
 advance_tar( fd_ssparse_t *                ssparse,
              uchar const *                 data,
              ulong                         data_sz,
              fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, 512UL - ssparse->tar.header_bytes_consumed );
-  if( FD_LIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data in tar header, data_sz=%lu, header_bytes_consumed=%lu", data_sz, ssparse->tar.header_bytes_consumed ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   fd_memcpy( ssparse->tar.header+ssparse->tar.header_bytes_consumed, data, consume );
   ssparse->bytes_consumed            += consume;
@@ -186,11 +234,11 @@ advance_tar( fd_ssparse_t *                ssparse,
   /* "ustar\x00" and "ustar  \x00" (overlaps with version) are both
      valid values for magic.  These are POSIX ustar and OLDGNU versions
      respectively. */
-  if( FD_UNLIKELY( memcmp( hdr->magic, FD_TAR_MAGIC, 5UL ) ) ) {
+  if( FD_UNLIKELY( memcmp( hdr->magic, FD_TAR_MAGIC, FD_TAR_MAGIC_SZ ) ) ) {
     int not_zero = 0;
     for( ulong i=0UL; i<512UL; i++ ) not_zero |= ssparse->tar.header[ i ];
     if( FD_UNLIKELY( not_zero ) ) {
-      FD_LOG_WARNING(( "invalid tar header magic `%s`", hdr->magic ));
+      FD_LOG_WARNING(( "invalid tar header magic `%." FD_EXPAND_THEN_STRINGIFY(FD_TAR_MAGIC_SZ) "s`", hdr->magic ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
 
@@ -214,7 +262,8 @@ advance_tar( fd_ssparse_t *                ssparse,
 
   ssparse->tar.file_bytes = fd_tar_meta_get_size( hdr );
   if( FD_UNLIKELY( ssparse->tar.file_bytes==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "invalid tar header size" ));
+    FD_LOG_WARNING(( "invalid tar header size %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_SIZE_SZ) "s "
+                     "for tar header name %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_NAME_SZ) "s", hdr->size, hdr->name ));
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
@@ -242,8 +291,8 @@ advance_tar( fd_ssparse_t *                ssparse,
     ssparse->account.header_bytes_consumed = 0UL;
     desired_state = FD_SSPARSE_STATE_ACCOUNT_HEADER;
     ulong id, slot;
-    if( FD_UNLIKELY( sscanf( hdr->name, "accounts/%lu.%lu", &slot, &id )!=2 ) ) {
-      FD_LOG_WARNING(( "invalid account append vec name %s", hdr->name ));
+    if( FD_UNLIKELY( -1==parse_tar_header_name( hdr->name, &id, &slot ) ) ) {
+      FD_LOG_WARNING(( "invalid account append vec name %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_NAME_SZ) "s", hdr->name ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
 
@@ -265,7 +314,7 @@ advance_tar( fd_ssparse_t *                ssparse,
   else if( FD_LIKELY( !strncmp( hdr->name, "snapshots/", 10UL ) ) ) {
     desired_state = FD_SSPARSE_STATE_MANIFEST;
   } else {
-    FD_LOG_WARNING(( "unexpected tar header name %s", hdr->name ));
+    FD_LOG_WARNING(( "unexpected tar header name `%." FD_EXPAND_THEN_STRINGIFY(FD_TAR_NAME_SZ) "s`", hdr->name ));
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
@@ -322,7 +371,10 @@ advance_version( fd_ssparse_t *                ssparse,
                  ulong                         data_sz,
                  fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing version file, data_sz=%lu, file_bytes_consumed=%lu, file_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->tar.file_bytes ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   fd_memcpy( ssparse->version+ssparse->tar.file_bytes_consumed, data, consume );
 
@@ -336,7 +388,7 @@ advance_version( fd_ssparse_t *                ssparse,
   FD_TEST( ssparse->tar.file_bytes_consumed==5UL );
 
   if( FD_UNLIKELY( memcmp( ssparse->version, "1.2.0", 5UL ) ) ) {
-    FD_LOG_WARNING(( "invalid version file %s", ssparse->version ));
+    FD_LOG_WARNING(( "invalid version file %.*s", 5, ssparse->version ));
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
@@ -350,7 +402,10 @@ advance_status_cache( fd_ssparse_t *                 ssparse,
                        ulong                         data_sz,
                        fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing status cache, data_sz=%lu, file_bytes_consumed=%lu, file_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->tar.file_bytes ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
@@ -375,7 +430,10 @@ advance_manifest( fd_ssparse_t *                ssparse,
                   ulong                         data_sz,
                   fd_ssparse_advance_result_t * result ) {
   ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing manifest, data_sz=%lu, file_bytes_consumed=%lu, file_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->tar.file_bytes ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
@@ -406,7 +464,10 @@ advance_next_tar( fd_ssparse_t *               ssparse,
   ulong bytes_remaining    = fd_ulong_align_up( ssparse->bytes_consumed, 512UL ) - ssparse->bytes_consumed;
   ulong pad_sz             = bytes_remaining;
         pad_sz             = fd_ulong_min( pad_sz, data_sz );
-  if( FD_UNLIKELY( !pad_sz && bytes_remaining ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !pad_sz && bytes_remaining ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing tar header padding, data_sz=%lu, bytes_consumed=%lu, bytes_remaining=%lu", data_sz, ssparse->bytes_consumed, bytes_remaining ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->bytes_consumed += pad_sz;
   result->bytes_consumed   = pad_sz;
@@ -489,6 +550,7 @@ advance_account_header( fd_ssparse_t *                ssparse,
       ssparse->state = FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE;
       return FD_SSPARSE_ADVANCE_AGAIN;
     } else {
+      FD_LOG_WARNING(( "unexpected end of data while advancing account header, data_sz=%lu, file_bytes_consumed=%lu, acc_vec_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->acc_vec_bytes ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
   }
@@ -557,7 +619,10 @@ advance_account_data( fd_ssparse_t *                ssparse,
   }
 
   consume = fd_ulong_min( consume, ssparse->account.data_len-ssparse->account.data_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing account data, data_sz=%lu, data_bytes_consumed=%lu, data_len=%lu", data_sz, ssparse->account.data_bytes_consumed, ssparse->account.data_len ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->tar.file_bytes_consumed     += consume;
   ssparse->bytes_consumed              += consume;
@@ -594,7 +659,10 @@ advance_account_padding( fd_ssparse_t *                ssparse,
   }
 
   ulong consume = fd_ulong_min( data_sz, pad_sz );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !consume ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing account padding, data_sz=%lu, file_bytes_consumed=%lu, acc_vec_bytes=%lu", data_sz, ssparse->tar.file_bytes_consumed, ssparse->acc_vec_bytes ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
 
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
@@ -614,9 +682,18 @@ advance_account_garbage( fd_ssparse_t *                ssparse,
                          ulong                         data_sz,
                          fd_ssparse_advance_result_t * result ) {
   (void)data;
-  ulong consume = fd_ulong_min( data_sz, ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed );
-  if( FD_UNLIKELY( !consume ) ) return FD_SSPARSE_ADVANCE_ERROR;
+  ulong rem = ssparse->tar.file_bytes-ssparse->tar.file_bytes_consumed;
+  if( FD_UNLIKELY( !rem ) ) {
+    ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
+    return FD_SSPARSE_ADVANCE_AGAIN;
+  }
 
+  if( FD_UNLIKELY( !data_sz ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing append vec garbage, data_sz=%lu, remaining_bytes=%lu", data_sz, rem ));
+    return FD_SSPARSE_ADVANCE_ERROR;
+  }
+
+  ulong consume = fd_ulong_min( data_sz, rem );
   ssparse->tar.file_bytes_consumed += consume;
   ssparse->bytes_consumed          += consume;
   result->bytes_consumed            = consume;

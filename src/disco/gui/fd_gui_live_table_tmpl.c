@@ -454,7 +454,7 @@ LIVE_TABLE_(private_sort_key_print)( LIVE_TABLE_(sort_key_t) const * sort_key ) 
 
 static inline void
 LIVE_TABLE_(private_sort_key_create)( LIVE_TABLE_(t) * join, ulong sort_key_idx, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool ) {
-  fd_memcpy( &join->sort_keys[ sort_key_idx ], sort_key, sizeof(LIVE_TABLE_(sort_key_t)) );
+  join->sort_keys[ sort_key_idx ] = *sort_key;
 
   LIVE_TABLE_(private_active_sort_key_idx) = sort_key_idx;
   join->treaps[ sort_key_idx ] = LIVE_TABLE_(private_treap_join)( LIVE_TABLE_(private_treap_new)( join->treaps_shmem[ sort_key_idx ], join->max_rows ) );
@@ -481,28 +481,24 @@ static inline ulong
 LIVE_TABLE_(private_query_sort_key)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key ) {
   for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
     if( FD_UNLIKELY( !join->treaps_is_active[ i ] ) ) continue;
-    int equal = 1;
-    ulong j = 0;
-    ulong k = 0;
-    do {
+    ulong j = 0UL;
+    ulong k = 0UL;
+
+    for(;;) {
       /* columns with dir=0 don't actually count, they're ignored */
-      if( FD_UNLIKELY( j<LIVE_TABLE_COLUMN_CNT-1UL && join->sort_keys[ i ].dir[ j ]==0 ) ) {
-        j++;
-        continue;
-      }
-      if( FD_UNLIKELY( k<LIVE_TABLE_COLUMN_CNT-1UL && sort_key->dir[ k ]==0 ) ) {
-        k++;
-        continue;
-      }
-      if( FD_LIKELY( !(join->sort_keys[ i ].dir[ j ]==0 && sort_key->dir[ k ]==0) && (join->sort_keys[ i ].col[ j ] != sort_key->col[ k ] || join->sort_keys[ i ].dir[ j ] != sort_key->dir[ k ]) ) ) {
-        equal = 0;
+      while( FD_UNLIKELY( j<LIVE_TABLE_COLUMN_CNT && join->sort_keys[ i ].dir[ j ]==0 ) ) j++;
+      while( FD_UNLIKELY( k<LIVE_TABLE_COLUMN_CNT && sort_key->dir[ k ]==0 ) )              k++;
+
+      if( FD_UNLIKELY( j==LIVE_TABLE_COLUMN_CNT || k==LIVE_TABLE_COLUMN_CNT ) ) {
+        if( FD_LIKELY( j==LIVE_TABLE_COLUMN_CNT && k==LIVE_TABLE_COLUMN_CNT ) ) return i;
         break;
       }
-      if( FD_LIKELY( j<LIVE_TABLE_COLUMN_CNT-1UL ) ) j++;
-      if( FD_LIKELY( k<LIVE_TABLE_COLUMN_CNT-1UL ) ) k++; /* todo ... test edge case */
-    } while( !(j==LIVE_TABLE_COLUMN_CNT-1UL && k==LIVE_TABLE_COLUMN_CNT-1UL) );
-    if( FD_LIKELY( !equal ) ) continue;
-    return i;
+
+      if( FD_UNLIKELY( join->sort_keys[ i ].col[ j ]!=sort_key->col[ k ] || join->sort_keys[ i ].dir[ j ]!=sort_key->dir[ k ] ) ) break;
+
+      j++;
+      k++;
+    }
   }
 
   return ULONG_MAX;

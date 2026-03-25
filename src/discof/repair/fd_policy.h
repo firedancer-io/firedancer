@@ -2,29 +2,26 @@
 #define HEADER_fd_src_discof_repair_fd_policy_h
 
 /* fd_policy implements the policy of the Repair agent.  It determines
-   what shreds the validator is expecting but has not yet received and
-   needs to request via repair.  It also determines which peer(s) the
-   validator should request the shred from.
+   what next repair request the validator should make. It also
+   determines which peer(s) the validator should make the request to.
 
-   The default policy implementation is round-robin DFS with time-based
+   The default policy implementation is to prioritize discovering
+   ancestry for orphaned slots first (making an orphan request), and
+   then making forward progress on the main ancestry tree (making a
+   regular request) when there are no orphan requests to make.
+
+   Regular shred requests are made round-robin BFS with time-based
    dedup: round-robin through all the repair peers we know about, and
-   depth-first search down the repair forest (see fd_forest.h).  This
-   policy also dedups identical repair requests that occur within a
-   specified amount of time window of each other (configurable on init
-   as a hyperparameter).  With the DFS strategy, the smaller the tree,
-   the sooner an element will be iterated again (when the DFS restarts
-   from the root of the tree). */
+   BFS down the repair forest (see fd_forest.h).
+
+   This policy dedups identical repair requests that occur within a
+   specified amount of time window of each other. */
 
 #include "../../flamenco/types/fd_types_custom.h"
 #include "../forest/fd_forest.h"
 #include "../../util/net/fd_net_headers.h"
 #include "fd_repair.h"
-
-/* FD_POLICY_PEER_MAX specifies a hard bound for how many peers Policy
-   needs to track.  4096 is derived from the BLS signature max, which
-   is the maximum number of staked validators Solana can support. */
-
-#define FD_POLICY_PEER_MAX (4096UL)
+#include "../../disco/shred/fd_rnonce_ss.h"
 
 /* fd_policy_dedup implements a dedup cache for already sent Repair
    requests.  It is backed by a map and linked list, in which the least
@@ -45,7 +42,7 @@ typedef struct fd_policy_dedup fd_policy_dedup_t; /* forward decl */
 
 struct fd_policy_dedup_ele {
   ulong key;      /* compact encoding of fd_repair_req_t detailed above */
-  ulong prev;   /* reserved by lru */
+  ulong prev;     /* reserved by lru */
   ulong next;
   ulong hash;     /* reserved by pool and map_chain */
   long  req_ts;   /* timestamp when the request was sent */
@@ -54,7 +51,7 @@ typedef struct fd_policy_dedup_ele fd_policy_dedup_ele_t;
 
 FD_FN_CONST static inline ulong
 fd_policy_dedup_key( uint kind, ulong slot, uint shred_idx ) {
-  return (ulong)kind << 61 | slot << 30 | shred_idx << 15;
+  return (ulong)kind << 62 | slot << 30 | shred_idx << 15;
 }
 
 FD_FN_CONST static inline uint  fd_policy_dedup_key_kind     ( ulong key ) { return (uint)fd_ulong_extract( key, 62, 63 ); }
@@ -79,7 +76,7 @@ FD_FN_CONST static inline uint  fd_policy_dedup_key_shred_idx( ulong key ) { ret
 struct fd_policy_dedup {
   fd_policy_dedup_map_t * map;  /* map of dedup elements */
   fd_policy_dedup_ele_t * pool; /* memory pool of dedup elements */
-  fd_policy_dedup_lru_t * lru;  /* singly-linked list of dedup elements by insertion order.  TODO: add eviction feature using linkedlist */
+  fd_policy_dedup_lru_t * lru;  /* singly-linked list of dedup elements by insertion order */
 };
 
 /* fd_policy_peer_t describes a peer validator that serves repairs.
@@ -88,11 +85,16 @@ struct fd_policy_dedup {
 
 struct fd_policy_peer {
   fd_pubkey_t key;     /* map key, pubkey of the validator */
-  uint        hash;    /* reserved for map */
+  ulong       next;    /* reserved for map_chain, pool */
   uint        ip4;     /* ip4 addr of the peer */
   ushort      port;    /* repair server port of the peer */
   ulong       req_cnt; /* count of requests we've sent to this peer */
   ulong       res_cnt; /* count of responses we've received from this peer */
+
+  struct {
+    ulong next;
+    ulong prev;
+  } dlist;
 
   /* below are for measuring bandwidth usage */
   long  first_req_ts;
@@ -104,49 +106,38 @@ struct fd_policy_peer {
   long  total_lat; /* total RTT over all responses in ns */
   ulong stake;
 
-  ulong pool_idx;
+  uint ping;  /* whether this peer currently has a ping in our sign queue */
 };
 typedef struct fd_policy_peer fd_policy_peer_t;
 
-#define MAP_NAME              fd_policy_peer_map
-#define MAP_T                 fd_policy_peer_t
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          null_pubkey
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_MEMOIZE           0
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key,s)   ((MAP_HASH_T)( (key).ul[1] ))
-#include "../../util/tmpl/fd_map_dynamic.c"
+#define MAP_NAME                 fd_policy_peer_map
+#define MAP_ELE_T                fd_policy_peer_t
+#define MAP_KEY_T                fd_pubkey_t
+#define MAP_KEY_EQ(k0,k1)        (!memcmp( (k0)->uc, (k1)->uc, 32UL ))
+#define MAP_KEY_HASH(key,seed)   (seed^fd_ulong_load_8( (key)->uc ))
+#include "../../util/tmpl/fd_map_chain.c"
 
-struct fd_peer {
-  fd_pubkey_t identity;
-  ulong       next;
-  ulong       prev;
-};
-typedef struct fd_peer fd_peer_t;
-
-#define POOL_NAME fd_peer_pool
-#define POOL_T    fd_peer_t
+#define POOL_NAME fd_policy_peer_pool
+#define POOL_T    fd_policy_peer_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define DLIST_NAME  fd_peer_dlist
-#define DLIST_ELE_T fd_peer_t
-#define DLIST_NEXT  next
-#define DLIST_PREV  prev
+#define DLIST_NAME  fd_policy_peer_dlist
+#define DLIST_ELE_T fd_policy_peer_t
+#define DLIST_NEXT  dlist.next
+#define DLIST_PREV  dlist.prev
 #include "../../util/tmpl/fd_dlist.c"
 
 /* fd_policy_peers implements the data structures and bookkeeping for
    selecting repair peers via round-robin. */
 
 struct fd_policy_peers {
-  fd_peer_t        * pool;  /* memory pool of repair peer pubkeys, contains entries of both dlist */
-  fd_peer_dlist_t  * fast;  /* [0, FD_POLICY_LATENCY_THRESH]   ms latency group FD_POLICY_LATENCY_FAST */
-  fd_peer_dlist_t  * slow;  /* (FD_POLICY_LATENCY_THRESH, inf) ms latency group FD_POLICY_LATENCY_SLOW */
-  fd_policy_peer_t * map;   /* map dynamic of pubkey->peer data */
+  fd_policy_peer_t * pool;        /* memory pool of peers */
+  fd_policy_peer_dlist_t * fast;  /* [0, FD_POLICY_LATENCY_THRESH]   ms latency group FD_POLICY_LATENCY_FAST */
+  fd_policy_peer_dlist_t * slow;  /* (FD_POLICY_LATENCY_THRESH, inf) ms latency group FD_POLICY_LATENCY_SLOW */
+  fd_policy_peer_map_t * map;     /* map keyed by pubkey to peer data */
   struct {
-     uint stage;                  /* < sizeof(bucket_stages)        */
-     fd_peer_dlist_iter_t iter;   /* round-robin index of next peer */
+     uint stage;                         /* < sizeof(bucket_stages)        */
+     fd_policy_peer_dlist_iter_t iter;   /* round-robin index of next peer */
   } select;
 };
 typedef struct fd_policy_peers fd_policy_peers_t;
@@ -156,7 +147,7 @@ typedef struct fd_policy_peers fd_policy_peers_t;
 
 /* Policy parameters start */
 #define FD_POLICY_LATENCY_THRESH 80e6L /* less than this is a BEST peer, otherwise a WORST peer */
-#define FD_POLICY_DEDUP_TIMEOUT  60e6L /* how long wait to request the same shred */
+#define FD_POLICY_DEDUP_TIMEOUT  80e6L /* how long wait to request the same shred */
 
 /* Round robins through ALL the worst peers once, then round robins
    through ALL the best peers once, then round robins through ALL the
@@ -180,8 +171,9 @@ struct fd_policy {
   long              tsmax; /* maximum time for an iteration before resetting the DFS to root */
   long              tsref; /* reference timestamp for resetting DFS */
 
+  fd_rnonce_ss_t    rnonce_ss[1];
+
   ulong turbine_slot0;
-  uint nonce;
 };
 typedef struct fd_policy fd_policy_t;
 
@@ -193,12 +185,12 @@ typedef struct fd_policy fd_policy_t;
 
 FD_FN_CONST static inline ulong
 fd_policy_align( void ) {
-  return alignof(fd_policy_t);
+  return 128UL;
 }
 
 FD_FN_CONST static inline ulong
 fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
-  int lg_peer_max = fd_ulong_find_msb( fd_ulong_pow2_up( peer_max ) );
+  ulong peer_chain_cnt = fd_policy_peer_map_chain_cnt_est( peer_max );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -209,23 +201,25 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_policy_t),         sizeof(fd_policy_t)                           ),
-      fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max   ) ),
-      fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max   ) ),
-      fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()               ),
-      fd_policy_peer_map_align(),   fd_policy_peer_map_footprint  ( lg_peer_max ) ),
-      fd_peer_pool_align(),         fd_peer_pool_footprint        ( peer_max    ) ),
-      fd_peer_dlist_align(),        fd_peer_dlist_footprint()                     ),
-      fd_peer_dlist_align(),        fd_peer_dlist_footprint()                     ),
+      fd_policy_align(),            sizeof(fd_policy_t)                             ),
+      fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max )     ),
+      fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max )     ),
+      fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint()                 ),
+      fd_policy_peer_map_align(),   fd_policy_peer_map_footprint ( peer_chain_cnt ) ),
+      fd_policy_peer_pool_align(),  fd_policy_peer_pool_footprint( peer_max )       ),
+      fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                ),
+      fd_policy_peer_dlist_align(), fd_policy_peer_dlist_footprint()                ),
     fd_policy_align() );
 }
 
 /* fd_policy_new formats an unused memory region for use as a policy.
    mem is a non-NULL pointer to this region in the local address space
-   with the required footprint and alignment. */
+   with the required footprint and alignment.  rnonce_ss is copied
+   locally, so the read interest is not retained after this function
+   returns. */
 
 void *
-fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed );
+fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed, fd_rnonce_ss_t const * rnonce_ss );
 
 /* fd_policy_join joins the caller to the policy.  policy points to the
    first byte of the memory region backing the policy in the caller's
@@ -257,8 +251,12 @@ fd_policy_delete( void * policy );
 fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy );
 
+/* fd_policy_peer_upsert upserts a peer into the policy.  If the peer
+   does not exist, it is created.  If the peer already exists, it is
+   updated.  Returns a pointer to the peer if a new peer was created,
+   otherwise NULL (including on updates). */
 fd_policy_peer_t const *
-fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );
+fd_policy_peer_upsert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );
 
 fd_policy_peer_t *
 fd_policy_peer_query( fd_policy_t * policy, fd_pubkey_t const * key );
@@ -272,7 +270,7 @@ fd_policy_peer_select( fd_policy_t * policy );
 void
 fd_policy_peer_request_update( fd_policy_t * policy, fd_pubkey_t const * to );
 
-static inline fd_peer_dlist_t *
+static inline fd_policy_peer_dlist_t *
 fd_policy_peer_latency_bucket( fd_policy_t * policy, long total_rtt /* ns */, ulong res_cnt ) {
    if( res_cnt == 0 || (long)(total_rtt / (long)res_cnt) > FD_POLICY_LATENCY_THRESH ) return policy->peers.slow;
    return policy->peers.fast;

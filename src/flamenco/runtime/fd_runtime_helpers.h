@@ -4,22 +4,16 @@
 #include "fd_hashes.h"
 #include "fd_txncache.h"
 #include "fd_compute_budget_details.h"
-#include "context/fd_capture_ctx.h"
+#include "fd_cost_tracker.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "info/fd_instr_info.h"
 #include "../features/fd_features.h"
+#include "../capture/fd_capture_ctx.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
-
-struct fd_exec_accounts {
-  uchar rollback_nonce_account_mem[ FD_ACC_TOT_SZ_MAX ]           __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-  uchar rollback_fee_payer_mem[ FD_ACC_TOT_SZ_MAX ]               __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-  uchar accounts_mem[ MAX_TX_ACCOUNT_LOCKS ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-};
-typedef struct fd_exec_accounts fd_exec_accounts_t;
 
 /* Return data for syscalls */
 
@@ -47,9 +41,10 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
 /* Load the accounts in the address lookup tables of txn into out_accts_alt */
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *          txn,
+fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
+                                           fd_txn_t const *          txn,
                                            uchar const *             payload,
-                                           fd_funk_t *               funk,
+                                           fd_accdb_user_t *         accdb,
                                            fd_funk_txn_xid_t const * xid,
                                            ulong                     slot,
                                            fd_slot_hash_t const *    hashes, /* deque */
@@ -80,15 +75,16 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
                                           ulong       latest_signatures_per_slot );
 
 void
-fd_runtime_read_genesis( fd_banks_t *                       banks,
-                         fd_bank_t *                        bank,
-                         fd_accdb_user_t *                  accdb,
-                         fd_funk_txn_xid_t const *          xid,
-                         fd_capture_ctx_t *                 capture_ctx,
-                         fd_hash_t const *                  genesis_hash,
-                         fd_lthash_value_t const *          genesis_lthash,
-                         fd_genesis_solana_global_t const * genesis_block,
-                         fd_runtime_stack_t *               runtime_stack );
+fd_runtime_read_genesis( fd_banks_t *              banks,
+                         fd_bank_t *               bank,
+                         fd_accdb_user_t *         accdb,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_capture_ctx_t *        capture_ctx,
+                         fd_hash_t const *         genesis_hash,
+                         fd_lthash_value_t const * genesis_lthash,
+                         fd_genesis_t const *      genesis,
+                         uchar const *             genesis_blob,
+                         fd_runtime_stack_t *      runtime_stack );
 
 /* Error logging handholding assertions */
 
@@ -124,8 +120,7 @@ int
 fd_runtime_find_index_of_account( fd_txn_out_t const * txn_out,
                                   fd_pubkey_t const *  pubkey );
 
-typedef int fd_txn_account_condition_fn_t ( fd_txn_account_t *  acc,
-                                            fd_txn_in_t const * txn_in,
+typedef int fd_txn_account_condition_fn_t ( fd_txn_in_t const * txn_in,
                                             fd_txn_out_t *      txn_out,
                                             ushort              idx );
 
@@ -141,7 +136,6 @@ int
 fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  ushort                          idx,
-                                 fd_txn_account_t * *            account,
                                  fd_txn_account_condition_fn_t * condition );
 
 /* A wrapper around fd_exec_txn_ctx_get_account_at_index that obtains an
@@ -151,18 +145,17 @@ int
 fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  fd_pubkey_t const *             pubkey,
-                                 fd_txn_account_t * *            account,
+                                 int *                           index_out,
                                  fd_txn_account_condition_fn_t * condition );
 
 /* Gets an executable (program data) account via its pubkey. */
 
 int
-fd_runtime_get_executable_account( fd_runtime_t *                  runtime,
-                                   fd_txn_in_t const *             txn_in,
-                                   fd_txn_out_t *                  txn_out,
-                                   fd_pubkey_t const *             pubkey,
-                                   fd_txn_account_t * *            account,
-                                   fd_txn_account_condition_fn_t * condition );
+fd_runtime_get_executable_account( fd_runtime_t *              runtime,
+                                   fd_txn_in_t const *         txn_in,
+                                   fd_txn_out_t *              txn_out,
+                                   fd_pubkey_t const *         pubkey,
+                                   fd_account_meta_t const * * meta );
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
 
@@ -189,7 +182,6 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
 int
 fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t const * txn_out,
-                                    fd_bank_t *          bank,
                                     ushort               idx );
 
 /* Account pre-condition filtering functions
@@ -198,8 +190,7 @@ fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
    when obtaining accounts from the transaction context. Passed as a function pointer. */
 
 int
-fd_runtime_account_check_exists( fd_txn_account_t *  acc,
-                                 fd_txn_in_t const * txn_in,
+fd_runtime_account_check_exists( fd_txn_in_t const * txn_in,
                                  fd_txn_out_t *      txn_out,
                                  ushort              idx );
 
@@ -210,10 +201,23 @@ fd_runtime_account_check_exists( fd_txn_account_t *  acc,
    doesn't have a writable signature. */
 
 int
-fd_runtime_account_check_fee_payer_writable( fd_txn_account_t *  acc,
-                                             fd_txn_in_t const * txn_in,
+fd_runtime_account_check_fee_payer_writable( fd_txn_in_t const * txn_in,
                                              fd_txn_out_t *      txn_out,
                                              ushort              idx );
+
+int
+fd_account_meta_checked_sub_lamports( fd_account_meta_t * meta,
+                                      ulong               lamports );
+
+FD_FN_UNUSED static void
+fd_account_meta_resize( fd_account_meta_t * meta,
+                        ulong               dlen ) {
+  ulong old_sz    = meta->dlen;
+  ulong new_sz    = dlen;
+  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
+  fd_memset( fd_account_data( meta ) + old_sz, 0, memset_sz );
+  meta->dlen = (uint)dlen;
+}
 
 FD_PROTOTYPES_END
 

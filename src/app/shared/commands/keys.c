@@ -44,7 +44,7 @@ keys_cmd_args( int *    pargc,
 
 err:
     FD_LOG_ERR(( "unrecognized subcommand `%s`\nusage:\n"
-                 "  keys new key <path-to-keyfile>\n"
+                 "  keys new <path-to-keyfile>\n"
                  "  keys pubkey <path-to-keyfile>\n",
                  *pargv[0] ));
 }
@@ -114,7 +114,7 @@ generate_keypair( char const *     keyfile,
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_memset_explicit( keypair, 0, 64UL );
+  fd_memzero_explicit( keypair, 64UL );
 }
 
 static void

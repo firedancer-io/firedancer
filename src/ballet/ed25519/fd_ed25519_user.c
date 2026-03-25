@@ -50,7 +50,7 @@ fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
 
   /* Sanitize */
 
-  fd_memset_explicit( s, 0, FD_SHA512_HASH_SZ );
+  fd_memzero_explicit( s, FD_SHA512_HASH_SZ );
   fd_sha512_clear( sha );
 
   return public_key;
@@ -125,8 +125,8 @@ fd_ed25519_sign( uchar         sig[ static 64 ],
   /* Sanitize */
 
   /* note: no need to sanitize k as all inputs to k are public values */
-  fd_memset_explicit( s, 0, FD_SHA512_HASH_SZ );
-  fd_memset_explicit( r, 0, FD_SHA512_HASH_SZ );
+  fd_memzero_explicit( s, FD_SHA512_HASH_SZ );
+  fd_memzero_explicit( r, FD_SHA512_HASH_SZ );
   fd_sha512_clear( sha );
 
   return sig;
@@ -189,7 +189,7 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
         }
     */
   if( FD_UNLIKELY( res ) ) {
-    return res == 1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
+    return res == -1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
   }
   if( FD_UNLIKELY( fd_ed25519_affine_is_small_order(Aprime) ) ) {
     return FD_ED25519_ERR_PUBKEY;
@@ -273,11 +273,11 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
     }
 
     /* Decompress public_key and point r, concurrently */
-    int res = fd_ed25519_point_frombytes_2x( &Aprime[j], public_key,   &R[j], r );
+    int res = fd_ed25519_point_frombytes_2x( &Aprime[j], public_key, &R[j], r );
 
     /* Check public key and point r */
     if( FD_UNLIKELY( res ) ) {
-      return res == 1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
+      return res == -1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
     }
     if( FD_UNLIKELY( fd_ed25519_affine_is_small_order(&Aprime[j]) ) ) {
       return FD_ED25519_ERR_PUBKEY;

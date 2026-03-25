@@ -5,6 +5,10 @@
 #include "../../accdb/fd_accdb_user.h"
 #include "../../types/fd_types.h"
 
+/* SIMD-0194: deprecate_rent_exemption_threshold
+   https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */
+#define FD_SIMD_0194_NEW_RENT_EXEMPTION_THRESHOLD (1.0)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_sysvar_rent_init copies the cached rent sysvar stored from
@@ -39,7 +43,7 @@ fd_rent_exempt_minimum_balance( fd_rent_t const * rent,
    has zero lamports, this function returns NULL. */
 
 fd_rent_t const *
-fd_sysvar_rent_read( fd_funk_t *               funk,
+fd_sysvar_rent_read( fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid,
                      fd_rent_t *               rent );
 

@@ -9,6 +9,8 @@ CompileFlags:
   - -DFD_HAS_ZSTD=1
   - -DFD_HAS_SSE=1
   - -DFD_USING_CLANG=1
+Completion:
+  HeaderInsertion: Never
 ---
 If:
   PathMatch: .*\.h

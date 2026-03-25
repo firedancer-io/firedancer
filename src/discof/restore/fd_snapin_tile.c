@@ -6,11 +6,15 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/gui/fd_gui_config_parse.h"
+#include "../../flamenco/accdb/fd_accdb_admin_v1.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
+#include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/types/fd_types.h"
+#include "../../util/pod/fd_pod.h"
 
 #include "generated/fd_snapin_tile_seccomp.h"
 
@@ -20,10 +24,6 @@
    and optionally an incremental snapshot.  It is currently responsible
    for loading accounts into an in-memory database, though this may
    change. */
-
-/* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
-   root slots Agave could possibly serve in a snapshot. */
-#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
 
 /* 300 root slots in the slot deltas array, and each one references all
    151 prior blockhashes that it's able to. */
@@ -53,8 +53,16 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
-    FD_LOG_NOTICE(( "loaded %.1fM accounts from snapshot in %.3f seconds", (double)ctx->metrics.accounts_inserted/1e6, (double)(fd_log_wallclock()-ctx->boot_timestamp)/1e9 ));
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && !ctx->use_vinyl ) ) {
+    /* This only needs to be logged under funk.  When vinyl is enabled,
+       snapwm will log instead. */
+    ulong accounts_dup = ctx->metrics.accounts_ignored + ctx->metrics.accounts_replaced;
+    ulong accounts     = ctx->metrics.accounts_loaded  - accounts_dup;
+    long  elapsed_ns   = fd_log_wallclock() - ctx->boot_timestamp;
+    FD_LOG_NOTICE(( "loaded %.1fM accounts (%.1fM dups) from snapshot in %.3f seconds",
+                    (double)accounts/1e6,
+                    (double)accounts_dup/1e6,
+                    (double)elapsed_ns/1e9 ));
   }
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
@@ -73,21 +81,21 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                     );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
-  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
-  if( tile->snapin.use_vinyl ) {
-    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_wd_align(), fd_vinyl_io_wd_footprint( tile->snapin.snapwr_depth ) );
-    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPIN_IO_SPAD_MAX     ) );
+  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS );
+  if( !tile->snapin.use_vinyl ) {
+    l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static void
 metrics_write( fd_snapin_tile_t * ctx ) {
+  FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_INSERTED,      ctx->metrics.accounts_inserted );
-  FD_MGAUGE_SET( SNAPIN, STATE, (ulong)ctx->state );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_LOADED,        ctx->metrics.accounts_loaded );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_REPLACED,      ctx->metrics.accounts_replaced );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_IGNORED,       ctx->metrics.accounts_ignored );
 }
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'
@@ -131,20 +139,94 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
           slot_history,
           &decoded.o,
           data,
-          meta.dlen,
-          NULL )
+          meta.dlen )
   ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
     return -1;
   }
 
+  /* Sanity checks for slot history:
+     https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L586 */
+
+  ulong newest_slot = fd_sysvar_slot_history_newest( &decoded.o );
+  if( FD_UNLIKELY( newest_slot!=ctx->bank_slot ) ) {
+    /* VerifySlotHistoryError::InvalidNewestSlot
+       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L621 */
+    FD_LOG_WARNING(( "SlotHistory sysvar has an invalid newest slot: %lu != bank slot: %lu", newest_slot, ctx->bank_slot ));
+    return -1;
+  }
+
+  ulong slot_history_len = fd_sysvar_slot_history_len( &decoded.o );
+  if( FD_UNLIKELY( slot_history_len!=FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
+    /* VerifySlotHistoryError::InvalidNumEntries
+       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L625 */
+    FD_LOG_WARNING(( "SLotHistory sysvar has invalid number of entries: %lu != expected: %lu", slot_history_len, FD_SLOT_HISTORY_MAX_ENTRIES ));
+    return -1;
+  }
+
+  /* All slots in the txncache should be present in the slot history */
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
     if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+      /* VerifySlotDeltasError::SlotNotFoundInHistory
+         https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L144
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L593 */
       FD_LOG_WARNING(( "slot %lu missing from SlotHistory sysvar account", entry->slot ));
       return -1;
     }
   }
+
+  /* The most recent slots (up to the number of slots in the txncache)
+     in the SlotHistory should be present in the txncache. */
+  fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
+  for( ulong i=newest_slot; i>newest_slot-slot_set.ele_cnt; i-- ) {
+    if( FD_LIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, i )==FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+      if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &i, NULL, slot_set.pool )==NULL ) ) {
+        /* VerifySlotDeltasError::SlotNotFoundInDeltas
+           https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147
+           https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L609 */
+        FD_LOG_WARNING(( "slot %lu missing from slot deltas but present in SlotHistory", i ));
+        return -1;
+      }
+    }
+  }
+  return 0;
+}
+
+/* verification of epoch stakes from manifest
+   https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
+static int
+verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+
+  ulong min_required_epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong max_required_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
+
+  /* ensure all required epochs are present in epoch stakes */
+  for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
+    int found = 0;
+    for( ulong j=0UL; j<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
+      if( manifest->epoch_stakes[j].epoch==i ) {
+        found = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !found ) ) {
+      /* VerifyEpochStakesError::StakesNotFound
+         https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L667 */
+      FD_LOG_WARNING(( "stakes not found for epoch %lu in manifest", i ));
+      return -1;
+    }
+  }
+
   return 0;
 }
 
@@ -153,14 +235,76 @@ verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
                                    ulong              bank_slot ) {
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
-    if( FD_UNLIKELY( entry->slot>bank_slot ) ) return -1;
+    /* VerifySlotDeltasError::SlotGreaterThanMaxRoot
+       https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L138
+       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L550 */
+    if( FD_UNLIKELY( entry->slot>bank_slot ) ) {
+      FD_LOG_WARNING(( "entry slot %lu is greater than bank slot %lu", entry->slot, bank_slot ));
+      return -1;
+    }
   }
+  return 0;
+}
+
+static int
+verify_bank_hash( fd_snapin_tile_t const *       ctx,
+                  fd_snapshot_manifest_t const * manifest ) {
+  if( FD_UNLIKELY( manifest->blockhashes_len==0UL ) ) {
+    FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu has no blockhashes",
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot ));
+    return -1;
+  }
+
+  if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
+    FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu is missing accounts lthash",
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot ));
+    return -1;
+  }
+
+  /* find the last blockhash */
+  ulong max_hash_idx = 0UL;
+  ulong last_bh_idx  = 0UL;
+  for( ulong i=0UL; i<manifest->blockhashes_len; i++ ) {
+    if( FD_LIKELY( manifest->blockhashes[ i ].hash_index > max_hash_idx ) ) {
+      max_hash_idx = manifest->blockhashes[ i ].hash_index;
+      last_bh_idx  = i;
+    }
+  }
+
+  /* fd_lthash_value_t is aligned to 64B but the accounts_lthash in the
+     manifest may not be because its simply a uchar array.  Copy is
+     needed to avoid undefined behavior. */
+  fd_lthash_value_t accounts_lthash[ 1UL ];
+  fd_memcpy( accounts_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
+
+  fd_hash_t const * parent_bank_hash = (fd_hash_t const *)fd_type_pun_const( manifest->parent_bank_hash );
+  fd_hash_t const * last_blockhash   = (fd_hash_t const *)fd_type_pun_const( manifest->blockhashes[ last_bh_idx ].hash );
+  fd_hash_t         computed_bank_hash[ 1UL ];
+  fd_hashes_hash_bank( accounts_lthash, parent_bank_hash, last_blockhash, manifest->signature_count, computed_bank_hash );
+  fd_hashes_apply_hard_forks(
+      computed_bank_hash,
+      manifest->slot,
+      manifest->parent_slot,
+      manifest->hard_forks,
+      manifest->hard_forks_cnts,
+      manifest->hard_forks_len );
+
+  if( FD_UNLIKELY( memcmp( computed_bank_hash, manifest->bank_hash, FD_HASH_FOOTPRINT ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( computed_bank_hash->hash, computed_bank_hash_enc );
+    FD_BASE58_ENCODE_32_BYTES( manifest->bank_hash, manifest_bank_hash_enc );
+    FD_LOG_WARNING(( "%s manifest for epoch %lu and slot %lu bank hash verification failed: computed %s does not match manifest %s",
+                     ctx->full?"full":"incr", ctx->epoch, manifest->slot,
+                     computed_bank_hash_enc, manifest_bank_hash_enc ));
+    return -1;
+  }
+
   return 0;
 }
 
 static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -313,7 +457,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     fd_memcpy( blockhash_pool[ i ].blockhash.uc, banks[ i ].blockhash, 32UL );
 
     if( FD_UNLIKELY( blockhash_map_ele_query_const( blockhash_map, &blockhash_pool[ i ].blockhash, NULL, blockhash_pool ) ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash %s in 151 most recent blockhashes", FD_BASE58_ENC_32_ALLOCA( banks[ i ].blockhash ) ));
+      FD_BASE58_ENCODE_32_BYTES( banks[ i ].blockhash, blockhash_b58 );
+      FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash %s in 151 most recent blockhashes", blockhash_b58 ));
       transition_malformed( ctx, ctx->stem );
       return 1;
     }
@@ -332,7 +477,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     ulong chain_idx = (ulong)(entry - blockhash_pool);
 
     if( FD_UNLIKELY( banks[ chain_idx ].txnhash_offset!=ULONG_MAX && banks[ chain_idx ].txnhash_offset!=ctx->blockhash_offsets[ i ].txnhash_offset ) ) {
-      FD_LOG_WARNING(( "corrupt snapshot: conflicting txnhash offsets for blockhash %s", FD_BASE58_ENC_32_ALLOCA( entry->blockhash.uc ) ));
+      FD_BASE58_ENCODE_32_BYTES( entry->blockhash.uc, blockhash_b58 );
+      FD_LOG_WARNING(( "corrupt snapshot: conflicting txnhash offsets for blockhash %s", blockhash_b58 ));
       transition_malformed( ctx, ctx->stem );
       return 1;
     }
@@ -360,6 +506,10 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, entry->blockhash, entry->txnhash );
   }
 
+  if( !!ctx->use_vinyl && !!ctx->txncache_entries_len_vinyl_ptr ) {
+    *ctx->txncache_entries_len_vinyl_ptr = ctx->txncache_entries_len;
+  }
+
   FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txncache_entries_len ));
 
   /* Then finalize all the banks (freezing them) and setting the txnhash
@@ -385,9 +535,66 @@ static void
 process_manifest( fd_snapin_tile_t * ctx ) {
   fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk );
 
+  if( FD_UNLIKELY( ctx->advertised_slot!=manifest->slot ) ) {
+    /* SnapshotError::MismatchedSlot
+       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L472 */
+    FD_LOG_WARNING(( "snapshot manifest bank slot %lu does not match advertised slot %lu from snapshot peer",
+                     manifest->slot, ctx->advertised_slot ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
+  if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
+    /* The manifest must contain accounts lthash, irrespective of
+       whether lthash verification is disabled or not.
+       https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/serde_snapshot.rs#L482 */
+    FD_LOG_WARNING(( "snapshot manifest missing accounts lthash" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
+  uchar const * sum = manifest->accounts_lthash;
+  uchar hash32[32]; fd_blake3_hash( sum, FD_LTHASH_LEN_BYTES, hash32 );
+  FD_BASE58_ENCODE_32_BYTES( sum,    sum_enc    );
+  FD_BASE58_ENCODE_32_BYTES( hash32, hash32_enc );
+  FD_LOG_INFO(( "snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
+                manifest->slot, sum_enc, hash32_enc ));
+
+  if( FD_UNLIKELY( memcmp( ctx->advertised_hash, hash32, FD_HASH_FOOTPRINT ) ) ) {
+    /* SnapshotError::MismatchedHash
+        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L479 */
+    FD_BASE58_ENCODE_32_BYTES( ctx->advertised_hash, advertised_hash_enc );
+    FD_LOG_WARNING(( "snapshot manifest accounts lthash %s does not match advertised hash from snapshot peer %s",
+                     hash32_enc, advertised_hash_enc ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
   ctx->bank_slot = manifest->slot;
+  ctx->manifest_capitalization = manifest->capitalization;
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+  ctx->epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+
+  if( FD_UNLIKELY( verify_bank_hash( ctx, manifest ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.1.9/runtime/src/bank.rs#L4682 */
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
     FD_LOG_WARNING(( "slot deltas verification failed" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
+  if( FD_UNLIKELY( verify_epoch_stakes( manifest ) ) ) {
+    FD_LOG_WARNING(( "epoch stakes verification failed" ));
     transition_malformed( ctx, ctx->stem );
     return;
   }
@@ -398,28 +605,31 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     return;
   }
 
-  if( manifest->has_accounts_lthash ) {
-    uchar const * sum = manifest->accounts_lthash;
-    uchar hash32[32]; fd_blake3_hash( sum, FD_LTHASH_LEN_BYTES, hash32 );
-    FD_BASE58_ENCODE_32_BYTES( sum,    sum_enc    );
-    FD_BASE58_ENCODE_32_BYTES( hash32, hash32_enc );
-    FD_LOG_INFO(( "snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
-                  manifest->slot, sum_enc, hash32_enc ));
+  if( ctx->full ) {
+    ctx->full_genesis_creation_time_seconds = manifest->creation_time_seconds;
+  } else {
+    if( FD_UNLIKELY( manifest->creation_time_seconds!=ctx->full_genesis_creation_time_seconds ) ) {
+      FD_LOG_WARNING(( "snapshot manifest genesis creation time seconds %lu does not match full snapshot genesis creation time seconds %lu",
+                       manifest->creation_time_seconds, ctx->full_genesis_creation_time_seconds ));
+      transition_malformed( ctx, ctx->stem );
+      return;
+    }
   }
 
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   if( FD_LIKELY( !ctx->lthash_disabled ) ) {
-    if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
-      FD_LOG_WARNING(( "snapshot manifest missing accounts lthash field" ));
-      transition_malformed( ctx, ctx->stem );
-      return;
-    }
-
     fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
     fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
     fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
     ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+
+    if( FD_LIKELY( ctx->use_vinyl ) ) {
+      fd_ssctrl_capitalization_t * cap = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+      cap->capitalization = manifest->capitalization;
+      fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_EXP_CAPITALIZATION, ctx->hash_out.chunk, sizeof(fd_ssctrl_capitalization_t), 0UL, 0UL, 0UL );
+      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_ssctrl_capitalization_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    }
   }
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
@@ -435,16 +645,19 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
+    FD_LOG_WARNING(( "received unexpected data frag while in state %s (%lu)",
+                     fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state  ));
     transition_malformed( ctx, stem );
     return 0;
   }
-  else if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
     /* Ignore all data frags after observing an error in the stream until
        we receive fail & init control messages to restart processing. */
     return 0;
   }
-  else if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-    FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+    FD_LOG_ERR(( "received data frag during invalid state %s (%lu)",
+                 fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
@@ -464,6 +677,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
     switch( res ) {
       case FD_SSPARSE_ADVANCE_ERROR:
+        FD_LOG_WARNING(( "error while parsing snapshot stream" ));
         transition_malformed( ctx, stem );
         return 0;
       case FD_SSPARSE_ADVANCE_AGAIN:
@@ -475,6 +689,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                                                 result->manifest.acc_vec_map,
                                                 result->manifest.acc_vec_pool );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
         } else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
@@ -492,6 +707,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                                                   bytes_remaining,
                                                   sd_result );
           if( FD_UNLIKELY( res<0 ) ) {
+            FD_LOG_WARNING(( "error while parsing slot deltas in status cache" ));
             transition_malformed( ctx, stem );
             return 0;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
@@ -529,10 +745,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
           uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
           fd_memcpy( acct, result->account_data.data, result->account_data.data_sz );
 
-          /* We add 1 to the frag size since the cJSON parser used by
-             the gui tile requires one byte past the parsable JSON */
-          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz+1UL, 0UL, 0UL, 0UL );
-          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz+1UL, ctx->gui_out.chunk0, ctx->gui_out.wmark );
+          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz, 0UL, 0UL, 0UL );
+          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz, ctx->gui_out.chunk0, ctx->gui_out.wmark );
+          early_exit = 1;
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
@@ -548,6 +763,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
     if( FD_UNLIKELY( !ctx->flags.manifest_processed && ctx->flags.manifest_done && ctx->flags.status_cache_done ) ) {
       process_manifest( ctx );
+      if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) break;
       ctx->flags.manifest_processed = 1;
     }
 
@@ -563,105 +779,164 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   return reprocess_frag;
 }
 
+static int
+validate_capitalization( fd_snapin_tile_t * ctx ) {
+  /* Capitalization is checked only when lthash verification is
+     enabled, since a snapshot that fails lthash would most probably
+     fail capitalization as well.  This also matches the snapshot
+     load pipeline check under vinyl. */
+  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
+  if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
+    /* SnapshotError::MismatchedCapitalization
+        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
+    FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
+                     ctx->full?"full":"incr", ctx->manifest_capitalization, ctx->capitalization ));
+    return -1;
+  }
+  return 0;
+}
+
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
-                     ulong               sig ) {
+                     ulong               sig,
+                     ulong               chunk ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    return;
+  };
+
+  int forward_msg = 1;
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-      fd_ssparse_batch_enable( ctx->ssparse, sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->txncache_entries_len  = 0UL;
-      ctx->blockhash_offsets_len = 0UL;
+      ctx->txncache_entries_len    = 0UL;
+      ctx->blockhash_offsets_len   = 0UL;
+      ctx->manifest_capitalization = 0UL;
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
       fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
-      if( ctx->use_vinyl ) {
-        if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
-          fd_snapin_vinyl_txn_begin( ctx );
-        }
-        fd_snapin_vinyl_wd_init( ctx );
-      }
-      break;
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_cancel( ctx );
-        }
+      /* Rewind metric counters (no-op unless recovering from a fail) */
+      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
+        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded   = 0;
+        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced = 0;
+        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored  = 0;
+        ctx->metrics.full_bytes_read   = 0UL;
+        ctx->metrics.incremental_bytes_read = 0UL;
+        ctx->full_genesis_creation_time_seconds = 0UL;
+        ctx->capitalization                     = 0UL;
+        ctx->dup_capitalization                 = 0UL;
+        ctx->recovery.capitalization            = 0UL;
       } else {
-        if( ctx->full ) {
-          fd_accdb_clear( ctx->accdb_admin );
-        } else {
-          fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->accdb_admin->funk ) );
-        }
+        ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
+        ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
+        ctx->metrics.accounts_ignored  = ctx->metrics.full_accounts_ignored;
+        ctx->metrics.incremental_bytes_read = 0UL;
+
+        fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
+        fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
+        fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
+
+        ctx->capitalization     = ctx->recovery.capitalization;
+        ctx->dup_capitalization = 0UL;
       }
+
+      /* Save the slot advertised by the snapshot peer and verify it
+         against the slot in the snapshot manifest.  For downloaded
+         snapshots, this is simply a best estimate.  The actual
+         advertised slot for downloaded snapshots is received in a
+         separate fd_ssctrl_meta_t message below. */
+      fd_ssctrl_init_t const * msg = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
+      ctx->advertised_slot = msg->slot;
+      fd_memcpy( ctx->advertised_hash, msg->snapshot_hash, FD_HASH_FOOTPRINT );
       break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      /* This is a special case: handle_data_frag must have already
+         processed FD_SSPARSE_ADVANCE_DONE and moved the state into
+         FD_SNAPSHOT_STATE_FINISHING. */
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      break;
+    }
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        transition_malformed( ctx, stem );
-        return;
-      }
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_commit( ctx );
+      if( !ctx->use_vinyl ) {
+        if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+          FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
         }
+
+        ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
+        if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
+
+        ctx->recovery.capitalization = ctx->capitalization;
       }
 
-      fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
-      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
-      fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
+      /* Backup metric counters */
+      ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
+      ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
+      ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        transition_malformed( ctx, stem );
-        return;
-      }
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_commit( ctx );
+      if( !ctx->use_vinyl ) {
+        if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+          if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+          else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
+
+        ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
+        if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
         }
       }
 
-      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-        FD_LOG_WARNING(( "slot deltas verification failed" ));
-        transition_malformed( ctx, stem );
-        break;
-      }
-
       /* Publish any remaining funk txn */
-      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) ) ) {
+      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
+        ctx->accdb_admin->base.gc_root_cnt = 0UL;
+        ctx->accdb_admin->base.reclaim_cnt = 0UL;
         fd_accdb_advance_root( ctx->accdb_admin, ctx->xid );
+        ctx->metrics.accounts_replaced += ctx->accdb_admin->base.gc_root_cnt;
+        /* If an incremental snapshot 'reclaims' (deletes) an account,
+           this removes both the full snapshot's original account, and
+           the incremental snapshot's tombstone record.  Thus account
+           for twice in metrics. */
+        ctx->metrics.accounts_loaded   -= ctx->accdb_admin->base.reclaim_cnt;
+        ctx->metrics.accounts_replaced += ctx->accdb_admin->base.reclaim_cnt;
       }
-      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->accdb_admin->funk ) );
+      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
 
       /* Make 'Last published' XID equal the restored slot number */
       fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
@@ -669,33 +944,49 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
+      /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-      if( ctx->use_vinyl ) fd_snapin_vinyl_shutdown( ctx );
-      break;
-
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      if( ctx->use_vinyl ) {
-        fd_snapin_vinyl_wd_fini( ctx );
-        if( ctx->vinyl.txn_active ) {
-          fd_snapin_vinyl_txn_cancel( ctx );
-        }
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      if( ctx->full ) {
+        fd_accdb_v1_clear( ctx->accdb_admin );
+      }
+
+      if( !ctx->full ) {
+        fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+        fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
       }
       break;
+    }
 
-    default:
-      FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+      break;
+    }
+
+    default: {
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
+      break;
+    }
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static inline int
@@ -713,7 +1004,7 @@ returnable_frag( fd_snapin_tile_t *  ctx,
 
   ctx->stem = stem;
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig );
+  else                                           handle_control_frag( ctx, stem, sig, chunk );
   ctx->stem = NULL;
 
   return 0;
@@ -724,7 +1015,7 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
                       fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
@@ -740,13 +1031,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  if( tile->snapin.use_vinyl ) {
-    return fd_snapin_vinyl_seccomp( out_cnt, out );
-  } else {
-    populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-    return sock_filter_policy_fd_snapin_tile_instr_cnt;
-  }
+  (void)topo; (void)tile;
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
 static void
@@ -756,14 +1043,8 @@ privileged_init( fd_topo_t *      topo,
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 
-  if( tile->snapin.use_vinyl && !tile->snapin.lthash_disabled ) {
-    FD_LOG_WARNING(( "lthash verficiation for vinyl not yet implemented" ));
-    tile->snapin.lthash_disabled = 1;
-  }
-
   if( tile->snapin.use_vinyl ) {
     ctx->use_vinyl = 1;
-    fd_snapin_vinyl_privileged_init( ctx, topo, tile );
   }
 }
 
@@ -795,13 +1076,25 @@ unprivileged_init( fd_topo_t *      topo,
   void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots ) );
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                              );
   void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                              );
-  ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
-  void * _io_wd = NULL;
-  void * _io_mm = NULL;
+
   if( tile->snapin.use_vinyl ) {
-    _io_wd = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_wd_align(), fd_vinyl_io_wd_footprint( tile->snapin.snapwr_depth ) );
-    _io_mm = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPIN_IO_SPAD_MAX     ) );
+    /* snapwm needs all txn_cache data in order to verify the slot
+       deltas with the slot history.  To make this possible, snapin
+       uses the dcache of the snapin_txn link as the scratch memory.
+       The app field of the dcache is used to communicate the
+       txncache_entries_len value. */
+    fd_snapin_out_link_t snapin_txn = out1( topo, tile, "snapin_txn" );
+    FD_TEST( !!snapin_txn.mem );
+    fd_topo_link_t const * out_link_txn = &topo->links[ tile->out_link_id[ snapin_txn.idx ] ];
+    ulong depth = out_link_txn->depth;
+    FD_TEST( ( depth*snapin_txn.mtu )==( sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) );
+    ctx->txncache_entries                 = fd_chunk_to_laddr( snapin_txn.mem, snapin_txn.chunk0 );
+    ctx->txncache_entries_len_vinyl_ptr   = (ulong*)fd_dcache_app_laddr( out_link_txn->dcache );
+    memset( ctx->txncache_entries_len_vinyl_ptr, 0, sizeof(ulong) );
+  } else {
+    ctx->txncache_entries = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+    ctx->txncache_entries_len_vinyl_ptr = NULL;
   }
 
   ctx->full = 1;
@@ -810,9 +1103,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->boot_timestamp = fd_log_wallclock();
 
-  FD_TEST( fd_accdb_admin_join  ( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->accdb_admin->funk ) );
+  ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  void * shfunk       = fd_topo_obj_laddr( topo, funk_obj_id       );
+  void * shfunk_locks = fd_topo_obj_laddr( topo, funk_locks_obj_id );
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin, shfunk, shfunk_locks ) );
+  FD_TEST( fd_accdb_user_v1_init ( ctx->accdb,       shfunk, shfunk_locks, tile->snapin.accdb_max_depth ) );
+  ctx->funk = fd_accdb_user_v1_funk( ctx->accdb );
+  fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->funk ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -841,15 +1139,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
   ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
   if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ls", 0UL );
-  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
+  if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_wm", 0UL );
+  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls` or `snapin_wm`" ));
   fd_topo_link_t * snapin_out_link = &topo->links[ tile->out_link_id[ out_link_ct_idx ] ];
   ctx->out_ct_idx = out_link_ct_idx;
 
-  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
+  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls` or `snapin_wm`" ));
   if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
 
-  if( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) {
-    ctx->hash_out = out1( topo, tile, "snapin_ls" );
+  if( ( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) ||
+      ( 0==strcmp( snapin_out_link->name, "snapin_wm" ) ) ) {
+    ctx->hash_out = out1( topo, tile, snapin_out_link->name );
   }
 
   fd_ssparse_reset( ctx->ssparse );
@@ -868,10 +1168,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->buffered_batch.batch_cnt     = 0UL;
   ctx->buffered_batch.remaining_idx = 0UL;
 
+  ctx->advertised_slot = 0UL;
+  ctx->bank_slot       = 0UL;
+  ctx->epoch           = 0UL;
+
+  ctx->full_genesis_creation_time_seconds = 0UL;
+  ctx->manifest_capitalization            = 0UL;
+  ctx->capitalization                     = 0UL;
+  ctx->dup_capitalization                 = 0UL;
+  ctx->recovery.capitalization            = 0UL;
+
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 
   if( tile->snapin.use_vinyl ) {
-    fd_snapin_vinyl_unprivileged_init( ctx, topo, tile, _io_mm, _io_wd );
+    ctx->use_vinyl = 1;
   }
 }
 

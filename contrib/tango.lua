@@ -172,7 +172,7 @@ local link_hashes = {
   [0x9e4bf4] = "bundle_verif",
   [0xc7e9e7] = "bundle_sign" ,
   [0x81114e] = "sign_bundle" ,
-  [0x8ebf3e] = "bundle_plugi",
+  [0x8ebf3e] = "bundle_status",
   [0x06c577] = "pack_sign",
   [0x6a974e] = "sign_pack",
   [0x2080d6] = "bank_pack",
@@ -219,7 +219,7 @@ function tango.dissector (tvb, pinfo, tree)
   if link_name:match("^net_") or link_name:match("_net$") then
     local dissector = Dissector.get("eth_withoutfcs")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "gossip_verif" or link_name == "send_out" or link_name == "gossip_dedup" then
+  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "gossip_verif" or link_name == "txsend_out" or link_name == "gossip_dedup" then
     local dissector = Dissector.get("fd_txn_m_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "poh_shred" then
@@ -563,7 +563,7 @@ local source_tpu_enum = {
     [2] = "UDP",
     [4] = "GOSSIP",
     [8] = "BUNDLE",
-    [16] = "SEND"
+    [16] = "TXSEND"
 }
 local f_source_tpu = ProtoField.uint8("fd_txn_m_t.source_tpu",       "Source TPU", base.DEC, source_tpu_enum)
 local f_payload_sz = ProtoField.uint16("fd_txn_m_t.payload_sz",       "Size of payload")

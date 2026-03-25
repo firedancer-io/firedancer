@@ -5,6 +5,10 @@
 #include "test_ed25519_wycheproof.c"
 #include "test_ed25519_cctv.c"
 
+#define FD_ED25519_UNIT_TESTS
+#include "fd_curve25519_secure.c"
+#undef FD_ED25519_UNIT_TESTS
+
 static uchar *
 fd_rng_b256( fd_rng_t * rng,
              uchar      r[ 32 ] ) {
@@ -30,24 +34,6 @@ log_bench( char const * descr,
   float tau = (float)dt /(float)iter;
   FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
 }
-
-#define OPENSSL_COMPARE 0
-#if OPENSSL_COMPARE
-#include <stdint.h>
-#include "ATTIC/curve25519.c"
-
-static int *
-fe_rng( int *      h,
-        fd_rng_t * rng ) {
-  uint m26 = (uint)FD_ULONG_MASK_LSB(26); uint m25 = (uint)FD_ULONG_MASK_LSB(25);
-  h[0] = (int)(fd_rng_uint( rng ) & m26); h[1] = (int)(fd_rng_uint( rng ) & m25);
-  h[2] = (int)(fd_rng_uint( rng ) & m26); h[3] = (int)(fd_rng_uint( rng ) & m25);
-  h[4] = (int)(fd_rng_uint( rng ) & m26); h[5] = (int)(fd_rng_uint( rng ) & m25);
-  h[6] = (int)(fd_rng_uint( rng ) & m26); h[7] = (int)(fd_rng_uint( rng ) & m25);
-  h[8] = (int)(fd_rng_uint( rng ) & m26); h[9] = (int)(fd_rng_uint( rng ) & m25);
-  return h;
-}
-#endif
 
 void
 test_fe_frombytes( fd_rng_t * rng ) {
@@ -226,18 +212,6 @@ void
 test_fe_copy( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    fe ref_f; fe ref_h; fe_copy( ref_h, fe_rng( ref_f, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    FD_TEST( fd_f25519_set( h, f )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_set( f, f )==f );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   ulong iter = 1000000UL;
@@ -252,27 +226,6 @@ test_fe_add( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _g[1]; fd_f25519_t * g = _g;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    fe ref_f; fe ref_g; fe ref_h; fe_add( ref_h, fe_rng( ref_f, rng ), fe_rng( ref_g, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    fd_memcpy( g, ref_g, sizeof(fe) );
-    FD_TEST( fd_f25519_add( h, f, g )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( g, ref_g, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_add( f, f, g )==f );
-    FD_TEST( !memcmp( g, ref_g, sizeof(fe) ) );
-    FD_TEST( !memcmp( f, ref_h, sizeof(fe) ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-
-    FD_TEST( fd_f25519_add( g, f, g )==g );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( g, ref_h, sizeof(fe) ) );
-  //fd_memcpy( g, ref_g, sizeof(fe) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   fd_f25519_rng_unsafe( g, rng );
@@ -290,27 +243,6 @@ test_fe_sub( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _g[1]; fd_f25519_t * g = _g;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    fe ref_f; fe ref_g; fe ref_h; fe_sub( ref_h, fe_rng( ref_f, rng ), fe_rng( ref_g, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    fd_memcpy( g, ref_g, sizeof(fe) );
-    FD_TEST( fd_f25519_sub( h, f, g )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( g, ref_g, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_sub( f, f, g )==f );
-    FD_TEST( !memcmp( g, ref_g, sizeof(fe) ) );
-    FD_TEST( !memcmp( f, ref_h, sizeof(fe) ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-
-    FD_TEST( fd_f25519_sub( g, f, g )==g );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( g, ref_h, sizeof(fe) ) );
-  //fd_memcpy( g, ref_g, sizeof(fe) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   fd_f25519_rng_unsafe( g, rng );
@@ -329,28 +261,6 @@ test_fe_mul( fd_rng_t * rng ) {
   fd_f25519_t _g[1]; fd_f25519_t * g = _g;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
   fd_f25519_t _e[1]; fd_f25519_t * e = _e;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    fe ref_f; fe ref_g; fe ref_h; fe_mul( ref_h, fe_rng( ref_f, rng ), fe_rng( ref_g, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    fd_memcpy( g, ref_g, sizeof(fe) );
-    fd_f25519_t z[1]; fd_f25519_0( z );
-    FD_TEST( fd_f25519_mul( h, f, g )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( g, ref_g, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_mul( f, f, g )==f );
-    FD_TEST( !memcmp( g, ref_g, sizeof(fe) ) );
-    FD_TEST( !memcmp( f, ref_h, sizeof(fe) ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-
-    FD_TEST( fd_f25519_mul( g, f, g )==g );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( g, ref_h, sizeof(fe) ) );
-  //fd_memcpy( f, ref_f, sizeof(fe) );
-  }
-# endif
 
   uchar buf[32], ebuf[32];
   fd_hex_decode( buf, "67ccf547e004ba7acda6c72bf9d7d6c5ea20ff33bd887ef92764243c83488700", 32 );
@@ -379,19 +289,6 @@ void
 test_fe_sq( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    fe ref_f; fe ref_h; fe_sq( ref_h, fe_rng( ref_f, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    FD_TEST( fd_f25519_sqr( h, f )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_sqr( f, f )==f );
-    FD_TEST( !memcmp( f, ref_h, sizeof(fe) ) );
-  //fd_memcpy( f, ref_f, sizeof(fe) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   ulong iter = 1000000UL;
@@ -405,19 +302,6 @@ void
 test_fe_invert( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
-# if OPENSSL_COMPARE
-  for( ulong rem=10000UL; rem; rem-- ) {
-    fe ref_f; fe ref_h; fe_invert( ref_h, fe_rng( ref_f, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    FD_TEST( fd_f25519_inv( h, f )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_inv( f, f )==f );
-    FD_TEST( !memcmp( f, ref_h, sizeof(fe) ) );
-  //fd_memcpy( f, ref_f, sizeof(fe) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   ulong iter = 10000UL;
@@ -431,19 +315,6 @@ void
 test_fe_neg( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
-# if OPENSSL_COMPARE
-  for( ulong rem=100000UL; rem; rem-- ) {
-    fe ref_f; fe ref_h; fe_neg( ref_h, fe_rng( ref_f, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    FD_TEST( fd_f25519_neg( h, f )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_neg( f, f )==f );
-    FD_TEST( !memcmp( f, ref_h, sizeof(fe) ) );
-  //fd_memcpy( f, ref_f, sizeof(fe) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   ulong iter = 100000UL;
@@ -459,30 +330,6 @@ test_fe_if( fd_rng_t * rng ) {
   fd_f25519_t _g[1]; fd_f25519_t * g = _g;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
   uchar c;
-# if OPENSSL_COMPARE
-  for( ulong rem=100000UL; rem; rem-- ) {
-    fe ref_f; fe ref_g; fe ref_h;
-    c = (int)(fd_rng_uint( rng ) & 1U);
-    fe_rng( ref_f, rng );
-    fe_rng( ref_g, rng );
-    fd_memcpy( ref_h, ref_g, sizeof(fe) ); fe_cmov( ref_h, ref_f, (uint)c );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    fd_memcpy( g, ref_g, sizeof(fe) );
-    FD_TEST( fd_f25519_if( h, c, f, g )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( g, ref_g, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_if( f, c, f, g )==f );
-    FD_TEST( !memcmp( g, ref_g, sizeof(fe) ) );
-    FD_TEST( !memcmp( f, ref_h, sizeof(fe) ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-
-    FD_TEST( fd_f25519_if( g, c, f, g )==g );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( g, ref_h, sizeof(fe) ) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   fd_f25519_rng_unsafe( g, rng );
@@ -506,14 +353,6 @@ void
 test_fe_isnonzero( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   int c;
-# if OPENSSL_COMPARE
-  for( ulong rem=100000UL; rem; rem-- ) {
-    fe ref_f; c = fe_isnonzero( fe_rng( ref_f, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    FD_TEST( fd_f25519_is_nonzero( f )==c );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   ulong iter = 100000UL;
@@ -531,19 +370,6 @@ void
 test_fe_pow22523( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
-# if OPENSSL_COMPARE
-  for( ulong rem=100000UL; rem; rem-- ) {
-    fe ref_f; fe ref_h; fe_pow22523( ref_h, fe_rng( ref_f, rng ) );
-    fd_memcpy( f, ref_f, sizeof(fe) );
-    FD_TEST( fd_f25519_pow22523( h, f )==h );
-    FD_TEST( !memcmp( f, ref_f, sizeof(fe) ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-
-    FD_TEST( fd_f25519_pow22523( f, f )==f );
-    FD_TEST( !memcmp( f, ref_h, sizeof(fe) ) );
-  //fd_memcpy( f, ref_f, sizeof(fe) );
-  }
-# endif
 
   fd_f25519_rng_unsafe( f, rng );
   ulong iter = 100000UL;
@@ -554,51 +380,6 @@ test_fe_pow22523( fd_rng_t * rng ) {
     dt = fd_log_wallclock() - dt;
     log_bench( "fd_f25519_pow22523", iter, dt );
   }
-
-  /* during refactor, fd_f25519_pow22523_2 & fd_f25519_pow22523_4
-     were not implemented. leaving the tests in case we add them. */
-#if 0
-  fd_f25519_t _fb[1]; fd_f25519_t * fb = _fb;
-  fd_f25519_t _hb[1]; fd_f25519_t * hb = _hb;
-  fd_f25519_t _fc[1]; fd_f25519_t * fc = _fc;
-  fd_f25519_t _hc[1]; fd_f25519_t * hc = _hc;
-  fd_f25519_t _fd[1]; fd_f25519_t * fd = _fd;
-  fd_f25519_t _hd[1]; fd_f25519_t * hd = _hd;
-  fd_f25519_t _ref_h[1]; fd_f25519_t * ref_h = _ref_h;
-  memset(ref_h, 0, sizeof(fd_f25519_t));
-  memset(h, 0, sizeof(fd_f25519_t));
-  memset(hb, 0, sizeof(fd_f25519_t));
-  memset(hc, 0, sizeof(fd_f25519_t));
-  memset(hd, 0, sizeof(fd_f25519_t));
-  fd_f25519_rng_unsafe( fb, rng );
-  fd_f25519_rng_unsafe( fc, rng );
-  fd_f25519_rng_unsafe( fd, rng );
-
-  fd_f25519_pow22523( ref_h, f );
-  fd_f25519_pow22523_2( h,f, hb,f );
-  FD_TEST( !memcmp( h,  ref_h, sizeof(fd_f25519_t) ) );
-  FD_TEST( !memcmp( hb, ref_h, sizeof(fd_f25519_t) ) );
-
-  fd_f25519_pow22523_4( h,f, hb,f, hc,f, hd,f );
-  FD_TEST( !memcmp( h,  ref_h, sizeof(fd_f25519_t) ) );
-  FD_TEST( !memcmp( hb, ref_h, sizeof(fd_f25519_t) ) );
-  FD_TEST( !memcmp( hc, ref_h, sizeof(fd_f25519_t) ) );
-  FD_TEST( !memcmp( hd, ref_h, sizeof(fd_f25519_t) ) );
-
-  {
-    long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_f25519_pow22523_2( h,f, hb,fb ); }
-    dt = fd_log_wallclock() - dt;
-    log_bench( "fd_f25519_pow22523_2", iter, dt );
-  }
-
-  {
-    long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_f25519_pow22523_4( h,f, hb,fb, hc,fc, hd,fd ); }
-    dt = fd_log_wallclock() - dt;
-    log_bench( "fd_f25519_pow22523_4", iter, dt );
-  }
-#endif
 }
 
 void
@@ -759,6 +540,84 @@ test_point_frombytes( FD_PARAM_UNUSED fd_rng_t * rng ) {
 }
 
 static void
+test_point_add_secure( fd_rng_t * rng FD_PARAM_UNUSED ) {
+  uchar _bufa[32]; uchar * bufa = _bufa;
+  uchar _bufb[32]; uchar * bufb = _bufb;
+  uchar _bufr[32]; uchar * bufr = _bufr;
+  uchar _bufe[32]; uchar * bufe = _bufe;
+
+  fd_ed25519_point_t a[1];
+  fd_ed25519_point_t b[1];
+  fd_ed25519_point_t r[1];
+  fd_ed25519_point_t e[1];
+  fd_ed25519_point_t tmp0[1];
+  fd_ed25519_point_t tmp1[1];
+
+  {
+    // this failed the point_add_secure
+    fd_hex_decode( bufa, "0100000000000000000000000000000000b90000000000000000000000000080", 32 );
+    fd_hex_decode( bufb, "0000000000000000000000000000000000fb0000000000000000000000000080", 32 );
+    fd_hex_decode( bufe, "1e7eb8ea9e26b4e89d6ae958797cee2d0a64ecf2f3a50eb4d4fff0492abf0658", 32 );
+
+    FD_TEST( fd_ed25519_point_frombytes( a, bufa ) );
+    FD_TEST( fd_ed25519_point_frombytes( b, bufb ) );
+
+    FD_TEST( fd_ed25519_point_frombytes( e, bufe ) );
+    {
+      fd_ed25519_point_tobytes( bufr, a );
+      FD_TEST( fd_memeq( bufr, bufa, 32UL ) );
+      fd_ed25519_point_tobytes( bufr, b );
+      FD_TEST( fd_memeq( bufr, bufb, 32UL ) );
+    }
+
+    fd_curve25519_into_precomputed( b );
+    fd_ed25519_point_add_secure( r, a, b, tmp0, tmp1 );
+    fd_ed25519_point_tobytes( bufr, r );
+
+    FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
+  }
+}
+
+static void
+test_point_neg_if( fd_rng_t * rng FD_PARAM_UNUSED ) {
+  uchar _bufr[32]; uchar * bufr = _bufr;
+  uchar _bufe[32]; uchar * bufe = _bufe;
+
+  fd_ed25519_point_t b[1];
+  fd_ed25519_point_t r[1];
+  fd_ed25519_point_t zero[1];
+  fd_ed25519_point_set_zero( zero );
+  fd_ed25519_point_set_zero_precomputed( b );
+
+  fd_ed25519_point_t tmp0[1], tmp1[1];
+
+  for( ulong j=0; j<32; j++ ) {
+    for( ulong k=0; k<8; k++ ) {
+      fd_ed25519_point_t * a = (fd_ed25519_point_t *)( &fd_ed25519_base_point_const_time_table[j][k] );
+
+      // neg_if( 0 ) == copy
+      fd_ed25519_point_add_secure( r, zero, a, tmp0, tmp1 );
+      fd_ed25519_point_tobytes( bufe, r );
+
+      fd_ed25519_point_neg_if( b, a, 0 );
+      fd_ed25519_point_add_secure( r, zero, b, tmp0, tmp1 );
+      fd_ed25519_point_tobytes( bufr, r );
+
+      FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
+
+      // neg_if( 1 ) == neg
+      bufe[ 31 ] ^= 0x80;
+
+      fd_ed25519_point_neg_if( b, a, 1 );
+      fd_ed25519_point_add_secure( r, zero, b, tmp0, tmp1 );
+      fd_ed25519_point_tobytes( bufr, r );
+
+      FD_TEST( fd_memeq( bufr, bufe, 32UL ) );
+    }
+  }
+}
+
+static void
 test_point_sub( fd_rng_t * rng FD_PARAM_UNUSED ) {
   uchar _bufa[32]; uchar * bufa = _bufa;
   uchar _bufb[32]; uchar * bufb = _bufb;
@@ -909,18 +768,6 @@ void
 test_sc_reduce( fd_rng_t * rng ) {
   uchar _in [64]; uchar * in  = _in;
   uchar _out[64]; uchar * out = _out;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    uchar ref_in[64]; uchar ref_out[64]; x25519_sc_reduce( fd_memcpy( ref_out, fd_rng_b512( rng, ref_in ), 64UL ) );
-    fd_memcpy( in, ref_in, 64UL );
-    FD_TEST( fd_curve25519_scalar_reduce( out, in )==out );
-    FD_TEST( !memcmp( in,  ref_in,  64UL ) );
-    FD_TEST( !memcmp( out, ref_out, 32UL ) ); /* yes 32 */
-
-    FD_TEST( fd_curve25519_scalar_reduce( in, in )==in );
-    FD_TEST( !memcmp( in, ref_out, 64UL ) );
-  }
-# endif
 
   fd_rng_b512( rng, in );
   ulong iter = 1000000UL;
@@ -936,38 +783,6 @@ test_sc_muladd( fd_rng_t * rng ) {
   uchar _b[32]; uchar * b = _b;
   uchar _c[32]; uchar * c = _c;
   uchar _s[32]; uchar * s = _s;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    uchar ref_a[32]; uchar ref_b[32]; uchar ref_c[32]; uchar ref_s[32];
-    sc_muladd( ref_s, fd_rng_b256( rng, ref_a ), fd_rng_b256( rng, ref_b ), fd_rng_b256( rng, ref_c ) );
-    fd_memcpy( a, ref_a, 32UL );
-    fd_memcpy( b, ref_b, 32UL );
-    fd_memcpy( c, ref_c, 32UL );
-    FD_TEST( fd_curve25519_scalar_muladd( s, a, b, c )==s );
-    FD_TEST( !memcmp( a, ref_a, 32UL ) );
-    FD_TEST( !memcmp( b, ref_b, 32UL ) );
-    FD_TEST( !memcmp( c, ref_c, 32UL ) );
-    FD_TEST( !memcmp( s, ref_s, 32UL ) );
-
-    FD_TEST( fd_curve25519_scalar_muladd( a, a, b, c )==a );
-    FD_TEST( !memcmp( b, ref_b, 32UL ) );
-    FD_TEST( !memcmp( c, ref_c, 32UL ) );
-    FD_TEST( !memcmp( a, ref_s, 32UL ) );
-    fd_memcpy( a, ref_a, 32UL );
-
-    FD_TEST( fd_curve25519_scalar_muladd( b, a, b, c )==b );
-    FD_TEST( !memcmp( a, ref_a, 32UL ) );
-    FD_TEST( !memcmp( c, ref_c, 32UL ) );
-    FD_TEST( !memcmp( b, ref_s, 32UL ) );
-    fd_memcpy( b, ref_b, 32UL );
-
-    FD_TEST( fd_curve25519_scalar_muladd( c, a, b, c )==c );
-    FD_TEST( !memcmp( a, ref_a, 32UL ) );
-    FD_TEST( !memcmp( b, ref_b, 32UL ) );
-    FD_TEST( !memcmp( c, ref_s, 32UL ) );
-  //fd_memcpy( c, ref_c, 32UL );
-  }
-# endif
 
   fd_rng_b256( rng, a );
   fd_rng_b256( rng, b );
@@ -988,15 +803,7 @@ test_public_from_private( fd_rng_t *    rng,
   uchar _prv[32]; uchar * prv = _prv;
   uchar _pub[32]; uchar * pub = _pub;
   uchar _exp[32]; uchar * exp = _exp;
-# if OPENSSL_COMPARE
-  for( ulong rem=10000UL; rem; rem-- ) {
-    uchar ref_prv[32]; uchar ref_pub[32]; ED25519_public_from_private( ref_pub, fd_rng_b256( rng, ref_prv ) );
-    fd_memcpy( prv, ref_prv, 32UL );
-    FD_TEST( fd_ed25519_public_from_private( pub, prv, sha )==pub );
-    FD_TEST( !memcmp( prv, ref_prv, 32UL ) );
-    FD_TEST( !memcmp( pub, ref_pub, 32UL ) );
-  }
-# endif
+
   fd_hex_decode( prv, "aac11373b6f936a0d22759e6a54e0a11947cd183cf34df9dec10e234b5d133eb", 32 );
   fd_hex_decode( exp, "1ddd2c92234f97eda0c91d0191491392a70fbe42fedc0df99d871583d9ad351f", 32 );
   fd_ed25519_public_from_private( pub, prv, sha );
@@ -1025,23 +832,6 @@ test_sign( fd_rng_t *    rng,
   uchar _prv[   32 ]; uchar * prv = _prv;
   uchar _sig[   64 ]; uchar * sig = _sig;
   uchar _exp[   64 ]; uchar * exp = _exp;
-# if OPENSSL_COMPARE
-  for( ulong rem=10000UL; rem; rem-- ) {
-    uchar ref_msg[ 1024 ]; uchar ref_pub[32]; uchar ref_prv[32]; uchar ref_sig[64];
-    ulong sz = (ulong)fd_rng_uint_roll( rng, 1025U );
-    for( ulong b=0; b<sz; b++ ) ref_msg[b] = fd_rng_uchar( rng );
-    ED25519_public_from_private( ref_pub, fd_rng_b256( rng, ref_prv ) );
-    ED25519_sign( ref_sig, ref_msg, sz, ref_pub, ref_prv );
-    fd_memcpy( msg, ref_msg, sz   );
-    fd_memcpy( pub, ref_pub, 32UL );
-    fd_memcpy( prv, ref_prv, 32UL );
-    FD_TEST( fd_ed25519_sign( sig, msg, sz, pub, prv, sha )==sig );
-    FD_TEST( !memcmp( msg, ref_msg, sz   ) );
-    FD_TEST( !memcmp( pub, ref_pub, 32UL ) );
-    FD_TEST( !memcmp( prv, ref_prv, 32UL ) );
-    FD_TEST( !memcmp( sig, ref_sig, 32UL ) );
-  }
-# endif
 
   fd_hex_decode( prv, "57835dc6a20e4efd70e90882dbd832b577dbc469960284e0ee718fb526d2ec84", 32 );
   fd_hex_decode( exp, "d65759870ce42b34fd955871f0371ce1c9a976edbe98417b84541bb4c68b65a0673799895c61d530624ffbf92c047d47d4eb4cd1bac2ecee1365faebb53a6303", 64 );
@@ -1074,59 +864,50 @@ test_verify( fd_rng_t *    rng,
   uchar _pub[   32 ]; uchar * pub = _pub;
   uchar _sig[   64 ]; uchar * sig = _sig;
   uchar _prv[   32 ]; uchar * prv = _prv;
-# if OPENSSL_COMPARE
-  for( ulong rem=10000UL; rem; rem-- ) {
-    uchar ref_msg[ 1024 ]; uchar ref_pub[ 32 ]; uchar ref_sig[ 64 ]; uchar ref_prv[ 32 ];
-    ulong sz = (ulong)fd_rng_uint_roll( rng, 1025U );
-    for( ulong b=0; b<sz; b++ ) ref_msg[b] = fd_rng_uchar( rng );
-    ED25519_public_from_private( ref_pub, fd_rng_b256( rng, ref_prv ) );
-    ED25519_sign( ref_sig, ref_msg, sz, ref_pub, ref_prv );
 
-    uint r = fd_rng_uint( rng );
-    int corrupt_sig = !(r & 31U); r >>= 5;
-    int corrupt_msg = !(r & 31U); r >>= 5;
-    int corrupt_sz  = !(r & 31U); r >>= 5;
-    int corrupt_pub = !(r & 31U); r >>= 5;
+  {
+    // "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" // valid point
+    // "b898e00f6f6df758b3f9a05cbf73b15fd392a008a9a417d471c178c1b28c7447" // invalid point
+    // "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05" // small order point
+    // "0000000000000000000000000000000000000000000000000000000000000000" // valid scalar
+    // "2222222222222222222222222222222222222222222222222222222222222222" // invalid scalar
 
-    if( corrupt_sig ) {
-      ulong idx  = (ulong)fd_rng_uint_roll( rng, 512UL );
-      ulong byte = idx>>3;
-      ulong bit  = idx & 7UL;
-      ref_sig[ byte ] = (uchar)(((ulong)ref_sig[ byte ]) ^ (1UL<<bit));
-    }
+    // invalid scalar s
+    fd_hex_decode( sig, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff2222222222222222222222222222222222222222222222222222222222222222", 64 );
+    fd_hex_decode( pub, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+    FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_SIG );
+    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_SIG );
 
-    if( corrupt_msg && sz ) {
-      ulong idx = (ulong)fd_rng_uint_roll( rng, 8U*(uint)sz );
-      ulong byte = idx>>3;
-      ulong bit  = idx & 7UL;
-      ref_msg[ byte ] = (uchar)(((ulong)ref_msg[ byte ]) ^ (1UL<<bit));
-    }
+    // invalid point r
+    fd_hex_decode( sig, "b898e00f6f6df758b3f9a05cbf73b15fd392a008a9a417d471c178c1b28c74470000000000000000000000000000000000000000000000000000000000000000", 64 );
+    fd_hex_decode( pub, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+    FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_SIG );
+    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_SIG );
 
-    if( corrupt_sz ) {
-      ulong old_sz = sz;
-      sz = (ulong)fd_rng_uint_roll( rng, 1025U );
-      for( ulong b=old_sz; b<sz; b++ ) ref_msg[b] = fd_rng_uchar( rng );
-    }
+    // small order r
+    fd_hex_decode( sig, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc050000000000000000000000000000000000000000000000000000000000000000", 64 );
+    fd_hex_decode( pub, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+    FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_SIG );
+    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_SIG );
 
-    if( corrupt_pub ) {
-      ulong idx  = (ulong)fd_rng_uint_roll( rng, 256UL );
-      ulong byte = idx>>3;
-      ulong bit  = idx & 7UL;
-      ref_pub[ byte ] = (uchar)(((ulong)ref_pub[ byte ]) ^ (1UL<<bit));
-    }
+    // invalid point a
+    fd_hex_decode( sig, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000", 64 );
+    fd_hex_decode( pub, "b898e00f6f6df758b3f9a05cbf73b15fd392a008a9a417d471c178c1b28c7447", 32 );
+    FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_PUBKEY );
+    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_PUBKEY );
 
-    int ref_good = ED25519_verify( ref_msg, sz, ref_sig, ref_pub );
+    // small order a
+    fd_hex_decode( sig, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000", 64 );
+    fd_hex_decode( pub, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", 32 );
+    FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_PUBKEY );
+    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_PUBKEY );
 
-    fd_memcpy( msg, ref_msg, sz   );
-    fd_memcpy( sig, ref_sig, 64UL );
-    fd_memcpy( pub, ref_pub, 32UL );
-    int err = fd_ed25519_verify( msg, sz, sig, pub, sha );
-    FD_TEST( !memcmp( msg, ref_msg, sz   ) );
-    FD_TEST( !memcmp( sig, ref_sig, 64UL ) );
-    FD_TEST( !memcmp( pub, ref_pub, 32UL ) );
-    FD_TEST( ref_good ? !err : !!err );
+    // all good, but (clearly) invalid sig
+    fd_hex_decode( sig, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000", 64 );
+    fd_hex_decode( pub, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+    FD_TEST( fd_ed25519_verify( msg, 0, sig, pub, sha )==FD_ED25519_ERR_MSG );
+    FD_TEST( fd_ed25519_verify_batch_single_msg( msg, 0, sig, pub, &sha, 1 )==FD_ED25519_ERR_MSG );
   }
-# endif
 
   for( ulong b=0; b<1024UL; b++ ) msg[b] = fd_rng_uchar( rng );
   fd_ed25519_public_from_private( pub, fd_rng_b256( rng, prv ), sha );
@@ -1334,7 +1115,9 @@ main( int     argc,
 
   test_point_validate( rng );
   test_point_frombytes( rng );
+  test_point_neg_if( rng );
   test_point_sub( rng );
+  test_point_add_secure( rng );
   test_point_mul( rng );
 
   test_sc_validate  ( rng );

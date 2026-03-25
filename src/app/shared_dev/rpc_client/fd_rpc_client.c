@@ -28,6 +28,7 @@ fd_rpc_client_new( void * mem,
     rpc->requests[ i ].state = FD_RPC_CLIENT_STATE_NONE;
     rpc->fds[ i ].fd = -1;
     rpc->fds[ i ].events = POLLIN | POLLOUT;
+    rpc->fds[ i ].revents = 0;
   }
   return (void *)rpc;
 }
@@ -293,7 +294,7 @@ fd_rpc_client_service( fd_rpc_client_t * rpc,
 
     if( FD_LIKELY( request->state==FD_RPC_CLIENT_STATE_CONNECTED && ( rpc->fds[ i ].revents & POLLOUT ) ) ) {
       long sent = send( rpc->fds[ i ].fd, request->connected.request_bytes+request->connected.request_bytes_sent,
-                        request->connected.request_bytes_cnt-request->connected.request_bytes_sent, 0 );
+                        request->connected.request_bytes_cnt-request->connected.request_bytes_sent, MSG_NOSIGNAL );
       if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) continue;
       if( FD_UNLIKELY( -1==sent ) ) {
         fd_rpc_mark_error( rpc, i, FD_RPC_CLIENT_ERR_NETWORK );

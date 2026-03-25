@@ -31,16 +31,13 @@ FD_PROTOTYPES_BEGIN
 
 typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
 
-fd_exec_instr_fn_t
-fd_executor_lookup_native_precompile_program( fd_txn_account_t const * prog_acc );
-
 /* Returns 1 if the given pubkey matches one of the BPF loader v1/v2/v3/v4
    program IDs, and 0 otherwise. */
 uchar
 fd_executor_pubkey_is_bpf_loader( fd_pubkey_t const * pubkey );
 
 int
-fd_executor_verify_transaction( fd_bank_t *         bank,
+fd_executor_verify_transaction( fd_bank_t const *   bank,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out );
 
@@ -100,22 +97,10 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                          fd_txn_in_t const * txn_in,
                                          fd_txn_out_t *      txn_out );
 
-/*
-  Validate the txn after execution for violations of various lamport balance and size rules
- */
-
-int
-fd_executor_txn_check( fd_bank_t *    bank,
-                       fd_txn_out_t * txn_out );
-
-void
-fd_executor_reclaim_account( fd_txn_account_t * account,
-                             ulong              slot );
-
-/* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
-   human readable cstr.  The lifetime of the returned pointer is
-   infinite and the call itself is thread safe.  The returned pointer is
-   always to a non-NULL cstr. */
+/* fd_executor_instr_strerror converts an FD_EXECUTOR_INSTR_ERR_{...}
+   code into a human readable cstr.  The lifetime of the returned
+   pointer is infinite and the call itself is thread safe.  The
+   returned pointer is always to a non-NULL cstr. */
 
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );

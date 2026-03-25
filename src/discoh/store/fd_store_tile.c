@@ -8,7 +8,7 @@ typedef struct {
 } fd_store_in_ctx_t;
 
 typedef struct {
-  uchar __attribute__((aligned(32UL))) mem[ FD_SHRED_STORE_MTU ];
+  fd_fec_set_t __attribute__((aligned(32UL))) mem[1];
 
   ulong disable_blockstore_from_slot;
 
@@ -42,15 +42,15 @@ during_frag( fd_store_ctx_t * ctx,
              ulong            seq FD_PARAM_UNUSED,
              ulong            sig FD_PARAM_UNUSED,
              ulong            chunk,
-             ulong            sz,
+             ulong            sz  FD_PARAM_UNUSED, /* sz is ignored because sizeof(fd_fec_set_t)>USHORT_MAX */
              ulong            ctl FD_PARAM_UNUSED ) {
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_SHRED_STORE_MTU || sz<32UL ) )
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
 
-  fd_memcpy( ctx->mem, src, sz );
+  fd_memcpy( ctx->mem, src, sizeof(fd_fec_set_t) );
 }
 
 extern int
@@ -72,26 +72,23 @@ after_frag( fd_store_ctx_t *    ctx,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
+  (void)sz;
   (void)tsorig;
   (void)tspub;
   (void)stem;
 
-  fd_shred34_t * shred34 = (fd_shred34_t *)ctx->mem;
+  fd_fec_set_t const * set = ctx->mem;
 
-  FD_TEST( shred34->shred_sz<=shred34->stride );
-  if( FD_LIKELY( shred34->shred_cnt ) ) {
-    FD_TEST( shred34->offset<sz  );
-    FD_TEST( shred34->shred_cnt<=34UL );
-    FD_TEST( shred34->stride==sizeof(shred34->pkts[0]) );
-    FD_TEST( shred34->offset + shred34->stride*(shred34->shred_cnt - 1UL) + shred34->shred_sz <= sz);
-  }
+  if( FD_UNLIKELY( ctx->disable_blockstore_from_slot && (ctx->disable_blockstore_from_slot <= set->data_shreds->s->slot) ) ) return;
 
-  if( FD_UNLIKELY( ctx->disable_blockstore_from_slot && ( ctx->disable_blockstore_from_slot <= shred34->pkts->shred.slot ) ) ) return;
+  int trusted = !!(sig & 0xFFFFFFFFUL);
+  ulong est_txn_cnt = sig>>32UL;
 
   /* No error code because this cannot fail. */
-  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride, !!sig );
+  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->data_shreds->b,   FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ, trusted );
+  fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->parity_shreds->b, FD_SHRED_MAX_SZ, FD_SHRED_MAX_SZ, trusted );
 
-  FD_MCNT_INC( STORE, TRANSACTIONS_INSERTED, shred34->est_txn_cnt );
+  FD_MCNT_INC( STORE, TRANSACTIONS_INSERTED, est_txn_cnt );
 }
 
 static void

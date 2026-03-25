@@ -4,25 +4,32 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "fd_stake_delegations.h"
-#include "fd_vote_states.h"
+
+#define FD_STAKE_STATE_V2_SZ (200UL)
 
 FD_PROTOTYPES_BEGIN
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24 */
-struct fd_calculated_stake_rewards {
-  ulong staker_rewards;
-  ulong voter_rewards;
-  ulong new_credits_observed;
-};
-typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
+int
+fd_stakes_new_warmup_cooldown_rate_epoch(
+    fd_epoch_schedule_t const * epoch_schedule,
+    fd_features_t const *       features,
+    /* out */ ulong *           epoch,
+    int *                       err
+);
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
-struct fd_calculated_stake_points {
-  fd_w_u128_t points;
-  ulong       new_credits_observed;
-  uchar       force_credits_update_with_skipped_reward;
-};
-typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
+void
+fd_stakes_config_init( fd_accdb_user_t *         accdb,
+                       fd_funk_txn_xid_t const * xid );
+
+int
+fd_stakes_get_state( fd_account_meta_t const * meta,
+                     fd_stake_state_v2_t *     out );
+
+fd_stake_history_entry_t
+fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * self,
+                                       ulong                         target_epoch,
+                                       fd_stake_history_t const *    stake_history,
+                                       ulong *                       new_rate_activation_epoch );
 
 /* fd_stake_weights_by_node converts Stakes (unordered list of (vote
    acc, active stake) tuples) to an ordered list of (stake, vote pubkey, node
@@ -36,38 +43,32 @@ typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
    ... items.  On return, weights be an ordered list.
 
    Returns the number of items in weights (which is <= no of vote accs). */
-#define STAKE_ACCOUNT_SIZE ( 200 )
 
 ulong
-fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
+fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
+                          ushort                   fork_idx,
                           fd_vote_stake_weight_t * weights );
+
+
+ulong
+fd_stake_weights_by_node_next( fd_vote_stakes_t *       vote_stakes,
+                               ushort                   fork_idx,
+                               fd_vote_stake_weight_t * weights );
 
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
+                          fd_runtime_stack_t *           runtime_stack,
                           fd_accdb_user_t *              accdb,
                           fd_funk_txn_xid_t const *      xid,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
                           ulong *                        new_rate_activation_epoch );
 
-fd_stake_history_entry_t
-stake_and_activating( fd_delegation_t const * delegation,
-                      ulong                   target_epoch,
-                      fd_stake_history_t *    stake_history,
-                      ulong *                 new_rate_activation_epoch );
-
-fd_stake_history_entry_t
-stake_activating_and_deactivating( fd_delegation_t const * delegation,
-                                   ulong                   target_epoch,
-                                   fd_stake_history_t *    stake_history,
-                                   ulong *                 new_rate_activation_epoch );
-
-int
-write_stake_state( fd_txn_account_t *    stake_acc_rec,
-                   fd_stake_state_v2_t * stake_state );
-
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
+                          fd_accdb_user_t *              accdb,
+                          fd_funk_txn_xid_t const *      xid,
+                          fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch );
@@ -78,17 +79,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
    the stake account. */
 
 void
-fd_stakes_update_stake_delegation( fd_txn_account_t * stake_account,
-                                   fd_bank_t *        bank );
-
-/* fd_stakes_update_vote_state is used to maintain the in-memory cache
-   of the vote states that is used at the epoch boundary.  Entries in
-   the cache will be inserted/updated/removed based on the state of
-   the vote account. */
-
-void
-fd_stakes_update_vote_state( fd_txn_account_t * vote_account,
-                             fd_bank_t *        bank );
+fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
+                                   fd_account_meta_t const * meta,
+                                   fd_bank_t *               bank );
 
 FD_PROTOTYPES_END
 

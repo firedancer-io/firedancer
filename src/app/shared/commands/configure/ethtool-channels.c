@@ -13,10 +13,6 @@ static int fini_device( char const * device );
 static int
 enabled( fd_config_t const * config ) {
 
-  /* if we're running in a network namespace, we configure ethtool on
-     the virtual device as part of netns setup, not here */
-  if( config->development.netns.enabled ) return 0;
-
   /* only enable if network stack is XDP */
   if( 0!=strcmp( config->net.provider, "xdp" ) ) return 0;
 
@@ -59,7 +55,7 @@ get_ports( fd_config_t const * config,
     ADD_PORT( config->gossip.port                              );
     ADD_PORT( config->tiles.repair.repair_intake_listen_port   );
     ADD_PORT( config->tiles.repair.repair_serve_listen_port    );
-    ADD_PORT( config->tiles.send.send_src_port                 );
+    ADD_PORT( config->tiles.txsend.txsend_src_port             );
   }
 #undef ADD_PORT
 
@@ -111,6 +107,15 @@ init_device( char const *        device,
      to the default again. */
   if( !dedicated_mode ) {
     FD_TEST( 0==fd_ethtool_ioctl_rxfh_set_default( &ioc ) );
+
+    /* Configure the NIC to include UDP source and destination ports in
+       the RSS hash for UDP/IPv4 flows.  Without this, most NICs default
+       to hashing only on IP addresses, which causes severe RX queue
+       imbalance when all traffic targets the same destination IP and
+       port (e.g. gossip).  Not needed in dedicated mode since ntuple
+       rules bypass RSS for Firedancer traffic. */
+    if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_rxfh_set_flow_hash_udp4( &ioc ) ) )
+      FD_LOG_WARNING(( "failed to set UDP flow hash on device %s, RSS distribution may be poor", device ));
   }
 
   FD_TEST( 0==fd_ethtool_ioctl_ntuple_clear( &ioc ) );

@@ -61,16 +61,6 @@ init_log_memfd( void ) {
   return memfd;
 }
 
-static int
-should_colorize( void ) {
-  char const * cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
-  if( cstr && !strcmp( cstr, "truecolor" ) ) return 1;
-
-  cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-  if( cstr && strstr( cstr, "256color" ) ) return 1;
-  return 0;
-}
-
 static void
 determine_override_config( int *                      pargc,
                            char ***                   pargv,
@@ -151,7 +141,7 @@ determine_override_config( int *                      pargc,
   }
 }
 
-void
+int
 fd_main_init( int *                      pargc,
               char ***                   pargv,
               config_t   *               config,
@@ -159,11 +149,10 @@ fd_main_init( int *                      pargc,
               int                        is_firedancer,
               int                        is_local_cluster,
               char const *               log_path,
-              fd_config_file_t * const * configs,
-              void (* topo_init )( config_t * config ) ) {
+              fd_config_file_t * const * configs ) {
   fd_log_enable_unclean_exit(); /* Don't call atexit handlers on FD_LOG_ERR */
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
-  fd_log_colorize_set( should_colorize() ); /* Colorize during boot until we can determine from config */
+  fd_log_colorize_set( fd_log_should_colorize() ); /* Colorize during boot until we can determine from config */
   fd_log_level_stderr_set( 2 ); /* Only NOTICE and above will be logged during boot until fd_log is initialized */
 
   int config_fd = fd_env_strip_cmdline_int( pargc, pargv, "--config-fd", NULL, -1 );
@@ -183,8 +172,6 @@ fd_main_init( int *                      pargc,
       if( FD_UNLIKELY( user_config==MAP_FAILED ) ) FD_LOG_ERR(( "failed to read user config file `%s` (%d-%s)", opt_user_config_path, errno, fd_io_strerror( errno ) ));
     }
 
-    int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
-
     char const * default_config = NULL;
     ulong default_config_sz = 0UL;
     for( ulong i=0UL; configs[ i ]; i++ ) {
@@ -202,8 +189,7 @@ fd_main_init( int *                      pargc,
     determine_override_config( pargc, pargv, configs,
                                &override_config, &override_config_path, &override_config_sz );
 
-    fd_config_load( is_firedancer, netns, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
-    topo_init( config );
+    fd_config_load( is_firedancer, is_local_cluster, default_config, default_config_sz, override_config, override_config_path, override_config_sz, user_config, user_config_sz, opt_user_config_path, config );
 
     if( FD_UNLIKELY( user_config && -1==munmap( user_config, user_config_sz ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -270,6 +256,8 @@ fd_main_init( int *                      pargc,
   fd_log_level_logfile_set( config->log.level_logfile1 );
   fd_log_level_stderr_set( config->log.level_stderr1 );
   fd_log_level_flush_set( config->log.level_flush1 );
+
+  return config_fd<0;
 }
 
 static config_t config;
@@ -328,7 +316,8 @@ fd_main( int                        argc,
   }
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, topo_init );
+  int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs );
+  if( FD_LIKELY( load_topo ) ) topo_init( &config );
 
   if( FD_UNLIKELY( !action ) ) {
     help_action->fn( NULL, NULL );

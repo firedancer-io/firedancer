@@ -6,9 +6,7 @@
    fd_rng is a better choice in all other cases. */
 
 #include "fd_chacha.h"
-#if !FD_HAS_INT128
 #include "../../util/bits/fd_uwide.h"
-#endif
 
 /* FD_CHACHA_RNG_DEBUG controls debug logging.  0 is off; 1 is on. */
 
@@ -19,9 +17,14 @@
 /* Solana uses different mechanisms of mapping a ulong to an unbiased
    integer in [0, n) in different parts of the code.  In particular,
    leader schedule generation uses MODE_MOD and Turbine uses MODE_SHIFT.
-   See the note in fd_chacha20_rng_ulong_roll for more details. */
+   See the note in fd_chacha_rng_ulong_roll for more details. */
 #define FD_CHACHA_RNG_MODE_MOD   1
 #define FD_CHACHA_RNG_MODE_SHIFT 2
+
+/* Solana uses different ChaCha algorithms. Leader schedule generation
+   uses ChaCha20 and Turbine switched from ChaCha20 to ChaCha8. */
+#define FD_CHACHA_RNG_ALGO_CHACHA20   1
+#define FD_CHACHA_RNG_ALGO_CHACHA8    2
 
 /* FD_CHACHA_RNG_BUFSZ is the internal buffer size of pre-generated
    ChaCha20 blocks.  Multiple of block size (64 bytes) and a power of 2. */
@@ -49,6 +52,7 @@ struct __attribute__((aligned(32UL))) fd_chacha_rng_private {
                       Always aligned by FD_CHACHA_BLOCK_SZ */
 
   int mode;
+  int algo;
 };
 typedef struct fd_chacha_rng_private fd_chacha_rng_t;
 
@@ -103,24 +107,25 @@ fd_chacha_rng_leave( fd_chacha_rng_t * );
 void *
 fd_chacha_rng_delete( void * shrng );
 
-/* fd_chacha_rng{8,20}_init starts a ChaCha{8,20} RNG stream.  rng is
-   assumed to be a current local join to a chacha20_rng object with no
+/* fd_chacha_rng_init starts a ChaCha{8,20} RNG stream.  rng is
+   assumed to be a current local join to a chacha_rng object with no
    other concurrent operation that would modify the state while this is
    executing.  seed points to the first byte of the RNG seed byte vector
    with 32 byte size.  Any preexisting state for an in-progress or
    recently completed calculation will be discarded.  Returns rng (on
    return, rng will have the state of a new in-progress calculation).
 
+   The param algo is expected to be FD_CHACHA_RNG_ALGO_CHACHA20 or
+   FD_CHACHA_RNG_ALGO_CHACH8. If invalid, it defaults to chacha20.
+
    Compatible with Rust fn rand_chacha::ChaCha20Rng::from_seed
-   https://docs.rs/rand_chacha/latest/rand_chacha/struct.ChaCha20Rng.html#method.from_seed */
+   https://docs.rs/rand_chacha/latest/rand_chacha/struct.ChaCha20Rng.html#method.from_seed
+   (and ChaCha8Rng) */
 
 fd_chacha_rng_t *
-fd_chacha8_rng_init( fd_chacha_rng_t * rng,
-                     void const *      key );
-
-fd_chacha_rng_t *
-fd_chacha20_rng_init( fd_chacha_rng_t * rng,
-                      void const *      key );
+fd_chacha_rng_init( fd_chacha_rng_t * rng,
+                    void const *      key,
+                    int               algo );
 
 /* The refill function.  Not part of the public API. */
 
@@ -155,30 +160,26 @@ fd_chacha_rng_avail( fd_chacha_rng_t const * rng ) {
   return rng->buf_fill - rng->buf_off;
 }
 
-/* fd_chacha{8,20}_rng_ulong read a 64-bit integer in [0,2^64) from the
+/* fd_chacha_rng_ulong read a 64-bit integer in [0,2^64) from the
    RNG stream. */
 
 static inline ulong
-fd_chacha8_rng_ulong( fd_chacha_rng_t * rng ) {
-  if( FD_UNLIKELY( fd_chacha_rng_avail( rng ) < sizeof(ulong) ) )
-    fd_chacha8_rng_private_refill( rng );
+fd_chacha_rng_ulong( fd_chacha_rng_t * rng ) {
+  if( FD_UNLIKELY( fd_chacha_rng_avail( rng ) < sizeof(ulong) ) ) {
+    if( rng->algo==FD_CHACHA_RNG_ALGO_CHACHA8 ) {
+      fd_chacha8_rng_private_refill( rng );
+    } else {
+      fd_chacha20_rng_private_refill( rng );
+    }
+  }
   ulong x = FD_LOAD( ulong, rng->buf + (rng->buf_off % FD_CHACHA_RNG_BUFSZ) );
   rng->buf_off += 8U;
   return x;
 }
 
-static inline ulong
-fd_chacha20_rng_ulong( fd_chacha_rng_t * rng ) {
-  if( FD_UNLIKELY( fd_chacha_rng_avail( rng ) < sizeof(ulong) ) )
-    fd_chacha20_rng_private_refill( rng );
-  ulong x = FD_LOAD( ulong, rng->buf + (rng->buf_off % FD_CHACHA_RNG_BUFSZ) );
-  rng->buf_off += 8U;
-  return x;
-}
-
-/* fd_chacha20_rng_ulong_roll returns an uniform IID rand in [0,n)
+/* fd_chacha_rng_ulong_roll returns an uniform IID rand in [0,n)
    analogous to fd_rng_ulong_roll.  Rejection method based using
-   fd_chacha20_rng_ulong.
+   fd_chacha_rng_ulong.
 
    Compatible with Rust type
    <rand_chacha::ChaCha20Rng as rand::Rng>::gen<rand::distributions::Uniform<u64>>()
@@ -186,8 +187,8 @@ fd_chacha20_rng_ulong( fd_chacha_rng_t * rng ) {
    https://docs.rs/rand/latest/rand/distributions/struct.Uniform.html */
 
 static inline ulong
-fd_chacha20_rng_ulong_roll( fd_chacha_rng_t * rng,
-                           ulong             n ) {
+fd_chacha_rng_ulong_roll( fd_chacha_rng_t * rng,
+                          ulong             n ) {
   /* We use a pretty standard rejection-sampling based approach here,
      but for future reference, here's an explanation:
 
@@ -231,16 +232,9 @@ fd_chacha20_rng_ulong_roll( fd_chacha_rng_t * rng,
                                   (n << (63 - fd_ulong_find_msb( n ) )) - 1UL );
 
   for( int i=0; 1; i++ ) {
-    ulong   v   = fd_chacha20_rng_ulong( rng );
-#if FD_HAS_INT128
-    /* Compiles to one mulx instruction */
-    uint128 res = (uint128)v * (uint128)n;
-    ulong   hi  = (ulong)(res>>64);
-    ulong   lo  = (ulong) res;
-#else
+    ulong v = fd_chacha_rng_ulong( rng );
     ulong hi, lo;
     fd_uwide_mul( &hi, &lo, v, n );
-#endif
 
 #   if FD_CHACHA_RNG_DEBUG
     FD_LOG_DEBUG(( "roll (attempt %d): n=%016lx zone: %016lx v=%016lx lo=%016lx hi=%016lx", i, n, zone, v, lo, hi ));

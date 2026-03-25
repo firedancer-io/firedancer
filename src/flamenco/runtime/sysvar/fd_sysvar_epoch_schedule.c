@@ -1,8 +1,7 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../fd_acc_mgr.h"
-#include "../fd_txn_account.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
@@ -38,29 +37,26 @@ fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
                                 fd_funk_txn_xid_t const *   xid,
                                 fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
-  ulong sz = fd_epoch_schedule_size( epoch_schedule );
-  /* TODO remove alloca */
-  uchar enc[ sz ];
-  memset( enc, 0, sz );
+
+  uchar enc[ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ] = {0};
+
   fd_bincode_encode_ctx_t ctx = {
     .data    = enc,
-    .dataend = enc + sz
+    .dataend = enc + FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ
   };
-  if( fd_epoch_schedule_encode( epoch_schedule, &ctx ) ) {
-    FD_LOG_ERR(("fd_epoch_schedule_encode failed"));
+  if( FD_UNLIKELY( fd_epoch_schedule_encode( epoch_schedule, &ctx ) ) ) {
+    FD_LOG_ERR(( "fd_epoch_schedule_encode failed" ));
   }
 
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_schedule_id, enc, sz );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_schedule_id, enc, FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ );
 }
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
+fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_epoch_schedule_t *     out ) {
-
-  fd_txn_account_t acc[1];
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, xid );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_epoch_schedule_id ) ) ) {
     return NULL;
   }
 
@@ -68,15 +64,17 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
-  return fd_bincode_decode_static(
+  fd_epoch_schedule_t * rc = fd_bincode_decode_static(
       epoch_schedule, out,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ),
-      &err );
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ) );
+  fd_accdb_close_ro( accdb, ro );
+  return rc;
 }
 
 void
@@ -84,7 +82,7 @@ fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
                                fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_capture_ctx_t *        capture_ctx ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->data->f.epoch_schedule;
   fd_sysvar_epoch_schedule_write( bank, accdb, xid, capture_ctx, epoch_schedule );
 }
 
@@ -127,12 +125,6 @@ ulong
 fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
                   ulong                       slot,
                   ulong *                     out_offset_opt ) {
-
-  if( FD_UNLIKELY( schedule->slots_per_epoch == 0UL ) ) {
-    FD_LOG_WARNING(( "zero slots_per_epoch" ));
-    return 0UL;
-  }
-
   ulong epoch;
   ulong offset;
 
@@ -154,6 +146,11 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
           offset    = slot - ( epoch_len - FD_EPOCH_LEN_MIN );
   } else {
     // FD_LOG_WARNING(("First %lu slots per epoch %lu", schedule->first_normal_slot, schedule->slots_per_epoch));
+    if( FD_UNLIKELY( schedule->slots_per_epoch == 0UL ) ) {
+      FD_LOG_WARNING(( "zero slots_per_epoch returning first_normal_epoch %lu", schedule->first_normal_epoch ));
+      if( out_offset_opt ) *out_offset_opt = 0UL;
+      return schedule->first_normal_epoch;
+    }
     ulong n_slot  = slot - schedule->first_normal_slot;
     ulong n_epoch = n_slot / schedule->slots_per_epoch;
           epoch   = schedule->first_normal_epoch + n_epoch;
@@ -175,6 +172,11 @@ fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
 
   if( FD_UNLIKELY( slot<schedule->first_normal_slot ) ) {
     return fd_slot_to_epoch( schedule, slot, NULL ) + 1UL;
+  }
+
+  if( FD_UNLIKELY( schedule->slots_per_epoch == 0UL ) ) {
+    FD_LOG_WARNING(( "zero slots_per_epoch returning first_normal_epoch %lu", schedule->first_normal_epoch ));
+    return schedule->first_normal_epoch;
   }
 
   ulong new_slots_since_first_normal_slot =

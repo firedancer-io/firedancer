@@ -84,7 +84,7 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
    maintained incrementally by subtracting the old account hash and
    adding the new account hash.
 
-   account is the modified account (via fd_txn_account_t interface).
+   meta is a pointer to the modified account's metadata and data.
    prev_hash contains the lthash of the account before modification (or
    zero for newly created accounts).  bank is the bank whose lthash
    should be updated.  capture_ctx is an optional capture context for
@@ -106,10 +106,22 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
    execution. This includes sysvar accounts. */
 
 void
-fd_hashes_update_lthash( fd_txn_account_t const  * account,
+fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
+                          fd_lthash_value_t const * lthash_prev, /* in */
+                          fd_pubkey_t const *       pubkey,
+                          fd_account_meta_t const * meta,
+                          fd_bank_t               * bank,
+                          fd_capture_ctx_t        * capture_ctx );
+
+FD_FN_UNUSED static void
+fd_hashes_update_lthash( fd_pubkey_t const *       pubkey,
+                         fd_account_meta_t const * meta,
                          fd_lthash_value_t const * prev_account_hash,
                          fd_bank_t               * bank,
-                         fd_capture_ctx_t        * capture_ctx );
+                         fd_capture_ctx_t        * capture_ctx ) {
+  fd_lthash_value_t post[1];
+  fd_hashes_update_lthash1( post, prev_account_hash, pubkey, meta, bank, capture_ctx );
+}
 
 /* fd_hashes_hash_bank computes the bank hash for a completed slot.  The
    bank hash is a deterministic hash of the slot's state including all
@@ -133,6 +145,27 @@ fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
                      fd_hash_t const *        last_blockhash,
                      ulong                    signature_count,
                      fd_hash_t *              hash_out );
+
+/* fd_hashes_apply_hard_forks mixes hard-fork data into an existing bank
+   hash in place, matching Agave's bank hash computation.
+
+   For each registered hard fork i where parent_slot < hard_forks[i] <= slot,
+   the fork's count is summed.  If the sum is non-zero, the hash is updated:
+     hash = sha256( hash || sum_as_u64_le )
+
+   hash is mutated in place.  slot and parent_slot are the slot and parent
+   slot of the bank being finalized.  hard_forks is the array of fork slots
+   of length hard_forks_cnt.  hard_forks_cnts is the array of fork counts
+   of length hard_forks_cnt.  If hard_forks_cnt is zero or no forks are in
+   range, hash is unchanged. */
+
+void
+fd_hashes_apply_hard_forks( fd_hash_t *   hash,
+                            ulong         slot,
+                            ulong         parent_slot,
+                            ulong const * hard_forks,
+                            ulong const * hard_forks_cnts,
+                            ulong         hard_forks_cnt );
 
 FD_PROTOTYPES_END
 

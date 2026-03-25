@@ -27,9 +27,20 @@
        transaction loading stage, after accounts data is loaded.
    These are all summed to determine the total transaction cost. */
 
-/* The exception to these costs are simple vote transactions, incur a
-   fixed cost regardless of their actual execution cost or account data
-   loaded. */
+/* Simple votes: before the remove_simple_vote_from_cost_model
+   feature, simple votes had a fixed cost instead of going through the
+   full cost model.
+
+   To avoid feature-gating pack code, pack uses a tight upper bound,
+   FD_PACK_SIMPLE_VOTE_COST, to estimate the cost of simple votes.
+
+   Since this is higher than the static cost used before
+   remove_simple_vote_from_cost_model is activated, this can be
+   used both before and after the feature is activated.
+
+   Once remove_simple_vote_from_cost_model is activated, the vote cu
+   limit is no longer part of consensus, so we are free to use a
+   different simple vote classifier than Agave. */
 
 /* To compute the built-in cost, we need to check a table. The table
    is known ahead of time though, so we can build a perfect hash
@@ -65,16 +76,15 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 
 
 /* The cost model estimates 200,000 CUs for builtin programs that were migrated to BPF */
-#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_1  ( SYS_PROG_ID             ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_2  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_3  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
-#define MAP_PERFECT_9  ( SECP256R1_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_0  ( SYS_PROG_ID             ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_1  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_2  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_3  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_4  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_5  ( LOADER_V4_PROG_ID       ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_6  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_7  ( ED25519_SV_PROG_ID      ), .cost_per_instr= FD_COMPUTE_BUDGET_MAX_BUILTIN_CU_LIMIT
+#define MAP_PERFECT_8  ( SECP256R1_PROG_ID       ), .cost_per_instr= 0UL /* Not officially a builtin */
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -84,7 +94,6 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
                                           PERFECT_HASH( ((uint)a08 | ((uint)a09<<8) | ((uint)a10<<16) | ((uint)a11<<24)) )
 
 #define FD_PACK_COST_PER_SIGNATURE                    (  720UL)
-#define FD_PACK_COST_PER_NON_STRICT_ED25519_SIGNATURE ( 2280UL)
 #define FD_PACK_COST_PER_ED25519_SIGNATURE            ( 2400UL)
 #define FD_PACK_COST_PER_SECP256K1_SIGNATURE          ( 6690UL)
 #define FD_PACK_COST_PER_SECP256R1_SIGNATURE          ( 4800UL)
@@ -151,6 +160,18 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 /* Every transaction has at least a fee payer, a writable signer. */
 #define FD_PACK_MIN_TXN_COST (FD_PACK_COST_PER_SIGNATURE+FD_PACK_COST_PER_WRITABLE_ACCT)
 
+/* The Solana protocol tries to impose a limit on the total amount of
+   account data that can be allocated in a block (via the creation of
+   new accounts and the growth of existing accounts).  Unfortunately,
+   the way this limit is specified by the protocol is buggy and means
+   that it is neither an upper bound nor a lower bound for what it is
+   supposed to measure.  If USE_TRUE_ALLOC_BOUND is set to 1, this code
+   will compute a true upper bound for the amount the transaction can
+   allocate.  If it is set to 0, it will compute the value in an
+   Agave-compatible way, that is, a value that is normally identical to
+   what Agave produces, but slightly higher in certain cases. */
+#define FD_PACK_COST_USE_TRUE_ALLOC_BOUND 0
+
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
    CHANGED WITHOUT COORDINATING WITH ANZA. */
 
@@ -175,6 +196,9 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 #define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ( 36000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND * 4UL / 10UL ) /* simd 0306 */
 
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/cost-model/src/block_cost_limits.rs#L39-L41 */
+#define FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK        ( 100UL*1000UL*1000UL )
+
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND/FD_PACK_MIN_TXN_COST), max_txn_per_slot_cu );
 
 /* The txncache should at most store one entry for each transaction, so
@@ -191,21 +215,78 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L55 */
 
-#define FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS 2100UL
+#define FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS (2100UL)
 
-/* A simple vote transaction has the authorized voter (writable
-   signer), the vote account (writable non-signer), clock sysvar, slot
-   hashes sysvar (both readonly), and the vote program (readonly).  Then
-   it has one instruction a built-in to the vote program, which has a
-   fixed cost of DEFAULT_COMPUTE_UNITS, and an instruction data cost of
-   8.
+/* SIMD-0387: BLS proof-of-possession verification cost charged by the
+   vote program for authorize instructions.
 
-   See https://github.com/firedancer-io/agave/blob/v2.1.11-fd/sdk/src/simple_vote_transaction_checker.rs */
-static const ulong FD_PACK_SIMPLE_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE         +
-                                                2UL*FD_PACK_COST_PER_WRITABLE_ACCT +
-                                                FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS      +
-                                                8 );
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L83 */
+#define FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS (34500UL)
 
+/* Upper bound on execution CUs used by vote instructions.
+
+   The only vote instructions which use more than the default cost are
+   the authorize instruction, which also charge the BLS
+   proof-of-possession verification cost.
+
+   IMPORTANT: if the vote program starts charging more CUs for any
+   instructions, this constant will need to be updated.
+ */
+#define FD_PACK_VOTE_MAX_COMPUTE_UNITS (FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS + FD_PACK_BLS_PROOF_OF_POSSESSION_VERIFICATION_COMPUTE_UNITS)
+
+/* Max loaded account data size: FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ
+
+   Cost: ceil( FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ / 32,768 ) * 8
+       = ceil( 67,108,864 / 32,768 ) * 8
+       = 2,048 * 8
+       = 16,384 CUs */
+#define FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST (16384UL)
+
+/* Maximum instruction data cost for a simple vote transaction:
+   - 1 signature
+   - 2 transaction accounts
+   - 0 instruction accounts
+
+   Which results in a fixed overhead of:
+   - Signature count:           1
+   - 1 signature:               64
+   - Message header:            3
+   - Account count:             1
+   - 2 account entries:         64
+   - Recent blockhash:          32
+   - Instruction count:         1
+   - program_id:                1
+   - Instruction account count: 1
+   - Instruction data length:   1
+   Total:                       169 bytes
+
+   Leaving (FD_TXN_MTU - 169) = 1063 bytes for the instruction data.
+   This results in a cost of 1063 / 4 = 265 CUs.
+    */
+#define FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST (265UL)
+
+/* A simple vote transaction is any transaction that satisfies the
+   following conditions:
+   - Has 1 or 2 signatures
+   - Is a legacy transaction
+   - Has exactly one instruction
+   - Must invoke the vote program
+
+   Therefore the worst-case most expensive simple vote transaction has:
+   - 2 signatures
+   - 35 writable accounts (see FD_TXN_ACCT_ADDR_MAX)
+   - The maximum amount of compute units for a vote program instruction
+   - 1 instruction of the maximum instruction data size
+   - The maximum amount of loaded accounts data
+   = 65,189 CUs
+*/
+static const ulong FD_PACK_SIMPLE_VOTE_COST = ( 2UL*FD_PACK_COST_PER_SIGNATURE                 + /* 1,440  */
+                                                35UL*FD_PACK_COST_PER_WRITABLE_ACCT            + /* 10,500 */
+                                                FD_PACK_VOTE_MAX_COMPUTE_UNITS                 + /* 36,600 */
+                                                FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST + /* 16,384 */
+                                                FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST );       /* 265    */
+
+#undef FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST
 
 /* Computes the total cost and a few related properties for the
    specified transaction.  On success, returns the cost, which is in
@@ -224,10 +305,14 @@ static const ulong FD_PACK_SIMPLE_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE      
    total number of signatures in precompile instructions, namely Keccak
    and Ed25519 signature verification programs.  This value is in [0,
    256*64].  Note that this does not do full parsing of the precompile
-   instruction, and it may be malformed.  If
-   opt_loaded_accounts_data_cost is non-null, on success it will contain
-   the total requested cost due to loaded accounts data.  This value is
-   in [0, the returned value).
+   instruction, and it may be malformed.
+   If opt_loaded_accounts_data_cost is non-null, on success it will
+   contain the total requested cost due to loaded accounts data.  This
+   value is in [0, the returned value).
+   If opt_allocated_data is non-null, on success it will contain a value
+   that depends on FD_PACK_COST_USE_TRUE_ALLOC_BOUND (see above),
+   relating to the amount of data (in bytes) this transaction can
+   allocate.  This value is in [0, 20MB].
 
    On failure, returns 0 and does not modify the value pointed to by
    flags, opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
@@ -238,13 +323,21 @@ fd_pack_compute_cost( fd_txn_t const * txn,
                       ulong          * opt_execution_cost,
                       ulong          * opt_fee,
                       ulong          * opt_precompile_sig_cnt,
-                      ulong          * opt_loaded_accounts_data_cost ) {
+                      ulong          * opt_loaded_accounts_data_cost,
+                      ulong          * opt_allocated_data ) {
 
 #define ROW(x) fd_pack_builtin_tbl + MAP_PERFECT_HASH_PP( x )
   fd_pack_builtin_prog_cost_t const * compute_budget_row     = ROW( COMPUTE_BUDGET_PROG_ID );
   fd_pack_builtin_prog_cost_t const * ed25519_precompile_row = ROW( ED25519_SV_PROG_ID     );
   fd_pack_builtin_prog_cost_t const * secp256k1_precomp_row  = ROW( KECCAK_SECP_PROG_ID    );
   fd_pack_builtin_prog_cost_t const * secp256r1_precomp_row  = ROW( SECP256R1_PROG_ID      );
+  /* The three programs that are able to allocate more than 10 kB per
+     account */
+  fd_pack_builtin_prog_cost_t const * system_program_row     = ROW( SYS_PROG_ID             );
+#if FD_PACK_COST_USE_TRUE_ALLOC_BOUND
+  fd_pack_builtin_prog_cost_t const * upgradeable_loader_row = ROW( BPF_UPGRADEABLE_PROG_ID );
+  fd_pack_builtin_prog_cost_t const * loader_v4_row          = ROW( LOADER_V4_PROG_ID       );
+#endif /* FD_PACK_COST_USE_TRUE_ALLOC_BOUND */
 #undef ROW
 
   /* special handling for simple votes */
@@ -254,10 +347,11 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     FD_LOG_NOTICE(( "TXN SIMPLE_VOTE signature[%s] total_cost[%lu]", signature_cstr, FD_PACK_SIMPLE_VOTE_COST));
 #endif
     *flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-    fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS );
-    fd_ulong_store_if( !!opt_fee,                       opt_fee,                       0                                  );
-    fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        0                                  );
-    fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, 0                                  );
+    fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            FD_PACK_VOTE_MAX_COMPUTE_UNITS                 );
+    fd_ulong_store_if( !!opt_fee,                       opt_fee,                       0UL                                            );
+    fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        0UL                                            );
+    fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST );
+    fd_ulong_store_if( !!opt_allocated_data,            opt_allocated_data,            FD_PACK_COST_USE_TRUE_ALLOC_BOUND?3762UL : 0UL ); /* see below */
     return FD_PACK_SIMPLE_VOTE_COST;
   }
 
@@ -273,6 +367,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong instr_data_sz      = 0UL; /* < FD_TPU_MTU */
   ulong non_builtin_cnt    = 0UL; /* <= FD_TXN_INSTR_MAX */
   ulong precompile_sig_cnt = 0UL; /* <= FD_TXN_INSTR_MAX * UCHAR_MAX */
+  ulong allocated_data     = 0UL; /* in bytes */
   fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
 
   fd_compute_budget_program_state_t cbp[1];
@@ -288,7 +383,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 
     fd_pack_builtin_prog_cost_t null_row[1] = {{{ 0 }, 0UL }};
     fd_pack_builtin_prog_cost_t const * in_tbl = fd_pack_builtin_query( prog_id, null_row );
-    non_builtin_cnt += !in_tbl->cost_per_instr; /* The only one with no cost is the null one */
+    non_builtin_cnt += !in_tbl->cost_per_instr; /* null row has 0 cost */
 
     if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
       if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
@@ -308,7 +403,122 @@ fd_pack_compute_cost( fd_txn_t const * txn,
       precompile_sig_cnt += secp256r1_signature_count;
       signature_cost += secp256r1_signature_count * FD_PACK_COST_PER_SECP256R1_SIGNATURE;
     }
+    /* BPF programs can allocate 10kB per account per instruction.
+       The vote program (see below) and the address lookup table program
+       (up to 56+32*256 bytes) do allocate, and several native programs
+       can reduce the size of an account, but the only ones that can
+       possibly allocate more than 10kB per account are below.
+       Additionally, none of the above programs allocate at all.
+
+       A normal vote does not allocate any data, but a simple vote may
+       actually invoke one of the vote program instructions that does
+       allocate FD_VOTE_STATE_V3_SZ or V4, which are both 3762 bytes.
+       If it invokes the vote program but isn't a simple vote, it will
+       be caught by the general case and overestimated at 10kB per
+       account, which is fine.
+
+       Note: This complexity here is pretty gross, but we need a better
+       bound for allocated_data than 20MB, and this seems to be the best
+       way. */
+#define MAX_ALLOC (20UL*1024UL*1024UL) /* mostly to prevent attacker-induced overflow */
+#define DEFAULT_ALLOC (10UL*1024UL)    /* == MAX_PERMITTED_DATA_INCREASE */
+    else if( FD_UNLIKELY( in_tbl==system_program_row ) ) {
+      ulong discriminant = ULONG_MAX;
+      ulong data_sz      = txn->instr[i].data_sz;
+      uchar const * base = payload + txn->instr[i].data_off;
+      if( FD_UNLIKELY( data_sz<12UL ) ) continue;
+      discriminant = FD_LOAD( uint, base );
+      base += sizeof(uint);     data_sz -= sizeof(uint);
+      ulong seed_len;
+      switch( discriminant ) {
+        case 0UL: /* fd_system_program_instruction_enum_create_account */
+          if( FD_UNLIKELY( data_sz<8UL+8UL ) ) break;
+          /* Note: here (and below), Agave sets alloc to 0 if any of
+             these instructions request more than 10 MB.  We don't
+             bother with that.  If a transaction has an instruction that
+             requests more than 10 MB and pays a sufficient fee for it,
+             and then fails, that's not a big problem.  We're always
+             computing a conservative estimate. */
+          allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( ulong, base+8UL ) );
+          break;
+        case 3UL: /* fd_system_program_instruction_enum_create_account_with_seed */
+          if( FD_UNLIKELY( data_sz<32UL+8UL ) ) break;
+          seed_len = FD_LOAD( ulong, base+32UL );
+          base += 32UL+8UL;     data_sz -= 32UL+8UL;
+          if( FD_UNLIKELY( data_sz<seed_len ) ) break;
+          base += seed_len;     data_sz -= seed_len;
+          if( FD_UNLIKELY( data_sz<(8UL+8UL) ) ) break;
+          allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( ulong, base+8UL ) );
+          break;
+        case 8UL: /* fd_system_program_instruction_enum_allocate */
+          if( FD_UNLIKELY( data_sz<8UL ) ) break;
+          allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( ulong, base ) );
+          break;
+        case 9UL: /* fd_system_program_instruction_enum_allocate_with_seed */
+          if( FD_UNLIKELY( data_sz<32UL+8UL ) ) break;
+          seed_len = FD_LOAD( ulong, base+32UL );
+          base += 32UL+8UL;     data_sz -= 32UL+8UL;
+          if( FD_UNLIKELY( data_sz<seed_len ) ) break;
+          base += seed_len;     data_sz -= seed_len;
+          if( FD_UNLIKELY( data_sz<8UL ) ) break;
+          allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( ulong, base ) );
+          break;
+        case 13UL: /* create_account_allow_prefund */
+          /* Agave returns 0 here until the feature gate has been
+             activated.  Rather than feature gate this, we just act
+             conservatively. */
+          if( FD_UNLIKELY( data_sz<8UL+8UL ) ) break;
+          allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( ulong, base+8UL ) );
+          break;
+        default:
+          break;
+      }
+#if FD_PACK_COST_USE_TRUE_ALLOC_BOUND
+    } else if( FD_UNLIKELY( in_tbl==upgradeable_loader_row ) ) {
+      ulong discriminant = ULONG_MAX;
+      ulong data_sz      = txn->instr[i].data_sz;
+      uchar const * base = payload + txn->instr[i].data_off;
+      if( FD_UNLIKELY( data_sz<8UL ) ) continue;
+      discriminant = FD_LOAD( uint, base );
+      base += sizeof(uint);     data_sz -= sizeof(uint);
+      switch( discriminant ) {
+        case 6UL: /* fd_bpf_upgradeable_loader_program_instruction_enum_extend_program */
+        case 9UL: /* fd_bpf_upgradeable_loader_program_instruction_enum_extend_program_checked */
+          allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( uint, base ) );
+          break;
+        default:
+          allocated_data += DEFAULT_ALLOC; /* Some other instructions may alloc a tiny bit */
+          break;
+      }
+    } else if( FD_UNLIKELY( in_tbl==loader_v4_row ) ) {
+      ulong discriminant = ULONG_MAX;
+      ulong data_sz      = txn->instr[i].data_sz;
+      uchar const * base = payload + txn->instr[i].data_off;
+      if( FD_UNLIKELY( data_sz<8UL ) ) continue;
+      discriminant = FD_LOAD( uint, base );
+      base += sizeof(uint);     data_sz -= sizeof(uint);
+      switch( discriminant ) {
+        case 2UL: /* fd_loader_v4_program_instruction_enum_set_program_length */
+          allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( uint, base ) );
+          break;
+        default:
+          break;
+      }
+    } else {
+      /* This could be the writable accounts only, but this bound is
+         much cheaper, and good enough. */
+      allocated_data += DEFAULT_ALLOC * txn->instr[i].acct_cnt;
+#endif /* FD_PACK_COST_USE_TRUE_ALLOC_BOUND */
+    }
   }
+  /* E.g. a transaction can alloc a 10MB account, close it, and repeat
+     many times.  According to the spec, this would count as a 20MB
+     allocation. See
+     https://github.com/anza-xyz/agave/blob/2a61a3ecd417b0515c0b2f322d0128394f20626b/cost-model/src/cost_model.rs#L317-L318
+   */
+  allocated_data = fd_ulong_min( allocated_data, 20UL*1024UL*1024UL ); /* MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION */
+#undef MAX_ALLOC
+#undef DEFAULT_ALLOC
 
   ulong instr_data_cost = instr_data_sz / FD_PACK_INV_COST_PER_INSTR_DATA_BYTE; /* <= 320 */
 
@@ -321,6 +531,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   fd_ulong_store_if( !!opt_fee,                       opt_fee,                       *fee                          );
   fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        precompile_sig_cnt            );
   fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, *loaded_account_data_cost     );
+  fd_ulong_store_if( !!opt_allocated_data,            opt_allocated_data,            allocated_data                );
 
 #if DETAILED_LOGGING
   FD_BASE58_ENCODE_64_BYTES( (const uchar *)fd_txn_get_signatures(txn, payload), signature_cstr );

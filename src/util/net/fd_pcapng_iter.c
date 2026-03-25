@@ -3,18 +3,6 @@
 #include <errno.h>
 #include <stdio.h>
 
-/* FIXME Option parsing spec violation
-
-     https://www.ietf.org/archive/id/draft-ietf-opsawg-pcapng-00.html#name-options
-
-     > Code that reads pcapng files MUST NOT assume an option list will
-     have an opt_endofopt option at the end; it MUST also check for the
-     end of the block, and SHOULD treat blocks where the option list has
-     no opt_endofopt option as if the option list had an opt_endofopt
-     option at the end.
-
-     This parser currently does not handle missing opt_endofopt */
-
 FD_FN_CONST ulong
 fd_pcapng_iter_align( void ) {
   return alignof(fd_pcapng_iter_t);
@@ -103,9 +91,10 @@ fd_pcapng_read_option( fd_pcapng_iter_t *   iter,
                        fd_pcapng_option_t * opt ) {
 
   if( FD_UNLIKELY( iter->block_buf_pos + 4UL > iter->block_buf_sz ) ) {
-    iter->error = EPROTO;
-    FD_LOG_WARNING(( "expected option, found end of block" ));
-    return EPROTO;
+    opt->type  = 0;
+    opt->sz    = 0;
+    opt->value = NULL;
+    return 0;
   }
 
   struct __attribute__((packed)) {
@@ -329,7 +318,7 @@ fd_pcapng_iter_next1( fd_pcapng_iter_t * iter ) {
       fd_pcapng_epb_t epb = FD_LOAD( fd_pcapng_epb_t, iter->block_buf );
       iter->block_buf_pos = sizeof(fd_pcapng_epb_t);
 
-    if( FD_UNLIKELY( epb.cap_len > (iter->block_buf_sz - iter->block_buf_pos) ) ) {
+      if( FD_UNLIKELY( epb.cap_len > (iter->block_buf_sz - iter->block_buf_pos) ) ) {
         iter->error = EPROTO;
         FD_LOG_WARNING(( "pcapng: invalid EPB block size (%#x)", hdr.block_sz ));
         return NULL;

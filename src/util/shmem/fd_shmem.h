@@ -121,7 +121,8 @@ FD_PROTOTYPES_BEGIN
    region (if there multiple regions with same name, this will try to
    join the one backed by the largest page size).  Then the region is
    mapped into the address appropriately for the given access mode
-   (FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}).  Lastly, any user
+   (FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}).  Then the region is
+   marked as MADVISE_DONTDUMP if the dump flag is 0.  Lastly, any user
    provided fd_shmem_join_func_t is called on the mapping.
 
    A fd_shmem_join_func_t is meant to do any additional local address
@@ -170,6 +171,7 @@ FD_PROTOTYPES_BEGIN
 void *
 fd_shmem_join( char const *               name,
                int                        mode,
+               int                        dump,
                fd_shmem_joinleave_func_t  join_func,
                void *                     context,
                fd_shmem_join_info_t *     opt_info );

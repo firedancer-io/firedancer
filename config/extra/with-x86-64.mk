@@ -12,15 +12,16 @@ endif
 # -falign-functions since Clang/LLVM 7
 # -falign-loops     since Clang/LLVM 13
 
+ifndef FD_NODEPS
 include config/extra/with-ucontext.mk
-include config/extra/with-secp256k1.mk
 include config/extra/with-s2nbignum.mk
+include config/extra/with-blst.mk
 include config/extra/with-zstd.mk
-include config/extra/with-liburing.mk
 include config/extra/with-bzip2.mk
 include config/extra/with-lz4.mk
 include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk
 include config/extra/with-flatcc.mk
+endif
 
 FD_ARCH_SUPPORTS_SANDBOX:=1

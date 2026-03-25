@@ -2,10 +2,8 @@
 #define HEADER_fd_src_flamenco_types_fd_types_custom_h
 
 #include "../fd_flamenco_base.h"
-#include "fd_types_meta.h"
 #include "fd_bincode.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
-#include "../../ballet/ed25519/fd_ed25519.h"
 
 #define FD_SIGNATURE_ALIGN (8UL)
 
@@ -20,9 +18,10 @@ union __attribute__((packed)) fd_hash {
   uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangeable
 
   // Generic type specific accessors
-  ulong ul  [ FD_HASH_FOOTPRINT / sizeof(ulong) ];
-  uint  ui  [ FD_HASH_FOOTPRINT / sizeof(uint)  ];
-  uchar uc  [ FD_HASH_FOOTPRINT ];
+  ulong  ul  [ FD_HASH_FOOTPRINT / sizeof(ulong)  ];
+  uint   ui  [ FD_HASH_FOOTPRINT / sizeof(uint)   ];
+  ushort us  [ FD_HASH_FOOTPRINT / sizeof(ushort) ];
+  uchar  uc  [ FD_HASH_FOOTPRINT                  ];
 };
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
@@ -69,7 +68,6 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_size                    fd_hash_size
 #define fd_pubkey_check_zero              fd_hash_check_zero
 #define fd_pubkey_set_zero                fd_hash_set_zero
-#define fd_pubkey_walk                    fd_hash_walk
 #define fd_pubkey_decode_inner            fd_hash_decode_inner
 #define fd_pubkey_decode_footprint        fd_hash_decode_footprint
 #define fd_pubkey_decode_footprint_inner  fd_hash_decode_footprint_inner
@@ -89,6 +87,9 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
 
 FD_PROTOTYPES_END
 
+#define FD_DUMMY_ACCOUNT { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF }
+static const fd_pubkey_t FD_DUMMY_ACCOUNT_PUBKEY = { .uc = FD_DUMMY_ACCOUNT };
+
 struct fd_vote_stake_weight {
   fd_pubkey_t vote_key; /* vote account pubkey */
   fd_pubkey_t id_key;   /* validator identity pubkey */
@@ -106,5 +107,27 @@ struct fd_stake_weight {
   ulong       stake;    /* total stake by identity */
 };
 typedef struct fd_stake_weight fd_stake_weight_t;
+
+#define SORT_NAME fd_stake_weight_key_sort
+#define SORT_KEY_T fd_stake_weight_t
+#define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )<0)
+#include "../../util/tmpl/fd_sort.c"
+
+static inline void fd_hash_new( fd_hash_t * self ) { (void)self; }
+static inline int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_hash_t), ctx );
+}
+static inline ulong fd_hash_size( fd_hash_t const * self ) { (void)self; return sizeof(fd_hash_t); }
+static inline ulong fd_hash_align( void ) { return alignof(fd_hash_t); }
+static inline int fd_hash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  (void)total_sz;
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return fd_bincode_bytes_decode_footprint( sizeof(fd_hash_t), ctx );
+}
+static inline void fd_hash_decode_inner( void * struct_mem, void ** alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  (void)alloc_mem;
+  fd_bincode_bytes_decode_unsafe( struct_mem, sizeof(fd_hash_t), ctx );
+  return;
+}
 
 #endif /* HEADER_fd_src_flamenco_types_fd_types_custom_h */

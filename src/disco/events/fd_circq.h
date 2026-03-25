@@ -26,7 +26,7 @@
    the next message in the queue, and head, tail are the head and tail
    of the queue respectively. */
 
-#include "../fd_disco_base.h"
+#include "../../util/fd_util_base.h"
 
 #define FD_CIRCQ_ALIGN (4096UL)
 
@@ -41,6 +41,10 @@ struct __attribute__((aligned(FD_CIRCQ_ALIGN))) fd_circq_private {
   ulong tail;
 
   ulong size;
+
+  ulong cursor;          /* Current offset in buffer for iteration, or ULONG_MAX if at end */
+  ulong cursor_seq;      /* Monotonic counter - cursor value for current position */
+  ulong cursor_push_seq; /* Monotonic counter - incremented on each push */
 
   struct {
     ulong drop_cnt;
@@ -61,7 +65,7 @@ fd_circq_footprint( ulong sz );
 
 void *
 fd_circq_new( void * shmem,
-                ulong  sz );
+              ulong  sz );
 
 fd_circq_t *
 fd_circq_join( void * shbuf );
@@ -85,14 +89,43 @@ fd_circq_push_back( fd_circq_t * circq,
                     ulong        align,
                     ulong        footprint );
 
-/* fd_circq_pop_front pops the oldest message from the circular buffer
-   and returns the address of the memory contents in the buffer.  The
-   memory contents are guaranteed to be valid until the next call to
-   fd_circq_push_back.  Returns NULL if there are no messages in the
-   circular buffer. */
+void
+fd_circq_resize_back( fd_circq_t * circq,
+                      ulong        new_footprint );
+
+/* fd_circq_cursor_advance moves an internal cursor forward to the next
+   message in the circular buffer, returning the message at the previous
+   cursor position, or NULL if there are no more messages.
+
+   Moving the cursor does not remove the message from the circular
+   buffer, which only happens when fd_circq_pop_until is called. */
 
 uchar const *
-fd_circq_pop_front( fd_circq_t * circq );
+fd_circq_cursor_advance( fd_circq_t * circq,
+                         ulong *      msg_sz );
+
+/* fd_circq_pop_until removes messages from the front of the circular
+   buffer up to and including the message with the given cursor value.
+   Returns 0 on success, or -1 if the given cursor value is invalid
+   (i.e., it is higher than the present cursor of the circq and has
+   never existed.) */
+
+int
+fd_circq_pop_until( fd_circq_t * circq,
+                    ulong        cursor );
+
+/* fd_circq_reset_cursor resets the internal cursor to the front of the
+   circular buffer.  This is useful if you want to re-process all
+   messages in the buffer from the start. */
+
+void
+fd_circq_reset_cursor( fd_circq_t * circq );
+
+/* fd_circq_bytes_used returns the total number of bytes currently used
+   in the circular buffer, including message metadata and padding. */
+
+ulong
+fd_circq_bytes_used( fd_circq_t const * circq );
 
 FD_PROTOTYPES_END
 

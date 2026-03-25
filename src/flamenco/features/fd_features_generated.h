@@ -8,10 +8,10 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (249UL)
+#define FD_FEATURE_ID_CNT (267UL)
 
 /* Feature set ID calculated from all feature names */
-#define FD_FEATURE_SET_ID (4167120720U)
+#define FD_FEATURE_SET_ID (3775789446U)
 
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
@@ -248,11 +248,11 @@ union fd_features {
     /* 0x68b66c984ac5e709 */ ulong vote_only_full_fec_sets;
     /* 0x28f6b335e2fb2040 */ ulong drop_unchained_merkle_shreds;
     /* 0xa841eda250bdcc9c */ ulong verify_retransmitter_signature;
-    /* 0x0272a3278356fa9c */ ulong enable_turbine_extended_fanout_experiments;
+    /* 0x78efccd879624c0d */ ulong enable_turbine_extended_fanout_experiments;
     /* 0x494f963ae12b5106 */ ulong vote_only_retransmitter_signed_fec_sets;
     /* 0x210aba8db8103506 */ ulong mask_out_rent_epoch_in_vm_serialization;
     /* 0xec3a4c069e71cb0e */ ulong disable_zk_elgamal_proof_program;
-    /* 0x8321f88bec76cb0e */ ulong reenable_zk_elgamal_proof_program;
+    /* 0x2e9fa2046b77cb0e */ ulong reenable_zk_elgamal_proof_program;
     /* 0xe72f76507222e3bb */ ulong formalize_loaded_transaction_data_size;
     /* 0x7170cf84367fbb1a */ ulong enable_extend_program_checked;
     /* 0xa9e3bfbaf8d67260 */ ulong require_static_nonce_account;
@@ -263,7 +263,25 @@ union fd_features {
     /* 0x520c5e674243fab5 */ ulong account_data_direct_mapping;
     /* 0xf08a42c3c040e908 */ ulong fix_alt_bn128_pairing_length_check;
     /* 0x8c7bee4552d93e0c */ ulong poseidon_enforce_padding;
-    /* 0x866094bbfe00a7c6 */ ulong relax_intrabatch_account_locks;
+    /* 0x99e38f77f30f2b34 */ ulong relax_intrabatch_account_locks;
     /* 0x7c4802b8ba3fa849 */ ulong provide_instruction_data_offset_in_vm_r2;
+    /* 0xab2a2311ca83eb09 */ ulong enforce_fixed_fec_set;
+    /* 0x55792888a8cf31ef */ ulong increase_cpi_account_info_limit;
+    /* 0xf4792febab30b80c */ ulong deprecate_rent_exemption_threshold;
+    /* 0xdab5b6a991a03e4b */ ulong static_instruction_limit;
+    /* 0x8921a3abf23afaec */ ulong vote_state_v4;
+    /* 0x640dddd90caae808 */ ulong alt_bn128_little_endian;
+    /* 0x9e11ee2f4bbcb608 */ ulong enable_bls12_381_syscall;
+    /* 0x010f656d89a4e808 */ ulong enable_alt_bn128_g2_syscalls;
+    /* 0xfc12b1cef363afa7 */ ulong switch_to_chacha8_turbine;
+    /* 0x3727b6b01b8a6c1c */ ulong bls_pubkey_management_in_vote_account;
+    /* 0xa5ce8f931961b80c */ ulong relax_programdata_account_check_migration;
+    /* 0xf55c421c9eccc012 */ ulong remove_simple_vote_from_cost_model;
+    /* 0x7428565ab3b6d152 */ ulong limit_instruction_accounts;
+    /* 0x8b0786cd93f63607 */ ulong validator_admission_ticket;
+    /* 0x6d9baef98a3cfd0c */ ulong discard_unexpected_data_complete_shreds;
+    /* 0x632b9b7c9e9a3257 */ ulong create_account_allow_prefund;
+    /* 0xa4c86f030ee0440c */ ulong replace_spl_token_with_p_token;
+    /* 0xf5434d796d0f975a */ ulong delay_commission_updates;
   };
 };

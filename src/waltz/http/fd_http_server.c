@@ -404,7 +404,7 @@ accept_conns( fd_http_server_t * http ) {
     }
 
     if( FD_UNLIKELY( !conn_pool_free( http->conns ) ) ) {
-      conn_treap_rev_iter_t it = conn_treap_fwd_iter_init( http->conn_treap, http->conns );
+      conn_treap_fwd_iter_t it = conn_treap_fwd_iter_init( http->conn_treap, http->conns );
       if( FD_LIKELY( !conn_treap_fwd_iter_done( it ) ) ) {
         ulong conn_id = conn_treap_fwd_iter_idx( it );
         close_conn( http, conn_id, FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED );
@@ -515,13 +515,13 @@ read_conn_http( fd_http_server_t * http,
         return;
       }
 
-      ulong next = content_len*10UL + (ulong)(content_length[ i ]-'0');
-      if( FD_UNLIKELY( next<content_len ) ) { /* Overflow */
+      ulong digit = (ulong)(content_length[ i ]-'0');
+      if( FD_UNLIKELY( content_len>(ULONG_MAX-digit)/10UL ) ) { /* Overflow */
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
         return;
       }
 
-      content_len = next;
+      content_len = content_len*10UL + digit;
     }
 
     ulong total_len = (ulong)result+content_len;
@@ -575,13 +575,14 @@ read_conn_http( fd_http_server_t * http,
 
   conn->upgrade_websocket = 0;
   int compress_websocket = 0;
-  if( FD_UNLIKELY( upgrade_key && !strncmp( upgrade_key, "websocket", 9UL ) ) ) {
+  if( FD_UNLIKELY( upgrade_key && !strncasecmp( upgrade_key, "websocket", 9UL ) ) ) {
     conn->request_bytes_len = (ulong)result;
     conn->upgrade_websocket = 1;
 
 #if FD_HAS_ZSTD
     for( ulong i=0UL; i<num_headers; i++ ) {
-      if( FD_LIKELY( headers[ i ].name_len==22UL && !strncasecmp( headers[ i ].name, "Sec-WebSocket-Protocol", 22UL ) && strstr( headers[ i ].value, "compress-zstd" ) ) ) {
+      if( FD_LIKELY( headers[ i ].name_len==22UL && !strncasecmp( headers[ i ].name, "Sec-WebSocket-Protocol", 22UL ) &&
+                     headers[ i ].value_len==13UL && !strncmp( headers[ i ].value, "compress-zstd", 13UL ) ) ) {
         compress_websocket = 1;
       }
     }
@@ -706,8 +707,8 @@ again:
     len_bytes = 3UL;
   } else if( FD_LIKELY( payload_len==127 ) ) {
     if( FD_UNLIKELY( conn->recv_bytes_read<10UL ) ) return; /* Need at least 10 bytes to determine frame length */
-    payload_len = ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+2 ]<<56UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+3UL ]<<48UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+4UL ]<<40UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+5UL ]<<32UL) |
-                  ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+6 ]<<24UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+7UL ]<<16UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+8UL ]<<8UL ) |  (ulong)conn->recv_bytes[ conn->recv_bytes_parsed+9UL ];
+    payload_len = ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+2UL ]<<56UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+3UL ]<<48UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+4UL ]<<40UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+5UL ]<<32UL) |
+                  ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+6UL ]<<24UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+7UL ]<<16UL) | ((ulong)conn->recv_bytes[ conn->recv_bytes_parsed+8UL ]<<8UL ) |  (ulong)conn->recv_bytes[ conn->recv_bytes_parsed+9UL ];
     len_bytes = 9UL;
   } else {
     FD_LOG_ERR(( "unexpected payload_len %lu", payload_len )); /* Silence clang sanitizer, not possible */
@@ -1217,7 +1218,7 @@ static void
 fd_http_server_reserve( fd_http_server_t * http,
                         ulong              len ) {
   /* fd_http_server_reserve should not be called after
-     fd_http_server_compress */
+     fd_http_ws_compress_maybe */
   FD_TEST( http->stage_comp_len == 0 );
 
   ulong remaining = http->oring_sz-((http->stage_off%http->oring_sz)+http->stage_len);
@@ -1230,8 +1231,8 @@ fd_http_server_reserve( fd_http_server_t * http,
                   else.  Mark the hcache as errored and exit. */
 
       FD_LOG_WARNING(( "tried to reserve %lu bytes for an outgoing message which exceeds the entire data size", http->stage_len+len ));
-      FD_LOG_HEXDUMP_WARNING(( "start of message:\n%.*s", http->oring+http->stage_off, fd_ulong_min( 500UL, http->oring_sz-http->stage_off-1UL ) ));
-      FD_LOG_HEXDUMP_WARNING(( "start of buffer:\n%.*s",  http->oring,                 fd_ulong_min( 500UL, http->oring_sz )                     ));
+      FD_LOG_HEXDUMP_WARNING(( "start of message:\n%.*s", http->oring+(http->stage_off%http->oring_sz), fd_ulong_min( 500UL, http->oring_sz-(http->stage_off%http->oring_sz)-1UL ) ));
+      FD_LOG_HEXDUMP_WARNING(( "start of buffer:\n%.*s",  http->oring,                                  fd_ulong_min( 500UL, http->oring_sz )                     ));
       http->stage_err = 1;
       return;
     } else {
@@ -1284,6 +1285,20 @@ fd_http_ws_compress_maybe( fd_http_server_t * http ) {
 #endif
 }
 
+uchar *
+fd_http_server_append_start( fd_http_server_t * http,
+                             ulong              len ) {
+  fd_http_server_reserve( http, len );
+  if( FD_UNLIKELY( http->stage_err ) ) return NULL;
+  return http->oring+(http->stage_off%http->oring_sz)+http->stage_len;
+}
+
+void
+fd_http_server_append_end( fd_http_server_t * http,
+                           ulong              len ) {
+  http->stage_len += len;
+}
+
 int
 fd_http_server_ws_send( fd_http_server_t * http,
                         ulong              ws_conn_id ) {
@@ -1307,12 +1322,14 @@ fd_http_server_ws_send( fd_http_server_t * http,
      those connections, and has therefore already been closed. */
   if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) {
     http->stage_len = 0;
+    http->stage_comp_len = 0;
     return 0;
   }
 
   if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
     close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
     http->stage_len = 0;
+    http->stage_comp_len = 0;
     return 0;
   }
 
@@ -1440,7 +1457,8 @@ fd_http_server_stage_body( fd_http_server_t *          http,
                            fd_http_server_response_t * response ) {
   if( FD_UNLIKELY( http->stage_err ) ) {
     http->stage_err = 0;
-    http->stage_len = 0;
+    http->stage_len = 0UL;
+    http->stage_comp_len = 0UL;
     return -1;
   }
 

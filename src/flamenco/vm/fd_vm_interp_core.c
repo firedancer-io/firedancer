@@ -59,25 +59,37 @@
 
    https://doc.rust-lang.org/std/primitive.u64.html#method.wrapping_shl
  */
-#define FD_RUST_ULONG_WRAPPING_SHL( a, b ) (a << ( b & ( 63 ) ))
+#define FD_RUST_ULONG_WRAPPING_SHL( a, b ) ((a) << ( (b) & ( 63 ) ))
 
 /* u64::wrapping_shr: a.unchecked_shr(b & (64 - 1))
 
    https://doc.rust-lang.org/std/primitive.u64.html#method.wrapping_shr
  */
-#define FD_RUST_ULONG_WRAPPING_SHR( a, b ) (a >> ( b & ( 63 ) ))
+#define FD_RUST_ULONG_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 63 ) ))
 
 /* u32::wrapping_shl: a.unchecked_shl(b & (32 - 1))
 
    https://doc.rust-lang.org/std/primitive.u32.html#method.wrapping_shl
  */
-#define FD_RUST_UINT_WRAPPING_SHL( a, b ) (a << ( b & ( 31 ) ))
+#define FD_RUST_UINT_WRAPPING_SHL( a, b ) ((a) << ( (b) & ( 31 ) ))
 
 /* u32::wrapping_shr: a.unchecked_shr(b & (32 - 1))
 
    https://doc.rust-lang.org/std/primitive.u32.html#method.wrapping_shr
  */
-#define FD_RUST_UINT_WRAPPING_SHR( a, b ) (a >> ( b & ( 31 ) ))
+#define FD_RUST_UINT_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 31 ) ))
+
+/* i32::wrapping_shr: a.unchecked_shr(b & (32 - 1))
+
+   https://doc.rust-lang.org/std/primitive.i32.html#method.wrapping_shr
+ */
+#define FD_RUST_INT_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 31 ) ))
+
+/* i64::wrapping_shr: a.unchecked_shr(b & (64 - 1))
+
+   https://doc.rust-lang.org/std/primitive.i64.html#method.wrapping_shr
+ */
+#define FD_RUST_LONG_WRAPPING_SHR( a, b ) ((a) >> ( (b) & ( 63 ) ))
 
 
 # define FD_VM_INTERP_INSTR_EXEC                                                                 \
@@ -675,13 +687,7 @@ interp_exec:
     reg[ dst ] = (ulong)( -(uint)reg_dst );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x85) /* FD_SBPF_OP_CALL_IMM */
-    /* imm has already been validated */
-    FD_VM_INTERP_STACK_PUSH;
-    pc = (ulong)( (long)pc + (long)(int)imm );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x85depr) { /* FD_SBPF_OP_CALL_IMM */
+  FD_VM_INTERP_BRANCH_BEGIN(0x85) { /* FD_SBPF_OP_CALL_IMM */
 
     fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL ) : NULL;
     if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
@@ -768,16 +774,6 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x8d) { /* FD_SBPF_OP_CALL_REG */
-    FD_VM_INTERP_STACK_PUSH;
-    ulong target_pc = (reg_src - vm->text_off) / 8UL;
-    if( FD_UNLIKELY( target_pc>=text_cnt ) ) goto sigtextbr;
-    if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
-      goto sigillbr;
-    }
-    pc = target_pc - 1;
-  } FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x8ddepr) { /* FD_SBPF_OP_CALL_REG */
 
     FD_VM_INTERP_STACK_PUSH;
 
@@ -820,14 +816,21 @@ interp_exec:
     reg[ dst ] = (ulong)( (uint)reg_dst % imm );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x95) { /* FD_SBPF_OP_SYSCALL */
-    /* imm has already been validated */
-    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL );
-    if( FD_UNLIKELY( !syscall ) ) goto sigillbr;
+  FD_VM_INTERP_BRANCH_BEGIN(0x95) /* FD_SBPF_OP_EXIT */
+      /* Agave JIT VM exit implementation analysis below.
 
-    FD_VM_INTERP_SYSCALL_EXEC;
-
-  } FD_VM_INTERP_BRANCH_END;
+       Agave references:
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L503-L509
+       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L697-L702 */
+    if( FD_UNLIKELY( !frame_cnt ) ) goto sigexit; /* Exit program */
+    frame_cnt--;
+    reg[6]   = shadow[ frame_cnt ].r6;
+    reg[7]   = shadow[ frame_cnt ].r7;
+    reg[8]   = shadow[ frame_cnt ].r8;
+    reg[9]   = shadow[ frame_cnt ].r9;
+    reg[10]  = shadow[ frame_cnt ].r10;
+    pc       = shadow[ frame_cnt ].pc;
+  FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x96) /* FD_SBPF_OP_LMUL64_IMM */
     reg[ dst ] = reg_dst * (ulong)(long)(int)imm;
@@ -860,22 +863,6 @@ interp_exec:
     reg[ dst ] = fd_vm_mem_ld_8( haddr );
   }
   FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x9d) /* FD_SBPF_OP_EXIT */
-      /* Agave JIT VM exit implementation analysis below.
-
-       Agave references:
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L503-L509
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L697-L702 */
-    if( FD_UNLIKELY( !frame_cnt ) ) goto sigexit; /* Exit program */
-    frame_cnt--;
-    reg[6]   = shadow[ frame_cnt ].r6;
-    reg[7]   = shadow[ frame_cnt ].r7;
-    reg[8]   = shadow[ frame_cnt ].r8;
-    reg[9]   = shadow[ frame_cnt ].r9;
-    reg[10]  = shadow[ frame_cnt ].r10;
-    pc       = shadow[ frame_cnt ].pc;
-  FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9e) /* FD_SBPF_OP_LMUL64_REG */
     reg[ dst ] = reg_dst * reg_src;
@@ -976,7 +963,7 @@ interp_exec:
   /* 0xc0 - 0xcf ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0xc4) /* FD_SBPF_OP_ARSH_IMM */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)(uint)( FD_RUST_INT_WRAPPING_SHR( (int)reg_dst, imm ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xc5) /* FD_SBPF_OP_JSLT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
@@ -989,11 +976,11 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xc7) /* FD_SBPF_OP_ARSH64_IMM */
-    reg[ dst ] = (ulong)( (long)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)( FD_RUST_LONG_WRAPPING_SHR( (long)reg_dst, imm ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcc) /* FD_SBPF_OP_ARSH_REG */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst >> (uint)reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)(uint)( FD_RUST_INT_WRAPPING_SHR( (int)reg_dst, (uint)reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xcd) /* FD_SBPF_OP_JSLT_REG */
@@ -1007,7 +994,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcf) /* FD_SBPF_OP_ARSH64_REG */
-    reg[ dst ] = (ulong)( (long)reg_dst >> reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)( FD_RUST_LONG_WRAPPING_SHR( (long)reg_dst, reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
   /* 0xd0 - 0xdf ******************************************************/

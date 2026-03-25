@@ -1,6 +1,4 @@
 #include "fd_wksp_private.h"
-#include <sys/mman.h>
-#include <errno.h>
 
 int
 fd_wksp_private_lock( fd_wksp_t * wksp ) {
@@ -786,6 +784,11 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
   return FD_WKSP_SUCCESS;
 }
 
+#if defined(__linux__)
+
+#include <sys/mman.h>
+#include <errno.h>
+
 void
 fd_wksp_mprotect( fd_wksp_t * wksp, int flag ) {
   if( FD_UNLIKELY( !wksp ) ) {
@@ -809,3 +812,5 @@ fd_wksp_mprotect( fd_wksp_t * wksp, int flag ) {
     return;
   }
 }
+
+#endif

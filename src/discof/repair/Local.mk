@@ -1,5 +1,7 @@
+ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_repair_tile,fd_discof)
+endif
 endif
 $(call add-objs,fd_policy,fd_discof)
 $(call add-hdrs,fd_policy.h)
@@ -9,4 +11,7 @@ $(call add-objs,fd_repair,fd_discof)
 $(call add-hdrs,fd_repair.h)
 $(call add-objs,fd_repair_metrics,fd_discof)
 $(call add-hdrs,fd_repair_metrics.h)
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_policy,test_policy,fd_discof fd_disco fd_tango fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_repair_serde,fuzz_repair_serde,fd_discof fd_disco fd_tango fd_ballet fd_util)
+endif

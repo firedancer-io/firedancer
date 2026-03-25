@@ -58,17 +58,25 @@ int
 fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
                            fd_pubkey_t const *      callee_program_id_pubkey,
-                           fd_pubkey_t const        instr_acct_keys[ FD_INSTR_ACCT_MAX ],
-                           fd_instruction_account_t instruction_accounts[ FD_INSTR_ACCT_MAX ],
+                           fd_pubkey_t const        instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
+                           fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt ) {
 
   /* De-duplicate the instruction accounts, using the same logic as Solana */
   ulong deduplicated_instruction_accounts_cnt = 0;
-  fd_instruction_account_t deduplicated_instruction_accounts[256] = {0};
-  ulong duplicate_indicies_cnt = 0;
-  ulong duplicate_indices[256] = {0};
+  fd_instruction_account_t deduplicated_instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ] = {0};
+  ulong duplicate_indicies_cnt                                                                     = 0;
+  ulong duplicate_indices[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ]                                    = {0};
+
+  /* This function is either called by a true CPI or by a native cpi invocation.
+     The native CPI invocation is never called with more than 3 instruction
+     accounts, and the true CPI is never called with more than
+     FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS. */
+  if( FD_UNLIKELY( callee_instr->acct_cnt > FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
+    FD_LOG_CRIT(( "invariant violation: too many accounts %u", callee_instr->acct_cnt ));
+  }
 
   /* Normalize the privileges of each instruction account in the callee, after de-duping
      the account references.
@@ -141,15 +149,15 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
     /* Check that the account is not read-only in the caller but writable in the callee */
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
-    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.acct->pubkey, signers, signers_cnt) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
+    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.pubkey, signers, signers_cnt) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
@@ -228,49 +236,49 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
    https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1011 */
 
 #define FD_CPI_MAX_ACCOUNT_INFOS           (128UL)
+#define FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339 (255UL)
+
 /* This is just encoding what Agave says in their code comments into a
    compile-time check, so if anyone ever inadvertently changes one of
    the limits, they will have to take a look. */
 FD_STATIC_ASSERT( FD_CPI_MAX_ACCOUNT_INFOS==MAX_TX_ACCOUNT_LOCKS, cpi_max_account_info );
+
+/* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L168-L180 */
 static inline ulong
 get_cpi_max_account_infos( fd_bank_t * bank ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ), FD_CPI_MAX_ACCOUNT_INFOS, 64UL );
+  if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, increase_cpi_account_info_limit ) ) ) {
+    return FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339;
+  } else if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ) ) ) {
+    return FD_CPI_MAX_ACCOUNT_INFOS;
+  } else {
+    return 64UL;
+  }
 }
 
-/* Maximum CPI instruction accounts. 255 was chosen to ensure that instruction
-   accounts are always within the maximum instruction account limit for BPF
-   program instructions.
-
-   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L19
-   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/serialization.rs#L26 */
-
-#define FD_CPI_MAX_INSTRUCTION_ACCOUNTS    (255UL)
+/* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/execution_budget.rs#L25-L31 */
+static inline ulong
+get_cpi_invoke_unit_cost( fd_bank_t * bank ) {
+  return fd_ulong_if(
+    FD_FEATURE_ACTIVE_BANK( bank, increase_cpi_account_info_limit ),
+    FD_VM_INVOKE_UNITS_SIMD_0339,
+    FD_VM_INVOKE_UNITS );
+}
 
 /* fd_vm_syscall_cpi_check_instruction contains common instruction acct
    count and data sz checks.  Also consumes compute units proportional
    to instruction data size. */
 
 static int
-fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
-                                     ulong           acct_cnt,
+fd_vm_syscall_cpi_check_instruction( ulong           acct_cnt,
                                      ulong           data_sz ) {
   /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L146-L161 */
-  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
-      // SyscallError::MaxInstructionAccountsExceeded
-      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
-    }
-    if( FD_UNLIKELY( data_sz>FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN ) ) {
-      // SyscallError::MaxInstructionDataLenExceeded
-      return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
-    }
-  } else {
-    // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
-    ulong tot_sz = fd_ulong_sat_add( fd_ulong_sat_mul( FD_VM_RUST_ACCOUNT_META_SIZE, acct_cnt ), data_sz );
-    if ( FD_UNLIKELY( tot_sz > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
-      // SyscallError::InstructionTooLarge
-      return FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE;
-    }
+  if( FD_UNLIKELY( acct_cnt > FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
+    // SyscallError::MaxInstructionAccountsExceeded
+    return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
+  }
+  if( FD_UNLIKELY( data_sz>FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN ) ) {
+    // SyscallError::MaxInstructionDataLenExceeded
+    return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED;
   }
 
   return FD_VM_SUCCESS;
@@ -335,11 +343,10 @@ fd_vm_syscall_cpi_check_id( fd_pubkey_t const * program_id,
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/src/precompiles.rs#L93
  */
 static inline int
-fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id, fd_bank_t * bank ) {
+fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
   return fd_vm_syscall_cpi_check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
          fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key) |
-         ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key) &&
-           FD_FEATURE_ACTIVE_BANK( bank, enable_secp256r1_precompile ) );
+         fd_vm_syscall_cpi_check_id(program_id, fd_solana_secp256r1_program_id.key);
 }
 
 /* fd_vm_syscall_cpi_check_authorized_program corresponds to
@@ -347,16 +354,15 @@ solana_bpf_loader_program::syscalls::cpi::check_authorized_program:
 https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1032
 
 It determines if the given program_id is authorized to execute a CPI call.
-
-FIXME: return type
- */
-static inline ulong
+Returns 1 if authorized, 0 otherwise.
+*/
+static inline int
 fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                                             fd_bank_t *         bank,
                                             uchar const *       instruction_data,
                                             ulong               instruction_data_len ) {
   /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
-  return ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key) ||
+  return !( fd_vm_syscall_cpi_check_id(program_id, fd_solana_native_loader_id.key) ||
            fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key) ||
            fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key) ||
            ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) &&
@@ -367,7 +373,7 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                ( FD_FEATURE_ACTIVE_BANK( bank, enable_extend_program_checked ) &&
                  ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_extend_program_checked )) ||
                ( instruction_data_len != 0 && instruction_data[0] == fd_bpf_upgradeable_loader_program_instruction_enum_close ))) ||
-           fd_vm_syscall_cpi_is_precompile( program_id, bank ) );
+           fd_vm_syscall_cpi_is_precompile( program_id ) );
 }
 
 /* The data and lamports fields are in an Rc<Refcell<T>> in the Rust ABI AccountInfo.
@@ -377,7 +383,7 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
  */
 FD_FN_CONST static inline
 ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
-  return (ulong) &(((fd_vm_rc_refcell_t *)rc_refcell_vaddr)->payload);
+  return rc_refcell_vaddr + offsetof(fd_vm_rc_refcell_t, payload);
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L310-L316

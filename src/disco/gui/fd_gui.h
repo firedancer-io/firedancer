@@ -8,8 +8,12 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_p.h"
+#include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
+#include "../../discof/replay/fd_replay_tile.h"
+#include "../../choreo/tower/fd_tower.h"
+#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/types/fd_types_custom.h"
 #include "../../util/fd_util_base.h"
@@ -17,7 +21,7 @@
 #include "../../waltz/http/fd_http_server.h"
 
 /* frankendancer only */
-#define FD_GUI_MAX_PEER_CNT ( 40200UL)
+#define FD_GUI_MAX_PEER_CNT (108000UL)
 
 /* frankendancer only */
 #define FD_GUI_START_PROGRESS_TYPE_INITIALIZING                       ( 0)
@@ -96,7 +100,6 @@ struct fd_gui_validator_info {
 #define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT      (50UL)  /* 500ms / 10ms */
 #define FD_GUI_SCHEDULER_COUNT_SNAP_CNT              (512UL)
 #define FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT (50UL)  /* 500ms / 10ms */
-#define FD_GUI_TILE_TIMER_TILE_CNT                   (256UL)
 
 #define FD_GUI_VOTE_STATE_NON_VOTING (0)
 #define FD_GUI_VOTE_STATE_VOTING     (1)
@@ -221,7 +224,7 @@ struct fd_gui_validator_info {
    Ideally, we have enough space to store an epoch's worth of events,
    but we are limited by realistic memory consumption.  Instead, we pick
    bound heuristically. */
-#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
+#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 12UL)
 
 #define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
 #define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
@@ -237,12 +240,17 @@ struct fd_gui_validator_info {
 
 struct fd_gui_tile_timers {
   ulong timers[ FD_METRICS_ENUM_TILE_REGIME_CNT ];
-  int   in_backp;
-  uint  status;
-  ulong heartbeat;
-  ulong backp_cnt;
-  ulong nvcsw;
-  ulong nivcsw;
+  ulong sched_timers[ FD_METRICS_ENUM_CPU_REGIME_CNT ];
+
+  int    in_backp;
+  ushort last_cpu;
+  uchar  status;
+  ulong  heartbeat;
+  ulong  backp_cnt;
+  ulong  nvcsw;
+  ulong  nivcsw;
+  ulong  minflt;
+  ulong  majflt;
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
@@ -295,9 +303,12 @@ struct fd_gui_leader_slot {
      downsampled to be at most FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT
      samples (e.g. if there was an unusually long leader slot) and
      inserted into historical storage with capacity FD_GUI_LEADER_CNT.
-     FD_GUI_TILE_TIMER_TILE_CNT is the maximum number of tiles supported. */
-  fd_gui_tile_timers_t tile_timers[ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
-  ulong                tile_timers_sample_cnt;
+
+     The tile_timers pointer references trailing storage allocated
+     in fd_gui_footprint, with gui->tile_cnt elements per sample.
+     Sized as tile_timers[ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ tile_cnt ]. */
+  fd_gui_tile_timers_t * tile_timers;
+  ulong                  tile_timers_sample_cnt;
 
   fd_gui_scheduler_counts_t scheduler_counts[ FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT ][ 1 ];
   ulong                     scheduler_counts_sample_cnt;
@@ -316,7 +327,7 @@ struct fd_gui_leader_slot {
     ulong   start_offset; /* The smallest pack transaction index for this slot. The first transaction for this slot will
                              be written to gui->txs[ start_offset%FD_GUI_TXN_HISTORY_SZ ]. */
     ulong   end_offset;   /* The largest pack transaction index for this slot, plus 1. The last transaction for this
-                             slot will be written to gui->txs[ (start_offset-1)%FD_GUI_TXN_HISTORY_SZ ]. */
+                             slot will be written to gui->txs[ (end_offset-1)%FD_GUI_TXN_HISTORY_SZ ]. */
   } txs;
 
   fd_done_packing_t scheduler_stats[ 1 ];
@@ -332,24 +343,6 @@ struct fd_gui_turbine_slot {
 };
 
 typedef struct fd_gui_turbine_slot fd_gui_turbine_slot_t;
-
-struct fd_gui_slot_completed {
-  ulong slot;
-  long  completed_time;
-  ulong parent_slot;
-  uint  max_compute_units;
-  uint  total_txn_cnt;
-  uint  vote_txn_cnt;
-  uint  failed_txn_cnt;
-  uint  nonvote_failed_txn_cnt;
-  ulong transaction_fee;
-  ulong priority_fee;
-  ulong tips;
-  uint  compute_units;
-  uint  shred_cnt;
-};
-
-typedef struct fd_gui_slot_completed fd_gui_slot_completed_t;
 
 struct fd_gui_slot_staged_shred_event {
   long   timestamp;
@@ -421,7 +414,7 @@ struct __attribute__((packed)) fd_gui_txn {
 
      timestamp_delta_start_exec_nanos = (
        (timestamp_delta_end_nanos-timestamp_delta_start_nanos) *
-       ((double)txn_{}_pct/USHORT_MAX)
+       ((double)txn_{}_pct/UCHAR_MAX)
      ) */
   uchar txn_start_pct;
   uchar txn_load_end_pct;
@@ -503,21 +496,23 @@ struct fd_gui_slot {
   ulong parent_slot;
   ulong vote_slot;
   ulong reset_slot;
-  uint  max_compute_units;
   long  completed_time;
+  uint  max_compute_units;
   int   mine;
   int   skipped;
   int   must_republish;
   int   level;
-  uint  total_txn_cnt;
-  uint  vote_txn_cnt;
-  uint  failed_txn_cnt;
-  uint  nonvote_failed_txn_cnt;
   uint  compute_units;
   ulong transaction_fee;
   ulong priority_fee;
   ulong tips;
   uint  shred_cnt;
+  uchar vote_latency;
+
+  uint vote_success;
+  uint vote_failed;
+  uint nonvote_success;
+  uint nonvote_failed;
 
   /* Some slot info is only tracked for our own leader slots. These
      slots are kept in a separate buffer. */
@@ -532,8 +527,8 @@ struct fd_gui_slot {
   struct {
     ulong start_offset; /* gui->shreds.history[ start_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the first shred event in
                            contiguous chunk of events in the shred history corresponding to this slot. */
-    ulong end_offset;   /* gui->shreds.history[ end_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the last shred event in
-                           contiguous chunk of events in the shred history corresponding to this slot. */
+    ulong end_offset;   /* One past the last shred event in the contiguous chunk of events in the shred history
+                           corresponding to this slot. */
   } shreds;
 };
 
@@ -543,10 +538,12 @@ struct fd_gui {
   fd_http_server_t * http;
   fd_topo_t * topo;
 
+  ulong tile_cnt;
+
   long next_sample_400millis;
   long next_sample_100millis;
   long next_sample_50millis;
-  long next_sample_12_5millis;
+  long next_sample_25millis;
   long next_sample_10millis;
 
   ulong leader_slot;
@@ -634,8 +631,10 @@ struct fd_gui {
     ulong net_tile_cnt;
     ulong quic_tile_cnt;
     ulong verify_tile_cnt;
+    ulong resolh_tile_cnt;
     ulong resolv_tile_cnt;
     ulong bank_tile_cnt;
+    ulong execle_tile_cnt;
     ulong shred_tile_cnt;
 
     ulong slot_rooted;
@@ -652,16 +651,24 @@ struct fd_gui {
     fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
     fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];
 
-    /* catchup_* is run-length encoded. i.e. adjacent pairs represent
-      contiguous runs */
+    /* catchup_* and late_votes are run-length encoded. i.e. adjacent
+       pairs represent contiguous runs */
     ulong catch_up_turbine[ FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ ];
     ulong catch_up_turbine_sz;
 
     ulong catch_up_repair[ FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ ];
     ulong catch_up_repair_sz;
 
+    ulong late_votes[ MAX_SLOTS_PER_EPOCH ];
+    ulong late_votes_sz;
+
     ulong estimated_tps_history_idx;
-    ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
+    struct {
+     ulong vote_failed;
+     ulong vote_success;
+     ulong nonvote_success;
+     ulong nonvote_failed;
+    } estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ];
 
     fd_gui_network_stats_t network_stats_current[ 1 ];
 
@@ -671,10 +678,12 @@ struct fd_gui {
     fd_gui_tile_stats_t tile_stats_reference[ 1 ];
     fd_gui_tile_stats_t tile_stats_current[ 1 ];
 
-    ulong                tile_timers_snap_idx;
-    ulong                tile_timers_snap_idx_slot_start;
-    /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
-    fd_gui_tile_timers_t tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
+    ulong                  tile_timers_snap_idx;
+    ulong                  tile_timers_snap_idx_slot_start;
+    /* Temporary storage for samples.  Will be downsampled into
+       leader history on slot end.  Sized as
+       tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ tile_cnt ] */
+    fd_gui_tile_timers_t * tile_timers_snap;
 
     ulong                     scheduler_counts_snap_idx;
     ulong                     scheduler_counts_snap_idx_slot_start;
@@ -692,6 +701,9 @@ struct fd_gui {
 
   fd_gui_txn_t txs[ FD_GUI_TXN_HISTORY_SZ ][ 1 ];
   ulong pack_txn_idx; /* The pack index of the most recently received transaction */
+
+  ulong tower_cnt;
+  fd_vote_acc_vote_t tower[ FD_TOWER_VOTE_MAX ];
 
   struct {
     int has_block_engine;
@@ -714,7 +726,6 @@ struct fd_gui {
 
       ulong start_slot;
       ulong end_slot;
-      ulong excluded_stake;
       fd_epoch_leaders_t * lsched;
       uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH) ];
       fd_vote_stake_weight_t stakes[ MAX_STAKED_LEADERS ];
@@ -755,9 +766,8 @@ struct fd_gui {
     ulong history_tail;          /* history_tail % FD_GUI_SHREDS_HISTORY_SZ is one past the last valid event in history */
     fd_gui_slot_history_shred_event_t history[ FD_GUI_SHREDS_HISTORY_SZ ];
 
-    /* scratch space for stable sorts */
+    /* scratch space for archiving staged events */
     fd_gui_slot_staged_shred_event_t _staged_scratch [ FD_GUI_SHREDS_STAGING_SZ ];
-    fd_gui_slot_staged_shred_event_t _staged_scratch2[ FD_GUI_SHREDS_STAGING_SZ ];
   } shreds; /* full client */
 };
 
@@ -769,7 +779,7 @@ FD_FN_CONST ulong
 fd_gui_align( void );
 
 FD_FN_CONST ulong
-fd_gui_footprint( void );
+fd_gui_footprint( ulong tile_cnt );
 
 void *
 fd_gui_new( void *                shmem,
@@ -795,7 +805,8 @@ fd_gui_set_identity( fd_gui_t *    gui,
 
 void
 fd_gui_ws_open( fd_gui_t *  gui,
-                ulong       conn_id );
+                ulong       conn_id,
+                long now );
 
 int
 fd_gui_ws_message( fd_gui_t *    gui,
@@ -804,10 +815,10 @@ fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         data_len );
 
 void
-fd_gui_plugin_message( fd_gui_t *    gui,
-                       ulong         plugin_msg,
-                       uchar const * msg,
-                       long          now );
+fd_gui_plugin_message( fd_gui_t *   gui,
+                       ulong        plugin_msg,
+                       void const * msg,
+                       long         now );
 
 void
 fd_gui_became_leader( fd_gui_t * gui,
@@ -827,7 +838,7 @@ void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
                                    long         now,
                                    ulong        _slot,
-                                   fd_txn_p_t * txns,
+                                   fd_txn_e_t * txns,
                                    ulong        txn_cnt,
                                    uint         microblock_idx,
                                    ulong        pack_txn_idx );
@@ -848,6 +859,10 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
 
 int
 fd_gui_poll( fd_gui_t * gui, long now );
+
+void
+fd_gui_handle_block_engine_update( fd_gui_t *                              gui,
+                                   fd_bundle_block_engine_update_t const * update );
 
 void
 fd_gui_handle_shred( fd_gui_t * gui,
@@ -887,6 +902,11 @@ fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
                                long                          now );
 
 void
+fd_gui_handle_epoch_info( fd_gui_t *                  gui,
+                          fd_epoch_info_msg_t const * epoch_info,
+                          long                        now );
+
+void
 fd_gui_handle_notarization_update( fd_gui_t *                        gui,
                                    fd_tower_slot_confirmed_t const * notar );
 
@@ -896,17 +916,30 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
                             long                         now );
 
 void
-fd_gui_handle_replay_update( fd_gui_t *                gui,
-                             fd_gui_slot_completed_t * slot_completed,
-                             fd_hash_t const *         block_hash,
-                             ulong                     vote_slot,
-                             ulong                     storage_slot,
-                             ulong                     identity_balance,
-                             long                      now );
+fd_gui_handle_replay_update( fd_gui_t *                         gui,
+                             fd_replay_slot_completed_t const * slot_completed,
+                             ulong                              vote_slot,
+                             long                               now );
 
 void
-fd_gui_handle_genesis_hash( fd_gui_t *    gui,
-                            uchar const * msg );
+fd_gui_handle_genesis_hash( fd_gui_t *        gui,
+                            fd_hash_t const * msg );
+
+static inline ulong
+fd_gui_current_epoch_idx( fd_gui_t * gui ) {
+  ulong epoch_idx = ULONG_MAX;
+  ulong epoch     = ULONG_MAX;
+  for( ulong i = 0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
+      /* the "current" epoch is the smaller one */
+      if( FD_LIKELY( gui->epoch.epochs[ i ].epoch<epoch ) ) {
+        epoch = gui->epoch.epochs[ i ].epoch;
+        epoch_idx = i;
+      }
+    }
+  }
+  return epoch_idx;
+}
 
 static inline fd_gui_slot_t *
 fd_gui_get_slot( fd_gui_t const * gui, ulong _slot ) {

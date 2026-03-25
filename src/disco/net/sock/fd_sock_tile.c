@@ -192,7 +192,7 @@ privileged_init( fd_topo_t *      topo,
     (ushort)tile->sock.net.gossip_listen_port,
     (ushort)tile->sock.net.repair_intake_listen_port,
     (ushort)tile->sock.net.repair_serve_listen_port,
-    (ushort)tile->sock.net.send_src_port
+    (ushort)tile->sock.net.txsend_src_port
   };
   static char const * udp_port_links[] = {
     "net_quic",   /* legacy_transaction_listen_port */
@@ -201,7 +201,7 @@ privileged_init( fd_topo_t *      topo,
     "net_gossvf", /* gossip_listen_port */
     "net_shred",  /* shred_listen_port (repair) */
     "net_repair", /* repair_serve_listen_port */
-    "net_send"    /* send_src_port */
+    "net_txsend"  /* txsend_src_port */
   };
   static uchar const udp_port_protos[] = {
     DST_PROTO_TPU_UDP,  /* legacy_transaction_listen_port */
@@ -220,10 +220,10 @@ privileged_init( fd_topo_t *      topo,
 
     /* Validate value of REPAIR_SHRED_SOCKET_ID */
     if( tile->sock.net.repair_intake_listen_port &&
-       udp_port_candidates[sock_idx]==tile->sock.net.repair_intake_listen_port )
+       udp_port_candidates[candidate_idx]==tile->sock.net.repair_intake_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID );
     if( tile->sock.net.repair_serve_listen_port &&
-       udp_port_candidates[sock_idx]==tile->sock.net.repair_serve_listen_port )
+       udp_port_candidates[candidate_idx]==tile->sock.net.repair_serve_listen_port )
       FD_TEST( sock_idx==REPAIR_SHRED_SOCKET_ID+1 );
 
     char const * target_link = udp_port_links[ candidate_idx ];
@@ -256,6 +256,11 @@ privileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( 0!=setsockopt( tx_sock, SOL_SOCKET, SO_SNDBUF, &tile->sock.so_sndbuf, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", tile->sock.so_sndbuf, errno, fd_io_strerror( errno ) ));
+  }
+
+  uchar mcast_ttl = 64;
+  if( FD_UNLIKELY( 0!=setsockopt( tx_sock, IPPROTO_IP, IP_MULTICAST_TTL, &mcast_ttl, sizeof(mcast_ttl) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(IPPROTO_IP,IP_MULTICAST_TTL,%u) failed (%i-%s)", (uint)mcast_ttl, errno, fd_io_strerror( errno ) ));
   }
 
   ctx->tx_sock      = tx_sock;

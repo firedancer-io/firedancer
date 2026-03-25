@@ -3,13 +3,14 @@
 #define _GNU_SOURCE /* SOL_TCP */
 #include "fd_bundle_auth.h"
 #include "fd_bundle_tile_private.h"
+#include "fd_bundle_tile.h"
 #include "proto/block_engine.pb.h"
 #include "proto/bundle.pb.h"
 #include "proto/packet.pb.h"
 #include "../fd_txn_m.h"
-#include "../plugin/fd_plugin.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
+#include "../../waltz/openssl/fd_openssl.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/nanopb/pb_decode.h"
 #include "../../util/net/fd_ip4.h"
@@ -25,7 +26,6 @@
 
 #define FD_BUNDLE_CLIENT_REQUEST_TIMEOUT ((long)8e9) /* 8 seconds */
 
-#define FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE (5UL)
 
 __attribute__((weak)) long
 fd_bundle_now( void ) {
@@ -50,7 +50,7 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx ) {
   ctx->bundle_subscription_live = 0;
   ctx->bundle_subscription_wait = 0;
 
-  memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
+  fd_memset( ctx->rtt, 0, sizeof(fd_rtt_estimate_t) );
 
 # if FD_HAS_OPENSSL
   if( FD_UNLIKELY( ctx->ssl ) ) {
@@ -73,9 +73,22 @@ fd_bundle_client_do_connect( fd_bundle_tile_t const * ctx,
     .sin_addr.s_addr = ip4_addr,
     .sin_port        = fd_ushort_bswap( ctx->server_tcp_port )
   };
-  errno = 0;
-  connect( ctx->tcp_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) );
-  return errno;
+  int err = connect( ctx->tcp_sock, fd_type_pun_const( &addr ), sizeof(struct sockaddr_in) );
+  /* FD_LIKELY is used here as EINPROGRESS is expected even to local tcp ports */
+  if( FD_LIKELY( err==-1 ) ) {
+    return errno;
+  }
+  return 0;
+}
+
+static int
+fd_bundle_client_get_connect_result( fd_bundle_tile_t const * ctx ) {
+  int so_err = 0;
+  socklen_t so_err_sz = sizeof(so_err);
+  if( FD_UNLIKELY( getsockopt( ctx->tcp_sock, SOL_SOCKET, SO_ERROR, &so_err, &so_err_sz )==-1 ) ) {
+    return errno;
+  }
+  return so_err;
 }
 
 static void
@@ -128,7 +141,8 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
                 (int)ctx->server_sni_len, ctx->server_sni ));
 
   int connect_err = fd_bundle_client_do_connect( ctx, ip4_addr );
-  if( FD_UNLIKELY( connect_err ) ) {
+  /* FD_LIKELY as EINPROGRESS is expected */
+  if( FD_LIKELY( connect_err ) ) {
     if( FD_UNLIKELY( connect_err!=EINPROGRESS ) ) {
       FD_LOG_WARNING(( "connect(tcp_sock," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
                       FD_IP4_ADDR_FMT_ARGS( ip4_addr ), ctx->server_tcp_port,
@@ -141,9 +155,9 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
 
 # if FD_HAS_OPENSSL
   if( ctx->is_ssl ) {
-    BIO * bio = BIO_new_socket( ctx->tcp_sock, BIO_NOCLOSE );
+    BIO * bio = fd_openssl_bio_new_socket( ctx->tcp_sock, BIO_NOCLOSE );
     if( FD_UNLIKELY( !bio ) ) {
-      FD_LOG_ERR(( "BIO_new_socket failed" ));
+      FD_LOG_ERR(( "fd_openssl_bio_new_socket failed" ));
     }
 
     SSL * ssl = SSL_new( ctx->ssl_ctx );
@@ -195,7 +209,8 @@ fd_bundle_client_request_builder_info( fd_bundle_tile_t * ctx ) {
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo,
       &block_engine_BlockBuilderFeeInfoRequest_msg, &req,
-      ctx->auther.access_token, ctx->auther.access_token_sz
+      ctx->auther.access_token, ctx->auther.access_token_sz,
+      0 /* is_streaming */
   );
   if( FD_UNLIKELY( !request ) ) return;
   fd_grpc_client_deadline_set(
@@ -217,7 +232,8 @@ fd_bundle_client_subscribe_packets( fd_bundle_tile_t * ctx ) {
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets,
       &block_engine_SubscribePacketsRequest_msg, &req,
-      ctx->auther.access_token, ctx->auther.access_token_sz
+      ctx->auther.access_token, ctx->auther.access_token_sz,
+      0 /* is_streaming */
   );
   if( FD_UNLIKELY( !request ) ) return;
   fd_grpc_client_deadline_set(
@@ -239,7 +255,8 @@ fd_bundle_client_subscribe_bundles( fd_bundle_tile_t * ctx ) {
       path, sizeof(path)-1,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles,
       &block_engine_SubscribeBundlesRequest_msg, &req,
-      ctx->auther.access_token, ctx->auther.access_token_sz
+      ctx->auther.access_token, ctx->auther.access_token_sz,
+      0 /* is_streaming */
   );
   if( FD_UNLIKELY( !request ) ) return;
   fd_grpc_client_deadline_set(
@@ -322,15 +339,21 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
     }
     if( poll_res==0 ) return;
 
+    int connect_result = 0;
     if( pfds[0].revents & (POLLERR|POLLHUP) ) {
-      int connect_err = fd_bundle_client_do_connect( ctx, 0 );
-      FD_LOG_INFO(( "Bundle gRPC connect attempt failed (%i-%s)", connect_err, fd_io_strerror( connect_err ) ));
+      connect_result = fd_bundle_client_get_connect_result( ctx );
+    connect_failed:
+      FD_LOG_INFO(( "Bundle gRPC connect attempt failed (%i-%s)", connect_result, fd_io_strerror( connect_result ) ));
       fd_bundle_client_reset( ctx );
       ctx->metrics.transport_fail_cnt++;
       *charge_busy = 1;
       return;
     }
     if( pfds[0].revents & POLLOUT ) {
+      connect_result = fd_bundle_client_get_connect_result( ctx );
+      if( FD_UNLIKELY( connect_result!=0 ) ) {
+        goto connect_failed;
+      }
       FD_LOG_DEBUG(( "Bundle TCP socket connected" ));
       ctx->tcp_sock_connected = 1;
       *charge_busy = 1;
@@ -366,8 +389,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   }
 
   /* Drive I/O, SSL handshake, and any inflight requests */
-  if( FD_UNLIKELY( !fd_bundle_client_drive_io( ctx, charge_busy ) ||
-                   ctx->defer_reset /* new error? */ ) ) {
+  if( FD_UNLIKELY( -1==fd_bundle_client_drive_io( ctx, charge_busy ) || ctx->defer_reset /* new error? */ ) ) {
     fd_bundle_client_reset( ctx );
     ctx->metrics.transport_fail_cnt++;
     *charge_busy = 1;
@@ -386,8 +408,8 @@ static void
 fd_bundle_client_log_status( fd_bundle_tile_t * ctx ) {
   int status = fd_bundle_client_status( ctx );
 
-  int const connected_now    = ( status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
-  int const connected_before = ( ctx->bundle_status_logged==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
+  int const connected_now    = ( status==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
+  int const connected_before = ( ctx->bundle_status_logged==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
 
   if( FD_UNLIKELY( connected_now!=connected_before ) ) {
     long ts = fd_log_wallclock();
@@ -445,7 +467,7 @@ fd_bundle_client_grpc_conn_dead( void * app_ctx,
   ctx->defer_reset = 1;
 }
 
-/* Forwards a bundle transaction to the tango message bus. */
+/* Buffers a bundle transaction for deferred publishing by after_credit. */
 
 static void
 fd_bundle_tile_publish_bundle_txn(
@@ -460,36 +482,24 @@ fd_bundle_tile_publish_bundle_txn(
     return;
   }
 
-  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
-  *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0U,
-    .source_ipv4      = source_ipv4,
-    .source_tpu       = FD_TXN_M_TPU_SOURCE_BUNDLE,
-    .block_engine   = {
-      .bundle_id      = ctx->bundle_seq,
-      .bundle_txn_cnt = bundle_txn_cnt,
-      .commission     = (uchar)ctx->builder_commission
-    },
-  };
-  memcpy( txnm->block_engine.commission_pubkey, ctx->builder_pubkey, 32UL );
-  fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
-
-  ulong sz  = fd_txn_m_realized_footprint( txnm, 0, 0 );
-  ulong sig = 1UL;
-
-  if( FD_UNLIKELY( !ctx->stem ) ) {
-    FD_LOG_CRIT(( "ctx->stem not set. This is a bug." ));
+  if( FD_UNLIKELY( pending_txn_full( ctx->pending_txns ) ) ) {
+    ctx->metrics.backpressure_drop_cnt++;
+    return;
   }
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
-  fd_stem_publish( ctx->stem, ctx->verify_out.idx, sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
-  ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
+  fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
+  fd_memcpy( entry->payload, txn, txn_sz );
+  entry->payload_sz     = (ushort)txn_sz;
+  entry->source_ipv4    = source_ipv4;
+  entry->sig            = 1UL;
+  entry->bundle_seq     = ctx->bundle_seq;
+  entry->bundle_txn_cnt = bundle_txn_cnt;
+  entry->commission     = (uchar)ctx->builder_commission;
+  fd_memcpy( entry->commission_pubkey, ctx->builder_pubkey, 32UL );
   ctx->metrics.txn_received_cnt++;
 }
 
-/* Forwards a regular transaction to the tango message bus. */
+/* Buffers a regular transaction for deferred publishing by after_credit. */
 
 static void
 fd_bundle_tile_publish_txn(
@@ -498,32 +508,20 @@ fd_bundle_tile_publish_txn(
     ulong              txn_sz,  /* <=FD_TXN_MTU */
     uint               source_ipv4
 ) {
-  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
-  *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0U,
-    .source_ipv4    = source_ipv4,
-    .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
-    .block_engine   = {
-      .bundle_id         = 0UL,
-      .bundle_txn_cnt    = 1UL,
-      .commission        = 0U,
-      .commission_pubkey = {0U}
-    },
-  };
-  fd_memcpy( fd_txn_m_payload( txnm ), txn, txn_sz );
-
-  ulong sz  = fd_txn_m_realized_footprint( txnm, 0, 0 );
-  ulong sig = 0UL;
-
-  if( FD_UNLIKELY( !ctx->stem ) ) {
-    FD_LOG_CRIT(( "ctx->stem not set. This is a bug." ));
+  if( FD_UNLIKELY( pending_txn_full( ctx->pending_txns ) ) ) {
+    ctx->metrics.backpressure_drop_cnt++;
+    return;
   }
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
-  fd_stem_publish( ctx->stem, ctx->verify_out.idx, sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
-  ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
+  fd_bundle_pending_txn_t * entry = pending_txn_push_tail_nocopy( ctx->pending_txns );
+  fd_memcpy( entry->payload, txn, txn_sz );
+  entry->payload_sz     = (ushort)txn_sz;
+  entry->source_ipv4    = source_ipv4;
+  entry->sig            = 0UL;
+  entry->bundle_seq     = 0UL;
+  entry->bundle_txn_cnt = 1UL;
+  entry->commission     = 0U;
+  fd_memset( entry->commission_pubkey, 0, 32UL );
   ctx->metrics.txn_received_cnt++;
 }
 
@@ -631,6 +629,11 @@ fd_bundle_client_visit_pb_bundle_uuid(
      Second pass: Actually publish bundle packets */
 
   if( FD_UNLIKELY( ctx->bundle_txn_cnt>FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ) ) return true;
+
+  if( FD_UNLIKELY( pending_txn_avail( ctx->pending_txns )<ctx->bundle_txn_cnt ) ) {
+    ctx->metrics.backpressure_drop_cnt += ctx->bundle_txn_cnt;
+    return true;
+  }
 
   ctx->bundle_seq++;
   bundle = (bundle_BundleUuid)bundle_BundleUuid_init_default;
@@ -754,11 +757,14 @@ fd_bundle_client_handle_builder_fee_info(
     return;
   }
 
-  ctx->builder_commission = (uchar)res.commission;
-  if( FD_UNLIKELY( !fd_base58_decode_32( res.pubkey, ctx->builder_pubkey ) ) ) {
+  uchar decoded_builder_pubkey[ 32 ];
+  if( FD_UNLIKELY( !fd_base58_decode_32( res.pubkey, decoded_builder_pubkey ) ) ) {
     FD_LOG_HEXDUMP_WARNING(( "Invalid pubkey in BlockBuilderFeeInfoResponse", res.pubkey, strnlen( res.pubkey, sizeof(res.pubkey) ) ));
     return;
   }
+
+  ctx->builder_commission = (uchar)res.commission; /* Apply update atomically */
+  fd_memcpy( ctx->builder_pubkey, decoded_builder_pubkey, sizeof(ctx->builder_pubkey) );
 
   long validity_duration_ns = (long)( 60e9 * 5. ); /* 5 minutes */
   ctx->builder_info_avail = 1;
@@ -930,26 +936,21 @@ fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks = {
   .ping_ack         = fd_bundle_client_grpc_ping_ack,
 };
 
-/* Decrease verbosity */
-#define DISCONNECTED FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED
-#define CONNECTING   FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTING
-#define CONNECTED    FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED
-
 int
 fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
   if( FD_UNLIKELY( ( !ctx->tcp_sock_connected ) |
                    ( !ctx->grpc_client        ) ) ) {
-    return DISCONNECTED;
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
   }
 
   fd_h2_conn_t * conn = fd_grpc_client_h2_conn( ctx->grpc_client );
   if( FD_UNLIKELY( !conn ) ) {
-    return DISCONNECTED; /* no conn */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED; /* no conn */
   }
   if( FD_UNLIKELY( conn->flags &
       ( FD_H2_CONN_FLAGS_DEAD |
         FD_H2_CONN_FLAGS_SEND_GOAWAY ) ) ) {
-    return DISCONNECTED;
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
   }
 
   if( FD_UNLIKELY( conn->flags &
@@ -957,29 +958,29 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
         FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 |
         FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     |
         FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) ) {
-    return CONNECTING; /* connection is not ready */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* connection is not ready */
   }
 
   if( FD_UNLIKELY( ctx->auther.state != FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) {
-    return CONNECTING; /* not authenticated */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* not authenticated */
   }
 
   if( FD_UNLIKELY( ( !ctx->builder_info_avail       ) |
                    ( !ctx->packet_subscription_live ) |
                    ( !ctx->bundle_subscription_live ) ) ) {
-    return CONNECTING; /* not fully connected */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* not fully connected */
   }
 
   if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, fd_bundle_now() ) ) ) {
-    return DISCONNECTED; /* possible timeout */
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED; /* possible timeout */
   }
 
   if( FD_UNLIKELY( !fd_grpc_client_is_connected( ctx->grpc_client ) ) ) {
-    return CONNECTING;
+    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING;
   }
 
   /* As far as we know, the bundle connection is alive and well. */
-  return CONNECTED;
+  return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED;
 }
 
 #undef DISCONNECTED

@@ -2,18 +2,23 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "generated/fd_gossip_tile_seccomp.h"
 
-#include "../../flamenco/gossip/crds/fd_crds.h"
+#include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
+#include "../../flamenco/gossip/fd_active_set.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../disco/fd_txn_m.h"
+#include "../tower/fd_tower_tile.h"
+#include "../restore/utils/fd_ssmsg.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
 #define IN_KIND_SIGN          (2)
-#define IN_KIND_SEND          (3)
-#define IN_KIND_STAKE         (4)
+#define IN_KIND_TXSEND        (3)
+#define IN_KIND_EPOCH         (4)
+#define IN_KIND_TOWER         (5)
+#define IN_KIND_SNAPIN_MANIF  (6)
 
 /* Symbols exported by version.c */
 extern ulong const firedancer_major_version;
@@ -31,7 +36,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t)                                                  );
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries, tile->gossip.entrypoints_cnt ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t)                                  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -59,14 +63,13 @@ gossip_send_fn( void *                ctx,
   ip4->check       = fd_ip4_hdr_check_fast( ip4 );
   udp->check       = 0;
 
-  /* TODO: Construct payload in place to avoid memcpy here. */
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
 
   ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig       = fd_disco_netmux_sig( peer_address->addr, peer_address->port, peer_address->addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
   ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
 
-  fd_stem_publish( stem, gossip_ctx->net_out->idx, sig, gossip_ctx->net_out->chunk, packet_sz, 0UL, tspub, tsorig );
+  fd_stem_publish( stem, gossip_ctx->net_out->idx, sig, gossip_ctx->net_out->chunk, packet_sz, 0UL, tsorig, tspub );
   gossip_ctx->net_out->chunk = fd_dcache_compact_next( gossip_ctx->net_out->chunk, packet_sz, gossip_ctx->net_out->chunk0, gossip_ctx->net_out->wmark );
 }
 
@@ -99,17 +102,63 @@ gossip_ping_tracker_change_fn( void *        _ctx,
   ctx->gossvf_out->chunk = fd_dcache_compact_next( ctx->gossvf_out->chunk, sizeof(fd_gossip_ping_update_t), ctx->gossvf_out->chunk0, ctx->gossvf_out->wmark );
 }
 
+static void
+gossip_activity_update_fn( void *                           _ctx,
+                           fd_pubkey_t const *              identity,
+                           fd_gossip_contact_info_t const * ci,
+                           int                              change_type ) {
+  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
+
+  /* We won't start tracking updates until after the manifest is loaded.
+     This is okay since this callback is triggered by all contact info
+     updates, including refreshes, so any updates we missed at boot will
+     show up shortly after. */
+  if( FD_LIKELY( !ctx->my_contact_info->shred_version || ctx->wfs_state!=FD_GOSSIP_WFS_STATE_WAIT ) ) return;
+
+  /* gossvf should filter out messages with mismatching shred version */
+  FD_TEST( ci->shred_version==ctx->my_contact_info->shred_version );
+
+  /* If identity is not found in ctx->wfs_stakes the peer is likely
+     unstaked and can be ignored. */
+  ulong stake_idx = fd_stake_weight_key_sort_split( ctx->wfs_stakes, ctx->wfs_stakes_cnt, (fd_stake_weight_t){ .key = *identity } );
+  if( FD_UNLIKELY( stake_idx>=ctx->wfs_stakes_cnt || memcmp( identity->uc, ctx->wfs_stakes[ stake_idx ].key.uc, sizeof(fd_pubkey_t) ) ) ) return;
+
+  if( FD_LIKELY( change_type==FD_GOSSIP_ACTIVITY_CHANGE_TYPE_ACTIVE ) ) {
+    if( FD_UNLIKELY( !ctx->wfs_active[ stake_idx ] ) ) {
+      ctx->wfs_stake.online += ctx->wfs_stakes[ stake_idx ].stake;
+      ctx->wfs_peers.online++;
+    }
+    ctx->wfs_active[ stake_idx ] = 1;
+  }
+  if( FD_LIKELY( change_type==FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE ) ) {
+    if( FD_UNLIKELY( ctx->wfs_active[ stake_idx ] ) ) {
+      ctx->wfs_stake.online -= ctx->wfs_stakes[ stake_idx ].stake;
+      ctx->wfs_peers.online--;
+    }
+    ctx->wfs_active[ stake_idx ] = 0;
+  }
+
+  if( FD_UNLIKELY( ctx->wfs_stake.total>0UL && (100UL*ctx->wfs_stake.online) / ctx->wfs_stake.total >= 80UL ) ) {
+    ctx->wfs_state = FD_GOSSIP_WFS_STATE_PUBLISH;
+  }
+}
+
 static inline void
 during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   ctx->last_wallclock = fd_log_wallclock();
   ctx->last_tickcount = fd_tickcount();
-  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
-    /* TODO: Need some kind of state machine here, to ensure we switch
-       in sync with the signing tile.  Currently, we might send out a
-       badly signed message before the signing tile has switched. */
-    fd_memcpy( ctx->my_contact_info->pubkey.uc, ctx->keyswitch->bytes, 32UL );
-    fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, ctx->last_wallclock );
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    FD_LOG_DEBUG(( "keyswitch: unhalting" ));
+    FD_CRIT( ctx->is_halting_signing, "state machine corruption" );
+    /* the identity key is swapped after the sign tile has been swapped
+       because the below function directly sends a sign request. */
+    fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, ctx->last_wallclock );
+    ctx->is_halting_signing = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
 
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    ctx->is_halting_signing = 1;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
@@ -135,6 +184,12 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_SET( GOSSIP, PING_TRACKER_STAKE_CHANGED_COUNT,   ping_tracker_metrics->stake_changed_cnt );
   FD_MCNT_SET( GOSSIP, PING_TRACKER_ADDRESS_CHANGED_COUNT, ping_tracker_metrics->address_changed_cnt );
 
+  fd_gossip_purged_metrics_t const * purged_metrics = fd_gossip_purged_metrics2( ctx->gossip );
+
+  FD_MGAUGE_SET( GOSSIP, CRDS_PURGED_COUNT,         purged_metrics->purged_cnt );
+  FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EVICTED_COUNT, purged_metrics->purged_evicted_cnt );
+  FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EXPIRED_COUNT, purged_metrics->purged_expired_cnt );
+
   fd_crds_metrics_t const * crds_metrics = fd_gossip_crds_metrics( ctx->gossip );
 
   FD_MGAUGE_ENUM_COPY( GOSSIP, CRDS_COUNT,          crds_metrics->count );
@@ -146,37 +201,75 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( GOSSIP, CRDS_PEER_TOTAL_STAKE,    crds_metrics->peer_visible_stake );
   FD_MCNT_SET(   GOSSIP, CRDS_PEER_EVICTED_COUNT,  crds_metrics->peer_evicted_cnt );
 
-  FD_MGAUGE_SET( GOSSIP, CRDS_PURGED_COUNT,         crds_metrics->purged_cnt );
-  FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EVICTED_COUNT, crds_metrics->purged_evicted_cnt );
-  FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EXPIRED_COUNT, crds_metrics->purged_expired_cnt );
-
   fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
+  fd_active_set_metrics_t const * active_set_metrics = fd_gossip_active_set_metrics2( ctx->gossip );
 
-  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_COUNT,            metrics->message_tx );
-  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_BYTES,            metrics->message_tx_bytes );
-
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_COUNT,          metrics->crds_tx_push );
-  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_BYTES,          metrics->crds_tx_push_bytes );
+  ulong total_message_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ] = {0};
+  ulong total_message_tx_bytes[ FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT ] = {0};
+  for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
+    total_message_tx[ i ] = metrics->message_tx[ i ] + active_set_metrics->message_tx[ i ];
+    total_message_tx_bytes[ i ] = metrics->message_tx_bytes[ i ] + active_set_metrics->message_tx_bytes[ i ];
+  }
+  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_COUNT,            total_message_tx );
+  FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_BYTES,            total_message_tx_bytes );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_COUNT,          active_set_metrics->crds_tx_push );
+  FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PUSH_BYTES,          active_set_metrics->crds_tx_push_bytes );
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_COUNT, metrics->crds_tx_pull_response );
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
 
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
 
-  FD_MCNT_SET( GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS, metrics->ci_rx_unrecognized_socket_tag_cnt );
-  FD_MCNT_SET( GOSSIP, CONTACT_INFO_IPV6,                     metrics->ci_rx_ipv6_address_cnt );
+  FD_MGAUGE_SET( GOSSIP, WFS_STAKED_PEERS_ONLINE, ctx->wfs_peers.online );
+  FD_MGAUGE_SET( GOSSIP, WFS_STAKE_ONLINE,        ctx->wfs_stake.online );
+  FD_MGAUGE_SET( GOSSIP, WFS_STATE, (ulong)ctx->wfs_state );
 }
+
+/* Minimum quiet period (no new peers discovered) before we declare
+   the gossip peer table saturated.  Pull requests fire every ~1.6ms,
+   so 500ms of silence means ~300 pulls returned no new contact
+   infos — a strong convergence signal. */
+#define FD_GOSSIP_PEER_SAT_QUIET_NS (500L*1000L*1000L)
 
 void
 after_credit( fd_gossip_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
-              int *                  opt_poll_in FD_PARAM_UNUSED,
-              int *                  charge_busy FD_PARAM_UNUSED ) {
+              int *                  opt_poll_in,
+              int *                  charge_busy ) {
   ctx->stem = stem;
 
   if( FD_UNLIKELY( !ctx->my_contact_info->shred_version ) ) return;
 
+  if( FD_UNLIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_PUBLISH ) ) {
+    fd_stem_publish( ctx->stem, ctx->gossip_out->idx, FD_GOSSIP_UPDATE_TAG_WFS_DONE, ctx->gossip_out->chunk, 0UL, 0UL, 0UL, 0UL );
+    ctx->wfs_state = FD_GOSSIP_WFS_STATE_DONE;
+    *opt_poll_in = 0;
+    *charge_busy = 1;
+    return;
+  }
+
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
-  fd_gossip_advance( ctx->gossip, now, stem );
+  fd_gossip_advance( ctx->gossip, now, stem, charge_busy );
+
+  /* Peer table saturation detection.  After fd_gossip_advance updates
+     the CRDS, check if the peer count has grown.  If it hasn't grown
+     for FD_GOSSIP_PEER_SAT_QUIET_NS and there is at least one other
+     peer, publish a one-shot PEER_SATURATED notification. */
+  if( FD_LIKELY( !ctx->peer_sat_published ) ) {
+    fd_crds_metrics_t const * crds_metrics = fd_gossip_crds_metrics( ctx->gossip );
+    ulong peer_cnt = crds_metrics->peer_staked_cnt + crds_metrics->peer_unstaked_cnt;
+    if( FD_UNLIKELY( peer_cnt>ctx->peer_sat_hwm ) ) {
+      ctx->peer_sat_hwm       = peer_cnt;
+      ctx->peer_sat_hwm_nanos = now;
+    } else if( FD_UNLIKELY( peer_cnt>1UL && ctx->peer_sat_hwm_nanos!=0L &&
+                            (now-ctx->peer_sat_hwm_nanos)>FD_GOSSIP_PEER_SAT_QUIET_NS ) ) {
+      FD_LOG_NOTICE(( "gossip peer table saturated (%lu peers, quiet for %ld ms)",
+                      peer_cnt, (now-ctx->peer_sat_hwm_nanos)/(1000L*1000L) ));
+      fd_stem_publish( ctx->stem, ctx->gossip_out->idx, FD_GOSSIP_UPDATE_TAG_PEER_SATURATED, ctx->gossip_out->chunk, 0UL, 0UL, 0UL, 0UL );
+      ctx->peer_sat_published = 1;
+      *opt_poll_in = 0;
+      *charge_busy = 1;
+    }
+  }
 }
 
 static void
@@ -184,7 +277,7 @@ handle_shred_version( fd_gossip_tile_ctx_t * ctx,
                        ulong                 sig ) {
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
   ctx->my_contact_info->shred_version = (ushort)sig;
-  fd_gossip_set_my_contact_info( ctx->gossip, ctx->my_contact_info, now );
+  fd_gossip_set_shred_version( ctx->gossip, (ushort)sig, now );
 }
 
 static void
@@ -196,10 +289,10 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 }
 
 static void
-handle_stakes( fd_gossip_tile_ctx_t *        ctx,
-               fd_stake_weight_msg_t const * msg ) {
-  ulong stakes_cnt = compute_id_weights_from_vote_weights( ctx->stake_weights_converted, msg->weights, msg->staked_cnt );
-  fd_gossip_stakes_update( ctx->gossip, ctx->stake_weights_converted, stakes_cnt );
+handle_epoch( fd_gossip_tile_ctx_t *      ctx,
+              fd_epoch_info_msg_t const * msg ) {
+  fd_stake_weight_t const * weights = fd_epoch_info_msg_id_weights( msg );
+  fd_gossip_stakes_update( ctx->gossip, weights, msg->staked_id_cnt );
 }
 
 static void
@@ -218,7 +311,7 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
   switch( fd_gossvf_sig_kind( sig ) ) {
     case 0: {
       fd_gossip_rx( ctx->gossip, peer, payload, payload_sz, now, stem );
-      fd_gossip_advance( ctx->gossip, now, stem );
+      fd_gossip_advance( ctx->gossip, now, stem, NULL );
       break;
     }
     case 1: {
@@ -228,32 +321,85 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
   }
 }
 
+static void
+handle_local_duplicate_shred( fd_gossip_tile_ctx_t *            ctx,
+                              ulong                             sig,
+                              fd_gossip_duplicate_shred_t const chunk[FD_EQVOC_CHUNK_CNT],
+                              fd_stem_context_t *               stem ) {
+  if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_DUPLICATE ) ) {
+    long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
+    for( ulong i=0UL; i<FD_EQVOC_CHUNK_CNT; i++ ) fd_gossip_push_duplicate_shred( ctx->gossip, &chunk[i], stem, now );
+  }
+}
+
 static inline int
 returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  ulong                  in_idx,
-                 ulong                  seq,
+                 ulong                  seq FD_PARAM_UNUSED,
                  ulong                  sig,
                  ulong                  chunk,
                  ulong                  sz,
-                 ulong                  ctl,
-                 ulong                  tsorig,
-                 ulong                  tspub,
+                 ulong                  ctl FD_PARAM_UNUSED,
+                 ulong                  tsorig FD_PARAM_UNUSED,
+                 ulong                  tspub FD_PARAM_UNUSED,
                  fd_stem_context_t *    stem ) {
-  (void)seq;
-  (void)ctl;
-  (void)tsorig;
-  (void)tspub;
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  if( FD_UNLIKELY( sz!=0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) )
+    FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].kind, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+  if( FD_UNLIKELY( ctx->is_halting_signing ) ) {
+    return 1;
+  }
 
   if( FD_UNLIKELY( !ctx->my_contact_info->shred_version && ctx->in[ in_idx ].kind!=IN_KIND_SHRED_VERSION ) ) return 1;
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
-    case IN_KIND_SEND:          handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
-    case IN_KIND_STAKE:         handle_stakes( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
+    case IN_KIND_TXSEND:        handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
+    case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
+    case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
+    case IN_KIND_SNAPIN_MANIF: {
+      if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
+
+      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
+        ctx->wfs_state = FD_GOSSIP_WFS_STATE_WAIT;
+        break;
+      }
+
+      /* FIXME: Replace handling for this when manifest supports larger
+         vote and stake account bounds. */
+      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+
+      ulong wfs_stakes_unconverted_cnt = 0UL;
+      ctx->wfs_stake.online = 0UL;
+      ctx->wfs_stake.total  = 0UL;
+      ctx->wfs_peers.online = 0UL;
+      ctx->wfs_peers.total  = 0UL;
+      memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
+
+      FD_TEST( manifest->vote_accounts_len<=40200UL );
+      for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
+          if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
+          ctx->wfs_stake.total += manifest->vote_accounts[ i ].stake;
+
+          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc, manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
+          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
+          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = manifest->vote_accounts[ i ].stake;
+          wfs_stakes_unconverted_cnt++;
+      }
+      ctx->wfs_stakes_cnt = compute_id_weights_from_vote_weights( ctx->wfs_stakes, ctx->wfs_stakes_scratch, wfs_stakes_unconverted_cnt );
+
+      /* sort for quick lookup */
+      fd_stake_weight_key_sort_inplace( ctx->wfs_stakes, ctx->wfs_stakes_cnt );
+
+      ctx->wfs_peers.total = ctx->wfs_stakes_cnt;
+      FD_MGAUGE_SET( GOSSIP, WFS_STAKED_PEERS_TOTAL, ctx->wfs_peers.total );
+      FD_MGAUGE_SET( GOSSIP, WFS_STAKE_TOTAL,        ctx->wfs_stake.total );
+
+      break;
+    }
+    default: FD_LOG_ERR(( "unreachable" ));
   }
 
   return 0;
@@ -270,7 +416,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->gossip.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  fd_memcpy( ctx->my_contact_info->pubkey.uc, fd_type_pun_const( fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 ) ), 32UL );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 ) );
   FD_TEST( fd_rng_secure( &ctx->rng_seed, 4UL ) );
   FD_TEST( fd_rng_secure( &ctx->rng_idx,  8UL ) );
 }
@@ -291,6 +437,9 @@ out1( fd_topo_t const *      topo,
 
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu had no output link named %s", tile->name, tile->kind_id, name ));
 
+  ulong mtu = topo->links[ tile->out_link_id[ idx ] ].mtu;
+  if( FD_UNLIKELY( mtu==0UL ) ) return (fd_gossip_out_ctx_t){ .idx = idx, .mem = NULL, .chunk0 = ULONG_MAX, .wmark = ULONG_MAX, .chunk = ULONG_MAX };
+
   void * mem   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
   ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
   ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
@@ -306,11 +455,15 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   void * _gossip             = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(),             fd_gossip_footprint( tile->gossip.max_entries, tile->gossip.entrypoints_cnt ) );
-  void * _stake_weights      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stake_weight_t),    MAX_STAKED_LEADERS*sizeof(fd_stake_weight_t) );
-
-  ctx->stake_weights_converted = (fd_stake_weight_t *)_stake_weights;
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, ctx->rng_seed, ctx->rng_idx ) ) );
+
+  ctx->wfs_state  = fd_int_if( memcmp( tile->gossip.wait_for_supermajority_with_bank_hash.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ), FD_GOSSIP_WFS_STATE_INIT, FD_GOSSIP_WFS_STATE_DONE );
+  memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
+
+  ctx->peer_sat_hwm       = 0UL;
+  ctx->peer_sat_hwm_nanos = 0L;
+  ctx->peer_sat_published = 0;
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   ulong sign_in_tile_idx = ULONG_MAX;
@@ -330,15 +483,19 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( FD_UNLIKELY( !strcmp( link->name, "ipecho_out" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "gossvf_gossi" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( link->name, "gossvf_gossip" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_GOSSVF;
     } else if( FD_UNLIKELY( !strcmp( link->name, "sign_gossip" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SIGN;
       sign_in_tile_idx = i;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "send_out" ) ) ) {
-      ctx->in[ i ].kind = IN_KIND_SEND;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_stake" ) ) ) {
-      ctx->in[ i ].kind = IN_KIND_STAKE;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "txsend_out" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_TXSEND;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_epoch" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_EPOCH;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "tower_out" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_TOWER;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "snapin_manif" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_SNAPIN_MANIF;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }
@@ -347,16 +504,17 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( sign_in_tile_idx==ULONG_MAX ) )
     FD_LOG_ERR(( "tile %s:%lu had no input link named sign_gossip", tile->name, tile->kind_id ));
 
-  *ctx->net_out    = out1( topo, tile, "gossip_net"   );
-  *ctx->sign_out   = out1( topo, tile, "gossip_sign"  );
-  *ctx->gossip_out = out1( topo, tile, "gossip_out"   );
-  *ctx->gossvf_out = out1( topo, tile, "gossip_gossv" );
+  *ctx->net_out    = out1( topo, tile, "gossip_net"    );
+  *ctx->sign_out   = out1( topo, tile, "gossip_sign"   );
+  *ctx->gossip_out = out1( topo, tile, "gossip_out"    );
+  *ctx->gossvf_out = out1( topo, tile, "gossip_gossvf" );
 
   fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id [ sign_in_tile_idx  ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ ctx->sign_out->idx ] ];
 
-  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
+  ctx->is_halting_signing = 0;
 
   if( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                        sign_out->mcache,
@@ -371,38 +529,39 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->last_wallclock = fd_log_wallclock();
   ctx->last_tickcount = fd_tickcount();
 
+  memset( ctx->my_contact_info, 0, sizeof(fd_gossip_contact_info_t) );
   ctx->my_contact_info->shred_version = tile->gossip.shred_version;
 
-  ctx->my_contact_info->wallclock_nanos                   = ctx->last_wallclock;
-  ctx->my_contact_info->instance_creation_wallclock_nanos = tile->gossip.boot_timestamp_nanos;
+  ctx->my_contact_info->outset = (ulong)FD_NANOSEC_TO_MICRO( tile->gossip.boot_timestamp_nanos );
 
-  ctx->my_contact_info->version.client      = FD_CONTACT_INFO_VERSION_CLIENT_FIREDANCER;
+  ctx->my_contact_info->version.client      = FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER;
   ctx->my_contact_info->version.major       = (ushort)firedancer_major_version;
   ctx->my_contact_info->version.minor       = (ushort)firedancer_minor_version;
   ctx->my_contact_info->version.patch       = (ushort)firedancer_patch_version;
   ctx->my_contact_info->version.commit      = firedancer_commit_ref;
   ctx->my_contact_info->version.feature_set = FD_FEATURE_SET_ID;
 
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ]            = (fd_ip4_port_t){ .addr = tile->gossip.ports.gossip   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.gossip )   };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ports.tvu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tvu )      };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_FORWARDS ]      = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_QUIC ]          = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ]     = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_ip4_port_t){ .addr = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ]            = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.gossip   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.gossip )   };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tvu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tvu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ]     = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu_quic ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu_quic ) };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = tile->gossip.ports.tpu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tpu )      };
 
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_ip4_port_t){ .addr = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_ip4_port_t){ .addr = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_ip4_port_t){ .addr = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC ]               = (fd_ip4_port_t){ .addr = 0, .port = 0 };
-  ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC_PUBSUB ]        = (fd_ip4_port_t){ .addr = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC ]          = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ]      = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC ] = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ]               = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
+  ctx->my_contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB ]        = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = 0, .port = 0 };
 
   ctx->gossip = fd_gossip_join( fd_gossip_new( _gossip,
                                                ctx->rng,
                                                tile->gossip.max_entries,
                                                tile->gossip.entrypoints_cnt,
                                                tile->gossip.entrypoints,
+                                               ctx->identity_key->uc,
                                                ctx->my_contact_info,
                                                ctx->last_wallclock,
                                                gossip_send_fn,
@@ -410,6 +569,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                gossip_sign_fn,
                                                ctx,
                                                gossip_ping_tracker_change_fn,
+                                               ctx,
+                                               gossip_activity_update_fn,
                                                ctx,
                                                ctx->gossip_out,
                                                ctx->net_out ) );
@@ -455,49 +616,29 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* Account for worst case in fd_gossip_rx and fd_gossip_advance, which
-   are both called in returnable_frag.
+/* STEM_BURST must bound the maximum number of fd_stem_publish
+   calls on any single output link between two consecutive
+   credit checks in the stem run loop.  One iteration consists
+   of after_credit (which calls fd_gossip_advance) followed by
+   processing one input fragment (returnable_frag).
 
-   fd_gossip_rx: Gossip updates are sent out via the gossip_out link for
-    specific CRDS messages received, and when a contact info is dropped.
-    Worst case is when:
-    - all incoming CRDS messages are broadcasted as updates, and
-    - CRDS table is full, and all entries dropped to make way for new
-      ones are contact infos
+   The two reliable output links and their per-iteration worst cases:
 
-    Ping tracker track also publishes a status change on the
-    gossip_gossv link if an incoming pong changes an inactive or
-    unpinged peer to active. There is only one pong processed per
-    after_frag loop.
+   gossvf_out (via gossip_ping_tracker_change_fn):
+     tx_ping evictions + expiries            FD_PING_TRACKER_MAX
+     fd_ping_tracker_track from rx_values    2*FD_GOSSIP_MESSAGE_MAX_CRDS
+     Total: FD_PING_TRACKER_MAX + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
 
-    This leaves us with a worst case of FD_GOSSIP_MSG_MAX_CRDS*2 on
-    gossip_out, and 1 on gossip_gossv.
+   gossip_out (via fd_gossip_tx_publish_chunk):
+     fd_crds_advance expire (ContactInfos)   FD_CONTACT_INFO_TABLE_SIZE
+     fd_crds_insert publish + evictions      2*FD_GOSSIP_MESSAGE_MAX_CRDS
+     Total: FD_CONTACT_INFO_TABLE_SIZE + 2*FD_GOSSIP_MESSAGE_MAX_CRDS
 
-   fd_gossip_advance: two links we need to look at: the gossip_gossv
-    link that publishes fd_ping_tracker changes and the gossip_out link
-    for when contact infos are dropped during expiry.
+   Among the reliable output links, gossvf_out dominates. */
+FD_STATIC_ASSERT( FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS>=FD_CONTACT_INFO_TABLE_SIZE+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS, "STEM_BURST does not account for worst case output link" );
+#define STEM_BURST (FD_PING_TRACKER_MAX+2UL*FD_GOSSIP_MESSAGE_MAX_CRDS)
 
-    fd_ping_tracker publishes a ping status change message when a peer
-     becomes inactive. In the worst case, all peers can become inactive
-     in one loop. So there would be FD_PING_TRACKER_MAX ping status
-     changes.
-
-    During the expire loop, all contact infos might be dropped in one
-    iteration, which would result in CRDS_MAX_CONTACT_INFO gossip
-    updates
-
-   We find the worst case burst by taking the maximum burst of the two
-   links in fd_gossip_rx and fd_gossip_advance. That would be:
-                        gossip_out link                    gossip_gossv link
-   max( FD_GOSSIP_MSG_CRDS_MAX*2+CRDS_MAX_CONTACT_INFO, 1+FD_PING_TRACKER_MAX)
-
-   */
-
-FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+FD_GOSSIP_MSG_MAX_CRDS*2UL<=FD_PING_TRACKER_MAX+1UL,
-                  "Gossip stem burst needs recalculating" );
-#define STEM_BURST ( FD_PING_TRACKER_MAX+1UL )
-
-#define STEM_LAZY  (1000L)
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_tile_ctx_t)

@@ -368,9 +368,9 @@ fd_http_server_printf( fd_http_server_t * http,
    the HTTP server using fd_http_server_broadcast.  This will end the
    current staged message so future prints go into a new message.
 
-   Printing is not error-free, it is assumed that the format string is
+   Appending is not error-free, it is assumed that the data provided is
    valid but the entire outgoing buffer may not be large enough to hold
-   the printed string.  In that case, the staging buffer is marked as
+   data_len bytes.  In that case, the staging buffer is marked as
    being in an error state internally.  The next call to send or
    broadcast will fail, returning the error, and the error state will be
    cleared. */
@@ -379,6 +379,22 @@ void
 fd_http_server_memcpy( fd_http_server_t * http,
                        uchar const *      data,
                        ulong              data_len );
+
+/* fd_http_server_append_start starts an in-place append operation.
+   len is the amount of buffer space to reserve.  Returns a pointer to
+   len bytes to which the user should write the message to, on success.
+   On failure (insufficient buffer space), returns NULL. */
+
+uchar *
+fd_http_server_append_start( fd_http_server_t * http,
+                             ulong              len );
+
+/* fd_http_server_append_end finishes an earlier started in-place
+   append.  len is the number of bytes that were actually written. */
+
+void
+fd_http_server_append_end( fd_http_server_t * http,
+                           ulong              len );
 
 /* fd_http_server_unstage unstages any data written into the staging
    buffer, clearing its contents.  It does not advance the ring buffer

@@ -29,12 +29,13 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
-  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0 );
+  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0 );
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &metric_tile->metric.prometheus_listen_addr ) ) )
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
+  int xsk_core_dump = config->development.core_dump_level >= FD_TOPO_CORE_DUMP_LEVEL_REGULAR ? 1 : 0;
+  fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, xsk_core_dump,tile_to_cpu );
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
     ulong net_tile_id = fd_topo_find_tile( topo, "net", i );
     if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", i );
@@ -45,8 +46,8 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
 
   fd_topob_wksp( topo, "sign" );
   for( ulong i=0UL; i<sign_tile_cnt; i++ ) {
-    fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
-    strncpy( sign_tile->sign.identity_key_path, config->paths.identity_key, sizeof(sign_tile->sign.identity_key_path) );
+    fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
+    fd_cstr_ncpy( sign_tile->sign.identity_key_path, config->paths.identity_key, sizeof(sign_tile->sign.identity_key_path) );
   }
 }
 

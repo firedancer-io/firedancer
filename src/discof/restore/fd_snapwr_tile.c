@@ -52,8 +52,10 @@
 
 #define _GNU_SOURCE /* O_DIRECT */
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_vinyl_admin.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "generated/fd_snapwr_tile_seccomp.h"
 
@@ -68,9 +70,18 @@ struct fd_snapwr {
   uint         state;
   int          dev_fd;
   ulong        dev_sz;
+  ulong        dev_base;
   void const * base;
   ulong *      seq_sync;  /* fseq->seq[0] */
   uint         idle_cnt;
+
+  fd_vinyl_admin_t * vinyl_admin;
+  ulong *      bstream_seq;
+  int          lthash_disabled;
+
+  ulong        req_seen;
+  ulong        tile_cnt;
+  ulong        tile_idx;
 
   struct {
     ulong last_off;
@@ -103,8 +114,9 @@ privileged_init( fd_topo_t *      topo,
   struct stat st;
   if( FD_UNLIKELY( 0!=fstat( vinyl_fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", vinyl_path, errno, strerror( errno ) ));
 
-  snapwr->dev_fd  = vinyl_fd;
-  snapwr->dev_sz  = fd_ulong_align_dn( (ulong)st.st_size, FD_VINYL_BSTREAM_BLOCK_SZ );
+  snapwr->dev_fd   = vinyl_fd;
+  snapwr->dev_sz   = fd_ulong_align_dn( (ulong)st.st_size, FD_VINYL_BSTREAM_BLOCK_SZ );
+  snapwr->dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
 }
 
 static void
@@ -113,8 +125,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapwr_t * snapwr = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( &snapwr->metrics, 0, sizeof(snapwr->metrics) );
 
-  if( FD_UNLIKELY( tile->kind_id      ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
-  if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->in_cnt < 1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1 or 2",  tile->in_cnt  ));
+  if( FD_UNLIKELY( tile->in_cnt > 2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1 or 2",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 0", tile->out_cnt ));
 
   if( FD_UNLIKELY( !tile->in_link_reliable[ 0 ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link 0 must be reliable" ));
@@ -125,7 +137,39 @@ unprivileged_init( fd_topo_t *      topo,
   snapwr->base     = in_dcache;
   snapwr->seq_sync = tile->in_link_fseq[ 0 ];
 
+  snapwr->bstream_seq = NULL; /* set to NULL by default, before checking input links. */
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
+
+    if( FD_LIKELY( 0==strcmp( in_link->name, "snapwh_wr" ) ) ) {
+      if( FD_UNLIKELY( !tile->in_link_reliable[ i ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link %lu must be reliable", i ));
+
+    } else if( FD_LIKELY( 0==strcmp( in_link->name, "snaplv_wr" ) ) ) {
+      if( FD_UNLIKELY( !tile->in_link_reliable[ i ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link %lu must be reliable", i ));
+      snapwr->bstream_seq = fd_mcache_seq_laddr( fd_mcache_join( fd_topo_obj_laddr( topo, in_link->mcache_obj_id ) ) ) + tile->kind_id;
+
+    } else {
+      FD_LOG_ERR(( "tile `" NAME "` has unexpected in link name `%s`", in_link->name ));
+    }
+  }
+
+  snapwr->vinyl_admin     = NULL;
+  snapwr->bstream_seq     = NULL;
+  snapwr->lthash_disabled = !!tile->snapwr.lthash_disabled;
+  if( !snapwr->lthash_disabled ) {
+    ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
+    FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
+    fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
+    FD_TEST( vinyl_admin );
+    snapwr->vinyl_admin = vinyl_admin;
+    snapwr->bstream_seq = &snapwr->vinyl_admin->wr_seq[ tile->kind_id ];
+  }
+
   snapwr->state = FD_SNAPSHOT_STATE_IDLE;
+
+  snapwr->req_seen = 0UL;
+  snapwr->tile_cnt = fd_topo_tile_name_cnt( topo, "snapwr" );
+  snapwr->tile_idx = tile->kind_id;
 }
 
 static ulong
@@ -176,7 +220,8 @@ before_credit( fd_snapwr_t *       ctx,
 static void
 metrics_write( fd_snapwr_t * ctx ) {
   FD_MGAUGE_SET( SNAPWR, STATE,               ctx->state            );
-  FD_MGAUGE_SET( SNAPWR, VINYL_BYTES_WRITTEN, ctx->metrics.last_off );
+  FD_MGAUGE_SET( SNAPWR, FILE_USED_BYTES,     ctx->metrics.last_off );
+  FD_MGAUGE_SET( SNAPWR, FILE_CAPACITY_BYTES, ctx->dev_sz           );
 }
 
 /* handle_control_frag handles an administrative frag from the snapin
@@ -200,7 +245,13 @@ handle_control_frag( fd_snapwr_t * ctx,
     break;
   default:
     FD_LOG_CRIT(( "received unexpected ssctrl msg type %lu", meta_ctl ));
+    break;
   }
+}
+
+static int
+should_process_wr_request( fd_snapwr_t * ctx ) {
+  return ctx->req_seen%ctx->tile_cnt==ctx->tile_idx;
 }
 
 /* handle_data_frag handles a bstream block sz-aligned write request.
@@ -219,11 +270,28 @@ handle_data_frag( fd_snapwr_t * ctx,
     FD_LOG_CRIT(( "vinyl bstream log is out of space" ));
   }
 
-  /* Do a synchronous write(2) */
-  ssize_t write_sz = pwrite( ctx->dev_fd, src, src_sz, (off_t)dev_off );
-  if( FD_UNLIKELY( write_sz<0 ) ) {
-    FD_LOG_ERR(( "pwrite(off=%lu,sz=%lu) failed (%i-%s)", dev_off, src_sz, errno, strerror( errno ) ));
+  if( FD_LIKELY( should_process_wr_request( ctx ) ) ) {
+    /* Do a synchronous write(2) */
+    ssize_t write_sz = pwrite( ctx->dev_fd, src, src_sz, (off_t)dev_off );
+    if( FD_UNLIKELY( write_sz<0 ) ) {
+      FD_LOG_ERR(( "pwrite(off=%lu,sz=%lu) failed (%i-%s)", dev_off, src_sz, errno, strerror( errno ) ));
+    }
   }
+  ctx->req_seen++;
+
+  if( !!ctx->bstream_seq ) {
+    /* There is a way to avoid a lock here: every write tile has its
+       own unique location in vinyl_admin's wr_seq array, based on its
+       tile index (kind_id).  The value is a ulong, and works the same
+       way as a stem's fseq or an mcache's seq.  The only other tile
+       that can write to that location is snapwm during init full/incr
+       snapshot, but snapwm gurantees that all write tiles have already
+       finished processing all pending bstream writes (and updated the
+       bstream_seq) by the time the wr_seq array is overwritten. */
+    ulong new_seq = (dev_off+src_sz)-ctx->dev_base;
+    fd_vinyl_admin_ulong_update( ctx->bstream_seq, new_seq );
+  }
+
   ctx->metrics.last_off = dev_off+src_sz;
 }
 
@@ -234,12 +302,14 @@ during_frag( fd_snapwr_t *       ctx,
              ulong               meta_sig,
              ulong               meta_chunk,
              ulong               meta_sz,
-             ulong               meta_ctl ) {
-  (void)in_idx;
+             ulong               meta_ctl,
+             ulong               meta_tsorig,
+             ulong               meta_tspub ) {
+  (void)in_idx; (void)meta_sz; (void)meta_tspub;
   ctx->idle_cnt = 0U;
 
   if( FD_UNLIKELY( meta_ctl==FD_SNAPSHOT_MSG_DATA ) ) {
-    handle_data_frag( ctx, meta_chunk, meta_sig, meta_sz );
+    handle_data_frag( ctx, meta_chunk, meta_sig, meta_tsorig );
   } else {
     handle_control_frag( ctx, meta_ctl, meta_sig );
   }
@@ -259,7 +329,7 @@ during_frag( fd_snapwr_t *       ctx,
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_BEFORE_CREDIT   before_credit
-#define STEM_CALLBACK_DURING_FRAG     during_frag
+#define STEM_CALLBACK_DURING_FRAG1    during_frag
 
 #include "../../disco/stem/fd_stem.c"
 

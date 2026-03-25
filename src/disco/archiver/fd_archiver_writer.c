@@ -19,7 +19,7 @@ there is a total global order across the packets.
 There should only ever be a single archiver writer tile. */
 
 #define FD_ARCHIVER_WRITER_ALLOC_TAG   (3UL)
-#define FD_ARCHIVER_WRITER_FRAG_BUF_SZ (4UL*FD_SHRED_STORE_MTU) /* MTU for shred_storei in fd_firedancer.c */
+#define FD_ARCHIVER_WRITER_FRAG_BUF_SZ (2UL*FD_SHRED_STORE_MTU) /* MTU for shred_storei in fd_firedancer.c */
 #define FD_ARCHIVER_WRITER_OUT_BUF_SZ  (FD_SHMEM_HUGE_PAGE_SZ)  /* Flush to the file system every 2MB */
 
 struct fd_archiver_writer_stats {

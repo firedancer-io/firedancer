@@ -218,15 +218,15 @@ predicate isArrayAccessOob(ArrayExpr access) {
 
 /**
  * Holds if the index used in `a` (which is either an IDX macro or a value bounded by a CNT macro)
- * does not match any metric array definition's associated enum name (if any).
+ * does not match any metric array definition's associated enum name.
  * E.g., if `a` uses `FD_METRICS_ENUM_FOO_IDX`, but the array size is defined using
- * the literal `9` (instead of `FD_METRICS_ENUM_FOO_CNT`), then this predicate holds.
+ * `FD_METRICS_ENUM_BLABLA_CNT`), then this predicate holds.
  */
 predicate isMismatchedEnumName(MetricsEnumAccess a) {
   exists(int dimension | dimension = getDimension(a) |
-    not exists(MetricsArray e |
+    exists(MetricsArray e |
       e.getAUsage(dimension) = a and
-      e.getMacro(dimension).getAnEnumName() = a.getMacro().getAnEnumName()
+      e.getMacro(dimension).getAnEnumName() != a.getMacro().getAnEnumName()
     )
   )
 }
@@ -247,5 +247,5 @@ where
   or
   isMismatchedEnumName(access) and
   des =
-    "The enum name in the IDX macro does not match the one associated with the CNT macro (if any) in the array definition."
+    "The enum name in the IDX macro does not match the one associated with the CNT macro in the array definition."
 select access, des

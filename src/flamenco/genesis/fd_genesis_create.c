@@ -2,9 +2,8 @@
 #include "fd_genesis_create.h"
 
 #include "../runtime/fd_system_ids.h"
-#include "../runtime/program/fd_stake_program.h"
+#include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_vote_program.h"
-#include "../runtime/sysvar/fd_sysvar_clock.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../types/fd_types.h"
 
@@ -122,9 +121,9 @@ genesis_create( void *                       buf,
 
   FD_SCRATCH_SCOPE_BEGIN {
     fd_vote_state_versioned_t vsv[1];
-    fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_current );
+    fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_v3 );
 
-    fd_vote_state_t * vs = &vsv->inner.current;
+    fd_vote_state_v3_t * vs = &vsv->inner.v3;
     vs->node_pubkey             = options->identity_pubkey;
     vs->authorized_withdrawer   = options->identity_pubkey;
     vs->commission              = 100;
@@ -172,10 +171,11 @@ genesis_create( void *                       buf,
     };
     stake->stake = (fd_stake_t) {
       .delegation = (fd_delegation_t) {
-        .voter_pubkey       = options->vote_pubkey,
-        .stake              = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
-        .activation_epoch   = ULONG_MAX, /*  bootstrap stake denoted with ULONG_MAX */
-        .deactivation_epoch = ULONG_MAX
+        .voter_pubkey         = options->vote_pubkey,
+        .stake                = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
+        .activation_epoch     = ULONG_MAX, /* bootstrap stake denoted with ULONG_MAX */
+        .deactivation_epoch   = ULONG_MAX,
+        .warmup_cooldown_rate = 0.25
       },
       .credits_observed = 0UL
     };

@@ -6,25 +6,24 @@
    - accdb_ref is an opaque handle to an account database cache entry.
    - accdb_ro (extends accdb_ref) represents a read-only handle.
    - accdb_rw (extends accdb_ro) represents a read-write handle.
-
-   - accdb_guardr is a read-only account lock guard
-   - accdb_guardw is an exclusive account lock guard
    - accdb_spec is an account speculative read guard
 
    These APIs sit between the database layer (abstracts away backing
    stores and DB specifics) and the runtime layer (offer no runtime
    protections). */
 
+#include "fd_accdb_base.h"
 #include "../fd_flamenco_base.h"
-#include "../../funk/fd_funk_rec.h"
-#include "../../funk/fd_funk_val.h"
 
 /* fd_accdb_ref_t is an opaque account database handle. */
 
 struct fd_accdb_ref {
-  ulong rec_laddr;
   ulong meta_laddr;
-  uchar address[32];  /* only for vinyl requests */
+  ulong user_data;
+  ulong user_data2;
+  uchar address[32];
+  uint  accdb_type;  /* FD_ACCDB_TYPE_* */
+  uchar ref_type;    /* FD_ACCDB_REF_* */
 };
 typedef struct fd_accdb_ref fd_accdb_ref_t;
 
@@ -33,7 +32,6 @@ typedef struct fd_accdb_ref fd_accdb_ref_t;
 union fd_accdb_ro {
   fd_accdb_ref_t ref[1];
   struct {
-    fd_funk_rec_t const *     rec;
     fd_account_meta_t const * meta;
   };
 };
@@ -41,8 +39,69 @@ typedef union fd_accdb_ro fd_accdb_ro_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_accdb_ro_init_nodb creates a read-only account reference to an
+   account that is not managed by an account database.  This is useful
+   for local caching (e.g. cross-program invocations). */
+
+static inline fd_accdb_ro_t *
+fd_accdb_ro_init_nodb( fd_accdb_ro_t *           ro,
+                       void const *              address,
+                       fd_account_meta_t const * meta ) {
+  ro->meta = meta;
+  ro->ref->user_data  = 0UL;
+  ro->ref->user_data2 = 0UL;
+  memcpy( ro->ref->address, address, 32UL );
+  ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  ro->ref->ref_type   = FD_ACCDB_REF_RO;
+  return ro;
+}
+
+/* fd_accdb_ro_init_nodb_oob creates a read-only account reference to an
+   account that is not managed by an account database, where the account
+   data is stored out-of-band (i.e. not contiguous at meta+1).  The
+   data pointer is stored in user_data2 and returned by
+   fd_accdb_ref_data_const. */
+
+static inline fd_accdb_ro_t *
+fd_accdb_ro_init_nodb_oob( fd_accdb_ro_t *           ro,
+                           void const *              address,
+                           fd_account_meta_t const * meta,
+                           void const *              data ) {
+  ro->meta = meta;
+  ro->ref->user_data  = 0UL;
+  ro->ref->user_data2 = (ulong)data;
+  memcpy( ro->ref->address, address, 32UL );
+  ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  ro->ref->ref_type   = FD_ACCDB_REF_RO;
+  return ro;
+}
+
+/* fd_accdb_ro_init_empty creates a read-only account reference to a
+   non-existent account. */
+
+extern fd_account_meta_t const fd_accdb_meta_empty;
+
+static inline fd_accdb_ro_t *
+fd_accdb_ro_init_empty( fd_accdb_ro_t * ro,
+                        void const *    address ) {
+  ro->meta = &fd_accdb_meta_empty;
+  ro->ref->user_data  = 0UL;
+  ro->ref->user_data2 = 0UL;
+  memcpy( ro->ref->address, address, 32UL );
+  ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  ro->ref->ref_type   = FD_ACCDB_REF_RO;
+  return ro;
+}
+
+static inline void const *
+fd_accdb_ref_address( fd_accdb_ro_t const * ro ) {
+  return ro->ref->address;
+}
+
 static inline void const *
 fd_accdb_ref_data_const( fd_accdb_ro_t const * ro ) {
+  if( FD_UNLIKELY( ro->ref->user_data2 && ro->ref->accdb_type==FD_ACCDB_TYPE_NONE ) )
+    return (void const *)ro->ref->user_data2;
   return (void *)( ro->meta+1 );
 }
 
@@ -86,62 +145,38 @@ union fd_accdb_rw {
   fd_accdb_ref_t ref[1];
   fd_accdb_ro_t  ro [1];
   struct {
-    fd_funk_rec_t *     rec;
     fd_account_meta_t * meta;
-    uint                published : 1;
   };
 };
 typedef union fd_accdb_rw fd_accdb_rw_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_accdb_rw_init_nodb creates a writable account reference to an
+   account that is not managed by an account database.  This is useful
+   for local caching (e.g. cross-program invocations). */
+
+static inline fd_accdb_rw_t *
+fd_accdb_rw_init_nodb( fd_accdb_rw_t *           rw,
+                       void const *              address,
+                       fd_account_meta_t const * meta,
+                       ulong                     data_max ) {
+  rw->meta = (fd_account_meta_t *)meta;
+  rw->ref->user_data  = data_max;
+  rw->ref->user_data2 = 0UL;
+  memcpy( rw->ref->address, address, 32UL );
+  rw->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  return rw;
+}
+
 // void
 // fd_accdb_ref_clear( fd_accdb_rw_t * rw );
 
-static inline ulong
-fd_accdb_ref_data_max( fd_accdb_rw_t * rw ) {
-  ulong data_max;
-  if( FD_UNLIKELY( __builtin_usubl_overflow( rw->rec->val_max, sizeof(fd_account_meta_t), &data_max ) ) ) {
-    FD_LOG_CRIT(( "invalid rec->val_max %lu for account at rec %p", (ulong)rw->rec->val_max, (void *)rw->rec ));
-  }
-  return data_max;
-}
-
 static inline void *
 fd_accdb_ref_data( fd_accdb_rw_t * rw ) {
+  if( FD_UNLIKELY( rw->ref->user_data2 && rw->ref->accdb_type==FD_ACCDB_TYPE_NONE ) )
+    return (void *)rw->ref->user_data2;
   return (void *)( rw->meta+1 );
-}
-
-static inline void
-fd_accdb_ref_data_set( fd_accdb_rw_t * rw,
-                       void const *    data,
-                       ulong           data_sz ) {
-  ulong data_max = fd_accdb_ref_data_max( rw );
-  if( FD_UNLIKELY( data_sz>data_max ) ) {
-    FD_LOG_CRIT(( "attempted to write %lu bytes into a rec %p with only %lu bytes of data space",
-                  data_sz, (void *)rw->rec, data_max ));
-  }
-  fd_memcpy( fd_accdb_ref_data( rw ), data, data_sz );
-  rw->meta->dlen  = (uint)data_sz;
-  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & (FD_FUNK_REC_VAL_MAX-1);
-}
-
-FD_FN_UNUSED static void
-fd_accdb_ref_data_sz_set( fd_accdb_rw_t * rw,
-                          ulong           data_sz ) {
-  ulong prev_sz = rw->meta->dlen;
-  if( data_sz>prev_sz ) {
-    /* Increasing size, zero out tail */
-    ulong data_max = fd_accdb_ref_data_max( rw );
-    if( FD_UNLIKELY( data_sz>data_max ) ) {
-      FD_LOG_CRIT(( "attempted to write %lu bytes into a rec %p with only %lu bytes of data space",
-                    data_sz, (void *)rw->rec, data_max ));
-    }
-    void * tail = (uchar *)fd_accdb_ref_data( rw ) + prev_sz;
-    fd_memset( tail, 0, data_sz-prev_sz );
-  }
-  rw->meta->dlen  = (uint)data_sz;
-  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & (FD_FUNK_REC_VAL_MAX-1);
 }
 
 static inline void
@@ -170,64 +205,7 @@ fd_accdb_ref_slot_set( fd_accdb_rw_t * rw,
 
 FD_PROTOTYPES_END
 
-/* fd_accdb_guardr_t tracks a rwlock being held as read-only.
-   Destroying this guard object detaches the caller's thread from the
-   rwlock. */
-
-struct fd_accbd_guardr {
-  fd_rwlock_t * rwlock;
-};
-
-typedef struct fd_accdb_guardr fd_accdb_guardr_t;
-
-/* fd_accdb_guardw_t tracks an rwlock being held exclusively.
-   Destroying this guard object detaches the caller's thread from the
-   lock. */
-
-struct fd_accdb_guardw {
-  fd_rwlock_t * rwlock;
-};
-
-typedef struct fd_accdb_guardw fd_accdb_guardw_t;
-
-/* fd_accdb_spec_t tracks a speculative access to a shared resource.
-   Destroying this guard object marks the end of a speculative access. */
-
-struct fd_accdb_spec {
-  fd_funk_rec_key_t * keyp;       /* shared key */
-  fd_funk_rec_key_t   key;        /* expected key */
-};
-
-typedef struct fd_accdb_spec fd_accdb_spec_t;
-
-/* fd_accdb_spec_test returns 1 if the shared resources has not been
-   invalidated up until now.  Returns 0 if the speculative access may
-   have possibly seen a conflict (e.g. a torn read, a use-after-free,
-   etc). */
-
-static inline int
-fd_accdb_spec_test( fd_accdb_spec_t const * spec ) {
-  fd_funk_rec_key_t key_found = FD_VOLATILE_CONST( *spec->keyp );
-  return !!fd_funk_rec_key_eq( &key_found, &spec->key );
-}
-
-/* fd_accdb_spec_drop marks the end of a speculative access. */
-
-static inline void
-fd_accdb_spec_drop( fd_accdb_spec_t * spec ) {
-  /* Speculative accesses do not need central synchronization, so no
-     need to inform the holder of the resource of this drop. */
-  (void)spec;
-}
-
-/* fd_accdb_peek_t is an ephemeral lock-free read-only pointer to an
-   account in database cache. */
-
-struct fd_accdb_peek {
-  fd_accdb_ro_t   acc[1];
-  fd_accdb_spec_t spec[1];
-};
-
-typedef struct fd_accdb_peek fd_accdb_peek_t;
+FD_STATIC_ASSERT( sizeof(fd_accdb_ref_t)==sizeof(fd_accdb_ro_t), layout );
+FD_STATIC_ASSERT( sizeof(fd_accdb_ref_t)==sizeof(fd_accdb_rw_t), layout );
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_ref_h */

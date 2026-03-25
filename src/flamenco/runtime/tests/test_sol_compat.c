@@ -27,12 +27,10 @@ static uint shutdown_signal __attribute__((aligned(64)));
 
 #define FIXTURE_TYPE_PB_INSTR      0x01
 #define FIXTURE_TYPE_PB_TXN        0x02
-#define FIXTURE_TYPE_PB_ELF_LOADER 0x03
-#define FIXTURE_TYPE_PB_SYSCALL    0x04
-#define FIXTURE_TYPE_PB_VM_INTERP  0x05
-#define FIXTURE_TYPE_PB_BLOCK      0x06
+#define FIXTURE_TYPE_PB_SYSCALL    0x03
+#define FIXTURE_TYPE_PB_BLOCK      0x04
 
-#define FIXTURE_TYPE_FB_ELF_LOADER 0x07
+#define FIXTURE_TYPE_FB_ELF_LOADER 0x05
 
 /* run_test runs a test.
    Return 1 on success, 0 on failure. */
@@ -66,11 +64,9 @@ run_test1( fd_solfuzz_runner_t * runner,
   if( !type ) {
     if(      strstr( path, "/instr/fixtures/"         ) ) type = FIXTURE_TYPE_PB_INSTR;
     else if( strstr( path, "/txn/fixtures/"           ) ) type = FIXTURE_TYPE_PB_TXN;
-    else if( strstr( path, "/elf_loader/fixtures/"    ) ) type = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( strstr( path, "/elf_loader/fixtures/"    ) ) type = FIXTURE_TYPE_FB_ELF_LOADER;
     else if( strstr( path, "/syscall/fixtures/"       ) ) type = FIXTURE_TYPE_PB_SYSCALL;
-    else if( strstr( path, "/vm_interp/fixtures/"     ) ) type = FIXTURE_TYPE_PB_VM_INTERP;
     else if( strstr( path, "/block/fixtures/"         ) ) type = FIXTURE_TYPE_PB_BLOCK;
-    else if( strstr( path, "/elf_loader/fixtures_fb/" ) ) type = FIXTURE_TYPE_FB_ELF_LOADER;
     else {
       FD_LOG_WARNING(( "Unsupported test type: %s", path ));
       return 0;
@@ -84,14 +80,8 @@ run_test1( fd_solfuzz_runner_t * runner,
   case FIXTURE_TYPE_PB_TXN:
     ok = fd_solfuzz_pb_txn_fixture( runner, buf, file_sz );
     break;
-  case FIXTURE_TYPE_PB_ELF_LOADER:
-    ok = fd_solfuzz_pb_elf_loader_fixture( runner, buf, file_sz );
-    break;
   case FIXTURE_TYPE_PB_SYSCALL:
     ok = fd_solfuzz_pb_syscall_fixture( runner, buf, file_sz );
-    break;
-  case FIXTURE_TYPE_PB_VM_INTERP:
-    ok = fd_solfuzz_pb_vm_interp_fixture( runner, buf, file_sz );
     break;
   case FIXTURE_TYPE_PB_BLOCK:
     ok = fd_solfuzz_pb_block_fixture( runner, buf, file_sz );
@@ -442,7 +432,7 @@ main( int     argc,
         "  --wksp         [file path]               Reuse existing workspace\n"
         "  --wksp-tag     1                         Workspace allocation tag\n"
         "  --fail-fast    1                         Stop executing after first failure?\n"
-        "  --type         {fb,pb}_{instr,txn,elf_loader,syscall,vm_interp,block}\n"
+        "  --type         {fb,pb}_{instr,txn,elf_loader,syscall,block}\n"
         "\n",
         stderr );
     return 0;
@@ -514,9 +504,8 @@ main( int     argc,
   if( type_str ) {
     if(      0==strcmp( type_str, "pb_instr"      ) ) g_type_override = FIXTURE_TYPE_PB_INSTR;
     else if( 0==strcmp( type_str, "pb_txn"        ) ) g_type_override = FIXTURE_TYPE_PB_TXN;
-    else if( 0==strcmp( type_str, "pb_elf_loader" ) ) g_type_override = FIXTURE_TYPE_PB_ELF_LOADER;
+    else if( 0==strcmp( type_str, "fb_elf_loader" ) ) g_type_override = FIXTURE_TYPE_FB_ELF_LOADER;
     else if( 0==strcmp( type_str, "pb_syscall"    ) ) g_type_override = FIXTURE_TYPE_PB_SYSCALL;
-    else if( 0==strcmp( type_str, "pb_vm_interp"  ) ) g_type_override = FIXTURE_TYPE_PB_VM_INTERP;
     else if( 0==strcmp( type_str, "pb_block"      ) ) g_type_override = FIXTURE_TYPE_PB_BLOCK;
     else if( FD_UNLIKELY( type_str ) ) {
       FD_LOG_ERR(( "Unsupported --type %s", type_str ));

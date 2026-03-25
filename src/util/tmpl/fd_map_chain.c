@@ -529,7 +529,7 @@ MAP_(iter_done)( MAP_(iter_t)      iter,
   return !iter.chain_rem;
 }
 
-FD_FN_PURE static inline MAP_(iter_t)
+__attribute__((warn_unused_result)) FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_(iter_t)      iter,
                  MAP_(t) const *   join,
                  MAP_ELE_T const * pool ) {
@@ -639,7 +639,7 @@ MAP_(ele_remove_fast)( MAP_(t) *   join,
                        MAP_ELE_T * pool  );
 #endif
 
-FD_FN_PURE ulong
+ulong
 MAP_(idx_query)( MAP_(t) *         join,
                  MAP_KEY_T const * key,
                  ulong             sentinel,
@@ -792,7 +792,7 @@ MAP_(reset)( MAP_(t) * join ) {
   for( ulong chain_idx=0UL; chain_idx<map->chain_cnt; chain_idx++ ) chain[ chain_idx ] = MAP_(private_box)( MAP_(private_idx_null)() );
 }
 
-FD_FN_PURE MAP_IMPL_STATIC ulong
+MAP_IMPL_STATIC ulong
 MAP_(idx_query)( MAP_(t) *         join,
                  MAP_KEY_T const * key,
                  ulong             sentinel,

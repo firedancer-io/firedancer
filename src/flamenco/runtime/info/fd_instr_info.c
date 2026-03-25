@@ -3,24 +3,7 @@
 #include "../../../util/bits/fd_uwide.h"
 
 void
-fd_instr_info_accumulate_starting_lamports( fd_instr_info_t * instr,
-                                            fd_txn_out_t *    txn_out,
-                                            ushort            idx_in_callee,
-                                            ushort            idx_in_txn ) {
-  if( FD_LIKELY( !instr->is_duplicate[ idx_in_callee ] ) ) {
-    fd_txn_account_t const * account = &txn_out->accounts.accounts[ idx_in_txn ];
-    if( fd_txn_account_get_meta( account ) ) {
-      fd_uwide_inc(
-        &instr->starting_lamports_h, &instr->starting_lamports_l,
-        instr->starting_lamports_h, instr->starting_lamports_l,
-        fd_txn_account_get_lamports( account ) );
-    }
-  }
-}
-
-void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
-                                   fd_bank_t *            bank,
                                    fd_txn_in_t const *    txn_in,
                                    fd_txn_out_t *         txn_out,
                                    fd_txn_instr_t const * txn_instr ) {
@@ -33,18 +16,14 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
 
   /* Set the program id */
   instr->program_id = txn_instr->program_id;
-
-  /* See note in fd_instr_info.h.  TLDR: capping this value at 256
-     should have literally 0 effect on program execution, down to the
-     error codes.  This is purely for the sake of not increasing the
-     overall memory footprint of the transaction context.  If this
-     change causes issues, we may need to increase the array sizes in
-     the instr info. */
-  instr->acct_cnt = fd_ushort_min( txn_instr->acct_cnt, FD_INSTR_ACCT_MAX );
+  instr->acct_cnt   = txn_instr->acct_cnt;
+  if( FD_UNLIKELY( instr->acct_cnt > FD_INSTR_ACCT_MAX ) ) {
+    FD_LOG_CRIT(( "invariant violation: Instruction has too many accounts: %d > %lu", instr->acct_cnt, FD_INSTR_ACCT_MAX ));
+  }
   instr->data_sz  = txn_instr->data_sz;
   memcpy( instr->data, txn_in->txn->payload+txn_instr->data_off, instr->data_sz );
 
-  uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
+  uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
 
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
     ushort acc_idx = instr_acc_idxs[i];
@@ -54,7 +33,7 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                        acc_idx,
                                        acc_idx,
                                        i,
-                                       (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, instr_acc_idxs[i] ),
+                                       (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, instr_acc_idxs[i] ),
                                        (uchar)fd_txn_is_signer( txn_descriptor, instr_acc_idxs[i] ) );
 
   }
@@ -69,10 +48,9 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
   *total_lamports_l = 0UL;
   for( ulong i=0UL; i<instr->acct_cnt; ++i ) {
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
-    fd_txn_account_t const * account = &txn_out->accounts.accounts[ idx_in_txn ];
+    fd_accdb_rw_t const * ref = &txn_out->accounts.account[ idx_in_txn ];
 
-    if( !fd_txn_account_get_meta( account ) ||
-        instr->is_duplicate[i] ) {
+    if( instr->is_duplicate[i] ) {
       continue;
     }
 
@@ -80,8 +58,9 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
     ulong tmp_total_lamports_h = 0UL;
     ulong tmp_total_lamports_l = 0UL;
 
-    fd_uwide_inc( &tmp_total_lamports_h, &tmp_total_lamports_l, *total_lamports_h, *total_lamports_l,
-                  fd_txn_account_get_lamports( account ) );
+    fd_uwide_inc( &tmp_total_lamports_h, &tmp_total_lamports_l,
+                  *total_lamports_h,     *total_lamports_l,
+                  fd_accdb_ref_lamports( ref->ro ) );
 
     if( tmp_total_lamports_h < *total_lamports_h ) {
       return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;

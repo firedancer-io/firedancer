@@ -3,9 +3,26 @@
 
 /* fd_rewards.h provides APIs for distributing Solana staking rewards. */
 
-#include "../types/fd_types.h"
 #include "../stakes/fd_stake_delegations.h"
-#include "../stakes/fd_vote_states.h"
+
+struct fd_prev_epoch_inflation_rewards {
+  ulong  validator_rewards;
+  double prev_epoch_duration_in_years;
+  double validator_rate;
+  double foundation_rate;
+};
+typedef struct fd_prev_epoch_inflation_rewards fd_prev_epoch_inflation_rewards_t;
+
+struct fd_partitioned_rewards_calculation {
+  uint128 validator_points;
+  ulong   old_vote_balance_and_staked;
+  ulong   validator_rewards;
+  double  validator_rate;
+  double  foundation_rate;
+  double  prev_epoch_duration_in_years;
+  ulong   capitalization;
+};
+typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -52,7 +69,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
 void
 fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_bank_t *               bank,
-                                            fd_funk_t *               funk,
+                                            fd_accdb_user_t *         accdb,
                                             fd_funk_txn_xid_t const * xid,
                                             fd_runtime_stack_t *      runtime_stack,
                                             fd_capture_ctx_t *        capture_ctx );

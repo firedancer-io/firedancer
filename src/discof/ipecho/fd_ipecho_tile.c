@@ -1,6 +1,7 @@
 #include "fd_ipecho_client.h"
 #include "fd_ipecho_server.h"
 #include "../genesis/fd_genesi_tile.h"
+#include "../genesis/genesis_hash.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/lthash/fd_lthash.h"
@@ -20,7 +21,6 @@ struct fd_ipecho_tile_ctx {
   uint   bind_address;
   ushort bind_port;
 
-  ushort bootstrap_shred_version;
   ushort expected_shred_version;
 
   fd_wksp_t * genesi_in_mem;
@@ -72,7 +72,7 @@ poll_client( fd_ipecho_tile_ctx_t * ctx,
     }
 
     FD_LOG_INFO(( "retrieved shred version %hu from entrypoint", shred_version ));
-    FD_MGAUGE_SET( IPECHO, SHRED_VERSION, shred_version );
+    FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, shred_version );
     fd_stem_publish( stem, 0UL, shred_version, 0UL, 0UL, 0UL, 0UL, 0UL );
     fd_ipecho_server_set_shred_version( ctx->server, shred_version );
     ctx->retrieving = 0;
@@ -90,7 +90,11 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
-  int timeout = ctx->retrieving ? 0 : 10;
+  /* 1ms timeout is sufficient here. Large timeouts (e.g. 10ms) can
+     cause housekeeping tasks to run very infrequently (> 0.05Hz) since
+     they incur a prolonged context switch every single iteration of the
+     STEM loop. */
+  int timeout = ctx->retrieving ? 0 : 1;
 
   if( FD_UNLIKELY( ctx->retrieving ) ) poll_client( ctx, stem, charge_busy );
   else                                 fd_ipecho_server_poll( ctx->server, charge_busy, timeout );
@@ -107,29 +111,16 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
                  ulong                  tsorig,
                  ulong                  tspub,
                  fd_stem_context_t *    stem ) {
-  (void)in_idx; (void)seq; (void)sig; (void)chunk; (void)sz; (void)ctl; (void)tsorig; (void)tspub;
+  (void)in_idx; (void)seq; (void)sig; (void)sz; (void)ctl; (void)tspub;
+  fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr( ctx->genesi_in_mem, chunk );
 
-  if( FD_UNLIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-    uchar const * src = fd_chunk_to_laddr_const( ctx->genesi_in_mem, chunk );
+  if( FD_UNLIKELY( genesis_meta->bootstrap ) ) {
+    ushort shred_version = compute_shred_version( genesis_meta->genesis_hash.uc, NULL, NULL, 0UL );
+    FD_TEST( shred_version );
 
-    union {
-      uchar  c[ 32 ];
-      ushort s[ 16 ];
-    } hash;
-
-    fd_memcpy( hash.c, src+sizeof(fd_lthash_value_t), sizeof(fd_hash_t) );
-
-    ushort xor = 0;
-    for( ulong i=0UL; i<16UL; i++ ) xor ^= hash.s[ i ];
-
-    xor = fd_ushort_bswap( xor );
-    xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
-
-    FD_TEST( xor );
-
-    FD_MGAUGE_SET( IPECHO, SHRED_VERSION, xor );
-    fd_stem_publish( stem, 0UL, xor, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    fd_ipecho_server_set_shred_version( ctx->server, xor );
+    FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, shred_version );
+    fd_stem_publish( stem, 0UL, shred_version, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_ipecho_server_set_shred_version( ctx->server, shred_version );
     ctx->retrieving = 0;
   }
 
@@ -177,7 +168,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_ipecho_tile_ctx_t ), sizeof( fd_ipecho_tile_ctx_t )       );
 
-  FD_MGAUGE_SET( IPECHO, SHRED_VERSION, tile->ipecho.expected_shred_version );
+  FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, tile->ipecho.expected_shred_version );
 
   /* In some topologies (e.g. firedancer-dev gossip), the ipecho tile
      has no input links. Guard against dereferencing a missing
@@ -249,7 +240,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
 #define STEM_LAZY  (50UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_ipecho_tile_ctx_t

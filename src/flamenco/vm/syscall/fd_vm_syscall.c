@@ -1,4 +1,5 @@
 #include "fd_vm_syscall.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
 
 int
 fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
@@ -30,6 +31,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_last_restart_slot_syscall     = 0;
   int enable_get_sysvar_syscall            = 0;
   int enable_get_epoch_stake_syscall       = 0;
+  int enable_bls12_381_syscall             = 0;
 
   if( slot ) {
     enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot, features, blake3_syscall_enabled );
@@ -40,6 +42,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot, features, last_restart_slot_sysvar );
     enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
+    enable_bls12_381_syscall             = FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall );
 
   } else { /* enable ALL */
 
@@ -51,6 +54,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_last_restart_slot_syscall     = 1;
     enable_get_sysvar_syscall            = 1;
     enable_get_epoch_stake_syscall       = 1;
+    enable_bls12_381_syscall             = 1;
 
   }
 
@@ -88,7 +92,12 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   REGISTER( "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address );
   REGISTER( "sol_sha256",                            fd_vm_syscall_sol_sha256 );
   REGISTER( "sol_keccak256",                         fd_vm_syscall_sol_keccak256 );
+# if FD_HAS_S2NBIGNUM
   REGISTER( "sol_secp256k1_recover",                 fd_vm_syscall_sol_secp256k1_recover );
+# else
+  FD_LOG_ERR(( "This build does not include s2n-bignum, which is required to run a validator.\n"
+               "To install s2n-bignum, re-run ./deps.sh, make distclean, and make -j" ));
+# endif
 
   if( enable_blake3_syscall )
     REGISTER( "sol_blake3",                          fd_vm_syscall_sol_blake3 );
@@ -133,8 +142,15 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   // used, we can ignore it for now
 //REGISTER( "sol_curve_pairing_map",                 fd_vm_syscall_sol_curve_pairing_map );
 
+#if FD_HAS_INT128
   if( enable_alt_bn128_syscall )
     REGISTER( "sol_alt_bn128_group_op",                fd_vm_syscall_sol_alt_bn128_group_op );
+  if( enable_alt_bn128_compression_syscall )
+    REGISTER( "sol_alt_bn128_compression",           fd_vm_syscall_sol_alt_bn128_compression );
+#else
+  (void)enable_alt_bn128_syscall;
+  (void)enable_alt_bn128_compression_syscall;
+#endif /* FD_HAS_INT128 */
 
 //REGISTER( "sol_big_mod_exp",                       fd_vm_syscall_sol_big_mod_exp );
 
@@ -143,8 +159,14 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
 //REGISTER( "sol_remaining_compute_units",           fd_vm_syscall_sol_remaining_compute_units );
 
-  if( enable_alt_bn128_compression_syscall )
-    REGISTER( "sol_alt_bn128_compression",           fd_vm_syscall_sol_alt_bn128_compression );
+#if FD_HAS_BLST
+  if( enable_bls12_381_syscall ) {
+    REGISTER( "sol_curve_decompress",                fd_vm_syscall_sol_curve_decompress );
+    REGISTER( "sol_curve_pairing_map",               fd_vm_syscall_sol_curve_pairing_map );
+  }
+#else
+  (void)enable_bls12_381_syscall;
+#endif /* FD_HAS_BLST */
 
 # undef REGISTER
 

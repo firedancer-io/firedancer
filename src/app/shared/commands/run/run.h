@@ -29,10 +29,6 @@ run_firedancer_init( config_t * config,
                      int        check_configure );
 
 void
-fdctl_setup_netns( config_t * config,
-                   int        stay );
-
-void
 run_firedancer( config_t * config,
                 int        parent_pipefd,
                 int        init_workspaces );

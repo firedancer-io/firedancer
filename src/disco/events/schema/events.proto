@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package events.v1;
+
+// The protocol used to submit the transaction (e.g., QUIC, UDP, ...)
+enum TxnProtocol {
+  TXN_PROTOCOL_UNSPECIFIED = 0;
+  TXN_PROTOCOL_QUIC = 1;  // QUIC
+  TXN_PROTOCOL_UDP = 2;  // UDP
+  TXN_PROTOCOL_GOSSIP = 3;  // Gossip
+  TXN_PROTOCOL_BUNDLE = 4;  // Bundle
+  TXN_PROTOCOL_SEND = 5;  // Internal vote sender
+}
+
+// The protocol used to send the shred
+enum ShredProtocol {
+  SHRED_PROTOCOL_UNSPECIFIED = 0;
+  SHRED_PROTOCOL_TURBINE = 1;  // Turbine
+  SHRED_PROTOCOL_REPAIR = 2;  // Repair
+  SHRED_PROTOCOL_LEADER = 3;  // Leader
+}
+
+// The validator received a verified, deduplicated transaction
+message Txn {
+  // The source IP address of the transaction sender
+  bytes source_ip = 1;
+  // The source port of the transaction sender
+  uint32 source_port = 2;
+  // The protocol used to submit the transaction (e.g., QUIC, UDP, ...)
+  TxnProtocol protocol = 3;
+  // The ID of the bundle this transaction belongs to, if any.  Zero indicates not a bundle transaction
+  uint64 bundle_id = 4;
+  // The total number of transactions in the bundle this transaction belongs to, if any
+  uint32 bundle_txn_count = 5;
+  // The commission percentage for the bundle this transaction belongs to, if any
+  uint32 bundle_commission = 6;
+  // The public key of the commission recipient for the bundle this transaction belongs to, if any
+  bytes bundle_commission_pubkey = 7;
+  // The raw transaction payload bytes
+  bytes payload = 8;
+}
+
+// The validator received a valid shred
+message Shred {
+  // The source IP address of the shred
+  bytes source_ip = 1;
+  // The source port of the shred
+  uint32 source_port = 2;
+  // The protocol used to send the shred
+  ShredProtocol protocol = 3;
+  // The raw shred payload bytes
+  bytes payload = 4;
+}
+
+// Combined event type
+message Event {
+  oneof event {
+    Txn txn = 1;
+    Shred shred = 2;
+  }
+}

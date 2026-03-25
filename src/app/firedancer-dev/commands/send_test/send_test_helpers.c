@@ -1,12 +1,10 @@
 #ifndef FD_SRC_APP_FIREDANCER_DEV_COMMANDS_SEND_TEST_HELPERS_C
 #define FD_SRC_APP_FIREDANCER_DEV_COMMANDS_SEND_TEST_HELPERS_C
 
-#include "../../../../disco/fd_disco.h"
 #include "../../../../choreo/tower/fd_tower.h"
 #include "../../../../flamenco/leaders/fd_leaders_base.h"
-#include "../../../../disco/pack/fd_microblock.h"
 #include "../../../../discof/tower/fd_tower_tile.h"
-#include "../../../../flamenco/gossip/fd_gossip_types.h"
+#include "../../../../flamenco/gossip/fd_gossip_message.h"
 #include "../../../../util/net/fd_ip4.h"
 
 #include <stdio.h>
@@ -76,26 +74,20 @@ parse_gossip_line( char * line ) {
   char * tpu_quic     = strtok( NULL, " |\t" );  FD_TEST( tpu_quic );
 
   /* solana gossip output does not contain all 4 we care about - for now, use these two */
-  fd_ip4_port_t * udp_tpu  = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU];
-  fd_ip4_port_t * quic_tpu = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_QUIC];
-  fd_ip4_port_t * udp_vote = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_VOTE];
-  fd_ip4_port_t * quic_vote = &msg.contact_info.contact_info->sockets[FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC];
+  fd_gossip_socket_t * udp_tpu   = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU ];
+  fd_gossip_socket_t * quic_tpu  = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC ];
+  fd_gossip_socket_t * udp_vote  = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE ];
+  fd_gossip_socket_t * quic_vote = &msg.contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC ];
 
   /* Set pubkey, IP, ports - 'gossip' should send all in net order */
-  FD_TEST( fd_base58_decode_32( pubkey_token, msg.origin_pubkey ) );
+  FD_TEST( fd_base58_decode_32( pubkey_token, msg.origin ) );
 
   uint ip_addr;
   FD_TEST( fd_cstr_to_ip4_addr( ip_token, &ip_addr ) );
-  udp_tpu->addr  = ip_addr;
-  quic_tpu->addr = ip_addr;
-
-  ushort udp_port_net  = fd_cstr_to_ushort( tpu_udp  ); FD_TEST( udp_port_net  );
-  ushort quic_port_net = fd_cstr_to_ushort( tpu_quic ); FD_TEST( quic_port_net );
-  udp_tpu->port  = fd_ushort_bswap( udp_port_net  );
-  quic_tpu->port = fd_ushort_bswap( quic_port_net );
-
-  fd_memset( udp_vote,  0, sizeof(fd_ip4_port_t) );
-  fd_memset( quic_vote, 0, sizeof(fd_ip4_port_t) );
+  *udp_tpu = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = ip_addr, .port = fd_ushort_bswap( fd_cstr_to_ushort( tpu_udp ) ) };
+  *quic_tpu = (fd_gossip_socket_t){ .is_ipv6 = 0, .ip4 = ip_addr, .port = fd_ushort_bswap( fd_cstr_to_ushort( tpu_quic ) ) };
+  fd_memset( udp_vote,  0, sizeof(fd_gossip_socket_t) );
+  fd_memset( quic_vote, 0, sizeof(fd_gossip_socket_t) );
 
   return msg;
 }
@@ -139,8 +131,8 @@ parse_stake_weight( char * line ) {
   }
 
   /* Set staked amount */
-  double sol_amount   = atof( sol_start ); FD_TEST( sol_amount > 0.0 );
-         weight.stake = (ulong)(sol_amount * 1000000000UL);
+  double sol_amount = atof( sol_start ); FD_TEST( sol_amount > 0.0 );
+  weight.stake = (ulong)(sol_amount * 1000000000UL);
   return weight;
 }
 
@@ -152,10 +144,10 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
   msg->epoch = ctx->epoch;
   msg->start_slot = ctx->epoch*MAX_SLOTS_PER_EPOCH;
   msg->slot_cnt = MAX_SLOTS_PER_EPOCH;
-  msg->excluded_stake = 0;
+  msg->excluded_id_stake = 0;
   msg->vote_keyed_lsched = 0;
 
-  fd_vote_stake_weight_t * stake_weights = msg->weights;
+  fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( msg );
   ulong stake_count = 0;
 
   FILE * file = fopen( ctx->stake_file, "r" );
@@ -163,13 +155,13 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
 
   char line[1024];
   while( fgets( line, sizeof(line), file ) ) {
-    stake_weights[stake_count++] = parse_stake_weight( line );
+    vote_stake_weights[stake_count++] = parse_stake_weight( line );
   }
   fclose( file );
 
   if( stake_count == 0 ) FD_LOG_ERR(( "No valid stake entries found in %s", ctx->stake_file ));
 
-  msg->staked_cnt = stake_count;
+  msg->staked_vote_cnt = stake_count;
   ulong const sz = sizeof(fd_stake_weight_msg_t) + stake_count * sizeof(fd_vote_stake_weight_t);
   FD_TEST( sz <= USHORT_MAX );
 
@@ -218,12 +210,11 @@ encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
   fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
 
   /* Mock values */
-  fd_lockout_offset_t lockouts_scratch[1];
   fd_hash_t test_hash = {0};
   fd_txn_p_t txn[1];
 
   /* Use fd_tower_to_vote_txn to generate the transaction */
-  fd_tower_to_vote_txn( tower, root, lockouts_scratch, &test_hash,
+  fd_tower_to_vote_txn( tower, root, &test_hash, &test_hash,
                         &test_hash, ctx->identity_key,
                         ctx->identity_key, ctx->vote_acct_addr, txn );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );

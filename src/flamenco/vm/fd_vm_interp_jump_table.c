@@ -52,13 +52,13 @@
     ALL_ILLEGAL(0x78), /*   21 :  32  */  /*   22 :  33  */  /*   23 :  34  */
     ALL_OPCODE (0x7c), ALL_OPCODE (0x7d), /*   36 :  35  */  ALL_OPCODE (0x7f),
     ALL_ILLEGAL(0x80), ALL_ILLEGAL(0x81), ALL_ILLEGAL(0x82), ALL_ILLEGAL(0x83),
-    /*   54 :  36  */  /*   61 :  37  */  /*   37 :  38  */  /*    7 :  39  */
+    /*   54 :  36  */  ALL_OPCODE (0x85),  /*   37 :  38  */  /*    7 :  39  */
     ALL_ILLEGAL(0x88), ALL_ILLEGAL(0x89), ALL_ILLEGAL(0x8a), ALL_ILLEGAL(0x8b),
-    /*    6 :  40  */  /*   64 :  41  */  /*   38 :  42  */  /*    8 :  43  */
+    /*    6 :  40  */  ALL_OPCODE (0x8d),  /*   38 :  42  */  /*    8 :  43  */
     ALL_ILLEGAL(0x90), ALL_ILLEGAL(0x91), ALL_ILLEGAL(0x92), ALL_ILLEGAL(0x93),
-    /*   53 :  44  */  /*   62 :  45  */  /*   39 :  46  */  /*   25 :  47  */
+    /*   53 :  44  */  ALL_OPCODE (0x95),  /*   39 :  46  */  /*   25 :  47  */
     ALL_ILLEGAL(0x98), ALL_ILLEGAL(0x99), ALL_ILLEGAL(0x9a), ALL_ILLEGAL(0x9b),
-    /*   24 :  48  */  /*   63 :  49  */  /*   40 :  50  */  /*   26 :  51  */
+    /*   24 :  48  */  ALL_ILLEGAL(0x9d), /*   40 :  50  */  /*   26 :  51  */
     ALL_ILLEGAL(0xa0), ALL_ILLEGAL(0xa1), ALL_ILLEGAL(0xa2), ALL_ILLEGAL(0xa3),
     ALL_OPCODE (0xa4), ALL_OPCODE (0xa5), ALL_ILLEGAL(0xa6), ALL_OPCODE (0xa7),
     ALL_ILLEGAL(0xa8), ALL_ILLEGAL(0xa9), ALL_ILLEGAL(0xaa), ALL_ILLEGAL(0xab),
@@ -166,14 +166,6 @@
     /* 58: 53 */ CONDITIONAL( 0xbc, FD_VM_SBPF_EXPLICIT_SIGN_EXT, &&interp_0xbc, &&interp_0xbcdepr),
     /* 59:  2 */ CONDITIONAL( 0x14, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS, &&interp_0x14, &&interp_0x14depr),
     /* 60:  3 */ CONDITIONAL( 0x17, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS, &&interp_0x17, &&interp_0x17depr),
-
-    /* SIMD-0178: static syscalls */
-    /* 61: 37 */ CONDITIONAL( 0x85, FD_VM_SBPF_STATIC_SYSCALLS, &&interp_0x85, &&interp_0x85depr),
-    /* 62: 45 */ CONDITIONAL( 0x95, FD_VM_SBPF_STATIC_SYSCALLS, &&interp_0x95, &&interp_0x9d),
-    /* 63: 49 */ CONDITIONAL( 0x9d, FD_VM_SBPF_STATIC_SYSCALLS, &&interp_0x9d, &&sigill),
-
-    /* SIMD-0173 + SIMD-0179: CALLX */
-    /* 64: 41 */ CONDITIONAL( 0x8d, FD_VM_SBPF_STATIC_SYSCALLS, &&interp_0x8d, &&interp_0x8ddepr),
 
 #   undef ALL_ILLEGAL
 #   undef ALL_OPCODE

@@ -1,13 +1,17 @@
 #define _GNU_SOURCE
 #include "fd_bundle_tile_private.h"
+#include "fd_bundle_tile.h"
+#include "../fd_txn_m.h"
 #include "../metrics/fd_metrics.h"
 #include "../topo/fd_topo.h"
 #include "../keyguard/fd_keyload.h"
-#include "../plugin/fd_plugin.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../waltz/openssl/fd_openssl_tile.h"
 
+#if FD_HAS_OPENSSL
 #include <errno.h>
+#endif
+
 #include <dirent.h> /* opendir */
 #include <stdio.h> /* snprintf */
 #include <fcntl.h> /* F_SETFL */
@@ -23,19 +27,23 @@
 /* Provided by fdctl/firedancer version.c */
 extern char const fdctl_version_string[];
 
+#define STEM_BURST (5UL)
+FD_STATIC_ASSERT( FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE<=STEM_BURST, stem_burst );
+
 FD_FN_CONST static ulong
 scratch_align( void ) {
-  return alignof(fd_bundle_tile_t);
+  return fd_ulong_max( fd_ulong_max( fd_ulong_max( alignof(fd_bundle_tile_t), fd_grpc_client_align() ), fd_alloc_align() ), pending_txn_align() );
 }
 
 FD_FN_CONST static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
+  ulong pending_max = tile->bundle.out_depth;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
   l = FD_LAYOUT_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                            );
-  return FD_LAYOUT_FINI( l, 32 );
+  l = FD_LAYOUT_APPEND( l, pending_txn_align(),       pending_txn_footprint( pending_max )            );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline ulong
@@ -56,6 +64,8 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MCNT_SET( BUNDLE, ERRORS_PROTOBUF,        ctx->metrics.decode_fail_cnt           );
   FD_MCNT_SET( BUNDLE, ERRORS_TRANSPORT,       ctx->metrics.transport_fail_cnt        );
   FD_MCNT_SET( BUNDLE, ERRORS_NO_FEE_INFO,     ctx->metrics.missing_builder_info_fail_cnt );
+  FD_MGAUGE_SET( BUNDLE, PENDING_TRANSACTIONS, pending_txn_cnt( ctx->pending_txns )   );
+  FD_MCNT_SET  ( BUNDLE, TRANSACTION_DROPPED_BACKPRESSURE, ctx->metrics.backpressure_drop_cnt );
 #if FD_HAS_OPENSSL
   FD_MCNT_SET( BUNDLE, ERRORS_SSL_ALLOC,       fd_ossl_alloc_errors                 );
 #endif
@@ -76,7 +86,7 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
 
   int bundle_status = fd_bundle_client_status( ctx );
-  FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED );
+  FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
   ctx->bundle_status_recent = (uchar)bundle_status;
 }
 
@@ -86,7 +96,7 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   int  status          = fd_bundle_client_status( ctx );
   long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
   long now_ns          = fd_log_wallclock();
-  if( FD_UNLIKELY( status!=FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
+  if( FD_UNLIKELY( status!=FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
     FD_LOG_WARNING(( "No bundle server connection in the last %ld seconds", log_interval_ns/(long)1e9 ) );
     ctx->last_bundle_status_log_nanos = now_ns;
   }
@@ -103,9 +113,9 @@ fd_bundle_tile_publish_block_engine_update(
     fd_bundle_tile_t *  ctx,
     fd_stem_context_t * stem
 ) {
-  fd_plugin_msg_block_engine_update_t * update =
+  fd_bundle_block_engine_update_t * update =
       fd_chunk_to_laddr( ctx->plugin_out.mem, ctx->plugin_out.chunk );
-  memset( update, 0, sizeof(fd_plugin_msg_block_engine_update_t) );
+  memset( update, 0, sizeof(fd_bundle_block_engine_update_t) );
 
   strncpy( update->name, "jito", sizeof(update->name) );
 
@@ -127,14 +137,27 @@ fd_bundle_tile_publish_block_engine_update(
   fd_stem_publish(
       stem,
       ctx->plugin_out.idx,
-      FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE,
+      (ulong)ctx->bundle_status_recent,
       ctx->plugin_out.chunk,
-      sizeof(fd_plugin_msg_block_engine_update_t),
+      sizeof(fd_bundle_block_engine_update_t),
       0UL, /* ctl */
       0UL, /* seq */
       tspub
   );
-  ctx->plugin_out.chunk = fd_dcache_compact_next( ctx->plugin_out.chunk, sizeof(fd_plugin_msg_block_engine_update_t), ctx->plugin_out.chunk0, ctx->plugin_out.wmark );
+  ctx->plugin_out.chunk = fd_dcache_compact_next( ctx->plugin_out.chunk, sizeof(fd_bundle_block_engine_update_t), ctx->plugin_out.chunk0, ctx->plugin_out.wmark );
+}
+
+static void
+before_credit( fd_bundle_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  if( FD_UNLIKELY( !ctx->stem ) ) {
+    ctx->stem = stem;
+  }
+
+  if( pending_txn_empty( ctx->pending_txns ) ) {
+    fd_bundle_client_step( ctx, charge_busy );
+  }
 }
 
 static void
@@ -142,9 +165,43 @@ after_credit( fd_bundle_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-  if( FD_UNLIKELY( !ctx->stem ) ) ctx->stem = stem;
-  fd_bundle_client_step( ctx, charge_busy );
+  if( !pending_txn_empty( ctx->pending_txns ) ) {
+    fd_bundle_pending_txn_t * head = pending_txn_peek_head( ctx->pending_txns );
+    ulong drain_seq = head->bundle_seq;
+    ulong drain_sig = head->sig;
+    ulong drain_cnt = 0UL;
+
+    do {
+      fd_bundle_pending_txn_t const * txn = pending_txn_peek_head( ctx->pending_txns );
+
+      fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
+      *txnm = (fd_txn_m_t) {
+        .reference_slot = 0UL,
+        .payload_sz     = txn->payload_sz,
+        .txn_t_sz       = 0U,
+        .source_ipv4    = txn->source_ipv4,
+        .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
+        .block_engine   = {
+          .bundle_id      = txn->bundle_seq,
+          .bundle_txn_cnt = txn->bundle_txn_cnt,
+          .commission     = txn->commission,
+        },
+      };
+      fd_memcpy( txnm->block_engine.commission_pubkey, txn->commission_pubkey, 32UL );
+      fd_memcpy( fd_txn_m_payload( txnm ), txn->payload, txn->payload_sz );
+
+      ulong sz    = fd_txn_m_realized_footprint( txnm, 0, 0 );
+      ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
+      fd_stem_publish( stem, ctx->verify_out.idx, txn->sig, ctx->verify_out.chunk, sz, 0UL, 0UL, tspub );
+      ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, sz, ctx->verify_out.chunk0, ctx->verify_out.wmark );
+
+      pending_txn_remove_head( ctx->pending_txns );
+      drain_cnt++;
+    } while( fd_bundle_drain_continue( ctx->pending_txns, drain_sig, drain_seq, drain_cnt, STEM_BURST ) );
+
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+  }
 
   if( ctx->plugin_out.mem ) {
     if( FD_UNLIKELY( ctx->bundle_status_recent != ctx->bundle_status_plugin ) ) {
@@ -156,77 +213,18 @@ after_credit( fd_bundle_tile_t *  ctx,
 }
 
 static void
-parse_url( fd_url_t *   url_,
-           char const * url_str,
-           ulong        url_str_len,
-           ushort *     tcp_port,
-           _Bool *      is_ssl ) {
-
-  /* Parse URL */
-
-  int url_err[1];
-  fd_url_t * url = fd_url_parse_cstr( url_, url_str, url_str_len, url_err );
-  if( FD_UNLIKELY( !url ) ) {
-    switch( *url_err ) {
-    scheme_err:
-    case FD_URL_ERR_SCHEME:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: must start with `http://` or `https://`", (int)url_str_len, url_str ));
-      break;
-    case FD_URL_ERR_HOST_OVERSZ:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: domain name is too long", (int)url_str_len, url_str ));
-      break;
-    default:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`", (int)url_str_len, url_str ));
-      break;
-    }
-  }
-
-  /* FIXME the URL scheme path technically shouldn't contain slashes */
-  if( url->scheme_len==8UL && fd_memeq( url->scheme, "https://", 8UL ) ) {
-    *is_ssl = 1;
-  } else if( url->scheme_len==7UL && fd_memeq( url->scheme, "http://", 7UL ) ) {
-    *is_ssl = 0;
-  } else {
-    goto scheme_err;
-  }
-
-  /* Parse port number */
-
-  *tcp_port = 443;
-  if( url->port_len ) {
-    if( FD_UNLIKELY( url->port_len > 5 ) ) {
-    invalid_port:
-      FD_LOG_ERR(( "Invalid [tiles.bundle.url] `%.*s`: invalid port number", (int)url_str_len, url_str ));
-    }
-
-    char port_cstr[6];
-    fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( port_cstr ), url->port, url->port_len ) );
-    ulong port_no = fd_cstr_to_ulong( port_cstr );
-    if( FD_UNLIKELY( !port_no || port_no>USHORT_MAX ) ) goto invalid_port;
-
-    *tcp_port = (ushort)port_no;
-  }
-
-  /* Resolve domain */
-
-  if( FD_UNLIKELY( url->host_len > 255 ) ) {
-    FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
-  }
-  char host_cstr[ 256 ];
-  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( host_cstr ), url->host, url->host_len ) );
-}
-
-static void
 fd_bundle_tile_parse_endpoint( fd_bundle_tile_t *     ctx,
                                fd_topo_tile_t const * tile ) {
   fd_url_t url[1];
   _Bool is_ssl = 0;
-  parse_url(
-      url,
-      tile->bundle.url, tile->bundle.url_len,
-      &ctx->server_tcp_port,
-      &is_ssl
-  );
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url,
+                                          tile->bundle.url,
+                                          tile->bundle.url_len,
+                                          &ctx->server_tcp_port,
+                                          &is_ssl,
+                                          "[tiles.bundle.url]" ) ) ) {
+    FD_LOG_ERR(( "Could not parse [tiles.bundle.url]" ));
+  }
   if( FD_UNLIKELY( url->host_len > 255 ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }
@@ -316,10 +314,13 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  ulong const pending_max = tile->bundle.out_depth;
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );
   void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
   void *             alloc_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                            );
+  void *             deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, pending_txn_align(),        pending_txn_footprint( pending_max )            );
   ulong              scratch_end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   (void)alloc_mem; /* potentially unused */
 
@@ -334,6 +335,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->grpc_client_mem = grpc_mem;
   ctx->grpc_buf_max    = tile->bundle.buf_sz;
   ctx->tcp_sock        = -1;
+  ctx->pending_txns    = pending_txn_join( pending_txn_new( deque_mem, pending_max ) );
 
   fd_bundle_auther_init( &ctx->auther );
   uchar const * public_key = fd_keyload_load( tile->bundle.identity_key_path, 1 /* public key only */ );
@@ -417,14 +419,14 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "fd_keyguard_client_join failed" )); /* unreachable */
   }
 
-  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
   ulong verify_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_verif", tile->kind_id );
   if( FD_UNLIKELY( verify_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "Missing bundle_verif link" ));
   ctx->verify_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ verify_out_idx ] ], verify_out_idx );
 
-  ulong plugin_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_plugi", tile->kind_id );
+  ulong plugin_out_idx = fd_topo_find_tile_out_link( topo, tile, "bundle_status", tile->kind_id );
   if( plugin_out_idx!=ULONG_MAX ) {
     ctx->plugin_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ plugin_out_idx ] ], plugin_out_idx );
   } else {
@@ -441,7 +443,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->keepalive_interval = (long)tile->bundle.keepalive_interval_nanos;
 
   ctx->bundle_status_plugin = 127;
-  ctx->bundle_status_recent = FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE_STATUS_DISCONNECTED;
+  ctx->bundle_status_recent = FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
   ctx->last_bundle_status_log_nanos = fd_log_wallclock();
 
   fd_bundle_tile_parse_endpoint( ctx, tile );
@@ -496,7 +498,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (5UL)
 #define STEM_LAZY ((long)10e6)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_bundle_tile_t
@@ -504,6 +505,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING fd_bundle_tile_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 
 #include "../stem/fd_stem.c"

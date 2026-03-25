@@ -154,7 +154,7 @@ $ fdctl shred-version
 
 ## `metrics`
 Prints the current validator metrics to stdout.  Metrics can typically
-be accessed via. HTTP when the `metric` tile is enabled,  but the
+be accessed via HTTP when the `metric` tile is enabled, but the
 command can be used even if the metrics server is not enabled, or the
 validator has crashed.
 
@@ -261,6 +261,7 @@ use by Firedancer.
 | Arguments | Description |
 |----------|-------------|
 | `--config` | Path to a configuration TOML file to print memory usage information with |
+| `--sort` | List all memory allocations sorted by size in decreasing order, including a percentage of total and exact byte count |
 
 ```sh [bash]
 $ fdctl mem --config config.toml

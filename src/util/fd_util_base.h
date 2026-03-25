@@ -667,7 +667,11 @@ fd_type_pun_const( void const * p ) {
    UndefinedBehaviorSanitizer instrumentation.  For some functions, this
    can improve instrumented compile time by ~30x. */
 
+#if FD_HAS_MSAN
+#define FD_FN_UNSANITIZED __attribute__((no_sanitize("memory")))
+#else
 #define FD_FN_UNSANITIZED __attribute__((no_sanitize("address", "undefined")))
+#endif
 
 /* FD_FN_SENSITIVE instruments the compiler to sanitize sensitive functions.
    https://eprint.iacr.org/2023/1713 (Sec 3.2)
@@ -1188,10 +1192,18 @@ fd_memset( void  * d,
 
 #endif
 
-/* C23 has memset_explicit, i.e. a memset that can't be removed by the
-   optimizer. This is our own equivalent. */
-
-static void * (* volatile fd_memset_explicit)(void *, int, size_t) = memset;
+/* Calling fd_memzero_explicit will fill the provided region with zeroes.
+   It is guaranteed to not be optimized away.  */
+FD_FN_UNUSED static inline void
+fd_memzero_explicit( void * d,
+                    ulong  sz ) {
+   /* We don't want to depend on explicit_bzero or memset_s, so the simplest
+      way to ensure the memset is not optimized away is to use a compiler fence,
+      identical to how explicit_bzero is implemented.
+      https://elixir.bootlin.com/glibc/glibc-2.40/source/string/explicit_bzero.c#L33 */
+   memset( d, 0, sz );
+   __asm__ __volatile__( "" ::: "memory" );
+}
 
 /* fd_memeq(s0,s1,sz):  Compares two blocks of memory.  Returns 1 if
    equal or sz is zero and 0 otherwise.  No memory accesses made if sz
@@ -1230,6 +1242,16 @@ fd_memeq( void const * s1,
 }
 
 #endif
+
+/* Returns 1 if all sz bytes starting at s are zero, 0 otherwise. */
+FD_FN_PURE static inline int
+fd_mem_iszero( uchar const * s,
+               ulong         sz ) {
+  for( ulong i=0UL; i<sz; i++ ) {
+   if( s[i]!=0 ) return 0;
+  }
+  return 1;
+}
 
 /* fd_hash(seed,buf,sz), fd_hash_memcpy(seed,d,s,sz):  High quality
    (full avalanche) high speed variable length buffer -> 64-bit hash

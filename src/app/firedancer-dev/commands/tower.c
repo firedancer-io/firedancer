@@ -5,7 +5,8 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h"
 #include "../../../discof/tower/fd_tower_tile.c"
-#include "../../../choreo/tower/fd_tower_forks.h"
+#include "../../../choreo/tower/fd_tower_blocks.h"
+#include "../../../choreo/tower/fd_tower_leaves.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -13,13 +14,13 @@
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
-/* ctx_t is defined in fd_tower_tile.c, we just need to access it */
+/* fd_tower_tile_t is defined in fd_tower_tile.c, we just need to access it */
 
 static void
-tower_ctx_wksp( args_t *          args,
-                config_t *        config,
-                ctx_t **          tower_ctx,
-                fd_topo_wksp_t ** tower_wksp ) {
+tower_ctx_wksp( args_t *           args,
+                config_t *         config,
+                fd_tower_tile_t ** tower_ctx,
+                fd_topo_wksp_t **  tower_wksp ) {
   (void)args;
 
   fd_topo_t * topo = &config->topo;
@@ -34,35 +35,35 @@ tower_ctx_wksp( args_t *          args,
   if( FD_UNLIKELY( scratch_wksp_id>=topo->wksp_cnt ) ) FD_LOG_ERR(( "invalid workspace id %lu for tile scratch", scratch_wksp_id ));
 
   fd_topo_wksp_t * _tower_wksp = &topo->workspaces[ scratch_wksp_id ];
-  fd_topo_join_workspace( topo, _tower_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( topo, _tower_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   /* Access the tower tile scratch memory where tower_tile_ctx is stored */
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access tower tile scratch memory" ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * _tower_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  fd_tower_tile_t * _tower_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
   *tower_ctx  = _tower_ctx;
   *tower_wksp = _tower_wksp;
 }
 
 static void
-print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_forks_t * forks ) {
+print_all_forks( fd_wksp_t * wksp, fd_tower_tile_t * tower_ctx, fd_tower_blocks_t * forks ) {
   printf( "\n[Tower Forks]\n" );
   printf( "=============\n" );
   printf( "%-15s | %-15s | %-10s | %-10s\n", "Slot", "Parent Slot", "Voted", "Confirmed" );
   printf( "%-15s-+-%-15s-+-%-10s-+-%-10s\n", "---------------", "---------------", "----------", "----------" );
 
   /* Iterate through all map slots */
-  ulong tower_forks_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, forks->tower_forks );
-  fd_tower_forks_t * map = (fd_tower_forks_t *)fd_wksp_laddr_fast( wksp, tower_forks_gaddr );
+  ulong tower_forks_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, forks->blk_map );
+  fd_tower_blk_t * map = (fd_tower_blk_t *)fd_wksp_laddr_fast( wksp, tower_forks_gaddr );
   ulong slot_count = 0;
 
-  for( ulong slot_idx = 0UL; slot_idx < fd_tower_forks_slot_cnt( map ); slot_idx++ ) {
-    fd_tower_forks_t * fork = &map[ slot_idx ];
+  for( ulong slot_idx = 0UL; slot_idx < fd_tower_blk_slot_cnt( map ); slot_idx++ ) {
+    fd_tower_blk_t * fork = &map[ slot_idx ];
     /* Check if key is valid (not MAP_KEY_NULL which is ULONG_MAX) */
-    if( !fd_tower_forks_key_inval( fork->slot ) ) {
+    if( !fd_tower_blk_key_inval( fork->slot ) ) {
       printf( "%-15lu | ", fork->slot );
       if( fork->parent_slot == ULONG_MAX ) {
         printf( "%-15s | ", "NULL" );
@@ -75,12 +76,17 @@ print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_forks_t * forks ) {
     }
   }
 
+  printf( "Total slots: %lu\n", slot_count );
+
   printf( "\n[Tower Leaves]\n" );
   printf( "==============\n" );
 
-  ulong         tower_leaves_dlist_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, forks->tower_leaves_dlist );
+  ulong tower_leaves_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->tower_leaves );
+  fd_tower_leaves_t * leaves = (fd_tower_leaves_t *)fd_wksp_laddr_fast( wksp, tower_leaves_gaddr );
+
+  ulong tower_leaves_dlist_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, leaves->dlist );
   fd_tower_leaves_dlist_t * leaves_dlist = (fd_tower_leaves_dlist_t *)fd_wksp_laddr_fast( wksp, tower_leaves_dlist_gaddr );
-  ulong tower_leaves_pool_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, forks->tower_leaves_pool );
+  ulong tower_leaves_pool_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, leaves->pool );
   fd_tower_leaf_t * leaves_pool = (fd_tower_leaf_t *)fd_wksp_laddr_fast( wksp, tower_leaves_pool_gaddr );
 
   ulong leaf_count = 0;
@@ -89,33 +95,16 @@ print_all_forks( fd_wksp_t * wksp, ctx_t * tower_ctx, fd_forks_t * forks ) {
                                     iter = fd_tower_leaves_dlist_iter_fwd_next( iter, leaves_dlist, leaves_pool ) ) {
     fd_tower_leaf_t * leaf = fd_tower_leaves_dlist_iter_ele( iter, leaves_dlist, leaves_pool );
     if( FD_LIKELY( leaf ) ) {
-      fd_tower_forks_t * fork = fd_tower_forks_query( map, leaf->slot, NULL );
+      fd_tower_blk_t * fork = fd_tower_blk_query( map, leaf->slot, NULL );
       printf( "Leaf slot: %lu", leaf->slot );
-      if( fork->voted )     printf( " [voted]"     );
-      if( fork->confirmed ) printf( " [confirmed]" );
+      if( fork && fork->voted )     printf( " [voted]"     );
+      if( fork && fork->confirmed ) printf( " [confirmed]" );
       printf( "\n" );
       leaf_count++;
     }
   }
   printf( "\nTotal leaves: %lu\n", leaf_count );
-  printf( "Total slots: %lu\n", slot_count );
   printf( "\n" );
-}
-
-static void
-tower_cmd_fn_forks( args_t *   args,
-                    config_t * config ) {
-  ctx_t *          tower_ctx;
-  fd_topo_wksp_t * tower_wksp;
-  tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
-
-  ulong forks_laddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->forks );
-  fd_forks_t * forks = (fd_forks_t *)fd_wksp_laddr( tower_wksp->wksp, forks_laddr );
-
-  for( ;; ) {
-    print_all_forks( tower_wksp->wksp, tower_ctx, forks );
-    sleep( 1 );
-  }
 }
 
 static const char * HELP =
@@ -125,6 +114,8 @@ static const char * HELP =
   "positional arguments:\n"
   "  {forks}\n"
   "    forks              prints the tower forks tree structure and leaves\n"
+  "    ghost              prints the ghost fork choice structure\n"
+  "    tower              prints the local tower\n"
   "\n"
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n";
@@ -136,11 +127,79 @@ static const char * FORKS_HELP =
   "optional arguments:\n"
   "  -h, --help            show this help message and exit\n";
 
+static const char * GHOST_HELP =
+  "\n\n"
+  "usage: tower ghost [-h]\n"
+  "\n"
+  "optional arguments:\n"
+  "  -h, --help            show this help message and exit\n";
+
+static const char * TOWER_HELP =
+  "\n\n"
+  "usage: tower tower [-h]\n"
+  "\n"
+  "optional arguments:\n"
+  "  -h, --help            show this help message and exit\n";
+
 void
 tower_cmd_help( char const * arg ) {
-  if      ( FD_LIKELY( !arg                    ) ) FD_LOG_NOTICE(( "%s", HELP           ));
-  else if ( FD_LIKELY( !strcmp( arg, "forks" ) ) ) FD_LOG_NOTICE(( "%s", FORKS_HELP    ));
-  else                                                 FD_LOG_NOTICE(( "%s", HELP           ));
+  if      ( FD_LIKELY( !arg                    ) ) FD_LOG_NOTICE(( "%s", HELP       ));
+  else if ( FD_LIKELY( !strcmp( arg, "forks" ) ) ) FD_LOG_NOTICE(( "%s", FORKS_HELP ));
+  else if ( FD_LIKELY( !strcmp( arg, "ghost" ) ) ) FD_LOG_NOTICE(( "%s", GHOST_HELP ));
+  else if ( FD_LIKELY( !strcmp( arg, "tower" ) ) ) FD_LOG_NOTICE(( "%s", TOWER_HELP ));
+  else                                             FD_LOG_NOTICE(( "%s", HELP       ));
+}
+
+static void
+tower_cmd_fn_forks( args_t *   args,
+                    config_t * config ) {
+  fd_tower_tile_t *          tower_ctx;
+  fd_topo_wksp_t * tower_wksp;
+  tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
+
+  ulong forks_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->tower_blocks );
+  fd_tower_blocks_t * forks = (fd_tower_blocks_t *)fd_wksp_laddr( tower_wksp->wksp, forks_gaddr );
+
+  for( ;; ) {
+    print_all_forks( tower_wksp->wksp, tower_ctx, forks );
+    sleep( 1 );
+  }
+}
+
+static void
+tower_cmd_fn_ghost( args_t *   args,
+                    config_t * config ) {
+  fd_tower_tile_t *          tower_ctx;
+  fd_topo_wksp_t * tower_wksp;
+  tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
+
+  ulong ghost_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->ghost );
+  fd_ghost_t * ghost = (fd_ghost_t *)fd_wksp_laddr( tower_wksp->wksp, ghost_gaddr );
+  fd_ghost_root( ghost );
+  FD_LOG_NOTICE(( "root slot %lu", fd_ghost_root( ghost )->slot ));
+
+  for( ;; ) {
+    char cstr[4096]; cstr[4095] = '\0'; ulong sz;
+    FD_LOG_NOTICE(( "\n\n%s", fd_ghost_to_cstr( ghost, fd_ghost_root( ghost ), cstr, sizeof(cstr), &sz ) ));
+    sleep( 1 );
+  }
+}
+
+static void
+tower_cmd_fn_tower( args_t    * args,
+                     config_t * config ) {
+  fd_tower_tile_t *          tower_ctx;
+  fd_topo_wksp_t * tower_wksp;
+  tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
+
+  ulong tower_laddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->tower );
+  fd_tower_t * tower = (fd_tower_t *)fd_wksp_laddr( tower_wksp->wksp, tower_laddr );
+
+  for( ;; ) {
+    char cstr[4096]; cstr[4095] = '\0';
+    FD_LOG_DEBUG(( "\n\n%s", fd_tower_to_cstr( tower, tower_ctx->root_slot, cstr ) ));
+    sleep( 1 );
+  }
 }
 
 void
@@ -172,7 +231,9 @@ tower_cmd_fn( args_t *   args,
   }
 
   if     ( !strcmp( args->tower.pos_arg, "forks" ) ) tower_cmd_fn_forks( args, config );
-  else                                                    tower_cmd_help( NULL );
+  else if( !strcmp( args->tower.pos_arg, "ghost" ) ) tower_cmd_fn_ghost( args, config );
+  else if( !strcmp( args->tower.pos_arg, "tower" ) ) tower_cmd_fn_tower( args, config );
+  else                                               tower_cmd_help( NULL );
 }
 
 action_t fd_action_tower = {

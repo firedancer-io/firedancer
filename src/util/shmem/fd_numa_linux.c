@@ -29,7 +29,7 @@ fd_numa_private_parse_node_idx( char const * s ) {
   for(;;) {
     char c = *t;
     if( !c ) break; /* host dep branch prob */
-    if( FD_UNLIKELY( !(('0'<=c) | (c<='9')) ) ) return -1; /* non-digit encountered */
+    if( FD_UNLIKELY( (c<'0') | (c>'9') ) ) return -1; /* non-digit encountered */
     val = (long)(c-'0') + 10L*val;
     if( FD_UNLIKELY( val>(long)INT_MAX ) ) return -1; /* overflow */
     t++;

@@ -748,7 +748,7 @@ reader_main( int     argc,
 
     /* And try to query for a key we know isn't in the map */
 
-    key->ul[3] = 1UL;
+    key->ul[0] = ~0UL;
     FD_TEST( fd_vinyl_meta_query( meta, key, info )==FD_VINYL_ERR_KEY );
 
   }
@@ -847,6 +847,7 @@ main( int     argc,
     shmem_cnt = save;
 
     FD_TEST( !fd_vinyl_meta_verify( meta ) );
+
   }
 
   FD_LOG_NOTICE(( "Leaving vinyl meta" ));

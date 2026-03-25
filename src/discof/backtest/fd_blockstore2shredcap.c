@@ -1,10 +1,11 @@
 #include "fd_backtest_rocksdb.h"
+#include "fd_shredcap.h"
+#include "../../flamenco/gossip/fd_gossip_message.h"
+#include "../../ballet/shred/fd_shred.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_pcapng.h"
 #include "../../util/net/fd_ip4.h"
-#include "fd_shredcap.h"
-#include "../../ballet/shred/fd_shred.h"
-#include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../util/net/fd_udp.h"
 #include "fd_libc_zstd.h"
 
 #include <errno.h>
@@ -105,7 +106,7 @@ write_shred( FILE *       pcap,
     .option_sz   = 8,
     .pen         = 31592,  /* Jump Trading, LLC */
     .magic       = 0x4071, /* SOL! */
-    .gossip_tag  = FD_CONTACT_INFO_SOCKET_TVU
+    .gossip_tag  = FD_GOSSIP_CONTACT_INFO_SOCKET_TVU
   };
 
   fd_pcapng_fwrite_pkt1( pcap, &packet, 28UL+shred_sz, &option, sizeof(option), IF_IDX_NET, 0L );
@@ -186,7 +187,6 @@ main( int     argc,
 
   ulong slot_cnt = 0UL;
   for( ;; slot_cnt++ ) {
-
     ulong root_slot;
     ulong shred_cnt;
     int root_ok = fd_backtest_rocksdb_next_root_slot( rocksdb, &root_slot, &shred_cnt );

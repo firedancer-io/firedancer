@@ -27,7 +27,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_base64_encode encodes the given bytes [in,in+in_sz) as Base64,
    optionally using trailing padding.  Does not write a NULL terminator
    to out (thus out will not be a valid cstr on return).  Writes result
-   to [out,out+FD_BASE64_ENC_SZ(in_sz)) and returns the number of writes
+   to [out,out+FD_BASE64_ENC_SZ(in_sz)) and returns the number of bytes
    written. */
 
 ulong

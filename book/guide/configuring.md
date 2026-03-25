@@ -1,7 +1,7 @@
 # Configuring
 
 ## Overview
-Firedancer is configured via. a [TOML](https://toml.io/en/) file. Almost
+Firedancer is configured via a [TOML](https://toml.io/en/) file. Almost
 all options have a recommended default value that is set automatically
 by Firedancer, and an operator needs only to specify values for options
 they wish to change. The full list of options is as specified in the

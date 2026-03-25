@@ -184,7 +184,7 @@ reap () {
       if [[ "$rc" -ne 0 ]]; then
         FAIL_CNT="$(( FAIL_CNT + 1 ))"
         printf "\033[0;31mFAIL\033[0m%12s   %s (exit %d): %s\n" "$elapsed" "$unit" "$rc" "$logfull" >&2
-        grep -sv "Log at" "$log" | sed -e "$(printf "s/^/%19s%-20s /" '' "$unit")" || true >&2
+        grep -sv "Log at" "$logfull" | sed -e "$(printf "s/^/%19s%-20s /" '' "$unit")" || true >&2
       else
         printf "\033[0;32mOK  \033[0m%12s   %s\n"               "$elapsed" "$unit" >&2
       fi

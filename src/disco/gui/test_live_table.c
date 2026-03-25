@@ -158,6 +158,32 @@ main( int argc, char ** argv ) {
 
   FD_TEST( test_live_table_delete( test_live_table_leave( table ) ) );
 
+  uchar reg_scratch[ 256 ] __attribute__((aligned(256UL)));
+  FD_TEST( sizeof(reg_scratch)==test_live_table_footprint( TEST_LIVE_TABLE_ROW_CNT ) );
+
+  test_live_table_t * reg_table = test_live_table_join( test_live_table_new( reg_scratch, TEST_LIVE_TABLE_ROW_CNT ) );
+
+  test_live_table_row_t reg_pool[] = {
+    { .key = { .uc = { 0UL } }, .ipv4 = 0U, .counter = 0UL },
+    { .key = { .uc = { 0UL } }, .ipv4 = 0U, .counter = 1UL },
+    { .key = { .uc = { 1UL } }, .ipv4 = 0U, .counter = 0UL },
+  };
+
+  test_live_table_seed( reg_pool, 3UL, 43UL );
+  test_live_table_idx_insert( reg_table, 0UL, reg_pool );
+  test_live_table_idx_insert( reg_table, 1UL, reg_pool );
+  test_live_table_idx_insert( reg_table, 2UL, reg_pool );
+
+  test_live_table_sort_key_t key_with_tie_break = { .col = { 0, 1, 2 }, .dir = { 1, 1, -1 } };
+  test_live_table_sort_key_t key_without_tie_break = { .col = { 0, 1, 2 }, .dir = { 1, 1,  0 } };
+
+  FD_TEST( test_live_table_key( reg_table, &key_with_tie_break,    reg_pool, (ulong[]){ 1UL, 0UL, 2UL }, 3UL ) );
+  FD_TEST( test_live_table_active_sort_key_cnt( reg_table )==1UL );
+  FD_TEST( test_live_table_key( reg_table, &key_without_tie_break, reg_pool, (ulong[]){ 0UL, 1UL, 2UL }, 3UL ) );
+  FD_TEST( test_live_table_active_sort_key_cnt( reg_table )==2UL );
+
+  FD_TEST( test_live_table_delete( test_live_table_leave( reg_table ) ) );
+
   FD_LOG_INFO(( "PASSED" ));
   return 0;
 }

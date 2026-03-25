@@ -399,6 +399,7 @@ main( int     argc,
   /* Test bad seek type */
 
   FD_TEST( fd_io_seek( fd, 0L, -1, &wsz )==EINVAL );
+  FD_TEST( fd_io_seek( fd, 0L,  3, &wsz )==EINVAL );
 
   if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_WARNING(( "close failed (%i-%s); attempting to continue", errno, fd_io_strerror( errno ) ));

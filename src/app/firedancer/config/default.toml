@@ -38,6 +38,19 @@ name = "fd1"
 # which invoked sudo, not the root user.
 user = ""
 
+# Whether to enable telemetry reporting.  When enabled, Firedancer will
+# periodically send diagnostic information including performance
+# statistics, metric counters, and other notable events to a centralized
+# server for collection and analysis by the Firedancer development team.
+#
+# This data helps the development team debug during emergencies,
+# understand how Firedancer is being used by operators, identify common
+# problems and performance bottlenecks, and prioritize future development
+# work.  It is similar in nature to the `SOLANA_METRICS_CONFIG`
+# environment variable used by the Agave validator, but is more
+# comprehensive and configured automatically.
+telemetry = true
+
 # Firedancer uses the filesystem to store various data for running the
 # validator.  This includes account data, log files, and things like the
 # genesis file.
@@ -86,9 +99,10 @@ user = ""
     # to inside the base directory, under path `identity.json`.
     identity_key = ""
 
-    # Absolute path to a `keypair.json` containing the  voting account
-    # of the validator.  If no voting account is provided, voting will
-    # be disabled and the validator will cast no votes.
+    # Absolute path to a `keypair.json` containing the voting account
+    # of the validator.  The vote account can also be represented as a
+    # base 58 encoded pubkey string.  If no voting account is provided,
+    # voting will be disabled and the validator will cast no votes.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
@@ -103,6 +117,17 @@ user = ""
     # place it in this path.  If no path is provided, it is defaulted
     # to inside the base directory, under path `vote-account.json`.
     vote_account = ""
+
+    # List of absolute paths to authorized-voter keypairs for the vote
+    # account.  This is not needed if no vote account is specified.
+    # If a vote account is specified and this is empty, the identity
+    # account will be used as the authorized-voter account.
+    #
+    # Two substitutions will be performed on each string in this list.
+    # If "{user}" is present it will be replaced with the user running
+    # Firedancer, as above, and "{name}" will be replaced with the
+    # name of the Firedancer instance.
+    authorized_voter_paths = []
 
     # Absolute directory path for storing snapshots.  If no path is
     # provided, it defaults to the `snapshot` subdirectory of the
@@ -151,12 +176,22 @@ user = ""
     # Firedancer instance.
     genesis = ""
 
-    # Absolute path where to store the `accounts.db` file containing all
-    # account data from the chain.  If no path is provided, it defaults
-    # to the `accounts.db` path within the base directory above.  The
-    # account data is large, several hundred gigabytes and growing, and
-    # should be placed on a disk with fast read and write bandwidth, as
-    # it can easily be a performance bottleneck for the validator.
+    # File path to account database file.
+    #
+    # The account database contains a copy of all accounts on the
+    # network.  The validator preallocates the entire database on
+    # startup (see [accounts.file_size_gib], often several hundred
+    # gigabytes and growing).
+    #
+    # The account DB file should be backed by fast local storage, e.g.
+    # NVMe.  Validator performance is sensitive to disk latency.
+    #
+    # The validator recreates the account database file from a snapshot
+    # on every startup.  It is therefore not necessary to back up this
+    # file.
+    #
+    # If no path is provided, it defaults to the `accounts.db` path
+    # within the base directory above.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
@@ -328,23 +363,19 @@ user = ""
     max_full_snapshots_to_keep = 1
     max_incremental_snapshots_to_keep = 1
 
-    # If an in-progress loading (local, or download) of a full snapshot
-    # has its effective slot age rise above this threshold, we will
-    # cancel the load and start over.
-    #
-    # The effective usable slot of the full snapshot is defined as the
-    # max slot of all trusted incremental snapshots that we could
-    # possibly use (local, or downloaded) that apply on top of this
-    # full snapshot.
-    #
-    # The most common reason this would happen is if the network is all
-    # using the same full snapshot interval (e.g. 100_000) and while we
-    # are downloading a full snapshot from interval N, the network moves
-    # on to N+1, removing availability of all incremental snapshots that
-    # build on N.  If that happens, continuing to use the selected full
-    # snapshot might result in an extremely long catchup, so starting
-    # over would be preferable.
-    full_effective_age_cancel_threshold = 20_000
+    # Controls how many times the validator will retry loading a full or
+    # incremental snapshot before aborting.  Reasons for retrying a
+    # snapshot load include snapshot corruption, slow download speed,
+    # server availability, and snapshot age.  A peer that is serving us
+    # a snapshot may go offline, or network congestion may cause slow
+    # download speeds.
+    max_retry_abort = 5
+
+    # The minimum download speed the validator will tolerate in MiB/s.
+    # If the download speed of a snapshot falls below the
+    # min_download_speed_mibs threshold, the validator will cancel the
+    # download and retry downloading the snapshot from a different peer.
+    min_download_speed_mibs = 10
 
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
@@ -391,7 +422,7 @@ user = ""
         # snapshot.  A local snapshot that has an older age than one we
         # can download might actually result in a faster catchup time
         # because of the faster loading speed.  The full age should be
-        # set higher than the incremental age  because, as full snapshots
+        # set higher than the incremental age because, as full snapshots
         # are much larger than incremental snapshots, the time penalty
         # for downloading a full snapshot is much higher.
         max_local_full_effective_age = 1000
@@ -472,54 +503,110 @@ user = ""
     # abort with an error.
     expected_genesis_hash = ""
 
-# This section configures the "funk" account database.  Currently, funk
-# stores all Solana accounts.  In future versions of Firedancer, most
-# accounts will be offloaded to the "groove" database.
-#
-# FIXME rename 'funk' to human-readable name like 'accounts.live_db'
-[funk]
-    # The size of the funk heap in gigabytes.  This value must be large
-    # enough to store all Solana accounts uncompressed.
-    heap_size_gib = 40
+    # Indicates if the client should wait for a vote published from this
+    # node to land in a rooted slot before publishing any leader slots.
+    # This check should be enabled to prevent a backup / failover node
+    # from accidentally equivocating (i.e. publishing two slots with the
+    # same slot number but different blockhash) in cases where the
+    # primary node may still be alive.
+    #
+    # If `wait_for_supermajority_with_bank_hash` is set, then this
+    # option must be set to `false` otherwise the client will not boot.
+    # This prevents the chain from deadlocking if all nodes enable this
+    # option.
+    wait_for_vote_to_start_leader = true
 
-    # The max amount of records that the funk instance can store.
-    # Each Solana account uses at least one record.  Additional records
-    # are used for account changes that are not yet finalized by
-    # consensus (typically takes 13 seconds).
-    max_account_records = 300_000_000
+    # If set to a valid bank hash, the client will wait until 80% of
+    # stake-weighted nodes are visible on gossip before attempting to
+    # make progress.
+    # This parameter ensures that the correct slot and consensus fork
+    # are selected during a hard fork event.
+    wait_for_supermajority_with_bank_hash = ""
 
-    # The max amount of concurrent database transactions.  These are
-    # used to track conflicting versions of accounts until such
-    # conflicts are resolved by the consensus algorithm.  (Not to be
-    # confused with Solana transactions).
-    # The validator uses one database transaction for each Solana block
-    # that is not yet finalized.  It is not recommended to change this
-    # setting.
-    max_database_transactions = 2048
+# This section configures the account database.
+[accounts]
+    # Controls the account index size.
+    #
+    # If the account state exceeds the configured number of accounts,
+    # the validator will crash.
+    #
+    # The account index is stored in memory and preallocated.  A limit
+    # of 1 billion accounts requires approx 100 GB index space.
+    max_accounts = 30_000_000
 
-# FIXME rename 'vinyl' to human-readable name like 'accounts.root_db'
-[vinyl]
-    enabled = false
-    max_account_records = 30_000_000
+    # File size of the account database file (see [paths.accounts]).
+    # The entire account database is physically preallocated.
     file_size_gib = 16
-    max_cache_entries = 1_000_000
-    cache_size_gib = 2
-    [vinyl.io_uring]
-        enabled = false
+
+    # The validator keeps account changes that have not yet been
+    # finalized (rooted) by consensus in memory.  This setting controls
+    # how much memory is reserved for such account changes.
+    # If the amount of inflight account changes exceeds this limit, the
+    # validator will crash.
+    max_unrooted_account_size_gib = 16
+
+    # Keep frequently accessed accounts in memory to improve
+    # performance.
+    cache_size_gib = 4
+
+    # Delay writing of accounts to disk by a number of slots to reduce
+    # disk write rate.
+    #
+    # An account only gets written to disk when it is unchanged for more
+    # or equal the specified number of slots.
+    write_delay_slots = 64
+
+    # Keep all accounts in memory and ignore [paths.accounts].
+    #
+    # If enabled, allocates [accounts.file_size_gib] memory and ignores
+    # [accounts.{cache_size_gib,max_unrooted_account_size_gib}].
+    in_memory_only = true
+
+    # The provider determines which Linux I/O API is used.
+    # Possible values for the option are:
+    #
+    #  "io_uring" (default)
+    #   The fastest and recommended mode, but requires a recent Linux
+    #   kernel version.  Under the hood, does asynchronous parallel
+    #   accesses to disk.  [paths.accounts] should be backed by an ext4
+    #   or XFS file system, or be a block device when using this mode.
+    #
+    #  "portable"
+    #   This is the slowest mode, but it supports any kernel version
+    #   and any file system.
+    io_provider = "io_uring"
+
+    # The expected mean size of recently accessed accounts.
+    #
+    # This heuristic is used to pack accounts into caches optimally.
+    mean_account_footprint = 256
+
+    # io_uring specific options
+    #
+    # io_uring requires a recent kernel (Linux 6.5 feature equivalent).
+    # Popular OS distributions (e.g. Ubuntu or RHEL) backport newer
+    # io_uring features to older kernel versions.
+    # FIXME Add a link to a book page with further kernel requirements,
+    #       and known working distros (e.g. RHEL 9 kernel 5.14).
+    #
+    # Firedancer uses the following io_uring extensions:
+    # - IORING_SETUP_COOP_TASKRUN (Linux 5.19)
+    # - IORING_SETUP_DEFER_TASKRUN (Linux 6.1)
+    # - IORING_SETUP_CQSIZE (Linux 5.5)
+    # - IORING_SETUP_NO_MMAP (Linux 6.5)
+    # - IORING_REGISTER_RESTRICTIONS (Linux 5.16)
+    [accounts.io_uring]
+        # Pipeline depth for parallel I/O operations.
         queue_depth = 2048
 
 [runtime]
-    # TODO: This is not respected, the max vote accounts seems to be
-    # hardcoded in several places as 4096.
-    max_vote_accounts = 2000000
-
     # max_live_slots and max_fork_width are parameters used to size
     # out the total memory footprint of the bank in the runtime. The
     # bank represents all of the in-memory state in the runtime that
     # is not stored as an account. Examples of members of the bank
     # are the total capitalization of the chain and the vote account
     # states for previous epochs.
-    max_live_slots = 128
+    max_live_slots = 512
 
     # max_fork_width specifies the maximum number of forks that will
     # play through the same slot. Specifically, the maximum number
@@ -528,35 +615,25 @@ user = ""
     # max_fork_width, the client will crash.
     max_fork_width = 32
 
+    # concurrent_account_limit is used to size out the amount of memory
+    # used by accounts for transaction execution. The memory for these
+    # accounts are shared across execution: both for replaying blocks
+    # and while the leader. Increasing this parameter will allow the
+    # executors to harness more parallelism if it exists on the network.
+    # The minimum amount of accounts is 130 if bundles are disabled and
+    # is 650 if bundles are enabled.
+    concurrent_account_limit = 1024
+
     # The program cache pre-loads frequently executed programs for
     # faster transaction execution.
     [runtime.program_cache]
         # The size of the loaded program cache in MiB.
-        heap_size_mib = 2048
+        heap_size_mib = 768
 
         # The mean expected heap utilization of a cache entry.  Controls
         # the size of metadata structures (e.g. cache entry table).  It
         # is not recommended to change this setting.
         mean_cache_entry_size = 131072
-
-[store]
-    # Similar to max_pending_shred_sets, this parameter configures the
-    # maximum number of shred sets that can be buffered.  However, this
-    # parameter configures completed sets rather than pending ones (ie.
-    # fully validated shred sets).
-    #
-    # This buffer needs to be at least as big as Replay needs until the
-    # Tower consensus algorithm indicates a new "root", which allows
-    # pruning shred sets that do not descend from this root.
-    #
-    # To compute an approximate value, multiply the maximum number of
-    # unrooted banks by the maximum number of shred sets (this value is
-    # currently 32768 but can be reduced to 1024 once shred sets are
-    # restricted to always be size 32).  The default is approximately
-    # 1000 banks with this calculation (rounded to nearest power-of-2).
-    #
-    # This value will be rounded up to the nearest power-of-2.
-    max_completed_shred_sets = 1_048_576
 
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
@@ -582,7 +659,7 @@ user = ""
 #  - pack       Collects incoming transactions and smartly schedules
 #               them for execution when we are leader
 #
-#  - bank       Executes transactions that have been scheduled when we
+#  - execle     Executes transactions that have been scheduled when we
 #               are leader
 #
 #  - poh        Continuously hashes in the background, and mixes the
@@ -606,19 +683,19 @@ user = ""
 # in a pipeline, where transactions flow through the system in a linear
 # sequence.
 #
-#   net -> quic -> verify -> dedup -> pack -> bank -> poh -> shred -> store
+#   net -> quic -> verify -> dedup -> pack -> execle -> poh -> shred
 #
-# Some of these jobs (net, quic, verify, bank, and shred) can be
+# Some of these jobs (net, quic, verify, execle, and shred) can be
 # parallelized, and run on multiple CPU cores at once. For example, we
 # could structure the pipeline like this for performance:
 #
-# net -> quic +-> verify -+> dedup -> pack +-> bank -+> poh -> shred -> store
-#             +-> verify -+                +-> bank -+
+# net -> quic +-> verify -+> dedup -> pack +-> execle -+> poh -> shred
+#             +-> verify -+                +-> execle -+
 #             +-> verify -+
 #             +-> verify -+
 #
 # Each instance of a job running on a CPU core is called a tile.  In
-# this configuration we are running 4 verify tiles and 2 bank tiles.
+# this configuration we are running 4 verify tiles and 2 execle tiles.
 #
 # The problem of deciding which cores to use, and what job to run on
 # each core we call layout.  Layout is system dependent and the highest
@@ -671,6 +748,38 @@ user = ""
     # value although for best performance it is recommended to specify
     # the layout manually.
     affinity = "auto"
+
+    # Logical CPU cores to blocklist from being used by Firedancer, when
+    # using auto affinity.  If not using auto affinity, this option is
+    # ignored.
+    #
+    # Blocklisting cores is useful if there are specific cores that are
+    # used by other processes on the system, and you do not want
+    # Firedancer running there and competing for the core.
+    #
+    # Cores are specified as a comma separated list of single cores like
+    # "0", ranges like "0-10", or ranges with stride like "0-10/2".
+    # Cores can also be specified with an 'h' suffix to indicate both
+    # the core and its hyperthread sibling should be blocklisted.  For
+    # example, "2h" blocklists core 2 and its hyperthread sibling (if
+    # any, if there is no hyperthread sibling the program will proceed).
+    #
+    # By default, both core 0 and its hyperthread sibling are
+    # blocklisted to prevent interference with OS kernel threads that
+    # often run on these cores.
+    blocklist_cores = "0h"
+
+    # Whether to run tiles involved in block production.
+    #
+    # If disabled, the validator will skip its leader slots.
+    # Disabling block production is useful to reduce CPU and memory
+    # requirements for unstaked nodes.
+    #
+    # The following tiles will only run if this option is enabled:
+    # quic, bundle, verify, dedup, resolv, pack, execle, poh.
+    # The [layout.*_tile_count] settings for those tiles are ignored if
+    # block production is disabled.
+    enable_block_production = true
 
     # How many net tiles to run.  This is configurable and designed to
     # scale out for future network conditions, but there is no need to
@@ -736,46 +845,35 @@ user = ""
     # clients, and the gossvf tiles are consistently idle.
     gossvf_tile_count = 2
 
-    # How many bank tiles to run.  Should be set to 2 for perf and
-    # balanced scheduling modes.  Bank tiles execute transactions, so
+    # How many execle tiles to run.  Should be set to 2 for perf and
+    # balanced scheduling modes.  Execle tiles execute transactions, so
     # the validator can include the results of the transaction into a
     # block when we are leader.  Because of current consensus limits
-    # restricting blocks to around 32,000 transactions per block, there
-    # is typically no need to use more than 2 bank tiles on
+    # restricting blocks to around 98,000 transactions per block, there
+    # is typically no need to use more than 2 execle tiles on
     # mainnet-beta, except when using unique scheduling strategies.  For
     # development and benchmarking, it can be useful to increase this
     # number further.
-    #
-    # Bank tiles do not scale linearly.  The current implementation uses
-    # the agave runtime for execution, which takes various locks and
-    # uses concurrent data structures which slow down with multiple
-    # parallel users.
-    #
-    # If using the revenue scheduling strategy (see tiles.pack), the
-    # bank tile count can be increased, and more bank tiles will likely
-    # result in better blocks.  Adding too many bank tiles does have
-    # diminishing returns, and it's suggested to experiment with values
-    # around 10-20.
-    bank_tile_count = 2
+    execle_tile_count = 2
 
-    # How many exec tiles to run.  These tiles execute transactions that
-    # are being replayed when our validator is not leader, and is
+    # How many execrp tiles to run.  These tiles execute transactions
+    # that are being replayed when our validator is not leader, and is
     # verifying a block produced by someone else.  Transactions can be
     # executed in parallel up to a point, but there are dependencies
     # among transactions that reference similar accounts that limit how
     # much parallelism is possible.
     #
-    # More exec tiles can allow the validator to replay through blocks
-    # faster, subject to Amdahl's law.  Empirically, we've found 8 exec
-    # tiles to achieve near optimal replay speed under current
+    # More execrp tiles can allow the validator to replay through blocks
+    # faster, subject to Amdahl's law.  Empirically, we've found 10
+    # execrp tiles to achieve near optimal replay speed under current
     # `mainnet-beta` conditions.
     #
-    # Exec tiles are also responsible for writing account changes back
+    # Execrp tiles are also responsible for writing account changes back
     # to the accounts database.  Since the accounts database is designed
     # to be highly concurrent, most of the time account writeback can be
-    # done in parallel without blocking.  Multiple exec tiles exploit this
-    # parallelism supported by the accounts database.
-    exec_tile_count = 8
+    # done in parallel without blocking.  Multiple execrp tiles exploit
+    # this parallelism supported by the accounts database.
+    execrp_tile_count = 10
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
@@ -801,13 +899,20 @@ user = ""
     # requests.
     sign_tile_count = 2
 
-    # How many snapshot lthash adder tiles to run.  Snapshot lthash
-    # adder tiles compute the hash of all accounts in the loaded
-    # snapshot in parallel. Too few and snapshot loading might be
-    # delayed.  Once the hash of the accounts in a snapshot is
-    # calculated, if it does not match the validator will abort with an
-    # error.
-    snapla_tile_count = 4
+    # How many snapshot lthash add/sub (vinyl) or add (funk) tiles to
+    # run. Snapshot lthash tiles compute the lthash of all accounts in
+    # the loaded snapshot in parallel. Too few and snapshot loading
+    # might be delayed.  Once the lthash of the accounts in a snapshot
+    # is calculated, if it does not match the validator will abort with
+    # an error.  Preferably a power of two.
+    snapshot_hash_tile_count = 8
+
+    # How many snapshot vinyl-based write tiles to run.  Depending on
+    # the specific hardware configuration, multiple snapwr tiles may
+    # be required to achieve high throughput.  It is also possible to
+    # tradeoff throughput and tile count.  This value is only valid
+    # when vinyl is enabled.
+    snapwr_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
@@ -898,9 +1003,6 @@ user = ""
     # only one interface is supported for networking.  If this is
     # empty, the default is the interface used to route to 8.8.8.8,
     # you can check what this is with `ip route get 8.8.8.8`
-    #
-    # If developing under a network namespace with [netns] enabled,
-    # this should be the same as [development.netns.interface0].
     interface = ""
 
     # Optional IPv4 bind address for peer-to-peer traffic.  For
@@ -1254,7 +1356,7 @@ user = ""
         max_pending_transactions = 65524
 
         # When a transaction consumes fewer CUs than it requests, the
-        # bank and pack tiles work together to adjust the block limits
+        # execle and pack tiles work together to adjust the block limits
         # so that a different transaction can consume the unspent CUs.
         # This is normally desirable, as it typically leads to
         # producing blocks with more transactions.
@@ -1275,7 +1377,7 @@ user = ""
         # Over time, as the network gets faster and compute unit limits
         # are raised, this trade-off will become less pronounced.
         #
-        # The Firedancer team supports three different strategies which
+        # The Firedancer team supports two different strategies which
         # are described below:
         #
         #  "perf"
@@ -1284,7 +1386,7 @@ user = ""
         #   consistently 100% full blocks.
         #
         #   When using the perf scheduling mode, there is no reason to
-        #   increase the bank tile count beyond the default of 4.
+        #   increase the execle tile count beyond the default of 2.
         #
         #  "balanced" (default)
         #   Try to fill the block at a rate that is just fast enough to
@@ -1294,33 +1396,43 @@ user = ""
         #   an external block builder.
         #
         #   When using the balanced mode, there is no reason to increase
-        #   bank tile count beyond the default of 4.
-        #
-        #  "revenue"
-        #   Fill blocks extremely lazily, saving most work for the end
-        #   of the block.  This strategy results in high revenue from
-        #   MEV, but results in regularly unfull blocks, and decreased
-        #   priority fees compared to the balanced strategy.
-        #
-        #   When scheduling with the revenue mode, it is suggested to
-        #   use a high number of bank tiles.  The more bank tiles in
-        #   use, the faster the scheduler can fill blocks during the
-        #   short working window at the end of each slot.
-        #
-        #   WARNING: The revenue scheduler is deprecated and will be
-        #   removed in a future version.
+        #   execle tile count beyond the default of 2.
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
         # revert to the "balanced" strategy.
         schedule_strategy = "balanced"
 
-    # The bank tile is what executes transactions and updates the
-    # accounting state as a result of any operations performed by the
-    # transactions.
-    [tiles.bank]
+    # The replay tile is responsible for replaying and verifying blocks
+    # packed by other validators and for managing the lifecycle of both
+    # leader and follower slots.
+    [tiles.replay]
+        # Transactions are parsed and buffered for consideration by the
+        # replay dispatcher for out-of-order execution.  The larger this
+        # buffer is, the more transactions that the replay dispatcher
+        # can peek at and potentially reorder, and the better the odds
+        # of uncovering the fastest path through a block.  Under current
+        # mainnet conditions, full blocks typically have around 2,000
+        # transactions per block.  Since transactions cannot be
+        # reordered across block boundaries, a buffer size much larger
+        # than that is likely in the territory of diminishing marginal
+        # returns.  Empirically, a buffer size larger than the following
+        # offers no measurable performance advantage.  For development
+        # and benchmarking, it can be useful to increase this number
+        # further.
+        max_transaction_lookahead_buffer_size = 65536
 
-    # The proof of history tile receives transactions from bank tiles
+    # The execle tile is what executes transactions when we are leader
+    # and updates the accounting state as a result of any operations
+    # performed by the transactions.
+    [tiles.execle]
+
+    # The execrp tile is what executes transactions when we are not
+    # leader and updates the accounting state as a result of any
+    # operations performed by the transactions.
+    [tiles.execrp]
+
+    # The proof of history tile receives transactions from execle tiles
     # and mixes their hashes into a continuous stream of hashes that
     # proves to other validators time is passing.
     [tiles.poh]
@@ -1374,26 +1486,13 @@ user = ""
         # Must be power of 2
         slot_max = 4096
 
-    # The tower tile runs the fork choice and tower rules to determine
-    # both what block to vote on and what block to build our own leader
-    # blocks on top of, as well as confirming blocks based on vote txns.
-    [tiles.tower]
-        # Solana reaches consensus via replay, but can "cluster confirm"
-        # slots ahead of the replay tip by listening to vote txns from
-        # gossip or TPU.  The larger max_vote_lookahead, the further
-        # ahead slots can be cluster confirmed before they are replayed.
-        #
-        # Specifically, tower will ignore gossip or TPU votes that are
-        # more than max_vote_lookahead slots ahead of the root.
-        #
-        # Note max_vote_lookahead must be >= max_live_slots and
-        # Firedancer will ignore a value where this is not the case.
-        max_vote_lookahead = 4096
-
-    [tiles.send]
-        # The port the send tile uses for QUIC, to send votes and other
-        # transactions. It also uses this as the UDP src port.
-        send_src_port = 9006
+    # The txsend tile is responsible for sending transactions out to
+    # the network over QUIC.  In the default configuration, this is just
+    # used to send votes that our validator produces.
+    [tiles.txsend]
+        # The port the send tile uses to make outgoing QUIC connections,
+        # and also set as the src port on non-QUIC UDP packets.
+        txsend_src_port = 9006
 
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP
@@ -1412,6 +1511,20 @@ user = ""
         # The port to listen on for HTTP request for Prometheus metrics.
         # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
+
+    # The event tile captures significant events from the system and
+    # reports them a remote collection server for analysis.  Whether
+    # event reporting is enabled or not is controlled by the top level
+    # `telemetry` option, and if disabled no options here have any
+    # effect.
+    [tiles.event]
+        # The URL of the remote event collection server.  By default,
+        # this is set to the Firedancer public event collection server.
+        #
+        # If no URL is provided, event reporting is disabled, although
+        # it is suggested to leave the default URL in place and set
+        # `telemetry` to false to disable event reporting.
+        url = "http://events-in.firedancer.io"
 
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
@@ -1492,6 +1605,13 @@ user = ""
         # memory usage.
         send_buffer_size_mb = 1024
 
+        # If delay_startup is true, the RPC tile will wait for snapshots
+        # to load before accepting connections.  This behavior conforms
+        # with Agave's boot sequence, but can be disabled here to allow
+        # RPC to serve a subset of calls even when snapshots are
+        # loading.
+        delay_startup = true
+
     [tiles.archiver]
         enabled = false
 
@@ -1532,10 +1652,33 @@ user = ""
     # disabled, core dumps are always produced and this option has no
     # effect.
     #
-    # This option can be enabled in production if a crash cannot be
-    # easily reproduced, but it decreases security and should not be
-    # enabled during routine running of the validator.
-    core_dump = true
+    # This option controls whether core dumps are produced when the
+    # sandbox is enabled, and what is in them.  The option can be
+    # enabled in production although it is not always recommended as it
+    # removes some minor security protections from the sandbox.  The
+    # possible options are,
+    #
+    #  "disabled" (default)
+    #   No core dumps are produced.
+    #
+    #  "minimal"
+    #   Core dumps are produced, but they contain only stack memory,
+    #   registers, and other core process state.  No heap memory or
+    #   workspaces are included.
+    #
+    #  "regular"
+    #   Core dumps are produced including most useful process state,
+    #   including heap memory and important workspaces mapped into the
+    #   process.  Certain large workspaces that are typically not useful
+    #   will not be included, such as the accounts database and
+    #   blockstore.
+    #
+    #  "full"
+    #   Core dumps are with almost all process memory, including things
+    #   like the accounts database.  The only memory which will not be
+    #   in the dump are sensitive pages containing private key material
+    #   from the running validator.
+    core_dump = "disabled"
 
     # A hard fork occurs when our validator has some implementation
     # difference in consensus rules and gets a different blockhash for
@@ -1550,50 +1693,6 @@ user = ""
     # log the hard fork event and continue running.
     hard_fork_fatal = false
 
-    # It can be convenient during development to use a network namespace
-    # for running Firedancer.  This allows us to send packets at a local
-    # Firedancer instance and have them go through more of the kernel
-    # XDP stack than would be possible by just using the loopback
-    # interface.  We have special support for creating a pair of virtual
-    # interfaces that are routable to each other.
-    #
-    # Because of how Firedancer uses UDP and XDP together, we do not
-    # receive packets when binding to the loopback interface.  This can
-    # make local development difficult.  Network namespaces are one
-    # solution, they allow us to create a pair of virtual interfaces on
-    # the machine which can route to each other.
-    #
-    # If this configuration is enabled, `firedancer-dev` will create two
-    # network namespaces and a link between them to send packets back
-    # and forth.  When this option is enabled, the interface to bind to
-    # in the net configuration must be one of the virtual interfaces.
-    # Firedancer will be launched by `firedancer` within that namespace.
-    #
-    # This is a development only configuration, network namespaces are
-    # not suitable for production use due to performance overhead.  In
-    # development when running with `firedancer-dev`, this can also be
-    # enabled with the `--netns` command line argument.
-    [development.netns]
-        # If enabled, `firedancer-dev` will ensure the network
-        # namespaces are configured properly, can route to each other,
-        # and that running Firedancer will run it inside the namespace
-        # for interface0
-        enabled = false
-
-        # Name of the first network namespace.
-        interface0 = "veth_test_xdp_0"
-        # MAC address of the first network namespace.
-        interface0_mac = "52:F1:7E:DA:2C:E0"
-        # IP address of the first network namespace.
-        interface0_addr = "198.18.0.1"
-
-        # Name of the second network namespace.
-        interface1 = "veth_test_xdp_1"
-        # MAC address of the second network namespace.
-        interface1_mac = "52:F1:7E:DA:2C:E1"
-        # IP address of the second network namespace.
-        interface1_addr = "198.18.0.2"
-
     [development.gossip]
         # Under normal operating conditions, a validator should always
         # reach out to a host located on the public internet.  If this
@@ -1602,6 +1701,14 @@ user = ""
         allow_private_address = false
 
     [development.genesis]
+        # During normal operation, the genesi tile performs a validation
+        # check on the genesis hash which ensures it belongs to one of
+        # the three primary clusters (testnet, mainnet, devnet).  During
+        # development, this option can be disabled, which allows joining
+        # a local cluster in, for example, mainnet mode with a different
+        # genesis hash.
+        validate_genesis_hash = true
+
         # When creating a new chain from genesis during development,
         # this option can be used to specify the number of hashes in
         # each tick of the proof history component.
@@ -1743,6 +1850,22 @@ user = ""
         # made by the bundle tile.
         ssl_key_log_file = ""
 
+    # Development and diagnostic only options for the event tile.  These
+    # options should not be changed on a production validator or it may
+    # cause stability or performance issues.
+    [development.event]
+        # Whether to report all shreds that are received by the
+        # validator to the remote server.  This generates a very high
+        # volume of events and should only be used for debugging and
+        # development purposes.
+        report_shreds = false
+
+        # Whether to report all transactions that are processed by the
+        # validator to the remote server.  This generates a very high
+        # volume of events and should only be used for debugging and
+        # development purposes.
+        report_transactions = false
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev
@@ -1762,7 +1885,7 @@ user = ""
         # The net tile queries the route and neighbor tables as part of
         # the benchmark.  In short, these resolve the dst MAC address of
         # the outgoing Ethernet packets.  Since pktgen does not produce
-        # IPv4 packets, no traffic actually gets sent to this IP.
+        # valid IPv4 packets, no traffic actually gets sent to this IP.
         #
         # The IP address should fulfill these requirements:
         # - 'ip route get <IP>' resolves to the XDP interface
@@ -1782,8 +1905,8 @@ user = ""
     # snapshot loader.  This is not safe or supported in production
     # and should only be used for development and testing purposes.
     #
-    # If lthash verification is disabled, the validator will not
-    # start any lthash tiles and the value of `snapla_tile_count`
-    # in the layout will be ignored.
+    # If lthash verification is disabled, the validator will not start
+    # any lthash tiles and the value of `snapshot_hash_tile_count` in
+    # the layout will be ignored.
     [development.snapshots]
-        disable_lthash_verification = true
+        disable_lthash_verification = false

@@ -46,17 +46,7 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1922 */
   FD_VM_CU_UPDATE( vm, FD_VM_SHA256_BASE_COST );
-
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L2030-L2034 */
-  fd_vm_haddr_query_t hash_result_query = {
-    .vaddr    = result_addr,
-    .align    = FD_VM_ALIGN_RUST_U8,
-    .sz       = 32UL,
-    .is_slice = 1,
-  };
-
-  fd_vm_haddr_query_t * queries[] = { &hash_result_query };
-  FD_VM_TRANSLATE_MUT( vm, queries );
+  uchar * hash_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, 32UL );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1930 */
   fd_sha256_t sha[1];
@@ -83,7 +73,7 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1956-L1957 */
-  fd_sha256_fini( sha, hash_result_query.haddr );
+  fd_sha256_fini( sha, hash_result );
   *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
@@ -111,17 +101,7 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1922 */
   FD_VM_CU_UPDATE( vm, FD_VM_SHA256_BASE_COST );
-
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L2030-L2034 */
-  fd_vm_haddr_query_t hash_result_query = {
-    .vaddr    = result_addr,
-    .align    = FD_VM_ALIGN_RUST_U8,
-    .sz       = 32UL,
-    .is_slice = 1,
-  };
-
-  fd_vm_haddr_query_t * queries[] = { &hash_result_query };
-  FD_VM_TRANSLATE_MUT( vm, queries );
+  uchar * hash_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, 32UL );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1930 */
   fd_blake3_t sha[1];
@@ -148,7 +128,7 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1956-L1957 */
-  fd_blake3_fini( sha, hash_result_query.haddr );
+  fd_blake3_fini( sha, hash_result );
   *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
@@ -176,17 +156,7 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1922 */
   FD_VM_CU_UPDATE( vm, FD_VM_SHA256_BASE_COST );
-
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L2030-L2034 */
-  fd_vm_haddr_query_t hash_result_query = {
-    .vaddr    = result_addr,
-    .align    = FD_VM_ALIGN_RUST_U8,
-    .sz       = 32UL,
-    .is_slice = 1,
-  };
-
-  fd_vm_haddr_query_t * queries[] = { &hash_result_query };
-  FD_VM_TRANSLATE_MUT( vm, queries );
+  uchar * hash_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, 32UL );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1930 */
   fd_keccak256_t sha[1];
@@ -213,7 +183,7 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1956-L1957 */
-  fd_keccak256_fini( sha, hash_result_query.haddr );
+  fd_keccak256_fini( sha, hash_result );
   *_ret = 0UL;
   return FD_VM_SUCCESS;
 }

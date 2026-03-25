@@ -29,7 +29,7 @@ netconf_cmd_fn( args_t *   args,
   }
   fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
 
-  fd_topo_join_workspace( topo, netbase, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspace( topo, netbase, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   puts( "\nINTERFACES\n" );
   fd_dbl_buf_t * netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) );

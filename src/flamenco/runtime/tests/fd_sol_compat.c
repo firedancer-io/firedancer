@@ -6,14 +6,13 @@
 #include "../fd_executor_err.h"
 #include "../../capture/fd_solcap_writer.h"
 #include "../../../ballet/shred/fd_shred.h"
+#include "../../gossip/fd_gossip_message.h"
 
 #include "generated/block.pb.h"
-#include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/shred.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/txn.pb.h"
-#include "generated/type.pb.h"
 
 #if FD_HAS_FLATCC
 #include "flatbuffers/generated/elf_reader.h"
@@ -22,7 +21,9 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <unistd.h>
 
 static fd_wksp_t *           wksp   = NULL;
 static fd_solfuzz_runner_t * runner = NULL;
@@ -37,16 +38,16 @@ sol_compat_setup_runner( fd_solfuzz_runner_options_t const * options ) {
 
   char const * solcap_path = getenv( "FD_SOLCAP" );
   if( solcap_path ) {
-    runner->solcap_file = fopen( solcap_path, "w" );
-    if( FD_UNLIKELY( !runner->solcap_file ) ) {
-      FD_LOG_ERR(( "fopen($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
+    int fd = open( solcap_path, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+    if( FD_UNLIKELY( fd == -1 ) ) {
+      FD_LOG_ERR(( "open($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
     }
+    runner->solcap_file = (void *)(ulong)fd;
     FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
 
     void * solcap_mem = fd_wksp_alloc_laddr( runner->wksp, fd_solcap_writer_align(), fd_solcap_writer_footprint(), 1UL );
-    runner->solcap = fd_solcap_writer_new( solcap_mem );
+    runner->solcap = fd_solcap_writer_init( solcap_mem, fd );
     FD_TEST( runner->solcap );
-    FD_TEST( fd_solcap_writer_init( solcap_mem, runner->solcap_file ) );
   }
 
   return runner;
@@ -56,11 +57,12 @@ static void
 sol_compat_cleanup_runner( fd_solfuzz_runner_t * runner ) {
   /* Cleanup test runner */
   if( runner->solcap ) {
-    fd_solcap_writer_flush( runner->solcap );
-    fd_wksp_free_laddr( fd_solcap_writer_delete( runner->solcap ) );
+    fd_wksp_free_laddr( ( runner->solcap ) );
     runner->solcap = NULL;
-    fclose( runner->solcap_file );
-    runner->solcap_file = NULL;
+    if( runner->solcap_file ) {
+      close( (int)(ulong)runner->solcap_file );
+      runner->solcap_file = NULL;
+    }
   }
   fd_solfuzz_runner_delete( runner );
 }
@@ -211,29 +213,6 @@ sol_compat_block_execute_v1( uchar *       out,
 }
 
 int
-sol_compat_elf_loader_v1( uchar *       out,
-                          ulong *       out_sz,
-                          uchar const * in,
-                          ulong         in_sz ) {
-  fd_exec_test_elf_loader_ctx_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_elf_loader_ctx_t_msg );
-  if( FD_UNLIKELY( !res ) ) return 0;
-
-  fd_spad_push( runner->spad );
-  int ok = 0;
-  void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_elf_loader_run );
-  if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_elf_loader_effects_t_msg );
-  }
-  fd_spad_pop( runner->spad );
-
-  pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
-  fd_solfuzz_runner_leak_check( runner );
-  return ok;
-}
-
-int
 sol_compat_vm_syscall_execute_v1( uchar *       out,
                                   ulong *       out_sz,
                                   uchar const * in,
@@ -246,29 +225,6 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   int ok = 0;
   void * output = NULL;
   fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_syscall_run );
-  if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
-  }
-  fd_spad_pop( runner->spad );
-
-  pb_release( &fd_exec_test_syscall_context_t_msg, input );
-  fd_solfuzz_runner_leak_check( runner );
-  return ok;
-}
-
-int
-sol_compat_vm_interp_v1( uchar *       out,
-                         ulong *       out_sz,
-                         uchar const * in,
-                         ulong         in_sz ) {
-  fd_exec_test_syscall_context_t input[1] = {0};
-  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
-  if( FD_UNLIKELY( !res ) ) return 0;
-
-  fd_spad_push( runner->spad );
-  int ok = 0;
-  void * output = NULL;
-  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_vm_interp_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
   }
@@ -297,6 +253,24 @@ sol_compat_shred_parse_v1( uchar *       out,
     output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
     pb_release( &fd_exec_test_shred_binary_t_msg, input );
     return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
+}
+
+/* Unlike the execute_v1 protobuf APIs above, this entrypoint uses raw
+   bytes for both input and output. Input is a gossip wire message
+   (up to 1232 bytes). Output is a single byte: 1 if deserialization
+   and validation succeeded, 0 otherwise. Returns 1 on success. */
+
+static fd_gossip_message_t gossip_msg[1];
+
+int
+sol_compat_gossip_message_deserialize_v1( uchar *       out,
+                                          ulong *       out_sz,
+                                          uchar const * in,
+                                          ulong         in_sz ) {
+  if( FD_UNLIKELY( *out_sz<1UL ) ) return 0;
+  out[0] = !!fd_gossip_message_deserialize( gossip_msg, in, in_sz );
+  *out_sz = 1UL;
+  return 1;
 }
 
 /*

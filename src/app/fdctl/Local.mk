@@ -20,6 +20,7 @@ include src/app/fdctl/version.h
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
+ifdef FD_HAS_HOSTED
 
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 
@@ -27,19 +28,19 @@ $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 $(call add-objs,topology,fd_fdctl)
 $(call add-objs,config,fd_fdctl)
 
-ifdef FD_HAS_HOSTED
 ifdef FD_HAS_THREADS
 
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool rust solana check-agave-hash
 
-# fdctl comands
+# fdctl commands
 $(call add-objs,commands/run_agave,fd_fdctl)
+$(call add-objs,commands/set_identityh,fd_fdctl)
 
 # version
 $(call make-lib,fdctl_version)
 $(call add-objs,version,fdctl_version)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco fd_choreo agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))

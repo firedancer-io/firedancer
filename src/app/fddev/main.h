@@ -30,14 +30,12 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
 };
 
 extern configure_stage_t fd_cfg_stage_kill;
-extern configure_stage_t fd_cfg_stage_netns;
 extern configure_stage_t fd_cfg_stage_genesis;
 extern configure_stage_t fd_cfg_stage_keys;
 extern configure_stage_t fd_cfg_stage_blockstore;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
-  &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_hyperthreads,
@@ -62,15 +60,15 @@ extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
-extern fd_topo_run_tile_t fd_tile_cswtch;
+extern fd_topo_run_tile_t fd_tile_diag;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
 extern fd_topo_run_tile_t fd_tile_pktgen;
-extern fd_topo_run_tile_t fd_tile_resolv;
-extern fd_topo_run_tile_t fd_tile_poh;
+extern fd_topo_run_tile_t fd_tile_resolh;
+extern fd_topo_run_tile_t fd_tile_pohh;
 extern fd_topo_run_tile_t fd_tile_bank;
 extern fd_topo_run_tile_t fd_tile_store;
 extern fd_topo_run_tile_t fd_tile_udpecho;
@@ -87,15 +85,15 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_shred,
   &fd_tile_sign,
   &fd_tile_metric,
-  &fd_tile_cswtch,
+  &fd_tile_diag,
   &fd_tile_gui,
   &fd_tile_plugin,
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
   &fd_tile_pktgen,
-  &fd_tile_resolv,
-  &fd_tile_poh,
+  &fd_tile_resolh,
+  &fd_tile_pohh,
   &fd_tile_bank,
   &fd_tile_store,
   &fd_tile_udpecho,
@@ -111,7 +109,7 @@ extern action_t fd_action_keys;
 extern action_t fd_action_ready;
 extern action_t fd_action_mem;
 extern action_t fd_action_netconf;
-extern action_t fd_action_set_identity;
+extern action_t fd_action_set_identityh;
 extern action_t fd_action_get_identity;
 extern action_t fd_action_version;
 extern action_t fd_action_bench;
@@ -139,7 +137,7 @@ action_t * ACTIONS[] = {
   &fd_action_ready,
   &fd_action_mem,
   &fd_action_netconf,
-  &fd_action_set_identity,
+  &fd_action_set_identityh,
   &fd_action_get_identity,
   &fd_action_help,
   &fd_action_metrics,

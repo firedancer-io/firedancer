@@ -208,6 +208,17 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
                                             uint                 queue_cnt,
                                             int *                valid );
 
+/* fd_ethtool_ioctl_rxfh_set_flow_hash_udp4 configures the NIC to
+   include source and destination ports in the RSS hash for UDP/IPv4
+   flows.  By default, many NICs only hash on IP addresses for UDP,
+   which causes poor load balancing when traffic has a fixed destination
+   IP and port (e.g. gossip).  Including ports in the hash provides
+   much better entropy and queue distribution.  Returns nonzero on
+   failure. */
+
+int
+fd_ethtool_ioctl_rxfh_set_flow_hash_udp4( fd_ethtool_ioctl_t * ioc );
+
 
 FD_PROTOTYPES_END
 

@@ -43,17 +43,23 @@ typedef struct {
   ulong public_key_base58_sz;
   uchar concat[ FD_BASE58_ENCODED_32_SZ+1UL+9UL ];
 
-  uchar event_concat[ 18UL+32UL ];
+  uchar event_auth_concat[ 15UL+32UL ];
 
   fd_sign_in_ctx_t  in[ MAX_IN ];
   fd_sign_out_ctx_t out[ MAX_IN ];
 
   fd_sha512_t       sha512 [ 1 ];
 
-  fd_keyswitch_t * keyswitch;
+  fd_keyswitch_t *  keyswitch;
+
+  fd_keyswitch_t *  av_keyswitch; /* authorized voters */
 
   uchar *           public_key;
   uchar *           private_key;
+
+  ulong             authorized_voters_cnt;
+  uchar             authorized_voter_pubkeys[ 16UL ][ 32UL ];
+  uchar             authorized_voter_private_keys[ 16UL ][ 32UL ];
 
   fd_histf_t        sign_duration[1];
 } fd_sign_ctx_t;
@@ -82,19 +88,46 @@ derive_fields( fd_sign_ctx_t * ctx ) {
   fd_base58_encode_32( ctx->public_key, &ctx->public_key_base58_sz, (char *)ctx->concat );
   ctx->concat[ ctx->public_key_base58_sz ] = '-';
 
-  memcpy( ctx->event_concat, "FD_METRICS_REPORT-", 18UL );
+  memcpy( ctx->event_auth_concat, "FD_EVENTS_AUTH-", 15UL );
 }
 
 static void FD_FN_SENSITIVE
 during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( ctx->private_key, ctx->keyswitch->bytes, 32UL );
-    explicit_bzero( ctx->keyswitch->bytes, 32UL );
+    fd_memzero_explicit( ctx->keyswitch->bytes, 32UL );
     FD_COMPILER_MFENCE();
     memcpy( ctx->public_key, ctx->keyswitch->bytes+32UL, 32UL );
 
     derive_fields( ctx );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  /* firedancer only */
+
+  if( FD_UNLIKELY( ctx->av_keyswitch && fd_keyswitch_state_query( ctx->av_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    if( FD_UNLIKELY( ctx->authorized_voters_cnt==16UL ) ) {
+      FD_LOG_WARNING(( "keyswitch failed: maximum number of authorized voters reached" ));
+      fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
+      fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
+      return;
+    }
+    for( ulong i=0UL; i<ctx->authorized_voters_cnt; i++ ) {
+      if( FD_UNLIKELY( !memcmp( ctx->authorized_voter_pubkeys[ i ], ctx->av_keyswitch->bytes+32UL, 32UL ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( ctx->authorized_voter_pubkeys[ i ], pubkey_b58 );
+        FD_LOG_WARNING(( "keyswitch failed: authorized voter key duplicate (%s)", pubkey_b58 ));
+        fd_memzero_explicit( ctx->av_keyswitch->bytes, 64UL );
+        fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_FAILED );
+        return;
+      }
+    }
+
+    memcpy( ctx->authorized_voter_private_keys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes, 32UL );
+    fd_memzero_explicit( ctx->av_keyswitch->bytes, 32UL );
+    FD_COMPILER_MFENCE();
+    memcpy( ctx->authorized_voter_pubkeys[ ctx->authorized_voters_cnt ], ctx->av_keyswitch->bytes + 32UL, 32UL );
+    ctx->authorized_voters_cnt++;
+    fd_keyswitch_state( ctx->av_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
 }
 
@@ -162,9 +195,19 @@ after_frag_sensitive( void *              _ctx,
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
 
-  /* The upper 32 bits contain the repair tile nonce to identify the
-     request, while the lower 32 bits specify the sign_type. */
-  int sign_type = (int)(uint)(sig);
+  /* The lower 32 bits are used to specify the sign type.
+
+     If the frag is coming from the repair tile, then the upper 32 bits
+     contain the repair tile nonce to identify the request.
+
+     If the frag is coming from the send tile, then the upper 32 bits
+     contain the index of the authorized voter that needs to sign the
+     vote transaction.  The least significant bit of the upper 32 is
+     used to indicate if a second signature is needed.  The next 4 least
+     significant bits are used to encode the index of the authorized
+     voter that a signature is needed from. */
+  int sign_type         = (int)(uint)(sig);
+  int needs_second_sign = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_TXSEND && ((sig>>32) & 1UL);
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -184,6 +227,10 @@ after_frag_sensitive( void *              _ctx,
   switch( sign_type ) {
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
     fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
+    if( needs_second_sign ) {
+      ulong authority_idx = (sig >> 33) & 0xFUL;
+      fd_ed25519_sign( dst+64UL, ctx->_data, sz, ctx->authorized_voter_pubkeys[ authority_idx ], ctx->authorized_voter_private_keys[ authority_idx ], ctx->sha512 );
+    }
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {
@@ -197,9 +244,9 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( dst, ctx->concat, ctx->public_key_base58_sz+1UL+9UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
-  case FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519: {
-    memcpy( ctx->event_concat+18UL, ctx->_data, 32UL );
-    fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+  case FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519: {
+    memcpy( ctx->event_auth_concat+15UL, ctx->_data, 32UL );
+    fd_ed25519_sign( dst, ctx->event_auth_concat, 15UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
   default:
@@ -229,7 +276,6 @@ static void FD_FN_SENSITIVE
 privileged_init_sensitive( fd_topo_t *      topo,
                            fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
 
@@ -237,7 +283,14 @@ privileged_init_sensitive( fd_topo_t *      topo,
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
-    /* The stack can be taken over and reorganized by under AddressSanitizer,
+  ctx->authorized_voters_cnt = tile->sign.authorized_voter_paths_cnt;
+  for( ulong i=0UL; i<tile->sign.authorized_voter_paths_cnt; i++ ) {
+    uchar * authorized_voter_key = fd_keyload_load( tile->sign.authorized_voter_paths[ i ], /* pubkey only: */ 0 );
+    memcpy( ctx->authorized_voter_private_keys[ i ], authorized_voter_key, 32UL );
+    memcpy( ctx->authorized_voter_pubkeys[ i ], authorized_voter_key + 32UL, 32UL );
+  }
+
+  /* The stack can be taken over and reorganized by under AddressSanitizer,
      which causes this code to fail.  */
 #if FD_HAS_ASAN
   FD_LOG_WARNING(( "!!! SECURITY WARNING !!! YOU ARE RUNNING THE SIGNING TILE "
@@ -276,8 +329,15 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->sign_duration, FD_MHIST_SECONDS_MIN( SIGN, SIGN_DURATION_SECONDS ),
                                                        FD_MHIST_SECONDS_MAX( SIGN, SIGN_DURATION_SECONDS ) ) );
 
-  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   derive_fields( ctx );
+
+  if( FD_LIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
+    ctx->av_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
+    FD_TEST( ctx->av_keyswitch );
+  } else {
+    ctx->av_keyswitch = NULL;
+  }
 
   for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
 
@@ -306,21 +366,16 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       FD_TEST( !strcmp( out_link->name, "sign_gossip" ) );
       FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
-    } else if ( !strcmp( in_link->name, "repair_sign" )
-             || !strcmp( in_link->name, "ping_sign" ) ) {
+    } else if ( !strcmp( in_link->name, "repair_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_REPAIR;
-      if( !strcmp( in_link->name, "ping_sign" ) ) {
-        FD_TEST( !strcmp( out_link->name, "sign_ping" ) );
-      } else {
-        FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
-      }
-      FD_TEST( in_link->mtu==96 ); // FD_REPAIR_MAX_PREIMAGE_SZ
+      FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
+      FD_TEST( in_link->mtu==96UL ); // FD_REPAIR_MAX_PREIMAGE_SZ
       FD_TEST( out_link->mtu==64UL );
-    } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
-      ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;
-      FD_TEST( !strcmp( out_link->name, "sign_send"  ) );
+    } else if ( !strcmp(in_link->name, "txsend_sign" ) ) {
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_TXSEND;
+      FD_TEST( !strcmp( out_link->name, "sign_txsend" ) );
       FD_TEST( in_link->mtu==FD_TXN_MTU  );
-      FD_TEST( out_link->mtu==64UL );
+      FD_TEST( out_link->mtu==64UL*2UL );
     } else if( !strcmp(in_link->name, "bundle_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE;
       FD_TEST( !strcmp( out_link->name, "sign_bundle" ) );

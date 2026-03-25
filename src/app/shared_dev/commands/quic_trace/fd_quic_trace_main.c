@@ -17,7 +17,7 @@
 
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/quic/fd_quic_tile.h"
-#include "../../../../discof/send/fd_send_tile.h"
+#include "../../../../discof/txsend/fd_txsend_tile.h"
 #include "../../../../waltz/quic/log/fd_quic_log_user.h"
 #include "../../../../ballet/hex/fd_hex.h"
 #include <stdlib.h>
@@ -185,12 +185,12 @@ void
 quic_trace_cmd_fn( args_t *   args,
                    config_t * config ) {
   fd_topo_t * topo = &config->topo;
-  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( topo );
 
   int trace_send = args->quic_trace.trace_send;
 
-  char const     * tile_names[] = {"quic", "send"};
+  char const     * tile_names[] = {"quic", "txsend"};
   fd_topo_tile_t * target_tile  = NULL;
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     if( 0==strcmp( topo->tiles[tile_idx].name, tile_names[trace_send] ) ) {
@@ -201,7 +201,6 @@ quic_trace_cmd_fn( args_t *   args,
   if( !target_tile ) FD_LOG_ERR(( "%s tile not found in topology", tile_names[trace_send] ));
 
   ulong const target_in_cnt  = target_tile->in_cnt;
-  ulong const target_out_cnt = target_tile->out_cnt;
   if( FD_UNLIKELY( !trace_send && target_in_cnt != 1UL ) ) { /* FIXME */
     FD_LOG_ERR(( "Sorry, fd_quic_trace does not support multiple net tiles yet" ));
   }
@@ -213,8 +212,8 @@ quic_trace_cmd_fn( args_t *   args,
 
   fd_quic_trace_tile_ctx_remote = fd_topo_obj_laddr( topo, target_tile->tile_obj_id );
   ulong quic_raddr              = (ulong)tile_member( fd_quic_trace_tile_ctx_remote, quic, trace_send );
-  ulong tile_align              = fd_ulong_if( trace_send, alignof(fd_send_tile_ctx_t), alignof(fd_quic_ctx_t) );
-  ulong tile_ctx_sz             = fd_ulong_if( trace_send, sizeof(fd_send_tile_ctx_t), sizeof(fd_quic_ctx_t) );
+  ulong tile_align              = fd_ulong_if( trace_send, alignof(fd_txsend_tile_t), alignof(fd_quic_ctx_t) );
+  ulong tile_ctx_sz             = fd_ulong_if( trace_send, sizeof(fd_txsend_tile_t), sizeof(fd_quic_ctx_t) );
   fd_quic_trace_tile_ctx_raddr  = quic_raddr - fd_ulong_align_up( tile_ctx_sz, fd_ulong_max( tile_align, fd_quic_align() ) );
 
   FD_LOG_INFO(("quic_raddr %p", (void *)quic_raddr));
@@ -352,9 +351,9 @@ quic_trace_cmd_fn( args_t *   args,
      into the target topology which is read-only. */
 
   /* ... redirect metric updates */
-  ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( target_in_cnt, target_out_cnt ) );
+  ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( target_in_cnt ) );
   if( !metrics ) FD_LOG_ERR(( "out of memory" ));
-  fd_memset( metrics, 0, FD_METRICS_FOOTPRINT( target_in_cnt, target_out_cnt ) );
+  fd_memset( metrics, 0, FD_METRICS_FOOTPRINT( target_in_cnt ) );
   fd_metrics_register( metrics );
 
   fd_quic_trace_link_metrics = fd_metrics_link_in( fd_metrics_base_tl, 0 );
@@ -375,7 +374,7 @@ quic_trace_cmd_fn( args_t *   args,
     fd_quic_trace_log_tile( trace_ctx, log_rx->mcache );
     break;
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "unexpected event type: %d", args->quic_trace.event ));
   }
 
   fd_quic_log_rx_leave( log_rx );

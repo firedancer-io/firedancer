@@ -106,26 +106,25 @@ render_counter( fd_prom_render_t *        r,
                 fd_metrics_meta_t const * metric,
                 fd_topo_tile_t const *    tile ) {
   render_header( r, metric );
-  ulong value = *(fd_metrics_tile( tile->metrics ) + metric->offset);
-
-  switch( metric->converter ) {
-    case FD_METRICS_CONVERTER_NANOSECONDS:
-      value = fd_metrics_convert_ticks_to_nanoseconds( value );
-      break;
-    case FD_METRICS_CONVERTER_SECONDS:
-      value = (ulong)(fd_metrics_convert_ticks_to_seconds( value ) + 0.5); /* round, not truncate */
-      break;
-    case FD_METRICS_CONVERTER_NONE:
-      break;
-    default:
-      FD_LOG_ERR(( "unknown converter %i", metric->converter ));
-  }
+  ulong raw_value = *(fd_metrics_tile( tile->metrics ) + metric->offset);
 
   fd_http_server_printf( r->http, "%s{kind=\"%s\",kind_id=\"%lu\"", metric->name, tile->name, tile->kind_id );
   if( metric->enum_name ) {
     fd_http_server_printf( r->http, ",%s=\"%s\"", metric->enum_name, metric->enum_variant );
   }
-  fd_http_server_printf( r->http, "} %lu\n", value );
+  switch( metric->converter ) {
+  case FD_METRICS_CONVERTER_NANOSECONDS:
+    fd_http_server_printf( r->http, "} %lu\n", fd_metrics_convert_ticks_to_nanoseconds( raw_value ) );
+    break;
+  case FD_METRICS_CONVERTER_SECONDS:
+    fd_http_server_printf( r->http, "} %e\n", fd_metrics_convert_ticks_to_seconds( raw_value ) );
+    break;
+  case FD_METRICS_CONVERTER_NONE:
+    fd_http_server_printf( r->http, "} %lu\n", raw_value );
+    break;
+  default:
+    FD_LOG_ERR(( "unknown converter %i", metric->converter ));
+  }
 }
 
 static void
@@ -144,33 +143,6 @@ render_links_in( fd_prom_render_t *        r,
         ulong value = *(fd_metrics_link_in( tile->metrics, polled_in_idx ) + metric->offset );
         render_link( r, metric, tile, link, value );
         polled_in_idx++;
-      }
-    }
-  }
-}
-
-static void
-render_links_out( fd_prom_render_t *        r,
-                  fd_topo_t const *         topo,
-                  ulong                     metrics_cnt,
-                  fd_metrics_meta_t const * metrics ) {
-  for( ulong i=0UL; i<metrics_cnt; i++ ) {
-    fd_metrics_meta_t const * metric = &metrics[ i ];
-    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
-      fd_topo_tile_t const * tile = &topo->tiles[ j ];
-      ulong reliable_conns_idx = 0UL;
-      for( ulong k=0UL; k<topo->tile_cnt; k++ ) {
-        fd_topo_tile_t const * consumer_tile = &topo->tiles[ k ];
-        for( ulong l=0UL; l<consumer_tile->in_cnt; l++ ) {
-          for( ulong m=0UL; m<tile->out_cnt; m++ ) {
-            if( FD_UNLIKELY( consumer_tile->in_link_id[ l ]==tile->out_link_id[ m ] && consumer_tile->in_link_reliable[ l ] ) ) {
-              fd_topo_link_t const * link = &topo->links[ consumer_tile->in_link_id[ l ] ];
-              ulong value = *(fd_metrics_link_out( tile->metrics, reliable_conns_idx ) + metric->offset );
-              render_link( r, metric, consumer_tile, link, value );
-              reliable_conns_idx++;
-            }
-          }
-        }
       }
     }
   }
@@ -196,8 +168,7 @@ render_tile( fd_prom_render_t *        r,
   for( ulong i=0UL; i<metrics_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       /* FIXME: This is O(n^2) rather than O(n). */
-      char const * name = topo->tiles[ j ].metrics_name[ 0 ] ? topo->tiles[ j ].metrics_name : topo->tiles[ j ].name;
-      if( FD_LIKELY( tile_name!=NULL && 0!=strcmp( name, tile_name ) ) ) continue;
+      if( FD_LIKELY( tile_name!=NULL && 0!=strcmp( topo->tiles[ j ].name, tile_name ) ) ) continue;
       render_tile_metric( r, topo->tiles+j, metrics+i );
     }
   }
@@ -220,7 +191,6 @@ fd_prometheus_render_all( fd_topo_t const *  topo,
   fd_prom_render_t r = fd_prom_render_create( http );
   render_tile( &r, topo, NULL, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL );
   render_links_in( &r, topo, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN );
-  render_links_out( &r, topo, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT );
   for( ulong i=0UL; i<FD_METRICS_TILE_KIND_CNT; i++ ) {
     render_tile( &r, topo, FD_METRICS_TILE_KIND_NAMES[ i ], FD_METRICS_TILE_KIND_SIZES[ i ], FD_METRICS_TILE_KIND_METRICS[ i ] );
   }

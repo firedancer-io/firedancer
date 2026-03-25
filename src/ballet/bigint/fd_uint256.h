@@ -42,7 +42,22 @@ fd_uint256_bswap( fd_uint256_t *       r,
   return r;
 }
 
-/* fd_uint256_eq returns 1 is a == b, 0 otherwise. */
+/* fd_ulong_n_bswap swaps 8*n bytes (n must be even).
+   Useful to convert from/to little and big endian.
+   This is written with a loop for readability, the compiler optimizes it away. */
+static inline void
+fd_ulong_n_bswap( ulong       r[], /* size n ulongs, i.e. 8*n bytes */
+                  ulong const n    /* must be even */ ) {
+  /* note: this only works for even n */
+  for( ulong j=0; j<n/2; j++ ) {
+    ulong aj = fd_ulong_bswap( r[j] );
+    ulong bj = fd_ulong_bswap( r[n-1-j] );
+    r[j] = bj;
+    r[n-1-j] = aj;
+  }
+}
+
+/* fd_uint256_eq returns 1 if a == b, 0 otherwise. */
 static inline int
 fd_uint256_eq( fd_uint256_t const * a,
                fd_uint256_t const * b ) {
@@ -50,6 +65,12 @@ fd_uint256_eq( fd_uint256_t const * a,
       && ( a->limbs[1] == b->limbs[1] )
       && ( a->limbs[2] == b->limbs[2] )
       && ( a->limbs[3] == b->limbs[3] );
+}
+
+/* fd_uint256_is_zero returns 1 if a == 0, 0 otherwise. */
+static inline int
+fd_uint256_is_zero( fd_uint256_t const * a ) {
+  return !( a->limbs[0] | a->limbs[1] | a->limbs[2] | a->limbs[3] );
 }
 
 /* fd_uint256_cmp returns 0 is a == b, -1 if a < b, 1 if a > b. */

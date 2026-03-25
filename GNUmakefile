@@ -44,6 +44,28 @@
 # use more cores with -j[N]).  See the "make-j" script in contrib for
 # help building efficiently on systems with cpu isolation enabled.
 
+### Bootstrap the Makefile environment
+
+# Remove pollution from unwanted default Make variables, such as $(CC)
+MAKEFLAGS += --no-builtin-rules
+MAKEFLAGS += --no-builtin-variables
+# The above doesn't unset built-ins in the first phase GNU Make <4.4,
+# so do this manually
+ifeq ($(origin CC),default)
+undefine CC
+endif
+ifeq ($(origin CXX),default)
+undefine CXX
+endif
+ifeq ($(origin LD),default)
+undefine LD
+endif
+# Disable implicit rules
+.SUFFIXES:
+# Re-evaluate the Makefile to apply $(MAKEFLAGS)
+.SECONDARY:
+.SECONDEXPANSION:
+
 ifndef MACHINE
 MACHINE=native
 endif

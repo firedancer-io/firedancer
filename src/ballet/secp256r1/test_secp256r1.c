@@ -16,7 +16,7 @@ test_secp256r1_scalar_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
   uchar _sig[ 64 ] = { 0 }; uchar * sig = _sig;
   fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
   fd_secp256r1_scalar_t _r[1]; fd_secp256r1_scalar_t * r = _r;
-  
+
   FD_TEST( fd_secp256r1_scalar_frombytes( r, sig )==r );
   FD_TEST( fd_secp256r1_scalar_frombytes_positive( r, sig+32 )==r );
   FD_TEST( fd_secp256r1_scalar_frombytes_positive( r, sig )==NULL );
@@ -105,7 +105,7 @@ test_secp256r1_fp_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
   uchar _buf[ 32 ] = { 0 }; uchar * buf = _buf;
   fd_hex_decode( buf, "d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 32 );
   fd_secp256r1_fp_t _r[1]; fd_secp256r1_fp_t * r = _r;
-  
+
   FD_TEST( fd_secp256r1_fp_frombytes( r, buf )==r );
 
   // bench
@@ -129,7 +129,7 @@ test_secp256r1_fp_sqrt( FD_FN_UNUSED fd_rng_t * rng ) {
   fd_hex_decode( sqrt1, "f942f2008adaab3a98ad4af432f97b2cc45170a9051574304e12c6b461c012e8", 32 );
   fd_secp256r1_fp_t _r[1]; fd_secp256r1_fp_t * r = _r;
   fd_secp256r1_fp_t a[1];
-  
+
   FD_TEST( fd_secp256r1_fp_frombytes( a, sqrt1 )==a );
   FD_TEST( fd_secp256r1_fp_sqrt( r, a )==NULL );
 
@@ -223,6 +223,91 @@ test_secp256r1_point_eq_x( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
+test_secp256r1_point_add_mixed( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar buf[ 33 ] = { 0 };
+  ulong b_zero[ 8 ] = { 0 };
+  fd_secp256r1_point_t a_zero[1] = { 0 };
+  fd_secp256r1_point_t p[1];
+  fd_secp256r1_point_t r[1];
+
+  /* Load known point P = 02d8c82b... */
+  fd_hex_decode( buf, "02d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
+  FD_TEST( fd_secp256r1_point_frombytes( p, buf )==p );
+
+  /* b = affine-Montgomery representation of P (x then y, 4 ulongs each) */
+  ulong b[ 8 ];
+  fd_memcpy( b,   p->x->limbs, 32 );
+  fd_memcpy( b+4, p->y->limbs, 32 );
+
+  /* add zeros: 0 + 0 = 0 */
+  {
+    fd_secp256r1_point_add_mixed( r, a_zero, b_zero );
+    FD_TEST( fd_secp256r1_point_eq_mixed( r, b_zero ) );
+  }
+
+  /* add zero right: P + 0 = P */
+  {
+    fd_secp256r1_point_add_mixed( r, p, b_zero );
+    FD_TEST( fd_secp256r1_point_eq_mixed( r, b ) );
+  }
+
+  /* add zero left: 0 + P = P */
+  {
+    fd_secp256r1_point_add_mixed( r, a_zero, b );
+    FD_TEST( fd_secp256r1_point_eq_mixed( r, b ) );
+  }
+
+  /* add same point: P + P = 2P */
+  {
+    fd_secp256r1_point_add_mixed( r, p, b );
+    fd_secp256r1_scalar_t expected_2p_x[1];
+
+    fd_hex_decode( buf, "94ec8b7cb71a49b8c922d5da673fb59565ccad96e0fabb9ec9cc45240fc10e74", 32 );
+    fd_secp256r1_scalar_frombytes( expected_2p_x, buf );
+
+    FD_TEST( fd_secp256r1_point_eq_x( r, expected_2p_x )==FD_SECP256R1_SUCCESS );
+  }
+
+  /* add opposite points: P + (-P) = 0 */
+  {
+    ulong b_neg[ 8 ];
+    fd_memcpy( b_neg,   b,   32 );
+    fd_memcpy( b_neg+4, b+4, 32 );
+    bignum_optneg_p256( b_neg+4, 1UL, b_neg+4 );  /* negate y in Montgomery domain */
+
+    fd_secp256r1_point_add_mixed( r, p, b_neg );
+    FD_TEST( fd_uint256_eq( r->z, fd_secp256r1_const_zero ) );
+  }
+}
+
+static void
+test_secp256r1_double_scalar_mul_base_equal_points( FD_FN_UNUSED fd_rng_t * rng ) {
+  /* edge case in fd_secp256r1_double_scalar_mul_base where the point
+     addition at the end receives equal points. without special handling,
+     performing a point addition in incomplete jacobian coordinates results
+     in an invalid result. */
+  uchar _buf[ 33 ] = { 0 }; uchar * buf = _buf;
+  fd_secp256r1_scalar_t u1[1], u2[1], expected_x[1];
+  fd_secp256r1_point_t pub[1], result[1];
+
+  fd_hex_decode( buf, "cdfa20ffc3bcdc92cdf4f96552b30a2f775d4353d857fab82729f140b16fbb07", 32 );
+  fd_secp256r1_scalar_frombytes( u1, buf );
+
+  fd_hex_decode( buf, "5f811cb929645f8b6facaa5090e5e945452ec40a3193ca54ee8971105e503a69", 32 );
+  fd_secp256r1_scalar_frombytes( u2, buf );
+
+  fd_hex_decode( buf, "03578af9bfb68e75c0f38fa2b4af3815164ec0acfb1e111fe9bc425b373735d62e", 33 );
+  FD_TEST( fd_secp256r1_point_frombytes( pub, buf )==pub );
+
+  /* x-coordinate of 2*(u1*G) = u1*G + u2*A */
+  fd_hex_decode( buf, "aa30744d8384e6c20a67418b687ab2a0f049368917e15ef9832fe61d3bf2b622", 32 );
+  fd_secp256r1_scalar_frombytes( expected_x, buf );
+
+  fd_secp256r1_double_scalar_mul_base( result, u1, pub, u2 );
+  FD_TEST( fd_secp256r1_point_eq_x( result, expected_x )==FD_SECP256R1_SUCCESS );
+}
+
+static void
 test_secp256r1_verify( FD_FN_UNUSED fd_rng_t * rng ) {
 
   uchar _msg[ 10 ] = { 0 }; uchar * msg = _msg;
@@ -296,6 +381,9 @@ main( int     argc,
 
   test_secp256r1_point_frombytes ( rng );
   test_secp256r1_point_eq_x      ( rng );
+
+  test_secp256r1_point_add_mixed ( rng );
+  test_secp256r1_double_scalar_mul_base_equal_points( rng );
 
   test_secp256r1_verify          ( rng );
 

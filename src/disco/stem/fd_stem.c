@@ -169,6 +169,7 @@
 #error "fd_stem requires alloca"
 #endif
 
+#include "../../util/log/fd_log.h"
 #include "../topo/fd_topo.h"
 #include "../metrics/fd_metrics.h"
 #include "../../tango/fd_tango.h"
@@ -227,6 +228,7 @@ STEM_(scratch_footprint)( ulong in_cnt,
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* cr_avail */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_depth */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             out_cnt*sizeof(ulong)                ); /* out_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(int),               out_cnt*sizeof(int)                  ); /* out_reliable */
   l = FD_LAYOUT_APPEND( l, alignof(ulong const *),     cons_cnt*sizeof(ulong const *)       ); /* cons_fseq */
   l = FD_LAYOUT_APPEND( l, alignof(ulong *),           cons_cnt*sizeof(ulong *)             ); /* cons_slow */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),             cons_cnt*sizeof(ulong)               ); /* cons_out */
@@ -245,6 +247,7 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        cons_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
+             volatile ulong **            _cons_slow,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
@@ -259,12 +262,13 @@ STEM_(run1)( ulong                        in_cnt,
   /* out frag stream state */
   ulong *        out_depth; /* ==fd_mcache_depth( out_mcache[out_idx] ) for out_idx in [0, out_cnt) */
   ulong *        out_seq;  /* next mux frag sequence number to publish for out_idx in [0, out_cnt) ]*/
+  int *          out_reliable; /* out_reliable[out_idx] is 1 if out_idx has at least one reliable consumer, else 0 */
 
   /* out flow control state */
   ulong *        cr_avail;     /* number of flow control credits available to publish downstream across all outs */
   ulong          min_cr_avail; /* minimum number of flow control credits available to publish downstream */
   ulong const ** cons_fseq;    /* cons_fseq[cons_idx] for cons_idx in [0,cons_cnt) is where to receive fctl credits from consumers */
-  ulong **       cons_slow;    /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
+  volatile ulong ** cons_slow; /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
   ulong *        cons_out;     /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from */
   ulong *        cons_seq;     /* cons_seq [cons_idx] is the most recent observation of cons_fseq[cons_idx] */
 
@@ -323,12 +327,13 @@ STEM_(run1)( ulong                        in_cnt,
   /* out frag stream init */
 
   cr_avail     = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
-  min_cr_avail = 0UL;
+  min_cr_avail = fd_ulong_if( cons_cnt>0UL, 0UL, ULONG_MAX );
 
   out_depth  = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
+  out_reliable = (int *)FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   out_cnt*sizeof(int)   );
 
-  ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
+  ulong cr_max = fd_ulong_if( !out_cnt || !cons_cnt, 128UL, ULONG_MAX );
 
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
 
@@ -338,25 +343,29 @@ STEM_(run1)( ulong                        in_cnt,
     out_seq[ out_idx ] = 0UL;
 
     cr_avail[ out_idx ] = out_depth[ out_idx ];
+    out_reliable[ out_idx ] = 0;
   }
 
   cons_fseq = (ulong const **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong const *), cons_cnt*sizeof(ulong const *) );
-  cons_slow = (ulong **)      FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *),       cons_cnt*sizeof(ulong *)       );
+  cons_slow = (volatile ulong **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *),       cons_cnt*sizeof(ulong *)       );
   cons_out  = (ulong *)       FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),         cons_cnt*sizeof(ulong)         );
   cons_seq  = (ulong *)       FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),         cons_cnt*sizeof(ulong)         );
 
   if( FD_UNLIKELY( !!cons_cnt && !_cons_fseq ) ) FD_LOG_ERR(( "NULL cons_fseq" ));
+  if( FD_UNLIKELY( !!cons_cnt && !_cons_slow ) ) FD_LOG_ERR(( "NULL cons_slow" ));
   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
     if( FD_UNLIKELY( !_cons_fseq[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_fseq[%lu]", cons_idx ));
+    if( FD_UNLIKELY( !_cons_slow[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_slow[%lu]", cons_idx ));
     cons_fseq[ cons_idx ] = _cons_fseq[ cons_idx ];
     cons_out [ cons_idx ] = _cons_out [ cons_idx ];
-    cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
+    cons_slow[ cons_idx ] = _cons_slow[ cons_idx ];
     cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
 
+    out_reliable[ cons_out[ cons_idx ] ] = 1;
     cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
   }
 
-  if( FD_UNLIKELY( burst>cr_max ) ) FD_LOG_ERR(( "one or more out links have insufficient depth for STEM_BURST %lu. cr_max is %lu", burst, cr_max ));
+  if( FD_UNLIKELY( cons_cnt>0UL && burst>cr_max ) ) FD_LOG_ERR(( "one or more out links have insufficient depth for STEM_BURST %lu. cr_max is %lu", burst, cr_max ));
 
   /* housekeeping init */
 
@@ -419,7 +428,7 @@ STEM_(run1)( ulong                        in_cnt,
 
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
-        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)now );
+        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)fd_log_wallclock() );
         FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
         FD_MCNT_INC  ( TILE, BACKPRESSURE_COUNT,        metric_backp_cnt );
         FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
@@ -512,6 +521,7 @@ STEM_(run1)( ulong                        in_cnt,
       .cr_avail            = cr_avail,
       .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+      .out_reliable        = out_reliable,
     };
 #endif
 
@@ -671,6 +681,9 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
+#ifdef STEM_CALLBACK_DURING_FRAG1
+    STEM_CALLBACK_DURING_FRAG1( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, tsorig, tspub );
+#endif
 #ifdef STEM_CALLBACK_DURING_FRAG
     STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl );
 #endif
@@ -750,14 +763,18 @@ STEM_(run)( fd_topo_t *      topo,
   ulong   reliable_cons_cnt = 0UL;
   ulong   cons_out[ FD_TOPO_MAX_LINKS ];
   ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
+  volatile ulong * cons_slow[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
+    ulong polled_in_idx = 0UL;
     for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+      int is_polled = consumer_tile->in_link_poll[ j ];
       for( ulong k=0UL; k<tile->out_cnt; k++ ) {
         if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
+          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF;
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
              you could construct a topology which has more than this
@@ -765,6 +782,7 @@ STEM_(run)( fd_topo_t *      topo,
           FD_TEST( reliable_cons_cnt<FD_TOPO_MAX_LINKS );
         }
       }
+      if( FD_LIKELY( is_polled ) ) polled_in_idx++;
     }
   }
 
@@ -781,6 +799,7 @@ STEM_(run)( fd_topo_t *      topo,
                reliable_cons_cnt,
                cons_out,
                cons_fseq,
+               cons_slow,
                STEM_BURST,
                STEM_LAZY,
                rng,

@@ -42,19 +42,8 @@ test_bundle_rx( fd_wksp_t * wksp ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
 
-  /* Wipe timestamps */
-  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
-    env->out_mcache[ i ].tsorig = 0U;
-    env->out_mcache[ i ].tspub  = 0U;
-  }
-
-  const ulong packet1_sz = 1UL;
-  const ulong packet2_sz = 2UL;
-  fd_frag_meta_t expected[2] = {
-    { .seq=0UL, .sig=0UL, .chunk=0, .sz=(ushort)(sizeof(fd_txn_m_t)+packet1_sz), .ctl=0 },
-    { .seq=1UL, .sig=0UL, .chunk=2, .sz=(ushort)(sizeof(fd_txn_m_t)+packet2_sz), .ctl=0 }
-  };
-  FD_TEST( fd_memeq( env->out_mcache, expected, 2*sizeof(fd_frag_meta_t) ) );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
+  FD_TEST( pending_txn_peek_head( state->pending_txns )->sig==0UL );
 
   state->builder_info_avail = 1;
 
@@ -63,6 +52,8 @@ test_bundle_rx( fd_wksp_t * wksp ) {
       test_bundle_response, test_bundle_response_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
+
+  FD_TEST( pending_txn_cnt( state->pending_txns )>2UL );
 
   test_bundle_env_destroy( env );
 }
@@ -111,12 +102,6 @@ test_bundle_rx_too_many_txns( fd_wksp_t * wksp ) {
     0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
   };
 
-  /* Wipe timestamps */
-  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
-    env->out_mcache[ i ].tsorig = 0U;
-    env->out_mcache[ i ].tspub  = 0U;
-  }
-
   state->builder_info_avail = 1;
   fd_bundle_client_grpc_rx_msg(
       state,
@@ -124,11 +109,7 @@ test_bundle_rx_too_many_txns( fd_wksp_t * wksp ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
 
-  ulong txn_cnt = 0UL;
-  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
-    txn_cnt += env->out_mcache[ i ].tspub!=0U;
-  }
-  FD_TEST( txn_cnt==5UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
   test_bundle_env_destroy( env );
 
   test_bundle_env_create( env, wksp );
@@ -147,13 +128,6 @@ test_bundle_rx_too_many_txns( fd_wksp_t * wksp ) {
     0x12, 0x00, 0x18, 0x00, 0x28, 0x00, 0x12, 0x03, 0x00, 0x00, 0x00
   };
 
-
-  /* Wipe timestamps */
-  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
-    env->out_mcache[ i ].tsorig = 0U;
-    env->out_mcache[ i ].tspub  = 0U;
-  }
-
   state->builder_info_avail = 1;
   fd_bundle_client_grpc_rx_msg(
       state,
@@ -162,11 +136,7 @@ test_bundle_rx_too_many_txns( fd_wksp_t * wksp ) {
   );
 
   FD_TEST( state->bundle_txn_cnt==6 );
-  txn_cnt = 0UL;
-  for( ulong i=0UL; i<(env->stem_depths[0]); i++ ) {
-    txn_cnt += env->out_mcache[ i ].tspub!=0U;
-  }
-  FD_TEST( txn_cnt==0UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==0UL );
   test_bundle_env_destroy( env );
 }
 
@@ -188,7 +158,7 @@ test_bundle_no_builder_fee_info( fd_wksp_t * wksp ) {
       subscribe_packets_msg, sizeof(subscribe_packets_msg),
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
   );
-  FD_TEST( fd_seq_eq( env->out_mcache[ 0 ].seq, 0UL ) );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
   FD_TEST( state->metrics.packet_received_cnt          ==1UL );
   FD_TEST( state->metrics.missing_builder_info_fail_cnt==0UL );
 
@@ -199,7 +169,7 @@ test_bundle_no_builder_fee_info( fd_wksp_t * wksp ) {
       test_bundle_response, test_bundle_response_sz,
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
-  FD_TEST( fd_seq_ne( env->out_mcache[ 1 ].seq, 1UL ) );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
   FD_TEST( state->metrics.bundle_received_cnt          ==0UL );
   FD_TEST( state->metrics.missing_builder_info_fail_cnt==1UL );
 
@@ -672,6 +642,14 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   /* Inject a response */
   fd_bundle_client_grpc_rx_start( state, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
 
+  uchar prev_builder_pubkey[ 32 ];
+  for( ulong i=0UL; i<sizeof(prev_builder_pubkey); i++ ) prev_builder_pubkey[ i ] = (uchar)( i + 1U );
+  fd_memcpy( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) );
+  uchar prev_builder_commission = 11U;
+  state->builder_commission = prev_builder_commission;
+  long prev_builder_valid_until = 123456789L;
+  state->builder_info_valid_until = prev_builder_valid_until;
+
   /* Protobuf encoder util */
   uchar pb_buf[ 128 ];
   ulong pb_sz = 0UL;
@@ -689,6 +667,9 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==0 );
   FD_TEST( state->builder_info_wait==1 ); /* retry ... */
+  FD_TEST( state->builder_commission==prev_builder_commission );
+  FD_TEST( 0==memcmp( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
+  FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
 
   /* Invalid commission */
   uchar const pubkey[32] = { 1,2,3,4,5 };
@@ -698,6 +679,9 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==0 );
   FD_TEST( state->builder_info_wait==1 ); /* retry ... */
+  FD_TEST( state->builder_commission==prev_builder_commission );
+  FD_TEST( 0==memcmp( state->builder_pubkey, prev_builder_pubkey, sizeof(prev_builder_pubkey) ) );
+  FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
 
   /* Valid response */
   resp.commission = 2;
@@ -705,6 +689,11 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==1 );
   FD_TEST( state->builder_info_wait==1 );
+  FD_TEST( state->builder_commission==2U );
+  uchar decoded_builder_pubkey[ 32 ];
+  FD_TEST( fd_base58_decode_32( resp.pubkey, decoded_builder_pubkey ) );
+  FD_TEST( 0==memcmp( state->builder_pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
+  FD_TEST( state->builder_info_valid_until!=prev_builder_valid_until );
 
   /* End stream */
   fd_grpc_resp_hdrs_t grpc_resp_hdrs = {
@@ -857,6 +846,637 @@ test_bundle_client_subscribe_bundles( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
 }
 
+#define TEST_STEM_BURST (5UL)
+
+typedef struct {
+  uchar const * payload;
+  ulong         payload_sz;
+} test_packet_desc_t;
+
+typedef struct {
+  test_packet_desc_t const * packets;
+  ulong                      packet_cnt;
+} test_packet_list_t;
+
+typedef struct {
+  test_packet_desc_t const * packets;
+  ulong                      packet_cnt;
+  uchar                      uuid[ 16 ];
+  ulong                      uuid_sz;
+} test_bundle_desc_t;
+
+typedef struct {
+  test_bundle_desc_t const * bundles;
+  ulong                      bundle_cnt;
+} test_bundle_list_t;
+
+static bool
+encode_test_packet_list( pb_ostream_t *     stream,
+                         pb_field_t const * field,
+                         void * const *     arg ) {
+  test_packet_list_t const * packet_list = *arg;
+
+  for( ulong i=0UL; i<packet_list->packet_cnt; i++ ) {
+    test_packet_desc_t const * desc = &packet_list->packets[ i ];
+    packet_Packet packet = packet_Packet_init_default;
+    FD_TEST( desc->payload_sz<=sizeof(packet.data.bytes) );
+    packet.data.size = (pb_size_t)desc->payload_sz;
+    fd_memcpy( packet.data.bytes, desc->payload, desc->payload_sz );
+
+    if( FD_UNLIKELY( !pb_encode_tag_for_field( stream, field ) ) ) return false;
+    if( FD_UNLIKELY( !pb_encode_submessage( stream, &packet_Packet_msg, &packet ) ) ) return false;
+  }
+
+  return true;
+}
+
+static bool
+encode_test_bundle_list( pb_ostream_t *     stream,
+                         pb_field_t const * field,
+                         void * const *     arg ) {
+  test_bundle_list_t const * bundle_list = *arg;
+
+  for( ulong i=0UL; i<bundle_list->bundle_cnt; i++ ) {
+    test_bundle_desc_t const * desc = &bundle_list->bundles[ i ];
+    test_packet_list_t packet_list = {
+      .packets    = desc->packets,
+      .packet_cnt = desc->packet_cnt,
+    };
+    bundle_BundleUuid bundle_uuid = bundle_BundleUuid_init_default;
+    bundle_uuid.has_bundle = true;
+    bundle_uuid.bundle.packets = (pb_callback_t) {
+      .funcs.encode = encode_test_packet_list,
+      .arg          = &packet_list,
+    };
+    FD_TEST( desc->uuid_sz<=sizeof(bundle_uuid.uuid.bytes) );
+    bundle_uuid.uuid.size = (pb_size_t)desc->uuid_sz;
+    fd_memcpy( bundle_uuid.uuid.bytes, desc->uuid, desc->uuid_sz );
+
+    if( FD_UNLIKELY( !pb_encode_tag_for_field( stream, field ) ) ) return false;
+    if( FD_UNLIKELY( !pb_encode_submessage( stream, &bundle_BundleUuid_msg, &bundle_uuid ) ) ) return false;
+  }
+
+  return true;
+}
+
+static ulong
+encode_subscribe_packets_response( uchar const *          payload_buf,
+                                   ulong                  payload_buf_sz,
+                                   test_packet_desc_t *   packets,
+                                   ulong                  packet_cnt ) {
+  block_engine_SubscribePacketsResponse resp = block_engine_SubscribePacketsResponse_init_default;
+  test_packet_list_t packet_list = {
+    .packets    = packets,
+    .packet_cnt = packet_cnt,
+  };
+  resp.has_batch = true;
+  resp.batch.packets = (pb_callback_t) {
+    .funcs.encode = encode_test_packet_list,
+    .arg          = &packet_list,
+  };
+
+  pb_ostream_t ostream = pb_ostream_from_buffer( (pb_byte_t *)payload_buf, payload_buf_sz );
+  FD_TEST( pb_encode( &ostream, &block_engine_SubscribePacketsResponse_msg, &resp ) );
+  return ostream.bytes_written;
+}
+
+static ulong
+encode_subscribe_bundles_response( uchar const *          payload_buf,
+                                   ulong                  payload_buf_sz,
+                                   test_bundle_desc_t *   bundles,
+                                   ulong                  bundle_cnt ) {
+  block_engine_SubscribeBundlesResponse resp = block_engine_SubscribeBundlesResponse_init_default;
+  test_bundle_list_t bundle_list = {
+    .bundles    = bundles,
+    .bundle_cnt = bundle_cnt,
+  };
+  resp.bundles = (pb_callback_t) {
+    .funcs.encode = encode_test_bundle_list,
+    .arg          = &bundle_list,
+  };
+
+  pb_ostream_t ostream = pb_ostream_from_buffer( (pb_byte_t *)payload_buf, payload_buf_sz );
+  FD_TEST( pb_encode( &ostream, &block_engine_SubscribeBundlesResponse_msg, &resp ) );
+  return ostream.bytes_written;
+}
+
+static ulong
+published_txn_cnt( test_bundle_env_t const * env ) {
+  return env->stem_seqs[ 0 ];
+}
+
+static fd_txn_m_t const *
+published_txn( test_bundle_env_t const *  env,
+               ulong                      seq,
+               fd_frag_meta_t const **    opt_meta ) {
+  FD_TEST( seq<published_txn_cnt( env ) );
+  fd_frag_meta_t const * meta = env->out_mcache + fd_mcache_line_idx( seq, env->stem_depths[ 0 ] );
+  FD_TEST( meta->seq==seq );
+  if( opt_meta ) *opt_meta = meta;
+  return (fd_txn_m_t const *)fd_chunk_to_laddr( env->out_dcache, meta->chunk );
+}
+
+static void
+expect_published_txn( test_bundle_env_t const * env,
+                      ulong                     seq,
+                      ulong                     sig,
+                      uchar const *             payload,
+                      ulong                     payload_sz,
+                      ulong                     bundle_id,
+                      ulong                     bundle_txn_cnt,
+                      uchar                     commission,
+                      uchar const *             commission_pubkey ) {
+  fd_frag_meta_t const * meta = NULL;
+  fd_txn_m_t const * txnm = published_txn( env, seq, &meta );
+
+  FD_TEST( meta->sig==sig );
+  FD_TEST( txnm->payload_sz==payload_sz );
+  FD_TEST( txnm->txn_t_sz==0U );
+  FD_TEST( txnm->source_tpu==FD_TXN_M_TPU_SOURCE_BUNDLE );
+  FD_TEST( txnm->block_engine.bundle_id==bundle_id );
+  FD_TEST( txnm->block_engine.bundle_txn_cnt==bundle_txn_cnt );
+  FD_TEST( txnm->block_engine.commission==commission );
+  FD_TEST( 0==memcmp( txnm->block_engine.commission_pubkey, commission_pubkey, 32UL ) );
+  FD_TEST( 0==memcmp( fd_txn_m_payload_const( txnm ), payload, payload_sz ) );
+}
+
+/* Mirror the production after_credit publish loop so tests can verify
+   actual published output without exposing the static callback. */
+
+static ulong
+publish_after_credit( fd_bundle_tile_t * state ) {
+  if( pending_txn_empty( state->pending_txns ) ) return 0UL;
+
+  fd_stem_context_t * stem = state->stem;
+  fd_bundle_pending_txn_t * head = pending_txn_peek_head( state->pending_txns );
+  ulong drain_seq = head->bundle_seq;
+  ulong drain_sig = head->sig;
+  ulong drain_cnt = 0UL;
+
+  do {
+    fd_bundle_pending_txn_t const * txn = pending_txn_peek_head( state->pending_txns );
+
+    fd_txn_m_t * txnm = fd_chunk_to_laddr( state->verify_out.mem, state->verify_out.chunk );
+    *txnm = (fd_txn_m_t) {
+      .reference_slot = 0UL,
+      .payload_sz     = txn->payload_sz,
+      .txn_t_sz       = 0U,
+      .source_ipv4    = txn->source_ipv4,
+      .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
+      .block_engine   = {
+        .bundle_id      = txn->bundle_seq,
+        .bundle_txn_cnt = txn->bundle_txn_cnt,
+        .commission     = txn->commission,
+      },
+    };
+    fd_memcpy( txnm->block_engine.commission_pubkey, txn->commission_pubkey, 32UL );
+    fd_memcpy( fd_txn_m_payload( txnm ), txn->payload, txn->payload_sz );
+
+    ulong sz    = fd_txn_m_realized_footprint( txnm, 0, 0 );
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
+    fd_stem_publish( stem, state->verify_out.idx, txn->sig, state->verify_out.chunk, sz, 0UL, 0UL, tspub );
+    state->verify_out.chunk = fd_dcache_compact_next( state->verify_out.chunk, sz, state->verify_out.chunk0, state->verify_out.wmark );
+
+    pending_txn_remove_head( state->pending_txns );
+    drain_cnt++;
+  } while( fd_bundle_drain_continue( state->pending_txns, drain_sig, drain_seq, drain_cnt, TEST_STEM_BURST ) );
+
+  return drain_cnt;
+}
+
+/* Simulate after_credit drain using the same continuation logic as
+   production (fd_bundle_drain_continue). */
+
+static ulong
+drain_one_bundle( fd_bundle_pending_txn_t * deque ) {
+  if( pending_txn_empty( deque ) ) return 0UL;
+
+  fd_bundle_pending_txn_t * head = pending_txn_peek_head( deque );
+  ulong drain_seq = head->bundle_seq;
+  ulong drain_sig = head->sig;
+  ulong cnt = 0UL;
+
+  do {
+    pending_txn_pop_head( deque );
+    cnt++;
+  } while( fd_bundle_drain_continue( deque, drain_sig, drain_seq, cnt, TEST_STEM_BURST ) );
+
+  return cnt;
+}
+
+/* Verify that the drain logic publishes one complete bundle
+   atomically, stopping at bundle boundaries. */
+
+static void
+test_packet_publish_after_credit( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+
+  uchar const payload0[] = { 0x48 };
+  uchar const payload1[] = { 0xAA, 0xBB };
+  test_packet_desc_t packets[] = {
+    { .payload=payload0, .payload_sz=sizeof(payload0) },
+    { .payload=payload1, .payload_sz=sizeof(payload1) },
+  };
+  uchar pb_buf[ 256 ];
+  ulong pb_sz = encode_subscribe_packets_response( pb_buf, sizeof(pb_buf), packets, 2UL );
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      pb_buf, pb_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
+  );
+
+  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
+  FD_TEST( published_txn_cnt( env )==0UL );
+
+  uchar const zero_pubkey[ 32 ] = {0};
+  FD_TEST( publish_after_credit( state )==2UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+  FD_TEST( published_txn_cnt( env )==2UL );
+  expect_published_txn( env, 0UL, 0UL, payload0, sizeof(payload0), 0UL, 1UL, 0U, zero_pubkey );
+  expect_published_txn( env, 1UL, 0UL, payload1, sizeof(payload1), 0UL, 1UL, 0U, zero_pubkey );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that bundles publish atomically: one full bundle per
+   after_credit-style drain, never crossing into the next bundle. */
+
+static void
+test_packet_publish_after_credit_atomic( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail  = 1;
+  state->builder_commission  = 7U;
+  uchar builder_pubkey[ 32 ];
+  for( ulong i=0UL; i<32UL; i++ ) builder_pubkey[ i ] = (uchar)( i + 1U );
+  fd_memcpy( state->builder_pubkey, builder_pubkey, sizeof(builder_pubkey) );
+
+  uchar const bundle_a0[] = { 0xA0 };
+  uchar const bundle_a1[] = { 0xA1 };
+  uchar const bundle_a2[] = { 0xA2 };
+  uchar const bundle_b0[] = { 0xB0 };
+  uchar const bundle_b1[] = { 0xB1 };
+  test_packet_desc_t bundle_a[] = {
+    { .payload=bundle_a0, .payload_sz=sizeof(bundle_a0) },
+    { .payload=bundle_a1, .payload_sz=sizeof(bundle_a1) },
+    { .payload=bundle_a2, .payload_sz=sizeof(bundle_a2) },
+  };
+  test_packet_desc_t bundle_b[] = {
+    { .payload=bundle_b0, .payload_sz=sizeof(bundle_b0) },
+    { .payload=bundle_b1, .payload_sz=sizeof(bundle_b1) },
+  };
+  test_bundle_desc_t bundles[] = {
+    { .packets=bundle_a, .packet_cnt=3UL, .uuid={1,2,3}, .uuid_sz=3UL },
+    { .packets=bundle_b, .packet_cnt=2UL, .uuid={4,5,6}, .uuid_sz=3UL },
+  };
+  uchar pb_buf[ 512 ];
+  ulong pb_sz = encode_subscribe_bundles_response( pb_buf, sizeof(pb_buf), bundles, 2UL );
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      pb_buf, pb_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+
+  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
+  FD_TEST( published_txn_cnt( env )==0UL );
+
+  FD_TEST( publish_after_credit( state )==3UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
+  FD_TEST( pending_txn_peek_head( state->pending_txns )->bundle_seq==2UL );
+  expect_published_txn( env, 0UL, 1UL, bundle_a0, sizeof(bundle_a0), 1UL, 3UL, 7U, builder_pubkey );
+  expect_published_txn( env, 1UL, 1UL, bundle_a1, sizeof(bundle_a1), 1UL, 3UL, 7U, builder_pubkey );
+  expect_published_txn( env, 2UL, 1UL, bundle_a2, sizeof(bundle_a2), 1UL, 3UL, 7U, builder_pubkey );
+
+  FD_TEST( publish_after_credit( state )==2UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+  FD_TEST( published_txn_cnt( env )==5UL );
+  expect_published_txn( env, 3UL, 1UL, bundle_b0, sizeof(bundle_b0), 2UL, 2UL, 7U, builder_pubkey );
+  expect_published_txn( env, 4UL, 1UL, bundle_b1, sizeof(bundle_b1), 2UL, 2UL, 7U, builder_pubkey );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Bundles are all-or-nothing at the head of the queue: after_credit
+   must publish the entire bundle before touching following packets. */
+
+static void
+test_bundle_publish_all_or_nothing( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  uchar const b0[] = { 0x10 };
+  uchar const b1[] = { 0x11 };
+  uchar const b2[] = { 0x12 };
+  uchar const b3[] = { 0x13 };
+  uchar const b4[] = { 0x14 };
+  uchar const pkt[] = { 0x99 };
+  test_packet_desc_t bundle_packets[] = {
+    { .payload=b0, .payload_sz=sizeof(b0) },
+    { .payload=b1, .payload_sz=sizeof(b1) },
+    { .payload=b2, .payload_sz=sizeof(b2) },
+    { .payload=b3, .payload_sz=sizeof(b3) },
+    { .payload=b4, .payload_sz=sizeof(b4) },
+  };
+  test_bundle_desc_t bundles[] = {
+    { .packets=bundle_packets, .packet_cnt=5UL, .uuid={7,7,7}, .uuid_sz=3UL },
+  };
+  test_packet_desc_t trailing_packet[] = {
+    { .payload=pkt, .payload_sz=sizeof(pkt) },
+  };
+  uchar bundle_buf[ 512 ];
+  uchar packet_buf[ 128 ];
+  ulong bundle_sz = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), bundles, 1UL );
+  ulong packet_sz = encode_subscribe_packets_response( packet_buf, sizeof(packet_buf), trailing_packet, 1UL );
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      bundle_buf, bundle_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      packet_buf, packet_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
+  );
+
+  FD_TEST( pending_txn_cnt( state->pending_txns )==6UL );
+  FD_TEST( publish_after_credit( state )==5UL );
+  FD_TEST( published_txn_cnt( env )==5UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
+  FD_TEST( pending_txn_peek_head( state->pending_txns )->sig==0UL );
+
+  uchar const zero_pubkey[ 32 ] = {0};
+  expect_published_txn( env, 0UL, 1UL, b0, sizeof(b0), 1UL, 5UL, 0U, zero_pubkey );
+  expect_published_txn( env, 1UL, 1UL, b1, sizeof(b1), 1UL, 5UL, 0U, zero_pubkey );
+  expect_published_txn( env, 2UL, 1UL, b2, sizeof(b2), 1UL, 5UL, 0U, zero_pubkey );
+  expect_published_txn( env, 3UL, 1UL, b3, sizeof(b3), 1UL, 5UL, 0U, zero_pubkey );
+  expect_published_txn( env, 4UL, 1UL, b4, sizeof(b4), 1UL, 5UL, 0U, zero_pubkey );
+
+  FD_TEST( publish_after_credit( state )==1UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+  expect_published_txn( env, 5UL, 0UL, pkt, sizeof(pkt), 0UL, 1UL, 0U, zero_pubkey );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify queue boundary behavior with mixed packets and bundles. */
+
+static void
+test_mixed_queue_boundary_behavior( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  uchar const p0[] = { 0x20 };
+  uchar const p1[] = { 0x21 };
+  uchar const p2[] = { 0x22 };
+  uchar const p3[] = { 0x23 };
+  uchar const b0[] = { 0x30 };
+  uchar const b1[] = { 0x31 };
+  uchar const p4[] = { 0x24 };
+  uchar const p5[] = { 0x25 };
+  test_packet_desc_t leading_packets[] = {
+    { .payload=p0, .payload_sz=sizeof(p0) },
+    { .payload=p1, .payload_sz=sizeof(p1) },
+    { .payload=p2, .payload_sz=sizeof(p2) },
+    { .payload=p3, .payload_sz=sizeof(p3) },
+  };
+  test_packet_desc_t bundle_packets[] = {
+    { .payload=b0, .payload_sz=sizeof(b0) },
+    { .payload=b1, .payload_sz=sizeof(b1) },
+  };
+  test_bundle_desc_t bundles[] = {
+    { .packets=bundle_packets, .packet_cnt=2UL, .uuid={9,9,9}, .uuid_sz=3UL },
+  };
+  test_packet_desc_t trailing_packets[] = {
+    { .payload=p4, .payload_sz=sizeof(p4) },
+    { .payload=p5, .payload_sz=sizeof(p5) },
+  };
+  uchar packet_buf0[ 256 ];
+  uchar bundle_buf [ 256 ];
+  uchar packet_buf1[ 256 ];
+  ulong packet_sz0 = encode_subscribe_packets_response( packet_buf0, sizeof(packet_buf0), leading_packets, 4UL );
+  ulong bundle_sz  = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), bundles, 1UL );
+  ulong packet_sz1 = encode_subscribe_packets_response( packet_buf1, sizeof(packet_buf1), trailing_packets, 2UL );
+
+  fd_bundle_client_grpc_rx_msg( state, packet_buf0, packet_sz0, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  fd_bundle_client_grpc_rx_msg( state, bundle_buf,  bundle_sz,  FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles );
+  fd_bundle_client_grpc_rx_msg( state, packet_buf1, packet_sz1, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+
+  uchar const zero_pubkey[ 32 ] = {0};
+  FD_TEST( pending_txn_cnt( state->pending_txns )==8UL );
+
+  FD_TEST( publish_after_credit( state )==4UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==4UL );
+  expect_published_txn( env, 0UL, 0UL, p0, sizeof(p0), 0UL, 1UL, 0U, zero_pubkey );
+  expect_published_txn( env, 1UL, 0UL, p1, sizeof(p1), 0UL, 1UL, 0U, zero_pubkey );
+  expect_published_txn( env, 2UL, 0UL, p2, sizeof(p2), 0UL, 1UL, 0U, zero_pubkey );
+  expect_published_txn( env, 3UL, 0UL, p3, sizeof(p3), 0UL, 1UL, 0U, zero_pubkey );
+
+  FD_TEST( publish_after_credit( state )==2UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
+  expect_published_txn( env, 4UL, 1UL, b0, sizeof(b0), 1UL, 2UL, 0U, zero_pubkey );
+  expect_published_txn( env, 5UL, 1UL, b1, sizeof(b1), 1UL, 2UL, 0U, zero_pubkey );
+
+  FD_TEST( publish_after_credit( state )==2UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+  expect_published_txn( env, 6UL, 0UL, p4, sizeof(p4), 0UL, 1UL, 0U, zero_pubkey );
+  expect_published_txn( env, 7UL, 0UL, p5, sizeof(p5), 0UL, 1UL, 0U, zero_pubkey );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Messages are only buffered by grpc_rx_msg. Nothing should hit the
+   output link until after_credit runs. */
+
+static void
+test_no_publish_before_after_credit( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  uchar const packet_payload[] = { 0x55 };
+  uchar const bundle_payload0[] = { 0x66 };
+  uchar const bundle_payload1[] = { 0x67 };
+  test_packet_desc_t packets[] = {
+    { .payload=packet_payload, .payload_sz=sizeof(packet_payload) },
+  };
+  test_packet_desc_t bundle_packets[] = {
+    { .payload=bundle_payload0, .payload_sz=sizeof(bundle_payload0) },
+    { .payload=bundle_payload1, .payload_sz=sizeof(bundle_payload1) },
+  };
+  test_bundle_desc_t bundles[] = {
+    { .packets=bundle_packets, .packet_cnt=2UL, .uuid={5,4,3}, .uuid_sz=3UL },
+  };
+  uchar packet_buf[ 128 ];
+  uchar bundle_buf[ 256 ];
+  ulong packet_sz = encode_subscribe_packets_response( packet_buf, sizeof(packet_buf), packets, 1UL );
+  ulong bundle_sz = encode_subscribe_bundles_response( bundle_buf, sizeof(bundle_buf), bundles, 1UL );
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      packet_buf, packet_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
+  );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==1UL );
+  FD_TEST( published_txn_cnt( env )==0UL );
+
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      bundle_buf, bundle_sz,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==3UL );
+  FD_TEST( published_txn_cnt( env )==0UL );
+
+  test_bundle_env_destroy( env );
+}
+
+static void
+test_bundle_drain_atomicity( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  /* Push bundle A (3 txns, bundle_seq=1) */
+  for( ulong i=0; i<3; i++ ) {
+    fd_bundle_pending_txn_t entry = { .sig=1UL, .bundle_seq=1UL };
+    pending_txn_push_tail( state->pending_txns, entry );
+  }
+
+  /* Push bundle B (2 txns, bundle_seq=2) */
+  for( ulong i=0; i<2; i++ ) {
+    fd_bundle_pending_txn_t entry = { .sig=1UL, .bundle_seq=2UL };
+    pending_txn_push_tail( state->pending_txns, entry );
+  }
+
+  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
+
+  /* First drain: should pop exactly bundle A (3 txns) */
+  ulong drained = drain_one_bundle( state->pending_txns );
+  FD_TEST( drained==3UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
+  FD_TEST( pending_txn_peek_head( state->pending_txns )->bundle_seq==2UL );
+
+  /* Second drain: should pop exactly bundle B (2 txns) */
+  drained = drain_one_bundle( state->pending_txns );
+  FD_TEST( drained==2UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that individual packets drain up to STEM_BURST per call. */
+
+static void
+test_packet_drain_batch( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+
+  /* Push 4 packets (< STEM_BURST) -- should drain in one call */
+  for( ulong i=0; i<4; i++ ) {
+    fd_bundle_pending_txn_t entry = { .sig=0UL, .bundle_seq=0UL };
+    pending_txn_push_tail( state->pending_txns, entry );
+  }
+  FD_TEST( drain_one_bundle( state->pending_txns )==4UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+
+  /* Push 8 packets (> STEM_BURST) -- should drain 5 then 3 */
+  for( ulong i=0; i<8; i++ ) {
+    fd_bundle_pending_txn_t entry = { .sig=0UL, .bundle_seq=0UL };
+    pending_txn_push_tail( state->pending_txns, entry );
+  }
+  FD_TEST( drain_one_bundle( state->pending_txns )==TEST_STEM_BURST );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==3UL );
+  FD_TEST( drain_one_bundle( state->pending_txns )==3UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify correct drain ordering when bundles and packets are
+   interleaved in the deque. */
+
+static void
+test_interleaved_drain( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+  state->builder_info_avail = 1;
+
+  /* packet, bundle(3 txns), packet, packet */
+  fd_bundle_pending_txn_t pkt = { .sig=0UL, .bundle_seq=0UL };
+  pending_txn_push_tail( state->pending_txns, pkt );
+
+  for( ulong i=0; i<3; i++ ) {
+    fd_bundle_pending_txn_t b = { .sig=1UL, .bundle_seq=5UL };
+    pending_txn_push_tail( state->pending_txns, b );
+  }
+
+  pending_txn_push_tail( state->pending_txns, pkt );
+  pending_txn_push_tail( state->pending_txns, pkt );
+
+  FD_TEST( pending_txn_cnt( state->pending_txns )==6UL );
+
+  /* Drain 1: leading packet (1, stops because next entry is a bundle) */
+  FD_TEST( drain_one_bundle( state->pending_txns )==1UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==5UL );
+
+  /* Drain 2: bundle (3 txns, same bundle_seq) */
+  FD_TEST( drain_one_bundle( state->pending_txns )==3UL );
+  FD_TEST( pending_txn_cnt( state->pending_txns )==2UL );
+
+  /* Drain 3: trailing 2 packets batched (2 < STEM_BURST) */
+  FD_TEST( drain_one_bundle( state->pending_txns )==2UL );
+  FD_TEST( pending_txn_empty( state->pending_txns ) );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that the pending_txn_full guard fires and counts drops. */
+
+static void
+test_deque_overflow_guard( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * state = env->state;
+
+  ulong cap = pending_txn_max( state->pending_txns );
+  for( ulong i=0; i<cap; i++ ) {
+    fd_bundle_pending_txn_t entry = {0};
+    entry.sig = 0UL;
+    pending_txn_push_tail( state->pending_txns, entry );
+  }
+  FD_TEST( pending_txn_full( state->pending_txns ) );
+  FD_TEST( state->metrics.backpressure_drop_cnt==0UL );
+
+  static uchar single_packet_msg[] = {
+    0x12, 0x09, 0x0a, 0x07, 0x0a, 0x01, 0x48, 0x12,
+    0x02, 0x08, 0x01
+  };
+  fd_bundle_client_grpc_rx_msg(
+      state,
+      single_packet_msg, sizeof(single_packet_msg),
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets
+  );
+
+  FD_TEST( pending_txn_cnt( state->pending_txns )==cap );
+  FD_TEST( state->metrics.backpressure_drop_cnt==1UL );
+
+  test_bundle_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -887,6 +1507,15 @@ main( int     argc,
   test_bundle_client_request_builder_fee_info( wksp );
   test_bundle_client_subscribe_packets( wksp );
   test_bundle_client_subscribe_bundles( wksp );
+  test_packet_publish_after_credit( wksp );
+  test_packet_publish_after_credit_atomic( wksp );
+  test_bundle_publish_all_or_nothing( wksp );
+  test_mixed_queue_boundary_behavior( wksp );
+  test_no_publish_before_after_credit( wksp );
+  test_bundle_drain_atomicity( wksp );
+  test_packet_drain_batch( wksp );
+  test_interleaved_drain( wksp );
+  test_deque_overflow_guard( wksp );
 
   /* Check for memory leaks */
   fd_wksp_usage_t wksp_usage;

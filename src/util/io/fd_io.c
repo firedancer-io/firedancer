@@ -184,7 +184,7 @@ fd_io_seek( int     fd,
             ulong * _idx ) {
   static int const whence[3] = { SEEK_SET, SEEK_CUR, SEEK_END };
 
-  if( FD_UNLIKELY( !((0<=type) & (type<=3) & (rel_off==(long)(off_t)rel_off)) ) ) {
+  if( FD_UNLIKELY( !((0<=type) & (type<3) & (rel_off==(long)(off_t)rel_off)) ) ) {
     *_idx = 0UL;
     return EINVAL;
   }
@@ -699,6 +699,10 @@ fd_io_strsignal( int sig ) {
 
   return "unknown";
 }
+
+#elif FD_LOG_STYLE==1 /* generic embedded target */
+
+FD_FN_UNUSED static inline void _unused( void ) {} /* required due to -Wpedantic */
 
 #else
 #error "Unknown FD_IO_STYLE"

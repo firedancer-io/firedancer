@@ -28,6 +28,9 @@ fd_topob_new( void * mem,
   topo->max_page_size           = FD_SHMEM_GIGANTIC_PAGE_SZ;
   topo->gigantic_page_threshold = 4 * FD_SHMEM_HUGE_PAGE_SZ;
 
+  topo->agave_affinity_cnt = 0;
+  topo->blocklist_cores_cnt = 0;
+
   return topo;
 }
 
@@ -41,6 +44,7 @@ fd_topob_wksp( fd_topo_t *  topo,
   fd_topo_wksp_t * wksp = &topo->workspaces[ topo->wksp_cnt ];
   strncpy( wksp->name, name, sizeof(wksp->name) );
   wksp->id = topo->wksp_cnt;
+  wksp->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_REGULAR;
   topo->wksp_cnt++;
   return wksp;
 }
@@ -57,10 +61,28 @@ fd_topob_obj( fd_topo_t *  topo,
   if( FD_UNLIKELY( wksp_id==ULONG_MAX ) ) FD_LOG_ERR(( "workspace not found: %s", wksp_name ));
 
   fd_topo_obj_t * obj = &topo->objs[ topo->obj_cnt ];
+  memset( obj, 0, sizeof(fd_topo_obj_t) );
   strncpy( obj->name, obj_name, sizeof(obj->name) );
-  obj->id      = topo->obj_cnt;
-  obj->wksp_id = wksp_id;
+  obj->id        = topo->obj_cnt;
+  obj->wksp_id   = wksp_id;
+  obj->label_idx = ULONG_MAX;
   topo->obj_cnt++;
+
+  return obj;
+}
+
+fd_topo_obj_t *
+fd_topob_obj_named( fd_topo_t *  topo,
+                    char const * obj_type,
+                    char const * wksp_name,
+                    char const * label ) {
+  if( FD_UNLIKELY( !label ) ) FD_LOG_ERR(( "NULL args" ));
+  if( FD_UNLIKELY( strlen( label )>=sizeof(topo->objs[ topo->obj_cnt ].label ) ) ) FD_LOG_ERR(( "obj label too long: %s", label ));
+  fd_topo_obj_t * obj = fd_topob_obj( topo, obj_type, wksp_name );
+  if( FD_UNLIKELY( !obj ) ) return NULL;
+
+  fd_cstr_ncpy( obj->label, label, sizeof(obj->label) );
+  obj->label_idx = fd_topo_obj_cnt( topo, obj_type, label );
 
   return obj;
 }
@@ -106,10 +128,10 @@ fd_topob_link( fd_topo_t *  topo,
 }
 
 void
-fd_topob_tile_uses( fd_topo_t *      topo,
-                    fd_topo_tile_t * tile,
-                    fd_topo_obj_t *  obj,
-                    int              mode ) {
+fd_topob_tile_uses( fd_topo_t *           topo,
+                    fd_topo_tile_t *      tile,
+                    fd_topo_obj_t const * obj,
+                    int                   mode ) {
   (void)topo;
 
   if( FD_UNLIKELY( tile->uses_obj_cnt>=FD_TOPO_MAX_TILE_OBJS ) ) FD_LOG_ERR(( "tile `%s` uses too many objects", tile->name ));
@@ -126,7 +148,9 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   metrics_wksp,
                ulong          cpu_idx,
                int            is_agave,
-               int            uses_keyswitch ) {
+               int            uses_id_keyswitch,
+               int            uses_av_keyswitch ) {
+
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
   if( FD_UNLIKELY( topo->tile_cnt>=FD_TOPO_MAX_TILES ) ) FD_LOG_ERR(( "too many tiles %lu", topo->tile_cnt ));
@@ -138,7 +162,6 @@ fd_topob_tile( fd_topo_t *    topo,
 
   fd_topo_tile_t * tile = &topo->tiles[ topo->tile_cnt ];
   strncpy( tile->name, tile_name, sizeof(tile->name) );
-  tile->metrics_name[ 0 ]   = 0;
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
@@ -155,12 +178,20 @@ fd_topob_tile( fd_topo_t *    topo,
   tile->metrics_obj_id = obj->id;
   fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  if( FD_LIKELY( uses_keyswitch ) ) {
+  if( FD_LIKELY( uses_id_keyswitch ) ) {
     obj = fd_topob_obj( topo, "keyswitch", tile_wksp );
-    tile->keyswitch_obj_id = obj->id;
+    tile->id_keyswitch_obj_id = obj->id;
     fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   } else {
-    tile->keyswitch_obj_id = ULONG_MAX;
+    tile->id_keyswitch_obj_id = ULONG_MAX;
+  }
+
+  if( FD_UNLIKELY( uses_av_keyswitch ) ) {
+    obj = fd_topob_obj( topo, "keyswitch", tile_wksp );
+    tile->av_keyswitch_obj_id = obj->id;
+    fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  } else {
+    tile->av_keyswitch_obj_id = ULONG_MAX;
   }
 
   topo->tile_cnt++;
@@ -334,8 +365,9 @@ validate( fd_topo_t const * topo ) {
 }
 
 void
-fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores ) {
+fd_topob_auto_layout_cpus( fd_topo_t *      topo,
+                           fd_topo_cpus_t * cpus,
+                           int              reserve_agave_cores ) {
   /* Incredibly simple automatic layout system for now ... just assign
      tiles to CPU cores in NUMA sequential order, except for a few tiles
      which should be floating. */
@@ -343,7 +375,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
   char const * FLOATING[] = {
     "netlnk",
     "metric",
-    "cswtch",
+    "diag",
     "bencho",
     "genesi", /* FIREDANCER ONLY */
     "ipecho", /* FIREDANCER ONLY */
@@ -360,54 +392,59 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "bundle",
     "verify",
     "dedup",
-    "resolv", /* FRANK only */
+    "resolh", /* FRANK only */
+    "resolv", /* FIREDANCER only */
     "pack",
     "bank",   /* FRANK only */
+    "execle", /* FIREDANCER only */
     "poh",    /* FRANK only */
-    "pohi",   /* FIREDANCER only */
+    "pohh",   /* FIREDANCER only */
     "shred",
+    "event",  /* FIREADNCER only */
     "store",  /* FRANK only */
-    "storei", /* FIREDANCER only */
     "sign",
-    "plugin",
+    "plugin", /* FRANK only */
     "gui",
     "rpc",    /* FIREDANCER only */
     "gossvf", /* FIREDANCER only */
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
-    "exec",   /* FIREDANCER only */
-    "send",   /* FIREDANCER only */
+    "execrp", /* FIREDANCER only */
+    "txsend", /* FIREDANCER only */
     "tower",  /* FIREDANCER only */
-    "rpcsrv", /* FIREDANCER only */
     "pktgen",
     "snapct", /* FIREDANCER only */
     "snapld", /* FIREDANCER only */
     "snapdc", /* FIREDANCER only */
     "snapin", /* FIREDANCER only */
+    "snapwm", /* FIREDANCER only */
     "snapwh", /* FIREDANCER only */
     "snapla", /* FIREDANCER only */
     "snapls", /* FIREDANCER only */
+    "snaplh", /* FIREDANCER only */
+    "snaplv", /* FIREDANCER only */
     "arch_f", /* FIREDANCER only */
     "arch_w", /* FIREDANCER only */
-    "vinyl",  /* FIREDANCER only */
+    "accdb",  /* FIREDANCER only */
   };
 
   char const * CRITICAL_TILES[] = {
     "pack",
     "poh",
+    "pohh",
     "gui",
+    "snapld", /* TODO: Snapshot loading speed depends on having full core */
     "snapdc", /* TODO: Snapshot loading speed depends on having full core */
     "snapin", /* TODO: Snapshot loading speed depends on having full core */
+    "snapwm", /* TODO: Snapshot loading speed depends on having full core */
+    "snapwh", /* TODO: Snapshot loading speed depends on having full core */
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     tile->cpu_idx = ULONG_MAX;
   }
-
-  fd_topo_cpus_t cpus[1];
-  fd_topo_cpus_init( cpus );
 
   ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
   int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
@@ -435,12 +472,44 @@ fd_topob_auto_layout( fd_topo_t * topo,
   FD_TEST( next_cpu_idx==cpus->cpu_cnt );
 
   int cpu_assigned[ FD_TILE_MAX ] = {0};
+  /* excluded cpus are simply considered already assigned */
+  for( ulong i=0UL; i<topo->blocklist_cores_cnt; i++ ) {
+    FD_TEST( topo->blocklist_cores_cpu_idx[ i ]<FD_TILE_MAX );
+    cpu_assigned[ topo->blocklist_cores_cpu_idx[ i ] ] = 1;
+  }
+
+  /* Compute total number of available physical cores */
+  ulong available_physical = 0UL;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    if( !cpu_assigned[ i ] && !pairs_assigned[ i ] ) available_physical++;
+  }
+
+  /* Compute total number of tiles that need assignment */
+  ulong tiles_to_assign = 0UL;
+  for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+    for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
+      if( !strcmp( topo->tiles[ j ].name, ORDERED[ i ] ) ) {
+        tiles_to_assign++;
+        break;
+      }
+    }
+  }
+
+  /* If we have enough physical cores (excluding HT siblings) for all
+     tiles that need assignment, exclude HT siblings so that no tile
+     gets scheduled on a hyperthread pair.
+     For Frankendancer, we reserve 2x cores so we have enough for Agave */
+  int skip_ht_pairs = reserve_agave_cores
+    ? (available_physical>=2*tiles_to_assign) /* Frankendancer */
+    : (available_physical>=tiles_to_assign);  /* Firedancer */
 
   ulong cpu_idx = 0UL;
+
   for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       if( !strcmp( tile->name, ORDERED[ i ] ) ) {
+        while( cpu_idx<FD_TILE_MAX && cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
         if( FD_UNLIKELY( cpu_idx>=cpus->cpu_cnt ) ) {
           FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
         } else {
@@ -458,7 +527,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
             }
           }
 
-          if( FD_UNLIKELY( is_ht_critical ) ) {
+          if( FD_UNLIKELY( is_ht_critical || skip_ht_pairs ) ) {
             ulong try_assign = cpu_idx;
             while( cpu_assigned[ cpu_ordering[ try_assign ] ] || (cpus->cpu[ cpu_ordering[ try_assign ] ].sibling!=ULONG_MAX && cpu_assigned[ cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ]) ) {
               try_assign++;
@@ -471,11 +540,9 @@ fd_topob_auto_layout( fd_topo_t * topo,
               cpu_assigned[ sibling ] = 1;
             }
             tile->cpu_idx = cpu_ordering[ try_assign ];
-            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
           } else {
             cpu_assigned[ cpu_ordering[ cpu_idx ] ] = 1;
             tile->cpu_idx = cpu_ordering[ cpu_idx ];
-            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
           }
         }
       }
@@ -498,15 +565,25 @@ fd_topob_auto_layout( fd_topo_t * topo,
     if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
+  topo->agave_affinity_cnt = 0UL;
   if( FD_UNLIKELY( reserve_agave_cores ) ) {
     for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
       if( FD_UNLIKELY( !cpus->cpu[ cpu_ordering[ i ] ].online ) ) continue;
+      if( FD_UNLIKELY( cpu_assigned[ cpu_ordering[ i ] ] ) ) continue;
 
       if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
         topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
       }
     }
   }
+}
+
+void
+fd_topob_auto_layout( fd_topo_t * topo,
+                      int         reserve_agave_cores ) {
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+  fd_topob_auto_layout_cpus( topo, cpus, reserve_agave_cores );
 }
 
 ulong
@@ -525,6 +602,7 @@ initialize_numa_assignments( fd_topo_t * topo ) {
     for( ulong j=0UL; j<topo->obj_cnt; j++ ) {
       fd_topo_obj_t * obj = &topo->objs[ j ];
       if( obj->wksp_id!=i ) continue;
+      if( FD_UNLIKELY( !obj->footprint ) ) FD_LOG_ERR(( "obj %lu (%s) has invalid parameters", j, obj->name ));
 
       if( FD_UNLIKELY( !max_footprint || obj->footprint>max_footprint ) ) {
         max_footprint = obj->footprint;
@@ -534,15 +612,17 @@ initialize_numa_assignments( fd_topo_t * topo ) {
 
     if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
 
-    int found_strict = 0;
-    int found_lazy   = 0;
+    int found_strict   = 0;
+    int found_lazy     = 0;
+    int found_assigned = 0;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx<FD_TILE_MAX ) ) {
         topo->workspaces[ i ].numa_idx = fd_numa_node_idx( tile->cpu_idx );
         FD_TEST( topo->workspaces[ i ].numa_idx!=ULONG_MAX );
-        found_strict = 1;
-        found_lazy = 1;
+        found_strict   = 1;
+        found_lazy     = 1;
+        found_assigned = 1;
         break;
       } else if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx>=FD_TILE_MAX ) ) {
         topo->workspaces[ i ].numa_idx = 0;
@@ -558,7 +638,8 @@ initialize_numa_assignments( fd_topo_t * topo ) {
           if( FD_LIKELY( tile->uses_obj_id[ k ]==max_obj && tile->cpu_idx<FD_TILE_MAX ) ) {
             topo->workspaces[ i ].numa_idx = fd_numa_node_idx( tile->cpu_idx );
             FD_TEST( topo->workspaces[ i ].numa_idx!=ULONG_MAX );
-            found_lazy = 1;
+            found_lazy     = 1;
+            found_assigned = 1;
             break;
           } else if( FD_UNLIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx>=FD_TILE_MAX ) {
             topo->workspaces[ i ].numa_idx = 0;
@@ -569,7 +650,7 @@ initialize_numa_assignments( fd_topo_t * topo ) {
           }
         }
 
-        if( FD_UNLIKELY( found_lazy ) ) break;
+        if( FD_UNLIKELY( found_assigned ) ) break;
       }
     }
 
@@ -589,20 +670,7 @@ fd_topob_finish( fd_topo_t *                topo,
       in_cnt++;
     }
 
-    ulong cons_cnt = 0UL;
-    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-      fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-      for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
-        for( ulong k=0UL; k<tile->out_cnt; k++ ) {
-          if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
-            cons_cnt++;
-          }
-        }
-      }
-    }
-
     FD_TEST( !fd_pod_replacef_ulong( topo->props, in_cnt, "obj.%lu.in_cnt", tile->metrics_obj_id ) );
-    FD_TEST( !fd_pod_replacef_ulong( topo->props, cons_cnt, "obj.%lu.cons_cnt", tile->metrics_obj_id ) );
   }
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {

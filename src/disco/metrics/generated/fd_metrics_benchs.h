@@ -6,7 +6,10 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_COUNTER_BENCHS_TRANSACTIONS_SENT_OFF  (16UL)
+enum {
+  FD_METRICS_COUNTER_BENCHS_TRANSACTIONS_SENT_OFF = 23,
+};
+
 #define FD_METRICS_COUNTER_BENCHS_TRANSACTIONS_SENT_NAME "benchs_transactions_sent"
 #define FD_METRICS_COUNTER_BENCHS_TRANSACTIONS_SENT_TYPE (FD_METRICS_TYPE_COUNTER)
 #define FD_METRICS_COUNTER_BENCHS_TRANSACTIONS_SENT_DESC "Number of benchmark packets sent"

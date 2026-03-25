@@ -13,7 +13,7 @@ fd_main( int                        argc,
          fd_config_file_t * const * configs,
          void (* topo_init )( config_t * config ) );
 
-void
+int
 fd_main_init( int *                      pargc,
               char ***                   pargv,
               config_t   *               config,
@@ -21,8 +21,7 @@ fd_main_init( int *                      pargc,
               int                        is_firedancer,
               int                        is_local_cluster,
               char const *               log_path,
-              fd_config_file_t * const * configs,
-              void (* topo_init )( config_t * config ) );
+              fd_config_file_t * const * configs );
 
 FD_PROTOTYPES_END
 

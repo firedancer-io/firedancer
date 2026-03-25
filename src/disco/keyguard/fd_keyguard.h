@@ -16,7 +16,7 @@ FD_PROTOTYPES_BEGIN
 
 /* Role definitions ***************************************************/
 
-#define FD_KEYGUARD_ROLE_SEND         (0)  /* vote transaction sender */
+#define FD_KEYGUARD_ROLE_TXSEND       (0)  /* vote transaction sender */
 #define FD_KEYGUARD_ROLE_GOSSIP       (1)  /* gossip participant */
 #define FD_KEYGUARD_ROLE_LEADER       (2)  /* block producer (shreds) */
 #define FD_KEYGUARD_ROLE_REPAIR       (4)  /* Repair tile */
@@ -51,10 +51,10 @@ FD_PROTOTYPES_BEGIN
 
 /* Sign types *********************************************************/
 
-#define FD_KEYGUARD_SIGN_TYPE_ED25519                          (0)  /* ed25519_sign(input) */
-#define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519                   (1)  /* ed25519_sign(sha256(data)) */
-#define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519            (2)  /* ed25519_sign(pubkey-data) */
-#define FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519 (3)  /* ed25519_sign(FD_METRICS_REPORT-data)) */
+#define FD_KEYGUARD_SIGN_TYPE_ED25519                       (0)  /* ed25519_sign(input) */
+#define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519                (1)  /* ed25519_sign(sha256(data)) */
+#define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519         (2)  /* ed25519_sign(pubkey-data) */
+#define FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519 (3)  /* ed25519_sign(FD_EVENTS_AUTH-data)) */
 
 /* Type confusion/ambiguity checks ************************************/
 

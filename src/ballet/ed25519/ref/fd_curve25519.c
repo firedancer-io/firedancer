@@ -214,11 +214,11 @@ fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
   fd_ed25519_point_t * res = NULL;
   res = fd_ed25519_point_frombytes( r1, buf1 );
   if( res == NULL ) {
-    return 1;
+    return -1;
   }
   res = fd_ed25519_point_frombytes( r2, buf2 );
   if( res == NULL ) {
-    return 2;
+    return -2;
   }
   return 0;
 }

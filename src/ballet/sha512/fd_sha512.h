@@ -200,7 +200,7 @@ fd_sha512_fini( fd_sha512_t * sha,
 static inline void
 fd_sha512_clear( fd_sha512_t * sha ) {
   fd_sha512_init( sha );
-  fd_memset_explicit( sha->buf, 0, FD_SHA512_PRIVATE_BUF_MAX );
+  fd_memzero_explicit( sha->buf, FD_SHA512_PRIVATE_BUF_MAX );
 }
 
 void *

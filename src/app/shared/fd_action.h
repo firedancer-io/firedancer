@@ -11,11 +11,11 @@ union fdctl_args {
   } run1;
 
   struct {
+    char topo[ 64 ];
     long dt_min;
     long dt_max;
     long duration;
     uint seed;
-    double ns_per_tic;
     int drain_output_fd;
     int with_bench;
     int with_sankey;
@@ -37,6 +37,10 @@ union fdctl_args {
   } set_identity;
 
   struct {
+    uchar * keypair;
+  } add_authorized_voter;
+
+  struct {
     int  parent_pipefd;
     int  no_watch;
     int  no_configure;
@@ -47,6 +51,10 @@ union fdctl_args {
 
   struct {
     int no_watch;
+
+    uint is_vinyl : 1;
+    char vinyl_path[ PATH_MAX ];
+    char vinyl_io  [ 3 ];
   } backtest;
 
   struct {
@@ -84,7 +92,6 @@ union fdctl_args {
 
     char         manifest_path[256UL];
     char         iptable_path[256UL];
-    ulong        end_slot;
     ulong        slot;
     int          sort_by_slot;
   } repair;
@@ -122,6 +129,11 @@ union fdctl_args {
   } metrics;
 
   struct {
+    char topo[ 64 ];
+    int  sort;
+  } mem;
+
+  struct {
     char  topo[ 64 ];
     ulong interval_ns;
 
@@ -142,7 +154,6 @@ union fdctl_args {
     uint no_incremental : 1;
     uint no_watch : 1;
     uint is_vinyl : 1;
-    uint vinyl_server : 1;
 
     char snapshot_dir[ PATH_MAX ];
     char vinyl_path  [ PATH_MAX ];
@@ -161,9 +172,18 @@ union fdctl_args {
   } gossip;
 
   struct {
+    char topo[ 64 ];
+    int  compact_mode;
+  } monitor_gossip;
+
+  struct {
     char const * pos_arg;
     int          help;
   } tower;
+
+  struct {
+    ulong ready_slot;
+  } ready;
 };
 
 typedef union fdctl_args args_t;

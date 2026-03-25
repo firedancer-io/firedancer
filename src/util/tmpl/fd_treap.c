@@ -511,8 +511,8 @@ TREAP_STATIC TREAP_(t) * TREAP_(idx_remove)( TREAP_(t) * treap, ulong d, TREAP_T
 TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_init)( TREAP_(t) const * treap, TREAP_T const * pool );
 TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_init)( TREAP_(t) const * treap, TREAP_T const * pool );
 
-TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i, TREAP_T const * pool );
-TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i, TREAP_T const * pool );
+__attribute__((warn_unused_result)) TREAP_STATIC FD_FN_PURE TREAP_(fwd_iter_t) TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i, TREAP_T const * pool );
+__attribute__((warn_unused_result)) TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i, TREAP_T const * pool );
 
 TREAP_STATIC TREAP_(t) * TREAP_(merge)( TREAP_(t) * treap_a, TREAP_(t) * treap_b, TREAP_T * pool );
 
@@ -1387,7 +1387,7 @@ TREAP_(rev_iter_init)( TREAP_(t) const * treap,
 # endif
 }
 
-TREAP_STATIC TREAP_(fwd_iter_t)
+__attribute__((warn_unused_result)) TREAP_STATIC TREAP_(fwd_iter_t)
 TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i,
                        TREAP_T const *    pool ) {
 # if TREAP_OPTIMIZE_ITERATION
@@ -1416,7 +1416,7 @@ TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i,
 # endif
 }
 
-TREAP_STATIC TREAP_(rev_iter_t)
+__attribute__((warn_unused_result)) TREAP_STATIC TREAP_(rev_iter_t)
 TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i,
                        TREAP_T const *    pool ) {
 # if TREAP_OPTIMIZE_ITERATION

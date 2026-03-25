@@ -32,10 +32,6 @@ LDFLAGS+=--ld-path=$(shell brew --prefix lld)/bin/ld.lld
 CPPFLAGS+=-isystem ./opt/cross/$(CROSS)/usr/local/include
 LDFLAGS+=-L./opt/cross/$(CROSS)/usr/local/lib
 
-FD_HAS_LIBURING:=1
-CFLAGS+=-DFD_HAS_LIBURING=1
-LDFLAGS+=-luring
-
 FD_HAS_BZIP2:=1
 CFLAGS+=-DFD_HAS_BZIP2=1
 LDFLAGS+=-lbz2
@@ -51,7 +47,3 @@ LDFLAGS+=-lzstd
 FD_HAS_ROCKSDB:=1
 CFLAGS+=-DFD_HAS_ROCKSDB=1
 ROCKSDB_LIBS:=-lrocksdb -lsnappy
-
-FD_HAS_SECP256K1:=1
-CFLAGS+=-DFD_HAS_SECP256K1=1
-LDFLAGS+=-lsecp256k1

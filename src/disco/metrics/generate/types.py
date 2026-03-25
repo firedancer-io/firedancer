@@ -3,46 +3,57 @@ from typing import Dict, List, Optional
 import xml.etree.ElementTree as ET
 
 class Tile(Enum):
-    NET = 0
-    QUIC = 1
-    BUNDLE = 2
-    VERIFY = 3
-    DEDUP = 4
-    RESOLV = 5
-    PACK = 6
-    BANK = 7
-    POH = 8
-    SHRED = 9
-    STORE = 10
-    SIGN = 11
-    METRIC = 12
-    CSWTCH = 13
-    EVENT = 14
-    PLUGIN = 15
-    GUI = 16
-    REPLAY = 17
-    STOREI = 18
-    GOSSIP = 19
-    NETLNK = 20
-    SOCK = 21
-    REPAIR = 22
-    SEND = 23
-    SNAPCT = 24
-    SNAPLD = 25
-    SNAPDC = 26
-    SNAPIN = 27
-    IPECHO = 28
-    GOSSVF = 29
-    BANKF = 30
-    RESOLF = 31
-    BACKT = 32
-    EXEC = 33
-    SNAPWR = 34
-    BENCHS = 35
-    SNAPWH = 36
-    SNAPLA = 37
-    SNAPLS = 38
-    TOWER = 39
+    GENESI = 1
+    IPECHO = 2
+
+    SNAPCT = 3
+    SNAPLD = 4
+    SNAPDC = 5
+    SNAPIN = 6
+    SNAPWR = 7
+    SNAPWH = 8
+    SNAPLA = 9
+    SNAPLS = 10
+    SNAPWM = 11
+    SNAPLH = 12
+    SNAPLV = 13
+
+    NETLNK = 14
+    NET = 15
+    SOCK = 16
+    QUIC = 17
+    BUNDLE = 18
+    VERIFY = 19
+    DEDUP = 20
+    RESOLV = 21
+    PACK = 22
+    EXECLE = 23
+    POH = 24
+    SIGN = 25
+    SHRED = 26
+
+    GOSSVF = 27
+    GOSSIP = 28
+    REPAIR = 29
+    REPLAY = 30
+    EXECRP = 31
+    ACCDB = 32
+    TOWER = 33
+    TXSEND = 34
+
+    DIAG = 35
+    EVENT = 36
+    GUI = 37
+    METRIC = 38
+    RPC = 39
+
+    RESOLH = 100
+    BANK = 101
+    POHH = 102
+    STORE = 103
+    PLUGIN = 104
+    BACKT = 105
+    BENCHS = 106
 
 class MetricType(Enum):
     COUNTER = 0
@@ -66,12 +77,11 @@ class MetricEnum:
         self.values = values
 
 class Metric:
-    def __init__(self, type: MetricType, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool):
+    def __init__(self, type: MetricType, name: str, tile: Optional[Tile], description: str):
         self.type = type
         self.name = name
         self.tile = tile
         self.description = description
-        self.clickhouse_exclude = clickhouse_exclude
         self.offset = 0
 
     def footprint(self) -> int:
@@ -81,17 +91,17 @@ class Metric:
         return 1
 
 class CounterMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, converter: HistogramConverter = HistogramConverter.NONE):
-        super().__init__(MetricType.COUNTER, name, tile, description, clickhouse_exclude)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, converter: HistogramConverter = HistogramConverter.NONE):
+        super().__init__(MetricType.COUNTER, name, tile, description)
         self.converter = converter
 
 class GaugeMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool):
-        super().__init__(MetricType.GAUGE, name, tile, description, clickhouse_exclude)
+    def __init__(self, name: str, tile: Optional[Tile], description: str):
+        super().__init__(MetricType.GAUGE, name, tile, description)
 
 class HistogramMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, converter: HistogramConverter, min: str, max: str):
-        super().__init__(MetricType.HISTOGRAM, name, tile, description, clickhouse_exclude)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, converter: HistogramConverter, min: str, max: str):
+        super().__init__(MetricType.HISTOGRAM, name, tile, description)
 
         self.converter = converter
         self.min = min
@@ -101,8 +111,8 @@ class HistogramMetric(Metric):
         return 136
 
 class CounterEnumMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, enum: MetricEnum, converter: HistogramConverter = HistogramConverter.NONE):
-        super().__init__(MetricType.COUNTER, name, tile, description, clickhouse_exclude)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum, converter: HistogramConverter = HistogramConverter.NONE):
+        super().__init__(MetricType.COUNTER, name, tile, description)
         self.type = MetricType.COUNTER
         self.enum = enum
         self.converter = converter
@@ -114,8 +124,8 @@ class CounterEnumMetric(Metric):
         return len(self.enum.values)
 
 class GaugeEnumMetric(Metric):
-    def __init__(self, name: str, tile: Optional[Tile], description: str, clickhouse_exclude: bool, enum: MetricEnum):
-        super().__init__(MetricType.GAUGE, name, tile, description, clickhouse_exclude)
+    def __init__(self, name: str, tile: Optional[Tile], description: str, enum: MetricEnum):
+        super().__init__(MetricType.GAUGE, name, tile, description)
 
         self.enum = enum
 
@@ -126,27 +136,21 @@ class GaugeEnumMetric(Metric):
         return len(self.enum.values)
 
 class Metrics:
-    def __init__(self, common: List[Metric], tiles: Dict[Tile, List[Metric]], link_in: List[Metric], link_out: List[Metric], enums: List[MetricEnum]):
+    def __init__(self, common: List[Metric], tiles: Dict[Tile, List[Metric]], link_in: List[Metric], enums: List[MetricEnum], tiles_no_telemetry: set = None):
         self.common = common
         self.tiles = tiles
         self.link_in = link_in
-        self.link_out = link_out
         self.enums = enums
+        self.tiles_no_telemetry = tiles_no_telemetry or set()
 
     def count(self):
         return sum([metric.count() for metric in self.common]) + \
             sum([sum([metric.count() for metric in tile_metrics]) for tile_metrics in self.tiles.values()]) + \
-            sum([metric.count() for metric in self.link_in]) + \
-            sum([metric.count() for metric in self.link_out])
+            sum([metric.count() for metric in self.link_in])
 
     def layout(self):
         offset: int = 0
         for metric in self.link_in:
-            metric.offset = offset
-            offset += int(metric.footprint() / 8)
-
-        offset: int = 0
-        for metric in self.link_out:
             metric.offset = offset
             offset += int(metric.footprint() / 8)
 
@@ -171,10 +175,6 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
     elif 'summary' in metric.attrib:
         description = metric.attrib['summary']
 
-    clickhouse_exclude = False
-    if 'clickhouse_exclude' in metric.attrib:
-        clickhouse_exclude = metric.attrib['clickhouse_exclude'] == 'true'
-
     if metric.tag == 'counter':
         converter = HistogramConverter.NONE
         if 'converter' in metric.attrib:
@@ -183,14 +183,14 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
                 converter = HistogramConverter[converter_str]
 
         if 'enum' in metric.attrib:
-            return CounterEnumMetric(name, tile, description, clickhouse_exclude, enums[metric.attrib['enum']], converter)
+            return CounterEnumMetric(name, tile, description, enums[metric.attrib['enum']], converter)
         else:
-            return CounterMetric(name, tile, description, clickhouse_exclude, converter)
+            return CounterMetric(name, tile, description, converter)
     elif metric.tag == 'gauge':
         if 'enum' in metric.attrib:
-            return GaugeEnumMetric(name, tile, description, clickhouse_exclude, enums[metric.attrib['enum']])
+            return GaugeEnumMetric(name, tile, description, enums[metric.attrib['enum']])
         else:
-            return GaugeMetric(name, tile, description, clickhouse_exclude)
+            return GaugeMetric(name, tile, description)
     elif metric.tag == 'histogram':
         converter = None
         if 'converter' in metric.attrib:
@@ -201,7 +201,7 @@ def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, Metr
         min = metric.attrib['min']
         max = metric.attrib['max']
 
-        return HistogramMetric(name, tile, description, clickhouse_exclude, converter, min, max)
+        return HistogramMetric(name, tile, description, converter, min, max)
     else:
         raise Exception(f'Unknown metric type: {metric.tag}')
 
@@ -227,20 +227,16 @@ def parse_metrics(xml_data: str) -> Metrics:
     assert common is not None
     common = [parse_metric(None, metric, enums) for metric in common]
 
-    tiles = {
-        Tile[tile.attrib['name'].upper()]: [
-            parse_metric(Tile[tile.attrib['name'].upper()], metric, enums)
-            for metric in tile
-        ]
-        for tile in root.findall('tile')
-    }
+    tiles = {}
+    tiles_no_telemetry = set()
+    for tile in root.findall('tile'):
+        tile_enum = Tile[tile.attrib['name'].upper()]
+        tiles[tile_enum] = [parse_metric(tile_enum, metric, enums) for metric in tile]
+        if tile.attrib.get('telemetry') == 'false':
+            tiles_no_telemetry.add(tile_enum)
 
     link_in = root.find('linkin')
     assert link_in is not None
     link_in = [parse_metric(None, metric, enums) for metric in link_in]
 
-    link_out = root.find('linkout')
-    assert link_out is not None
-    link_out = [parse_metric(None, metric, enums) for metric in link_out]
-
-    return Metrics(common=common, tiles=tiles, link_in=link_in, link_out=link_out, enums=enums)
+    return Metrics(common=common, tiles=tiles, link_in=link_in, enums=enums, tiles_no_telemetry=tiles_no_telemetry)

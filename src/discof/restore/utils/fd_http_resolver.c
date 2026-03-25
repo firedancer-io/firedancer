@@ -29,10 +29,13 @@
    that duplicates less state / etc. */
 
 struct fd_ssresolve_peer {
+  fd_sspeer_key_t key;
   fd_ip4_port_t addr;
-  char const *  hostname;
   int           is_https;
-  fd_ssinfo_t   ssinfo;
+  ulong         full_slot;
+  ulong         incr_slot;
+  uchar         full_hash[ FD_HASH_FOOTPRINT ];
+  uchar         incr_hash[ FD_HASH_FOOTPRINT ];
 
   fd_ssresolve_t * full_ssresolve;
   fd_ssresolve_t * inc_ssresolve;
@@ -211,24 +214,49 @@ fd_http_resolver_join( void * shresolver ) {
   return resolver;
 }
 
-void
-fd_http_resolver_add( fd_http_resolver_t * resolver,
-                      fd_ip4_port_t        addr,
-                      char const *         hostname,
-                      int                  is_https ) {
+int
+fd_http_resolver_add( fd_http_resolver_t *   resolver,
+                      fd_ip4_port_t          addr,
+                      char const *           hostname,
+                      int                    is_https,
+                      fd_sspeer_selector_t * selector  ) {
   if( !peer_pool_free( resolver->pool ) ) {
-    FD_LOG_ERR(( "peer pool exhausted" ));
+    FD_LOG_WARNING(( "peer pool exhausted" ));
+    return -1;
   }
   fd_ssresolve_peer_t * peer = peer_pool_ele_acquire( resolver->pool );
+  memset( &peer->key.url, 0, sizeof(peer->key.url) );
+  if( FD_LIKELY( hostname ) ) {
+    strncpy( peer->key.url.hostname, hostname, sizeof(peer->key.url.hostname) - 1UL );
+    peer->key.url.hostname[ sizeof(peer->key.url.hostname) - 1UL ] = '\0';
+  } else {
+    peer->key.url.hostname[ 0 ] = '\0';
+  }
+  peer->key.url.resolved_addr        = addr;
+  peer->key.is_url                   = 1;
   peer->state                        = PEER_STATE_UNRESOLVED;
   peer->addr                         = addr;
-  peer->hostname                     = hostname;
   peer->is_https                     = is_https;
   peer->fd.idx                       = ULONG_MAX;
-  peer->ssinfo.full.slot             = ULONG_MAX;
-  peer->ssinfo.incremental.base_slot = ULONG_MAX;
-  peer->ssinfo.incremental.slot      = ULONG_MAX;
+  peer->full_slot                    = ULONG_MAX;
+  peer->incr_slot                    = ULONG_MAX;
+
+  /* The peer needs to be added to the selector, in order to guarantee
+     that any subsequent update on the selector is able to find it.
+     At this time, latency, full/incr slot, as well as full/incr hash
+     are unknown. */
+  ulong score = fd_sspeer_selector_add( selector, &peer->key, addr, ULONG_MAX, ULONG_MAX, ULONG_MAX, NULL, NULL );
+  if( FD_UNLIKELY( score==ULONG_MAX ) ) {
+    /* If unable to add, then release the element back to the pool. */
+    FD_LOG_WARNING(( "failed to add peer to selector (hostname \"%s\" addr=" FD_IP4_ADDR_FMT ":%hu score=%lu)",
+                     peer->key.url.hostname[ 0 ] ? peer->key.url.hostname : "(none)",
+                     FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), score ));
+    peer_pool_ele_release( resolver->pool, peer );
+    return -1;
+  }
+  /* Add to the unresolved list. */
   deadline_list_ele_push_tail( resolver->unresolved, peer, resolver->pool );
+  return 0;
 }
 
 static int
@@ -274,12 +302,12 @@ peer_connect( fd_http_resolver_t *  resolver,
 
   if( FD_UNLIKELY( peer->is_https ) ) {
 #if FD_HAS_OPENSSL
-    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->hostname, resolver->ssl_ctx );
+    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname, resolver->ssl_ctx );
 #else
-    FD_LOG_ERR(( "peer %s requires https but firedancer is built without openssl support. Please remove this peer from your validator config.", peer->hostname ));
+    FD_LOG_ERR(( "peer %s requires https but firedancer is built without openssl support. Please remove this peer from your validator config.", peer->key.url.hostname ));
 #endif
   } else {
-    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1 );
+    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname );
   }
 
   if( FD_LIKELY( resolver->incremental_snapshot_fetch ) ) {
@@ -289,12 +317,12 @@ peer_connect( fd_http_resolver_t *  resolver,
     resolver->fds_len++;
     if( FD_UNLIKELY( peer->is_https ) ) {
 #if FD_HAS_OPENSSL
-      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->hostname, resolver->ssl_ctx );
+      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname, resolver->ssl_ctx );
 #else
       FD_LOG_ERR(( "peer requires https but firedancer is built without openssl support" ));
 #endif
     } else {
-      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0 );
+      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname );
     }
   } else {
     resolver->fds[ resolver->fds_len ] = (struct pollfd) {
@@ -377,10 +405,12 @@ poll_resolve( fd_http_resolver_t *  resolver,
       FD_TEST( peer->deadline_nanos>now );
 
       if( resolve_result.base_slot==ULONG_MAX ) {
-        peer->ssinfo.full.slot = resolve_result.slot;
+        peer->full_slot = resolve_result.slot;
+        fd_memcpy( peer->full_hash, resolve_result.hash, FD_HASH_FOOTPRINT );
       } else {
-        peer->ssinfo.incremental.base_slot = resolve_result.base_slot;
-        peer->ssinfo.incremental.slot      = resolve_result.slot;
+        peer->full_slot = resolve_result.base_slot;
+        peer->incr_slot = resolve_result.slot;
+        fd_memcpy( peer->incr_hash, resolve_result.hash, FD_HASH_FOOTPRINT );
       }
     }
   }
@@ -402,18 +432,25 @@ poll_advance( fd_http_resolver_t * resolver,
 
     struct pollfd * pfd = &resolver->fds[ i ];
     if( FD_UNLIKELY( pfd->fd==-1 ) ) continue;
-    if( FD_UNLIKELY( pfd->revents & (POLLERR|POLLHUP) ) ) {
-      unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] ), now );
-      continue;
-    }
 
     fd_ssresolve_peer_t * peer = peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] );
     int                   full = i&1UL ? 0 : 1; /* even indices are full, odd indices are incremental */
     fd_ssresolve_t * ssresolve = full ? peer->full_ssresolve : peer->inc_ssresolve;
 
+    /* Process pending I/O before checking for errors.  POLLIN can
+       coexist with POLLHUP when the server sends a response and then
+       closes the connection (common for HTTP HEAD redirects). */
     if( FD_LIKELY( !fd_ssresolve_is_done( ssresolve ) ) ) {
       int res = poll_resolve( resolver, pfd, peer, ssresolve, i, now );
       if( FD_UNLIKELY( res ) ) continue;
+    }
+
+    /* Only react to POLLERR/POLLHUP if the ssresolve hasn't completed
+       yet.  After a redirect is parsed the server often closes the
+       connection, which is harmless. */
+    if( FD_UNLIKELY( (pfd->revents & (POLLERR|POLLHUP)) && !fd_ssresolve_is_done( ssresolve ) ) ) {
+      unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] ), now );
+      continue;
     }
 
     /* Once both the full and incremental snapshots are resolved, we can
@@ -428,7 +465,7 @@ poll_advance( fd_http_resolver_t * resolver,
       deadline_list_ele_push_tail( resolver->valid, peer, resolver->pool );
       remove_peer( resolver, peer->fd.idx );
 
-      resolver->on_resolve_cb( resolver->cb_arg, peer->addr, &peer->ssinfo );
+      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->full_slot, peer->incr_slot, peer->full_hash, peer->incr_hash );
     }
   }
 }
@@ -463,7 +500,7 @@ fd_http_resolver_advance( fd_http_resolver_t *   resolver,
     deadline_list_ele_push_tail( resolver->invalid, peer, resolver->pool );
     remove_peer( resolver, peer->fd.idx );
 
-    fd_sspeer_selector_remove( selector, peer->addr );
+    fd_sspeer_selector_remove( selector, &peer->key );
   }
 
   while( !deadline_list_is_empty( resolver->invalid, resolver->pool ) ) {
@@ -488,7 +525,7 @@ fd_http_resolver_advance( fd_http_resolver_t *   resolver,
       peer->state = PEER_STATE_INVALID;
       peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
       deadline_list_ele_push_tail( resolver->invalid, peer, resolver->pool );
-      fd_sspeer_selector_remove( selector, peer->addr );
+      fd_sspeer_selector_remove( selector, &peer->key );
     } else {
       peer->state = PEER_STATE_REFRESHING;
       peer->deadline_nanos = now + PEER_DEADLINE_NANOS_RESOLVE;

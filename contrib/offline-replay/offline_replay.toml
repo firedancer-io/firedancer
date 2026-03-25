@@ -6,16 +6,17 @@
         end_slot = {end_slot}
         ingest_mode = "rocksdb"
         rocksdb_path = "{ledger}/rocksdb"
+        root_distance = 32
+        ingest_dead_slots = false
     [tiles.gui]
         enabled = false
     [tiles.rpc]
         enabled = false
-[funk]
-    heap_size_gib = {funk_pages}
-    max_account_records = {index_max}
-    max_database_transactions = 64
+[accounts]
+    file_size_gib = {funk_pages}
+    max_accounts = {index_max}
 [runtime]
-    max_live_slots = 4
+    max_live_slots = 128
     max_fork_width = 4
     [runtime.program_cache]
         heap_size_mib = 4096

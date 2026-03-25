@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_prune_finder_h
 #define HEADER_fd_src_flamenco_gossip_fd_prune_finder_h
 
-#include "../../util/fd_util.h"
+#include "../../util/fd_util_base.h"
 
 /* fd_prune_finder provides an API for tracking receiving gossip
    messages and determining which peers to prune.
@@ -63,6 +63,15 @@ fd_prune_finder_new( void * shmem );
 fd_prune_finder_t *
 fd_prune_finder_join( void * shpf );
 
+/* fd_prune_finder_set_identity updates the identity pubkey and stake
+   used to compute min_ingress_stake during prune decisions.  Should
+   be called after fd_gossip_set_identity or fd_gossip_stakes_update. */
+
+void
+fd_prune_finder_set_identity( fd_prune_finder_t * pf,
+                              uchar const *       identity_pubkey,
+                              ulong               identity_stake );
+
 /* fd_prune_finder_record records a received gossip message from a peer
    in the finder.  This should be called for every message received that
    is attempted to be inserted into the CRDS.
@@ -75,7 +84,9 @@ fd_prune_finder_join( void * shpf );
 
    If the message is the 20th recorded for a given originator, the
    finder will prune any peers relaying that origin which have not been
-   performing well, and reset the record counter to zero. */
+   performing well, and reset the record counter to zero.  Pending
+   prune decisions are buffered internally and can be retrieved with
+   fd_prune_finder_pop_prune. */
 
 void
 fd_prune_finder_record( fd_prune_finder_t * pf,
@@ -84,6 +95,28 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
                         uchar const *       relayer_pubkey,
                         ulong               relayer_stake,
                         ulong               num_dups );
+
+/* fd_prune_finder_pop_prune pops the next pending prune decision.
+   Each entry is a (relayer, origin) pair: the relayer is a peer we
+   should tell to stop forwarding the given origin to us.
+
+   Returns 1 if a prune was popped, 0 if no more pending prunes.
+   out_relayer and out_origin point into internal storage and are
+   invalidated by the next call to fd_prune_finder_record.
+
+   Usage pattern (like fd_ping_tracker_pop_request):
+
+     // After a batch of fd_prune_finder_record calls:
+     uchar const * relayer;
+     uchar const * origin;
+     while( fd_prune_finder_pop_prune( pf, &relayer, &origin ) ) {
+       // send prune message to relayer for origin
+     } */
+
+int
+fd_prune_finder_pop_prune( fd_prune_finder_t * pf,
+                           uchar const **      out_relayer,
+                           uchar const **      out_origin );
 
 FD_PROTOTYPES_END
 

@@ -179,16 +179,16 @@ fd_bn254_miller_loop( fd_bn254_fp12_t *   f,
 
   for( ulong j=0; j<sz; j++ ) {
     fd_bn254_pairing_proj_dbl( l, &t[j], &p[j] );
-    fd_bn254_fp12_mul( f, f, l );
+    fd_bn254_fp12_mul_sparse( f, f, l );
   }
   fd_bn254_fp12_sqr( f, f );
 
   for( ulong j=0; j<sz; j++ ) {
     fd_bn254_pairing_proj_add_sub( l, &t[j], &q[j], &p[j], 0, 0 ); /* do not change t */
-    fd_bn254_fp12_mul( f, f, l );
+    fd_bn254_fp12_mul_sparse( f, f, l );
 
     fd_bn254_pairing_proj_add_sub( l, &t[j], &q[j], &p[j], 1, 1 );
-    fd_bn254_fp12_mul( f, f, l );
+    fd_bn254_fp12_mul_sparse( f, f, l );
   }
 
   for( int i = 65-3; i>=0; i-- ) {
@@ -196,13 +196,13 @@ fd_bn254_miller_loop( fd_bn254_fp12_t *   f,
 
     for( ulong j=0; j<sz; j++ ) {
       fd_bn254_pairing_proj_dbl( l, &t[j], &p[j] );
-      fd_bn254_fp12_mul( f, f, l );
+      fd_bn254_fp12_mul_sparse( f, f, l );
     }
 
     if( s[i] != 0 ) {
       for( ulong j=0; j<sz; j++ ) {
         fd_bn254_pairing_proj_add_sub( l, &t[j], &q[j], &p[j], s[i] > 0, 1 );
-        fd_bn254_fp12_mul( f, f, l );
+        fd_bn254_fp12_mul_sparse( f, f, l );
       }
     }
   }
@@ -210,12 +210,12 @@ fd_bn254_miller_loop( fd_bn254_fp12_t *   f,
   for( ulong j=0; j<sz; j++ ) {
     fd_bn254_g2_frob( frob, &q[j] ); /* frob(q) */
     fd_bn254_pairing_proj_add_sub( l, &t[j], frob, &p[j], 1, 1 );
-    fd_bn254_fp12_mul( f, f, l );
+    fd_bn254_fp12_mul_sparse( f, f, l );
 
     fd_bn254_g2_frob2( frob, &q[j] ); /* -frob^2(q) */
     fd_bn254_g2_neg( frob, frob );
     fd_bn254_pairing_proj_add_sub( l, &t[j], frob, &p[j], 1, 0 ); /* do not change t */
-    fd_bn254_fp12_mul( f, f, l );
+    fd_bn254_fp12_mul_sparse( f, f, l );
   }
   return f;
 }

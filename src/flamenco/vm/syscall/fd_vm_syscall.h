@@ -775,8 +775,8 @@ int
 fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
                            fd_pubkey_t const *      callee_program_id_pubkey,
-                           fd_pubkey_t const        instr_acct_keys[ FD_INSTR_ACCT_MAX ],
-                           fd_instruction_account_t instruction_accounts[ FD_INSTR_ACCT_MAX ],
+                           fd_pubkey_t const        instr_acct_keys[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
+                           fd_instruction_account_t instruction_accounts[ FD_VM_CPI_MAX_INSTRUCTION_ACCOUNTS ],
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt );
@@ -799,17 +799,32 @@ FD_VM_SYSCALL_DECL( cpi_rust );
 
 /* FD_VM_SYSCALL_SOL_ALT_BN128_{ADD,SUB,MUL,PAIRING} specifies the curve operation. */
 
-#define FD_VM_SYSCALL_SOL_ALT_BN128_ADD                 (  0UL) /* add */
-#define FD_VM_SYSCALL_SOL_ALT_BN128_SUB                 (  1UL) /* add inverse */
-#define FD_VM_SYSCALL_SOL_ALT_BN128_MUL                 (  2UL) /* scalar mult */
-#define FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING             (  3UL) /* pairing */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_BE           (  0UL) /* add */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_SUB_BE           (  1UL) /* add inverse */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_BE           (  2UL) /* scalar mult */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_BE          (  3UL) /* pairing */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_BE           (  4UL) /* add */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_SUB_BE           (  5UL) /* add inverse */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_BE           (  6UL) /* scalar mult */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG  ( 0x80) /* little endian (SIMD-0284) */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_LE           ( FD_VM_SYSCALL_SOL_ALT_BN128_G1_ADD_BE  | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_SUB_LE           ( FD_VM_SYSCALL_SOL_ALT_BN128_G1_SUB_BE  | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_LE           ( FD_VM_SYSCALL_SOL_ALT_BN128_G1_MUL_BE  | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_LE          ( FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_BE | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_LE           ( FD_VM_SYSCALL_SOL_ALT_BN128_G2_ADD_BE  | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_SUB_LE           ( FD_VM_SYSCALL_SOL_ALT_BN128_G2_SUB_BE  | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_LE           ( FD_VM_SYSCALL_SOL_ALT_BN128_G2_MUL_BE  | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
 
 /* FD_VM_SYSCALL_SOL_ALT_BN128_{...}COMPRESS specifies the (de)compress operation. */
 
-#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS         (  0UL) /* compress point in G1 */
-#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS       (  1UL) /* decompress point in G1 */
-#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS         (  2UL) /* compress point in G2 */
-#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS       (  3UL) /* decompress point in G2 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS_BE      (  0UL) /* compress point in G1 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS_BE    (  1UL) /* decompress point in G1 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS_BE      (  2UL) /* compress point in G2 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS_BE    (  3UL) /* decompress point in G2 */
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS_LE      ( FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS_BE   | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS_LE    ( FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS_BE | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS_LE      ( FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS_BE   | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
+#define FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS_LE    ( FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS_BE | FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG )
 
 /* FD_VM_SYSCALL_SOL_ALT_BN128_{...}_SZ specifies the size of inputs/outputs for the Alt_BN128 curve. */
 
@@ -890,8 +905,14 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
 /* FD_VM_SYSCALL_SOL_CURVE_CURVE25519_{...} specifies the curve ID */
 
-#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS   ( 0UL) /* ed25519 */
-#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO ( 1UL) /* ristretto255 */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS   ( 0UL        ) /* ed25519 */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO ( 1UL        ) /* ristretto255 */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE         ( 4UL | 0x80 ) /* bls12-381 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE         ( 4UL        ) /* bls12-381 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_BE      ( 5UL | 0x80 ) /* bls12-381 G1 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_LE      ( 5UL        ) /* bls12-381 G1 little endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_BE      ( 6UL | 0x80 ) /* bls12-381 G2 big endian */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_LE      ( 6UL        ) /* bls12-381 G2 little endian */
 
 /* FD_VM_SYSCALL_SOL_CURVE_{...} specifies the curve operation */
 
@@ -899,28 +920,148 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 #define FD_VM_SYSCALL_SOL_CURVE_SUB                  ( 1UL) /* add inverse */
 #define FD_VM_SYSCALL_SOL_CURVE_MUL                  ( 2UL) /* scalar mul */
 
-/* FD_VM_SYSCALL_SOL_CURVE_CURVE25519_{...}_SZ specifies the size of inputs/outputs. */
+/* FD_VM_SYSCALL_SOL_CURVE_{...}_SZ specifies the size of inputs/outputs. */
 
-#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ  (32UL) /* point (compressed) */
-#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ (32UL) /* scalar */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ           (32UL)   /* point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ          (32UL)   /* scalar */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_COMPRESSED_SZ    (48UL)   /* G1 point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ         (96UL)   /* G1 point (uncompressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_COMPRESSED_SZ  (2*48UL)   /* G2 point (compressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ       (2*96UL)   /* G2 point (uncompressed) */
+#define FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ        (12*48UL)   /* GT element */
 
 /* syscall(aa2607ca) sol_curve_validate_point
 
-   FIXME: BELT SAND AND DOCUMENT */
+   Inputs:
+
+     arg0 - curve_id
+     arg1 - point_addr
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE: invalid curve_id.
+
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. Compute budget decremented.
+
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for point_addr
+     *_ret unchanged.  Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret=0 point is valid.
+                              *_ret=1 point is invalid. */
 
 FD_VM_SYSCALL_DECL( sol_curve_validate_point  );
 
-/* syscall(dd1c41a6) sol_curve_validate_point
+/* syscall(dd1c41a6) sol_curve_group_op
 
-   FIXME: BELT SAND AND DOCUMENT */
+   Inputs:
+
+     arg0 - curve_id
+     arg1 - group_op
+     arg2 - left_input_addr
+     arg3 - right_input_addr
+     arg4 - result_point_addr
+
+   Return:
+
+     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE: invalid curve_id/group_op.
+
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. Compute budget decremented.
+
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for left_input_addr,
+     right_input_addr or result_point_addr.
+     *_ret unchanged.  Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret=0 success, result written at result_point_addr.
+                              *_ret=1 input validation failed, memory at
+                                      result_point_addr unchanged. */
 
 FD_VM_SYSCALL_DECL( sol_curve_group_op );
 
-/* syscall(60a40880) sol_curve_validate_point
+/* syscall(60a40880) sol_curve_multiscalar_mul
 
-   FIXME: BELT SAND AND DOCUMENT */
+   Inputs:
+
+     arg0 - curve_id
+     arg1 - scalars_addr
+     arg2 - points_addr
+     arg3 - points_len
+     arg4 - result_point_addr
+
+   Return:
+
+     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE: invalid curve_id/group_op.
+
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. Compute budget decremented.
+
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for scalars_addr or
+     points_addr.
+     *_ret unchanged.  Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret=0 success, result written at result_point_addr.
+                              *_ret=1 input validation failed, memory at
+                                      result_point_addr unchanged. */
 
 FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
+
+/* syscall(80c98b0) sol_curve_decompress
+
+   Inputs:
+
+     arg0 - curve_id
+     arg1 - point_addr, compressed BLS12-381 point selected by curve_id
+     arg2 - result_addr, uncompressed BLS12-381 point
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE: invalid curve_id/group_op.
+
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. Compute budget decremented.
+
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for point_addr or
+     result_addr.
+     *_ret unchanged.  Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret=0 success, result written at result_addr.
+                              *_ret=1 input validation failed, memory at
+                                      result_addr unchanged. */
+
+FD_VM_SYSCALL_DECL( sol_curve_decompress );
+
+/* syscall(f111a47e) sol_curve_pairing_map
+
+   Inputs:
+
+     arg0 - curve_id
+     arg1 - num_pairs
+     arg2 - g1_points_addr
+     arg3 - g2_points_addr
+     arg4 - result_addr
+
+   Return:
+
+     FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE: invalid curve_id/group_op.
+
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
+     *_ret unchanged. Compute budget decremented.
+
+     FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for g1_points_addr,
+     g2_points_addr or result_addr.
+     *_ret unchanged.  Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret=0 success, result written at result_addr.
+                              *_ret=1 input validation failed, memory at
+                                      result_addr unchanged. */
+
+FD_VM_SYSCALL_DECL( sol_curve_pairing_map );
 
 int
 fd_vm_derive_pda( fd_vm_t *           vm,

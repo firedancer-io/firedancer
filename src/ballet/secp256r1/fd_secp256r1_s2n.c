@@ -41,7 +41,7 @@ fd_secp256r1_scalar_from_digest( fd_secp256r1_scalar_t * r,
 }
 
 static inline fd_secp256r1_scalar_t *
-fd_secp256r1_scalar_mul( fd_secp256r1_scalar_t *       r, 
+fd_secp256r1_scalar_mul( fd_secp256r1_scalar_t *       r,
                          fd_secp256r1_scalar_t const * a,
                          fd_secp256r1_scalar_t const * b ) {
   ulong t[ 8 ];
@@ -51,7 +51,7 @@ fd_secp256r1_scalar_mul( fd_secp256r1_scalar_t *       r,
 }
 
 static inline fd_secp256r1_scalar_t *
-fd_secp256r1_scalar_inv( fd_secp256r1_scalar_t       * r, 
+fd_secp256r1_scalar_inv( fd_secp256r1_scalar_t       * r,
                          fd_secp256r1_scalar_t const * a ) {
   ulong t[ 12 ];
   bignum_modinv( 4, r->limbs, (ulong *)a->limbs, (ulong *)fd_secp256r1_const_n[0].limbs, t );
@@ -131,7 +131,7 @@ fd_secp256r1_point_frombytes( fd_secp256r1_point_t * r,
   }
 
   bignum_tomont_p256( r->x->limbs, r->x->limbs );
-  
+
   /* y^2 = x^3 + ax + b */
   bignum_montsqr_p256( y2->limbs, r->x->limbs );
   bignum_add_p256    ( y2->limbs, y2->limbs, (ulong *)fd_secp256r1_const_a_mont[0].limbs );
@@ -176,18 +176,79 @@ fd_secp256r1_point_eq_x( fd_secp256r1_point_t const *  p,
   return FD_SECP256R1_FAILURE;
 }
 
+/* Given the projective point `r` and the affine point `p`,
+   returns 1 if they are equal and 0 otherwise.
+   Assumes that `p` X and Y coordinates are in Montgomery domain. */
+static inline int
+fd_secp256r1_point_eq_mixed( fd_secp256r1_point_t const * a,
+                             ulong                const   b[ 8 ] ) {
+  fd_secp256r1_fp_t x[1], y[1];
+  fd_memcpy( x->limbs, b+0, sizeof(fd_secp256r1_fp_t) );
+  fd_memcpy( y->limbs, b+4, sizeof(fd_secp256r1_fp_t) );
+  /* Indicates if the affine point is zero. */
+  int is_zero = fd_uint256_eq( x, fd_secp256r1_const_zero ) & fd_uint256_eq( y, fd_secp256r1_const_zero );
+
+  /* Easy cases */
+  if( FD_UNLIKELY( fd_uint256_eq( a->z, fd_secp256r1_const_zero ) ) ) {
+    return is_zero;
+  }
+  if( FD_UNLIKELY( is_zero ) ) {
+    return 0;
+  }
+
+  fd_secp256r1_fp_t z1z1[1];
+  bignum_montsqr_p256( z1z1->limbs, (ulong *)a->z->limbs );
+
+  fd_secp256r1_fp_t temp[1];
+  bignum_montmul_p256( temp->limbs, (ulong *)x->limbs, z1z1->limbs );
+
+  if( FD_UNLIKELY( fd_uint256_eq( a->x, temp ) ) ) {
+    bignum_montmul_p256( temp->limbs, z1z1->limbs,  (ulong *)a->z->limbs );
+    bignum_montmul_p256( temp->limbs, temp->limbs, (ulong *)y->limbs );
+    return fd_uint256_eq( a->y, temp );
+  } else {
+    return 0;
+  }
+}
+
+/* Adds projective point `a` and affine-Montgomery point `b`, both
+   in Montgomery domain. Handles identity elements and the equal-point
+   (doubling) case. */
+static inline void
+fd_secp256r1_point_add_mixed( fd_secp256r1_point_t *       r,
+                              fd_secp256r1_point_t const * a,
+                              ulong                        b[ 8 ] ) {
+  int b_is_zero = fd_uint256_eq( (fd_uint256_t const *)(b+0), fd_secp256r1_const_zero ) &
+                  fd_uint256_eq( (fd_uint256_t const *)(b+4), fd_secp256r1_const_zero );
+
+  if( FD_UNLIKELY( b_is_zero ) ) {
+    /* a + 0 = a */
+    if( r != a ) fd_memcpy( r, a, sizeof(fd_secp256r1_point_t) );
+    return;
+  }
+
+  if( FD_UNLIKELY( fd_secp256r1_point_eq_mixed( a, b ) ) ) {
+    p256_montjdouble( (ulong *)r, (ulong *)a );
+  } else {
+    /* Also handles a == 0 and a == -b */
+    p256_montjmixadd( (ulong *)r, (ulong *)a, b );
+  }
+}
+
 static inline void
 fd_secp256r1_double_scalar_mul_base( fd_secp256r1_point_t *        r,
                                      fd_secp256r1_scalar_t const * u1,
                                      fd_secp256r1_point_t const *  a,
                                      fd_secp256r1_scalar_t const * u2 ) {
-  /* u1*G + u2*A */
+  /* u1*G */
   ulong rtmp[ 8 ];
   p256_scalarmulbase( rtmp, (ulong *)u1->limbs, 6, (ulong *)fd_secp256r1_base_point_table );
   bignum_tomont_p256( rtmp, rtmp );
   bignum_tomont_p256( rtmp+4, rtmp+4 );
 
+  /* u2*A */
   p256_montjscalarmul( (ulong *)r, (ulong *)u2->limbs, (ulong *)a );
 
-  p256_montjmixadd( (ulong *)r, (ulong *)r, rtmp );
+  /* u1*G + u2*A */
+  fd_secp256r1_point_add_mixed( r, r, rtmp );
 }

@@ -4,7 +4,6 @@ ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 ifdef FD_HAS_ZSTD
-ifdef FD_HAS_SECP256K1
 
 .PHONY: firedancer-dev
 
@@ -18,16 +17,20 @@ $(call add-objs,commands/repair,fd_firedancer_dev)
 $(call add-objs,commands/tower,fd_firedancer_dev)
 $(call add-objs,commands/ipecho_server,fd_firedancer_dev)
 $(call add-objs,commands/gossip_dump,fd_firedancer_dev)
+$(call add-objs,commands/reasm,fd_firedancer_dev)
 
 ifdef FD_HAS_SSE
+# ifdef FD_HAS_BLST -- will be a required dependency soon
+ifdef FD_HAS_S2NBIGNUM
 $(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_vinyl fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(SECP256K1_LIBS) $(ROCKSDB_LIBS) $(OPENSSL_LIBS))
 endif
+# endif
+endif
 
-# $(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util, $(SECP256K1_LIBS))
-# $(call run-integration-test,test_fddev)
+$(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_vinyl fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version, $(SECP256K1_LIBS) $(ROCKSDB_LIBS) $(OPENSSL_LIBS))
+$(call run-integration-test,test_firedancer_dev)
 else
 $(warning firedancer-dev build disabled due to lack of zstd)
-endif
 endif
 endif
 endif

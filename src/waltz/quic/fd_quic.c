@@ -28,6 +28,7 @@
 #include <unistd.h>  /* for keylog close(2) */
 
 #include "../../ballet/hex/fd_hex.h"
+#include "../../ballet/x509/fd_x509_mock.h"
 #include "../../tango/tempo/fd_tempo.h"
 #include "../../util/log/fd_dtrace.h"
 
@@ -267,7 +268,7 @@ fd_quic_config_from_env( int  *             pargc,
   cfg->retry = fd_env_strip_cmdline_contains( pargc, pargv, "--quic-retry" );
 
   if( keylog_file ) {
-    strncpy( cfg->keylog_file, keylog_file, FD_QUIC_PATH_LEN );
+    fd_cstr_ncpy( cfg->keylog_file, keylog_file, sizeof(cfg->keylog_file) );
   } else {
     cfg->keylog_file[0]='\0';
   }
@@ -557,6 +558,16 @@ fd_quic_init( fd_quic_t * quic ) {
   return quic;
 }
 
+FD_QUIC_API void
+fd_quic_set_identity_public_key( fd_quic_t * quic,
+                                 uchar const public_key[ static 32 ] ) {
+  memcpy( quic->config.identity_public_key, public_key, 32UL );
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_tls_t * tls = &state->tls->tls;
+  memcpy( tls->cert_public_key, public_key, 32UL );
+  fd_x509_mock_cert( tls->cert_x509, tls->cert_public_key );
+}
+
 /* fd_quic_enc_level_to_pn_space maps of encryption level in [0,4) to
    packet number space. */
 static uint
@@ -647,7 +658,7 @@ fd_quic_conn_free_validate( fd_quic_t * quic ) {
   ulong cnt  = 0UL;
   uint  node = state->free_conn_list;
   while( node!=UINT_MAX ) {
-    FD_TEST( node <= quic->limits.conn_cnt );
+    FD_TEST( node < quic->limits.conn_cnt );
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, node );
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_INVALID );
     conn->visited = 1U;
@@ -2710,7 +2721,7 @@ fd_quic_apply_peer_params( fd_quic_conn_t *                   conn,
 
   /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
   if( peer_tp->max_idle_timeout_ms ) {
-    long peer_max_idle_timeout_ns = (long)peer_tp->max_idle_timeout_ms * (long)1e6;
+    long peer_max_idle_timeout_ns = fd_long_sat_mul( (long)peer_tp->max_idle_timeout_ms, (long)1e6);
     conn->idle_timeout_ns         = fd_long_min( peer_max_idle_timeout_ns, conn->idle_timeout_ns );
   }
 
@@ -3789,7 +3800,8 @@ fd_quic_conn_tx( fd_quic_t      * quic,
        all short quic packets are padded so 16 bytes of sample are available */
     uint tot_frame_sz = (uint)( payload_ptr - frame_start );
     uint base_pkt_len = (uint)tot_frame_sz + pkt_num_len + FD_QUIC_CRYPTO_TAG_SZ;
-    uint padding      = initial_pkt ? FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - base_pkt_len : 0u;
+    uint padding      = ( initial_pkt && (base_pkt_len < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN) )
+                            ? FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - base_pkt_len : 0u;
 
     if( base_pkt_len + padding < FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START + FD_QUIC_CRYPTO_SAMPLE_SZ ) {
       padding = FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START - base_pkt_len;
@@ -4461,6 +4473,16 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
             /* do not try sending data that has been acked */
             ulong offset = fd_ulong_max( pkt_meta->val.range.offset_lo, stream->unacked_low );
 
+            /* This pkt_meta may be stale: when ACK-driven loss detection
+               force-retries an earlier pkt_meta for the same stream, the
+               retransmitted data can be ACKed (advancing unacked_low)
+               before this pkt_meta expires. Skip the retry if the
+               stream has nothing left to send. */
+            if( FD_UNLIKELY( offset>=stream->tx_buf.head &&
+                  !( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ) ) ) {
+              break;
+            }
+
             /* any data left to retry? */
             stream->tx_sent = fd_ulong_min( stream->tx_sent, offset );
 
@@ -4791,8 +4813,8 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
      We unfortunately can't just use 'largest_ack-3' because 1) largest_ack'd
      may have been previously acknowledged and 2) we may have skipped pkt_nums.
    */
-  ulong skip_ceil;
-  {
+  ulong skip_ceil = 0UL;
+  if( FD_LIKELY( largest_ack > 0UL ) ) {
     #define FD_QUIC_K_PACKET_THRESHOLD 3
     fd_quic_pkt_meta_tracker_t * tracker  = &conn->pkt_meta_tracker;
     fd_quic_pkt_meta_t         * pool     = tracker->pool;
@@ -5124,6 +5146,12 @@ fd_quic_handle_max_streams_frame(
   if( data->type == 0x13 ) {
     /* Only handle unidirectional streams */
     ulong type               = (ulong)conn->server | 2UL;
+    /* Receipt of a frame that permits opening of a stream larger than this limit (2^60)
+       MUST be treated as a connection error of type FRAME_ENCODING_ERROR. */
+    if( FD_UNLIKELY( data->max_streams > FD_QUIC_STREAM_COUNT_MAX ) ) {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+      return FD_QUIC_PARSE_FAIL;
+    }
     ulong peer_sup_stream_id = data->max_streams * 4UL + type;
     conn->tx_sup_stream_id = fd_ulong_max( peer_sup_stream_id, conn->tx_sup_stream_id );
   }

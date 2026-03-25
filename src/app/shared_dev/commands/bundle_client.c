@@ -21,13 +21,13 @@ bundle_client_topo( config_t *   config ) {
   /* Tiles */
 
   fd_topob_wksp( topo, "bundle" );
-  fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 0, 1 );
+  fd_topo_tile_t * bundle_tile = fd_topob_tile( topo, "bundle", "bundle", "metric_in", ULONG_MAX, 0, 1, 0 );
 
   fd_topob_wksp( topo, "sign" );
-  fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1 );
+  fd_topo_tile_t * sign_tile = fd_topob_tile( topo, "sign", "sign", "metric_in", ULONG_MAX, 0, 1, 0 );
 
   fd_topob_wksp( topo, "metric" );
-  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0 );
+  fd_topo_tile_t * metric_tile = fd_topob_tile( topo, "metric", "metric", "metric_in", ULONG_MAX, 0, 0, 0 );
 
   /* Links */
 
@@ -51,6 +51,7 @@ bundle_client_topo( config_t *   config ) {
   strncpy( bundle_tile->bundle.identity_key_path, config->paths.identity_key, sizeof(bundle_tile->bundle.identity_key_path) );
   strncpy( bundle_tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(bundle_tile->bundle.key_log_path) );
   bundle_tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
+  bundle_tile->bundle.out_depth = config->tiles.verify.receive_buffer_size;
   bundle_tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
   bundle_tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
   bundle_tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
@@ -82,7 +83,7 @@ bundle_client_cmd_fn( args_t *   args,
   bundle_client_topo( config );
   initialize_workspaces( config );
   initialize_stacks( config );
-  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
 

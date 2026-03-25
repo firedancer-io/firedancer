@@ -4,7 +4,7 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "fd_features_generated.h"
-#include "../../funk/fd_funk_base.h"
+#include "../accdb/fd_accdb_user.h"
 
 /* Macro FEATURE_ID_CNT expands to the number of features in
    fd_features_t. */
@@ -25,11 +25,18 @@
 
 #define FD_FEATURE_SET_ACTIVE(_features, _feature_name, _slot)            ( (_features)-> _feature_name = _slot )
 #define FD_FEATURE_ACTIVE_OFFSET(_slot, _features, _offset)               FD_FEATURE_ACTIVE_OFFSET_( _slot, _features, _offset )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_bank, _offset)                  FD_FEATURE_JUST_ACTIVATED_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_bank, _offset)                  FD_FEATURE_JUST_ACTIVATED_OFFSET_( (_bank)->data->f.slot, &(_bank)->data->f.features, _offset )
 #define FD_FEATURE_ACTIVE(_slot, _features, _feature_name)                FD_FEATURE_ACTIVE_( _slot, _features, _feature_name )
-#define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _feature_name )
-#define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( fd_bank_slot_get( _bank ), fd_bank_features_query( _bank ), _offset )
+#define FD_FEATURE_ACTIVE_BANK(_bank, _feature_name)                      FD_FEATURE_ACTIVE_( (_bank)->data->f.slot, &(_bank)->data->f.features, _feature_name )
+#define FD_FEATURE_ACTIVE_BANK_OFFSET(_bank, _offset)                     FD_FEATURE_ACTIVE_OFFSET_( (_bank)->data->f.slot, &(_bank)->data->f.features, _offset )
+#define FD_FEATURE_JUST_ACTIVATED_BANK(_bank, _feature_name)              FD_FEATURE_JUST_ACTIVATED_( (_bank)->data->f.slot, &(_bank)->data->f.features, _feature_name )
 
+struct __attribute__((packed)) fd_feature {
+  uchar is_active;  /* 0 or 1 */
+  ulong activation_slot;
+};
+
+typedef struct fd_feature fd_feature_t;
 
 /* fd_features_t is the current set of enabled feature flags.
 
@@ -61,13 +68,18 @@ struct fd_feature_id {
   ulong        index;                /* index of feature in fd_features_t */
   fd_pubkey_t  id;                   /* pubkey of feature */
   char const * name;                 /* feature name cstr */
-  uint         cleaned_up[3];        /* cleaned_up cluster version for feature */
+  uchar        cleaned_up;           /* 1 if feature is cleaned up in firedancer, 0 otherwise */
   uchar        reverted;             /* if the feature was reverted */
   uchar        hardcode_for_fuzzing; /* if the should be treated as hardcoded in the firedancer fuzzing harness */
 };
 typedef struct fd_feature_id fd_feature_id_t;
 
 FD_PROTOTYPES_BEGIN
+
+fd_feature_t *
+fd_feature_decode( fd_feature_t * feature,
+                   uchar const *  data,
+                   ulong          data_sz );
 
 /* fd_feature_ids is the list of known feature IDs.
    The last element has offset==ULONG_MAX. */
@@ -88,7 +100,7 @@ fd_features_enable_all( fd_features_t * );
    of the Firedancer software and can't be disabled. */
 
 void
-fd_features_enable_cleaned_up( fd_features_t *, fd_cluster_version_t const * );
+fd_features_enable_cleaned_up( fd_features_t * );
 
 /* fd_features_enable_one_offs enables all manually passed in features. */
 
@@ -144,16 +156,18 @@ fd_features_get( fd_features_t const *   features,
    the feature address (little-endian order).  Returns pointer to ID in
    `ids` array on success, or NULL on failure. */
 
-FD_FN_CONST fd_feature_id_t const *
+FD_FN_PURE fd_feature_id_t const *
 fd_feature_id_query( ulong prefix );
 
 /* fd_features_restore loads all known feature accounts from the
-   accounts database.  This is used when initializing bank from a
-   snapshot. */
+   accounts database and populates the bank's in-memory feature set
+   with their activation slots.  If we're currently at the last slot
+   before an epoch boundary, any pending features (is_active==0) will
+   also be populated with slot+1 as their activation slot. */
 
 void
 fd_features_restore( fd_bank_t *               bank,
-                     fd_funk_t *               funk,
+                     fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid );
 
 FD_PROTOTYPES_END

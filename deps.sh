@@ -35,7 +35,6 @@ PREFIX="$(pwd)/opt"
 
 DEVMODE=0
 MSAN=0
-LIBURING=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
 EXTRA_CFLAGS="-g3 -fno-omit-frame-pointer"
@@ -136,15 +135,14 @@ fetch () {
   fi
   checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
   checkout_repo lz4       https://github.com/lz4/lz4                  "v1.10.0"
-  checkout_repo liburing  https://github.com/axboe/liburing           "liburing-2.12"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "4d2e22a"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.0"
-  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1   "v0.7.0"
+  checkout_repo blst      https://github.com/supranational/blst       "v0.3.13"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo bzip2   https://gitlab.com/bzip2/bzip2              "bzip2-1.0.8"
     checkout_repo rocksdb https://github.com/facebook/rocksdb         "v10.5.1"
     checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
-    checkout_repo flatcc    https://github.com/dvidelabs/flatcc.git     "" "3ae5eda"
+    checkout_repo flatcc  https://github.com/dvidelabs/flatcc         "" "3ae5eda"
   fi
 }
 
@@ -375,11 +373,6 @@ check () {
         echo "[+] Installing rustup"
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         source "$HOME/.cargo/env"
-        rust_toolchain=$(grep "channel" agave/rust-toolchain.toml | awk '{print $NF}' | tr -d '"')
-        if [[ ! $(rustup toolchain list | grep $rust_toolchain) ]]; then
-          echo "[+] Updating rustup toolchain"
-          rustup toolchain add $rust_toolchain
-        fi
         ;;
       *)
         echo "[-] Skipping rustup install"
@@ -441,129 +434,108 @@ install_lz4 () {
   echo "[+] Successfully installed lz4"
 }
 
-install_liburing () {
-  cd "$PREFIX/git/liburing"
-
-  echo "[+] Installing liburing to $PREFIX"
-  ./configure --prefix="$PREFIX" --cc="$CC -fPIC $EXTRA_CFLAGS"
-  "${MAKE[@]}"
-  "${MAKE[@]}" install
-  echo "[+] Successfully installed liburing"
-}
-
 install_s2n () {
   cd "$PREFIX/git/s2n"
 
   echo "[+] Installing s2n-bignum to $PREFIX"
-  make -C x86
-  cp x86/libs2nbignum.a "$PREFIX/lib"
+  if [[ "$(uname -m)" == x86_64 ]]; then
+    make -C x86
+    cp x86/libs2nbignum.a "$PREFIX/lib"
+  elif [[ "$(uname -m)" == aarch64 ]]; then
+    make -C arm
+    cp arm/libs2nbignum.a "$PREFIX/lib"
+  fi
+
   cp include/* "$PREFIX/include"
   echo "[+] Successfully installed s2n-bignum"
 }
 
-install_secp256k1 () {
-  cd "$PREFIX/git/secp256k1"
+install_blst () {
+  cd "$PREFIX/git/blst"
 
-  echo "[+] Configuring secp256k1"
-  rm -rf build
-  mkdir build
-  cd build
-  # https://github.com/bitcoin-core/secp256k1/blob/master/CMakeLists.txt#L59
-  cmake .. \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DSECP256K1_BUILD_TESTS=OFF \
-    -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF \
-    -DSECP256K1_BUILD_BENCHMARK=OFF \
-    -DSECP256K1_DISABLE_SHARED=OFF \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
-    -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
-    -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
-    -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
-    -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
-    -DSECP256K1_ENABLE_MODULE_MUSIG=OFF \
-    -DSECP256K1_ENABLE_MODULE_ELLSWIFT=OFF \
-    -DCMAKE_C_FLAGS_RELEASE="-O3" \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_C_FLAGS="$EXTRA_CFLAGS" \
-    -DCMAKE_EXE_LINKER_FLAGS_RELEASE="$EXTRA_LDFLAGS"
+  echo "[+] Building blst"
+  ./build.sh
+  echo "[+] Successfully built blst"
 
-  echo "[+] Building secp256k1"
-  "${MAKE[@]}"
-  echo "[+] Successfully built secp256k1"
-
-  echo "[+] Installing secp256k1 to $PREFIX"
-  make install
-  echo "[+] Successfully installed secp256k1"
+  echo "[+] Installing blst to $PREFIX"
+  cp "$PREFIX/git/blst/libblst.a" "$PREFIX/lib/"
+  cp "$PREFIX/git/blst/bindings/blst.h" "$PREFIX/include/"
+  cp "$PREFIX/git/blst/bindings/blst_aux.h" "$PREFIX/include/"
+  echo "[+] Successfully installed blst"
 }
 
 install_openssl () {
   cd "$PREFIX/git/openssl"
 
   echo "[+] Configuring OpenSSL"
-  ./config \
-    -fPIC \
-    --prefix="$PREFIX" \
-    --libdir=lib \
-    threads \
-    no-engine \
-    no-static-engine \
-    no-weak-ssl-ciphers \
-    no-autoload-config \
-    no-tls1 \
-    no-tls1-method \
-    no-tls1_1 \
-    no-tls1_1-method \
-    no-tls1_2 \
-    no-tls1_2-method \
-    enable-tls1_3 \
-    no-shared \
-    no-legacy \
-    no-tests \
-    no-ui-console \
-    no-sctp \
-    no-ssl3 \
-    no-aria \
-    no-argon2 \
-    no-bf \
-    no-blake2 \
-    no-camellia \
-    no-cast \
-    no-cmac \
-    no-cmp \
-    no-cms \
-    no-comp \
-    no-ct \
-    no-des \
-    no-dsa \
-    no-dtls \
-    no-dtls1-method \
-    no-dtls1_2-method \
-    no-fips \
-    no-gost \
-    no-idea \
-    no-ktls \
-    no-md4 \
-    no-nextprotoneg \
-    no-ocb \
-    no-ocsp \
-    no-rc2 \
-    no-rc4 \
-    no-rc5 \
-    no-rmd160 \
-    no-scrypt \
-    no-seed \
-    no-siphash \
-    no-siv \
-    no-sm3 \
-    no-sm4 \
-    no-srp \
-    no-srtp \
-    no-ts \
+
+  local CONFIG_OPTS=(
+    -fPIC
+    --prefix="$PREFIX"
+    --libdir=lib
+    threads
+    no-engine
+    no-static-engine
+    no-weak-ssl-ciphers
+    no-autoload-config
+    no-tls1
+    no-tls1-method
+    no-tls1_1
+    no-tls1_1-method
+    no-tls1_2
+    no-tls1_2-method
+    enable-tls1_3
+    no-shared
+    no-legacy
+    no-tests
+    no-ui-console
+    no-sctp
+    no-ssl3
+    no-aria
+    no-argon2
+    no-bf
+    no-blake2
+    no-camellia
+    no-cast
+    no-cmac
+    no-cmp
+    no-cms
+    no-comp
+    no-ct
+    no-des
+    no-dsa
+    no-dtls
+    no-dtls1-method
+    no-dtls1_2-method
+    no-fips
+    no-gost
+    no-idea
+    no-ktls
+    no-md4
+    no-nextprotoneg
+    no-ocb
+    no-ocsp
+    no-rc2
+    no-rc4
+    no-rc5
+    no-rmd160
+    no-scrypt
+    no-seed
+    no-siphash
+    no-siv
+    no-sm3
+    no-sm4
+    no-srp
+    no-srtp
+    no-ts
     no-whirlpool
+  )
+
+  if [[ $MSAN == 1 ]]; then
+    CONFIG_OPTS+=( enable-msan no-asm )
+  fi
+
+  ./config "${CONFIG_OPTS[@]}"
   echo "[+] Configured OpenSSL"
 
   echo "[+] Building OpenSSL"
@@ -657,16 +629,9 @@ install () {
   fi
   ( install_zstd      )
   ( install_lz4       )
-  if [[ $LIBURING == 1 ]]; then
-    if [[ "$OS" == "Linux" ]]; then
-      ( install_liburing )
-    fi
-  fi
-  if [[ "$(uname -m)" == x86_64 ]]; then
-    ( install_s2n )
-  fi
+  ( install_s2n       )
   ( install_openssl   )
-  ( install_secp256k1 )
+  ( install_blst )
   if [[ $DEVMODE == 1 ]]; then
     ( install_bzip2     )
     ( install_snappy    )
@@ -706,10 +671,6 @@ while [[ $# -gt 0 ]]; do
     "+dev")
       shift
       DEVMODE=1
-      ;;
-    "+uring")
-      shift
-      LIBURING=1
       ;;
     nuke)
       shift

@@ -31,7 +31,7 @@ fddev_configure( config_t * config,
 
   fd_log_thread_set( "configure" );
   args_t args = {
-    .configure.command = CONFIGURE_CMD_INIT,
+    .configure.command = CONFIGURE_CMD_FINI,
     .configure.stages  = {0},
   };
 
@@ -47,6 +47,12 @@ fddev_configure( config_t * config,
   configure_cmd_perm( &args, chk, config );
   FD_TEST( !fd_cap_chk_err_cnt( chk ) );
   configure_cmd_fn( &args, config );
+
+  args.configure.command = CONFIGURE_CMD_INIT;
+  configure_cmd_perm( &args, chk, config );
+  FD_TEST( !fd_cap_chk_err_cnt( chk ) );
+  configure_cmd_fn( &args, config );
+
   return 0;
 }
 
@@ -74,7 +80,9 @@ fddev_ready( config_t * config,
   (void)pipefd;
 
   fd_log_thread_set( "ready" );
-  args_t args = {0};
+  args_t args = {
+    .ready.ready_slot = 0UL,
+  };
   ready_cmd_fn( &args, config );
   return 0;
 }
@@ -97,8 +105,6 @@ fddev_dev( config_t * config,
   fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
   dev_cmd_perm( &args, chk, config );
   FD_TEST( !fd_cap_chk_err_cnt( chk ) );
-  FD_LOG_WARNING(( "waitpid %lu", fd_sandbox_getpid() ));
-  // sleep(15);
   dev_cmd_fn( &args, config, spawn_agave );
   return 0;
 }
@@ -178,7 +184,7 @@ fddev_test_run( int     argc,
       fd_log_thread_set( "supervisor" );
 
       static config_t config[1];
-      fd_config_load( 0, 0, 1, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config );
+      fd_config_load( 0, 1, (char const *)fdctl_default_config, fdctl_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config );
       fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();
       config->log.lock_fd = init_log_memfd();

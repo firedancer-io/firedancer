@@ -26,7 +26,7 @@ tile are,
 | `metric` | Collects monitoring information about other tiles and serves it on an HTTP endpoint |
 | `sign` | Holds the validator private key, and receives and responds to signing requests from other tiles |
 | `resolv` | Resolves address lookup tables before transactions are scheduled |
-| `cswtch` | Counts context switches of other tiles |
+| `diag` | Counts context switches and diagnostic information of other tiles |
 | `plugin` | Provides data to the `gui` tile  |
 | `gui` | Receives data from the validator and serves an HTTP endpoint to clients to view it |
 
@@ -102,7 +102,7 @@ The benchmark runs on a single machine and performs the following:
  2. A set of CPU cores is assigned to generating and signing simple
 transactions using these accounts as fast as possible
  3. Another set of CPU cores is assigned to sending these transfers
-via. QUIC over loopback to the locally running validator
+via QUIC over loopback to the locally running validator
  4. Around once a second, an RPC call is made to get the total count of
 transactions that have executed on the chain, and this information is
 printed to the console

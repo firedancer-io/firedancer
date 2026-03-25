@@ -2,32 +2,35 @@
 
 #include "fd_snapin_tile_private.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
+#include "../../funk/fd_funk.h"
 
 int
 fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
-  fd_funk_t * funk = ctx->accdb_admin->funk;
+  fd_funk_t * funk = ctx->funk;
 
   fd_funk_rec_key_t id = FD_LOAD( fd_funk_rec_key_t, result->account_header.pubkey );
   fd_funk_rec_query_t query[1];
   fd_funk_rec_t * rec = fd_funk_rec_query_try( funk, ctx->xid, &id, query );
   fd_funk_rec_t const * existing_rec = rec;
 
+  ctx->metrics.accounts_loaded++;
+
   int early_exit = 0;
   if( !ctx->full && !existing_rec ) {
-    fd_accdb_peek_t peek[1];
-    if( fd_accdb_peek( ctx->accdb, peek, ctx->xid, result->account_header.pubkey ) ) {
-      existing_rec = peek->acc->rec;
-    }
+    existing_rec = fd_funk_rec_query_try( funk, fd_funk_root( funk ), &id, query );
   }
   if( FD_UNLIKELY( existing_rec ) ) {
     fd_account_meta_t * meta = fd_funk_val( existing_rec, funk->wksp );
     if( FD_UNLIKELY( meta ) ) {
       if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
         ctx->acc_data = NULL;
+        ctx->metrics.accounts_ignored++;
         fd_snapin_send_duplicate_account( ctx, result->account_header.lamports, NULL, result->account_header.data_len, (uchar)result->account_header.executable, result->account_header.owner, result->account_header.pubkey, 0, &early_exit );
         return early_exit;
       }
+      ctx->metrics.accounts_replaced++;
+      ctx->dup_capitalization = fd_ulong_sat_add( ctx->dup_capitalization, meta->lamports );
       fd_snapin_send_duplicate_account( ctx, meta->lamports, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen, meta->executable, meta->owner, result->account_header.pubkey, 1, &early_exit);
     }
   }
@@ -46,7 +49,7 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   ulong const alloc_sz = sizeof(fd_account_meta_t)+result->account_header.data_len;
   ulong       alloc_max;
   meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of memory while loading snapshot (increase [accounts.file_size_gib])" ));
   memset( meta, 0, sizeof(fd_account_meta_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
@@ -59,7 +62,8 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   meta->executable = (uchar)result->account_header.executable;
 
   ctx->acc_data = (uchar*)meta + sizeof(fd_account_meta_t);
-  ctx->metrics.accounts_inserted++;
+
+  ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, result->account_header.lamports );
 
   if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( funk, prepare );
   return early_exit;
@@ -93,13 +97,13 @@ streamlined_insert( fd_snapin_tile_t * ctx,
   uchar owner[32];   memcpy( owner, frame+0x40UL, 32UL );
   _Bool executable = !!frame[ 0x60UL ];
 
-  fd_funk_t * funk = ctx->accdb_admin->funk;
+  fd_funk_t * funk = ctx->funk;
   if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
   ulong const alloc_sz = sizeof(fd_account_meta_t)+data_len;
   ulong       alloc_max;
   fd_account_meta_t * meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of memory while loading snapshot (increase [accounts.file_size_gib])" ));
   memset( meta, 0, sizeof(fd_account_meta_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
@@ -116,7 +120,8 @@ streamlined_insert( fd_snapin_tile_t * ctx,
   uchar * acc_data = (uchar *)( meta+1 );
   fd_memcpy( acc_data, frame+0x88UL, data_len );
 
-  ctx->metrics.accounts_inserted++;
+  /* update capitalization */
+  ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, lamports );
 }
 
 /* process_account_batch is a happy path performance optimization
@@ -131,7 +136,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
                                       buffered_account_batch_t *    buffered_batch ) {
   int early_exit  = 0;
   ulong start_idx = result ? 0 : buffered_batch->remaining_idx;
-  fd_funk_t *         funk    = ctx->accdb_admin->funk;
+  fd_funk_t *         funk    = ctx->funk;
   fd_funk_rec_map_t * rec_map = funk->rec_map;
   fd_funk_rec_t *     rec_tbl = funk->rec_pool->ele;
   fd_funk_rec_map_shmem_private_chain_t * chain_tbl = fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );
@@ -187,15 +192,24 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     uchar owner[32];   memcpy( owner, frame+0x40UL, 32UL );
     fd_funk_rec_key_t key = FD_LOAD( fd_funk_rec_key_t, pubkey );
 
+    ctx->metrics.accounts_loaded++;
     fd_funk_rec_t * r = rec[ i ];
     if( FD_LIKELY( !r ) ) {  /* optimize for new account */
       r = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
       FD_TEST( r );
-      memset( r, 0, sizeof(fd_funk_rec_t) );
+      ulong rec_idx = (ulong)( r - rec_tbl );
+
       fd_funk_txn_xid_copy( r->pair.xid, ctx->xid );
       fd_funk_rec_key_copy( r->pair.key, &key );
-      r->prev_idx = UINT_MAX;
-      r->next_idx = UINT_MAX;
+      r->map_next  = 0U;
+      r->next_idx  = UINT_MAX;
+      r->prev_idx  = UINT_MAX;
+      r->val_sz    = 0;
+      r->val_max   = 0;
+      r->tag       = 0;
+      r->val_gaddr = 0UL;
+
+      funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( 1UL, 0UL );
 
       /* Insert to hash map.  In theory, a key could appear twice in the
          same batch.  All accounts in a batch are guaranteed to be from
@@ -215,9 +229,12 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
       if( existing->slot > slot ) {
         rec[ i ] = NULL;  /* skip record if existing value is newer */
         /* send the skipped account to the subtracting hash tile */
+        ctx->metrics.accounts_ignored++;
         fd_snapin_send_duplicate_account( ctx, lamports, data, data_len, executable, owner, pubkey, 1, &early_exit );
       } else if( slot > existing->slot) {
         /* send the to-be-replaced account to the subtracting hash tile */
+        ctx->metrics.accounts_replaced++;
+        ctx->dup_capitalization = fd_ulong_sat_add( ctx->dup_capitalization, existing->lamports );
         fd_snapin_send_duplicate_account( ctx, existing->lamports, (uchar const *)existing + sizeof(fd_account_meta_t), existing->dlen, existing->executable, existing->owner, pubkey, 1, &early_exit );
       } else { /* slot==existing->slot */
         FD_TEST( 0 );
@@ -272,24 +289,24 @@ fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
      It is assumed that no conflicting database accesses take place
      while the account is being read from funk. */
 
-  fd_accdb_peek_t peek_[1];
-  fd_accdb_peek_t * peek = fd_accdb_peek( ctx->accdb, peek_, ctx->xid, acct_addr );
-  if( FD_UNLIKELY( !peek ) ) return;
-
-  ulong data_sz = fd_accdb_ref_data_sz( peek->acc );
-  if( FD_UNLIKELY( data_sz>data_max ) ) {
-    FD_BASE58_ENCODE_32_BYTES( acct_addr, acct_addr_b58 );
-    FD_LOG_WARNING(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
-                     acct_addr_b58, (ulong)meta->dlen, data_max ));
+  fd_accdb_ro_t ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, ctx->xid, acct_addr ) ) ) {
+    return;
   }
 
-  memcpy( meta->owner, fd_accdb_ref_owner( peek->acc ), sizeof(fd_pubkey_t) );
-  meta->lamports   = fd_accdb_ref_lamports( peek->acc );
-  meta->slot       = fd_accdb_ref_slot( peek->acc );
-  meta->dlen       = (uint)data_sz;
-  meta->executable = !!fd_accdb_ref_exec_bit( peek->acc );
-  fd_memcpy( data, fd_accdb_ref_data_const( peek->acc ), data_sz );
+  ulong data_sz = fd_accdb_ref_data_sz( ro );
+  if( FD_UNLIKELY( data_sz>data_max ) ) {
+    FD_BASE58_ENCODE_32_BYTES( acct_addr, acct_addr_b58 );
+    FD_LOG_CRIT(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
+                  acct_addr_b58, data_sz, data_max ));
+  }
 
-  FD_CRIT( fd_accdb_peek_test( peek ), "invalid read" );
-  fd_accdb_peek_drop( peek );
+  memcpy( meta->owner, fd_accdb_ref_owner( ro ), sizeof(fd_pubkey_t) );
+  meta->lamports   = fd_accdb_ref_lamports( ro );
+  meta->slot       = fd_accdb_ref_slot( ro );
+  meta->dlen       = (uint)data_sz;
+  meta->executable = !!fd_accdb_ref_exec_bit( ro );
+  fd_memcpy( data, fd_accdb_ref_data_const( ro ), data_sz );
+
+  fd_accdb_close_ro( ctx->accdb, ro );
 }

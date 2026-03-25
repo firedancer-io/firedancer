@@ -19,7 +19,20 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
+extern fd_topo_obj_callbacks_t fd_obj_cb_banks_locks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
+extern fd_topo_obj_callbacks_t fd_obj_cb_funk_locks;
+extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
+extern fd_topo_obj_callbacks_t fd_obj_cb_acc_pool;
+extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
+
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_req_pool;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_rq;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_cq;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_admin;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -35,11 +48,24 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
   &fd_obj_cb_banks,
+  &fd_obj_cb_banks_locks,
   &fd_obj_cb_funk,
+  &fd_obj_cb_funk_locks,
+  &fd_obj_cb_progcache,
+  &fd_obj_cb_acc_pool,
+  &fd_obj_cb_vinyl_meta,
+  &fd_obj_cb_vinyl_meta_ele,
+  &fd_obj_cb_vinyl_data,
+  &fd_obj_cb_acc_pool,
+  &fd_obj_cb_vinyl_req_pool,
+  &fd_obj_cb_vinyl_rq,
+  &fd_obj_cb_vinyl_cq,
+  &fd_obj_cb_vinyl_admin,
+  &fd_obj_cb_rnonce_ss,
   NULL,
 };
 
-extern configure_stage_t fd_cfg_stage_vinyl;
+extern configure_stage_t fd_cfg_stage_accdb;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
@@ -49,7 +75,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_snapshots,
-  &fd_cfg_stage_vinyl,
+  &fd_cfg_stage_accdb,
   NULL,
 };
 
@@ -62,35 +88,43 @@ extern fd_topo_run_tile_t fd_tile_verify;
 extern fd_topo_run_tile_t fd_tile_dedup;
 extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_pack;
-extern fd_topo_run_tile_t fd_tile_bank;
+extern fd_topo_run_tile_t fd_tile_execle;
 extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
-extern fd_topo_run_tile_t fd_tile_cswtch;
+extern fd_topo_run_tile_t fd_tile_event;
+extern fd_topo_run_tile_t fd_tile_diag;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_rpc;
 extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_bundle;
+#if FD_HAS_BZIP2
 extern fd_topo_run_tile_t fd_tile_genesi;
+#endif
 extern fd_topo_run_tile_t fd_tile_ipecho;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_replay;
-extern fd_topo_run_tile_t fd_tile_execor;
-extern fd_topo_run_tile_t fd_tile_send;
+extern fd_topo_run_tile_t fd_tile_execrp;
+extern fd_topo_run_tile_t fd_tile_txsend;
 extern fd_topo_run_tile_t fd_tile_tower;
+extern fd_topo_run_tile_t fd_tile_vinyl;
+extern fd_topo_run_tile_t fd_tile_solcap;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
+extern fd_topo_run_tile_t fd_tile_snapwm;
 extern fd_topo_run_tile_t fd_tile_snapwh;
 extern fd_topo_run_tile_t fd_tile_snapwr;
 extern fd_topo_run_tile_t fd_tile_snapla;
 extern fd_topo_run_tile_t fd_tile_snapls;
+extern fd_topo_run_tile_t fd_tile_snaplh;
+extern fd_topo_run_tile_t fd_tile_snaplv;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -101,11 +135,12 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_dedup,
   &fd_tile_resolv,
   &fd_tile_pack,
-  &fd_tile_bank,
+  &fd_tile_execle,
   &fd_tile_shred,
   &fd_tile_sign,
   &fd_tile_metric,
-  &fd_tile_cswtch,
+  &fd_tile_event,
+  &fd_tile_diag,
   &fd_tile_gui,
   &fd_tile_rpc,
   &fd_tile_plugin,
@@ -114,20 +149,27 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_gossip,
   &fd_tile_repair,
   &fd_tile_replay,
-  &fd_tile_execor,
+  &fd_tile_execrp,
   &fd_tile_poh,
-  &fd_tile_send,
+  &fd_tile_txsend,
   &fd_tile_tower,
   &fd_tile_snapct,
   &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
+  &fd_tile_snapwm,
   &fd_tile_snapwh,
   &fd_tile_snapwr,
   &fd_tile_snapla,
   &fd_tile_snapls,
+  &fd_tile_snaplh,
+  &fd_tile_snaplv,
+# if FD_HAS_BZIP2
   &fd_tile_genesi,
+# endif
   &fd_tile_ipecho,
+  &fd_tile_vinyl,
+  &fd_tile_solcap,
   NULL,
 };
 
@@ -139,12 +181,14 @@ extern action_t fd_action_keys;
 extern action_t fd_action_ready;
 extern action_t fd_action_mem;
 extern action_t fd_action_netconf;
-extern action_t fd_action_set_identity;
 extern action_t fd_action_help;
 extern action_t fd_action_metrics;
 extern action_t fd_action_version;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_watch;
+extern action_t fd_action_add_authorized_voter;
+extern action_t fd_action_set_identity;
+extern action_t fd_action_monitor_gossip;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -155,12 +199,14 @@ action_t * ACTIONS[] = {
   &fd_action_ready,
   &fd_action_mem,
   &fd_action_netconf,
-  &fd_action_set_identity,
   &fd_action_help,
   &fd_action_metrics,
   &fd_action_version,
   &fd_action_shred_version,
+  &fd_action_add_authorized_voter,
   &fd_action_watch,
+  &fd_action_monitor_gossip,
+  &fd_action_set_identity,
   NULL,
 };
 

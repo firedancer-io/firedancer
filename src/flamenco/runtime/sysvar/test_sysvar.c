@@ -20,7 +20,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong const wksp_part_max = 16UL;
+  ulong const wksp_part_max = 32UL;
   ulong const wksp_data_max = fd_wksp_data_max_est( sizeof(wksp_mem), wksp_part_max );
   fd_wksp_t * wksp = fd_wksp_join( fd_wksp_new( wksp_mem, "wksp", 1U, wksp_part_max, wksp_data_max ) );
   FD_TEST( wksp );

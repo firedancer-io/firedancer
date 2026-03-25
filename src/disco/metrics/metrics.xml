@@ -11,19 +11,16 @@ metric introduced.
 <metrics>
 
 <linkin>
-    <counter name="ConsumedCount" summary="The number of times the link reader has consumed a fragment." />
-    <counter name="ConsumedSizeBytes" summary="The total number of bytes read by the link consumer." />
-    <counter name="FilteredCount" summary="The number of fragments that were filtered and not consumed." />
-    <counter name="FilteredSizeBytes" summary="The total number of bytes read by the link consumer that were filtered." />
-    <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
-    <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
-    <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
-    <counter name="OverrunReadingFragCount" summary="The number of fragments the link has not processed because it was overrun while reading." />
+    <counter name="ConsumedCount" summary="The number of times the link reader has consumed a fragment" />
+    <counter name="ConsumedSizeBytes" summary="The total number of bytes read by the link consumer" />
+    <counter name="FilteredCount" summary="The number of fragments that were filtered and not consumed" />
+    <counter name="FilteredSizeBytes" summary="The total number of bytes read by the link consumer that were filtered" />
+    <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling" />
+    <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling" />
+    <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer" />
+    <counter name="OverrunReadingFragCount" summary="The number of fragments the link has not processed because it was overrun while reading" />
+    <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer" />
 </linkin>
-
-<linkout>
-    <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
-</linkout>
 
 <enum name="TileRegime">
     <int value="0" name="CaughtUpHousekeeping" label="Caught up + Housekeeping" />
@@ -39,46 +36,57 @@ metric introduced.
     <int value="7" name="ProcessingPostfrag" label="Processing + Postfrag" />
 </enum>
 
+<enum name="CpuRegime">
+    <int value="0" name="Wait" label="Wait (task was runnable but not scheduled)" />
+    <int value="1" name="Idle" label="Idle (task was not runnable)" />
+    <int value="2" name="User" label="User (task was scheduled and executing in user mode)" />
+    <int value="3" name="System" label="System (task was scheduled and executing in kernel mode)" />
+</enum>
+
 <common>
-    <gauge name="Pid" clickhouse_exclude="true" summary="The process ID of the tile." />
-    <gauge name="Tid" clickhouse_exclude="true" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
-    <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches." />
-    <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches." />
+    <gauge name="Pid" summary="The process ID of the tile" />
+    <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development" />
+    <gauge name="LastCpu" summary="Index of the CPU last executed on" />
+    <counter name="ContextSwitchInvoluntaryCount" summary="The number of involuntary context switches" />
+    <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches" />
+    <counter name="PageFaultMajorCount" summary="The number of major page faults" />
+    <counter name="PageFaultMinorCount" summary="The number of minor page faults" />
     <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" />
-    <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated." />
-    <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
-    <counter name="BackpressureCount" summary="Number of times the tile has had to wait for one of more consumers to catch up to resume publishing." />
-    <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
+    <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated" />
+    <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0" />
+    <counter name="BackpressureCount" summary="Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" />
+    <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes" />
+    <counter name="CpuDurationNanos" enum="CpuRegime" summary="CPU time spent in each CPU regime" />
 </common>
 
 <tile name="net">
-    <counter name="RxPktCnt" summary="Packet receive count." />
-    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
-    <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small." />
-    <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full." />
-    <counter name="RxBackpressureCnt" summary="Number of incoming packets dropped due to backpressure." />
-    <gauge name="RxBusyCnt" summary="Number of receive buffers currently busy." />
-    <gauge name="RxIdleCnt" summary="Number of receive buffers currently idle." />
+    <counter name="RxPktCnt" summary="Packet receive count" />
+    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)" />
+    <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small" />
+    <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full" />
+    <counter name="RxBackpressureCnt" summary="Number of incoming packets dropped due to backpressure" />
+    <gauge name="RxBusyCnt" summary="Number of receive buffers currently busy" />
+    <gauge name="RxIdleCnt" summary="Number of receive buffers currently idle" />
 
-    <counter name="TxSubmitCnt" summary="Number of packet transmit jobs submitted." />
-    <counter name="TxCompleteCnt" summary="Number of packet transmit jobs marked as completed by the kernel." />
-    <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
-    <counter name="TxRouteFailCnt" summary="Number of packet transmit jobs dropped due to route failure." />
-    <counter name="TxNeighborFailCnt" summary="Number of packet transmit jobs dropped due to unresolved neighbor." />
-    <counter name="TxFullFailCnt" summary="Number of packet transmit jobs dropped due to XDP TX ring full or missing completions." />
-    <gauge name="TxBusyCnt" summary="Number of transmit buffers currently busy." />
-    <gauge name="TxIdleCnt" summary="Number of transmit buffers currently idle." />
+    <counter name="TxSubmitCnt" summary="Number of packet transmit jobs submitted" />
+    <counter name="TxCompleteCnt" summary="Number of packet transmit jobs marked as completed by the kernel" />
+    <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)" />
+    <counter name="TxRouteFailCnt" summary="Number of packet transmit jobs dropped due to route failure" />
+    <counter name="TxNeighborFailCnt" summary="Number of packet transmit jobs dropped due to unresolved neighbor" />
+    <counter name="TxFullFailCnt" summary="Number of packet transmit jobs dropped due to XDP TX ring full or missing completions" />
+    <gauge name="TxBusyCnt" summary="Number of transmit buffers currently busy" />
+    <gauge name="TxIdleCnt" summary="Number of transmit buffers currently idle" />
 
-    <counter name="XskTxWakeupCnt" summary="Number of XSK sendto syscalls dispatched." />
-    <counter name="XskRxWakeupCnt" summary="Number of XSK recvmsg syscalls dispatched." />
+    <counter name="XskTxWakeupCnt" summary="Number of XSK sendto syscalls dispatched" />
+    <counter name="XskRxWakeupCnt" summary="Number of XSK recvmsg syscalls dispatched" />
 
     <!-- Kernel xdp_statistics struct -->
-    <counter name="XdpRxDroppedOther" summary="xdp_statistics_v0.rx_dropped: Dropped for other reasons" />
-    <counter name="XdpRxInvalidDescs" summary="xdp_statistics_v0.rx_invalid_descs: Dropped due to invalid descriptor" />
-    <counter name="XdpTxInvalidDescs" summary="xdp_statistics_v0.tx_invalid_descs: Dropped due to invalid descriptor" />
-    <counter name="XdpRxRingFull" summary="xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full" />
-    <counter name="XdpRxFillRingEmptyDescs" summary="xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring" />
-    <counter name="XdpTxRingEmptyDescs" summary="xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring" />
+    <counter name="XdpRxDroppedOther" summary="Dropped for other reasons (xdp_statistics_v0.rx_dropped)" />
+    <counter name="XdpRxInvalidDescs" summary="Dropped due to invalid descriptor (xdp_statistics_v0.rx_invalid_descs)" />
+    <counter name="XdpTxInvalidDescs" summary="Dropped due to invalid descriptor (xdp_statistics_v0.tx_invalid_descs)" />
+    <counter name="XdpRxRingFull" summary="Dropped due to rx ring being full (xdp_statistics_v1.rx_ring_full)" />
+    <counter name="XdpRxFillRingEmptyDescs" summary="Failed to retrieve item from fill ring (xdp_statistics_v1.rx_fill_ring_empty_descs)" />
+    <counter name="XdpTxRingEmptyDescs" summary="Failed to retrieve item from tx ring (xdp_statistics_v1.tx_ring_empty_descs)" />
 
     <!-- GRE metrics -->
     <counter name="RxGreCnt" summary="Number of valid GRE packets received" />
@@ -86,6 +94,7 @@ metric introduced.
     <counter name="RxGreIgnoredCnt" summary="Number of received but ignored GRE packets" />
     <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
     <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />
+    <counter name="RxSrcAddrInvalidCnt" summary="Number of incoming packets dropped due to invalid source IP address" />
 </tile>
 
 <enum name="SockErr">
@@ -103,8 +112,8 @@ metric introduced.
     <counter name="RxPktCnt" summary="Number of packets received" />
     <counter name="TxPktCnt" summary="Number of packets sent" />
     <counter name="TxDropCnt" summary="Number of packets failed to send" />
-    <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
-    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)." />
+    <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)" />
+    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)" />
 </tile>
 
 <enum name="TpuRecvType">
@@ -114,14 +123,14 @@ metric introduced.
 </enum>
 
 <enum name="FrameTxAllocResult">
-    <int value="0" name="Success"       label="Success" />
+    <int value="0" name="Success" label="Success" />
     <int value="1" name="FailEmptyPool" label="PktMetaPoolEmpty" />
-    <int value="2" name="FailConnMax"   label="ConnMaxedInflightFrames" />
+    <int value="2" name="FailConnMax" label="ConnMaxedInflightFrames" />
 </enum>
 
 <enum name="QuicInitialTokenLen">
-    <int value="0" name="Zero"       label="No token" />
-    <int value="1" name="FdQuicLen"  label="fd_quic retry token length" />
+    <int value="0" name="Zero" label="No token" />
+    <int value="1" name="FdQuicLen" label="fd_quic retry token length" />
     <int value="2" name="InvalidLen" label="Invalid token length" />
 </enum>
 
@@ -152,89 +161,89 @@ metric introduced.
 </enum>
 
 <enum name="QuicStreamCloseType">
-    <int value="0" name="End" label="gracefully closed" />
+    <int value="0" name="End" label="Gracefully closed" />
     <int value="1" name="PeerReset" label="RESET_STREAM event received" />
     <int value="2" name="PeerStop" label="STOP_SENDING events received" />
-    <int value="3" name="Drop" label="dropped due to excessive concurrency" />
-    <int value="4" name="ConnAbort" label="connection abort" />
+    <int value="3" name="Drop" label="Dropped due to excessive concurrency" />
+    <int value="4" name="ConnAbort" label="Connection abort" />
 </enum>
 
 <enum name="QuicAckTx">
-    <int value="0" name="Noop" label="non-ACK-eliciting packet" />
-    <int value="1" name="New" label="new ACK range" />
-    <int value="2" name="Merged" label="merged into existing ACK range" />
-    <int value="3" name="Drop" label="out of buffers" />
+    <int value="0" name="Noop" label="Non-ACK-eliciting packet" />
+    <int value="1" name="New" label="New ACK range" />
+    <int value="2" name="Merged" label="Merged into existing ACK range" />
+    <int value="3" name="Drop" label="Out of buffers" />
     <int value="4" name="Cancel" label="ACK suppressed by handler" />
 </enum>
 
 <enum name="QuicEncLevel">
-    <int value="0" name="Initial" label="initial" />
-    <int value="1" name="Early" label="early data" />
-    <int value="2" name="Handshake" label="handshake" />
-    <int value="3" name="App" label="app data" />
+    <int value="0" name="Initial" label="Initial" />
+    <int value="1" name="Early" label="Early data" />
+    <int value="2" name="Handshake" label="Handshake" />
+    <int value="3" name="App" label="App data" />
 </enum>
 
 <enum name="QuicConnState">
-    <int value="0" name="Invalid" label="freed" />
-    <int value="1" name="Handshake" label="handshaking peer" />
-    <int value="2" name="HandshakeComplete" label="handshake complete, confirming with peer" />
-    <int value="3" name="Active" label="active connection" />
-    <int value="4" name="PeerClose" label="peer requested close" />
-    <int value="5" name="Abort" label="connection terminating due to error" />
-    <int value="6" name="ClosePending" label="connection is closing" />
-    <int value="7" name="Dead" label="connection about to be freed" />
+    <int value="0" name="Invalid" label="Freed" />
+    <int value="1" name="Handshake" label="Handshaking peer" />
+    <int value="2" name="HandshakeComplete" label="Handshake complete, confirming with peer" />
+    <int value="3" name="Active" label="Active connection" />
+    <int value="4" name="PeerClose" label="Peer requested close" />
+    <int value="5" name="Abort" label="Connection terminating due to error" />
+    <int value="6" name="ClosePending" label="Connection is closing" />
+    <int value="7" name="Dead" label="Connection about to be freed" />
 </enum>
 
 <enum name="QuicPktHandle">
-    <int value="0" name="Initial" label="initial" />
-    <int value="1" name="Retry" label="retry" />
-    <int value="2" name="Handshake" label="handshake" />
+    <int value="0" name="Initial" label="Initial" />
+    <int value="1" name="Retry" label="Retry" />
+    <int value="2" name="Handshake" label="Handshake" />
     <int value="3" name="OneRtt" label="1-RTT" />
 </enum>
 
 <tile name="quic">
-    <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
-    <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
-    <gauge name="TxnReasmsActive" summary="Number of fragmented txn receive ops currently active." />
+    <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)" />
+    <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started" />
+    <gauge name="TxnReasmsActive" summary="Number of fragmented txn receive ops currently active" />
     <counter name="FragsOk" summary="Count of txn frags received" />
     <counter name="FragsGap" summary="Count of txn frags dropped due to data gap" />
     <counter name="FragsDup" summary="Count of txn frags dropped due to dup (stream already completed)" />
-    <counter name="TxnsReceived" enum="TpuRecvType" summary="Count of txns received via TPU." />
-    <counter name="TxnsAbandoned" summary="Count of txns abandoned because a conn was lost." />
+    <counter name="TxnsReceived" enum="TpuRecvType" summary="Count of txns received via TPU" />
+    <counter name="TxnsAbandoned" summary="Count of txns abandoned because a conn was lost" />
 
-    <counter name="TxnUndersz" summary="Count of txns received via QUIC dropped because they were too small." />
-    <counter name="TxnOversz" summary="Count of txns received via QUIC dropped because they were too large." />
+    <counter name="TxnUndersz" summary="Count of txns received via QUIC dropped because they were too small" />
+    <counter name="TxnOversz" summary="Count of txns received via QUIC dropped because they were too large" />
 
-    <counter name="LegacyTxnUndersz" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet." />
-    <counter name="LegacyTxnOversz" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction." />
+    <counter name="LegacyTxnUndersz" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet" />
+    <counter name="LegacyTxnOversz" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction" />
 
-    <counter name="ReceivedPackets" summary="Number of IP packets received." />
-    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
-    <counter name="SentPackets" summary="Number of IP packets sent." />
-    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
+    <counter name="ReceivedPackets" summary="Number of IP packets received" />
+    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)" />
+    <counter name="SentPackets" summary="Number of IP packets sent" />
+    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)" />
 
-    <gauge name="ConnectionsAlloc" summary="The number of currently allocated QUIC connections." />
-    <gauge name="ConnectionsState" enum="QuicConnState" summary="The number of QUIC connections in each state." />
-    <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
-    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
-    <counter name="ConnectionsAborted" summary="Number of connections aborted." />
-    <counter name="ConnectionsTimedOut" summary="Number of connections timed out." />
-    <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
-    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
-    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
+    <gauge name="ConnectionsAlloc" summary="The number of currently allocated QUIC connections" />
+    <gauge name="ConnectionsState" enum="QuicConnState" summary="The number of QUIC connections in each state" />
+    <counter name="ConnectionsCreated" summary="The total number of connections that have been created" />
+    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed" />
+    <counter name="ConnectionsAborted" summary="Number of connections aborted" />
+    <counter name="ConnectionsTimedOut" summary="Number of connections timed out" />
+    <counter name="ConnectionsRetried" summary="Number of connections established with retry" />
+    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots" />
+    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)" />
 
-    <counter name="PktNoConn" enum="QuicPktHandle" summary="Number of packets with an unknown connection ID." />
-    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata." />
-    <counter name="InitialTokenLen" enum="QuicInitialTokenLen" summary="Number of Initial packets grouped by token length." />
+    <counter name="PktNoConn" enum="QuicPktHandle" summary="Number of packets with an unknown connection ID" />
+    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata" />
+    <counter name="InitialTokenLen" enum="QuicInitialTokenLen" summary="Number of Initial packets grouped by token length" />
 
-    <counter name="HandshakesCreated" summary="Number of handshake flows created." />
-    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
-    <counter name="HandshakeEvicted" summary="Number of handshakes dropped due to eviction." />
+    <counter name="HandshakesCreated" summary="Number of handshake flows created" />
+    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail" />
+    <counter name="HandshakeEvicted" summary="Number of handshakes dropped due to eviction" />
 
-    <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
-    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
+    <counter name="StreamReceivedEvents" summary="Number of stream RX events" />
+    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received" />
 
-    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received." />
+    <counter name="ReceivedFrames" enum="QuicFrameType" summary="Number of QUIC frames received" />
 
     <counter name="AckTx" enum="QuicAckTx" summary="ACK events" />
 
@@ -245,16 +254,16 @@ metric introduced.
       <summary>Duration spent processing packets</summary>
     </histogram>
 
-    <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
-    <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Number of packets that failed decryption." />
-    <counter name="PktNoKey" enum="QuicEncLevel" summary="Number of packets that failed decryption due to missing key." />
-    <counter name="PktNetHeaderInvalid" summary="Number of packets dropped due to weird IP or UDP header." />
-    <counter name="PktQuicHeaderInvalid" summary="Number of packets dropped due to weird QUIC header." />
-    <counter name="PktUndersz" summary="Number of QUIC packets dropped due to being too small." />
-    <counter name="PktOversz" summary="Number of QUIC packets dropped due to being too large." />
-    <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received." />
-    <counter name="RetrySent" summary="Number of QUIC Retry packets sent." />
-    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Number of QUIC packets that retransmitted." />
+    <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse" />
+    <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Number of packets that failed decryption" />
+    <counter name="PktNoKey" enum="QuicEncLevel" summary="Number of packets that failed decryption due to missing key" />
+    <counter name="PktNetHeaderInvalid" summary="Number of packets dropped due to weird IP or UDP header" />
+    <counter name="PktQuicHeaderInvalid" summary="Number of packets dropped due to weird QUIC header" />
+    <counter name="PktUndersz" summary="Number of QUIC packets dropped due to being too small" />
+    <counter name="PktOversz" summary="Number of QUIC packets dropped due to being too large" />
+    <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received" />
+    <counter name="RetrySent" summary="Number of QUIC Retry packets sent" />
+    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Number of QUIC packets that retransmitted" />
 </tile>
 
 <enum name="NewContactOutcome">
@@ -271,12 +280,12 @@ metric introduced.
     <int value="3" name="NoStream" label="No QUIC stream" />
 </enum>
 
-<enum name="SendQuicPorts">
+<enum name="TxsendQuicPorts">
     <int value="0" name="QuicVote" label="QUIC Vote port" />
     <int value="1" name="QuicTpu" label="QUIC TPU port" />
 </enum>
 
-<enum name="SendEnsureConnResult">
+<enum name="TxsendEnsureConnResult">
     <int value="0" name="NoLeader" label="No QUIC connection" />
     <int value="1" name="NoCi" label="No contact info" />
     <int value="2" name="NewConnection" label="Initiated connection" />
@@ -285,28 +294,7 @@ metric introduced.
     <int value="5" name="Cooldown" label="Connection cooldown" />
 </enum>
 
-<tile name="send">
-
-    <counter name="LeaderNotFound" summary="Total number of times slot leader not found" />
-    <counter name="UnstakedCi" summary="Total number of times we received contact info for an unstaked node" />
-    <counter name="CiRemoved" summary="Total number of times we removed contact info" />
-
-    <counter name="NewContactInfoQuicVote" enum="NewContactOutcome" summary="Total number of contact infos received and handled for QUIC Vote port" />
-    <counter name="NewContactInfoQuicTpu" enum="NewContactOutcome" summary="Total number of contact infos received and handled for QUIC TPU port" />
-    <counter name="NewContactInfoUdpVote" enum="NewContactOutcome" summary="Total number of contact infos received and handled for UDP Vote port" />
-    <counter name="NewContactInfoUdpTpu" enum="NewContactOutcome" summary="Total number of contact infos received and handled for UDP TPU port" />
-
-    <counter name="SendResultQuicVote" enum="TxnSendResult" summary="Total count of results from trying to send via QUIC Vote port" />
-    <counter name="SendResultQuicTpu" enum="TxnSendResult" summary="Total count of results from trying to send via QUIC TPU port" />
-    <counter name="SendResultUdpVote" enum="TxnSendResult" summary="Total count of results from trying to send via UDP Vote port" />
-    <counter name="SendResultUdpTpu" enum="TxnSendResult" summary="Total count of results from trying to send via UDP TPU port" />
-
-    <counter name="EnsureConnResultQuicVote" enum="SendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC Vote port" />
-    <counter name="EnsureConnResultQuicTpu" enum="SendEnsureConnResult" summary="Total count of results from trying to ensure a connection for a leader for QUIC TPU port" />
-
-    <counter name="HandshakeComplete" enum="SendQuicPorts" summary="Total number of times we completed a handshake" />
-    <counter name="QuicConnFinal" enum="SendQuicPorts" summary="Total number of times QUIC connection closed" />
-
+<tile name="txsend">
     <!-- QUIC packet metrics -->
     <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />
     <counter name="ReceivedBytes" summary="Total bytes received via QUIC" />
@@ -337,7 +325,7 @@ metric introduced.
     <counter name="PktUndersz" summary="Total count of undersized packets" />
     <counter name="PktOversz" summary="Total count of oversized packets" />
     <counter name="PktVerneg" summary="Total count of version negotiation packets" />
-    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Total count of QUIC packet retransmissions." />
+    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Total count of QUIC packet retransmissions" />
 
     <!-- QUIC handshake metrics -->
     <counter name="HandshakesCreated" summary="Total count of QUIC handshakes created" />
@@ -351,7 +339,7 @@ metric introduced.
     <!-- QUIC frame metrics -->
     <counter name="ReceivedFrames" enum="QuicFrameType" summary="Total count of QUIC frames received" />
     <counter name="FrameFailParse" summary="Total count of frame parse failures" />
-    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata." />
+    <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata" />
 
     <!-- QUIC ACK metrics -->
     <counter name="AckTx" enum="QuicAckTx" summary="Total count of ACK frames transmitted" />
@@ -362,10 +350,6 @@ metric introduced.
     </histogram>
     <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
       <summary>Duration spent processing packets</summary>
-    </histogram>
-    <histogram name="SignDurationNanos" min="1000" max="5000000" converter="none">
-      <!-- 1µs to 5ms -->
-      <summary>Duration spent waiting for tls_cv signatures</summary>
     </histogram>
 </tile>
 
@@ -394,19 +378,31 @@ metric introduced.
     <histogram name="MessageRxDelayNanos" min="100000" max="1000000000">
         <summary>Message receive delay in nanoseconds from bundle server to bundle client</summary>
     </histogram>
+    <gauge name="PendingTransactions" summary="Number of transactions buffered and waiting to be published" />
+    <counter name="TransactionDroppedBackpressure" summary="Transactions dropped because the pending transaction buffer was full (should never happen)" />
 </tile>
 
+<enum name="VerifyTileResult">
+    <int value="0" name="Success" label="Transaction verified successfully" />
+    <int value="1" name="BundlePeerFailure" label="Peer transaction in the bundle failed" />
+    <int value="2" name="ParseFailure" label="Transaction failed to parse" />
+    <int value="3" name="DedupFailure" label="Transaction failed deduplication" />
+    <int value="4" name="VerifyFailure" label="Transaction failed signature verification" />
+</enum>
+
 <tile name="verify">
-    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to verify because a peer transaction in the bundle failed" />
-    <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
-    <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
-    <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
+    <counter name="TransactionResult" enum="VerifyTileResult" summary="Count of transaction results through verify tile" />
     <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </tile>
 
+<enum name="DedupTileResult">
+    <int value="0" name="Success" label="Transaction deduplicated successfully" />
+    <int value="1" name="BundlePeerFailure" label="Peer transaction in the bundle failed" />
+    <int value="2" name="DedupFailure" label="Transaction failed deduplication" />
+</enum>
+
 <tile name="dedup">
-    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to dedup because a peer transaction in the bundle failed" />
-    <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the dedup stage" />
+    <counter name="TransactionResult" enum="DedupTileResult" summary="Count of transaction results through dedup tile" />
     <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </tile>
 
@@ -423,17 +419,8 @@ metric introduced.
     <int value="0" name="Inserted" label="A transaction with an unknown blockhash was added to the stash" />
     <int value="1" name="Overrun" label="A transaction with an unknown blockhash was dropped because the stash was full" />
     <int value="2" name="Published" label="A transaction with an unknown blockhash was published as the blockhash became known" />
-    <int value="3" name="Removed" label="A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories." />
+    <int value="3" name="Removed" label="A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories" />
 </enum>
-
-<tile name="resolf">
-    <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
-    <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
-    <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
-    <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
-    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
-    <counter name="DbRaces" summary="Number of database races encountered (diagnostic counter, not indicative of issues)" />
-</tile>
 
 <tile name="resolv">
     <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
@@ -443,8 +430,17 @@ metric introduced.
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
 </tile>
 
+<tile name="resolh" telemetry="false">
+    <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
+    <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
+    <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
+    <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
+    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
+</tile>
+
 <enum name="PackTxnInsertReturn">
     <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
+    <int value="-15" name="InstrAcctCnt" label="Transaction has an instruction that references too many accounts" />
     <int value="-14" name="NonceConflict" label="Bundle with two conflicting durable nonce transactions" />
     <int value="-13" name="BundleBlacklist" label="Transaction uses an account on the bundle blacklist" />
     <int value="-12" name="InvalidNonce" label="Transaction is an invalid durable nonce transaction" />
@@ -473,28 +469,29 @@ metric introduced.
     <int value="1" name="CuLimit" label="Pack skipped the transaction because it would have exceeded the block CU limit" />
     <int value="2" name="FastPath" label="Pack skipped the transaction because of account conflicts using the fast bitvector check" />
     <int value="3" name="ByteLimit" label="Pack skipped the transaction because it would have exceeded the block data size limit" />
-    <int value="4" name="WriteCost" label="Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" />
-    <int value="5" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
-    <int value="6" name="DeferSkip" label="Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times" />
+    <int value="4" name="AllocLimit" label="Pack skipped the transaction because it would have exceeded the data allocation limit" />
+    <int value="5" name="WriteCost" label="Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" />
+    <int value="6" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
+    <int value="7" name="DeferSkip" label="Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times" />
 </enum>
 
 <enum name="PackTimingState">
-    <int value="0" name="NoTxnNoBankNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
-    <int value="1" name="TxnNoBankNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
-    <int value="2" name="NoTxnBankNoLeaderNoMicroblock" label="Pack had no transactions available, had banks but wasn't leader" />
-    <int value="3" name="TxnBankNoLeaderNoMicroblock" label="Pack had transactions available, had banks but wasn't leader" />
-    <int value="4" name="NoTxnNoBankLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available banks" />
-    <int value="5" name="TxnNoBankLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available banks" />
-    <int value="6" name="NoTxnBankLeaderNoMicroblock" label="Pack had available banks but no transactions" />
-    <int value="7" name="TxnBankLeaderNoMicroblock" label="Pack had banks and transactions available but couldn't schedule anything non-conflicting" />
-    <int value="8" name="NoTxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
-    <int value="9" name="TxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
-    <int value="10" name="NoTxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
-    <int value="11" name="TxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
-    <int value="12" name="NoTxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy" />
-    <int value="13" name="TxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy" />
-    <int value="14" name="NoTxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
-    <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
+    <int value="0" name="NoTxnNoExecleNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
+    <int value="1" name="TxnNoExecleNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
+    <int value="2" name="NoTxnExecleNoLeaderNoMicroblock" label="Pack had no transactions available, had execle but wasn't leader" />
+    <int value="3" name="TxnExecleNoLeaderNoMicroblock" label="Pack had transactions available, had execle but wasn't leader" />
+    <int value="4" name="NoTxnNoExecleLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available execle" />
+    <int value="5" name="TxnNoExecleLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available execle" />
+    <int value="6" name="NoTxnExecleLeaderNoMicroblock" label="Pack had available execle but no transactions" />
+    <int value="7" name="TxnExecleLeaderNoMicroblock" label="Pack had execle and transactions available but couldn't schedule anything non-conflicting" />
+    <int value="8" name="NoTxnNoExecleNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="9" name="TxnNoExecleNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="10" name="NoTxnExecleNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="11" name="TxnExecleNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader" />
+    <int value="12" name="NoTxnNoExecleLeaderMicroblock" label="Pack scheduled a non-empty microblock but all execle were busy" />
+    <int value="13" name="TxnNoExecleLeaderMicroblock" label="Pack scheduled a non-empty microblock but all execle were busy" />
+    <int value="14" name="NoTxnExecleLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
+    <int value="15" name="TxnExecleLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
 </enum>
 
 <enum name="AvailTxnType">
@@ -544,7 +541,7 @@ metric introduced.
     <counter name="TransactionDroppedPartialBundle" summary="Transactions dropped from pack because they were part of a partial bundle" />
 
     <gauge name="AvailableTransactions" enum="AvailTxnType" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
-    <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions." />
+    <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider. This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions" />
 
     <gauge name="SmallestPendingTransaction" summary="A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" />
 
@@ -556,11 +553,11 @@ metric introduced.
 
     <gauge name="CusConsumedInBlock" summary="The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" />
     <histogram name="CusScheduled" min="1000000" max="240000000">
-        <summary>The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs.</summary>
+        <summary>The number of cost units scheduled for each block pack produced. This can be higher than the block limit because of returned CUs.</summary>
     </histogram>
     <histogram name="CusRebated" min="1000000" max="240000000">
         <!-- Note: The switch from cost units to compute units here is deliberate.  Of the various types of cost units, only compute units can be rebated. -->
-        <summary>The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses.</summary>
+        <summary>The number of compute units rebated for each block pack produced. Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses.</summary>
     </histogram>
     <histogram name="CusNet" min="1000000" max="100000000">
         <summary>The net number of cost units (scheduled - rebated) in each block pack produced.</summary>
@@ -573,54 +570,48 @@ metric introduced.
     <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
 </tile>
 
-<enum name="BankSlotAcquire">
-    <int value="0" name="Success" label="Success" />
-    <int value="1" name="TooHigh" label="Too high" />
-    <int value="2" name="TooLow" label="Too low" />
-</enum>
-
 <enum name="TransactionError">
     <int value="0" name="Success" label="Success" />
-    <int value="1" name="AccountInUse" label="An account is already being processed in another transaction in a way that does not support parallelism." />
-    <int value="2" name="AccountLoadedTwice" label="A `Pubkey` appears twice in the transaction's `account_keys`.  Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys." />
-    <int value="3" name="AccountNotFound" label="Attempt to debit an account but found no record of a prior credit." />
-    <int value="4" name="ProgramAccountNotFound" label="Attempt to load a program that does not exist." />
-    <int value="5" name="InsufficientFundsForFee" label="The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction." />
-    <int value="6" name="InvalidAccountForFee" label="This account may not be used to pay transaction fees." />
-    <int value="7" name="AlreadyProcessed" label="The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack." />
-    <int value="8" name="BlockhashNotFound" label="The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded." />
-    <int value="9" name="InstructionError" label="An error occurred while processing an instruction." />
-    <int value="10" name="CallChainTooDeep" label="Loader call chain is too deep." />
-    <int value="11" name="MissingSignatureForFee" label="Transaction requires a fee but has no signature present." />
-    <int value="12" name="InvalidAccountIndex" label="Transaction contains an invalid account reference." />
-    <int value="13" name="SignatureFailure" label="Transaction did not pass signature verification." />
-    <int value="14" name="InvalidProgramForExecution" label="This program may not be used for executing instructions." />
-    <int value="15" name="SanitizeFailure" label="Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked." />
-    <int value="16" name="ClusterMaintenance" label="Transactions are currently disabled due to cluster maintenance." />
-    <int value="17" name="AccountBorrowOutstanding" label="Transaction processing left an account with an outstanding borrowed reference." />
-    <int value="18" name="WouldExceedMaxBlockCostLimit" label="Transaction would exceed max Block Cost Limit." />
-    <int value="19" name="UnsupportedVersion" label="Transaction version is unsupported." />
-    <int value="20" name="InvalidWritableAccount" label="Transaction loads a writable account that cannot be written." />
-    <int value="21" name="WouldExceedMaxAccountCostLimit" label="Transaction would exceed max account limit within the block." />
-    <int value="22" name="WouldExceedAccountDataBlockLimit" label="Transaction would exceed account data limit within the block." />
-    <int value="23" name="TooManyAccountLocks" label="Transaction locked too many accounts." />
-    <int value="24" name="AddressLookupTableNotFound" label="Address lookup table not found." />
-    <int value="25" name="InvalidAddressLookupTableOwner" label="Attempted to lookup addresses from an account owned by the wrong program." />
-    <int value="26" name="InvalidAddressLookupTableData" label="Attempted to lookup addresses from an invalid account." />
-    <int value="27" name="InvalidAddressLookupTableIndex" label="Address table lookup uses an invalid index." />
-    <int value="28" name="InvalidRentPayingAccount" label="Transaction leaves an account with a lower balance than rent-exempt minimum." />
-    <int value="29" name="WouldExceedMaxVoteCostLimit" label="Transaction would exceed max Vote Cost Limit." />
-    <int value="30" name="WouldExceedAccountDataTotalLimit" label="Transaction would exceed total account data limit." />
-    <int value="31" name="DuplicateInstruction" label="Transaction contains a duplicate instruction that is not allowed." />
-    <int value="32" name="InsufficientFundsForRent" label="Transaction results in an account with insufficient funds for rent." />
-    <int value="33" name="MaxLoadedAccountsDataSizeExceeded" label="Transaction exceeded max loaded accounts data size cap." />
-    <int value="34" name="InvalidLoadedAccountsDataSizeLimit" label="LoadedAccountsDataSizeLimit set for transaction must be greater than 0." />
-    <int value="35" name="ResanitizationNeeded" label="Sanitized transaction differed before/after feature activation. Needs to be resanitized." />
-    <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account." />
-    <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction." />
-    <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
-    <int value="39" name="CommitCancelled" label="The process for committing the transaction was cancelled internally." />
-    <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed." />
+    <int value="1" name="AccountInUse" label="An account is already being processed in another transaction in a way that does not support parallelism" />
+    <int value="2" name="AccountLoadedTwice" label="A `Pubkey` appears twice in the transaction's `account_keys`. Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys" />
+    <int value="3" name="AccountNotFound" label="Attempt to debit an account but found no record of a prior credit" />
+    <int value="4" name="ProgramAccountNotFound" label="Attempt to load a program that does not exist" />
+    <int value="5" name="InsufficientFundsForFee" label="The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction" />
+    <int value="6" name="InvalidAccountForFee" label="This account may not be used to pay transaction fees" />
+    <int value="7" name="AlreadyProcessed" label="The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack" />
+    <int value="8" name="BlockhashNotFound" label="The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded" />
+    <int value="9" name="InstructionError" label="An error occurred while processing an instruction" />
+    <int value="10" name="CallChainTooDeep" label="Loader call chain is too deep" />
+    <int value="11" name="MissingSignatureForFee" label="Transaction requires a fee but has no signature present" />
+    <int value="12" name="InvalidAccountIndex" label="Transaction contains an invalid account reference" />
+    <int value="13" name="SignatureFailure" label="Transaction did not pass signature verification" />
+    <int value="14" name="InvalidProgramForExecution" label="This program may not be used for executing instructions" />
+    <int value="15" name="SanitizeFailure" label="Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked" />
+    <int value="16" name="ClusterMaintenance" label="Transactions are currently disabled due to cluster maintenance" />
+    <int value="17" name="AccountBorrowOutstanding" label="Transaction processing left an account with an outstanding borrowed reference" />
+    <int value="18" name="WouldExceedMaxBlockCostLimit" label="Transaction would exceed max Block Cost Limit" />
+    <int value="19" name="UnsupportedVersion" label="Transaction version is unsupported" />
+    <int value="20" name="InvalidWritableAccount" label="Transaction loads a writable account that cannot be written" />
+    <int value="21" name="WouldExceedMaxAccountCostLimit" label="Transaction would exceed max account limit within the block" />
+    <int value="22" name="WouldExceedAccountDataBlockLimit" label="Transaction would exceed account data limit within the block" />
+    <int value="23" name="TooManyAccountLocks" label="Transaction locked too many accounts" />
+    <int value="24" name="AddressLookupTableNotFound" label="Address lookup table not found" />
+    <int value="25" name="InvalidAddressLookupTableOwner" label="Attempted to lookup addresses from an account owned by the wrong program" />
+    <int value="26" name="InvalidAddressLookupTableData" label="Attempted to lookup addresses from an invalid account" />
+    <int value="27" name="InvalidAddressLookupTableIndex" label="Address table lookup uses an invalid index" />
+    <int value="28" name="InvalidRentPayingAccount" label="Transaction leaves an account with a lower balance than rent-exempt minimum" />
+    <int value="29" name="WouldExceedMaxVoteCostLimit" label="Transaction would exceed max Vote Cost Limit" />
+    <int value="30" name="WouldExceedAccountDataTotalLimit" label="Transaction would exceed total account data limit" />
+    <int value="31" name="DuplicateInstruction" label="Transaction contains a duplicate instruction that is not allowed" />
+    <int value="32" name="InsufficientFundsForRent" label="Transaction results in an account with insufficient funds for rent" />
+    <int value="33" name="MaxLoadedAccountsDataSizeExceeded" label="Transaction exceeded max loaded accounts data size cap" />
+    <int value="34" name="InvalidLoadedAccountsDataSizeLimit" label="LoadedAccountsDataSizeLimit set for transaction must be greater than 0" />
+    <int value="35" name="ResanitizationNeeded" label="Sanitized transaction differed before/after feature activation. Needs to be resanitized" />
+    <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account" />
+    <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction" />
+    <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit" />
+    <int value="39" name="CommitCancelled" label="The process for committing the transaction was cancelled internally" />
+    <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed" />
 </enum>
 
 <enum name="TransactionResult">
@@ -668,7 +659,7 @@ metric introduced.
     <int value="24" name="UnbalancedTransaction" label="The total referenced account lamports before and after the transaction was unbalanced" />
 
     <!-- Errors that aren't returned by the runtime execution itself,
-         but are used by bank as an additional reason transactions
+         but are used by execle as an additional reason transactions
          might fail. -->
     <int value="25" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
 </enum>
@@ -680,17 +671,18 @@ metric introduced.
     <int value="3" name="Unlanded" label="Transaction did not land" />
 </enum>
 
-<tile name="bankf">
-    <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction." />
-    <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not." />
+<tile name="execle">
+    <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
+    <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not" />
+    <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
 </tile>
 
-<tile name="bank">
-    <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize." />
-    <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." />
+<tile name="bank" telemetry="false">
+    <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize" />
+    <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain" />
 
-    <counter name="TransactionLoadAddressTables" enum="LutResolveResult" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported." />
-    <counter name="TransactionResult" enum="TransactionError" summary="Result of loading and executing a transaction." />
+    <counter name="TransactionLoadAddressTables" enum="LutResolveResult" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported" />
+    <counter name="TransactionResult" enum="TransactionError" summary="Result of loading and executing a transaction" />
     <counter name="ProcessingFailed" summary="Count of transactions for which the processing stage failed and won't land on chain" />
     <counter name="FeeOnlyTransactions" summary="Count of transactions that will land on chain but without executing" />
     <counter name="ExecutedFailedTransactions" summary="Count of transactions that execute on chain but failed" />
@@ -698,7 +690,7 @@ metric introduced.
     <counter name="CostModelUndercount" summary="Count of transactions that used more CUs than the cost model should have permitted them to" />
 </tile>
 
-<tile name="poh">
+<tile name="pohh" telemetry="false">
     <histogram name="BeginLeaderDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
         <summary>Delay between when we become leader in a slot and when we receive the bank.</summary>
     </histogram>
@@ -713,19 +705,24 @@ metric introduced.
     </histogram>
 </tile>
 
+<tile name="poh">
+</tile>
+
 <enum name="ShredProcessingResult">
-    <int value="-4" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
-    <int value="-3" name="ParseFailed" label="Shred parsing failed" />
+    <int value="-6" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
+    <int value="-5" name="ParseFailed" label="Shred parsing failed" />
     <!-- The following need to stay in sync with the #defines in
          fd_fec_resolver.h -->
-    <int value="-2" name="Rejected" label="Shred was invalid for one of many reasons" />
-    <int value="-1" name="Ignored" label="Shred was ignored because we had already received or reconstructed it" />
+    <int value="-4" name="Equivoc" label="Shred was equivocated with another shred" />
+    <int value="-3" name="Rejected" label="Shred was invalid for one of many reasons" />
+    <int value="-2" name="Ignored" label="Shred was ignored because we had already reconstructed the FEC set, or was for an old slot" />
+    <int value="-1" name="Duplicate" label="Shred was a duplicate of a previously received valid shred of an incomplete FEC set" />
     <int value="0" name="Okay" label="Shred accepted to an incomplete FEC set" />
     <int value="1" name="Completes" label="Shred accepted and resulted in a valid, complete FEC set" />
 </enum>
 
 <tile name="shred">
-    <histogram name="ClusterContactInfoCnt" min="0" max="40200">
+    <histogram name="ClusterContactInfoCnt" min="0" max="108000">
         <summary>Number of contact infos in the cluster contact info message</summary>
     </histogram>
     <counter name="MicroblocksAbandoned" summary="The number of microblocks that were abandoned because we switched slots without finishing the current slot" />
@@ -747,44 +744,37 @@ metric introduced.
     <counter name="ShredRejectedInitial" summary="The number of shreds that were rejected before any resources were allocated for the FEC set" />
     <counter name="ShredRejectedUnchained" summary="The number of shreds that were rejected because they're not chained merkle shreds" />
     <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
-    <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
-    <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
-    <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
-    <counter name="ShredRepairRcv"       summary="The number of times we received a repair shred" />
-    <counter name="ShredRepairRcvBytes"  summary="The number bytes received from network packets with repair shreds. Bytes include network headers." />
-    <counter name="ShredTurbineRcv"      summary="The number of times we received a turbine shred" />
-    <counter name="ShredTurbineRcvBytes" summary="The number bytes received from network packets with turbine shreds. Bytes include network headers." />
-    <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
-        <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
-    </histogram>
-    <histogram name="StoreInsertWork" min="0.00000001" max="0.0005" converter="seconds">
-        <summary>Time in seconds spent on inserting a new FEC set</summary>
-    </histogram>
+    <counter name="BadNonce" summary="The number of shreds we received that seemed to be repair responses but had an incorrect nonce" />
+    <counter name="ShredRepairRcv" summary="The number of times we received a repair shred" />
+    <counter name="ShredRepairRcvBytes" summary="The number bytes received from network packets with repair shreds. Bytes include network headers" />
+    <counter name="ShredTurbineRcv" summary="The number of times we received a turbine shred" />
+    <counter name="ShredTurbineRcvBytes" summary="The number bytes received from network packets with turbine shreds. Bytes include network headers" />
 </tile>
 
-<tile name="store">
+<tile name="store" telemetry="false">
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<enum name="RootPhase">
+    <int value="0" name="Db" label="Waiting on database server" />
+    <int value="1" name="Copy" label="Copying account data" />
+    <int value="2" name="Gc" label="Garbage collecting old account data" />
+</enum>
+
 <tile name="replay">
-  <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
-    <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
+
+  <counter name="StoreQueryAcquire" summary="Count of store slock acquires for query" />
+  <counter name="StoreQueryRelease" summary="Count of store slock releases for query" />
+  <histogram name="StoreQueryWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting to acquire the slock for query</summary>
   </histogram>
-  <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
-    <summary>Time in seconds spent on linking a new FEC set</summary>
+  <histogram name="StoreQueryWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent working before releasing the slock for query</summary>
   </histogram>
-  <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
-  </histogram>
-  <histogram name="StoreReadWork" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent on reading a FEC set</summary>
-  </histogram>
-  <histogram name="StorePublishWait" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent waiting for the store to publish a new FEC set</summary>
-  </histogram>
-  <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent on publishing a new FEC set</summary>
-  </histogram>
+  <counter name="StoreQueryCnt" summary="Count of queries" />
+  <counter name="StoreQueryMissingCnt" summary="Count of queries where merkle root was missing" />
+  <gauge name="StoreQueryMr" summary="First 8 bytes of most recently queried merkle root" />
+  <gauge name="StoreQueryMissingMr" summary="First 8 bytes of most recently queried missing merkle root" />
 
   <gauge name="RootSlot" summary="The slot at which our node has most recently rooted" />
   <gauge name="RootDistance" summary="The distance in slots between our current root and the current reset slot" />
@@ -794,55 +784,135 @@ metric introduced.
   <gauge name="MaxLiveBanks" summary="The maximum number of banks we can have alive" />
   <gauge name="LiveBanks" summary="The number of banks we currently have alive" />
 
-  <counter name="SlotsTotal" summary="Count of slots replayed successfully" />
+  <gauge name="ReasmFree" summary="The number of free FEC sets in the reassembly queue" />
+  <gauge name="ReasmLatestSlot" summary="Slot of the latest FEC set in the reassembly queue that can be replayed" />
+  <gauge name="ReasmLatestFecIdx" summary="FEC set index of the latest FEC set in the reassembly queue that can be replayed" />
+
+  <gauge name="SchedActiveBankIdx" summary="The bank that the replay scheduler is currently dispatching work for" />
+  <gauge name="SchedLastDispatchBankIdx" summary="The bank that the replay scheduler last dispatched work for" />
+  <gauge name="SchedLastDispatchTimeNanos" converter="nanoseconds" summary="Timestamp when the replay scheduler last dispatched work" />
+  <gauge name="SchedStagingLanePopcnt" summary="The total number of staging lanes that are currently occupied in the replay scheduler. Up to four staging lanes can be occupied at once" />
+  <gauge name="SchedStagingLanePopcntWmk" summary="The high watermark number of staging lanes that were at one point occupied in the replay scheduler" />
+  <gauge name="SchedStagingLaneHeadBankIdx0" summary="The bank at the head of staging lane 0 of the replay dispatcher" />
+  <gauge name="SchedStagingLaneHeadBankIdx1" summary="The bank at the head of staging lane 1 of the replay dispatcher" />
+  <gauge name="SchedStagingLaneHeadBankIdx2" summary="The bank at the head of staging lane 2 of the replay dispatcher" />
+  <gauge name="SchedStagingLaneHeadBankIdx3" summary="The bank at the head of staging lane 3 of the replay dispatcher" />
+  <gauge name="SchedTxnPoolPopcnt" summary="The total number of transactions that are available to be scheduled in the replay scheduler" />
+  <gauge name="SchedTxnPoolSize" summary="The maximum number of transactions that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for TxnPoolPopcnt" />
+  <gauge name="SchedMblkPoolPopcnt" summary="The total number of microblocks that are available to be scheduled in the replay scheduler" />
+  <gauge name="SchedMblkPoolSize" summary="The maximum number of microblocks that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for MblkPoolPopcnt" />
+  <gauge name="SchedBlockPoolPopcnt" summary="The total number of blocks that are alive in the replay scheduler" />
+  <gauge name="SchedBlockPoolSize" summary="The maximum number of blocks that the replay scheduler can keep track of. This value is fixed at Firedancer startup but is a useful reference for BlockPoolPopcnt" />
+  <counter name="SchedBlockAddedStaged" summary="Blocks added to the replay scheduler as staged" />
+  <counter name="SchedBlockAddedUnstaged" summary="Blocks added to the replay scheduler as unstaged" />
+  <counter name="SchedBlockReplayed" summary="Blocks that the replay scheduler considers fully replayed" />
+  <counter name="SchedBlockAbandoned" summary="Blocks that the replay scheduler abandoned for any reason" />
+  <counter name="SchedBlockBad" summary="Blocks that the replay scheduler considers bad" />
+  <counter name="SchedBlockPromoted" summary="Blocks that the replay scheduler promoted from unstaged to a staging lane" />
+  <counter name="SchedBlockDemoted" summary="Blocks that the replay scheduler demoted from a staging lane to unstaged" />
+  <counter name="SchedDeactivateNoChild" summary="Number of times that the replay scheduler stopped dispatching because a block fully replayed and there was no child block available yet" />
+  <counter name="SchedDeactivateNoWork" summary="Number of times that the replay scheduler stopped dispatching because a partially replayed block ran out of work to dispatch" />
+  <counter name="SchedDeactivateAbandoned" summary="Number of times that the replay scheduler stopped dispatching because a block got abandoned for any reason" />
+  <counter name="SchedDeactivateMinority" summary="Number of times that the replay scheduler stopped dispatching because a block got abandoned for being on a minority fork" />
+  <counter name="SchedLaneSwitch" summary="Number of times that the replay scheduler switched the lane that it is dispatching from" />
+  <counter name="SchedLanePromote" summary="Number of times that the replay scheduler promoted one or more blocks onto a staging lane" />
+  <counter name="SchedLaneDemote" summary="Number of times that the replay scheduler demoted one or more blocks from a staging lane" />
+  <counter name="SchedForkObserved" summary="Number of forks that the replay scheduler has observed" />
+  <counter name="SchedAlutSuccess" summary="Number of transactions with address lookup tables that the replay scheduler successfully expanded" />
+  <counter name="SchedAlutFailure" summary="Number of transactions with address lookup tables that the replay scheduler failed to expand" />
+  <counter name="SchedTxnAbandonedParsed" summary="Number of transactions that were parsed but ended up being in abandoned blocks" />
+  <counter name="SchedTxnAbandonedExec" summary="Number of transactions that were executed but ended up being in abandoned blocks" />
+  <counter name="SchedTxnAbandonedDone" summary="Number of transactions that were fully replayed but ended up being in abandoned blocks" />
+  <counter name="SchedWeightedInFlight" summary="Cumulative number of transactions that have been in-flight from the replay scheduler's point of view, weighted by the duration of each transaction. This value is useful as the dividend for TxnWeightedInFlightDuration" />
+  <counter name="SchedWeightedInFlightDuration" summary="Duration over which TxnWeightedInFlight was accumulated. Use this as divisor to get the average number of in-flight transactions" />
+  <counter name="SchedNoneInFlightDuration" summary="Duration over which the replay scheduler had no transaction in-flight. This value is useful in a ratio against WeightedInFlightDuration to see how often the replay transaction execution pipeline was idle" />
+  <counter name="SchedTxnParsed" summary="Number of transactions that the replay pipeline has parsed" />
+  <counter name="SchedTxnExec" summary="Number of transactions that the replay pipeline has executed" />
+  <counter name="SchedTxnSigverify" summary="Number of transactions that the replay pipeline has sigverified" />
+  <counter name="SchedTxnMixin" summary="Number of transactions that the replay pipeline has performed PoH mixin" />
+  <counter name="SchedTxnDone" summary="Number of transactions that were fully replayed" />
+  <counter name="SchedMblkParsed" summary="Number of microblocks that the replay pipeline has parsed" />
+  <counter name="SchedMblkHashed" summary="Number of microblocks that the replay pipeline has fully hashed" />
+  <counter name="SchedMblkDone" summary="Number of microblocks that were fully replayed" />
+  <counter name="SchedBytesIngested" summary="Number of bytes that the replay scheduler has ingested" />
+  <counter name="SchedBytesIngestedPadding" summary="Number of bytes that the replay scheduler ingested but did not parse for being padding" />
+  <counter name="SchedBytesDropped" summary="Number of bytes that the replay scheduler refused to ingest because the block is considered abandoned" />
+  <counter name="SchedFec" summary="Number of FEC sets that the replay scheduler has been given" />
+
+  <counter name="SlotsTotal" summary="Count of slots replayed successfully or leader slots packed and shredded successfully" />
   <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
 
+  <counter name="SchedFull" summary="Times where sched is full and a FEC set can't be processed" />
+  <counter name="ReasmEmpty" summary="Times where reasm is empty and a FEC set can't be processed" />
+  <counter name="LeaderBidWait" summary="Times where replay is blocked by the PoH tile not sending an end of leader message" />
+  <counter name="BanksFull" summary="Times where banks are full and a FEC set can't be processed" />
+  <counter name="StorageRootBehind" summary="Times where the storage root is behind the consensus root and can't be advanced" />
+
+  <counter name="AccdbCreated" summary="Number of account database records created" />
+  <counter name="AccdbReverted" summary="Number of account database records reverted" />
+  <counter name="AccdbRooted" summary="Number of account database entries rooted" />
+  <counter name="AccdbRootedBytes" summary="Number of bytes in account database entries rooted (including overhead)" />
+  <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
+  <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
+
+  <histogram name="RootSlotDurationSeconds" min="0.0005" max="1.0" converter="seconds">
+    <summary>Time in seconds spent updating the rooted account store (one sample per block)</summary>
+  </histogram>
+
+  <histogram name="RootAccountDurationSeconds" min="0.0000001" max="0.1" converter="seconds">
+    <summary>Time in seconds spent updating the rooted account store (one sample per block, normalized by account count)</summary>
+  </histogram>
+
+  <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
+
+  <!-- extensive program cache metrics.  Useful for development, will be
+       cut down with time -->
   <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
   <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
-
-  <counter name="AccdbRooted" summary="Number of account database entries rooted" />
-  <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
-</tile>
-
-<tile name="storei">
-  <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
-  <gauge name="CurrentTurbineSlot" label="The latest slot for which we have received a turbine shred" />
+  <gauge name="ProgcacheFreeParts" summary="Number of program cache heap partitions free" />
+  <gauge name="ProgcacheFreeBytes" summary="Program cache heap utilization (free bytes)" />
+  <gauge name="ProgcacheSizeBytes" summary="Program cache heap utilization (total size)" />
+  <gauge name="ProgcachePartSizeMaxBytes" summary="Program cache heap utilization (largest free partition)" />
+  <counter name="ProgcacheTimeSeconds" converter="seconds" summary="Total time in seconds spent doing program cache tasks" />
 </tile>
 
 <enum name="RepairSentRequestTypes">
-    <int value="0" name="NeededWindow"          label="Need Window" />
-    <int value="1" name="NeededHighestWindow"   label="Need Highest Window" />
-    <int value="2" name="NeededOrphan"          label="Need Orphans" />
-    <int value="4" name="Pong"                  label="Pong" />
+    <int value="0" name="NeededWindow" label="Need Window" />
+    <int value="1" name="NeededHighestWindow" label="Need Highest Window" />
+    <int value="2" name="NeededOrphan" label="Need Orphans" />
+    <int value="4" name="Pong" label="Pong" />
 </enum>
 
 <enum name="RepairServPktTypes">
-    <int value="0" name="Pong"                  label="Pong" />
-    <int value="1" name="Window"                label="Window" />
-    <int value="2" name="HighestWindow"         label="Highest Window" />
-    <int value="3" name="Orphan"                label="Orphan" />
-    <int value="4" name="Unknown"               label="Unknown" />
+    <int value="0" name="Pong" label="Pong" />
+    <int value="1" name="Window" label="Window" />
+    <int value="2" name="HighestWindow" label="Highest Window" />
+    <int value="3" name="Orphan" label="Orphan" />
+    <int value="4" name="Unknown" label="Unknown" />
 </enum>
 
 
 <tile name="repair">
-    <counter name="TotalPktCount"             clickhouse_exclude="true"                                 summary="How many network packets we have sent, including reqs, pings, pongs, etc." />
-    <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
-    <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
-    <counter name="CurrentSlot"                                                                         summary="Our view of the current cluster slot, max slot received" />
-    <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
-    <counter name="SignTileUnavail"                                                                     summary="How many times no sign tiles were available to send request" />
-    <counter name="EagerRepairAggresses"                                                                summary="How many times we pass eager repair threshold" />
-    <counter name="RerequestQueue"                                                                      summary="How many times we re-request a shred from the inflights queue" />
-    <counter name="MalformedPing"                                                                       summary="How many times we received a malformed ping" />
+    <counter name="TotalPktCount" summary="How many network packets we have sent, including reqs, pings, pongs, etc" />
+    <counter name="SentPktTypes" enum="RepairSentRequestTypes" summary="What types of client messages are we sending" />
+    <counter name="RepairedSlots" summary="Until which slots have we fully repaired" />
+    <counter name="CurrentSlot" summary="Our view of the current cluster slot, max slot received" />
+    <counter name="RequestPeers" summary="How many peers have we requested" />
+    <counter name="SignTileUnavail" summary="How many times no sign tiles were available to send request" />
+    <counter name="EagerRepairAggresses" summary="How many times we pass eager repair threshold" />
+    <counter name="RerequestQueue" summary="How many times we re-request a shred from the inflights queue" />
+    <counter name="MalformedPing" summary="How many times we received a malformed ping" />
+    <counter name="UnknownPeerPing" summary="How many times we received a ping from an unknown peer" />
+    <counter name="FailedSigverifyPing" summary="How many times we failed to verify the signature of a ping" />
     <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
       <summary>Time in seconds it took to complete a slot</summary>
     </histogram>
-    <histogram name="ResponseLatency"  min="10000000" max="1000000000">
+    <histogram name="ResponseLatency" min="10000000" max="1000000000">
       <summary>Time in nanoseconds it took to receive a repair request response</summary>
     </histogram>
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
-
+    <counter name="BlkEvicted" summary="How many times we evicted a block from the forest" />
+    <counter name="BlkFailedInsert" summary="How many times we failed to insert a block into the forest due to failed eviction" />
 </tile>
 
 <enum name="CrdsValue">
@@ -892,50 +962,52 @@ metric introduced.
     <int value="1" name="UpsertedPush" label="Push (upserted)" />
 
     <int value="2" name="DroppedPullResponseStale" label="Pull Response (newer entry already present in table)" />
-    <int value="3" name="DroppedPullResponseWallclock" label="Pull Response (outside expiry window and no contact info entry)" />
-    <int value="4" name="DroppedPullResponseDuplicate" label="Pull Response (duplicate)" />
+    <int value="3" name="DroppedPullResponseDuplicate" label="Pull Response (duplicate)" />
 
-    <int value="5" name="DroppedPushStale" label="Push (newer entry already present in table)" />
-    <int value="6" name="DroppedPushDuplicate" label="Push (duplicate)" />
+    <int value="4" name="DroppedPushStale" label="Push (newer entry already present in table)" />
+    <int value="5" name="DroppedPushDuplicate" label="Push (duplicate)" />
 </enum>
 
 <tile name="gossip">
-    <counter name="PingTrackerCapacity" label="The peer tracking capacity of the ping tracker" />
-    <gauge   name="PingTrackerCount" enum="PingTrackedType" label="The number of peers being tracked for ping/pong" />
-    <counter name="PingTrackerPongResult" enum="PongResponse" label="The result of processing a pong response to a ping" />
-    <counter name="PingTrackerEvictedCount" label="The number of peers evicted from the ping tracker to make space for new peers" />
-    <counter name="PingTrackedCount" label="The total number of peers ever tracked for ping/pong" />
-    <counter name="PingTrackerStakeChangedCount" label="The number of times a tracked peer was removed from tracking as it became staked" />
-    <counter name="PingTrackerAddressChangedCount" label="The number of times a tracked peer was removed from tracking as it's gossip address changed" />
+    <counter name="PingTrackerCapacity" summary="The peer tracking capacity of the ping tracker" />
+    <gauge name="PingTrackerCount" enum="PingTrackedType" summary="The number of peers being tracked for ping/pong" />
+    <counter name="PingTrackerPongResult" enum="PongResponse" summary="The result of processing a pong response to a ping" />
+    <counter name="PingTrackerEvictedCount" summary="The number of peers evicted from the ping tracker to make space for new peers" />
+    <counter name="PingTrackedCount" summary="The total number of peers ever tracked for ping/pong" />
+    <counter name="PingTrackerStakeChangedCount" summary="The number of times a tracked peer was removed from tracking as it became staked" />
+    <counter name="PingTrackerAddressChangedCount" summary="The number of times a tracked peer was removed from tracking as it's gossip address changed" />
 
-    <gauge name="CrdsCapacity" label="The capacity of the data store" />
-    <gauge name="CrdsCount" label="The number of entries in the data store" enum="CrdsValue" />
-    <counter name="CrdsExpiredCount" label="The number of entries expired from the data store due to age" />
-    <counter name="CrdsEvictedCount" label="The number of entries evicted from the data store to make space for new entries" />
+    <gauge name="CrdsCapacity" summary="The capacity of the data store" />
+    <gauge name="CrdsCount" summary="The number of entries in the data store" enum="CrdsValue" />
+    <counter name="CrdsExpiredCount" summary="The number of entries expired from the data store due to age" />
+    <counter name="CrdsEvictedCount" summary="The number of entries evicted from the data store to make space for new entries" />
 
-    <gauge name="CrdsPeerCapacity" label="The capacity for storing peers in the data store" />
-    <gauge name="CrdsPeerStakedCount" label="The number of staked peers in the data store" />
-    <gauge name="CrdsPeerUnstakedCount" label="The number of unstaked peers in the data store" />
-    <gauge name="CrdsPeerTotalStake" label="The total visible stake in the data store, in lamports" />
-    <counter name="CrdsPeerEvictedCount" label="The number of peers evicted from the data store to make space for new peers" />
+    <gauge name="CrdsPeerCapacity" summary="The capacity for storing peers in the data store" />
+    <gauge name="CrdsPeerStakedCount" summary="The number of staked peers in the data store" />
+    <gauge name="CrdsPeerUnstakedCount" summary="The number of unstaked peers in the data store" />
+    <gauge name="CrdsPeerTotalStake" summary="The total visible stake in the data store, in lamports" />
+    <counter name="CrdsPeerEvictedCount" summary="The number of peers evicted from the data store to make space for new peers" />
 
-    <gauge name="CrdsPurgedCapacity" label="The capacity of the list of purged data store entries" />
-    <gauge name="CrdsPurgedCount" label="The number of purged data store entries" />
-    <counter name="CrdsPurgedExpiredCount" label="The number of purged entries expired from the purged list due to age" />
-    <counter name="CrdsPurgedEvictedCount" label="The number of purged entries evicted from the data store to make space for new entries" />
+    <gauge name="CrdsPurgedCapacity" summary="The capacity of the list of purged data store entries" />
+    <gauge name="CrdsPurgedCount" summary="The number of purged data store entries" />
+    <counter name="CrdsPurgedExpiredCount" summary="The number of purged entries expired from the purged list due to age" />
+    <counter name="CrdsPurgedEvictedCount" summary="The number of purged entries evicted from the data store to make space for new entries" />
 
-    <counter name="ContactInfoUnrecognizedSocketTags" label="The number of unrecognized socket tags seen in Contact Infos" />
-    <counter name="ContactInfoIpv6" label="The number of IPv6 addresses seen in Contact Infos" />
+    <counter name="CrdsRxCount" summary="Outcome of incoming CRDS messages" enum="GossipCrdsOutcome" />
 
-    <counter name="CrdsRxCount" label="Outcome of incoming CRDS messages" enum="GossipCrdsOutcome" />
+    <counter name="MessageTxCount" summary="Number of gossip messages sent" enum="GossipMessage" />
+    <counter name="MessageTxBytes" summary="Total wire bytes sent in gossip messages" enum="GossipMessage" />
 
-    <counter name="MessageTxCount" label="Number of gossip messages sent" enum="GossipMessage" />
-    <counter name="MessageTxBytes" label="Total wire bytes sent in gossip messages" enum="GossipMessage" />
+    <counter name="CrdsTxPushCount" summary="Number of CRDS values sent in push messages" enum="CrdsValue" />
+    <counter name="CrdsTxPushBytes" summary="Total wire bytes of CRDS sent out in push messages" enum="CrdsValue" />
+    <counter name="CrdsTxPullResponseCount" summary="Number of CRDS values sent in pull response messages" enum="CrdsValue" />
+    <counter name="CrdsTxPullResponseBytes" summary="Total wire bytes of CRDS sent out in pull response messages" enum="CrdsValue" />
 
-    <counter name="CrdsTxPushCount" label="Number of CRDS values sent in push messages" enum="CrdsValue" />
-    <counter name="CrdsTxPushBytes" label="Total wire bytes of CRDS sent out in push messages" enum="CrdsValue" />
-    <counter name="CrdsTxPullResponseCount" label="Number of CRDS values sent in pull response messages" enum="CrdsValue" />
-    <counter name="CrdsTxPullResponseBytes" label="Total wire bytes of CRDS sent out in pull response messages" enum="CrdsValue" />
+    <gauge name="WfsStakedPeersOnline" summary="Number of staked peers with recent gossip activity" />
+    <gauge name="WfsStakedPeersTotal" summary="Total number of staked peers being tracked" />
+    <gauge name="WfsStakeOnline" summary="Lamports of stake from peers with recent gossip activity" />
+    <gauge name="WfsStakeTotal" summary="Total lamports of stake being tracked" />
+    <gauge name="WfsState" summary="Wait for supermajority state. 1=INIT, 2=WAIT, 3=PUBLISH, 4=DONE" />
 </tile>
 
 <enum name="GossvfMessageOutcome">
@@ -954,18 +1026,19 @@ metric introduced.
     <int value="10" name="DroppedPullRequestWallclock" label="Pull Request (wallclock)" />
     <int value="11" name="DroppedPullRequestSignature" label="Pull Request (signature)" />
     <int value="12" name="DroppedPullRequestShredVersion" label="Pull Request (shred version)" />
+    <int value="13" name="DroppedPullRequestMaskBits" label="Pull Request (mask bits)" />
 
-    <int value="13" name="DroppedPruneDestination" label="Prune (destination)" />
-    <int value="14" name="DroppedPruneWallclock" label="Prune (wallclock)" />
-    <int value="15" name="DroppedPruneSignature" label="Prune (signature)" />
+    <int value="14" name="DroppedPruneDestination" label="Prune (destination)" />
+    <int value="15" name="DroppedPruneWallclock" label="Prune (wallclock)" />
+    <int value="16" name="DroppedPruneSignature" label="Prune (signature)" />
 
-    <int value="16" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
+    <int value="17" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
 
-    <int value="17" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
+    <int value="18" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
 
-    <int value="18" name="DroppedPingSignature" label="Ping (signature)" />
+    <int value="19" name="DroppedPingSignature" label="Ping (signature)" />
 
-    <int value="19" name="DroppedPongSignature" label="Pong (signature)" />
+    <int value="20" name="DroppedPongSignature" label="Pong (signature)" />
 </enum>
 
 <enum name="GossvfCrdsOutcome">
@@ -974,27 +1047,24 @@ metric introduced.
 
     <int value="2" name="DroppedPullResponseDuplicate" label="Pull Response (duplicate)" />
     <int value="3" name="DroppedPullResponseSignature" label="Pull Response (signature)" />
-    <int value="4" name="DroppedPullResponseRelayerNoContactInfo" label="Pull Response (relayer no contact info)" />
-    <int value="4" name="DroppedPullResponseRelayerShredVersion" label="Pull Response (relayer shred version)" />
     <int value="4" name="DroppedPullResponseOriginNoContactInfo" label="Pull Response (origin no contact info)" />
-    <int value="4" name="DroppedPullResponseOriginShredVersion" label="Pull Response (origin shred version)" />
-    <int value="5" name="DroppedPullResponseInactive" label="Pull Response (inactive)" />
+    <int value="5" name="DroppedPullResponseOriginShredVersion" label="Pull Response (origin shred version)" />
+    <int value="6" name="DroppedPullResponseInactive" label="Pull Response (inactive)" />
+    <int value="7" name="DroppedPullResponseWallclock" label="Pull Response (wallclock)" />
 
-    <int value="3" name="DroppedPushSignature" label="Push (signature)" />
-    <int value="4" name="DroppedPushRelayerNoContactInfo" label="Push (relayer no contact info)" />
-    <int value="4" name="DroppedPushRelayerShredVersion" label="Push (relayer shred version)" />
-    <int value="4" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
-    <int value="4" name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
-    <int value="5" name="DroppedPushInactive" label="Push (inactive)" />
-    <int value="5" name="DroppedPushWallclock" label="Push (wallclock)" />
+    <int value="8" name="DroppedPushSignature" label="Push (signature)" />
+    <int value="9" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
+    <int value="10" name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
+    <int value="11" name="DroppedPushInactive" label="Push (inactive)" />
+    <int value="12" name="DroppedPushWallclock" label="Push (wallclock)" />
 </enum>
 
 <tile name="gossvf">
-    <counter name="MessageRxCount" label="Number of gossip messages processed" enum="GossvfMessageOutcome" />
-    <counter name="MessageRxBytes" label="Total wire bytes of gossip messages processed" enum="GossvfMessageOutcome" />
+    <counter name="MessageRxCount" summary="Number of gossip messages processed" enum="GossvfMessageOutcome" />
+    <counter name="MessageRxBytes" summary="Total wire bytes of gossip messages processed" enum="GossvfMessageOutcome" />
 
-    <counter name="CrdsRxCount" label="Number of CRDS values processed" enum="GossvfCrdsOutcome" />
-    <counter name="CrdsRxBytes" label="Total wire bytes of CRDS values processed" enum="GossvfCrdsOutcome" />
+    <counter name="CrdsRxCount" summary="Number of CRDS values processed" enum="GossvfCrdsOutcome" />
+    <counter name="CrdsRxBytes" summary="Total wire bytes of CRDS values processed" enum="GossvfCrdsOutcome" />
 </tile>
 
 <tile name="sign">
@@ -1040,8 +1110,6 @@ metric introduced.
     <gauge name="IncrementalBytesTotal" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
     <gauge name="IncrementalDownloadRetries" summary="Number of times we retried the incremental snapshot download because the peer was too slow" />
     <gauge name="PredictedSlot" summary="The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" />
-    <gauge name="GossipFreshCount" summary="Number of fresh gossip peers seen when collecting gossip peers. " />
-    <gauge name="GossipTotalCount" summary="Number of total gossip peers seen when collecting gossip peers. " />
     <counter name="SslAllocErrors" summary="Number of SSL allocation errors encountered. " />
 </tile>
 
@@ -1062,12 +1130,23 @@ metric introduced.
     <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
     <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesRead" summary="Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="AccountsInserted" summary="Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="AccountsLoaded" summary="Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts" />
+    <gauge name="AccountsReplaced" summary="Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts" />
+    <gauge name="AccountsIgnored" summary="Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />
+</tile>
+
+<tile name="snapwm">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <gauge name="AccountsLoaded" summary="Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts" />
+    <gauge name="AccountsReplaced" summary="Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts" />
+    <gauge name="AccountsIgnored" summary="Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />
+    <gauge name="AccountsActive" summary="Current number of accounts in index. Resets if snapshot load restarts" />
 </tile>
 
 <tile name="snapwr">
     <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" />
-    <gauge name="VinylBytesWritten" summary="Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted" />
+    <gauge name="FileCapacityBytes" summary="Account database file capacity in bytes" />
+    <gauge name="FileUsedBytes" summary="Current number of bytes used in the account database file" />
 </tile>
 
 <tile name="snapwh">
@@ -1086,6 +1165,18 @@ metric introduced.
     <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
+<tile name="snaplh">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
+<tile name="snaplv">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
+    <gauge name="FullDuplicateAccountsHashed" summary="Number of duplicate accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalDuplicateAccountsHashed" summary="Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 
@@ -1094,8 +1185,17 @@ metric introduced.
     <counter name="BytesRead" summary="The total number of bytes read from all requests to the Prometheus endpoint" />
 </tile>
 
+<tile name="rpc">
+</tile>
+
+<tile name="diag">
+</tile>
+
+<tile name="genesi">
+</tile>
+
 <tile name="ipecho">
-    <gauge name="ShredVersion" summary="The current shred version used by the validator" />
+    <gauge name="CurrentShredVersion" summary="The current shred version used by the validator" />
     <gauge name="ConnectionCount" summary="The number of active connections to the ipecho service" />
     <counter name="ConnectionsClosedOk" summary="The number of connections to the ipecho service that have been made and closed normally" />
     <counter name="ConnectionsClosedError" summary="The number of connections to the ipecho service that have been made and closed abnormally" />
@@ -1103,32 +1203,79 @@ metric introduced.
     <counter name="BytesWritten" summary="The total number of bytes written to all connections to the ipecho service" />
 </tile>
 
-<tile name="backt">
+<tile name="backt" telemetry="false">
     <gauge name="FinalSlot" summary="The slot after which the backtest will complete" />
     <gauge name="StartSlot" summary="The slot at which the backtest started" />
 </tile>
 
-<tile name="exec">
-    <counter name="ProgcacheMisses" summary="Number of program cache misses" />
-    <counter name="ProgcacheHits" summary="Number of program cache hits" />
-    <counter name="ProgcacheFills" summary="Number of program cache insertions" />
-    <counter name="ProgcacheFillTotSz" summary="Total number of bytes inserted into program cache" />
-    <counter name="ProgcacheFillFails" summary="Number of program cache load fails (tombstones inserted)" />
-    <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
-    <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
+<enum name="TxnRegime">
+    <int value="0" name="Setup" label="Transaction setup" />
+    <int value="1" name="Exec" label="Transaction execution (includes VM setup/execution)" />
+    <int value="2" name="Commit" label="Transaction result commit" />
+</enum>
+
+<enum name="VmRegime">
+    <int value="0" name="Setup" label="VM setup" />
+    <int value="1" name="Commit" label="VM commit" />
+    <int value="2" name="SetupCpi" label="VM setup (CPI)" />
+    <int value="3" name="CommitCpi" label="VM commit (CPI)" />
+    <int value="4" name="Interpreter" label="VM interpreter execution" />
+</enum>
+
+<enum name="AccountChange">
+    <int value="0" name="UnchangedNonexist" label="Account did not exist before and still does not" />
+    <int value="1" name="Created" label="Account created" />
+    <int value="2" name="Delete" label="Account deleted" />
+    <int value="3" name="Modify" label="Account modified" />
+    <int value="4" name="Unchanged" label="Account unchanged" />
+</enum>
+
+<tile name="execrp">
+    <counter name="AccdbCreated" summary="Number of account database records created" />
+
+    <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes" />
+    <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes" />
+
+    <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
+    <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
+
+  <!-- extensive program cache metrics.  Useful for development, will be
+       cut down with time -->
+  <counter name="ProgcacheLookups" summary="Program cache lookup counter" />
+  <counter name="ProgcacheHits" summary="Program cache hit counter" />
+  <counter name="ProgcacheMisses" summary="Program cache miss counter" />
+  <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory event counter (heap)" />
+  <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory event counter (descriptor table)" />
+  <counter name="ProgcacheFills" summary="Number of program cache insertions" />
+  <counter name="ProgcacheFillBytes" summary="Number of bytes inserted into program cache" />
+  <counter name="ProgcacheSpills" summary="Program cache spill counter (OOM fallback mechanism)" />
+  <counter name="ProgcacheSpillBytes" summary="Number of bytes spilled from program cache (OOM fallback mechanism)" />
+  <counter name="ProgcacheEvictions" summary="Program cache eviction counter" />
+  <counter name="ProgcacheEvictionBytes" summary="Number of bytes evicted from program cache" />
+  <counter name="ProgcacheDurationTotalSeconds" converter="seconds" summary="Total time in seconds spent on program cache operations" />
+  <counter name="ProgcacheDurationLoadSeconds" converter="seconds" summary="Total time in seconds spent loading programs" />
 </tile>
 
-<tile name="benchs">
+<tile name="benchs" telemetry="false">
     <counter name="TransactionsSent" summary="Number of benchmark packets sent" />
 </tile>
 
 <tile name="tower">
 
-    <!-- Vote txns from TPU / Gossip -->
+    <!-- Replay slot completed -->
 
-    <counter name="VoteTxnInvalid" summary="Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)" />
-    <counter name="VoteTxnIgnored" summary="Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)" />
-    <counter name="VoteTxnMismatch" summary="Number of times a vote txn mismatched our own block id" />
+    <counter name="SlotIgnoredCnt" summary="Number of replay_slot_completed frags we ignored" />
+    <gauge name="SlotIgnoredGauge" summary="Slot number of most recently ignored replay_slot_completed frag" />
+    <counter name="SlotEqvocedCnt" summary="Number of replay_slot_completed frags we detect as equivocations" />
+    <gauge name="SlotEqvocedGauge" summary="Slot number of most recently equivocating replay_slot_completed frag" />
+
+    <!-- Tower slot metadata -->
+
+    <gauge name="ReplaySlot" summary="Replay slot" />
+    <gauge name="VoteSlot" summary="Vote slot" />
+    <gauge name="ResetSlot" summary="Reset slot" />
+    <gauge name="RootSlot" summary="Root slot" />
+    <gauge name="InitSlot" summary="Init slot" />
 
     <!-- Tower voting decisions -->
 
@@ -1141,11 +1288,44 @@ metric introduced.
     <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
     <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
 
+    <!-- Vote txns from TPU / Gossip -->
+
+    <counter name="VoteTxnInvalid" summary="Number of invalid vote txns (malformed, bad signature, etc.)" />
+    <counter name="VoteTxnIgnored" summary="Number of ignored vote txns (unrecognized slot or block id)" />
+
+    <!-- Rx duplicate shreds -->
+
+    <counter name="EqvocSuccessMerkle" summary="Merkle root conflict" />
+    <counter name="EqvocSuccessMeta" summary="Coding metadata conflict" />
+    <counter name="EqvocSuccessLast" summary="Last shred index conflict" />
+    <counter name="EqvocSuccessOverlap" summary="Overlapping FEC set conflict" />
+    <counter name="EqvocSuccessChained" summary="Chained merkle root conflict" />
+
+    <counter name="EqvocErrSerde" summary="Invalid serialization" />
+    <counter name="EqvocErrSlot" summary="Shreds were for different slots" />
+    <counter name="EqvocErrVersion" summary="Either shred had wrong shred version" />
+    <counter name="EqvocErrType" summary="Wrong shred type (must be chained merkle)" />
+    <counter name="EqvocErrMerkle" summary="Failed to derive merkle root" />
+    <counter name="EqvocErrSignature" summary="Failed to sig verify" />
+
+    <counter name="EqvocErrChunkCnt" summary="num_chunks != FD_EQVOC_CHUNK_CNT" />
+    <counter name="EqvocErrChunkIdx" summary="chunk_index >= FD_EQVOC_CHUNK_CNT" />
+    <counter name="EqvocErrChunkLen" summary="chunk_len does not match expected length for chunk_index" />
+
+    <counter name="EqvocErrIgnoredFrom" summary="Unrecognized from address" />
+    <counter name="EqvocErrIgnoredSlot" summary="Slot older than root or unable to derive leader schedule" />
+
+    <!-- DuplicateShreds we constructed from shreds or verified from gossip -->
+
+    <counter name="EqvocProofConstructed" summary="Number of duplicate proofs we constructed from shreds" />
+    <counter name="EqvocProofVerified"    summary="Number of duplicate proofs we verified from gossip" />
+
     <!-- Hard forks / bank hash cmp tracking -->
 
     <counter name="HardForksSeen" summary="Number of hard forks we've seen (block ids with multiple candidate bank hashes)" />
     <counter name="HardForksPruned" summary="Number of hard forks (candidate bank hashes) we've pruned" />
     <gauge name="HardForksActive" summary="Currently active hard forks" />
+    <gauge name="HardForksMaxWidth" summary="Max number of candidate bank hashes for a given block id" />
 </tile>
 
 <tile name="gui">
@@ -1157,6 +1337,66 @@ metric introduced.
 
     <counter name="BytesWritten" summary="The total number of bytes written to all connections to the GUI service" />
     <counter name="BytesRead" summary="The total number of bytes read from all connections to the GUI service" />
+</tile>
+
+<tile name="event">
+    <gauge name="ConnectionState" summary="0 = disconnected, 1 = connecting, 2 = connected" />
+    <gauge name="EventQueueCount" summary="The current number of events in the event queue waiting to be sent to the event service" />
+
+    <counter name="EventQueueDrops" summary="The total number of events dropped because the event queue was full" />
+    <gauge name="EventQueueBytesUsed" summary="The current number of bytes used in the event queue" />
+    <gauge name="EventQueueBytesCapacity" summary="The total capacity in bytes of the event queue" />
+
+    <counter name="EventsSent" summary="The total number of events sent to the event service" />
+    <counter name="EventsAcked" summary="The total number of events acknowledged by the event service" />
+
+    <counter name="BytesWritten" summary="The total number of bytes written to the event service" />
+    <counter name="BytesRead" summary="The total number of bytes read from the event service" />
+</tile>
+
+<enum name="VinylRequest">
+    <int value="0" name="Acquire" label="Acquire record" />
+    <int value="1" name="Release" label="Release record" />
+    <int value="2" name="Erase" label="Erase record" />
+</enum>
+
+<enum name="VinylBlocks">
+    <int value="0" name="Pair" label="Record" />
+    <int value="1" name="Dead" label="Record deletion" />
+    <int value="2" name="Part" label="Partition/divider" />
+</enum>
+
+<enum name="BstreamSeq">
+    <int value="0" name="Ancient" label="Blocks between ancient and past have been written and forgotten (no read, no write)" />
+    <int value="1" name="Past" label="Blocks between past and present have been written (read only)" />
+    <int value="2" name="Present" label="Blocks between present and future are being written (write only)" />
+    <int value="3" name="Future" label="Blocks between future and ancient have not been written (no read, no write)" />
+</enum>
+
+<enum name="StorageType">
+    <int value="0" name="SharedCache" label="Record cache" />
+    <int value="1" name="IoCache" label="I/O layer cache" />
+    <int value="2" name="File" label="File access" />
+</enum>
+
+<tile name="accdb">
+    <!-- user friendly metrics -->
+    <gauge name="Accounts" summary="Current number of accounts" />
+    <counter name="ReadOps" enum="StorageType" summary="Total number of read operations" />
+    <counter name="ReadBytes" enum="StorageType" summary="Total number of bytes read" />
+    <counter name="WriteOps" enum="StorageType" summary="Total number of write operations" />
+    <counter name="WriteBytes" enum="StorageType" summary="Total number of bytes written" />
+    <gauge name="FileCapacityBytes" summary="Account database file capacity in bytes" />
+    <gauge name="FileUsedBytes" summary="Current number of bytes used in account database file" />
+
+    <!-- developer metrics -->
+    <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
+    <counter name="RequestBatches" summary="Number of request batches processed" />
+    <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
+    <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
+    <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
+    <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
+    <gauge name="AccountIndexRemainingFree" summary="Remaining free slots in the account database index (validator crashes when this number reaches zero)" />
 </tile>
 
 </metrics>

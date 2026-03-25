@@ -38,13 +38,11 @@ const fd_pubkey_t fd_solana_zk_token_proof_program_id         = { .uc = { ZK_TOK
 const fd_pubkey_t fd_solana_zk_elgamal_proof_program_id       = { .uc = { ZK_EL_GAMAL_PROG_ID      } };
 const fd_pubkey_t fd_solana_slashing_program_id               = { .uc = { SLASHING_PROG_ID        } };
 
-const fd_pubkey_t fd_solana_address_lookup_table_program_buffer_address   = { .uc = { ADDR_LUT_PROG_BUFFER_ID } };
-const fd_pubkey_t fd_solana_config_program_buffer_address                 = { .uc = { CONFIG_PROG_BUFFER_ID } };
-const fd_pubkey_t fd_solana_feature_program_buffer_address                = { .uc = { FEATURE_PROG_BUFFER_ID } };
-const fd_pubkey_t fd_solana_stake_program_buffer_address                  = { .uc = { STAKE_PROG_BUFFER_ID } };
-const fd_pubkey_t fd_solana_slashing_program_buffer_address               = { .uc = { SLASHING_PROG_BUFFER_ID } };
-
-const fd_pubkey_t fd_solana_migration_authority                           = { .uc = { MIGRATION_AUTHORITY_ID } };
+const fd_pubkey_t fd_solana_feature_program_buffer_address             = { .uc = { FEATURE_PROG_BUFFER_ID } };
+const fd_pubkey_t fd_solana_stake_program_vote_state_v4_buffer_address = { .uc = { STAKE_PROG_VOTE_STATE_V4_BUFFER_ID } };
+const fd_pubkey_t fd_solana_slashing_program_buffer_address            = { .uc = { SLASHING_PROG_BUFFER_ID } };
+const fd_pubkey_t fd_solana_ptoken_program_buffer_address              = { .uc = { PTOKEN_PROG_BUFFER_ID } };
+const fd_pubkey_t fd_solana_migration_authority                        = { .uc = { MIGRATION_AUTHORITY_ID } };
 
 /* https://github.com/firedancer-io/agave/blob/66c126b41ec2b55b3f747a4ac4e3ee6b439164a5/sdk/src/reserved_account_keys.rs#L152-L194 */
 #define MAP_PERFECT_NAME fd_pubkey_active_reserved_keys_tbl
@@ -84,6 +82,7 @@ const fd_pubkey_t fd_solana_migration_authority                           = { .u
 #define MAP_PERFECT_17      ( SYSVAR_SLOT_HIST_ID      ),
 #define MAP_PERFECT_18      ( SYSVAR_STAKE_HIST_ID     ),
 #define MAP_PERFECT_19      ( NATIVE_LOADER_ID         ),
+#define MAP_PERFECT_20      ( SECP256R1_PROG_ID        ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
@@ -129,9 +128,4 @@ fd_pubkey_is_active_reserved_key( fd_pubkey_t const * acct ) {
 int
 fd_pubkey_is_pending_reserved_key( fd_pubkey_t const * acct ) {
   return fd_pubkey_pending_reserved_keys_tbl_contains( acct );
-}
-
-int
-fd_pubkey_is_secp256r1_key( fd_pubkey_t const * acct ) {
-  return memcmp( acct->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t) )==0;
 }

@@ -59,7 +59,7 @@ typedef uint64_t fiat_bn254_non_montgomery_domain_field_element[4];
  *   out1: [0x0 ~> 0xffffffffffffffff]
  *   out2: [0x0 ~> 0x1]
  */
-void fiat_bn254_addcarryx_u64(uint64_t* out1, fiat_bn254_uint1* out2, fiat_bn254_uint1 arg1, uint64_t arg2, uint64_t arg3) {
+INLINE void fiat_bn254_addcarryx_u64(uint64_t* out1, fiat_bn254_uint1* out2, fiat_bn254_uint1 arg1, uint64_t arg2, uint64_t arg3) {
   fiat_bn254_uint128 x1;
   uint64_t x2;
   fiat_bn254_uint1 x3;
@@ -85,7 +85,7 @@ void fiat_bn254_addcarryx_u64(uint64_t* out1, fiat_bn254_uint1* out2, fiat_bn254
  *   out1: [0x0 ~> 0xffffffffffffffff]
  *   out2: [0x0 ~> 0x1]
  */
-void fiat_bn254_subborrowx_u64(uint64_t* out1, fiat_bn254_uint1* out2, fiat_bn254_uint1 arg1, uint64_t arg2, uint64_t arg3) {
+INLINE void fiat_bn254_subborrowx_u64(uint64_t* out1, fiat_bn254_uint1* out2, fiat_bn254_uint1 arg1, uint64_t arg2, uint64_t arg3) {
   fiat_bn254_int128 x1;
   fiat_bn254_int1 x2;
   uint64_t x3;
@@ -110,7 +110,7 @@ void fiat_bn254_subborrowx_u64(uint64_t* out1, fiat_bn254_uint1* out2, fiat_bn25
  *   out1: [0x0 ~> 0xffffffffffffffff]
  *   out2: [0x0 ~> 0xffffffffffffffff]
  */
-void fiat_bn254_mulx_u64(uint64_t* out1, uint64_t* out2, uint64_t arg1, uint64_t arg2) {
+INLINE void fiat_bn254_mulx_u64(uint64_t* out1, uint64_t* out2, uint64_t arg1, uint64_t arg2) {
   fiat_bn254_uint128 x1;
   uint64_t x2;
   uint64_t x3;
@@ -134,7 +134,7 @@ void fiat_bn254_mulx_u64(uint64_t* out1, uint64_t* out2, uint64_t arg1, uint64_t
  * Output Bounds:
  *   out1: [0x0 ~> 0xffffffffffffffff]
  */
-void fiat_bn254_cmovznz_u64(uint64_t* out1, fiat_bn254_uint1 arg1, uint64_t arg2, uint64_t arg3) {
+INLINE void fiat_bn254_cmovznz_u64(uint64_t* out1, fiat_bn254_uint1 arg1, uint64_t arg2, uint64_t arg3) {
   fiat_bn254_uint1 x1;
   uint64_t x2;
   uint64_t x3;
@@ -155,7 +155,7 @@ void fiat_bn254_cmovznz_u64(uint64_t* out1, fiat_bn254_uint1 arg1, uint64_t arg2
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_mul(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1, const fiat_bn254_montgomery_domain_field_element arg2) {
+INLINE void fiat_bn254_mul(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1, const fiat_bn254_montgomery_domain_field_element arg2) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -510,7 +510,7 @@ void fiat_bn254_mul(fiat_bn254_montgomery_domain_field_element out1, const fiat_
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_square(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1) {
+INLINE void fiat_bn254_square(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -866,7 +866,7 @@ void fiat_bn254_square(fiat_bn254_montgomery_domain_field_element out1, const fi
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_add(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1, const fiat_bn254_montgomery_domain_field_element arg2) {
+INLINE void fiat_bn254_add(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1, const fiat_bn254_montgomery_domain_field_element arg2) {
   uint64_t x1;
   fiat_bn254_uint1 x2;
   uint64_t x3;
@@ -919,7 +919,7 @@ void fiat_bn254_add(fiat_bn254_montgomery_domain_field_element out1, const fiat_
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_sub(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1, const fiat_bn254_montgomery_domain_field_element arg2) {
+INLINE void fiat_bn254_sub(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1, const fiat_bn254_montgomery_domain_field_element arg2) {
   uint64_t x1;
   fiat_bn254_uint1 x2;
   uint64_t x3;
@@ -962,7 +962,7 @@ void fiat_bn254_sub(fiat_bn254_montgomery_domain_field_element out1, const fiat_
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_opp(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1) {
+INLINE void fiat_bn254_opp(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1) {
   uint64_t x1;
   fiat_bn254_uint1 x2;
   uint64_t x3;
@@ -1005,7 +1005,7 @@ void fiat_bn254_opp(fiat_bn254_montgomery_domain_field_element out1, const fiat_
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_from_montgomery(fiat_bn254_non_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1) {
+INLINE void fiat_bn254_from_montgomery(fiat_bn254_non_montgomery_domain_field_element out1, const fiat_bn254_montgomery_domain_field_element arg1) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1220,7 +1220,7 @@ void fiat_bn254_from_montgomery(fiat_bn254_non_montgomery_domain_field_element o
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_to_montgomery(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_non_montgomery_domain_field_element arg1) {
+INLINE void fiat_bn254_to_montgomery(fiat_bn254_montgomery_domain_field_element out1, const fiat_bn254_non_montgomery_domain_field_element arg1) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1537,7 +1537,7 @@ void fiat_bn254_to_montgomery(fiat_bn254_montgomery_domain_field_element out1, c
  * Output Bounds:
  *   out1: [0x0 ~> 0xffffffffffffffff]
  */
-void fiat_bn254_nonzero(uint64_t* out1, const uint64_t arg1[4]) {
+INLINE void fiat_bn254_nonzero(uint64_t* out1, const uint64_t arg1[4]) {
   uint64_t x1;
   x1 = ((arg1[0]) | ((arg1[1]) | ((arg1[2]) | (arg1[3]))));
   *out1 = x1;
@@ -1556,7 +1556,7 @@ void fiat_bn254_nonzero(uint64_t* out1, const uint64_t arg1[4]) {
  * Output Bounds:
  *   out1: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  */
-void fiat_bn254_selectznz(uint64_t out1[4], fiat_bn254_uint1 arg1, const uint64_t arg2[4], const uint64_t arg3[4]) {
+INLINE void fiat_bn254_selectznz(uint64_t out1[4], fiat_bn254_uint1 arg1, const uint64_t arg2[4], const uint64_t arg3[4]) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1584,7 +1584,7 @@ void fiat_bn254_selectznz(uint64_t out1[4], fiat_bn254_uint1 arg1, const uint64_
  * Output Bounds:
  *   out1: [[0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0xff], [0x0 ~> 0x3f]]
  */
-void fiat_bn254_to_bytes(uint8_t out1[32], const uint64_t arg1[4]) {
+INLINE void fiat_bn254_to_bytes(uint8_t out1[32], const uint64_t arg1[4]) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1753,7 +1753,7 @@ void fiat_bn254_to_bytes(uint8_t out1[32], const uint64_t arg1[4]) {
  * Output Bounds:
  *   out1: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0x3fffffffffffffff]]
  */
-void fiat_bn254_from_bytes(uint64_t out1[4], const uint8_t arg1[32]) {
+INLINE void fiat_bn254_from_bytes(uint64_t out1[4], const uint8_t arg1[32]) {
   uint64_t x1;
   uint64_t x2;
   uint64_t x3;
@@ -1888,7 +1888,7 @@ void fiat_bn254_from_bytes(uint64_t out1[4], const uint8_t arg1[32]) {
  *   0 ≤ eval out1 < m
  *
  */
-void fiat_bn254_set_one(fiat_bn254_montgomery_domain_field_element out1) {
+INLINE void fiat_bn254_set_one(fiat_bn254_montgomery_domain_field_element out1) {
   out1[0] = UINT64_C(0xd35d438dc58f0d9d);
   out1[1] = UINT64_C(0xa78eb28f5c70b3d);
   out1[2] = UINT64_C(0x666ea36f7879462c);
@@ -1905,7 +1905,7 @@ void fiat_bn254_set_one(fiat_bn254_montgomery_domain_field_element out1) {
  * Output Bounds:
  *   out1: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  */
-void fiat_bn254_msat(uint64_t out1[5]) {
+INLINE void fiat_bn254_msat(uint64_t out1[5]) {
   out1[0] = UINT64_C(0x3c208c16d87cfd47);
   out1[1] = UINT64_C(0x97816a916871ca8d);
   out1[2] = UINT64_C(0xb85045b68181585d);
@@ -1923,7 +1923,7 @@ void fiat_bn254_msat(uint64_t out1[5]) {
  * Output Bounds:
  *   out1: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  */
-void fiat_bn254_divstep_precomp(uint64_t out1[4]) {
+INLINE void fiat_bn254_divstep_precomp(uint64_t out1[4]) {
   out1[0] = UINT64_C(0xd69e6dbc5a194eaa);
   out1[1] = UINT64_C(0xe6d42dfd2028cab6);
   out1[2] = UINT64_C(0xc95f7098b0c0869a);
@@ -1960,7 +1960,7 @@ void fiat_bn254_divstep_precomp(uint64_t out1[4]) {
  *   out4: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  *   out5: [[0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff], [0x0 ~> 0xffffffffffffffff]]
  */
-void fiat_bn254_divstep(uint64_t* out1, uint64_t out2[5], uint64_t out3[5], uint64_t out4[4], uint64_t out5[4], uint64_t arg1, const uint64_t arg2[5], const uint64_t arg3[5], const uint64_t arg4[4], const uint64_t arg5[4]) {
+INLINE void fiat_bn254_divstep(uint64_t* out1, uint64_t out2[5], uint64_t out3[5], uint64_t out4[4], uint64_t out5[4], uint64_t arg1, const uint64_t arg2[5], const uint64_t arg3[5], const uint64_t arg4[4], const uint64_t arg5[4]) {
   uint64_t x1;
   fiat_bn254_uint1 x2;
   fiat_bn254_uint1 x3;

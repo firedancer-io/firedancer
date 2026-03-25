@@ -66,7 +66,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
                   int                  keep_controlling_terminal,
-                  int                  dumpable,
+                  int                  core_dump_level,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
@@ -84,7 +84,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   initialize_logging( tile->name, tile->kind_id, tid );
 
   /* preload shared memory before sandboxing, so it is already mapped */
-  fd_topo_join_tile_workspaces( topo, tile );
+  fd_topo_join_tile_workspaces( topo, tile, core_dump_level );
 
   if( FD_UNLIKELY( tile_run->privileged_init ) )
     tile_run->privileged_init( topo, tile );
@@ -119,6 +119,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   }
 
   if( FD_LIKELY( sandbox ) ) {
+    int dumpable = core_dump_level == FD_TOPO_CORE_DUMP_LEVEL_DISABLED ? 0 : 1;
     fd_sandbox_enter( uid,
                       gid,
                       tile_run->keep_host_networking,
@@ -129,6 +130,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                       rlimit_file_cnt,
                       tile_run->rlimit_address_space,
                       tile_run->rlimit_data,
+                      tile_run->rlimit_nproc,
                       allow_fds_cnt+allow_fds_offset,
                       allow_fds,
                       seccomp_filter_cnt,
@@ -235,7 +237,8 @@ fd_topo_tile_stack_join( char const * app_name,
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", app_name, tile_name, tile_kind_id ) );
 
-  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL );
+  int dump = strcmp( tile_name, "sign" ) ? 1 : 0; /* avoid core dumps of sign tile stacks */
+  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, dump, NULL, NULL, NULL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
 
   /* Make space for guard lo and guard hi */
@@ -273,8 +276,10 @@ run_tile_thread( fd_topo_t *         topo,
   void * stack = fd_topo_tile_stack_join( topo->app_name, tile->name, tile->kind_id );
 
   pthread_attr_t attr[ 1 ];
-  if( FD_UNLIKELY( pthread_attr_init( attr ) ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ ) ) ) FD_LOG_ERR(( "pthread_attr_setstacksize() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int err = pthread_attr_init( attr );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", err, fd_io_strerror( err ) ));
+  err = pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_attr_setstack() failed (%i-%s)", err, fd_io_strerror( err ) ));
 
   FD_CPUSET_DECL( cpu_set );
   if( FD_LIKELY( tile->cpu_idx<65535UL ) ) {
@@ -310,7 +315,8 @@ run_tile_thread( fd_topo_t *         topo,
   };
 
   pthread_t pthread;
-  if( FD_UNLIKELY( pthread_create( &pthread, attr, run_tile_thread_main, args ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  err = pthread_create( &pthread, attr, run_tile_thread_main, args );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", err, fd_io_strerror( err ) ));
 }
 
 void

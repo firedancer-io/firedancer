@@ -188,7 +188,7 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
 /* fd_ed25519_point_frombytes_2x deserializes 2x 32-byte buffers buf1, buf2
    resp. into points r1, r2, and returns r.
    buf1, buf2 are in little endian form, we accept non-canonical points unlike RFC 8032.
-   It returns 0 on success, 1 or 2 on failure.
+   It returns 0 on success, -1 or -2 on failure.
    Cost: 2sqrt (executed concurrently if possible) */
 int
 fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,

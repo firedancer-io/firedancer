@@ -8,14 +8,20 @@ void
 test_vm_minimal_exec_instr_ctx( fd_exec_instr_ctx_t * instr_ctx,
                                 fd_runtime_t *        runtime,
                                 fd_bank_t *           bank,
+                                fd_bank_data_t *      bank_data,
+                                fd_banks_locks_t *    bank_locks,
                                 fd_txn_out_t *        txn_out ) {
   memset( instr_ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
-  /* Setup feature flags */
-  fd_features_disable_all( fd_bank_features_modify( bank ) );
-  fd_features_set( fd_bank_features_modify( bank ), fd_feature_id_query( TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX ), 0UL );
+  fd_banks_locks_init( bank_locks );
+  bank->data  = bank_data;
+  bank->locks = bank_locks;
 
-  fd_bank_slot_set( bank, 1UL );
+  /* Setup feature flags */
+  fd_features_disable_all( &bank->data->f.features );
+  fd_features_set( &bank->data->f.features, fd_feature_id_query( TEST_VM_REJECT_CALLX_R10_FEATURE_PREFIX ), 0UL );
+
+  bank->data->f.slot = 1UL;
 
   instr_ctx->txn_out = txn_out;
   instr_ctx->bank    = bank;

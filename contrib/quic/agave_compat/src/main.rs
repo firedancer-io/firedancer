@@ -5,6 +5,7 @@ use rand::Rng;
 use solana_client::connection_cache::ConnectionCache;
 use solana_connection_cache::client_connection::ClientConnection;
 use solana_keypair::Keypair;
+use solana_streamer::nonblocking::swqos::SwQosConfig;
 use solana_streamer::streamer::StakedNodes;
 use std::ffi::{c_char, c_void, CString};
 use std::mem::MaybeUninit;
@@ -12,6 +13,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
 mod blaster;
 
@@ -111,6 +113,7 @@ unsafe fn agave_to_fdquic() {
     let quic = fd_quic_new_anonymous_small(wksp, FD_QUIC_ROLE_SERVER as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");
     (*quic).config.retry = 1;
+    (*quic).config.idle_timeout = 10_000_000_000; // 10s
 
     fd_quic_set_aio_net_tx(quic, fd_udpsock_get_tx(udpsock));
     fd_udpsock_set_rx(udpsock, fd_quic_get_aio_net_rx(quic));
@@ -133,6 +136,8 @@ unsafe fn agave_to_fdquic() {
         }
         let metrics = &(*quic3).metrics.__bindgen_anon_1;
         // Limit packet counts to reasonable numbers
+        println!("fd_quic server received {} packets", metrics.net_rx_pkt_cnt);
+        println!("fd_quic server transmitted {} packets", metrics.net_tx_pkt_cnt);
         assert!(metrics.net_rx_pkt_cnt < 64);
         assert!(metrics.net_tx_pkt_cnt < metrics.net_rx_pkt_cnt);
         assert!(metrics.net_tx_byte_cnt < metrics.net_rx_byte_cnt);
@@ -319,15 +324,16 @@ unsafe fn fdquic_to_agave() {
     let keypair = Keypair::new();
     let (agave_tx, _agave_rx) = crossbeam_channel::bounded(16);
     let exit = Arc::new(AtomicBool::new(false));
-    let agave_server_handle = solana_streamer::quic::spawn_server(
+    let agave_server_handle = solana_streamer::quic::spawn_server_with_cancel(
         "agave_server",
         "agave_server",
-        udp_socket,
+        [udp_socket],
         &keypair,
         agave_tx,
-        Arc::clone(&exit),
         Arc::new(RwLock::new(StakedNodes::default())),
-        solana_streamer::quic::QuicServerParams::default(),
+        solana_streamer::quic::QuicStreamerConfig::default(),
+        SwQosConfig::default(),
+        CancellationToken::new(),
     )
     .unwrap();
     std::thread::sleep(Duration::from_millis(500));
@@ -362,7 +368,14 @@ unsafe fn fdquic_to_agave() {
         "Connecting from 127.0.0.1:{} to 127.0.0.1:{}",
         client_port, listen_port
     );
-    let conn = fd_quic_connect(quic, 0x0100007f, listen_port, 0x0100007f, client_port, fd_log_wallclock());
+    let conn = fd_quic_connect(
+        quic,
+        0x0100007f,
+        listen_port,
+        0x0100007f,
+        client_port,
+        fd_log_wallclock(),
+    );
     assert!(!conn.is_null());
     let conn_start = Instant::now();
     loop {

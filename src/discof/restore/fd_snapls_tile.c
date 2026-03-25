@@ -19,6 +19,10 @@ struct fd_snapls_tile {
 
   fd_lthash_value_t running_lthash;
 
+  struct {
+    fd_lthash_value_t full_lthash;
+  } recovery;
+
   fd_blake3_t b3[1];
   ulong       acc_data_sz;
   int         hash_account;
@@ -27,16 +31,14 @@ struct fd_snapls_tile {
   uchar in_kind[ MAX_IN_LINKS ];
   ulong adder_in_offset;
 
+  ulong pending_ctrl_sig;
   ulong num_acks;
   uchar acks[ 1 + FD_SNAPSHOT_MAX_SNAPLA_TILES ];
+  int   pending_ack_init;
 
   struct {
     fd_lthash_value_t expected_lthash;
     fd_lthash_value_t calculated_lthash;
-    ulong received_lthashes;
-    ulong ack_sig;
-    int   awaiting_ack;
-    int   hash_check_done;
   } hash_accum;
 
   struct {
@@ -102,6 +104,7 @@ metrics_write( fd_snapls_tile_t * ctx ) {
 static void
 transition_malformed( fd_snapls_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
   fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
@@ -111,6 +114,7 @@ handle_data_frag( fd_snapls_tile_t *  ctx,
                   ulong               sig,
                   ulong               chunk,
                   ulong               sz ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
 
   switch( sig ) {
@@ -179,16 +183,24 @@ handle_data_frag( fd_snapls_tile_t *  ctx,
 
 static int
 recv_acks( fd_snapls_tile_t * ctx,
-           ulong              in_idx ) {
-  FD_TEST( ctx->acks[ in_idx ]==0 );
+           ulong              in_idx,
+           ulong              sig ) {
+  if( FD_UNLIKELY( !ctx->pending_ctrl_sig ) ) {
+    ctx->pending_ctrl_sig = sig;
+    ctx->num_acks         = 0UL;
+    fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
+  } else FD_TEST( ctx->pending_ctrl_sig==sig );
 
+  FD_TEST( ctx->acks[ in_idx ]==0 );
   ctx->acks[ in_idx ] = 1;
   ctx->num_acks++;
 
-  if( FD_UNLIKELY( ctx->num_acks!=1UL+ctx->num_hash_tiles ) ) return 0;
+  FD_TEST( ctx->num_acks<=1UL+ctx->num_hash_tiles );
+  if( FD_LIKELY( ctx->num_acks<1UL+ctx->num_hash_tiles ) ) return 0;
 
+  ctx->pending_ctrl_sig = 0UL;
+  ctx->num_acks         = 0UL;
   fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
-  ctx->num_acks = 0UL;
   return 1;
 }
 
@@ -197,68 +209,122 @@ handle_control_frag( fd_snapls_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig,
                      ulong               in_idx ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    return;
+  };
+
+  int forward_msg = 1;
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
-      int done = recv_acks( ctx, in_idx );
-      if( !done ) return;
-
+      ulong num_acks = ctx->num_acks;
+      forward_msg = recv_acks( ctx, in_idx, sig ); /* returns 0 or 1 */
+      /* The first data frag may be received before snapls has been
+         able to process the ack from every hash tile.  This requires
+         snapls to initialize and transition into processing state
+         once, but forward the message after processing all acks. */
+      if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) {
+        /* Processing state is only allowed with a pending ack on init.
+           Once the message is forwarded, init is completed. */
+        FD_TEST( ctx->pending_ack_init );
+        ctx->pending_ack_init = !forward_msg;
+        break;
+      }
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
-      ctx->full  = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
-      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      FD_TEST( !num_acks );
+      ctx->state        = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full         = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->hash_account = 0;
+      ctx->acc_data_sz  = 0UL;
       fd_lthash_zero( &ctx->running_lthash );
+      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
+        fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
+        fd_lthash_zero( &ctx->recovery.full_lthash );
+      } else {
+        /* The lthash for the incremental snapshot is computed starting
+           from the full snapshot lthash.  Since an init message may
+           be received after a fail message, always start from the
+           recovery value. */
+        ctx->hash_accum.calculated_lthash = ctx->recovery.full_lthash;
+      }
+      ctx->pending_ack_init = !forward_msg;
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
-               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-               ctx->state==FD_SNAPSHOT_STATE_ERROR );
-      int done = recv_acks( ctx, in_idx );
-      if( !done ) return;
-
-      ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      fd_lthash_zero( &ctx->running_lthash );
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
+      if( FD_UNLIKELY( memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
+        /* SnapshotError::MismatchedHash
+           https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L479 */
+        FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
+                          FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
+                          FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      } else {
+        FD_LOG_INFO(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
+                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
+                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
+      }
       break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
-      int done = recv_acks( ctx, in_idx );
-      if( !done ) return;
-
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
-        transition_malformed( ctx, stem );
-        return;
-      }
-
-      ctx->hash_accum.ack_sig           = sig;
-      ctx->hash_accum.awaiting_ack      = 1;
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
-      return; /* the ack is sent when all hashes are received */
+      /* back up full_lthash for future recovery. */
+      if( sig==FD_SNAPSHOT_MSG_CTRL_NEXT ) {
+        ctx->recovery.full_lthash = ctx->hash_accum.calculated_lthash;
+      }
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      /* Reset tracking for received acks because we will now be waiting
+         for a fail control message. */
+      ctx->pending_ctrl_sig = 0UL;
+      ctx->num_acks         = 0UL;
+      fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
-      int done = recv_acks( ctx, in_idx );
-      if( !done ) return;
-
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      if( !recv_acks( ctx, in_idx, sig ) ) { forward_msg = 0; break; }
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
     }
 
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      ctx->state = FD_SNAPSHOT_STATE_ERROR;
-      break;
-
-    default:
+    default: {
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
-      return;
+      break;
+    }
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static void
@@ -267,27 +333,26 @@ handle_hash_frag( fd_snapls_tile_t * ctx,
                   ulong              sig,
                   ulong              chunk,
                   ulong              sz ) {
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING || ctx->state==FD_SNAPSHOT_STATE_IDLE );
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
   switch( sig ) {
     case FD_SNAPSHOT_HASH_MSG_RESULT_ADD: {
       FD_TEST( sz==sizeof(fd_lthash_value_t) );
       fd_lthash_value_t const * result = fd_chunk_to_laddr_const( ctx->adder_in[ in_idx-ctx->adder_in_offset ].wksp, chunk );
       fd_lthash_add( &ctx->hash_accum.calculated_lthash, result );
-      ctx->hash_accum.received_lthashes++;
       break;
     }
     case FD_SNAPSHOT_HASH_MSG_EXPECTED: {
       FD_TEST( sz==sizeof(fd_lthash_value_t) );
       FD_TEST( ctx->in_kind[ in_idx ]==IN_KIND_SNAPIN );
       fd_lthash_value_t const * result = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
-      fd_memcpy( &ctx->hash_accum.expected_lthash, result, sizeof(fd_lthash_value_t) );
+      ctx->hash_accum.expected_lthash = *result;
       break;
     }
     default:
       FD_LOG_ERR(( "unexpected hash sig %lu", sig ));
       break;
   }
-
 }
 
 static inline int
@@ -311,34 +376,6 @@ returnable_frag( fd_snapls_tile_t *  ctx,
   else                                                         handle_control_frag( ctx, stem, sig, in_idx );
 
   return 0;
-}
-
-static void
-after_credit( fd_snapls_tile_t *  ctx,
-              fd_stem_context_t *  stem,
-              int *                opt_poll_in FD_PARAM_UNUSED,
-              int *                charge_busy FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( ctx->hash_accum.received_lthashes==ctx->num_hash_tiles && ctx->hash_accum.awaiting_ack ) ) {
-    fd_lthash_sub( &ctx->hash_accum.calculated_lthash, &ctx->running_lthash );
-    if( FD_UNLIKELY( memcmp( &ctx->hash_accum.expected_lthash, &ctx->hash_accum.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
-      FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
-                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
-                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
-      transition_malformed( ctx, stem );
-    } else {
-      FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
-                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.calculated_lthash ),
-                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_accum.expected_lthash ) ));
-    }
-    ctx->hash_accum.received_lthashes = 0UL;
-    ctx->hash_accum.hash_check_done = 1;
-  }
-
-  if( FD_UNLIKELY( ctx->hash_accum.awaiting_ack && ctx->hash_accum.hash_check_done ) ) {
-    fd_stem_publish( stem, 0UL, ctx->hash_accum.ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-    ctx->hash_accum.awaiting_ack    = 0;
-    ctx->hash_accum.hash_check_done = 0;
-  }
 }
 
 static ulong
@@ -411,18 +448,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state                        = FD_SNAPSHOT_STATE_IDLE;
   ctx->full                         = 1;
   ctx->hash_account                 = 0;
+  ctx->acc_data_sz                  = 0UL;
+  fd_memset( &ctx->account_hdr, 0, sizeof(ctx->account_hdr) );
 
   ctx->num_hash_tiles               = fd_topo_tile_name_cnt( topo, "snapla" );
 
-  ctx->hash_accum.received_lthashes = 0UL;
-  ctx->hash_accum.awaiting_ack      = 0;
-  ctx->hash_accum.hash_check_done   = 0;
-
+  ctx->pending_ctrl_sig             = 0UL;
   ctx->num_acks                     = 0UL;
   fd_memset( ctx->acks, 0, sizeof(ctx->acks) );
+  ctx->pending_ack_init             = 0;
 
+  fd_lthash_zero( &ctx->hash_accum.expected_lthash );
   fd_lthash_zero( &ctx->hash_accum.calculated_lthash );
   fd_lthash_zero( &ctx->running_lthash );
+  fd_lthash_zero( &ctx->recovery.full_lthash );
 }
 
 #define STEM_BURST 2UL /* one control message and one malformed message */
@@ -433,7 +472,6 @@ unprivileged_init( fd_topo_t *      topo,
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
@@ -449,4 +487,3 @@ fd_topo_run_tile_t fd_tile_snapls = {
 };
 
 #undef NAME
-

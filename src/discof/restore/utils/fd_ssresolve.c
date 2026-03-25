@@ -2,6 +2,7 @@
 #include "fd_ssarchive.h"
 
 #include "../../../waltz/http/picohttpparser.h"
+#include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
 
 #include <unistd.h>
@@ -117,7 +118,8 @@ void
 fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
                    int              sockfd,
-                   int              full ) {
+                   int              full,
+                   char const *     hostname ) {
   ssresolve->addr   = addr;
   ssresolve->sockfd = sockfd;
   ssresolve->full   = full;
@@ -127,6 +129,7 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
   ssresolve->request_len  = 0UL;
   ssresolve->response_len = 0UL;
   ssresolve->is_https     = 0;
+  ssresolve->hostname     = hostname;
 }
 
 #if FD_HAS_OPENSSL
@@ -165,47 +168,31 @@ fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
   if( FD_UNLIKELY( !set1_host_res ) ) {
     FD_LOG_ERR(( "SSL_set1_host failed (%d)", set1_host_res ));
   }
+
+  FD_TEST( fd_openssl_ssl_set_fd( ssresolve->ssl, ssresolve->sockfd ) );
 }
 #endif
 
 static void
 fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
-  if( FD_LIKELY( ssresolve->full ) ) {
-    if( FD_UNLIKELY( ssresolve->is_https ) ) {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
-             "HEAD /snapshot.tar.bz2 HTTP/1.1\r\n"
-             "User-Agent: Firedancer\r\n"
-             "Accept: */*\r\n"
-             "Accept-Encoding: identity\r\n"
-             "Host: %s\r\n\r\n",
-             ssresolve->hostname ) );
-    } else {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
-             "HEAD /snapshot.tar.bz2 HTTP/1.1\r\n"
-             "User-Agent: Firedancer\r\n"
-             "Accept: */*\r\n"
-             "Accept-Encoding: identity\r\n"
-             "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-             FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
-    }
+  char const * path = ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2";
+
+  if( FD_LIKELY( ssresolve->hostname && ssresolve->hostname[ 0 ]!='\0' ) ) {
+    FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
+           "HEAD %s HTTP/1.1\r\n"
+           "User-Agent: Firedancer\r\n"
+           "Accept: */*\r\n"
+           "Accept-Encoding: identity\r\n"
+           "Host: %s\r\n\r\n",
+           path, ssresolve->hostname ) );
   } else {
-    if( FD_UNLIKELY( ssresolve->is_https ) ) {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
-             "HEAD /incremental-snapshot.tar.bz2 HTTP/1.1\r\n"
-             "User-Agent: Firedancer\r\n"
-             "Accept: */*\r\n"
-             "Accept-Encoding: identity\r\n"
-             "Host: %s\r\n\r\n",
-             ssresolve->hostname ) );
-    } else {
-      FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
-             "HEAD /incremental-snapshot.tar.bz2 HTTP/1.1\r\n"
-             "User-Agent: Firedancer\r\n"
-             "Accept: */*\r\n"
-             "Accept-Encoding: identity\r\n"
-             "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-             FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
-    }
+    FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
+           "HEAD %s HTTP/1.1\r\n"
+           "User-Agent: Firedancer\r\n"
+           "Accept: */*\r\n"
+           "Accept-Encoding: identity\r\n"
+           "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
+           path, FD_IP4_ADDR_FMT_ARGS( ssresolve->addr.addr ) ) );
   }
 }
 
@@ -237,9 +224,12 @@ fd_ssresolve_send_request( fd_ssresolve_t * ssresolve ) {
     FD_LOG_ERR(( "cannot use HTTPS without OpenSSL" ));
 #endif
   } else {
-    sent = sendto( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, 0, NULL, 0 );
+    sent = sendto( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, MSG_NOSIGNAL, NULL, 0 );
     if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
-    else if( FD_UNLIKELY( -1==sent ) )             return FD_SSRESOLVE_ADVANCE_ERROR;
+    else if( FD_UNLIKELY( -1==sent ) ) {
+      FD_LOG_WARNING(( "sendto() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      return FD_SSRESOLVE_ADVANCE_ERROR;
+    }
   }
 
   ssresolve->request_sent += (ulong)sent;
@@ -260,7 +250,7 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
   char const * location     = NULL;
 
   for( ulong i=0UL; i<header_cnt; i++ ) {
-    if( FD_UNLIKELY( !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
+    if( FD_UNLIKELY( headers[ i ].name_len == 8 && !strncasecmp( headers[ i ].name, "location", headers[ i ].name_len ) ) ) {
       if( FD_UNLIKELY( !headers [ i ].value_len || headers[ i ].value[ 0 ]!='/' ) ) {
         FD_LOG_WARNING(( "invalid location header `%.*s`", (int)headers[ i ].value_len, headers[ i ].value ));
         return FD_SSRESOLVE_ADVANCE_ERROR;
@@ -272,7 +262,15 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     }
   }
 
-  if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) return FD_SSRESOLVE_ADVANCE_ERROR;
+  if( FD_UNLIKELY( !location_len ) ) {
+    FD_LOG_WARNING(( "no location header in redirect response" ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
+
+  if( FD_UNLIKELY( location_len>=PATH_MAX-1UL ) ) {
+    FD_LOG_WARNING(( "redirect location header too long (%lu)", location_len ));
+    return FD_SSRESOLVE_ADVANCE_ERROR;
+  }
 
   char snapshot_name[ PATH_MAX ];
   fd_memcpy( snapshot_name, location+1UL, location_len-1UL );
@@ -288,6 +286,7 @@ fd_ssresolve_parse_redirect( fd_ssresolve_t *        ssresolve,
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
+  fd_memcpy( result->hash, decoded_hash, FD_HASH_FOOTPRINT );
   if( FD_LIKELY( incremental_entry_slot==ULONG_MAX ) ) {
     result->slot      = full_entry_slot;
     result->base_slot = ULONG_MAX;
@@ -358,16 +357,26 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
     return FD_SSRESOLVE_ADVANCE_AGAIN;
   }
 
-  int is_redirect = (status==301) | (status==302) | (status==303) | (status==304) | (status==307) | (status==308);
+  int is_redirect = (status==301) | (status==302) | (status==303) | (status==307) | (status==308);
   if( FD_UNLIKELY( is_redirect ) ) {
     return fd_ssresolve_parse_redirect( ssresolve, headers, header_cnt, result );
   }
 
   if( FD_UNLIKELY( status!=200 ) ) {
-    FD_LOG_WARNING(( "unexpected response status %d", status ));
+    char req_path[ 4096UL ];
+    if( FD_LIKELY( ssresolve->is_https ) ) {
+      FD_TEST( fd_cstr_printf_check( req_path, sizeof(req_path), NULL,
+               "https://%s:%u%s", ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ), ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+    } else {
+      FD_TEST( fd_cstr_printf_check( req_path, sizeof(req_path), NULL,
+               "http://%s:%u%s", ssresolve->hostname, fd_ushort_bswap( ssresolve->addr.port ), ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2" ) );
+    }
+    FD_LOG_WARNING(( "unexpected response code %d accessing %s", status, req_path ));
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
+  /* 200 without a redirect: the server did not provide the actual
+     snapshot filename, so we cannot determine the slot or hash. */
   return FD_SSRESOLVE_ADVANCE_ERROR;
 }
 
@@ -375,7 +384,6 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
 static int
 ssresolve_connect_ssl( fd_ssresolve_t * ssresolve ) {
   FD_TEST( ssresolve->ssl );
-  SSL_set_fd( ssresolve->ssl, ssresolve->sockfd );
   int ssl_err = SSL_connect( ssresolve->ssl );
   if( FD_UNLIKELY( ssl_err!=1 ) ) {
     int ssl_err_code = SSL_get_error( ssresolve->ssl, ssl_err );

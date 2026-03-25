@@ -19,8 +19,10 @@ void fd_gui_printf_vote_distance( fd_gui_t * gui );
 void fd_gui_printf_turbine_slot( fd_gui_t * gui );
 void fd_gui_printf_repair_slot( fd_gui_t * gui );
 void fd_gui_printf_slot_caught_up( fd_gui_t * gui );
-void fd_gui_printf_skipped_history( fd_gui_t * gui );
-void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui );
+void fd_gui_printf_skipped_history( fd_gui_t * gui, ulong epoch_idx );
+void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui, ulong epoch_idx );
+void fd_gui_printf_vote_latency_history( fd_gui_t * gui );
+void fd_gui_printf_late_votes_history( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_startup_progress( fd_gui_t * gui );
 void fd_gui_printf_boot_progress( fd_gui_t * gui );
@@ -125,9 +127,12 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
                                          ulong      id );
 
 void
-fd_gui_printf_slot_shred_updates( fd_gui_t * gui,
-                                  ulong      _slot,
-                                  ulong      id );
+fd_gui_printf_slot_query_shreds( fd_gui_t * gui,
+                                 ulong      _slot,
+                                 ulong      id );
+
+void
+fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after );
 
 void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );

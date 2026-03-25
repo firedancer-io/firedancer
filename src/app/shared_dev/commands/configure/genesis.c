@@ -10,7 +10,6 @@
 #include "../../../../flamenco/genesis/fd_genesis_create.h"
 #include "../../../../flamenco/types/fd_types_custom.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
-#include "../../../../flamenco/runtime/fd_runtime_const.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -53,7 +52,6 @@ default_enable_features( fd_features_t * features ) {
   features->revise_turbine_epoch_stakes = 0UL;
   features->clean_up_delegation_errors = 0UL;
   features->update_hashes_per_tick5 = 0UL;
-  features->full_inflation_vote = 0UL;
   features->skip_rent_rewrites = 0UL;
   features->switch_to_new_elf_parser = 0UL;
   features->require_rent_exempt_split_destination = 0UL;
@@ -195,7 +193,7 @@ create_genesis( config_t const * config,
 
   fd_features_t features[1];
   fd_features_disable_all( features );
-  fd_features_enable_cleaned_up( features, &FD_RUNTIME_CLUSTER_VERSION );
+  fd_features_enable_cleaned_up( features );
   default_enable_features( features );
 
   options->features = features;
@@ -262,7 +260,7 @@ init( config_t const * config ) {
   char  genesis_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
 
   ushort shred_version;
-  int result = compute_shred_version( genesis_path, &shred_version, genesis_hash );
+  int result = read_genesis_bin( genesis_path, &shred_version, genesis_hash );
   if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   FD_LOG_INFO(( "Created %s:  genesis_hash=%s sz=%lu",

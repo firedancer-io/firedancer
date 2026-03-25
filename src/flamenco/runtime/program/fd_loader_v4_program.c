@@ -1,6 +1,8 @@
 #include "fd_loader_v4_program.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../../log_collector/fd_log_collector.h"
+#include "../fd_borrowed_account.h"
+#include "../fd_system_ids.h"
 
 /* The loader v4 program instruction can correspond to one of three
    instruction types: write, copy, set_program_length.  Only the write
@@ -62,17 +64,18 @@ fd_loader_v4_get_state_mut( uchar * data,
 
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L32-L44 */
 fd_loader_v4_state_t const *
-fd_loader_v4_get_state( fd_txn_account_t const * program,
-                        int *                    err ) {
+fd_loader_v4_get_state( void const * data,
+                        ulong        data_sz,
+                        int *        err ) {
   *err = FD_EXECUTOR_INSTR_SUCCESS;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L35-L36 */
-  if( FD_UNLIKELY( fd_txn_account_get_data_len( program )<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
+  if( FD_UNLIKELY( data_sz<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     return NULL;
   }
 
-  return fd_type_pun_const( fd_txn_account_get_data( program ) );
+  return fd_type_pun_const( data );
 }
 
 /* `check_program_account()` validates the program account's state from its data.
@@ -94,7 +97,9 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L70 */
-  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program->acct, err );
+  void const * data    = fd_borrowed_account_get_data    ( program );
+  ulong        data_sz = fd_borrowed_account_get_data_len( program );
+  fd_loader_v4_state_t const * state = fd_loader_v4_get_state( data, data_sz, err );
   if( FD_UNLIKELY( *err ) ) {
     return NULL;
   }
@@ -521,14 +526,11 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   }
   uchar const * programdata = fd_borrowed_account_get_data( &program ) + LOADER_V4_PROGRAM_DATA_OFFSET;
 
-  /* Our program cache is fundamentally different from Agave's.  Here,
-     they would perform verifications and add the program to their
-     cache, but we only perform verifications now and defer cache
-     population to the end of the slot.  Since programs cannot be
-     invoked until the next slot anyways, doing this is okay.
+  /* Perform deploy checks.
+     Unlike Agave, Firedancer does not interact with the program cache when deploying.
 
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/loader-v4/src/lib.rs#L309-L316 */
-  err = fd_deploy_program( instr_ctx, program.acct->pubkey, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET );
+  err = fd_deploy_program( instr_ctx, programdata, buffer_dlen - LOADER_V4_PROGRAM_DATA_OFFSET );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -752,14 +754,16 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L454 */
-  fd_loader_v4_state_t const * state_of_next_version = fd_loader_v4_get_state( next_version.acct, &err );
+  void const * next_data    = fd_borrowed_account_get_data    ( &next_version );
+  ulong        next_data_sz = fd_borrowed_account_get_data_len( &next_version );
+  fd_loader_v4_state_t const * state_of_next_version = fd_loader_v4_get_state( next_data, next_data_sz, &err );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L455-L458 */
   if( FD_UNLIKELY( memcmp( state_of_next_version->authority_address_or_next_version.key, authority_address, sizeof(fd_pubkey_t) ) ) ) {
-    fd_log_collector_msg_literal( instr_ctx, "Next version has different authority" );
+    fd_log_collector_msg_literal( instr_ctx, "Next version has a different authority" );
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
   }
 
@@ -770,7 +774,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L463 */
-  fd_pubkey_t * address_of_next_version = next_version.acct->pubkey;
+  fd_pubkey_t const * address_of_next_version = next_version.pubkey;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L464 */
   fd_borrowed_account_drop( &next_version );
@@ -821,19 +825,18 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497 */
     uchar __attribute__((aligned(FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN))) instruction_mem[ FD_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT ] = {0};
-    rc = 0;
     fd_loader_v4_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
         loader_v4_program_instruction,
         instruction_mem,
         instr_ctx->instr->data,
         instr_ctx->instr->data_sz,
-        FD_TXN_MTU,
-        &rc );
-    if( FD_UNLIKELY( rc ) ) {
+        FD_TXN_MTU );
+    if( FD_UNLIKELY( !instruction ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497-L518 */
+    rc = 0;
     switch( instruction->discriminant ) {
       case fd_loader_v4_program_instruction_enum_write: {
         /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L498-L500 */
@@ -875,9 +878,8 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L520 */
     fd_guarded_borrowed_account_t program = {0};
     rc = fd_exec_instr_ctx_try_borrow_last_program_account( instr_ctx, &program );
-    if( FD_UNLIKELY( rc ) ) {
-      return rc;
-    }
+    if( FD_UNLIKELY( rc ) ) return rc;
+    fd_accdb_ro_t program_ro[1]; fd_borrowed_account_ro( &program, program_ro );
 
     /* Work around differences in program caching behavior between
        Fireadncer and Agave here.
@@ -890,7 +892,9 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
        Therefore, Firedancer recovers the DelayVisibility and Closed
        states on-the-fly before querying cahce. */
 
-    fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program.acct, &rc );
+    void const * prog_data    = fd_borrowed_account_get_data    ( &program );
+    ulong        prog_data_sz = fd_borrowed_account_get_data_len( &program );
+    fd_loader_v4_state_t const * state = fd_loader_v4_get_state( prog_data, prog_data_sz, &rc );
     if( FD_UNLIKELY( rc ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -902,19 +906,17 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* Handle `DelayedVisibility` case */
-    if( FD_UNLIKELY( state->slot>=fd_bank_slot_get( instr_ctx->bank ) ) ) {
+    if( FD_UNLIKELY( state->slot>=instr_ctx->bank->data->f.slot ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( instr_ctx->bank ), instr_ctx->bank->idx } };
+    fd_funk_txn_xid_t xid = { .ul = { instr_ctx->bank->data->f.slot, instr_ctx->bank->data->idx } };
     fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->bank );
-    fd_progcache_rec_t const * cache_entry = fd_progcache_pull( instr_ctx->runtime->progcache,
-                                                                instr_ctx->runtime->accdb,
-                                                                &xid,
-                                                                program_id,
-                                                                load_env );
+    fd_progcache_t * progcache = instr_ctx->runtime->progcache;
+    fd_progcache_rec_t * cache_entry = fd_progcache_pull(
+        progcache, &xid, program_id, load_env, program_ro );
     if( FD_UNLIKELY( !cache_entry ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -922,7 +924,8 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* The program may be in the cache but could have failed
        verification in the current epoch. */
-    if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
+    if( FD_UNLIKELY( !cache_entry->data_gaddr ) ) {
+      fd_progcache_rec_close( progcache, cache_entry );
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
@@ -932,6 +935,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L542 */
     rc = fd_bpf_execute( instr_ctx, cache_entry, 0 );
+    fd_progcache_rec_close( progcache, cache_entry );
   }
 
   return rc;

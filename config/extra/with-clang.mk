@@ -1,9 +1,3 @@
-ifeq ($(CROSS),)
-CC:=clang
-CXX:=clang++
-LD:=clang++
-endif
-
 # Sigh ... strict clang builds will not let you even let you get the
 # address of a packed structure element and this is pretty elementary
 # operation in real world packet parsing.  Importantly, this prevents
@@ -42,7 +36,3 @@ CPPFLAGS+=-DFD_USING_CLANG=1
 # itself doesn't matter ... only that the variable is defined).
 
 FD_USING_CLANG:=1
-
-# Using clang++ doesn't always bring in this library
-
-LDFLAGS+=-lstdc++

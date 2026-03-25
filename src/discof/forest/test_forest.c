@@ -17,14 +17,20 @@
 
 fd_forest_blk_t *
 fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int data_complete FD_PARAM_UNUSED, int slot_complete ) {
-  fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR );
+  ulong evicted = ULONG_MAX;
+  fd_forest_blk_insert( forest, slot, parent_slot, &evicted );
+  fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
+  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR, &mr, &cmr );
 }
 
 fd_forest_blk_t *
 fd_forest_blk_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete ) {
-  fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0 );
+  ulong evicted = ULONG_MAX;
+  fd_forest_blk_insert( forest, slot, parent_slot, &evicted );
+  fd_hash_t mr  = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t cmr = (fd_hash_t){ .key = { 1 } };
+  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0, &mr, &cmr );
 }
 
 #define slot_idx( forest, slot ) fd_forest_pool_idx( fd_forest_pool( forest ), fd_forest_query( forest, slot ) )
@@ -732,7 +738,6 @@ test_fec_clear( fd_wksp_t * wksp ) {
   fd_forest_blk_fec_insert( forest, 1, 0, 31, 0,  0 );
   fd_forest_blk_fec_insert( forest, 1, 0, 63, 32, 1 );
 
-  ulong _1 = slot_idx( forest, 1 );
   ulong _2 = slot_idx( forest, 2 );
   FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_2, NULL, fd_forest_conspool( forest ) ) );
 
@@ -746,19 +751,19 @@ test_fec_clear( fd_wksp_t * wksp ) {
   ulong _3 = slot_idx( forest, 3 );
   FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_2, NULL, fd_forest_conspool( forest ) ) );
 
-  /* receiving all the shreds for slot 2 but not the fec completes does
-     not advance the frontier */
-  fd_forest_blk_data_shred_insert( forest, _2, _1, 0, 0, 0, 0 );
-  fd_forest_blk_data_shred_insert( forest, _2, _1, 1, 0, 0, 0 );
-  fd_forest_blk_data_shred_insert( forest, _2, _1, 2, 0, 0, 0 );
-  fd_forest_blk_data_shred_insert( forest, _2, _1, 3, 3, 0, 0 );
-  fd_forest_blk_data_shred_insert( forest, _2, _1, 4, 3, 0, 0 );
-  fd_forest_blk_data_shred_insert( forest, _2, _1, 5, 3, 0, 1 );
-  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_2, NULL, fd_forest_conspool( forest ) ) );
+  /* receiving all the shreds for slot 2 but not the fec completes will now
+     advance the frontier */
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 1, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 2, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 3, 3, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 4, 3, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 2, 1, 5, 3, 0, 1 );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
 
   /* receiving 1 fec for slot 2 does not complete the slot */
   fd_forest_blk_fec_insert( forest, 2, 1, 2, 0, 0 );
-  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_2, NULL, fd_forest_conspool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
   /* finally complete */
   fd_forest_blk_fec_insert( forest, 2, 1, 5, 3, 1 );
   FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
@@ -929,6 +934,360 @@ test_orphan_requests( fd_wksp_t * wksp ) {
   FD_TEST( forest->orphiter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
 }
 
+void
+test_slot_clear( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  /*
+       2
+      | \
+      3  3'
+  */
+
+  /* We execute (2, 0) -> (2,32) -> (3, 0') -> (3, 32'). Tower detects
+     that (3, 32) is the duplicate confirmed version.
+     We must dump slot 3 and re-repair. */
+
+  fd_hash_t mr_0     = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2_0   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_2_32  = (fd_hash_t){ .key = { 3 } };
+  fd_hash_t mr_3_0   = (fd_hash_t){ .key = { 4 } };
+  fd_hash_t mr_3_32  = (fd_hash_t){ .key = { 5 } };
+  fd_hash_t mr_3_0_  = (fd_hash_t){ .key = { 6 } }; (void)mr_3_0_;
+  fd_hash_t mr_3_32_ = (fd_hash_t){ .key = { 7 } };
+
+  fd_forest_blk_t * ele;
+  fd_forest_init( forest, 0 );
+  fd_forest_blk_insert( forest, 2, 0, NULL );
+  fd_forest_blk_insert( forest, 3, 2, NULL );
+  /*                            slot paren  last  fec_set  slot_cmpl  rt  mr        cmr */
+  fd_forest_fec_insert( forest, 2,   0,     31,   0,       0,         0,  &mr_2_0,  &mr_0 );
+  fd_forest_fec_insert( forest, 2,   0,     63,   32,      1,         0,  &mr_2_32, &mr_2_0 );
+
+  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_0 );
+  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0 );
+
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( ele == fd_forest_query( forest, 3 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 32UL );
+
+  /* Now we would dump the last incorrect FEC */
+  fd_forest_fec_clear( forest, 3, 32, 31 );
+
+  /* Now pretend we have received the correct FEC for 3, 32 */
+  fd_forest_fec_insert( forest, 3,    2,    63,   32,      1,         0,  &mr_3_32_, &mr_3_0_ );
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( ele == fd_forest_query( forest, 3 ) );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 0 );
+
+  FD_TEST( ele->chain_confirmed == 0 );
+  FD_TEST( fd_forest_query( forest, 2 )->chain_confirmed == 0 );
+
+
+  /* Now we dump incorrect FEC (3, 0). */
+
+  fd_forest_fec_clear( forest, 3, 0, 31 );
+
+  /* Now pretend we have received the correct FEC for 3, 0 */
+  fd_hash_t garbage_mr = (fd_hash_t){ .key = { 67 } };
+  FD_TEST( !fd_forest_data_shred_insert( forest, 3, 2, 0, 0, 0, 0, 0, &garbage_mr, &garbage_mr ) ); // first get an incorrect shred, should be rejected.
+  fd_forest_fec_insert( forest, 3,   2,    31,      0,      0,          0, &mr_3_0_, &mr_2_32 );
+
+  ele = fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ );
+  FD_TEST( !ele );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == UINT_MAX );
+  FD_TEST( fd_forest_query( forest, 3 )->chain_confirmed == 1 );
+  FD_TEST( fd_forest_query( forest, 2 )->chain_confirmed == 1 );
+
+  fd_forest_print( forest );
+
+  /*
+       2
+       | \
+       3' \
+     / |   \
+    8  4   4'
+
+      We receive 4 (that has only 1 FEC set) built off of 3'.  We later
+      see that 4' is the duplicate confirmed version.  4' may have been
+      built off an entirely different parent.
+
+      We must clear 4 and re-repair 4'.
+  */
+
+  /* now pretend that we rerepaired 4 */
+
+  /* now scenario is we've replayed through 6, but then learn 5 is
+     an incorrect version.  We need to dump it.  At that point we
+     expect slot 6 to be in subtrees, and 7 in the orphaned.
+      0 - 2 - 4 - 5 - 6 - 7            0 - 2 - 4     6 - 7
+           \                     ->         \
+            3                                3
+     */
+
+    /* now we add back 5, .
+      0 - 2 - 4 - 5 - 6 - 7            0 - 2 - 4     6 - 7
+           \                     ->         \
+            3                                3
+     */
+}
+void
+print_orphan_requests( fd_forest_t * forest ) {
+  fd_forest_reqslist_iter_t iter = fd_forest_reqslist_iter_fwd_init( fd_forest_orphlist( forest ), fd_forest_reqspool( forest ) );
+  while( !fd_forest_reqslist_iter_done( iter, fd_forest_orphlist( forest ), fd_forest_reqspool( forest ) ) ) {
+    fd_forest_ref_t * ele = fd_forest_reqslist_iter_ele( iter, fd_forest_orphlist( forest ), fd_forest_reqspool( forest ) );
+    FD_LOG_NOTICE(( "orphan request: %lu", idx_slot( forest, ele->idx ) ));
+    iter = fd_forest_reqslist_iter_fwd_next( iter, fd_forest_orphlist( forest ), fd_forest_reqspool( forest ) );
+  }
+}
+
+void
+test_verify_orphans( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+    /*
+       2
+      | \
+      3  3'
+  */
+
+  /* We execute (2, 0) -> (2,32) -> (3, 0') -> (3, 32'). Tower detects
+     that (3, 32) is the duplicate confirmed version.
+     We must dump slot 3 and re-repair. */
+
+  fd_hash_t mr_0     = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2_0   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_2_32  = (fd_hash_t){ .key = { 3 } };
+  fd_hash_t mr_3_0   = (fd_hash_t){ .key = { 4 } };
+  fd_hash_t mr_3_32  = (fd_hash_t){ .key = { 5 } };
+  fd_hash_t mr_3_0_  = (fd_hash_t){ .key = { 6 } }; (void)mr_3_0_;
+  fd_hash_t mr_1_0   = (fd_hash_t){ .key = { 7 } };
+  fd_hash_t mr_1_32  = (fd_hash_t){ .key = { 8 } };
+
+
+  fd_forest_blk_t * ele;
+  fd_forest_init( forest, 0 );
+  fd_forest_blk_insert( forest, 2, 1, NULL );
+  fd_forest_blk_insert( forest, 3, 2, NULL );
+  print_orphan_requests( forest );
+
+  /* check that block 1 is in orphan requests list */
+  ulong idx = slot_idx( forest, 2 );
+  FD_TEST( fd_forest_requests_ele_query( fd_forest_orphreqs( forest ), &idx, NULL, fd_forest_reqspool( forest ) ) );
+
+  /*                            slot paren  last  fec_set  slot_cmpl  rt  mr        cmr */
+  fd_forest_fec_insert( forest, 2,   1,     31,   0,       0,         0,  &mr_2_0,  &mr_1_32 );
+  fd_forest_fec_insert( forest, 2,   1,     63,   32,      1,         0,  &mr_2_32, &mr_2_0 );
+
+  fd_forest_fec_insert( forest, 3,   2,     31,   0,       0,         0,  &mr_3_0,  &mr_2_32 );
+  fd_forest_fec_insert( forest, 3,   2,     63,   32,      1,         0,  &mr_3_32, &mr_3_0 );
+
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
+  /* orphans verify */
+
+  /* Now chain 1 to 0, and this should trigger a verifcation of the chain from 2 to 0 */
+  fd_forest_blk_insert( forest, 1, 0, NULL );
+  ele = fd_forest_fec_insert( forest, 1,   0,     31,   0,       0,         0,  &mr_1_0,  &mr_0 );
+  FD_TEST( ele->lowest_verified_fec == UINT_MAX );
+  ele = fd_forest_fec_insert( forest, 1,   0,     63,   32,      1,         0,  &mr_1_32, &mr_1_0 );
+  FD_TEST( ele->lowest_verified_fec == (32 / 32UL) + 1 );
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32 ) );
+  /* orphans verify */
+}
+
+void
+test_eviction_simple( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  fd_hash_t mr = (fd_hash_t){ .key = { 1 } };
+  fd_forest_blk_fec_insert( forest, 1, 0, 0, 0, 1 );
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 1 ), &mr ) );
+  fd_forest_blk_fec_insert( forest, 2, 1, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 3, 2, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 4, 3, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 5, 4, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 6, 5, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 7, 6, 0, 0, 1 );
+
+  /* now forest is full, and there is only one fork. */
+  ulong evicted = ULONG_MAX;
+  /* try to add 8, parent is leaf 7. should force a root. */
+  FD_TEST( fd_forest_blk_fec_insert( forest, 8, 7, 0, 0, 1 ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* add 9, parent is non-leaf 6. should succeed. 8 is evicted */
+  fd_forest_print( forest );
+  FD_TEST( fd_forest_blk_insert( forest, 9, 6, &evicted ) );
+  FD_TEST( evicted == 8 );
+  fd_forest_print( forest );
+
+  FD_TEST( !fd_forest_query( forest, 8 ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* add 16, which would be an orphan. should succeed.*/
+  FD_TEST( fd_forest_blk_insert( forest, 16, 15, &evicted ) );
+  fd_forest_print( forest );
+
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* add 10, parent 6. (fork) */
+  FD_TEST( fd_forest_blk_fec_insert( forest, 10, 6, 0, 0, 1 ) );
+
+  FD_TEST( !fd_forest_query( forest, 16 ) ); /* 16 gets evicted*/
+
+  fd_forest_print( forest );
+
+  /* clear */
+  fd_forest_publish( forest, 10 );
+
+  /* create forks 10 - 11 - 12 - 13 - 17
+                       14 - 15 - 16 */
+
+  fd_forest_blk_fec_insert( forest, 11, 10, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 12, 11, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 13, 12, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 17, 13, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 14, 10, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 15, 14, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 16, 15, 0, 0, 1 );
+  fd_forest_print( forest );
+  FD_TEST( fd_forest_blk_insert( forest, 18, 16, &evicted ) );
+  fd_forest_print( forest );
+}
+
+void
+test_eviction_confirmations( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  /* create forks 10 - 11 - 12 - 13 - 17 (confirmed)
+                    \  14 - 15 */
+
+  fd_forest_blk_fec_insert( forest, 10, 0,  31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 11, 10, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 12, 11, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 13, 12, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 17, 13, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 14, 10, 31, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 15, 14, 31, 0, 1 );
+
+  fd_forest_print( forest );
+
+  fd_hash_t mr_17 = (fd_hash_t){ .key = { 1 } };
+  ulong evicted = ULONG_MAX;
+
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 17 ), &mr_17 ) );
+
+  FD_TEST(  fd_forest_blk_fec_insert( forest, 18, 17, 31, 0, 1 ) );
+  FD_TEST(  !fd_forest_query( forest, 15 ) );
+
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 18 ), &mr_17 ) );
+  /* now 18 is verified. don't want to evict it */
+  FD_TEST(  !fd_forest_blk_insert( forest, 16, 14, &evicted ) ); /* fails becase we add to a bad fork */
+
+  fd_forest_publish( forest, 11 ); /* publish forwards to 11. Now we only have one fork. (thats confirmed) */
+
+  // lets say we get a slot in the future, 24.
+  // We start repairing orphans backwards
+  FD_TEST( fd_forest_blk_fec_insert( forest, 24, 23, 31, 0, 1 ) );
+  FD_TEST( fd_forest_blk_fec_insert( forest, 23, 22, 31, 0, 1 ) );
+  FD_TEST( fd_forest_blk_fec_insert( forest, 22, 21, 31, 0, 1 ) );
+  /* atp we are filled up. slot 21 NEEDs to be accepted. */
+  FD_TEST( fd_forest_blk_fec_insert( forest, 21, 20, 31, 0, 1 ) );
+  FD_TEST( !fd_forest_query( forest, 24 ) ); /* 24 gets evicted. */
+
+  /* Now we confirm the orphan chain starting at 23.
+     21 - 22 - 23 are all verified. */
+  fd_hash_t mr_23 = (fd_hash_t){ .key = { 1 } };
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 23 ), &mr_23 ) );
+
+  /* now we add 20, parent is 19. */
+  FD_TEST( fd_forest_blk_fec_insert( forest, 20, 19, 31, 0, 1 ) );
+  FD_TEST( !fd_forest_query( forest, 23 ) ); /* 23 gets evicted. */
+
+   /* an older orphan contributes to the awesomeness */
+  FD_TEST( fd_forest_blk_insert( forest, 25, 24, &evicted ) );
+  FD_TEST( !fd_forest_query    ( forest, 22     ) ); /* 22 gets evicted. */
+}
+
+void
+test_eviction_deep( fd_wksp_t * wksp ) {
+  ulong ele_max = 512;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 1 );
+
+  /* Scenario for DoS attack:
+
+     We are happily traversing along, 1 - 2 ... - 30. Slot 29
+     is confirmed.  The fire nation attacks!!!
+      (1) The first attack is an equivocation vector. Luckily since repair
+          is keyed by slot, this attack is not very effective.  We won't
+          start allocating a bunch of new pool elements because of diff
+          versions of the same slot.
+      (2) first REAL attack:
+          they send us a lot of future slots, becuase they have a lot of
+          stake.  So imagine that they have slots 4000->8096 . 4000 connects
+          to slot 29
+      (3) variation on the first attack:
+          they send us a lot of future slots, becuase they have a lot of
+          stake.  So imagine that they have slots 4000->8096 . 4000 connects
+          to slot 3000, which is some slot that needs to be built by a
+          thenselves in the future.
+      (3) second attack:
+          instead of sending us one long chain, they send us a very WIDE
+          tree. everything chains to 29. */
+
+  fd_hash_t mr = (fd_hash_t){ .key = { 1 } }; // all merkle roots have this value for ease
+
+  for( ulong i = 2; i <= 30; i++ ) {
+    FD_TEST( fd_forest_blk_fec_insert( forest, i, i - 1, 31, 0, 1 ) );
+  }
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 29 ), &mr ));
+
+  /* now the fire nation attacks! We have space for 512 - 30 = 482 slots,
+     which should allow us slots 4000 - 4481 */
+  for( ulong i = 4000; i < 4000 + 482; i++ ) {
+    FD_TEST( fd_forest_blk_fec_insert( forest, i, i-1, 31, 0, 1 ) );
+    FD_TEST( fd_forest_query( forest, 30 ) ); /* should remain */
+    /* throughout all of this we will be repairing for the ancestry,
+       and not really receiving it!!!!! */
+  }
+  ulong evicted = ULONG_MAX;
+  FD_TEST( fd_forest_blk_insert( forest, 4482, 4481, &evicted ) );
+  FD_TEST( !fd_forest_query( forest, 30 ) ); /* should be evicted */
+
+  // resolving: lets say we get a gossip confirmation for slot 70 amidst all this
+  FD_TEST( fd_forest_blk_fec_insert( forest, 70, 69, 31, 0, 1 ) );
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 70 ), &mr ));
+
+  /* somehow we gotta prioritize resolving the ancestry for 70 over the
+     firehose. only creating one fork i.e. always chain parent after
+     itself case is kind of unclear. Eventually fec resolver though will
+     stop passing on duplicate FECs and ones with slots that don't
+     verify. */
+
+  for( ulong i = 4000 + 483; i < 8096; i++ ) {
+    fd_forest_blk_insert( forest, i, i-1, &evicted );
+    FD_TEST( fd_forest_query( forest, 29 ) ); /* should remain */
+  }
+  FD_TEST( fd_forest_query( forest, 8095 ) );
+  fd_forest_print( forest );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -945,7 +1304,7 @@ main( int argc, char ** argv ) {
   test_out_of_order( wksp );
   test_forks( wksp );
   test_print_tree( wksp );
-  // test_large_print_tree( wksp);
+  //test_large_print_tree( wksp);
   test_linear_forest_iterator( wksp );
   test_branched_forest_iterator( wksp );
   test_frontier( wksp );
@@ -953,6 +1312,11 @@ main( int argc, char ** argv ) {
   test_iter_publish( wksp );
   test_iter_subtree( wksp );
   test_orphan_requests( wksp );
+  test_slot_clear( wksp );
+  test_eviction_simple( wksp );
+  test_eviction_confirmations( wksp );
+  test_verify_orphans( wksp );
+  test_eviction_deep( wksp );
 
   fd_halt();
   return 0;

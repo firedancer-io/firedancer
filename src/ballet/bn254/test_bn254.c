@@ -9,7 +9,27 @@ log_bench( char const * descr,
            long         dt ) {
   float khz = 1e6f *(float)iter/(float)dt;
   float tau = (float)dt /(float)iter;
-  FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
+  FD_LOG_NOTICE(( "%-32s %12.3fK/s/core %12.3f ns/call", descr, (double)khz, (double)tau ));
+}
+
+static inline void
+fd_bn254_el_bswap( uchar r[32] ) {
+  /* requires r to be aligned */
+  fd_uint256_bswap( fd_type_pun( r ), fd_type_pun_const( r ) );
+}
+
+static inline void
+fd_bn254_g1_bswap( uchar r[64] ) {
+  /* requires r to be aligned */
+  fd_uint256_bswap( fd_type_pun( r+00 ), fd_type_pun_const( r+00 ) );
+  fd_uint256_bswap( fd_type_pun( r+32 ), fd_type_pun_const( r+32 ) );
+}
+
+static inline void
+fd_bn254_g2_bswap( uchar r[128] ) {
+  /* requires r to be aligned */
+  fd_ulong_n_bswap( fd_type_pun( r+00 ), 8 );
+  fd_ulong_n_bswap( fd_type_pun( r+64 ), 8 );
 }
 
 int main( int     argc,
@@ -55,17 +75,63 @@ int main( int     argc,
     };
 
     uchar FD_ALIGNED res[64];
-    uchar in[128];
-    uchar exp[64];
+    uchar FD_ALIGNED in[128];
+    uchar FD_ALIGNED exp[64];
 
     for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
       ulong in_sz = strlen( tests[2*i] ) / 2;
 
       fd_hex_decode( in, tests[2*i], in_sz );
 
-      FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz )==0 );
+      FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 64 );
+      if( !fd_memeq( res, exp, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* ADD little endian */
+    for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      if( in_sz==128UL ) {
+        fd_bn254_g1_bswap( in );
+        fd_bn254_g1_bswap( in+64 );
+        FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+      } else {
+        FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
+        continue;
+      }
+
+      fd_hex_decode( exp, tests[2*i+1], 64 );
+      fd_bn254_g1_bswap( exp );
+      if( !fd_memeq( res, exp, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "c93d094e03743b5d0c61914612dd11b385718e361154db7602c3c2b4cf8ab1186672f39881280dfc2ed358968196577549a79ff5b94c13b50c8420479c903c06ed4e016a7c9e01883a96922cff207f181abbc02b9c0cf04561bd848af5b7c207d717fa788478d62b745c48a4061736df179a4cf7a30dd7f240e947c1204e6106",
+      "03978302e2aeeea15fb6e64c0a835ed84dfea30cac453c3d9c4bfd5e5c52432215c995f1487d5eaeb97d533275ed0e1823479635cc21df09e5a86dbe331d1d30",
+    };
+
+    for( ulong i=0; i<sizeof(tests_le)/8/2; i++ ) {
+      ulong in_sz = strlen( tests_le[2*i] ) / 2;
+
+      fd_hex_decode( in, tests_le[2*i], in_sz );
+
+      FD_TEST( fd_bn254_g1_add_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+
+      fd_hex_decode( exp, tests_le[2*i+1], 64 );
       if( !fd_memeq( res, exp, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
@@ -77,10 +143,84 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_add_syscall( res, in, 64 );
+        fd_bn254_g1_add_syscall( res, in, 128, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_add_syscall", iter, dt );
+    }
+  }
+
+  {
+    /* https://github.com/anza-xyz/solana-sdk/pull/494/files#diff-b1e790767fbeb2d8556dc1504b4e837d2c9d66e2257f2ebf03643ba35e7f2d84 */
+    const char * tests[] = {
+      // test 1
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae",
+      "10a3693db344bbd5567a49f182aed627c3d635f62239ec968453343579d2c97f1ad21074c95351bd1fd2aad875550ae54f524d29e73709b1ad7acacd514c0c3725c1bceec760b6faa9442f8952a2629d480d3412765319ebb321df7852a298350ed5d25a80ab891a9712b6e4bc37d1f94e8747055f448453983ab9c69e56fed7",
+      // test 2
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae",
+      // test 3
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae",
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae",
+      // test 4
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      // test 0 - moved at the end just so it's used for bench
+      "0c637909c3dbd27b0213aeda88ffda5ac18f44db6b830e56c252516d7dd918ff164a7ec20e94fae519d9b1a2bae8271ca148c612b4f848ed7f07c6b62878907502de1901d7640f75ac5748db8e635af2ad81f09988f709dcc66ca54cd606c7e7025f43a1dbfc8c4651077239091e76dc248cd99d1c8af399f40c8916d4fc0aae07923af190d825e959dd7b95a67fab44917c4e8da278a06edd2c7aea35bcc8b019b62074331470c83e17134374ffadb0baf84312194fda3caf795c84c92b216d11ee8bcd475511c468d9983a288302e8673cdcc714a6ddc180d35d7dd0cfac4915e9eb42bb760271829b224aeb2ae0c06e800348e0d1cf6f712817768007cc7a",
+      "265f7dc03c5cca900001c251258fb56ca82611538570917db731b39c66d5f28a2e667015f89fc1b7579451bdaa212b98c58f01849a40783697a8f5e1107819801608ac87fa00ea9702a1c07a0a36fb494ceea2a2a40b8cd8d8451eb21dab812229fe448304a1819068b2d267252059a45f0c2d169dfed1c4f1bcc075a3761c2f",
+    };
+
+    uchar FD_ALIGNED res[128];
+    uchar FD_ALIGNED in[256];
+    uchar FD_ALIGNED exp[128];
+
+    for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      FD_TEST( fd_bn254_g2_add_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
+
+      fd_hex_decode( exp, tests[2*i+1], 128 );
+      if( !fd_memeq( res, exp, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 128 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* ADD little endian */
+    for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      if( in_sz==256UL ) {
+        fd_bn254_g2_bswap( in );
+        fd_bn254_g2_bswap( in+128 );
+        FD_TEST( fd_bn254_g2_add_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+      } else {
+        FD_TEST( fd_bn254_g2_add_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
+        continue;
+      }
+
+      fd_hex_decode( exp, tests[2*i+1], 128 );
+      fd_bn254_g2_bswap( exp );
+      if( !fd_memeq( res, exp, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 128 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    {
+      ulong iter = 10000UL;
+      long dt = fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        fd_bn254_g2_add_syscall( res, in, 256, 0 /*LE*/ );
+      }
+      dt = fd_log_wallclock() - dt;
+      log_bench( "fd_bn254_g2_add_syscall", iter, dt );
     }
   }
 
@@ -147,19 +287,21 @@ int main( int     argc,
       // test 19 - ec1
       "039730ea8dff1254c0fee9c0ea777d29a9c710b7e616683f194f18c43b43b869073a5ffcc6fc7a28c30723d6e58ce577356982d65b833a5a5c15bf9024b43d9800000000000000000000000000000001",
       "1071b63011e8c222c5a771dfa03c2e11aac9666dd097f2c620852c3951a4376a2f46fe2f73e1cf310a168d56baa5575a8319389d7bfa6b29ee2d908305791434",
+      // test 20 - ec2
+      "025a6f4181d2b4ea8b724290ffb40156eb0adb514c688556eb79cdea0752c2bb2eff3f31dea215f1eb86023a133a996eb6300b44da664d64251d05381bb8a02e183227397098d014dc2822db40c0ac2ecbc0b548b438e5469e10460b6c3e7ea3",
+      "14789d0d4a730b354403b5fac948113739e276c23e0258d8596ee72f9cd9d3230af18a63153e0ec25ff9f2951dd3fa90ed0197bfef6e2a1a62b5095b9d2b4a27",
     };
 
     uchar FD_ALIGNED res[64];
-    uchar in[96];
-    uchar exp[64];
+    uchar FD_ALIGNED in[96];
+    uchar FD_ALIGNED exp[64];
 
     ulong len=sizeof(tests)/8/2;
     for( ulong i=0; i<len; i++ ) {
       ulong in_sz = strlen( tests[2*i] ) / 2;
       fd_hex_decode( in, tests[2*i], in_sz );
 
-      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 )==0 );
-      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 )==0 );
+      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 64 );
       if( !fd_memeq( res, exp, 64 ) ) {
@@ -169,14 +311,135 @@ int main( int     argc,
       }
     }
 
+    /* MUL little endian */
+    for( ulong i=0; i<len; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      if( in_sz==96UL ) {
+        fd_bn254_g1_bswap( in );
+        fd_bn254_el_bswap( in+64 );
+        FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+      } else {
+        FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
+        continue;
+      }
+
+      fd_hex_decode( exp, tests[2*i+1], 64 );
+      fd_bn254_g1_bswap( exp );
+      if( !fd_memeq( res, exp, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "b79f0a1a8b26021de64856aed703474cd5b9e59cb4a75c4f9242b1f3d0e6d32b04b2fdce66ae0c39c819464aaddf492ece090930701d2f5e9185afa6e01c6121c215fa50e78c1311000000000000000000000000000000000000000000000000",
+      "5c1ec3139c6c2aeea4f553a074b2478aeffae834d429bee4ca5321986a8d0a07fc1a98c6cec30e6915f3f0f44b074319f0b0d5cdf989b9ffa9a3eb14e98c1b03",
+      // test 1: worst-case 254-bit scalar (r_ord-2) for benchmarking
+      "e3eb0f940f3dfacc5880f0095622359098f214064861d193452fe94c58b0871af6f8f9f72bd933dcef9699f57c6dcd0f4b5081ff7d00e97eccad6d1f953c2f1affffffef93f5e1439170b97948e833285d588181b64550b829a031e1724e6430",
+      "501c967e05bd7c47e7e14539d2ea869b9c8733189c76e0996cc5b3eb494ed6037716ea15b9958538c4ad02f372e73088da4c6004785863d73970a541bf0dfc22",
+    };
+
+    len=sizeof(tests_le)/8/2;
+    for( ulong i=0; i<len; i++ ) {
+      ulong in_sz = strlen( tests_le[2*i] ) / 2;
+      fd_hex_decode( in, tests_le[2*i], in_sz );
+
+      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+
+      fd_hex_decode( exp, tests_le[2*i+1], 64 );
+      if( !fd_memeq( res, exp, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
     {
-      ulong iter = 1000UL;
+      ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_scalar_mul_syscall( res, in, 96, 1 );
+        fd_bn254_g1_scalar_mul_syscall( res, in, 96, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_scalar_mul_syscall", iter, dt );
+    }
+  }
+
+  {
+    /* https://github.com/anza-xyz/solana-sdk/pull/494/files#diff-b8ea7e2907f00b2b2362027951313dca6d28190d4703a9ac45f10f8e33990d5c */
+    const char * tests[] = {
+      // test 1
+      "24b96ea5d95769cdd611ef3be56658a26e4e390e293616b8ece193a023317925073fe1cb76ebafbcd1d7983e5cc1fe43610ace18e41460f8269aa450bddb7886008d6719fe6394737077ce2534f1846f86d6b5ccb40fbd2a05608b123025f7b9085a5a52e30f2e403c29ec97036c880b497f2efa60a5e28aa91307ebfaf5e85a0000000000000000000000000000000000000000000000000000000000000000",
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      // test 2
+      "24b96ea5d95769cdd611ef3be56658a26e4e390e293616b8ece193a023317925073fe1cb76ebafbcd1d7983e5cc1fe43610ace18e41460f8269aa450bddb7886008d6719fe6394737077ce2534f1846f86d6b5ccb40fbd2a05608b123025f7b9085a5a52e30f2e403c29ec97036c880b497f2efa60a5e28aa91307ebfaf5e85a0000000000000000000000000000000000000000000000000000000000000001",
+      "24b96ea5d95769cdd611ef3be56658a26e4e390e293616b8ece193a023317925073fe1cb76ebafbcd1d7983e5cc1fe43610ace18e41460f8269aa450bddb7886008d6719fe6394737077ce2534f1846f86d6b5ccb40fbd2a05608b123025f7b9085a5a52e30f2e403c29ec97036c880b497f2efa60a5e28aa91307ebfaf5e85a",
+      // test 3
+      "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000009ea9b2b89d9e9b7296c67452f9e685f0366533e9d2f12b509a03a8068359585",
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      // test 4 - ec
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      // test 0 - moved at the end just so it's used for bench
+      "24b96ea5d95769cdd611ef3be56658a26e4e390e293616b8ece193a023317925073fe1cb76ebafbcd1d7983e5cc1fe43610ace18e41460f8269aa450bddb7886008d6719fe6394737077ce2534f1846f86d6b5ccb40fbd2a05608b123025f7b9085a5a52e30f2e403c29ec97036c880b497f2efa60a5e28aa91307ebfaf5e85a09ea9b2b89d9e9b7296c67452f9e685f0366533e9d2f12b509a03a8068359585",
+      "106513b05f2d798f05f4bf84864c9909b26ead36ea46a2c3b25c9ad0c8ae952d2706c764d7a14f926efd438aae65f207d4a22970ed3dccf12f13219a21a05242120a602d47b0cd6c471b0dcc28336e340da9fa71fab8ec923af7bf9304c9b20d0e8af2947a9c5089df09d629670f01b50bd757f04f99af42ef8455b38ac3f31e",
+    };
+
+    uchar FD_ALIGNED res[128];
+    uchar FD_ALIGNED in[160];
+    uchar FD_ALIGNED exp[128];
+
+    ulong len=sizeof(tests)/8/2;
+    for( ulong i=0; i<len; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      FD_TEST( fd_bn254_g2_scalar_mul_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
+
+      fd_hex_decode( exp, tests[2*i+1], 128 );
+      if( !fd_memeq( res, exp, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 128 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* MUL little endian */
+    for( ulong i=0; i<len; i++ ) {
+      ulong in_sz = strlen( tests[2*i] ) / 2;
+      fd_hex_decode( in, tests[2*i], in_sz );
+
+      if( in_sz==160UL ) {
+        fd_bn254_g2_bswap( in );
+        fd_bn254_el_bswap( in+128 );
+        FD_TEST( fd_bn254_g2_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
+      } else {
+        FD_TEST( fd_bn254_g2_scalar_mul_syscall( res, in, in_sz, 0 /*LE*/ )!=0 );
+        continue;
+      }
+
+      fd_hex_decode( exp, tests[2*i+1], 128 );
+      fd_bn254_g2_bswap( exp );
+      if( !fd_memeq( res, exp, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 128 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    {
+      ulong iter = 100UL;
+      long dt = fd_log_wallclock();
+      for( ulong rem=iter; rem; rem-- ) {
+        fd_bn254_g2_scalar_mul_syscall( res, in, 160, 0 /*LE*/ );
+      }
+      dt = fd_log_wallclock() - dt;
+      log_bench( "fd_bn254_g2_scalar_mul_syscall", iter, dt );
     }
   }
 
@@ -308,7 +571,7 @@ int main( int     argc,
     uchar FD_ALIGNED g1d[64];
     uchar FD_ALIGNED g2c[64];
     uchar FD_ALIGNED g2d[128];
-    uchar exp[32];
+    uchar FD_ALIGNED exp[32];
     ulong in_sz;
 
     for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
@@ -323,8 +586,8 @@ int main( int     argc,
       fd_hex_decode( in, tests[2*i], in_sz );
 
       /* test G1 compress > decompress */
-      FD_TEST( fd_bn254_g1_compress( g1c, &in[0] ) );
-      FD_TEST( fd_bn254_g1_decompress( g1d, g1c ) );
+      FD_TEST( fd_bn254_g1_compress( g1c, &in[0], 1 /*BE*/ ) );
+      FD_TEST( fd_bn254_g1_decompress( g1d, g1c, 1 /*BE*/ ) );
       if( !fd_memeq( &in[0], g1d, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
@@ -332,16 +595,97 @@ int main( int     argc,
       }
 
       /* test G2 compress > decompress */
-      FD_TEST( fd_bn254_g2_compress( g2c, &in[64] ) );
-      FD_TEST( fd_bn254_g2_decompress( g2d, g2c ) );
+      FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 1 /*BE*/ ) );
+      FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 1 /*BE*/ ) );
       if( !fd_memeq( &in[64], g2d, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /* no length check */ )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 1 /*BE*/, 0 /* no length check */ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 32 );
+      if( !fd_memeq( res, exp, 32 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 32 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* little endian */
+    for( ulong i=0; i<sizeof(tests)/8/2; i++ ) {
+      in_sz = 384;
+      if( i==3 ) in_sz = 576;
+      if( i==4 ) in_sz = 576;
+      if( i==6 ) in_sz = 192;
+      if( i==10 ) in_sz = 1920;
+      if( i==11 ) in_sz = 1920;
+
+      fd_hex_decode( in, tests[2*i], in_sz );
+      for( ulong j=0; j<in_sz/192; j++ ) {
+        fd_bn254_g1_bswap( in+j*192 );
+        fd_bn254_g2_bswap( in+j*192+64 );
+      }
+
+      /* test G1 compress > decompress */
+      FD_TEST( fd_bn254_g1_compress( g1c, &in[0], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g1_decompress( g1d, g1c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[0], g1d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+
+      /* test G2 compress > decompress */
+      FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
+        FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
+      }
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
+
+      fd_hex_decode( exp, tests[2*i+1], 32 );
+      fd_bn254_el_bswap( exp );
+      if( !fd_memeq( res, exp, 32 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", res, 32 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
+      }
+    }
+
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "593fc42460c131dd64a6ad76aaa7ff813319a1bb7ed54145b94bef4d6f47761c41ef6aa7039b5ce494d2e9d3559b81fc4587671c81e2fe04e273f62029dd34307816a415634baf4940c08a4c11605990288d846135b4348bfa3b4801ca11bf04f75ba30320454a6b391435c6369632a799cf931ae588d84b6cd4f5bf5ed19d20507587dee4e55f1648b09b0c1fe6cca27ee039fec6205f84f91b0cf34c2a0a124d34be512a3c93bfad1fc47acd1aa7a20cfd5c441aada23735c9cff64a32b82b7cdfb6d149de22c3eacbf16f3c02a25bfacd0fc74a1cd4107709f11c9f121e1111f46b6acefa5338a77038b9853588a2fc42f22b46e96d28173c0e831ac63220edf692d95cbdde46ddda5ef7d422436779445c5e66006a42761e1f12efde0018c212f3aeb785e49712e7a9353349aaf1255dfb31b7bf60723a480d9293938e19aa7dfa6601cce64c7bd3430c69e7d1e38f40cb8d8071ab4aeb6d8cdba55ec8125b9722d1dcdaac55f38eb37033314bbc95330c69ad999eec75f05f58d0890609",
+      "0100000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    for( ulong i=0; i<sizeof(tests_le)/8/2; i++ ) {
+      in_sz = 384;
+      fd_hex_decode( in, tests_le[2*i], in_sz );
+
+      /* test G1 compress > decompress */
+      FD_TEST( fd_bn254_g1_compress( g1c, &in[0], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g1_decompress( g1d, g1c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[0], g1d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+
+      /* test G2 compress > decompress */
+      FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
+        FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
+      }
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
+
+      fd_hex_decode( exp, tests_le[2*i+1], 32 );
       if( !fd_memeq( res, exp, 32 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 32 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
@@ -353,7 +697,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_compress( g1c, &in[0] );
+        fd_bn254_g1_compress( g1c, &in[0], 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_compress", iter, dt );
@@ -362,7 +706,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_decompress( g1d, g1c );
+        fd_bn254_g1_decompress( g1d, g1c, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_decompress", iter, dt );
@@ -371,7 +715,7 @@ int main( int     argc,
       ulong iter = 10000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g2_compress( g2c, &in[64] );
+        fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g2_compress", iter, dt );
@@ -380,7 +724,7 @@ int main( int     argc,
       ulong iter = 1000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g2_decompress( g2d, g2c );
+        fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g2_decompress", iter, dt );
@@ -389,11 +733,130 @@ int main( int     argc,
       ulong iter = 100UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /* no length check */ );
+        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_pairing_is_one_syscall", iter, dt );
     }
+  }
+
+  {
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "aca862af2c0ccdb878852ca29544d9eaea784a19a491d94f8a803798a6ffce2d54c1512a7adabff3fe20089468dacad197f5db7b655aec934b6aafd10fd81814",
+      "aca862af2c0ccdb878852ca29544d9eaea784a19a491d94f8a803798a6ffce2d",
+      // test 1
+      "aca862af2c0ccdb878852ca29544d9eaea784a19a491d94f8a803798a6ffce2df33b2bae9cb160488ea969d42890b6c5c562a50551eb6324de35820f63764b1c",
+      "aca862af2c0ccdb878852ca29544d9eaea784a19a491d94f8a803798a6ffcead",
+      // test 2
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "0000000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    uchar FD_ALIGNED in[64];
+    uchar FD_ALIGNED g1c[32];
+    uchar FD_ALIGNED g1d[64];
+    uchar FD_ALIGNED exp[32];
+
+    for( ulong i=0; i<sizeof(tests_le)/8/2; i++ ) {
+      fd_hex_decode( in, tests_le[2*i], 64UL );
+      fd_hex_decode( exp, tests_le[2*i+1], 32UL );
+
+      /* test G1 compress > decompress */
+      FD_TEST( fd_bn254_g1_compress( g1c, &in[0], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g1_decompress( g1d, g1c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[0], g1d, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+      if( !fd_memeq( exp, g1c, 32 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g1c, 32 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+    }
+  }
+
+  {
+    /* https://github.com/anza-xyz/agave/pull/8771/files */
+    const char * tests_le[] = {
+      // test 0
+      "38b05612a851ae4b9f5cc4a8b7cd8911d185bdec97eeb442d497226eb07ccb0019f2348d679250b8bd6a822f93f72e07e176470c5d1705d76f232eb4cde939281298933ebd13115aae93903c5bb1c816f503d3f7315e83da64fef65006a8810e16046cae9358b74f1fe46d210fb68232fd158d62a9fb3e688e7a511214d21a10",
+      "38b05612a851ae4b9f5cc4a8b7cd8911d185bdec97eeb442d497226eb07ccb0019f2348d679250b8bd6a822f93f72e07e176470c5d1705d76f232eb4cde93928",
+      // test 1
+      "38b05612a851ae4b9f5cc4a8b7cd8911d185bdec97eeb442d497226eb07ccb0019f2348d679250b8bd6a822f93f72e07e176470c5d1705d76f232eb4cde939283565e99959780fe2de36e12b36b9b8806854ae8984e7ccddc4a13a906ca6e22131f9102a833369ec6de6034782b4fe646042f41e0d4a11509b25e0ce5e7c4920",
+      "38b05612a851ae4b9f5cc4a8b7cd8911d185bdec97eeb442d497226eb07ccb0019f2348d679250b8bd6a822f93f72e07e176470c5d1705d76f232eb4cde939a8",
+      // test 2
+      "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    };
+
+    uchar FD_ALIGNED in[128];
+    uchar FD_ALIGNED g2c[64];
+    uchar FD_ALIGNED g2d[128];
+    uchar FD_ALIGNED exp[64];
+
+    for( ulong i=0; i<sizeof(tests_le)/8/2; i++ ) {
+      fd_hex_decode( in, tests_le[2*i], 128UL );
+      fd_hex_decode( exp, tests_le[2*i+1], 64UL );
+
+      /* test G2 compress > decompress */
+      FD_TEST( fd_bn254_g2_compress( g2c, &in[0], 0 /*LE*/ ) );
+      FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
+      if( !fd_memeq( &in[0], g2d, 128 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 128 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+      if( !fd_memeq( exp, g2c, 64 ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "res", g2c, 64 ));
+        FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
+      }
+    }
+  }
+
+
+  /* compress/decompress edge cases */
+  {
+    uchar FD_ALIGNED input[64] = {0};
+    input[63] = 0x40; /* Infinity flag in LE Y coordinate high byte */
+
+    uchar FD_ALIGNED out[32];
+    FD_TEST( fd_bn254_g1_compress( out, input, 0 /*LE*/ ) );
+
+    uchar FD_ALIGNED expected[32];
+    fd_hex_decode( expected, "0000000000000000000000000000000000000000000000000000000000000040", 32UL );
+    FD_TEST( fd_memeq( expected, out, 32 ) );
+  }
+  {
+    uchar FD_ALIGNED input[128] = {0};
+    input[127] = 0x40; /* FLAG_INF in Y coord el[1], LE flag byte */
+
+    uchar FD_ALIGNED out[64];
+    FD_TEST( fd_bn254_g2_compress( out, input, 0 /*LE*/ ) );
+
+    uchar FD_ALIGNED expected[64];
+    fd_hex_decode( expected, "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040", 64UL );
+    FD_TEST( fd_memeq( expected, out, 64 ) );
+
+    uchar FD_ALIGNED round[128] = { 0 };
+    FD_TEST( fd_bn254_g2_decompress( round, out, 0 /*LE*/ ) );
+    const uchar zeroes[128] = { 0 };
+    FD_TEST( fd_memeq( zeroes, round, 128 ) );
+  }
+  {
+    uchar FD_ALIGNED input[128] = {0};
+    input[64] = 0x40; /* FLAG_INF in Y coord el[1], BE flag byte */
+
+    uchar FD_ALIGNED out[64];
+    FD_TEST( fd_bn254_g2_compress( out, input, 1 /*BE*/ ) );
+
+    uchar FD_ALIGNED expected[64];
+    fd_hex_decode( expected, "40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", 64UL );
+    FD_TEST( fd_memeq( expected, out, 64 ) );
   }
 
   FD_LOG_NOTICE(( "pass" ));

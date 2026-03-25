@@ -59,7 +59,8 @@ typedef union fd_vinyl_cmd fd_vinyl_cmd_t;
 
 #define FD_VINYL_DIAG_DROP_LINK (0)
 #define FD_VINYL_DIAG_DROP_COMP (1)
-#define FD_VINYL_DIAG_CNT (2UL)
+#define FD_VINYL_DIAG_CACHE_HIT (2)
+#define FD_VINYL_DIAG_CNT (3UL)
 
 #define FD_VINYL_CNC_APP_SZ (sizeof(fd_vinyl_cmd_t) + sizeof(ulong)*FD_VINYL_DIAG_CNT)
 

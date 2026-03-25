@@ -4,29 +4,31 @@
 /* fd_prog_load.h provides high-level APIs for loading Solana programs
    from the account database. */
 
-#include "../fd_flamenco_base.h"
-#include "../accdb/fd_accdb_user.h"
+#include "../accdb/fd_accdb_ref.h"
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_prog_load_elf loads a reference to program data from a funk-backed
-   account database.  *prog_addr gives the account address of the
-   program account (NOT the program data account).  Returns a pointer to
-   the first byte of the ELF binary on success.  *out_sz is set to the
-   size of the program data account.  *out_xid is set to the the txn
-   XID the program data account was written to.  On failure, returns
-   NULL.  Reasons for failure include: program account not found,
-   program not deployed, program data account not found, etc */
+/* fd_prog_info derives executable info from a program data account.
+   progdata_ro is a handle to the program data account (ownership stays
+   with caller).  Populates *out and returns out on success.  On failure,
+   logs warning and returns NULL. */
 
-uchar const *
-fd_prog_load_elf( fd_accdb_user_t *         accdb,
-                  fd_funk_txn_xid_t const * xid,
-                  void const *              prog_addr,
-                  ulong *                   out_sz,
-                  fd_funk_txn_xid_t *       out_xid );
-/* FIXME provide an API to detect data race */
-/* FIXME clarify edge case where program account and program data
-         account were modified in different funk txns */
+struct fd_prog_info {
+  /* Byte range within the account's data yielding ELF file */
+  ulong elf_off;
+  ulong elf_sz;
+
+  /* deploy_slot meaning depends on program loader version:
+     - v1, v2: always zero
+     - v3: slot at which this program was deployed at */
+  ulong deploy_slot;
+};
+
+typedef struct fd_prog_info fd_prog_info_t;
+
+fd_prog_info_t *
+fd_prog_info( fd_prog_info_t * out,
+              fd_accdb_ro_t *  progdata_ro );
 
 /* fd_prog_versions derives sBPF versions from the current feature set. */
 
@@ -45,7 +47,6 @@ FD_PROTOTYPES_END
 struct fd_prog_load_env {
   fd_features_t const * features;
 
-  ulong slot;         /* current slot */
   ulong epoch;        /* current epoch */
   ulong epoch_slot0;  /* slot0 of current epoch */
 };

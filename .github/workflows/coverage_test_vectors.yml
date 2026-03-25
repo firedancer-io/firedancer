@@ -1,0 +1,279 @@
+# Measures llvm-cov coverage for run_test_vectors.sh and posts a delta
+# report as a PR comment.  Triggered when test-vectors-commit-sha.txt,
+# run_test_vectors.sh, or this workflow file changes.
+# The HTML report is uploaded to the shared coverage GCS bucket under
+# the cov-vectors/ prefix.
+
+name: Coverage Test Vectors
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened, ready_for_review]
+    paths:
+      - 'contrib/test/test-vectors-commit-sha.txt'
+      - 'contrib/test/run_test_vectors.sh'
+      - '.github/workflows/coverage_test_vectors.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  coverage-test-vectors:
+    if: github.event.pull_request.draft == false || github.event_name == 'workflow_dispatch'
+    name: Coverage Test Vectors
+    runs-on:
+      labels: icelake
+      group: fd-public-repo
+    timeout-minutes: 40
+    environment:
+      name: coverage-report
+    env:
+      CC: clang
+      CXX: clang++
+      MACHINE: linux_clang_icelake
+      EXTRAS: llvm-cov
+      COMPILER: clang
+      COMPILER_VERSION: 15.0.6
+
+    steps:
+      # ── base commit ────────────────────────────────────────────────────────
+
+      - name: Checkout base commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+        with:
+          compiler: clang
+          compiler-version: 15.0.6
+          extras: +dev
+      - uses: ./.github/actions/cpusonline
+      - uses: ./.github/actions/hugepages
+
+      - name: Set OBJDIR
+        run: echo "OBJDIR=$(make help | grep OBJDIR | awk '{print $4}')" >> $GITHUB_ENV
+
+      - name: Build (base)
+        run: |
+          source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
+          make clean --silent >/dev/null
+          FIREDANCER_CI_COMMIT=none contrib/make-j all unit-test
+
+      - name: Run test vectors (base)
+        run: |
+          source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
+          sudo prlimit --pid $$ --memlock=-1:-1
+          make run-test-vectors
+
+      - name: Generate coverage (base)
+        run: |
+          source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
+          make "$OBJDIR/cov/cov.lcov"
+          cp "$OBJDIR/cov/cov.lcov" base_cov.lcov
+          lcov --summary base_cov.lcov 2>&1 | tee base_cov_summary.txt
+
+      # ── PR commit ──────────────────────────────────────────────────────────
+
+      - name: Checkout PR commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          clean: false
+
+      - name: Clean coverage data for PR run
+        run: rm -rf "$OBJDIR/cov"
+
+      - name: Build (PR)
+        run: |
+          source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
+          make clean --silent >/dev/null
+          FIREDANCER_CI_COMMIT=none contrib/make-j all unit-test
+
+      - name: Run test vectors (PR)
+        run: |
+          source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
+          sudo prlimit --pid $$ --memlock=-1:-1
+          make run-test-vectors
+
+      - name: Generate coverage (PR)
+        run: |
+          source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
+          make "$OBJDIR/cov/cov.lcov"
+          cp "$OBJDIR/cov/cov.lcov" pr_cov.lcov
+          lcov --summary pr_cov.lcov 2>&1 | tee pr_cov_summary.txt
+
+      - name: Generate HTML coverage report (PR)
+        run: |
+          source /opt/$COMPILER/$COMPILER-$COMPILER_VERSION/activate
+          make cov-report
+
+      # ── upload to GCS ──────────────────────────────────────────────────────
+      # make cov-report generated $OBJDIR/cov/html/ above; upload it directly.
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Upload to GCS
+        run: |
+          BUCKET_ROOT="${{ vars.COVERAGE_BUCKET }}"
+          BUCKET_ROOT="${BUCKET_ROOT%/}"   # strip trailing slash
+          BUCKET_ROOT="${BUCKET_ROOT%/cov}" # strip /cov suffix to get the bucket root
+          gcloud storage rm -r "${BUCKET_ROOT}/cov-vectors/" || true
+          gcloud storage cp -r "$OBJDIR/cov/html/"* "${BUCKET_ROOT}/cov-vectors/"
+
+      # ── delta comment ──────────────────────────────────────────────────────
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          COVERAGE_BUCKET: ${{ vars.COVERAGE_BUCKET }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+
+            // ── global summary (from lcov --summary output) ───────────────────
+            const parseSummary = (text) => {
+              const m1 = text.match(/lines\.+:\s*([\d.]+)%\s*\((\d+) of (\d+)/);
+              const m2 = text.match(/functions\.+:\s*([\d.]+)%\s*\((\d+) of (\d+)/);
+              const m3 = text.match(/branches\.+:\s*([\d.]+)%\s*\((\d+) of (\d+)/);
+              return {
+                lines:     m1 ? { pct: parseFloat(m1[1]), hit: parseInt(m1[2]), total: parseInt(m1[3]) } : null,
+                functions: m2 ? { pct: parseFloat(m2[1]), hit: parseInt(m2[2]), total: parseInt(m2[3]) } : null,
+                branches:  m3 ? { pct: parseFloat(m3[1]), hit: parseInt(m3[2]), total: parseInt(m3[3]) } : null,
+              };
+            };
+
+            // ── per-directory line coverage (recursive prefix match) ──────────
+            const DIRS = [
+              'flamenco/vm',
+              'flamenco/vm/syscall',
+              'flamenco/runtime',
+              'flamenco/runtime/program',
+              'ballet/bls',
+              'ballet/bn254',
+              'ballet/ed25519',
+              'ballet/secp256k1',
+              'ballet/secp256r1',
+              'ballet/zksdk',
+            ];
+
+            const parseLcovDirs = (text) => {
+              const stats = Object.fromEntries(DIRS.map(d => [d, { lh: 0, lf: 0 }]));
+              for (const record of text.split('end_of_record')) {
+                const sfM = record.match(/^SF:(.+)$/m);
+                if (!sfM) continue;
+                const path = sfM[1];
+                const lh = parseInt((record.match(/^LH:(\d+)$/m) || ['','0'])[1]);
+                const lf = parseInt((record.match(/^LF:(\d+)$/m) || ['','0'])[1]);
+                for (const dir of DIRS) {
+                  if (path.includes('/' + dir + '/')) {
+                    stats[dir].lh += lh;
+                    stats[dir].lf += lf;
+                  }
+                }
+              }
+              return stats;
+            };
+
+            // ── formatting helpers ────────────────────────────────────────────
+            const fmtDelta = (prPct, basePct) => {
+              const delta = prPct - basePct;
+              const sign  = delta >= 0 ? '+' : '';
+              const icon  = delta > 0.05 ? '📈' : delta < -0.05 ? '📉' : '➡️';
+              return `\`${sign}${delta.toFixed(2)}%\` ${icon}`;
+            };
+
+            const fmtRow = (label, prM, baseM) => {
+              if (!prM || !baseM) return `| ${label} | N/A | N/A | N/A |`;
+              return `| ${label} | \`${baseM.pct.toFixed(2)}%\` (${baseM.hit}/${baseM.total}) | \`${prM.pct.toFixed(2)}%\` (${prM.hit}/${prM.total}) | ${fmtDelta(prM.pct, baseM.pct)} |`;
+            };
+
+            const fmtDirRow = (dir, prS, baseS) => {
+              if (!prS || !baseS || prS.lf === 0) return `| \`${dir}\` | — | — | — |`;
+              const prPct   = prS.lh   / prS.lf   * 100;
+              const basePct = baseS.lf > 0 ? baseS.lh / baseS.lf * 100 : 0;
+              const baseCell = baseS.lf > 0
+                ? `\`${basePct.toFixed(2)}%\` (${baseS.lh}/${baseS.lf})`
+                : '—';
+              return `| \`${dir}\` | ${baseCell} | \`${prPct.toFixed(2)}%\` (${prS.lh}/${prS.lf}) | ${fmtDelta(prPct, basePct)} |`;
+            };
+
+            // ── load data ─────────────────────────────────────────────────────
+            const prText   = fs.readFileSync('pr_cov_summary.txt',   'utf8');
+            const baseText = fs.readFileSync('base_cov_summary.txt', 'utf8');
+            const pr   = parseSummary(prText);
+            const base = parseSummary(baseText);
+
+            const prDirs   = parseLcovDirs(fs.readFileSync('pr_cov.lcov',   'utf8'));
+            const baseDirs = parseLcovDirs(fs.readFileSync('base_cov.lcov', 'utf8'));
+
+            // ── build comment ─────────────────────────────────────────────────
+            const bucket     = process.env.COVERAGE_BUCKET || '';
+            const bucketRoot = bucket.replace(/\/cov\/?$/, ''); // strip trailing /cov
+            const httpUrl    = bucketRoot
+              ? bucketRoot.replace('gs://', 'https://storage.googleapis.com/') + '/cov-vectors/index.html'
+              : null;
+            const reportLink = httpUrl
+              ? `Full HTML report: [coverage report](${httpUrl}).`
+              : 'Full HTML report uploaded to GCS (`cov-vectors/` prefix).';
+
+            const body = [
+              '## Test Vectors Coverage',
+              '',
+              '**Overall** (lines / functions / branches across all instrumented files)',
+              '',
+              '| Metric | Base | PR | Delta |',
+              '|--------|:----:|:--:|:-----:|',
+              fmtRow('Lines',     pr.lines,     base.lines),
+              fmtRow('Functions', pr.functions, base.functions),
+              fmtRow('Branches',  pr.branches,  base.branches),
+              '',
+              '**Per directory** (line coverage, recursive)',
+              '',
+              '| Directory | Base | PR | Delta |',
+              '|-----------|:----:|:--:|:-----:|',
+              ...DIRS.map(dir => fmtDirRow(dir, prDirs[dir], baseDirs[dir])),
+              '',
+              reportLink,
+            ].join('\n');
+
+            const MARKER = '<!-- coverage-test-vectors -->';
+            const markedBody = MARKER + '\n' + body;
+
+            const isFromFork = context.payload.pull_request?.head?.repo?.fork;
+            if (!isFromFork) {
+              const { data: existing } = await github.rest.issues.listComments({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
+              const prev = existing.find(c => c.body.includes(MARKER));
+              if (prev) {
+                await github.rest.issues.updateComment({
+                  comment_id: prev.id,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: markedBody,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: markedBody,
+                });
+              }
+            }
+            console.log(markedBody);

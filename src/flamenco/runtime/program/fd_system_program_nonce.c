@@ -1,9 +1,9 @@
 #include "fd_system_program.h"
 #include "../fd_borrowed_account.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include "../../log_collector/fd_log_collector.h"
 
 static int
@@ -62,7 +62,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( ctx->bank );
+  fd_blockhashes_t const *    blockhashes     = &ctx->bank->data->f.block_hash_queue;
   fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
   if( FD_UNLIKELY( last_bhash_info==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
@@ -134,8 +134,9 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 50 - 2 + 45 = 93 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, pubkey_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Advance nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey) );
+      "Advance nonce account: Account %s must be writeable", pubkey_b58 );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -145,8 +146,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
-      fd_borrowed_account_get_data_len( account ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( account ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -161,7 +161,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
     state = &versions->inner.current;
     break;
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "invalid nonce state version %u", versions->discriminant ));
   }
 
   switch( state->discriminant ) {
@@ -173,8 +173,9 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, &data->authority ) ) ) {
       /* Max msg_sz: 50 - 2 + 45 = 93 < 127 => we can use printf */
+      FD_BASE58_ENCODE_32_BYTES( data->authority.key, authority_b58 );
       fd_log_collector_printf_dangerous_max_127( ctx,
-        "Advance nonce account: Account %s must be a signer", FD_BASE58_ENC_32_ALLOCA( &data->authority ) );
+        "Advance nonce account: Account %s must be a signer", authority_b58 );
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
@@ -225,8 +226,9 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   case fd_nonce_state_enum_uninitialized: {
     /* Max msg_sz: 50 - 2 + 45 = 93 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, pubkey_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Advance nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Advance nonce account: Account %s state is invalid", pubkey_b58 );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -266,7 +268,7 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   int bhq_empty;
   do {
     fd_block_block_hash_entry_t const * hashes = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
-    if( FD_UNLIKELY( !hashes ) ) __builtin_unreachable(); /* validated above */
+    FD_TEST( hashes ); /* validated above */
     bhq_empty = deq_fd_block_block_hash_entry_t_empty( hashes );
     fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, hashes );
   } while(0);
@@ -304,8 +306,9 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, from_acct_idx ) ) ) {
     /* Max msg_sz: 51 - 2 + 45 = 94 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( from.pubkey->key, pubkey_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Withdraw nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( from.acct->pubkey ) );
+      "Withdraw nonce account: Account %s must be writeable", pubkey_b58 );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -315,8 +318,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( &from ),
-      fd_borrowed_account_get_data_len( &from ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( &from ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -331,7 +333,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
     state = &versions->inner.current;
     break;
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "invalid nonce state version %u", versions->discriminant ));
   }
 
   fd_pubkey_t signer[1] = {0};
@@ -349,7 +351,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L105 */
 
-    *signer = *from.acct->pubkey;
+    *signer = *from.pubkey;
 
     break;
   }
@@ -429,8 +431,9 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, signer ) ) ) {
     /* Max msg_sz: 44 - 2 + 45 = 87 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( signer->key, signer_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Withdraw nonce account: Account %s must sign", FD_BASE58_ENC_32_ALLOCA( signer ) );
+      "Withdraw nonce account: Account %s must sign", signer_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -505,8 +508,9 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( account ) ) ) {
     /* Max msg_sz: 53 - 2 + 45 = 96 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, pubkey_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Initialize nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Initialize nonce account: Account %s must be writeable", pubkey_b58 );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -516,8 +520,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
-      fd_borrowed_account_get_data_len( account ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( account ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -530,7 +533,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     state = &versions->inner.current;
     break;
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "invalid nonce state version %u", versions->discriminant ));
   }
 
   switch( state->discriminant ) {
@@ -592,8 +595,9 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L189-L196 */
 
     /* Max msg_sz: 53 - 2 + 45 = 96 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, pubkey_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Initialize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Initialize nonce account: Account %s state is invalid", pubkey_b58 );
 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -635,7 +639,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
   int bhq_empty;
   do {
     fd_block_block_hash_entry_t const * hashes = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
-    if( FD_UNLIKELY( !hashes ) ) __builtin_unreachable(); /* validated above */
+    FD_TEST( hashes ); /* validated above */
     bhq_empty = deq_fd_block_block_hash_entry_t_empty( hashes );
     fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, hashes );
   } while(0);
@@ -676,8 +680,9 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, pubkey_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s must be writeable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Authorize nonce account: Account %s must be writeable", pubkey_b58 );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -687,8 +692,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
-      fd_borrowed_account_get_data_len( account ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( account ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -706,7 +710,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     state = &versions->inner.current;
     break;
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "invalid nonce state version %u", versions->discriminant ));
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L81-L84 */
@@ -715,8 +719,9 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L219-L226 */
 
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, pubkey_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
+      "Authorize nonce account: Account %s state is invalid", pubkey_b58 );
 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -728,8 +733,9 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, &data->authority ) ) ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L227-L234 */
     /* Max msg_sz: 45 - 2 + 45 = 88 < 127 => we can use printf */
+    FD_BASE58_ENCODE_32_BYTES( data->authority.key, authority_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s must sign", FD_BASE58_ENC_32_ALLOCA( &data->authority ) );
+      "Authorize nonce account: Account %s must sign", authority_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -756,7 +762,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     new_versioned->inner.current = *new_state;
     break;
   default:
-    __builtin_unreachable();
+    FD_LOG_CRIT(( "invalid nonce state version %u", versions->discriminant ));
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L218 */
@@ -834,8 +840,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, versions,
       fd_borrowed_account_get_data( &account ),
-      fd_borrowed_account_get_data_len( &account ),
-      NULL ) ) ) {
+      fd_borrowed_account_get_data_len( &account ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -878,7 +883,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
                           fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out ) {
-  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
+  fd_blockhashes_t const * block_hash_queue = &bank->data->f.block_hash_queue;
   fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last_hash( block_hash_queue );
   if( FD_UNLIKELY( !last_blockhash ) ) {
     FD_LOG_CRIT(( "blockhash queue is empty" ));
@@ -938,7 +943,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      - statically included in the transaction account keys (if SIMD-242
        is active)
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L110-L111 */
-  if( FD_UNLIKELY( !fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, nonce_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_runtime_account_is_writable_idx( txn_in, txn_out, nonce_idx ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, require_static_nonce_account ) &&
@@ -946,31 +951,29 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
-  fd_txn_account_t durable_nonce_rec[1];
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
-  int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
-                                                    &txn_out->accounts.account_keys[ nonce_idx ],
-                                                    runtime->funk,
-                                                    &xid );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  fd_accdb_ro_t ro[1];
+  fd_funk_txn_xid_t xid = { .ul = { bank->data->f.slot, bank->data->idx } };
+  if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, ro, &xid, &txn_out->accounts.keys[ nonce_idx ] ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
-  fd_pubkey_t const * owner_pubkey = fd_txn_account_get_owner( durable_nonce_rec );
+  fd_pubkey_t const * owner_pubkey = fd_accdb_ref_owner( ro );
   if( FD_UNLIKELY( memcmp( owner_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
+    fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   fd_nonce_state_versions_t state[1];
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       nonce_state_versions, state,
-      fd_txn_account_get_data( durable_nonce_rec ),
-      fd_txn_account_get_data_len( durable_nonce_rec ),
-      NULL ) ) ) {
+      fd_accdb_ref_data_const( ro ),
+      fd_accdb_ref_data_sz   ( ro ) ) ) ) {
+    fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
+  fd_accdb_close_ro( runtime->accdb, ro );
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
   /* verify_recent_blockhash. This checks that the decoded nonce record is
@@ -993,7 +996,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( TXN( txn_in->txn ), (int)instr_accts[i] ) ) {
-      if( !memcmp( &txn_out->accounts.account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof(fd_pubkey_t) ) ) {
+      if( fd_pubkey_eq( &txn_out->accounts.keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
@@ -1004,20 +1007,12 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
            Now figure out the state that the nonce account should
            advance to.
          */
-        fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-            runtime->funk,
-            &xid,
-            &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
-            NULL,
-            &err,
-            NULL );
-        ulong acc_data_len = meta->dlen;
-
-        if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        fd_accdb_ro_t nonce_ro[1];
+        if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, nonce_ro, &xid, &txn_out->accounts.keys[ instr_accts[ 0UL ] ] ) ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
 
-        fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( bank );
+        fd_blockhashes_t const *    blockhashes     = &bank->data->f.block_hash_queue;
         fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
         FD_TEST( last_bhash_info ); /* Agave panics here if the blockhash queue is empty */
 
@@ -1037,33 +1032,30 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           } }
         };
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_ACC_NONCE_SZ_MAX ) ) {
-          FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
+          FD_LOG_CRIT(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
         /* make_modifiable uses the old length for the data copy */
-        void * borrowed_account_data = txn_in->exec_accounts->rollback_nonce_account_mem;
+        uchar * borrowed_account_data = txn_out->accounts.rollback_nonce_mem;
         if( FD_UNLIKELY( !borrowed_account_data ) ) {
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
         }
-        if( FD_UNLIKELY( !meta ) ) {
-          FD_LOG_CRIT(( "Failed to get meta for nonce account" ));
-        }
-        fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
+        fd_memcpy( borrowed_account_data,
+                   nonce_ro->meta,
+                   sizeof(fd_account_meta_t) );
+        fd_memcpy( borrowed_account_data+sizeof(fd_account_meta_t),
+                   fd_accdb_ref_data_const( nonce_ro ),
+                   fd_accdb_ref_data_sz   ( nonce_ro ) );
 
-        if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-              txn_out->accounts.rollback_nonce,
-              &txn_out->accounts.account_keys[ instr_accts[ 0UL ] ],
-              (fd_account_meta_t *)borrowed_account_data,
-              1 ) ) ) ) {
-          FD_LOG_CRIT(( "Failed to join txn account" ));
-        }
+        txn_out->accounts.rollback_nonce = (fd_account_meta_t *)borrowed_account_data;
+        fd_accdb_close_ro( runtime->accdb, nonce_ro );
 
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce ) ) ) {
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>txn_out->accounts.rollback_nonce->dlen ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
         do {
           fd_bincode_encode_ctx_t encode_ctx =
-            { .data    = fd_txn_account_get_data_mut( txn_out->accounts.rollback_nonce ),
-              .dataend = fd_txn_account_get_data_mut( txn_out->accounts.rollback_nonce ) + fd_txn_account_get_data_len( txn_out->accounts.rollback_nonce ) };
+            { .data    = fd_account_data( txn_out->accounts.rollback_nonce ),
+              .dataend = fd_account_data( txn_out->accounts.rollback_nonce ) + txn_out->accounts.rollback_nonce->dlen };
           int err = fd_nonce_state_versions_encode( &new_state, &encode_ctx );
           if( FD_UNLIKELY( err ) ) {
             return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;

@@ -1,11 +1,6 @@
-MAKEFLAGS += --no-builtin-rules
-MAKEFLAGS += --no-builtin-variables
-.SUFFIXES:
-.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
+.PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean
-.SECONDARY:
-.SECONDEXPANSION:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
@@ -24,7 +19,7 @@ CPPFLAGS+=$(EXTRA_CPPFLAGS)
 AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend
 
 # Dry rules that should set up dependency targets, but not generate them
-DRY_RULES:=check show-deps
+DRY_RULES:=check show-deps proof
 
 all: info bin include lib unit-test fuzz-test
 
@@ -84,29 +79,17 @@ help:
 info: $(OBJDIR)/info
 
 clean: frontend-clean
-	#######################################################################
-	# Cleaning $(OBJDIR)
-	#######################################################################
 	$(RMDIR) $(OBJDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 distclean:
-	#######################################################################
-	# Cleaning $(BASEDIR)
-	#######################################################################
 	$(RMDIR) $(BASEDIR) && $(RMDIR) target && $(RMDIR) agave/target && \
 $(SCRUB)
 
 run-unit-test:
-	#######################################################################
-	# Running unit tests
-	#######################################################################
 	contrib/test/run_unit_tests.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
 
 run-integration-test:
-	#######################################################################
-	# Running integration tests
-	#######################################################################
 	contrib/test/run_integration_tests.sh --tests $(OBJDIR)/integration-test/automatic.txt $(TEST_OPTS)
 
 ##############################
@@ -175,9 +158,6 @@ add-examples = $(eval $(call _add-examples,$(1)))
 define _add-script
 
 $(OBJDIR)/$(1)/$(2): $(MKPATH)$(2)
-	#######################################################################
-	# Copying script $$^ to $$@
-	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
 $(CP) $$< $$@ && \
 chmod 755 $$@ && \
@@ -217,9 +197,6 @@ DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR
 $(1): $(OBJDIR)/$(5)/$(1)
 
 $(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
-	#######################################################################
-	# Creating $(5) $$@ from $$^
-	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
 $(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),-l$(lib)) $(6) $(LDFLAGS) -o $$@
 
@@ -288,12 +265,24 @@ run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3),$(4) $(LDFLAGS_EXE)))
 
 ##############################
+# Usage: $(call make-proof,name,source_file)
+
+define _make-proof
+
+.PHONY: $(1)
+$(1):
+	$(CBMC) $(MKPATH)$(2) --c17 -DCBMC --function cbmc_main
+
+proof: $(1)
+
+endef
+
+make-proof = $(eval $(call _make-proof,$(1),$(2)))
+
+##############################
 ## GENERIC RULES
 
 $(OBJDIR)/info :
-	#######################################################################
-	# Saving build info to $(OBJDIR)/info
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 echo -e \
 "# date     `date +'%Y-%m-%d %H:%M:%S %z'`\n"\
@@ -303,73 +292,46 @@ echo -e \
 git status --porcelain=2 --branch >> $(OBJDIR)/info
 
 $(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
-	#######################################################################
-	# Generating dependencies for C source $< to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
 $(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Generating dependencies for C++ source $< to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
 $(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/info
-	#######################################################################
-	# Compiling C source $< to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/obj/%.o : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Compiling C++ source $< to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/info
-	#######################################################################
-	# Compiling asm source $< to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
-	#######################################################################
-	# Compiling C source $< to assembly $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
 $(OBJDIR)/obj/%.S : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Compiling C++ source $< to assembly $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
 $(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
-	#######################################################################
-	# Preprocessing C source $< to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -E $< -o $@
 
 $(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Preprocessing C++ source $< to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CXX) $(CPPFLAGS) $(CXXFLAGS) -E $< -o $@
 
@@ -380,26 +342,17 @@ $(OBJDIR)/obj/%.check : src/%.cxx
 	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsyntax-only $<
 
 $(OBJDIR)/lib/%.a :
-	#######################################################################
-	# Creating library $@ from $^
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(RM) $@ && \
 $(AR) $(ARFLAGS) $@ $^ && \
 $(RANLIB)  $@
 
 $(OBJDIR)/include/firedancer/% : src/%
-	#######################################################################
-	# Copying header $^ to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CP) $^ $@ && \
 $(TOUCH) $@
 
 $(OBJDIR)/example/% : src/%
-	#######################################################################
-	# Copying example $^ to $@
-	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CP) $^ $@ && \
 $(TOUCH) $@
@@ -530,7 +483,7 @@ endif
   -format=lcov                          \
   $(addprefix -instr-profile=,$<)       \
   $(OBJDIR)/cov/mappings.ar             \
-  --ignore-filename-regex="test_.*\\.c" \
+  --ignore-filename-regex="(test_|fuzz_).*\\.c" \
 > $@
 
 # llvm-cov step 2.1

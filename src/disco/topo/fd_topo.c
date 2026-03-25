@@ -24,11 +24,12 @@ fd_topo_obj_laddr( fd_topo_t const * topo,
 void
 fd_topo_join_workspace( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
-                        int              mode ) {
+                        int              mode,
+                        int              dump ) {
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
-  wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL ) );
+  wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, dump, NULL, NULL, NULL ) );
   if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
 }
 
@@ -45,20 +46,24 @@ tile_needs_wksp( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong wksp
 
 void
 fd_topo_join_tile_workspaces( fd_topo_t *      topo,
-                              fd_topo_tile_t * tile ) {
+                              fd_topo_tile_t * tile,
+                              int              core_dump_level ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     int needs_wksp = tile_needs_wksp( topo, tile, i );
     if( FD_LIKELY( -1!=needs_wksp ) ) {
-      fd_topo_join_workspace( topo, &topo->workspaces[ i ], needs_wksp );
+      int dump = core_dump_level >= topo->workspaces[ i ].core_dump_level ? 1 : 0;
+      fd_topo_join_workspace( topo, &topo->workspaces[ i ], needs_wksp, dump );
     }
   }
 }
 
 void
 fd_topo_join_workspaces( fd_topo_t * topo,
-                         int         mode ) {
+                         int         mode,
+                         int         core_dump_level ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_join_workspace( topo, &topo->workspaces[ i ], mode );
+    int dump = core_dump_level >= topo->workspaces[ i ].core_dump_level ? 1 : 0;
+    fd_topo_join_workspace( topo, &topo->workspaces[ i ], mode, dump  );
   }
 }
 
@@ -101,7 +106,7 @@ fd_topo_create_workspace( fd_topo_t *      topo,
   if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
   else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 
-  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, 0, NULL, NULL, NULL ); /* logs details */
 
   void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
   if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
@@ -215,10 +220,43 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
 FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
-  if( FD_UNLIKELY( tile->keyswitch_obj_id ) ) {
+  if( FD_UNLIKELY( tile->id_keyswitch_obj_id!=ULONG_MAX ) ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold
        key material. */
-    key_pages = 5UL;
+    key_pages += 5UL;
+  }
+  if( FD_UNLIKELY( tile->av_keyswitch_obj_id!=ULONG_MAX ) ) {
+    /* Certain tiles using fd_keyload_load need normal pages to hold
+       key material. */
+    key_pages += 5UL;
+  }
+
+  if( !strcmp( tile->name, "net" ) ) {
+      /* net tile uses normal pages to hold xsk rings */
+
+      /* xdp_desc struct is in linux UAPI so its size can be
+         safely assumed */
+      ulong xdp_desc_sz_bytes    = 16UL;
+      ulong xsk_rings_sz_bytes   = 0UL;
+      ulong xdp_address_sz_bytes = sizeof(ulong);
+
+      /* rx ring */
+      xsk_rings_sz_bytes += tile->xdp.xdp_rx_queue_size * xdp_desc_sz_bytes;
+      /* tx ring */
+      xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_desc_sz_bytes;
+
+      /* completion ring */
+      xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_address_sz_bytes;
+      /* free ring */
+      xsk_rings_sz_bytes += tile->xdp.free_ring_depth   * xdp_address_sz_bytes;
+
+      key_pages += fd_ulong_align_up( xsk_rings_sz_bytes, FD_SHMEM_NORMAL_PAGE_SZ ) / FD_SHMEM_NORMAL_PAGE_SZ;
+
+      /* All 4 rings must store a ring header. This is 320 bytes
+         per ring as of linux v6.18.3, however could change in
+         the future so allow up to a full 4KB page per ring to
+         be safe. */
+      key_pages += 4UL;
   }
 
   /* All tiles lock one normal page for the fd_log shared lock. */
@@ -292,7 +330,7 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
 }
 
 FD_FN_PURE ulong
-fd_topo_normal_page_cnt( fd_topo_t * topo ) {
+fd_topo_normal_page_cnt( fd_topo_t const * topo ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     result += fd_topo_tile_extra_normal_pages( &topo->tiles[ i ] );
@@ -497,6 +535,18 @@ fd_topo_print_log( int         stdout,
       PRINT( "%lu:%s", tile->uses_obj_id[ j ], is_rw?"rw":"ro" );
     }
     PRINT( "]" );
+
+#if 0
+    PRINT( "  wksps=[" );
+    for( ulong j=0UL; j<topo->wksp_cnt; j++ ) {
+      int mode = tile_needs_wksp( topo, tile, j );
+      if( FD_UNLIKELY( -1!=mode ) ) {
+        if( FD_LIKELY( j!=0 ) ) PRINT( " " );
+        PRINT( "%s:%s", topo->workspaces[ j ].name, mode==FD_SHMEM_JOIN_MODE_READ_WRITE?"rw":"ro" );
+      }
+    }
+    PRINT( "]" );
+#endif
 
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }

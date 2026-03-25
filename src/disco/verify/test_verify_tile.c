@@ -59,7 +59,7 @@ mock_topo_create( void ) {
   fd_topo_wksp_t * wksp = fd_topob_wksp( topo, "wksp" );
   wksp->wksp = NULL;
 
-  fd_topo_tile_t * verify = fd_topob_tile( topo, "verify", "wksp", "wksp", 0UL, 0, 0 );
+  fd_topo_tile_t * verify = fd_topob_tile( topo, "verify", "wksp", "wksp", 0UL, 0, 0, 0 );
   verify->verify.tcache_depth = TCACHE_DEPTH;
 
   fd_verify_ctx_t * ctx = test_malloc( scratch_align(), scratch_footprint( verify ) );
@@ -68,7 +68,7 @@ mock_topo_create( void ) {
   mock_link_create( topo, "quic_verify"  );
   mock_link_create( topo, "bundle_verif" );
   mock_link_create( topo, "gossip_out"   );
-  mock_link_create( topo, "send_out"     );
+  mock_link_create( topo, "txsend_out"   );
 
   /* Declare link ins in opposite order than IN_KIND_* to check for in
      idx confusion */
@@ -76,7 +76,7 @@ mock_topo_create( void ) {
 #define IN_IDX_GOSSIP 1
 #define IN_IDX_BUNDLE 2
 #define IN_IDX_QUIC   3
-  fd_topob_tile_in( topo, "verify", 0UL, "wksp", "send_out",     0UL, 0, 1 );
+  fd_topob_tile_in( topo, "verify", 0UL, "wksp", "txsend_out",   0UL, 0, 1 );
   fd_topob_tile_in( topo, "verify", 0UL, "wksp", "gossip_out",   0UL, 0, 1 );
   fd_topob_tile_in( topo, "verify", 0UL, "wksp", "bundle_verif", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "verify", 0UL, "wksp", "quic_verify",  0UL, 0, 1 );

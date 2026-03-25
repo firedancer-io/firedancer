@@ -52,11 +52,11 @@ extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
-extern fd_topo_run_tile_t fd_tile_cswtch;
+extern fd_topo_run_tile_t fd_tile_diag;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_plugin;
-extern fd_topo_run_tile_t fd_tile_resolv;
-extern fd_topo_run_tile_t fd_tile_poh;
+extern fd_topo_run_tile_t fd_tile_resolh;
+extern fd_topo_run_tile_t fd_tile_pohh;
 extern fd_topo_run_tile_t fd_tile_bank;
 extern fd_topo_run_tile_t fd_tile_store;
 
@@ -72,11 +72,11 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_shred,
   &fd_tile_sign,
   &fd_tile_metric,
-  &fd_tile_cswtch,
+  &fd_tile_diag,
   &fd_tile_gui,
   &fd_tile_plugin,
-  &fd_tile_resolv,
-  &fd_tile_poh,
+  &fd_tile_resolh,
+  &fd_tile_pohh,
   &fd_tile_bank,
   &fd_tile_store,
   NULL,
@@ -91,7 +91,7 @@ extern action_t fd_action_keys;
 extern action_t fd_action_ready;
 extern action_t fd_action_mem;
 extern action_t fd_action_netconf;
-extern action_t fd_action_set_identity;
+extern action_t fd_action_set_identityh;
 extern action_t fd_action_get_identity;
 extern action_t fd_action_help;
 extern action_t fd_action_version;
@@ -107,7 +107,7 @@ action_t * ACTIONS[] = {
   &fd_action_ready,
   &fd_action_mem,
   &fd_action_netconf,
-  &fd_action_set_identity,
+  &fd_action_set_identityh,
   &fd_action_get_identity,
   &fd_action_help,
   &fd_action_version,
