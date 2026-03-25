@@ -378,8 +378,8 @@ fd_progcache_advance_root( fd_progcache_join_t * cache,
 
   /* Update records */
 
-  fd_prog_reclaim_work( cache );
   fd_progcache_txn_publish_release( cache, publish_head );
+  fd_prog_reclaim_work( cache );
 }
 
 void
