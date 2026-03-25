@@ -534,7 +534,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         fd_accdb_close_ro( accdb, vote_ro );
 
         /* If old_node_account_t_1 gets zero-initialized which means
-           that it is still valid to use. */
+           that it is still valid to use.  Even if the account exists
+           now, and it didn't at the end of the t-2 epoch, it's still
+           treated as though it didn't exist at the end of t-2. */
         fd_vote_stakes_insert_key(
             vote_stakes,
             child_idx,

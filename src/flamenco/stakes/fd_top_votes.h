@@ -17,7 +17,20 @@
 
    An important tiebreaking rule is that if the minimum stake value has
    a tie, all accounts with that stake value will be excluded from the
-   top voters set. */
+   top voters set.
+
+   The semantics around whether an account should be included in the
+   top voters set is quite subtle and is based off of how Agave handles
+   its stakes cache and epoch stakes.  The stakes cache is a cache of
+   vote and stake accounts that is updated through an epoch.  It will
+   always contain the full set of vote/stake accounts that are active
+   for the current epoch.  The Agave epoch stakes are effectively
+   snapshots of the stakes cache that are taken at the end of each
+   epoch.  After VAT is enabled, the Agave client will only include the
+   top 2000 staked vote accounts into the epoch stakes.  This means for
+   the t-1 epoch, the top voters set contains the top 2000 staked vote
+   accounts (with a BLS pubkey) and the account must exist at the epoch
+   boundary. */
 
 struct fd_top_votes;
 typedef struct fd_top_votes fd_top_votes_t;

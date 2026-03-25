@@ -1128,6 +1128,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
+  fd_top_votes_init( top_votes_t_1 );
+  fd_top_votes_init( top_votes_t_2 );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ushort fork_idx = bank->data->vote_stakes_fork_id;

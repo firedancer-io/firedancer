@@ -322,8 +322,8 @@ struct fd_bank_data {
     ulong                             identity_vote_idx;
   } f;
 
-  uchar top_votes_mem_t_1[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
-  uchar top_votes_mem_t_2[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
+  uchar top_votes_t_1_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
+  uchar top_votes_t_2_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
