@@ -126,9 +126,10 @@ int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
                    ulong                 programdata_size ) {
-  int deploy_mode                          = 1;
-  int direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
-  int stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
+  int deploy_mode                            = 1;
+  int direct_mapping                         = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
+  int syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
+  int virtual_address_space_adjustments      = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
 
   uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
@@ -189,30 +190,31 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
   vm = fd_vm_init(
-    /* vm                                   */ vm,
-    /* instr_ctx                            */ instr_ctx,
-    /* heap_max                             */ instr_ctx->txn_out->details.compute_budget.heap_size,
-    /* entry_cu                             */ instr_ctx->txn_out->details.compute_budget.compute_meter,
-    /* rodata                               */ prog->rodata,
-    /* rodata_sz                            */ prog->rodata_sz,
-    /* text                                 */ prog->text,
-    /* text_cnt                             */ prog->info.text_cnt,
-    /* text_off                             */ prog->info.text_off, /* FIXME: What if text_off is not multiple of 8 */
-    /* text_sz                              */ prog->info.text_sz,
-    /* entry_pc                             */ prog->entry_pc,
-    /* calldests                            */ prog->calldests,
-    /* sbpf_version                         */ elf_info->sbpf_version,
-    /* syscalls                             */ syscalls,
-    /* trace                                */ NULL,
-    /* sha                                  */ NULL,
-    /* mem_regions                          */ NULL,
-    /* mem_regions_cnt                      */ 0,
-    /* mem_region_accs                      */ NULL,
-    /* is_deprecated                        */ 0,
-    /* direct mapping                       */ direct_mapping,
-    /* stricter_abi_and_runtime_constraints */ stricter_abi_and_runtime_constraints,
-    /* dump_syscall_to_pb                   */ 0,
-    /* r2_initial_value                     */ 0UL );
+    /* vm                                     */ vm,
+    /* instr_ctx                              */ instr_ctx,
+    /* heap_max                               */ instr_ctx->txn_out->details.compute_budget.heap_size,
+    /* entry_cu                               */ instr_ctx->txn_out->details.compute_budget.compute_meter,
+    /* rodata                                 */ prog->rodata,
+    /* rodata_sz                              */ prog->rodata_sz,
+    /* text                                   */ prog->text,
+    /* text_cnt                               */ prog->info.text_cnt,
+    /* text_off                               */ prog->info.text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* text_sz                                */ prog->info.text_sz,
+    /* entry_pc                               */ prog->entry_pc,
+    /* calldests                              */ prog->calldests,
+    /* sbpf_version                           */ elf_info->sbpf_version,
+    /* syscalls                               */ syscalls,
+    /* trace                                  */ NULL,
+    /* sha                                    */ NULL,
+    /* mem_regions                            */ NULL,
+    /* mem_regions_cnt                        */ 0,
+    /* mem_region_accs                        */ NULL,
+    /* is_deprecated                          */ 0,
+    /* direct mapping                         */ direct_mapping,
+    /* syscall_parameter_address_restrictions */ syscall_parameter_address_restrictions,
+    /* virtual_address_space_adjustments      */ virtual_address_space_adjustments,
+    /* dump_syscall_to_pb                     */ 0,
+    /* r2_initial_value                       */ 0UL );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
@@ -401,7 +403,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                    = 0U;
   int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
-  int                     stricter_abi_and_runtime_constraints     = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
+  int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
+  int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
 
   ulong instruction_data_offset = 0UL;
@@ -410,7 +413,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated,
+                                                  acc_region_metas, virtual_address_space_adjustments, direct_mapping, is_deprecated,
                                                   &instruction_data_offset, &input_sz );
   if( FD_UNLIKELY( err ) ) {
     return err;
@@ -444,30 +447,31 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->data_base;
   void const * rodata = fd_progcache_rec_rodata( cache_entry, progcache_wksp );
   vm = fd_vm_init(
-    /* vm                                   */ vm,
-    /* instr_ctx                            */ instr_ctx,
-    /* heap_max                             */ heap_size,
-    /* entry_cu                             */ instr_ctx->txn_out->details.compute_budget.compute_meter,
-    /* rodata                               */ rodata,
-    /* rodata_sz                            */ cache_entry->rodata_sz,
-    /* text (note: text_off is byte offset) */ (ulong *)( (ulong)rodata + cache_entry->text_off ),
-    /* text_cnt                             */ cache_entry->text_cnt,
-    /* text_off                             */ cache_entry->text_off,
-    /* text_sz                              */ cache_entry->text_sz,
-    /* entry_pc                             */ cache_entry->entry_pc,
-    /* calldests                            */ fd_progcache_rec_calldests( cache_entry, progcache_wksp ),
-    /* sbpf_version                         */ cache_entry->sbpf_version,
-    /* syscalls                             */ syscalls,
-    /* trace                                */ NULL,
-    /* sha                                  */ sha,
-    /* input_mem_regions                    */ input_mem_regions,
-    /* input_mem_regions_cnt                */ input_mem_regions_cnt,
-    /* acc_region_metas                     */ acc_region_metas,
-    /* is_deprecated                        */ is_deprecated,
-    /* direct_mapping                       */ direct_mapping,
-    /* stricter_abi_and_runtime_constraints */ stricter_abi_and_runtime_constraints,
-    /* dump_syscall_to_pb                   */ dump_syscall_to_pb,
-    /* r2_initial_value                     */ r2_initial_value );
+    /* vm                                     */ vm,
+    /* instr_ctx                              */ instr_ctx,
+    /* heap_max                               */ heap_size,
+    /* entry_cu                               */ instr_ctx->txn_out->details.compute_budget.compute_meter,
+    /* rodata                                 */ rodata,
+    /* rodata_sz                              */ cache_entry->rodata_sz,
+    /* text (note: text_off is byte offset)   */ (ulong *)( (ulong)rodata + cache_entry->text_off ),
+    /* text_cnt                               */ cache_entry->text_cnt,
+    /* text_off                               */ cache_entry->text_off,
+    /* text_sz                                */ cache_entry->text_sz,
+    /* entry_pc                               */ cache_entry->entry_pc,
+    /* calldests                              */ fd_progcache_rec_calldests( cache_entry, progcache_wksp ),
+    /* sbpf_version                           */ cache_entry->sbpf_version,
+    /* syscalls                               */ syscalls,
+    /* trace                                  */ NULL,
+    /* sha                                    */ sha,
+    /* input_mem_regions                      */ input_mem_regions,
+    /* input_mem_regions_cnt                  */ input_mem_regions_cnt,
+    /* acc_region_metas                       */ acc_region_metas,
+    /* is_deprecated                          */ is_deprecated,
+    /* direct_mapping                         */ direct_mapping,
+    /* syscall_parameter_address_restrictions */ syscall_parameter_address_restrictions,
+    /* virtual_address_space_adjustments      */ virtual_address_space_adjustments,
+    /* dump_syscall_to_pb                     */ dump_syscall_to_pb,
+    /* r2_initial_value                       */ r2_initial_value );
   if( FD_UNLIKELY( !vm ) ) {
     /* We throw an error here because it could be the case that the given heap_size > HEAP_MAX.
        In this case, Agave fails the transaction but does not error out.
@@ -537,7 +541,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        and the access type was a store, a different error code is returned to give developers more insight
        as to what caused the error.
        https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1556-L1618 */
-    if( FD_UNLIKELY( stricter_abi_and_runtime_constraints &&
+    if( FD_UNLIKELY( virtual_address_space_adjustments &&
                      ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
                      vm->segv_vaddr!=ULONG_MAX ) ) {
 
@@ -633,7 +637,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   err = fd_bpf_loader_input_deserialize_parameters(
-    instr_ctx, pre_lens, input, input_sz, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated );
+    instr_ctx, pre_lens, input, input_sz, virtual_address_space_adjustments, direct_mapping, is_deprecated );
 
   long const regime3 = fd_tickcount();
   if( instr_ctx->instr->stack_height==1 ) {

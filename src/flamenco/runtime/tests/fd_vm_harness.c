@@ -152,7 +152,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   fd_vm_acc_region_meta_t acc_region_metas[256]                  = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                  = 0U;
   int                     direct_mapping                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
-  int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE_BANK( ctx->bank, stricter_abi_and_runtime_constraints );
+  int                     syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( ctx->bank, syscall_parameter_address_restrictions );
+  int                     virtual_address_space_adjustments      = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
 
   uchar               program_id_idx = ctx->instr->program_id;
   fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
@@ -172,7 +173,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
                                                       acc_region_metas,
-                                                      stricter_abi_and_runtime_constraints,
+                                                      virtual_address_space_adjustments,
                                                       direct_mapping,
                                                       is_deprecated,
                                                       &instr_data_offset,
@@ -203,7 +204,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               acc_region_metas,
               is_deprecated,
               direct_mapping,
-              stricter_abi_and_runtime_constraints,
+              syscall_parameter_address_restrictions,
+              virtual_address_space_adjustments,
               0 /* dump_syscall_to_pb */,
               0UL /* r2 is set by the fuzzer below */ );
 

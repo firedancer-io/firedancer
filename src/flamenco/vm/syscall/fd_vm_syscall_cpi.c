@@ -290,15 +290,15 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                    vm,
                                         ulong                        instr_acc_idx,
                                         fd_vm_cpi_caller_account_t * caller_account,
                                         fd_borrowed_account_t *      borrowed_account ) {
-  /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1141-L1148 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1283-L1290 */
   ulong address_space_reserved_for_account;
-  if( vm->stricter_abi_and_runtime_constraints && vm->is_deprecated ) {
+  if( vm->is_deprecated ) {
     address_space_reserved_for_account = caller_account->orig_data_len;
   } else {
     address_space_reserved_for_account = fd_ulong_sat_add( caller_account->orig_data_len, MAX_PERMITTED_DATA_INCREASE );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1159-L1164 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1292-L1308 */
   if( address_space_reserved_for_account > 0UL ) {
     /* Note that we don't special-case direct mapping here, as Agave does,
        because we do not create regions using CoW upon resize like Agave does.
@@ -312,8 +312,8 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                    vm,
     fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[instr_acc_idx];
     fd_vm_input_region_t *    region          = &vm->input_mem_regions[acc_region_meta->region_idx + 1UL];
 
-    /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1159-L1165 */
-    /* https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/serialization.rs#L23-L35 */
+    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1301-L1307 */
+    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L23-L35 */
     region->region_sz = (uint)fd_borrowed_account_get_data_len( borrowed_account );
 
     int err;
@@ -386,7 +386,7 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
   return rc_refcell_vaddr + offsetof(fd_vm_rc_refcell_t, payload);
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L310-L316
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L508-L514
  */
 FD_FN_CONST static inline
 ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_haddr, ulong acct_info_haddr ) {
@@ -513,9 +513,9 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
       *((ulong const *)FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) )); \
     ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _vaddr_), alignof(ulong), sizeof(ulong) );
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L184-L195 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L367-L378 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
-    if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && acc_info->data_box_addr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                 \
+    if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && acc_info->data_box_addr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                 \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );                                                                          \
       return FD_VM_SYSCALL_ERR_INVALID_POINTER;                                                                                                    \
     }                                                                                                                                              \
