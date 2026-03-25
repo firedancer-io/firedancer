@@ -480,6 +480,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
 
+  fd_vote_rewards_map_t * vote_reward_map = runtime_stack->stakes.vote_map;
+  fd_vote_rewards_map_reset( vote_reward_map );
+  ulong vote_reward_cnt = 0UL;
+
+  uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
+
   /* First accumulate stakes across all delegations for all vote
      accounts.  At this point, don't care if they are valid accounts or
      if they will be inserted into the top votes set. */
@@ -522,7 +528,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      that the epoch boundary is being crossed.  Reset the existing t-1
      top votes set to prepare it for insertion.  Refresh the states of
      the t-2 top votes set: figure out if the account still exists and
-     what the last vote timestamp and slot are.  */
+     what the last vote timestamp and slot are. */
+
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_memcpy( top_votes_t_2, top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
@@ -533,7 +540,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
        !fd_top_votes_iter_done( top_votes_t_2, iter );
        fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
     fd_pubkey_t pubkey;
-    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, NULL, NULL, NULL );
+    uchar       commission_t_2;
+    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2 );
 
 
     fd_accdb_ro_t vote_ro[1];
@@ -550,6 +558,20 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen );
     fd_accdb_close_ro( accdb, vote_ro );
     fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
+
+    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+      uchar                commission_t_1   = 0;
+      fd_pubkey_t          node_account_t_1 = {0};
+      fd_epoch_credits_t * epoch_credits    = &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ];
+      get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), vsv_buf, &commission_t_1, &node_account_t_1, epoch_credits );
+      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
+      vote_ele->pubkey             = pubkey;
+      vote_ele->vote_rewards       = 0UL;
+      vote_ele->commission_t_1     = commission_t_1;
+      vote_ele->commission_t_2     = commission_t_2;
+      fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
+      vote_reward_cnt++;
+    }
   }
 
   /* Now for each staked vote account, figure out if it is a valid
@@ -557,20 +579,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      but still be inserted into the vote stakes if it existed in the
      previous epoch or vice versa).  The only condition an account is
      not inserted into the vote stakes is if it didn't exist in the
-     previous epoch or in the current one.
-     TODO: This loop and vote stakes can be removed entirely after VAT
-     is activated.  */
+     previous epoch or in the current one. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ushort parent_idx = bank->data->vote_stakes_fork_id;
   ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
   bank->data->vote_stakes_fork_id = child_idx;
-
-  uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
-
-  fd_vote_rewards_map_t * vote_reward_map = runtime_stack->stakes.vote_map;
-  fd_vote_rewards_map_reset( vote_reward_map );
-  ulong vote_reward_cnt = 0UL;
 
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
@@ -600,22 +614,22 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
       stake_t_1 = stake_accum->stake;
 
-      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
-      vote_ele->pubkey             = stake_accum->pubkey;
-      vote_ele->vote_rewards       = 0UL;
-      vote_ele->commission_t_1     = commission_t_1;
-      vote_ele->commission_t_2     = exists_prev ? commission_t_2 : commission_t_1;
-      fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
-      vote_reward_cnt++;
+      if( !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+        fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
+        vote_ele->pubkey             = stake_accum->pubkey;
+        vote_ele->vote_rewards       = 0UL;
+        vote_ele->commission_t_1     = commission_t_1;
+        vote_ele->commission_t_2     = exists_prev ? commission_t_2 : commission_t_1;
+        fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
+        vote_reward_cnt++;
+      }
 
       /* TODO: This api is kind of gross.
          TODO: Make sure the BLS pubkey is being checked here. */
       fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, 0UL, 0UL, commission_t_1, 1 );
-
     }
 
     if( FD_UNLIKELY( !exists_curr && !exists_prev ) ) continue;
-
     fd_vote_stakes_insert(
         vote_stakes, child_idx, &stake_accum->pubkey,
         &node_account_t_1, &node_account_t_2,

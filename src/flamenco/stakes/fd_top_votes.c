@@ -290,7 +290,7 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
 FD_STATIC_ASSERT( FD_TOP_VOTES_ITER_FOOTPRINT == sizeof(map_iter_t), top_votes_iter );
 FD_STATIC_ASSERT( FD_TOP_VOTES_ITER_ALIGN == alignof(map_iter_t), top_votes_iter );
 
-static void FD_FN_UNUSED
+static void
 fd_top_votes_iter_skip_invalid( fd_top_votes_t const * top_votes,
                                 map_iter_t *           iter ) {
   map_t *      map  = get_map( top_votes );
@@ -307,6 +307,7 @@ fd_top_votes_iter_init( fd_top_votes_t const * top_votes,
                         uchar                  iter_mem[ static FD_TOP_VOTES_ITER_FOOTPRINT ] ) {
   map_iter_t iter = map_iter_init( get_map( top_votes ), get_pool( top_votes ) );
   memcpy( iter_mem, &iter, sizeof(map_iter_t) );
+  fd_top_votes_iter_skip_invalid( top_votes, (map_iter_t *)iter_mem );
   return (fd_top_votes_iter_t *)iter_mem;
 }
 
@@ -322,6 +323,7 @@ fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
                         fd_top_votes_iter_t *  iter ) {
   map_iter_t * map_iter = (map_iter_t *)iter;
   *map_iter = map_iter_next( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
+  fd_top_votes_iter_skip_invalid( top_votes, map_iter );
 }
 
 int

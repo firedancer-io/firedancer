@@ -96,7 +96,10 @@
    As an important note, the vote stakes object can be used globally
    across different threads, but it is not safe to access concurrently.
    The caller is responsible for ensuring that reads and writes are
-   properly synchronized. */
+   properly synchronized.
+
+   fd_vote_stakes is the Firedancer equivalent to the Agave client
+   epoch stakes data structure. */
 
 FD_PROTOTYPES_BEGIN
 
@@ -178,7 +181,10 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  uchar               commission_t_2,
                                  ulong               epoch );
 
-/* TODO: Fill out documentation for this */
+/* fd_vote_stakes_insert inserts a new vote account stake into a given
+   fork.  If the element already exists on a different fork, then the
+   reference is incremented in the index and the fork will now have an
+   element which points to the vote stake index element. */
 
 void
 fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
