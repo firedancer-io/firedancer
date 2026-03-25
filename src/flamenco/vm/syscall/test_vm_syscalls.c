@@ -9,10 +9,11 @@ static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL
 static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
-  char const * one_offs[] = { "9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ", "CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM" };
-  fd_features_enable_one_offs( &vm_ctx->instr_ctx->bank->data->f.features, one_offs, 1U, slot );
+  char const * one_offs[] = { "CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE", "EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF", "7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz" };
+  fd_features_enable_one_offs( &vm_ctx->instr_ctx->bank->data->f.features, one_offs, 3U, slot );
   vm_ctx->direct_mapping = enable;
-  vm_ctx->stricter_abi_and_runtime_constraints = enable;
+  vm_ctx->syscall_parameter_address_restrictions = enable;
+  vm_ctx->virtual_address_space_adjustments = enable;
 }
 
 static void
@@ -275,30 +276,31 @@ main( int     argc,
   test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, bank_data, bank_locks, txn_out );
 
   int vm_ok = !!fd_vm_init(
-      /* vm                                   */ vm,
-      /* instr_ctx                            */ instr_ctx,
-      /* heap_max                             */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu                             */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata                               */ rodata,
-      /* rodata_sz                            */ rodata_sz,
-      /* text                                 */ NULL,
-      /* text_cnt                             */ 0UL,
-      /* text_off                             */ 0UL,
-      /* text_sz                              */ 0UL,
-      /* entry_pc                             */ 0UL,
-      /* calldests                            */ NULL,
-      /* sbpf_version                         */ TEST_VM_DEFAULT_SBPF_VERSION,
-      /* syscalls                             */ NULL,
-      /* trace                                */ NULL,
-      /* sha                                  */ sha,
-      /* mem_regions                          */ input_mem_regions,
-      /* mem_regions_cnt                      */ (uint)mem_regions_cnt,
-      /* mem_regions_accs                     */ NULL,
-      /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
-      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE_BANK( bank, stricter_abi_and_runtime_constraints ),
-      /* dump_syscall_to_pb                   */ 0,
-      /* r2_initial_value                     */ 0UL
+      /* vm                                     */ vm,
+      /* instr_ctx                              */ instr_ctx,
+      /* heap_max                               */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                               */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata                                 */ rodata,
+      /* rodata_sz                              */ rodata_sz,
+      /* text                                   */ NULL,
+      /* text_cnt                               */ 0UL,
+      /* text_off                               */ 0UL,
+      /* text_sz                                */ 0UL,
+      /* entry_pc                               */ 0UL,
+      /* calldests                              */ NULL,
+      /* sbpf_version                           */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* syscalls                               */ NULL,
+      /* trace                                  */ NULL,
+      /* sha                                    */ sha,
+      /* mem_regions                            */ input_mem_regions,
+      /* mem_regions_cnt                        */ (uint)mem_regions_cnt,
+      /* mem_regions_accs                       */ NULL,
+      /* is_deprecated                          */ 0,
+      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
+      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( bank, syscall_parameter_address_restrictions ),
+      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( bank, virtual_address_space_adjustments ),
+      /* dump_syscall_to_pb                     */ 0,
+      /* r2_initial_value                       */ 0UL
   );
   FD_TEST( vm_ok );
 

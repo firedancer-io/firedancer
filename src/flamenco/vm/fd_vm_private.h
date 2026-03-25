@@ -309,9 +309,9 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
                                    ulong           sz,
                                    ulong           region_idx,
                                    uchar           write ) {
-  /* If stricter_abi_and_runtime_constraints is not enabled, we don't need to
+  /* If virtual_address_space_adjustments is not enabled, we don't need to
      do anything */
-  if( FD_UNLIKELY( !vm->stricter_abi_and_runtime_constraints ) ) {
+  if( FD_UNLIKELY( !vm->virtual_address_space_adjustments ) ) {
     return;
   }
 
@@ -432,10 +432,10 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame, which only exist if...
           - dynamic stack frames are not enabled (!(SBPF version >= SBPF_V1))
-     https://github.com/anza-xyz/agave/blob/v2.2.12/programs/bpf_loader/src/lib.rs#L344-L351
+          - virtual_address_space_adjustments is not active
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/vm.rs#L99-L103
     */
-  if( FD_UNLIKELY( region==FD_VM_STACK_REGION &&
-                   !fd_sbpf_dynamic_stack_frames_enabled( vm->sbpf_version ) ) ) {
+  if( FD_UNLIKELY( region==FD_VM_STACK_REGION && vm->stack_frame_gaps_enabled ) ) {
     /* If an access starts in a gap region, that is an access violation */
     if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
       return sentinel;

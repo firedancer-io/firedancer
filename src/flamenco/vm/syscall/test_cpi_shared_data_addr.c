@@ -478,7 +478,8 @@ test_env_create( test_env_t * env,
     NULL, NULL, sha, NULL, 0U,
     env->acc_region_metas, 0,
     FD_FEATURE_ACTIVE_BANK( env->bank, account_data_direct_mapping ),
-    FD_FEATURE_ACTIVE_BANK( env->bank, stricter_abi_and_runtime_constraints ),
+    FD_FEATURE_ACTIVE_BANK( env->bank, syscall_parameter_address_restrictions ),
+    FD_FEATURE_ACTIVE_BANK( env->bank, virtual_address_space_adjustments ),
     0, 0UL
   );
   FD_TEST( vm_ok );

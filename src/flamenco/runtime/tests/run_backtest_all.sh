@@ -108,3 +108,10 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_programdata_account_c
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary -y 2 -m 2000000 -e 391824016
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace_spl_token_with_p_token -y 1 -m 1000 -e 720
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.0.0-alpha.0 -y 1 -m 10000
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-3 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-4 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-5 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-362107883-direct-mapping-3 -y 1 -m 2000000 -e 362219427 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct-mapping-1 -y 1 -m 1000 -e 312
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct-mapping-2 -y 1 -m 1000 -e 819
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct-mapping-3 -y 1 -m 1000 -e 1395
