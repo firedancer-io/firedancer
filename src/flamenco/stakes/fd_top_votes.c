@@ -1,4 +1,6 @@
 #include "fd_top_votes.h"
+#include "../accdb/fd_accdb_sync.h"
+#include "../runtime/program/vote/fd_vote_state_versioned.h"
 
 #define FD_TOP_VOTES_MAGIC (0xF17EDA2CE7401E70UL) /* FIREDANCER TOP VOTES V0 */
 
@@ -282,6 +284,36 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
   if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   if( commission_out_opt )          *commission_out_opt          = ele->commission;
   return 1;
+}
+
+void
+fd_top_votes_refresh( fd_top_votes_t *          top_votes,
+                      fd_accdb_user_t *         accdb,
+                      fd_funk_txn_xid_t const * xid ) {
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) top_votes_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, top_votes_iter_mem );
+        !fd_top_votes_iter_done( top_votes, iter );
+        fd_top_votes_iter_next( top_votes, iter ) ) {
+    fd_pubkey_t pubkey;
+    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL, NULL );
+
+    int is_valid = 1;
+    fd_accdb_ro_t acc[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, acc, xid, &pubkey ) ) ) {
+      is_valid = 0;
+    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc->meta ) ) ) {
+      fd_accdb_close_ro( accdb, acc );
+      is_valid = 0;
+    }
+
+    if( FD_LIKELY( is_valid ) ) {
+      fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( acc->meta ), acc->meta->dlen );
+      fd_top_votes_update( top_votes, &pubkey, last_vote.slot, last_vote.timestamp );
+    } else {
+      fd_top_votes_invalidate( top_votes, &pubkey );
+    }
+    fd_accdb_close_ro( accdb, acc );
+  }
 }
 
 FD_STATIC_ASSERT( FD_TOP_VOTES_ITER_FOOTPRINT == sizeof(map_iter_t), top_votes_iter );

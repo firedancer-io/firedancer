@@ -2,7 +2,9 @@
 #define HEADER_fd_src_flamenco_stakes_fd_top_votes_h
 
 #include "../../util/fd_util_base.h"
+#include "../../funk/fd_funk_base.h"
 #include "../types/fd_types_custom.h"
+#include "../accdb/fd_accdb_base.h"
 
 /* With the introduction of VAT, the set of vote accounts that receive
    epoch rewards, participate in clock calculation, and are eligible for
@@ -95,7 +97,6 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      ulong               stake,
                      uchar               commission );
 
-
 /* fd_top_votes_update updates the last vote timestamp and slot for a
    given vote account in the top votes set.  If the vote account is not
    in the top votes set, the update is ignored and is treated as a
@@ -130,6 +131,17 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
                     ulong *                last_vote_slot_out_opt,
                     long *                 last_vote_timestamp_out_opt,
                     uchar *                commission_out_opt );
+
+/* fd_top_votes_refresh refreshes the top votes set given an accdb
+   user and a transaction xid.  The top votes are populated with a
+   snapshot manifest before the account data is loaded in.  Information
+   about latest votes and if the account still exists must be refreshed
+   using the accounts database afterwards. */
+
+void
+fd_top_votes_refresh( fd_top_votes_t *          top_votes,
+                      fd_accdb_user_t *         accdb,
+                      fd_funk_txn_xid_t const * xid );
 
 #define FD_TOP_VOTES_ITER_FOOTPRINT (16UL)
 #define FD_TOP_VOTES_ITER_ALIGN     (8UL)

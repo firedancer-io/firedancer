@@ -1123,49 +1123,10 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   init_funk( ctx, bank->data->f.slot );
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
-
   fd_stake_delegations_refresh( root_delegations, ctx->accdb, &xid );
 
-  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
-  fd_top_votes_init( top_votes_t_1 );
-  fd_top_votes_init( top_votes_t_2 );
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-  ushort fork_idx = bank->data->vote_stakes_fork_id;
-
-  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
-       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
-       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-    fd_pubkey_t pubkey;
-    fd_pubkey_t node_account_t_1;
-    fd_pubkey_t node_account_t_2;
-    ulong       stake_t_1;
-    ulong       stake_t_2;
-    uchar       commission_t_1;
-    uchar       commission_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2, &commission_t_1, &commission_t_2 );
-
-    int is_valid = 1;
-    fd_accdb_ro_t acc[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, acc, &xid, &pubkey ) ) ) {
-      is_valid = 0;
-    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc->meta ) ) ) {
-      fd_accdb_close_ro( ctx->accdb, acc );
-      is_valid = 0;
-    }
-
-    if( FD_LIKELY( is_valid ) ) {
-      fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( acc->meta ), acc->meta->dlen );
-      fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
-    } else {
-      fd_top_votes_invalidate( top_votes_t_2, &pubkey );
-    }
-    fd_accdb_close_ro( ctx->accdb, acc );
-  }
-
-  fd_bank_vote_stakes_end_locking_modify( bank );
+  fd_top_votes_refresh( top_votes_t_2, ctx->accdb, &xid );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
