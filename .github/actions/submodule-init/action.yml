@@ -7,10 +7,13 @@ runs:
       shell: bash
       run: |
         echo "Waiting for submodule lock..."
-        flock -x -w 300 /tmp/firedancer-git-submodules.lock -c '
-          echo "Lock acquired, cleaning stale git lock files..."
-          find .git/modules -name "*.lock" -delete 2>/dev/null || true
-          echo "Updating submodules..."
-          git submodule update --init --recursive
-        '
+        exec 9>/tmp/firedancer-git-submodules.lock
+        if ! flock -x -w 300 9; then
+          echo "Failed to acquire submodule lock within timeout" >&2
+          exit 1
+        fi
+        echo "Lock acquired, cleaning stale git lock files..."
+        find .git/modules -name "*.lock" -delete 2>/dev/null || true
+        echo "Updating submodules..."
+        git submodule update --init --recursive
         echo "Submodules initialized successfully"

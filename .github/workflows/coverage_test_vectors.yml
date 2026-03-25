@@ -45,8 +45,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.base.sha || 'main' }}
-
-      - uses: ./.github/actions/submodule-init
+          submodules: recursive
 
       - uses: ./.github/actions/deps
         with:
@@ -84,9 +83,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
           clean: false
-
-      - uses: ./.github/actions/submodule-init
 
       - name: Clean coverage data for PR run
         run: rm -rf "$OBJDIR/cov"
