@@ -33,11 +33,12 @@ help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
 
   if( FD_LIKELY( action_cnt ) ) {
     action_t ** sorted = malloc( action_cnt * sizeof(action_t *) );
-    if( FD_UNLIKELY( !sorted ) )
+    if( FD_UNLIKELY( !sorted ) ) {
       FD_LOG_ERR(( "malloc failed for help sorted actions (count %lu, elem_sz %lu, total %lu)",
                    action_cnt,
                    (ulong)sizeof( action_t * ),
                    action_cnt * (ulong)sizeof( action_t * ) ));
+      }
 
     for( ulong i=0UL; i<action_cnt; i++ ) {
       sorted[ i ] = ACTIONS[ i ];
