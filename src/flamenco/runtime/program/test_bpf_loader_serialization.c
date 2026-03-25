@@ -380,7 +380,7 @@ setup_instr_ctx( fixture_input_t const *      in,
     fd_memcpy( meta->owner, in->accounts[i].owner.key, 32 );
 
     if( in->accounts[i].data_len ) {
-      fd_memcpy( fd_account_meta_get_data( meta ), in->accounts[i].data, in->accounts[i].data_len );
+      fd_memcpy( fd_account_data( meta ), in->accounts[i].data, in->accounts[i].data_len );
     }
   }
 

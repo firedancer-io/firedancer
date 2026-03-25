@@ -1031,8 +1031,8 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
             } }
           } }
         };
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_ACC_NONCE_SZ_MAX ) ) {
-          FD_LOG_CRIT(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
+          FD_LOG_CRIT(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_SYSTEM_PROGRAM_NONCE_DLEN %lu", fd_nonce_state_versions_size( &new_state ), FD_SYSTEM_PROGRAM_NONCE_DLEN ));
         }
         /* make_modifiable uses the old length for the data copy */
         uchar * borrowed_account_data = txn_out->accounts.rollback_nonce_mem;

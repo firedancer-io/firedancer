@@ -1840,49 +1840,43 @@ fd_runtime_find_index_of_account( fd_txn_out_t const * txn_out,
   return -1;
 }
 
-int
+fd_accdb_ref_t *
 fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  ushort                          idx,
                                  fd_txn_account_condition_fn_t * condition ) {
   if( FD_UNLIKELY( idx>=txn_out->accounts.cnt ) ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+    return NULL;
   }
 
   if( FD_LIKELY( condition != NULL ) ) {
     if( FD_UNLIKELY( !condition( txn_in, txn_out, idx ) ) ) {
-      return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+      return NULL;
     }
   }
 
-  return FD_ACC_MGR_SUCCESS;
+  return txn_out->accounts.account[ idx ].ref;
 }
 
-int
+fd_accdb_ref_t *
 fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  fd_pubkey_t const *             pubkey,
                                  int *                           index_out,
                                  fd_txn_account_condition_fn_t * condition ) {
   int index = fd_runtime_find_index_of_account( txn_out, pubkey );
-  if( FD_UNLIKELY( index==-1 ) ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
+  if( FD_UNLIKELY( index<0 ) ) return NULL;
 
   *index_out = index;
 
-  return fd_runtime_get_account_at_index( txn_in,
-                                          txn_out,
-                                          (uchar)index,
-                                          condition );
+  return fd_runtime_get_account_at_index( txn_in, txn_out, (uchar)index, condition );
 }
 
-int
-fd_runtime_get_executable_account( fd_runtime_t *              runtime,
-                                   fd_txn_in_t const *         txn_in,
-                                   fd_txn_out_t *              txn_out,
-                                   fd_pubkey_t const *         pubkey,
-                                   fd_account_meta_t const * * meta ) {
+fd_accdb_ro_t *
+fd_runtime_get_executable_account( fd_runtime_t *      runtime,
+                                   fd_txn_in_t const * txn_in,
+                                   fd_txn_out_t *      txn_out,
+                                   fd_pubkey_t const * pubkey ) {
   /* First try to fetch the executable account from the existing
      borrowed accounts.  If the pubkey is in the account keys, then we
      want to re-use that borrowed account since it reflects changes from
@@ -1894,27 +1888,21 @@ fd_runtime_get_executable_account( fd_runtime_t *              runtime,
   fd_txn_account_condition_fn_t * condition = fd_runtime_account_check_exists;
 
   int index;
-  int err = fd_runtime_get_account_with_key( txn_in,
-                                             txn_out,
-                                             pubkey,
-                                             &index,
-                                             condition );
-  if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
-    *meta = txn_out->accounts.account[index].meta;
-    return FD_ACC_MGR_SUCCESS;
-  }
+  fd_accdb_ref_t * ref = fd_runtime_get_account_with_key(
+      txn_in, txn_out, pubkey, &index, condition );
+  if( FD_UNLIKELY( ref ) ) return fd_accdb_ref_ro( ref );
 
   for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
     if( fd_pubkey_eq( pubkey, fd_accdb_ref_address( &runtime->accounts.executable[i] ) ) ) {
-      *meta = runtime->accounts.executable[i].meta;
-      if( FD_UNLIKELY( !fd_account_meta_exists( *meta ) ) ) {
-        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+      fd_accdb_ro_t * ro = &runtime->accounts.executable[i];
+      if( FD_UNLIKELY( !fd_account_meta_exists( ro->meta ) ) ) {
+        return NULL;
       }
-      return FD_ACC_MGR_SUCCESS;
+      return ro;
     }
   }
 
-  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  return NULL;
 }
 
 int
