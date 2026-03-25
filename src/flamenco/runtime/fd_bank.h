@@ -322,7 +322,8 @@ struct fd_bank_data {
     ulong                             identity_vote_idx;
   } f;
 
-  uchar top_votes_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
+  uchar top_votes_mem_t_1[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
+  uchar top_votes_mem_t_2[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
@@ -439,10 +440,16 @@ fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank );
 
 fd_top_votes_t const *
-fd_bank_top_votes_query( fd_bank_t const * bank );
+fd_bank_top_votes_t_1_query( fd_bank_t const * bank );
 
 fd_top_votes_t *
-fd_bank_top_votes_modify( fd_bank_t * bank );
+fd_bank_top_votes_t_1_modify( fd_bank_t * bank );
+
+fd_top_votes_t const *
+fd_bank_top_votes_t_2_query( fd_bank_t const * bank );
+
+fd_top_votes_t *
+fd_bank_top_votes_t_2_modify( fd_bank_t * bank );
 
 fd_cost_tracker_t *
 fd_bank_cost_tracker_modify( fd_bank_t * bank );

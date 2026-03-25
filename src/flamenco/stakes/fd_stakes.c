@@ -448,14 +448,10 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
 
-  fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
-  fd_top_votes_init( top_votes );
-
   ushort parent_idx = bank->data->vote_stakes_fork_id;
   ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
 
   bank->data->vote_stakes_fork_id = child_idx;
-
 
   uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
@@ -500,12 +496,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
            boundary, and did not exist at the end of the last epoch
            boundary, then we can fully skip it. */
         if( FD_UNLIKELY( !exists_prev ) ) continue;
-
-        /* If the account does not exist but did in the previous epoch,
-           it still needs to be added to the top votes and the vote
-           stakes data structure in case the vote account is revived
-           again. */
-        fd_top_votes_insert( top_votes, &stake_delegation->vote_account, &node_account_t_2, stake_t_2, 0UL, 0L, 0 );
 
         /* It doesn't matter what the values are for t-1 because we are
            effectively inserting a tombstone for the t-1 epoch since the
@@ -557,8 +547,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
             bank->data->f.epoch,
             1 );
 
-        fd_top_votes_insert( top_votes, &stake_delegation->vote_account, &node_account_t_2, stake_t_2, last_vote_slot, last_vote_timestamp, 1 );
-
         fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_ele_cnt ];
         vote_ele->pubkey             = stake_delegation->vote_account;
         vote_ele->vote_rewards       = 0UL;
@@ -579,6 +567,58 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   bank->data->f.total_epoch_stake = total_stake;
 
   fd_vote_stakes_insert_fini( vote_stakes, child_idx );
+
+  /* Once validator admission ticket is active, the above stake
+     accumulation can greatly be simplified: only accumulate stake for
+     all staked accounts (only need to accumulate the t-1 stake and
+     nothing else). */
+
+  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
+  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
+  fd_memcpy( top_votes_t_2, top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
+  fd_top_votes_init( top_votes_t_1 );
+
+  /* Populate the set of top votes for the just-finished (t-1) epoch.
+     It does not matter what the timestamps/votes are since they get
+     refreshed at the t-2 epoch. */
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, child_idx, iter_mem );
+       !fd_vote_stakes_fork_iter_done( vote_stakes, child_idx, iter );
+       fd_vote_stakes_fork_iter_next( vote_stakes, child_idx, iter ) ) {
+    fd_pubkey_t pubkey;
+    ulong       stake_t_1;
+    fd_pubkey_t node_account_t_1;
+    fd_vote_stakes_fork_iter_ele( vote_stakes, child_idx, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL, NULL, NULL );
+    if( FD_UNLIKELY( !stake_t_1 ) ) continue;
+    fd_top_votes_insert( top_votes_t_1, &pubkey, &node_account_t_1, stake_t_1, 0UL, 0UL, 1 );
+  }
+
+  /* Update the state of the vote accounts in the top votes set for the
+     t-2 epoch. */
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) top_votes_iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, top_votes_iter_mem );
+       !fd_top_votes_iter_done( top_votes_t_2, iter );
+       fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
+    fd_pubkey_t pubkey;
+    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, NULL, NULL );
+
+
+    fd_accdb_ro_t vote_ro[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &pubkey ) ) ) {
+      fd_top_votes_invalidate( top_votes_t_2, &pubkey );
+      continue;
+    }
+    if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
+      fd_top_votes_invalidate( top_votes_t_2, &pubkey );
+      fd_accdb_close_ro( accdb, vote_ro );
+      continue;
+    }
+
+    fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen );
+    fd_accdb_close_ro( accdb, vote_ro );
+    fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
+  }
+
 
   fd_bank_vote_stakes_end_locking_modify( bank );
 }

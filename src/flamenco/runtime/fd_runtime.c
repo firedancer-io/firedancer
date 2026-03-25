@@ -1253,7 +1253,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   } else {
 
 
-    fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
+    fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
@@ -1274,7 +1274,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       if( txn_out->accounts.stake_update[i] ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
-      if( fd_pubkey_eq( fd_accdb_ref_owner( account->ro ), &fd_solana_vote_program_id ) ) {
+
+      if( txn_out->accounts.vote_update[i] ) {
         if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_and_initialized( account->meta ) ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
         } else {
@@ -1282,8 +1283,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
           fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
         }
       }
-
-      /* TODO: vote update is currently unused */
 
       int save_type = fd_runtime_save_account( runtime->accdb, &xid, pubkey, account->meta, bank, runtime->log.capture_ctx );
       runtime->metrics.txn_account_save[ save_type ]++;

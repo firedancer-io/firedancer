@@ -250,7 +250,7 @@ test_env_create( test_env_t * env,
   env->bank->data->f.slot = 1UL;
   env->bank->data->f.epoch = 1UL;
 
-  fd_bank_top_votes_modify( env->bank );
+  fd_bank_top_votes_t_2_modify( env->bank );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( env->bank );
   fd_vote_stakes_reset( vote_stakes );

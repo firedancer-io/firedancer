@@ -245,7 +245,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
 
-  fd_top_votes_t * top_votes = fd_bank_top_votes_modify( bank );
+  fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_init( top_votes );
 
   /* Cap number of vote accounts at FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS */

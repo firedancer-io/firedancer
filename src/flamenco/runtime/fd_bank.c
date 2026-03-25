@@ -112,13 +112,23 @@ fd_bank_epoch_leaders_modify( fd_bank_t * bank ) {
 }
 
 fd_top_votes_t const *
-fd_bank_top_votes_query( fd_bank_t const * bank ) {
-  return fd_type_pun_const( bank->data->top_votes_mem );
+fd_bank_top_votes_t_1_query( fd_bank_t const * bank ) {
+  return fd_type_pun_const( bank->data->top_votes_mem_t_1 );
 }
 
 fd_top_votes_t *
-fd_bank_top_votes_modify( fd_bank_t * bank ) {
-  return fd_type_pun( bank->data->top_votes_mem );
+fd_bank_top_votes_t_1_modify( fd_bank_t * bank ) {
+  return fd_type_pun( bank->data->top_votes_mem_t_1 );
+}
+
+fd_top_votes_t const *
+fd_bank_top_votes_t_2_query( fd_bank_t const * bank ) {
+  return fd_type_pun_const( bank->data->top_votes_mem_t_2 );
+}
+
+fd_top_votes_t *
+fd_bank_top_votes_t_2_modify( fd_bank_t * bank ) {
+  return fd_type_pun( bank->data->top_votes_mem_t_2 );
 }
 
 fd_cost_tracker_t *
@@ -354,7 +364,8 @@ fd_banks_new( void * shmem,
     bank->banks_data_offset = (ulong)bank - (ulong)banks_data;
 
     if( i==0UL ) {
-      FD_TEST( fd_top_votes_join( fd_top_votes_new( bank->top_votes_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT, seed ) ) );
+      FD_TEST( fd_top_votes_join( fd_top_votes_new( bank->top_votes_mem_t_1, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT, seed ) ) );
+      FD_TEST( fd_top_votes_join( fd_top_votes_new( bank->top_votes_mem_t_2, FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT, seed ) ) );
     }
 
     bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool_init );
@@ -529,7 +540,8 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
   FD_CRIT( fd_bank_cost_tracker_pool_free( cost_tracker_pool )!=0UL, "invariant violation: no free cost tracker pool elements" );
   child_bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_acquire( cost_tracker_pool );
 
-  fd_memcpy( child_bank->top_votes_mem, parent_bank->top_votes_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
+  fd_memcpy( child_bank->top_votes_mem_t_1, parent_bank->top_votes_mem_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
+  fd_memcpy( child_bank->top_votes_mem_t_2, parent_bank->top_votes_mem_t_2, FD_TOP_VOTES_MAX_FOOTPRINT );
 
   child_bank->f                         = parent_bank->f;
   child_bank->epoch_leaders_idx         = parent_bank->epoch_leaders_idx;
@@ -1075,7 +1087,8 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
   fd_memset( &bank->data->f, 0, sizeof(bank->data->f) );
 
-  fd_top_votes_init( fd_type_pun( bank->data->top_votes_mem ) );
+  fd_top_votes_init( fd_type_pun( bank->data->top_votes_mem_t_1 ) );
+  fd_top_votes_init( fd_type_pun( bank->data->top_votes_mem_t_2 ) );
 
   /* We need to acquire a cost tracker element. */
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks->data );

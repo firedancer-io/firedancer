@@ -142,7 +142,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
   ushort             fork_idx    = bank->data->vote_stakes_fork_id;
 
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
   FD_TEST( top_votes );
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
@@ -230,7 +230,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
   ulong                       slot_duration  = bank->data->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->data->f.slot;
 
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
   FD_TEST( top_votes );
 
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];

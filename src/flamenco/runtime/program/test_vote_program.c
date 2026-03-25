@@ -174,7 +174,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   env->bank->data->f.slot = 9UL;
   env->bank->data->f.epoch = 4UL;
 
-  fd_bank_top_votes_modify( env->bank );
+  fd_bank_top_votes_t_2_modify( env->bank );
 
   if( enable_loader_v4 ) {
     fd_features_t features = {0};
