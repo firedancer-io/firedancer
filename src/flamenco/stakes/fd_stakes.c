@@ -322,50 +322,91 @@ fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * stake_deleg
 }
 
 ulong
-fd_stake_weights_by_node( fd_vote_stakes_t *       vote_stakes,
+fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
+                          fd_vote_stakes_t *       vote_stakes,
                           ushort                   fork_idx,
-                          fd_vote_stake_weight_t * weights ) {
+                          fd_vote_stake_weight_t * weights,
+                          int                      vat_enabled ) {
   ulong weights_cnt = 0;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
-       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter  );
-       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake_t_2;
-    fd_pubkey_t node_account_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2, NULL, NULL );
-    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
+  if( vat_enabled ) {
+    uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, iter_mem );
+         !fd_top_votes_iter_done( top_votes_t_2, iter );
+         fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
+      fd_pubkey_t pubkey;
+      ulong       stake_t_2;
+      fd_pubkey_t node_account_t_2;
+      fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, &node_account_t_2, &stake_t_2, NULL, NULL );
 
-    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
-    weights[ weights_cnt ].stake = stake_t_2;
-    weights_cnt++;
+      fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
+      weights[ weights_cnt ].stake = stake_t_2;
+      weights_cnt++;
+    }
+  } else {
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+         !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter  );
+         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+      fd_pubkey_t pubkey;
+      ulong       stake_t_2;
+      fd_pubkey_t node_account_t_2;
+      fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, &node_account_t_2, NULL, NULL );
+      if( FD_UNLIKELY( !stake_t_2 ) ) continue;
+
+      fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
+      weights[ weights_cnt ].stake = stake_t_2;
+      weights_cnt++;
+    }
   }
+
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
 
   return weights_cnt;
 }
 
 ulong
-fd_stake_weights_by_node_next( fd_vote_stakes_t *       vote_stakes,
+fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
+                               fd_vote_stakes_t *       vote_stakes,
                                ushort                   fork_idx,
-                               fd_vote_stake_weight_t * weights ) {
-  ulong weights_cnt = 0;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
-       !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter  );
-       fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
-    fd_pubkey_t pubkey;
-    ulong       stake_t_1;
-    fd_pubkey_t node_account_t_1;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL, NULL, NULL );
-    if( FD_UNLIKELY( !stake_t_1 ) ) continue;
+                               fd_vote_stake_weight_t * weights,
+                               int                      vat_enabled ) {
 
-    fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
-    weights[ weights_cnt ].stake = stake_t_1;
-    weights_cnt++;
+  ulong weights_cnt = 0;
+  if( vat_enabled ) {
+    uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
+    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_1, iter_mem );
+         !fd_top_votes_iter_done( top_votes_t_1, iter );
+         fd_top_votes_iter_next( top_votes_t_1, iter ) ) {
+      fd_pubkey_t pubkey;
+      ulong       stake_t_1;
+      fd_pubkey_t node_account_t_1;
+      fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, &node_account_t_1, &stake_t_1, NULL, NULL );
+
+      fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
+      weights[ weights_cnt ].stake = stake_t_1;
+      weights_cnt++;
+    }
+  } else {
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
+         !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter  );
+         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
+      fd_pubkey_t pubkey;
+      ulong       stake_t_1;
+      fd_pubkey_t node_account_t_1;
+      fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, NULL, &node_account_t_1, NULL, NULL, NULL );
+      if( FD_UNLIKELY( !stake_t_1 ) ) continue;
+
+      fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
+      fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
+      weights[ weights_cnt ].stake = stake_t_1;
+      weights_cnt++;
+    }
   }
+
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
 
   return weights_cnt;

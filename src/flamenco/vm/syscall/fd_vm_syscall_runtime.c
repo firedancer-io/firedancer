@@ -289,7 +289,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
 
   ulong stake = 0UL;
-  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket )) {
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket ) ) {
     fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
     fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL );
   } else {
