@@ -1016,6 +1016,13 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
   }
 
   fd_gui_peers_node_info_map_ele_insert( peers->node_info_map, node_info, peers->node_info_pool );
+
+  fd_gui_peers_node_t * peer = fd_gui_peers_node_pubkey_map_ele_query( peers->node_pubkey_map, &node_info->pubkey, NULL, peers->contact_info_table );
+  if( FD_UNLIKELY( peer ) ) {
+    fd_gui_peers_live_table_ele_remove( peers->live_table, peer, peers->contact_info_table );
+    fd_cstr_ncpy( peer->name, node_info->name, sizeof(peer->name) );
+    fd_gui_peers_live_table_ele_insert( peers->live_table, peer, peers->contact_info_table );
+  }
 }
 
 
