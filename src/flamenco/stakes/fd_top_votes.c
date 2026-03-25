@@ -178,10 +178,7 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * pubkey,
                      fd_pubkey_t const * node_account,
                      ulong               stake,
-                     ulong               last_vote_slot,
-                     long                last_vote_timestamp,
-                     uchar               commission,
-                     int                 exists ) {
+                     uchar               commission ) {
 /* If the heap is full, then we need to remove the minimum element.
    There are a few cases to consider:
    1. There are multiple elements at the bottom of the heap with the
@@ -229,10 +226,10 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
   ele->pubkey              = *pubkey;
   ele->node_account        = *node_account;
   ele->stake               = stake;
-  ele->last_vote_slot      = last_vote_slot;
-  ele->last_vote_timestamp = last_vote_timestamp;
   ele->commission          = commission;
-  ele->is_valid            = !!exists;
+  ele->last_vote_slot      = 0UL;
+  ele->last_vote_timestamp = 0L;
+  ele->is_valid            = 1;
   heap_ele_insert( heap, ele, pool );
   map_ele_insert( map, ele, pool );
 }

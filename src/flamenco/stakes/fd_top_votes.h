@@ -82,25 +82,18 @@ fd_top_votes_init( fd_top_votes_t * top_votes );
 
 
 /* fd_top_votes_insert inserts a new vote account into the top votes set
-   given a vote account, node account, last vote slot, last vote
-   timestamp, and a stake.  The node account, last vote slot, and last
-   vote timestamp are just metadata for the structure.  If the vote
+   given a vote account, node account, and commission.  If the vote
    account isn't in the top max_vote_accounts in terms of stake, it is
    ignored and is treated as a no-op.  If the vote account ties the
    minimum stake and the struct is full, all elements with that stake
-   are removed.  If an account existed in the t-2 epoch, but currently
-   doesn't, then exists should be set to 0 in the case the account is
-   revived. */
+   are removed. */
 
 void
 fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * pubkey,
                      fd_pubkey_t const * node_account,
                      ulong               stake,
-                     ulong               last_vote_slot,
-                     long                last_vote_timestamp,
-                     uchar               commission,
-                     int                 exists );
+                     uchar               commission );
 
 
 /* fd_top_votes_update updates the last vote timestamp and slot for a

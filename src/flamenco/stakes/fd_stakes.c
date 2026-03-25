@@ -624,9 +624,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         vote_reward_cnt++;
       }
 
-      /* TODO: This api is kind of gross.
-         TODO: Make sure the BLS pubkey is being checked here. */
-      fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, 0UL, 0UL, commission_t_1, 1 );
+      /* TODO:FIXME: Make sure the BLS pubkey is being checked here. */
+      fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
     }
 
     if( FD_UNLIKELY( !exists_curr && !exists_prev ) ) continue;
