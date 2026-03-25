@@ -81,8 +81,9 @@ def main(ctx, verbose):
 
 @main.command('start-cluster')
 @click.option('--bootstrap-validator-name', '-n', type=str, required=False, default='node-ledger-0', help='Bootstrap validator name')
+@click.option('--bootstrap-stake', type=float, default=18, help='Bootstrap validator stake in SOL')
 @click.pass_context
-def start_cluster(ctx, bootstrap_validator_name):
+def start_cluster(ctx, bootstrap_validator_name, bootstrap_stake):
     """Start an Agave cluster."""
     agave_path = get_env_var('AGAVE_RELEASE_PATH')
     verbose = ctx.obj['verbose']
@@ -173,7 +174,8 @@ def start_cluster(ctx, bootstrap_validator_name):
     stake_program_path = os.path.join(str(firedancer_repo_path), "contrib/ledger-gen/bpf_migrated_programs/stake_elf.so")
     primordial_accounts_file = os.path.join(str(firedancer_repo_path), "contrib/agave-cluster/primordial-accounts.yml")
 
-    genesis_output = subprocess.run([solana_genesis, "--target-tick-duration", "6250", "--primordial-accounts-file", primordial_accounts_file, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "256", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", stake_program_path, "11111111111111111111111111111111" ], cwd=cluster_path, capture_output=True, text=True)
+    bootstrap_stake_lamports = str(int(bootstrap_stake * 1_000_000_000))
+    genesis_output = subprocess.run([solana_genesis, "--target-tick-duration", "6250", "--primordial-accounts-file", primordial_accounts_file, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", bootstrap_stake_lamports, "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "256", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", stake_program_path, "11111111111111111111111111111111" ], cwd=cluster_path, capture_output=True, text=True)
     genesis_hash, shred_version = parse_genesis_output(genesis_output.stdout)
 
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
@@ -505,52 +507,362 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
     click.echo(f"  Delegated to vote account: {vote_pubkey}")
 
 
-@main.command('delegate-stake')
-@click.argument('vote-key', type=str)
-@click.argument('amount', type=int)
+def resolve_keypair(cluster_path, name_or_pubkey, account_type):
+    """Resolve a name or pubkey to (keypair_path, pubkey).
+
+    account_type: 'stake' or 'vote'
+    Searches (in order):
+      1. keys/<account_type>-accounts/<name>.json  (name-based)
+      2. keys/<account_type>-accounts/*.json        (pubkey search)
+      3. stake-accounts/*.json                      (old location, stake only)
+      4. keys/<name>/vote.json                      (validator vote keys, vote only)
+    Returns (None, name_or_pubkey) if not found.
+    """
+    new_dir = os.path.join(cluster_path, 'keys', f'{account_type}-accounts')
+
+    if os.path.exists(new_dir):
+        name_path = os.path.join(new_dir, f"{name_or_pubkey}.json")
+        if os.path.exists(name_path):
+            return name_path, get_pubkey(name_path)
+        for f in os.listdir(new_dir):
+            key_path = os.path.join(new_dir, f)
+            try:
+                if get_pubkey(key_path) == name_or_pubkey:
+                    return key_path, name_or_pubkey
+            except Exception:
+                pass
+
+    if account_type == 'stake':
+        old_dir = os.path.join(cluster_path, 'stake-accounts')
+        if os.path.exists(old_dir):
+            for f in os.listdir(old_dir):
+                key_path = os.path.join(old_dir, f)
+                try:
+                    if get_pubkey(key_path) == name_or_pubkey:
+                        return key_path, name_or_pubkey
+                except Exception:
+                    pass
+
+    if account_type == 'vote':
+        keys_dir = os.path.join(cluster_path, 'keys')
+        if os.path.exists(keys_dir):
+            for validator_name in os.listdir(keys_dir):
+                if validator_name in ('vote-accounts', 'stake-accounts'):
+                    continue
+                vote_key_path = os.path.join(keys_dir, validator_name, 'vote.json')
+                if os.path.exists(vote_key_path):
+                    try:
+                        pubkey = get_pubkey(vote_key_path)
+                        if pubkey == name_or_pubkey or validator_name == name_or_pubkey:
+                            return vote_key_path, pubkey
+                    except Exception:
+                        pass
+
+    return None, name_or_pubkey
+
+
+@main.command('create-vote-account')
+@click.argument('name', type=str)
 @click.pass_context
-def delegate_stake(ctx, vote_key, amount):
-    """Stake a node."""
+def create_vote_account_cmd(ctx, name):
+    """Create a standalone vote account."""
     cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
-    info_path = os.path.join(cluster_path, 'cluster-info.txt')
+    vote_accounts_dir = os.path.join(cluster_path, 'keys', 'vote-accounts')
+    os.makedirs(vote_accounts_dir, exist_ok=True)
 
-    stake_accounts_path = os.path.join(cluster_path, 'stake-accounts')
-    stake_accounts_count = len(os.listdir(stake_accounts_path))
+    vote_key_path = os.path.join(vote_accounts_dir, f"{name}.json")
+    if os.path.exists(vote_key_path):
+        click.echo(f"Error: Vote account '{name}' already exists at {vote_key_path}", err=True)
+        sys.exit(1)
 
-    stake_key = os.path.join(stake_accounts_path, f"stake-account-{stake_accounts_count}.json")
-    create_key(stake_key)
+    id_key_path = os.path.join(vote_accounts_dir, f"{name}-id.json")
+
+    create_key(vote_key_path)
+    create_key(id_key_path)
+    vote_pubkey = get_pubkey(vote_key_path)
+    id_pubkey = get_pubkey(id_key_path)
+
+    faucet_key = os.path.join(cluster_path, 'faucet.json')
+    solana = solana_binary('solana')
+
+    # Fund identity key so it can sign transactions
+    subprocess.run([solana, "-u", f"http://{ip()}:8899", "transfer", "-k", faucet_key, "--allow-unfunded-recipient", id_key_path, "1"], capture_output=True, text=True)
+
+    click.echo(f"Creating vote account on-chain...")
+    faucet_pubkey = get_pubkey(faucet_key)
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-vote-account", "-k", faucet_key, "--allow-unsafe-authorized-withdrawer", vote_key_path, id_key_path, faucet_pubkey], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error creating vote account: {result.stderr}", err=True)
+        sys.exit(1)
+
+    sig = next((line.split()[-1] for line in result.stdout.splitlines() if 'Signature:' in line), result.stdout.strip())
+    click.echo(f"✅ Vote account '{name}' created successfully!")
+    click.echo(f"  Vote Pubkey:     {vote_pubkey}")
+    click.echo(f"  Identity Pubkey: {id_pubkey}")
+    click.echo(f"  Signature:       {sig}")
+    click.echo(f"  Key files: {vote_key_path}, {id_key_path}")
+
+
+@main.command('create-stake-account')
+@click.argument('name', type=str)
+@click.pass_context
+def create_stake_account_cmd(ctx, name):
+    """Create a standalone stake account."""
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
+    stake_accounts_dir = os.path.join(cluster_path, 'keys', 'stake-accounts')
+    os.makedirs(stake_accounts_dir, exist_ok=True)
+
+    stake_key_path = os.path.join(stake_accounts_dir, f"{name}.json")
+    if os.path.exists(stake_key_path):
+        click.echo(f"Error: Stake account '{name}' already exists at {stake_key_path}", err=True)
+        sys.exit(1)
+
+    create_key(stake_key_path)
+    stake_pubkey = get_pubkey(stake_key_path)
 
     faucet_key = os.path.join(cluster_path, 'faucet.json')
     authority_key = os.path.join(cluster_path, 'authority.json')
-
     solana = solana_binary('solana')
 
-    subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-stake-account", "-k", faucet_key, "--stake-authority", authority_key, "--withdraw-authority", faucet_key, stake_key, f"{amount}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_key])
+    click.echo(f"Creating stake account on-chain...")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-stake-account", "-k", faucet_key, "--stake-authority", authority_key, "--withdraw-authority", faucet_key, stake_key_path, "1"], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error creating stake account: {result.stderr}", err=True)
+        sys.exit(1)
+
+    sig = next((line.split()[-1] for line in result.stdout.splitlines() if 'Signature:' in line), result.stdout.strip())
+    click.echo(f"✅ Stake account '{name}' created successfully!")
+    click.echo(f"  Pubkey:    {stake_pubkey}")
+    click.echo(f"  Signature: {sig}")
+    click.echo(f"  Key file:  {stake_key_path}")
+
+
+@main.command('delegate-stake')
+@click.argument('stake-account', type=str)
+@click.argument('vote-account', type=str)
+@click.argument('amount', type=float)
+@click.pass_context
+def delegate_stake(ctx, stake_account, vote_account, amount):
+    """Delegate a stake account to a vote account."""
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
+
+    stake_key_path, stake_pubkey = resolve_keypair(cluster_path, stake_account, 'stake')
+    if not stake_key_path:
+        click.echo(f"Error: Stake account '{stake_account}' not found", err=True)
+        sys.exit(1)
+
+    _, vote_pubkey = resolve_keypair(cluster_path, vote_account, 'vote')
+
+    faucet_key = os.path.join(cluster_path, 'faucet.json')
+    authority_key = os.path.join(cluster_path, 'authority.json')
+    solana = solana_binary('solana')
+
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "stake-account", stake_pubkey], capture_output=True, text=True)
+    is_undelegated = "Stake account is undelegated" in result.stdout
+    is_deactivating = "deactivates" in result.stdout.lower() or "deactivating" in result.stdout.lower()
+    if not is_undelegated and not is_deactivating:
+        delegated_to = next((line.split(':', 1)[1].strip() for line in result.stdout.splitlines() if "Delegated Vote Account Address:" in line), "unknown")
+        click.echo(f"Error: Stake account is already active/activating, delegated to {delegated_to}", err=True)
+        sys.exit(1)
+
+    balance_result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "balance", stake_pubkey], capture_output=True, text=True)
+    current_balance = float(balance_result.stdout.strip().split()[0]) if balance_result.returncode == 0 else 0.0
+
+    if current_balance < amount:
+        needed = amount - current_balance
+        click.echo(f"Topping up stake account with {needed:.9f} SOL from faucet...")
+        result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "transfer", "-k", faucet_key, "--allow-unfunded-recipient", stake_pubkey, f"{needed:.9f}"], capture_output=True, text=True)
+        if result.returncode != 0:
+            click.echo(f"Error topping up stake account: {result.stderr}", err=True)
+            sys.exit(1)
+
+    click.echo(f"Delegating stake to {vote_pubkey}...")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key_path, vote_pubkey], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error delegating stake: {result.stderr}", err=True)
+        sys.exit(1)
+
+    sig = next((line.split()[-1] for line in result.stdout.splitlines() if 'Signature:' in line), result.stdout.strip())
+    click.echo(f"✅ Delegated {amount} SOL from {stake_pubkey} to {vote_pubkey}")
+    click.echo(f"  Signature: {sig}")
 
 
 @main.command('deactivate-stake')
-@click.argument('stake-key', type=str)
+@click.argument('identifier', type=str)
 @click.pass_context
-def deactivate_stake(ctx, stake_key):
-    """Deactivate a stake."""
+def deactivate_stake(ctx, identifier):
+    """Deactivate a stake account by name or pubkey."""
     cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
+
+    stake_key_path, stake_pubkey = resolve_keypair(cluster_path, identifier, 'stake')
+    if not stake_key_path:
+        click.echo(f"Error: Stake account '{identifier}' not found", err=True)
+        sys.exit(1)
+
     faucet_key = os.path.join(cluster_path, 'faucet.json')
     authority_key = os.path.join(cluster_path, 'authority.json')
-
-    stake_keys_path = os.path.join(cluster_path, 'stake-accounts')
-    for stake_key_path in os.listdir(stake_keys_path):
-        current_stake_key = get_pubkey(os.path.join(stake_keys_path, stake_key_path))
-        if current_stake_key == stake_key:
-            stake_key_path = os.path.join(stake_keys_path, stake_key_path)
-            break
-    else:
-        click.echo(f"Error: Stake key does not exist: {stake_key}")
-        return
-    click.echo(f"Deactivating stake key: {stake_key_path}")
-
     solana = solana_binary('solana')
-    subprocess.run([solana, "-u", f"http://{ip()}:8899", "deactivate-stake", stake_key_path, "-k", faucet_key, "--stake-authority", authority_key])
+
+    click.echo(f"Deactivating stake account: {stake_pubkey}")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "deactivate-stake", stake_key_path, "-k", faucet_key, "--stake-authority", authority_key], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error deactivating stake: {result.stderr}", err=True)
+        sys.exit(1)
+
+    sig = next((line.split()[-1] for line in result.stdout.splitlines() if 'Signature:' in line), result.stdout.strip())
+    click.echo(f"✅ Stake account deactivated: {stake_pubkey}")
+    click.echo(f"  Signature: {sig}")
+
+
+@main.command('close-vote-account')
+@click.argument('identifier', type=str)
+@click.pass_context
+def close_vote_account_cmd(ctx, identifier):
+    """Close a vote account and withdraw funds to faucet."""
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
+
+    vote_key_path, vote_pubkey = resolve_keypair(cluster_path, identifier, 'vote')
+    if not vote_key_path:
+        click.echo(f"Error: Vote account '{identifier}' not found", err=True)
+        sys.exit(1)
+
+    faucet_key = os.path.join(cluster_path, 'faucet.json')
+    faucet_pubkey = get_pubkey(faucet_key)
+    solana = solana_binary('solana')
+
+    click.echo(f"Closing vote account: {vote_pubkey}")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "close-vote-account", vote_key_path, faucet_pubkey, "-k", faucet_key], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error closing vote account: {result.stderr}", err=True)
+        sys.exit(1)
+
+    sig = next((line.split()[-1] for line in result.stdout.splitlines() if 'Signature:' in line), result.stdout.strip())
+    click.echo(f"✅ Vote account {vote_pubkey} closed, funds returned to faucet")
+    click.echo(f"  Signature: {sig}")
+
+
+@main.command('recreate-vote-account')
+@click.argument('identifier', type=str)
+@click.pass_context
+def recreate_vote_account_cmd(ctx, identifier):
+    """Close and recreate a vote account with the same keypair."""
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
+
+    vote_key_path, vote_pubkey = resolve_keypair(cluster_path, identifier, 'vote')
+    if not vote_key_path:
+        click.echo(f"Error: Vote account '{identifier}' not found", err=True)
+        sys.exit(1)
+
+    faucet_key = os.path.join(cluster_path, 'faucet.json')
+    faucet_pubkey = get_pubkey(faucet_key)
+    solana = solana_binary('solana')
+
+    check = subprocess.run([solana, "-u", f"http://{ip()}:8899", "vote-account", vote_pubkey], capture_output=True, text=True)
+    if check.returncode == 0:
+        click.echo(f"Closing vote account: {vote_pubkey}")
+        result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "close-vote-account", vote_key_path, faucet_pubkey, "-k", faucet_key], capture_output=True, text=True)
+        if result.returncode != 0:
+            click.echo(f"Error closing vote account: {result.stderr}", err=True)
+            sys.exit(1)
+    else:
+        click.echo(f"Vote account not found on-chain, skipping close step")
+
+    # Look for existing identity keypair next to the vote key
+    vote_accounts_dir = os.path.dirname(vote_key_path)
+    name = os.path.basename(vote_key_path).replace('.json', '')
+    id_key_path = os.path.join(vote_accounts_dir, f"{name}-id.json")
+    if not os.path.exists(id_key_path):
+        # Fallback: create a new identity keypair
+        create_key(id_key_path)
+        subprocess.run([solana, "-u", f"http://{ip()}:8899", "transfer", "-k", faucet_key, "--allow-unfunded-recipient", id_key_path, "1"], capture_output=True, text=True)
+
+    click.echo(f"Recreating vote account: {vote_pubkey}")
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-vote-account", "-k", faucet_key, "--allow-unsafe-authorized-withdrawer", vote_key_path, id_key_path, faucet_pubkey], capture_output=True, text=True)
+    if result.returncode != 0:
+        click.echo(f"Error recreating vote account: {result.stderr}", err=True)
+        sys.exit(1)
+
+    sig = next((line.split()[-1] for line in result.stdout.splitlines() if 'Signature:' in line), result.stdout.strip())
+    click.echo(f"✅ Vote account {vote_pubkey} recreated successfully")
+    click.echo(f"  Signature: {sig}")
+
+
+@main.command('spam-stake')
+@click.argument('vote-account', type=str)
+@click.argument('count', type=int)
+@click.argument('amount', type=float)
+@click.option('--workers', type=int, default=100, help='Number of parallel workers')
+@click.pass_context
+def spam_stake(ctx, vote_account, count, amount, workers):
+    """Create and delegate many stake accounts to a vote account in parallel."""
+    cluster_path = str(get_env_var('AGAVE_LEDGER_PATH'))
+
+    _, vote_pubkey = resolve_keypair(cluster_path, vote_account, 'vote')
+
+    faucet_key = os.path.join(cluster_path, 'faucet.json')
+    authority_key = os.path.join(cluster_path, 'authority.json')
+    solana = solana_binary('solana')
+    amount_str = str(int(amount))
+
+    spam_dir = os.path.join(cluster_path, 'keys', 'spam-stakes', vote_account)
+    os.makedirs(spam_dir, exist_ok=True)
+
+    click.echo(f"Generating {count} keypairs (workers={workers})...")
+    key_paths = [os.path.join(spam_dir, f"{i}.json") for i in range(count)]
+    to_generate = [kp for kp in key_paths if not os.path.exists(kp)]
+    if to_generate:
+        def gen_key(key_path):
+            create_key(key_path)
+            return key_path
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(gen_key, kp): kp for kp in to_generate}
+            done = 0
+            for future in as_completed(futures):
+                future.result()
+                done += 1
+                if done % 1_000_000 == 0:
+                    click.echo(f"  {done}/{len(to_generate)} keypairs generated...")
+
+    def create_stake(key_path):
+        result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-stake-account", "-k", faucet_key, "--stake-authority", authority_key, "--withdraw-authority", faucet_key, key_path, amount_str], capture_output=True, text=True)
+        return key_path, result.returncode == 0, result.stderr
+
+    click.echo(f"Creating {count} stake accounts (workers={workers})...")
+    failed_create = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(create_stake, kp): kp for kp in key_paths}
+        done = 0
+        for future in as_completed(futures):
+            kp, success, err = future.result()
+            done += 1
+            if not success:
+                failed_create.append(kp)
+            if done % 100 == 0:
+                click.echo(f"  {done}/{count} created...")
+
+    successful_creates = [kp for kp in key_paths if kp not in failed_create]
+    click.echo(f"Created {len(successful_creates)}/{count} stake accounts ({len(failed_create)} failed)")
+
+    def delegate(key_path):
+        result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, key_path, vote_pubkey], capture_output=True, text=True)
+        return key_path, result.returncode == 0, result.stderr
+
+    click.echo(f"Delegating {len(successful_creates)} stake accounts to {vote_pubkey} (workers={workers})...")
+    failed_delegate = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(delegate, kp): kp for kp in successful_creates}
+        done = 0
+        for future in as_completed(futures):
+            kp, success, err = future.result()
+            done += 1
+            if not success:
+                failed_delegate.append(kp)
+            if done % 100 == 0:
+                click.echo(f"  {done}/{len(successful_creates)} delegated...")
+
+    total_delegated = len(successful_creates) - len(failed_delegate)
+    click.echo(f"✅ Delegated {total_delegated}/{len(successful_creates)} stake accounts to {vote_pubkey}")
+    click.echo(f"   Total stake added: {total_delegated * amount:.0f} SOL")
 
 
 @main.command('stop-node')
@@ -920,17 +1232,27 @@ def validators(ctx):
                     pid = int(pid_value)
                     pids_to_check[node_name] = pid
 
+    RESERVED_DIRS = {'vote-accounts', 'stake-accounts'}
+
     vote_account_to_validator = {}
     for validator_name in os.listdir(keys_path):
+        if validator_name in RESERVED_DIRS:
+            continue
         id_key = os.path.join(keys_path, validator_name, 'id.json')
         vote_key = os.path.join(keys_path, validator_name, 'vote.json')
+        if not os.path.exists(id_key) or not os.path.exists(vote_key):
+            continue
         vote_pubkey = get_pubkey(vote_key)
         vote_account_to_validator[vote_pubkey] = validator_name
 
     undelegated_stake_accounts = set()
     for validator_name in os.listdir(keys_path):
+        if validator_name in RESERVED_DIRS:
+            continue
         id_key = os.path.join(keys_path, validator_name, 'id.json')
         vote_key = os.path.join(keys_path, validator_name, 'vote.json')
+        if not os.path.exists(id_key) or not os.path.exists(vote_key):
+            continue
         id_pubkey = get_pubkey(id_key)
         vote_pubkey = get_pubkey(vote_key)
 
@@ -954,14 +1276,18 @@ def validators(ctx):
         click.echo(f"  Identity Key: {id_pubkey}")
         click.echo(f"  Vote Key: {vote_pubkey}")
         click.echo(f"  Stake Info:")
-        stake_accounts_path = os.path.join(cluster_path, 'stake-accounts')
         def get_stake_account_details(stake_account_pubkey):
             result = subprocess.run([solana, '-u', f'http://{ip()}:8899', 'stake-account', stake_account_pubkey], capture_output=True, text=True)
             return stake_account_pubkey, result.stdout
 
+        all_stake_key_files = []
+        for stake_dir in [os.path.join(cluster_path, 'stake-accounts'), os.path.join(cluster_path, 'keys', 'stake-accounts')]:
+            if os.path.exists(stake_dir):
+                all_stake_key_files.extend(os.path.join(stake_dir, f) for f in os.listdir(stake_dir))
+
         stake_account_details = []
         with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(get_stake_account_details, get_pubkey(os.path.join(stake_accounts_path, file))): file for file in os.listdir(stake_accounts_path)}
+            futures = {executor.submit(get_stake_account_details, get_pubkey(key_file)): key_file for key_file in all_stake_key_files}
             for future in as_completed(futures):
                 stake_account_pubkey, output = future.result()
                 if 'Stake account is undelegated' not in output:
