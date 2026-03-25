@@ -252,6 +252,11 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         elem->stake,
         vote_ele->commission_t_1,
         bank->data->f.epoch );
+
+    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
+    }
+
     fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
 
     if( i<runtime_stack->expected_vote_accounts ) {
@@ -273,6 +278,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (const fd_pubkey_t *)elem->vote, NULL, runtime_stack->stakes.vote_ele );
     if( FD_LIKELY( vote_ele ) ) vote_ele->commission_t_2 = (uchar)elem->commission;
 
+    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
+    }
     fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
     fd_vote_stakes_root_update_meta(
         vote_stakes,

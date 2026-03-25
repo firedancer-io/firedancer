@@ -112,6 +112,9 @@ struct fd_snapshot_manifest_vote_stakes {
   /* The commission account for block revenue (identity, before SIMD-0232) */
   uchar commission_block[ 32UL ];
 
+  /* Whether this vote account has a BLS pubkey set */
+  uchar has_identity_bls;
+
   /* The validator BLS pubkey (used after SIMD-0326: Alpenglow) */
   uchar identity_bls[ 48UL ];
 
