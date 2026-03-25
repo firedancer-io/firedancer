@@ -413,7 +413,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
           return;
         }
 
-        /* blockhash_ring is initalized to all zeros. blockhash=0 is an illegal map query */
+        /* blockhash_ring is initialized to all zeros. blockhash=0 is an illegal map query */
         if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
           blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], NULL );
           if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );

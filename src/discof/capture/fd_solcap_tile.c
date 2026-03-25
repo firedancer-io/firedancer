@@ -24,7 +24,7 @@
     solcap_capture = "/path/to/filename.solcap.pcapng"
    ```
 
-   When enabled, each tile that writes to solcap will initalize
+   When enabled, each tile that writes to solcap will initialize
    a mcache/dcache pair to use as a shared buffer to communicate with
    the solcap tile. Each tile that requires solcap writes will declare
    their own capture context to pass into runtime execution or post
