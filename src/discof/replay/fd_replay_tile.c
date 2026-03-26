@@ -153,6 +153,9 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
+  uint rng_seed;
+  fd_rng_t rng[ 1 ];
+
   fd_accdb_admin_t    accdb_admin[1];
   fd_accdb_user_t     accdb[1];
   fd_progcache_join_t progcache[1];
@@ -2744,6 +2747,8 @@ privileged_init( fd_topo_t *      topo,
     }
   }
 
+  FD_TEST( fd_rng_secure( &ctx->rng_seed, sizeof(ctx->rng_seed) ) );
+
   if( FD_UNLIKELY( !fd_rng_secure( &ctx->reasm_seed, sizeof(ulong) ) ) ) {
     FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
@@ -2912,10 +2917,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
 
+  FD_TEST( fd_rng_new( ctx->rng, ctx->rng_seed, 0UL ) );
+
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, tile->replay.fec_max, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
 
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
   FD_TEST( ctx->sched );
 
   FD_TEST( fd_vinyl_req_pool_new( vinyl_req_pool_mem, 1UL, 1UL ) );

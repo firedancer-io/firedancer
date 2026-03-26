@@ -956,8 +956,24 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
 /* Transaction Level Execution Management                                     */
 /******************************************************************************/
 
-/* fd_runtime_pre_execute_check is responsible for conducting many of the
-   transaction sanitization checks. */
+/* fd_runtime_pre_execute_check is responsible for conducting many of
+   the transaction sanitization checks.  This is a combination of some
+   of the work done in Agave's load_and_execute_transactions(), and some
+   of the work done in Agave's transaction ingestion stage, before the
+   transaction even hits the scheduler.  We do some of the checks also
+   in our transaction ingestion stage.  For example, the duplicate
+   account check is performed in both the leader and the replay
+   scheduler.  As a result, the duplicate account check below is
+   essentially redundant, except that our fuzzing harness expects a
+   single entry point to cover all of these checks.  So we keep all of
+   the checks below for fuzzing purposes.  We could in theory hoist some
+   of the pre-scheduler checks into a public function that is only
+   invoked by the fuzzer to avoid duplication in the leader and the
+   replay pipeline.  But all the duplicate checks are pretty cheap, and
+   the order and placement of the checks are also in motion on Agave's
+   side, and performing all the checks faithfully would require access
+   to the bank in the scheduler which is kind of gross.  So that's all
+   probably more hassle than worth. */
 
 static inline int
 fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
