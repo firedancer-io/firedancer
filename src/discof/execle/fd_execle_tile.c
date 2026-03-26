@@ -180,6 +180,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
                    ulong               sz,
                    ulong               begin_tspub,
                    fd_stem_context_t * stem ) {
+  FD_LOG_DEBUG(("STARTING HANDLE MICROBLOCK %ld", fd_log_wallclock()));
+
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_poh->mem, ctx->out_poh->chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
