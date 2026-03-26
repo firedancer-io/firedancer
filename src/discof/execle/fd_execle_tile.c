@@ -208,6 +208,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
     txn_in->bundle.is_bundle = 0;
     txn_in->txn              = txn;
 
+    long start = fd_log_wallclock();
+
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
     /* Stash the result in the flags value so that pack can inspect it. */
@@ -265,6 +267,9 @@ handle_microblock( fd_execle_tile_t *  ctx,
                     cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
                     cost_tracker->account_cost_limit ));
     }
+
+    long end = fd_log_wallclock();
+    FD_LOG_DEBUG(("COMMIT TXN %ld", end - start));
 
     uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
     uint actual_acct_data_cus = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
