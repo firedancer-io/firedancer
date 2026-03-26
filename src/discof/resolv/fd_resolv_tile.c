@@ -250,7 +250,7 @@ peek_alut( fd_resolv_ctx_t *  ctx,
            fd_txn_m_t *       txnm,
            fd_alut_interp_t * interp,
            ulong              alut_idx ) {
-  fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->f.slot } };
+  fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
 
   fd_txn_t const * txn         = fd_txn_m_txn_t_const  ( txnm );
   uchar const *    txn_payload = fd_txn_m_payload_const( txnm );
