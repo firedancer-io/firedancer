@@ -52,7 +52,7 @@ struct fd_execle_tile {
   int enable_rebates;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
-  fd_banks_t banks[1];
+  fd_banks_t * banks;
 
   fd_accdb_user_t accdb[1];
   fd_progcache_t  progcache[1];
@@ -651,7 +651,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  NONNULL( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ) ) );
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  NONNULL( ctx->banks );
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );

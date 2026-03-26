@@ -31,6 +31,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
   FD_TEST( bank );
   bank->data  = bank_data;
+  fd_rwlock_new( &bank->data->lthash_lock );
 
   env->shfunk       = funk_mem;
   env->shlocks      = shlocks;

@@ -47,7 +47,7 @@ static fd_pubkey_t const OWNER_PUBKEY = {{
 struct test_env {
   fd_wksp_t *          wksp;
   ulong                tag;
-  fd_banks_t           banks[1];
+  fd_banks_t *         banks;
   fd_bank_t            bank[1];
   void *               funk_mem;
   void *               funk_locks;
@@ -161,9 +161,10 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp ) {
   FD_TEST( env->progcache_scratch );
   FD_TEST( fd_progcache_join( env->progcache, env->pcache_mem, env->progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 
-  fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
-  FD_TEST( banks_data );
-  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) ) );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
+  FD_TEST( banks_mem );
+  env->banks = fd_banks_join( fd_banks_new( banks_mem, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) );
+  FD_TEST( env->banks );
   FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), env->tag );
@@ -225,7 +226,7 @@ test_env_cleanup( test_env_t * env ) {
   }
 
   fd_wksp_free_laddr( env->runtime_stack );
-  fd_wksp_free_laddr( env->banks->data );
+  fd_wksp_free_laddr( env->banks );
 
   fd_progcache_shmem_t * shpcache = NULL;
   fd_progcache_leave( env->progcache, &shpcache );

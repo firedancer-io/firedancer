@@ -151,7 +151,7 @@ struct fd_tower_tile {
 
   /* borrowed joins */
 
-  fd_banks_t      banks[1];
+  fd_banks_t *    banks;
   fd_accdb_user_t accdb[1];
 
   /* static structures */
@@ -1351,7 +1351,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ) ) );
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  FD_TEST( ctx->banks );
 
   fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->tower.accdb_max_depth );
 

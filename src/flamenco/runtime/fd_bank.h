@@ -194,8 +194,8 @@ FD_PROTOTYPES_BEGIN
   fd_banks_prune_one_dead_bank( banks, cancel_info )
 
   The data used by an fd_bank_t or an fd_banks_t is stored in an
-  fd_banks_data_t struct for an fd_banks_t.  Each fd_bank_t uses a
-  fd_bank_data_t struct to store its state.
+  fd_banks_t struct.  Each fd_bank_t uses a fd_bank_data_t struct
+  to store its state.
 
   If the fields are not templatized, their accessor and modifier
   patterns vary and are documented below.
@@ -261,7 +261,7 @@ struct fd_bank_data {
   ulong                 cost_tracker_pool_idx;
   ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
 
-  ulong banks_data_offset; /* offset from this fd_bank_data_t back to fd_banks_data_t */
+  ulong banks_data_offset; /* offset from this fd_bank_data_t back to fd_banks_t */
 
   /* Timestamps written and read only by replay */
 
@@ -366,7 +366,7 @@ typedef struct fd_bank_idx_seq fd_bank_idx_seq_t;
 #define DEQUE_MAX  FD_BANKS_MAX_BANKS
 #include "../../util/tmpl/fd_deque.c"
 
-struct fd_banks_data {
+struct fd_banks {
   ulong magic;              /* ==FD_BANKS_MAGIC */
   ulong max_total_banks;    /* Maximum number of banks */
   ulong max_fork_width;     /* Maximum fork width executing through any given slot. */
@@ -398,11 +398,6 @@ struct fd_banks_data {
   ulong epoch_leaders_footprint;
 
   ulong stake_delegations_offset;
-};
-typedef struct fd_banks_data fd_banks_data_t;
-
-struct fd_banks {
-  fd_banks_data_t * data;
 };
 typedef struct fd_banks fd_banks_t;
 
@@ -511,16 +506,16 @@ fd_bank_t *
 fd_banks_root( fd_bank_t *  bank_l,
                fd_banks_t * banks );
 
-/* fd_banks_align() returns the alignment of fd_banks_data_t */
+/* fd_banks_align() returns the alignment of fd_banks_t */
 
 ulong
 fd_banks_align( void );
 
-/* fd_banks_footprint() returns the footprint of fd_banks_data_t.  This
+/* fd_banks_footprint() returns the footprint of fd_banks_t.  This
    includes the struct itself but also the footprint for all of the
    pools.
 
-   The footprint of fd_banks_data_t is determined by the total number
+   The footprint of fd_banks_t is determined by the total number
    of banks that the bank manages.  This is an analog for the max number
    of unrooted blocks the bank can manage at any given time.
 
@@ -539,7 +534,7 @@ fd_banks_footprint( ulong max_total_banks,
                     ulong max_stake_accounts,
                     ulong max_vote_accounts );
 
-/* fd_banks_new() creates a new fd_banks_data_t struct.  This function
+/* fd_banks_new() creates a new fd_banks_t struct.  This function
    lays out the memory for all of the constituent fd_bank_data_t structs
    and pools depending on the max_total_banks and the max_fork_width for
    a given block. */
@@ -553,15 +548,12 @@ fd_banks_new( void * mem,
               int    larger_max_cost_per_block,
               ulong  seed );
 
-/* fd_banks_join() joins a new fd_banks_t struct.  It takes in a local
-   handle to an fd_banks_t struct along with a valid banks_data_mem.
-   banks_locks_mem is ignored (kept for API compatibility).  It returns
-   the local handle to the joined fd_banks_t struct on success and NULL
-   on failure (logs details). */
+/* fd_banks_join() joins an fd_banks_t struct.  It takes in a valid
+   banks_data_mem.  Returns a pointer to the joined fd_banks_t struct
+   on success and NULL on failure (logs details). */
 
 fd_banks_t *
-fd_banks_join( fd_banks_t * banks_ljoin,
-               void *       banks_data_mem );
+fd_banks_join( void * banks_data_mem );
 
 /* fd_banks_init_bank() initializes a new bank in the bank manager.
    This should only be used during bootup.  This returns an initial
