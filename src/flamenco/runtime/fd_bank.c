@@ -355,6 +355,8 @@ fd_banks_new( void * shmem,
 
     fd_bank_data_t * bank = fd_banks_pool_ele( bank_pool, i );
 
+    fd_rwlock_new( &bank->lthash_lock );
+
     bank->banks_data_offset = (ulong)bank - (ulong)banks_data;
 
     if( i==0UL ) {
