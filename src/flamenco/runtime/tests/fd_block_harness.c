@@ -5,6 +5,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_runtime_stack.h"
 #include "../../stakes/fd_stake_types.h"
+#include "../../stakes/fd_stakes.h"
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
@@ -289,6 +290,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */
   bank->data->f.epoch = fd_slot_to_epoch( &bank->data->f.epoch_schedule, parent_slot, NULL );
+
+  bank->data->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->data->f.epoch_schedule, parent_slot, NULL );
+  /* Initialize total_effective/activating/deactivating_stake from the
+     loaded stake delegations.  These are read by fd_stakes_activate_epoch
+     at epoch boundary instead of re-scanning all delegations. */
+  fd_stakes_init_totals( bank, stake_delegations, accdb, xid );
 
   /* Finalize root fork.  Required before epoch boundary processing which
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */

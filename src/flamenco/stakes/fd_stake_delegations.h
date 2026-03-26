@@ -236,6 +236,16 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
 ulong
 fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations );
 
+/* fd_stake_delegations_query looks up the current delegation for the
+   given stake account, considering fork deltas (most-recent-first).
+   Returns 1 and fills *out if found and not tombstoned, 0 otherwise. */
+
+int
+fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
+                            ushort                         fork_idx,
+                            fd_pubkey_t const *            stake_account,
+                            fd_stake_delegation_t *        out );
+
 /* fd_stake_delegations_new_fork allocates a new fork index for the
    stake delegations.  The fork index is returned to the caller. */
 
