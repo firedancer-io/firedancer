@@ -630,6 +630,8 @@ update_voters( fd_tower_tile_t * ctx,
       ulong stake;
       int   is_valid = fd_top_votes_query( top_votes_t_2, vote_acc, NULL, &stake, NULL, NULL, NULL );
       if( FD_UNLIKELY( !is_valid ) ) continue;
+      FD_TEST( fd_accdb_ref_lamports( ro ) && fd_vsv_is_correct_size_and_initialized( ro->meta ) );
+
       total_stake += stake;
 
       fd_tower_voters_t acct = { .id_key   = fd_vsv_get_node_account( fd_accdb_ref_data_const( ro ) ),
