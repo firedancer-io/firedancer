@@ -163,6 +163,9 @@ fd_progcache_shmem_new( void * shmem,
   pc->rec.ele_gaddr = fd_wksp_gaddr_fast( wksp, rec_ele );
   pc->rec.max = (uint)rec_max;
   for( ulong i=0UL; i<rec_max; i++ ) {
+    uint next = rec_ele[ i ].map_next;
+    fd_memset( &rec_ele[ i ], 0, sizeof(fd_progcache_rec_t) );
+    rec_ele[ i ].map_next = next;
     fd_rwlock_new( &rec_ele[ i ].lock );
   }
   fd_prog_recp_leave( rec_join );
