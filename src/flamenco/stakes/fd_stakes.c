@@ -630,7 +630,10 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
 
       if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-        if( FD_UNLIKELY( !fd_vsv_is_v4_with_bls_pubkey( vote_ro->meta ) ) ) continue;
+        if( FD_UNLIKELY( !fd_vsv_is_v4_with_bls_pubkey( vote_ro->meta ) ) ) {
+          fd_accdb_close_ro( accdb, vote_ro );
+          continue;
+        }
       }
       fd_accdb_close_ro( accdb, vote_ro );
       fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
