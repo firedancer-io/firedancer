@@ -352,7 +352,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Could not find topology object for banks" ));
   }
 
-  if( FD_UNLIKELY( !fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), NULL ) ) ) {
+  if( FD_UNLIKELY( !fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ) ) ) ) {
     FD_LOG_ERR(( "Failed to join banks" ));
   }
 

@@ -380,16 +380,13 @@ fd_banks_new( void * shmem,
 
 fd_banks_t *
 fd_banks_join( fd_banks_t * banks_ljoin,
-               void *       banks_data_mem,
-               void *       banks_locks_mem ) {
+               void *       banks_data_mem ) {
   fd_banks_data_t *  banks_data  = (fd_banks_data_t *)banks_data_mem;
 
   if( FD_UNLIKELY( !banks_data ) ) {
     FD_LOG_WARNING(( "NULL banks data" ));
     return NULL;
   }
-
-  (void)banks_locks_mem;
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)banks_data, fd_banks_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned banks" ));

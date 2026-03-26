@@ -561,8 +561,7 @@ fd_banks_new( void * mem,
 
 fd_banks_t *
 fd_banks_join( fd_banks_t * banks_ljoin,
-               void *       banks_data_mem,
-               void *       bank_locks_mem );
+               void *       banks_data_mem );
 
 /* fd_banks_init_bank() initializes a new bank in the bank manager.
    This should only be used during bootup.  This returns an initial

@@ -400,7 +400,7 @@ setup_instr_ctx( fixture_input_t const *      in,
   FD_TEST( banks_data );
   fd_banks_t * banks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_t), sizeof(fd_banks_t), wksp_tag++ );
   FD_TEST( banks );
-  FD_TEST( fd_banks_join( banks, fd_banks_new( banks_data, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ), NULL ) );
+  FD_TEST( fd_banks_join( banks, fd_banks_new( banks_data, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ) ) );
 
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag++ );
   FD_TEST( bank );

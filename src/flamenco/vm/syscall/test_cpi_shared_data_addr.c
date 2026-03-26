@@ -338,7 +338,7 @@ test_env_create( test_env_t * env,
   ulong max_fork_width  = 1UL;
   fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), TEST_WKSP_TAG );
   FD_TEST( banks_data );
-  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ), NULL ) );
+  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) ) );
   FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
   /* Account pool */
