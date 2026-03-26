@@ -602,24 +602,24 @@ update_voters( fd_tower_tile_t * ctx,
   fd_funk_txn_xid_t  xid = { .ul = { slot, bank_idx } };
   fd_accdb_ro_pipe_init( ro_pipe, ctx->accdb, &xid );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
 
   ulong pending_cnt = 0UL;
-  fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, bank->data->vote_stakes_fork_id, iter_mem );
+  fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, iter_mem );
   for(;;) {
-    if( FD_UNLIKELY( fd_vote_stakes_fork_iter_done( vote_stakes, bank->data->vote_stakes_fork_id, iter ) ) ) {
+    if( FD_UNLIKELY( fd_top_votes_iter_done( top_votes_t_2, iter ) ) ) {
       if( !pending_cnt ) break;
       fd_accdb_ro_pipe_flush( ro_pipe );
     } else {
       fd_pubkey_t vote_acc;
       ulong       stake;
-      fd_vote_stakes_fork_iter_ele( vote_stakes, bank->data->vote_stakes_fork_id, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL, NULL );
-      if( FD_LIKELY( stake ) ) {
-        fd_accdb_ro_pipe_enqueue( ro_pipe, vote_acc.key );
-        pending_cnt++;
-      }
-      fd_vote_stakes_fork_iter_next( vote_stakes, bank->data->vote_stakes_fork_id, iter );
+      int         is_valid = fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL );
+      fd_top_votes_iter_next( top_votes_t_2, iter );
+      if( FD_UNLIKELY( !is_valid ) ) continue;
+
+      fd_accdb_ro_pipe_enqueue( ro_pipe, vote_acc.key );
+      pending_cnt++;
     }
 
     fd_accdb_ro_t * ro;
@@ -627,21 +627,20 @@ update_voters( fd_tower_tile_t * ctx,
       pending_cnt--;
       fd_pubkey_t const * vote_acc = fd_accdb_ref_address( ro );
 
-      ulong stake; fd_pubkey_t id; int found = fd_vote_stakes_query_t_2( vote_stakes, bank->data->vote_stakes_fork_id, vote_acc, &stake, &id, NULL );
-      FD_TEST( found );
-      FD_TEST( stake );
+      ulong stake;
+      int   is_valid = fd_top_votes_query( top_votes_t_2, vote_acc, NULL, &stake, NULL, NULL, NULL );
+      if( FD_UNLIKELY( !is_valid ) ) continue;
       total_stake += stake;
 
-      if( FD_UNLIKELY( !fd_accdb_ref_lamports( ro ) || !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) continue;
-
-      fd_tower_voters_t acct = { .id_key = id, .vote_acc = *vote_acc, .stake = stake };
+      fd_tower_voters_t acct = { .id_key   = fd_vsv_get_node_account( fd_accdb_ref_data_const( ro ) ),
+                                 .vote_acc = *vote_acc,
+                                 .stake    = stake };
       fd_memcpy( acct.data, fd_accdb_ref_data_const( ro ), fd_ulong_min( fd_accdb_ref_data_sz( ro ), FD_VOTE_STATE_DATA_MAX ) );
       fd_tower_voters_push_tail( tower_voters, acct );
       prev_voter_idx = fd_tower_stakes_insert( ctx->tower_stakes, slot, vote_acc, stake, prev_voter_idx );
     }
   }
 
-  fd_bank_vote_stakes_end_locking_modify( bank );
   fd_accdb_ro_pipe_fini( ro_pipe );
 
   return total_stake;
