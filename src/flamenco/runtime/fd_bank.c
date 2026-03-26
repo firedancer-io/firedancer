@@ -511,11 +511,11 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   fd_memcpy( child_bank->top_votes_t_1_mem, parent_bank->top_votes_t_1_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
   fd_memcpy( child_bank->top_votes_t_2_mem, parent_bank->top_votes_t_2_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
 
-  child_bank->f                         = parent_bank->f;
-  child_bank->epoch_leaders_idx         = parent_bank->epoch_leaders_idx;
-  child_bank->vote_stakes_fork_id       = parent_bank->vote_stakes_fork_id;
-  child_bank->stake_rewards_fork_id     = parent_bank->stake_rewards_fork_id;
-  child_bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( fd_banks_get_stake_delegations( banks ) );
+  child_bank->f                          = parent_bank->f;
+  child_bank->epoch_leaders_idx          = parent_bank->epoch_leaders_idx;
+  child_bank->vote_stakes_fork_id        = parent_bank->vote_stakes_fork_id;
+  child_bank->stake_rewards_fork_id      = parent_bank->stake_rewards_fork_id;
+  child_bank->stake_delegations_fork_id  = fd_stake_delegations_new_fork( fd_banks_get_stake_delegations( banks ) );
   child_bank->f.block_height             = parent_bank->f.block_height + 1UL;
   child_bank->f.tick_height              = parent_bank->f.max_tick_height;
   child_bank->f.parent_slot              = parent_bank->f.slot;
