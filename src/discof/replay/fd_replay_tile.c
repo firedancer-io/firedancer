@@ -2061,6 +2061,7 @@ static void
 accdb_advance_root( fd_replay_tile_t * ctx,
                     ulong              slot,
                     ulong              bank_idx ) {
+  long start = fd_log_wallclock();
   fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = bank_idx };
   FD_LOG_DEBUG(( "advancing root to slot=%lu", slot ));
 
@@ -2076,6 +2077,8 @@ accdb_advance_root( fd_replay_tile_t * ctx,
   fd_progcache_advance_root( ctx->progcache, &xid );
   long t2 = fd_tickcount();
   FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
+  long end = fd_log_wallclock();
+  FD_LOG_DEBUG(("ACCDV2 ADVANCE ROOT %ld", end - start));
 }
 
 static int
