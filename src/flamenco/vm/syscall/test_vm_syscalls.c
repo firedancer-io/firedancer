@@ -10,7 +10,7 @@ static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
   char const * one_offs[] = { "CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE", "EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF", "7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz" };
-  fd_features_enable_one_offs( &vm_ctx->instr_ctx->bank->data->f.features, one_offs, 3U, slot );
+  fd_features_enable_one_offs( &vm_ctx->instr_ctx->bank->f.features, one_offs, 3U, slot );
   vm_ctx->direct_mapping = enable;
   vm_ctx->syscall_parameter_address_restrictions = enable;
   vm_ctx->virtual_address_space_adjustments = enable;
@@ -268,11 +268,10 @@ main( int     argc,
 
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_bank_t           bank[1];
-  fd_bank_data_t      bank_data[1];
   fd_txn_out_t        txn_out[1];
   fd_log_collector_t  log_collector[1];
   runtime->log.log_collector = log_collector;
-  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, bank_data, txn_out );
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   int vm_ok = !!fd_vm_init(
       /* vm                                     */ vm,

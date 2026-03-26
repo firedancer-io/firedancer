@@ -589,8 +589,8 @@ update_voters( fd_tower_tile_t * ctx,
                       ulong             bank_idx,
                       ulong             slot ) {
 
-  fd_bank_t bank[1];
-  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", bank_idx ));
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", bank_idx ));
 
   fd_tower_voters_t * tower_voters = ctx->tower_voters;
   fd_tower_voters_remove_all( tower_voters );

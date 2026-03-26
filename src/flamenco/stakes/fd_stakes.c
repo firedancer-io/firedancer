@@ -506,7 +506,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
 
   fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
-  ulong epoch           = bank->data->f.epoch;
+  ulong epoch           = bank->f.epoch;
   ulong total_stake     = 0UL;
   ulong staked_accounts = 0UL;
   fd_stake_delegations_iter_t iter_[1];
@@ -537,7 +537,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       stake_accum->stake += new_entry.effective;
     }
   }
-  bank->data->f.total_epoch_stake = total_stake;
+  bank->f.total_epoch_stake = total_stake;
 
   /* Copy the top votes set for the t-1 epoch into the t-2 epoch now
      that the epoch boundary is being crossed.  Reset the existing t-1
@@ -596,9 +596,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      previous epoch and in the current one. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ushort parent_idx = bank->data->vote_stakes_fork_id;
+  ushort parent_idx = bank->vote_stakes_fork_id;
   ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
-  bank->data->vote_stakes_fork_id = child_idx;
+  bank->vote_stakes_fork_id = child_idx;
 
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
@@ -651,7 +651,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         &node_account_t_1, &node_account_t_2,
         stake_t_1, stake_t_2,
         commission_t_1, commission_t_2,
-        bank->data->f.epoch );
+        bank->f.epoch );
   }
 }
 
@@ -677,7 +677,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   }
 
   fd_epoch_stake_history_entry_pair_t new_elem = {
-    .epoch = bank->data->f.epoch,
+    .epoch = bank->f.epoch,
     .entry = {
       .effective    = 0UL,
       .activating   = 0UL,
@@ -693,7 +693,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
     fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating(
         stake_delegation,
-        bank->data->f.epoch,
+        bank->f.epoch,
         stake_history,
         new_rate_activation_epoch );
     new_elem.entry.effective    += new_entry.effective;
@@ -709,7 +709,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   /* Now increment the epoch and recompute the stakes for the vote
      accounts for the new epoch value. */
 
-  bank->data->f.epoch = bank->data->f.epoch + 1UL;
+  bank->f.epoch = bank->f.epoch + 1UL;
 
   fd_refresh_vote_accounts( bank,
                             accdb,
@@ -729,27 +729,27 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
 
   if( meta->lamports==0UL ) {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
     return;
   }
 
   fd_stake_state_t const * stake_state = fd_stakes_get_state( meta );
   if( FD_UNLIKELY( !stake_state ) ) {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
     return;
   }
 
   if( FD_UNLIKELY( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) ) {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
     return;
   }
 
   if( FD_UNLIKELY( stake_state->stake.stake.delegation.stake==0UL ) ) {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
+    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
     return;
   }
 
-  fd_stake_delegations_fork_update( stake_delegations, bank->data->stake_delegations_fork_id, pubkey,
+  fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
                                     &stake_state->stake.stake.delegation.voter_pubkey,
                                     stake_state->stake.stake.delegation.stake,
                                     stake_state->stake.stake.delegation.activation_epoch,

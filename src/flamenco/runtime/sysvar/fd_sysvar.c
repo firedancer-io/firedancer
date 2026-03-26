@@ -14,7 +14,7 @@ fd_sysvar_account_update( fd_bank_t *               bank,
                           fd_pubkey_t const *       address,
                           void const *              data,
                           ulong                     sz ) {
-  fd_rent_t const * rent    = &bank->data->f.rent;
+  fd_rent_t const * rent    = &bank->f.rent;
   ulong     const   min_bal = fd_rent_exempt_minimum_balance( rent, sz );
 
   fd_accdb_rw_t rw[1];
@@ -36,8 +36,8 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   }
 
   if( lamports_minted ) {
-    ulong cap = bank->data->f.capitalization;
-    bank->data->f.capitalization = cap+lamports_minted;
+    ulong cap = bank->f.capitalization;
+    bank->f.capitalization = cap+lamports_minted;
   }
 
   fd_hashes_update_lthash( fd_accdb_ref_address( rw->ro ), rw->meta, prev_hash, bank, capture_ctx );

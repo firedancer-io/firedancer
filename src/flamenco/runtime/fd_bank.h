@@ -79,7 +79,7 @@ FD_PROTOTYPES_BEGIN
   The fields in fd_bank_t can be categorized into two groups:
   1. Simple fields: these are fields which don't need any special
      handling and are laid out contiguously in the fd_bank_t struct
-     at bank->data->f.<field>.
+     at bank->f.<field>.
   2. Complex fields: these are fields which need special handling
      (e.g. locking, copy on write semantics, delta-based semantics).
      These types are not templatized and are manually defined below.
@@ -147,18 +147,17 @@ FD_PROTOTYPES_BEGIN
   The usage pattern is as follows:
 
    To create an initial bank:
-   fd_banks_t bank[1];
-   fd_bank_t * bank_init = fd_bank_init_bank( bank, banks );
+   fd_bank_t * bank_init = fd_banks_init_bank( banks );
 
    To create a new bank.  This simply provisions the memory for the bank
    but it should not be used to execute transactions against.
-   ulong bank_index = fd_banks_new_bank( bank, banks, parent_bank_index )->data->idx;
+   ulong bank_index = fd_banks_new_bank( banks, parent_bank_index )->idx;
 
    To clone bank from parent banks.  This makes a bank replayable by
    copying over the state from the parent bank into the child.  It
    assumes that the bank index has been previously provisioned by a call
    to fd_banks_new_bank and that the parent bank index has been frozen.
-   fd_bank_t * bank_clone = fd_banks_clone_from_parent( bank, banks, bank_index );
+   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, bank_index );
 
    To ensure that the bank index we want to advance our root to is safe
    and that there are no outstanding references to the banks that are
@@ -171,7 +170,7 @@ FD_PROTOTYPES_BEGIN
    fd_banks_advance_root( banks, bank_index );
 
    To query some arbitrary bank:
-   fd_bank_t * bank_query = fd_banks_bank_query( bank, banks, bank_index );
+   fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
 
   To access the fields in the bank if they are templatized:
 
@@ -194,8 +193,7 @@ FD_PROTOTYPES_BEGIN
   fd_banks_prune_one_dead_bank( banks, cancel_info )
 
   The data used by an fd_bank_t or an fd_banks_t is stored in an
-  fd_banks_t struct.  Each fd_bank_t uses a fd_bank_data_t struct
-  to store its state.
+  fd_banks_t struct.
 
   If the fields are not templatized, their accessor and modifier
   patterns vary and are documented below.
@@ -241,7 +239,7 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
        the replay tile.
 */
 
-struct fd_bank_data {
+struct fd_bank {
 
   /* Fields used for internal pool and bank management */
   ulong idx;         /* current fork idx of the bank (synchronized with the pool index) */
@@ -261,7 +259,7 @@ struct fd_bank_data {
   ulong                 cost_tracker_pool_idx;
   ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
 
-  ulong banks_data_offset; /* offset from this fd_bank_data_t back to fd_banks_t */
+  ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
   /* Timestamps written and read only by replay */
 
@@ -322,11 +320,6 @@ struct fd_bank_data {
   uchar top_votes_t_1_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
   uchar top_votes_t_2_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
 };
-typedef struct fd_bank_data fd_bank_data_t;
-
-struct fd_bank {
-  fd_bank_data_t * data;
-};
 typedef struct fd_bank fd_bank_t;
 
 struct fd_banks_prune_cancel_info {
@@ -352,7 +345,7 @@ fd_bank_stake_delegations_modify( fd_bank_t * bank );
    this can be seen in fd_banks_footprint(). */
 
 #define POOL_NAME fd_banks_pool
-#define POOL_T    fd_bank_data_t
+#define POOL_T    fd_bank_t
 #include "../../util/tmpl/fd_pool.c"
 
 struct fd_bank_idx_seq {
@@ -503,8 +496,7 @@ fd_banks_stake_delegations_evict_bank_fork( fd_banks_t * banks,
 /* fd_banks_root() returns a pointer to the root bank respectively. */
 
 fd_bank_t *
-fd_banks_root( fd_bank_t *  bank_l,
-               fd_banks_t * banks );
+fd_banks_root( fd_banks_t * banks );
 
 /* fd_banks_align() returns the alignment of fd_banks_t */
 
@@ -535,7 +527,7 @@ fd_banks_footprint( ulong max_total_banks,
                     ulong max_vote_accounts );
 
 /* fd_banks_new() creates a new fd_banks_t struct.  This function
-   lays out the memory for all of the constituent fd_bank_data_t structs
+   lays out the memory for all of the constituent fd_bank_t structs
    and pools depending on the max_total_banks and the max_fork_width for
    a given block. */
 
@@ -560,19 +552,16 @@ fd_banks_join( void * banks_data_mem );
    fd_bank_t with the corresponding bank index set to 0. */
 
 fd_bank_t *
-fd_banks_init_bank( fd_bank_t *  bank_l,
-                    fd_banks_t * banks );
+fd_banks_init_bank( fd_banks_t * banks );
 
 /* fd_banks_get_bank_idx returns a bank for a given bank index. */
 
 fd_bank_t *
-fd_banks_bank_query( fd_bank_t *  bank_l,
-                     fd_banks_t * banks,
+fd_banks_bank_query( fd_banks_t * banks,
                      ulong        bank_idx );
 
 fd_bank_t *
-fd_banks_get_parent( fd_bank_t *  bank_l,
-                     fd_banks_t * banks,
+fd_banks_get_parent( fd_banks_t * banks,
                      fd_bank_t *  bank );
 
 /* fd_banks_clone_from_parent() clones a bank from a parent bank.
@@ -589,8 +578,7 @@ fd_banks_get_parent( fd_bank_t *  bank_l,
    semantics of the Agave client. */
 
 fd_bank_t *
-fd_banks_clone_from_parent( fd_bank_t *  bank_l,
-                            fd_banks_t * banks,
+fd_banks_clone_from_parent( fd_banks_t * banks,
                             ulong        bank_idx );
 
 /* fd_banks_advance_root() advances the root bank to the bank manager.
@@ -688,8 +676,7 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
    assumes that the parent bank is not dead. */
 
 fd_bank_t *
-fd_banks_new_bank( fd_bank_t *  bank_l,
-                   fd_banks_t * banks,
+fd_banks_new_bank( fd_banks_t * banks,
                    ulong        parent_bank_idx,
                    long         now );
 

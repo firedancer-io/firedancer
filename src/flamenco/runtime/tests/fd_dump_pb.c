@@ -317,7 +317,7 @@ dump_sanitized_transaction( fd_accdb_user_t *                      accdb,
 static void
 dump_fee_rate_governor( fd_bank_t *                        bank,
                         fd_exec_test_fee_rate_governor_t * out ) {
-  fd_fee_rate_governor_t const * frg = &bank->data->f.fee_rate_governor;
+  fd_fee_rate_governor_t const * frg = &bank->f.fee_rate_governor;
   *out = (fd_exec_test_fee_rate_governor_t){
     .target_lamports_per_signature = frg->target_lamports_per_signature,
     .target_signatures_per_slot    = frg->target_signatures_per_slot,
@@ -330,7 +330,7 @@ dump_fee_rate_governor( fd_bank_t *                        bank,
 static void
 dump_epoch_schedule( fd_bank_t *                     bank,
                      fd_exec_test_epoch_schedule_t * out ) {
-  fd_epoch_schedule_t const * es = &bank->data->f.epoch_schedule;
+  fd_epoch_schedule_t const * es = &bank->f.epoch_schedule;
   *out = (fd_exec_test_epoch_schedule_t){
     .slots_per_epoch             = es->slots_per_epoch,
     .leader_schedule_slot_offset = es->leader_schedule_slot_offset,
@@ -343,7 +343,7 @@ dump_epoch_schedule( fd_bank_t *                     bank,
 static void
 dump_rent( fd_bank_t *           bank,
            fd_exec_test_rent_t * out ) {
-  fd_rent_t const * r = &bank->data->f.rent;
+  fd_rent_t const * r = &bank->f.rent;
   *out = (fd_exec_test_rent_t){
     .lamports_per_byte_year = r->lamports_per_uint8_year,
     .exemption_threshold    = r->exemption_threshold,
@@ -356,7 +356,7 @@ dump_blockhash_queue( fd_bank_t *                             bank,
                       fd_spad_t *                             spad,
                       fd_exec_test_blockhash_queue_entry_t ** entries_out,
                       pb_size_t *                             count_out ) {
-  fd_blockhashes_t const * bhq      = &bank->data->f.block_hash_queue;
+  fd_blockhashes_t const * bhq      = &bank->f.block_hash_queue;
   ulong                    bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( bhq->d.deque ) );
 
   fd_exec_test_blockhash_queue_entry_t * entries = fd_spad_alloc( spad,
@@ -388,14 +388,14 @@ dump_txn_bank( fd_bank_t *                  bank,
   dump_blockhash_queue( bank, spad, &txn_bank->blockhash_queue, &txn_bank->blockhash_queue_count );
 
   /* TxnBank -> rbh_lamports_per_signature */
-  txn_bank->rbh_lamports_per_signature = (uint)bank->data->f.rbh_lamports_per_sig;
+  txn_bank->rbh_lamports_per_signature = (uint)bank->f.rbh_lamports_per_sig;
 
   /* TxnBank -> fee_rate_governor */
   txn_bank->has_fee_rate_governor = true;
   dump_fee_rate_governor( bank, &txn_bank->fee_rate_governor );
 
   /* TxnBank -> total_epoch_stake */
-  txn_bank->total_epoch_stake = bank->data->f.total_epoch_stake;
+  txn_bank->total_epoch_stake = bank->f.total_epoch_stake;
 
   /* TxnBank -> epoch_schedule */
   txn_bank->has_epoch_schedule = true;
@@ -407,7 +407,7 @@ dump_txn_bank( fd_bank_t *                  bank,
 
   /* TxnBank -> features */
   txn_bank->has_features = true;
-  dump_sorted_features( &bank->data->f.features, &txn_bank->features, spad );
+  dump_sorted_features( &bank->f.features, &txn_bank->features, spad );
 }
 
 /** SECONDARY FUNCTIONS **/
@@ -530,17 +530,16 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      order to capture the block context from before the current block
      was executed, since dumping is happening in the block finalize
      step. */
-  fd_bank_t parent_bank[1];
-  fd_banks_get_parent( parent_bank, banks, bank );
-  ulong                          parent_slot    = parent_bank->data->f.slot;
-  fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->data->idx } };
+  fd_bank_t * parent_bank = fd_banks_get_parent( banks, bank );
+  ulong                          parent_slot    = parent_bank->f.slot;
+  fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->idx } };
   fd_exec_test_block_context_t * block_context  = &dump_ctx->block_context;
   ulong                          dump_txn_count = dump_ctx->txns_to_dump_cnt;
   fd_spad_t *                    spad           = dump_ctx->spad;
 
   /* Get vote and stake delegation infos */
   fd_vote_stakes_t * vote_stakes        = fd_bank_vote_stakes( parent_bank );
-  ulong              vote_account_t_cnt = fd_vote_stakes_ele_cnt( vote_stakes, parent_bank->data->vote_stakes_fork_id );
+  ulong              vote_account_t_cnt = fd_vote_stakes_ele_cnt( vote_stakes, parent_bank->vote_stakes_fork_id );
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, parent_bank );
   ulong                          stake_account_cnt = fd_stake_delegations_cnt( stake_delegations );
@@ -612,7 +611,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_bank_stake_delegations_end_frontier_query( banks, parent_bank );
 
 
-  ushort fork_idx = parent_bank->data->vote_stakes_fork_id;
+  ushort fork_idx = parent_bank->vote_stakes_fork_id;
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
        !fd_vote_stakes_fork_iter_done( vote_stakes, fork_idx, iter );
@@ -716,28 +715,28 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   dump_blockhash_queue( parent_bank, spad, &block_bank->blockhash_queue, &block_bank->blockhash_queue_count );
 
   /* BlockBank -> rbh_lamports_per_signature */
-  block_bank->rbh_lamports_per_signature = (uint)parent_bank->data->f.rbh_lamports_per_sig;
+  block_bank->rbh_lamports_per_signature = (uint)parent_bank->f.rbh_lamports_per_sig;
 
   /* BlockBank -> fee_rate_governor */
   block_bank->has_fee_rate_governor = true;
   dump_fee_rate_governor( parent_bank, &block_bank->fee_rate_governor );
 
   /* BlockBank -> slot */
-  block_bank->slot = bank->data->f.slot;
+  block_bank->slot = bank->f.slot;
 
   /* BlockBank -> parent_slot */
-  block_bank->parent_slot = bank->data->f.parent_slot;
+  block_bank->parent_slot = bank->f.parent_slot;
 
   /* BlockBank -> capitalization */
-  block_bank->capitalization = parent_bank->data->f.capitalization;
+  block_bank->capitalization = parent_bank->f.capitalization;
 
   /* BlockBank -> ns_per_slot */
-  fd_w_u128_t ns_per_slot = bank->data->f.ns_per_slot;
+  fd_w_u128_t ns_per_slot = bank->f.ns_per_slot;
   fd_memcpy( block_bank->ns_per_slot, &ns_per_slot.ud, sizeof(uint128) );
 
   /* BlockBank -> inflation */
   block_bank->has_inflation = true;
-  fd_inflation_t const * inflation = &parent_bank->data->f.inflation;
+  fd_inflation_t const * inflation = &parent_bank->f.inflation;
   block_bank->inflation = (fd_exec_test_inflation_t){
     .initial         = inflation->initial,
     .terminal        = inflation->terminal,
@@ -747,13 +746,13 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   };
 
   /* BlockBank -> block_height */
-  block_bank->block_height = bank->data->f.block_height;
+  block_bank->block_height = bank->f.block_height;
 
   /* BlockBank -> poh */
-  fd_memcpy( block_bank->poh, &bank->data->f.poh, sizeof(fd_hash_t) );
+  fd_memcpy( block_bank->poh, &bank->f.poh, sizeof(fd_hash_t) );
 
   /* BlockBank -> parent_bank_hash */
-  fd_memcpy( block_bank->parent_bank_hash, &parent_bank->data->f.bank_hash, sizeof(fd_hash_t) );
+  fd_memcpy( block_bank->parent_bank_hash, &parent_bank->f.bank_hash, sizeof(fd_hash_t) );
 
   /* BlockBank -> parent_lt_hash */
   fd_lthash_value_t const * parent_lthash = fd_bank_lthash_locking_query( parent_bank );
@@ -761,7 +760,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_bank_lthash_end_locking_query( parent_bank );
 
   /* BlockBank -> parent_signature_count */
-  block_bank->parent_signature_count = parent_bank->data->f.parent_signature_cnt;
+  block_bank->parent_signature_count = parent_bank->f.parent_signature_cnt;
 
   /* BlockBank -> epoch_schedule */
   block_bank->has_epoch_schedule = true;
@@ -773,7 +772,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* BlockBank -> features */
   block_bank->has_features = true;
-  dump_sorted_features( &parent_bank->data->f.features, &block_bank->features, spad );
+  dump_sorted_features( &parent_bank->f.features, &block_bank->features, spad );
 
   /* BlockBank -> vote_accounts_t_1 / vote_accounts_t_2 */
   block_bank->vote_accounts_t_1       = va_t1;
@@ -804,7 +803,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->account_shared_data = fd_spad_alloc( spad,
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
-  fd_funk_txn_xid_t xid = { .ul = { bank->data->f.slot, bank->data->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
 
   /* Dump regular accounts first */
   for( ulong i = 0; i < txn_out->accounts.cnt; ++i ) {
@@ -927,7 +926,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Program ID */
   fd_memcpy( instr_context->program_id, txn_out->accounts.keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
-  fd_funk_txn_xid_t xid = { .ul = { bank->data->f.slot, bank->data->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_out->accounts.cnt;
@@ -1001,7 +1000,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Feature set */
   instr_context->has_features = true;
-  dump_sorted_features( &bank->data->f.features, &instr_context->features, spad );
+  dump_sorted_features( &bank->f.features, &instr_context->features, spad );
 }
 
 /***** PUBLIC APIs *****/
@@ -1354,7 +1353,7 @@ FD_SPAD_FRAME_BEGIN( dump_block_ctx->spad ) {
   pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
   if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, &dump_block_ctx->block_context ) ) {
     char output_filepath[ PATH_MAX ];
-    snprintf( output_filepath, PATH_MAX, "%s/block-%lu.blockctx", dump_proto_ctx->dump_proto_output_dir, bank->data->f.slot );
+    snprintf( output_filepath, PATH_MAX, "%s/block-%lu.blockctx", dump_proto_ctx->dump_proto_output_dir, bank->f.slot );
     FILE * file = fopen(output_filepath, "wb");
     if( file ) {
       fwrite( out, 1, stream.bytes_written, file );

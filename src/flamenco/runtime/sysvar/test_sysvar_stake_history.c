@@ -32,7 +32,7 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 100
   };
-  env->bank->data->f.rent = rent;
+  env->bank->f.rent = rent;
 
   /* Stake History update requires epoch schedule */
   fd_epoch_schedule_t const schedule = {
@@ -42,11 +42,11 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
     .first_normal_epoch          =      0,
     .first_normal_slot           =      0
   };
-  env->bank->data->f.epoch_schedule = schedule;
+  env->bank->f.epoch_schedule = schedule;
 
   /* Update should be a no-op if not at the epoch boundary */
-  env->bank->data->f.slot = 3UL;
-  env->bank->data->f.parent_slot = 2UL;
+  env->bank->f.slot = 3UL;
+  env->bank->f.parent_slot = 2UL;
   fd_epoch_stake_history_entry_pair_t const entry0 = {
     .epoch = 1UL, .entry = {
       .effective    = 0x111UL,
@@ -59,8 +59,8 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
   fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
 
-  env->bank->data->f.slot = 432000UL;
-  env->bank->data->f.parent_slot = 431999UL;
+  env->bank->f.slot = 432000UL;
+  env->bank->f.parent_slot = 431999UL;
   fd_sysvar_stake_history_update( env->bank, env->accdb, &env->xid, NULL, &entry0 );
   fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );

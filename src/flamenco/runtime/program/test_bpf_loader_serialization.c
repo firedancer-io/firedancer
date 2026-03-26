@@ -401,11 +401,10 @@ setup_instr_ctx( fixture_input_t const *      in,
   fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ) );
   FD_TEST( banks );
 
-  fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag++ );
+  fd_bank_t * bank = fd_banks_init_bank( banks );
   FD_TEST( bank );
-  FD_TEST( fd_banks_init_bank( bank, banks ) );
 
-  fd_features_t * features = &bank->data->f.features;
+  fd_features_t * features = &bank->f.features;
   fd_features_disable_all( features );
   FD_FEATURE_SET_ACTIVE( features, remove_accounts_executable_flag_checks, 0UL );
 
@@ -467,7 +466,6 @@ cleanup_instr_ctx( fixture_input_t const * in,
     fd_alloc_free( alloc, storage[i] );
   }
   fd_wksp_free_laddr( runtime );
-  fd_wksp_free_laddr( banks );
   fd_wksp_free_laddr( banks );
   fd_wksp_free_laddr( txn_out );
   fd_alloc_free( alloc, storage );

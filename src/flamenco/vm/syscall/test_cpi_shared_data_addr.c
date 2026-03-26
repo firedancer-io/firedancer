@@ -210,7 +210,7 @@ struct test_env {
   fd_progcache_t       progcache[1];
   uchar *              progcache_scratch;
   fd_banks_t *         banks;
-  fd_bank_t            bank[1];
+  fd_bank_t *          bank;
   void *               acc_pool_mem;
   fd_acc_pool_t *      acc_pool;
   fd_runtime_t *       runtime;
@@ -232,7 +232,7 @@ typedef struct test_env test_env_t;
 static void
 init_sysvars( test_env_t * env ) {
   fd_rent_t rent = { .lamports_per_uint8_year = 3480UL, .exemption_threshold = 2.0, .burn_percent = 50 };
-  env->bank->data->f.rent = rent;
+  env->bank->f.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 
   fd_epoch_schedule_t epoch_schedule = {
@@ -242,7 +242,7 @@ init_sysvars( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  env->bank->data->f.epoch_schedule = epoch_schedule;
+  env->bank->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 
   fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
@@ -340,7 +340,8 @@ test_env_create( test_env_t * env,
   FD_TEST( banks_mem );
   env->banks = fd_banks_join( fd_banks_new( banks_mem, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) );
   FD_TEST( env->banks );
-  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
+  env->bank = fd_banks_init_bank( env->banks );
+  FD_TEST( env->bank );
 
   /* Account pool */
   ulong acc_pool_cnt = 4UL;
@@ -357,13 +358,13 @@ test_env_create( test_env_t * env,
   /* Transaction fork */
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 1UL, env->bank->data->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 1UL, env->bank->idx } };
   fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
   fd_progcache_attach_child( env->progcache->join, root, &env->xid );
 
-  env->bank->data->f.slot = 10UL;
-  env->bank->data->f.parent_slot = 9UL;
-  env->bank->data->f.epoch = 0UL;
+  env->bank->f.slot = 10UL;
+  env->bank->f.parent_slot = 9UL;
+  env->bank->f.epoch = 0UL;
 
   env->runtime->accdb        = env->accdb;
   env->runtime->status_cache = NULL;
@@ -375,7 +376,7 @@ test_env_create( test_env_t * env,
   env->runtime->log.log_collector = env->log_collector;
 
   /* Features: legacy mode (no direct_mapping, no stricter_abi) */
-  fd_features_t * features = &env->bank->data->f.features;
+  fd_features_t * features = &env->bank->f.features;
   fd_features_disable_all( features );
   features->loosen_cpi_size_restriction = 0UL;
 
@@ -396,9 +397,9 @@ test_env_create( test_env_t * env,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( env->vm ) );
   FD_TEST( vm );
 
-  test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->bank->data, env->txn_out );
+  test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->txn_out );
 
-  features = &env->bank->data->f.features;
+  features = &env->bank->f.features;
   fd_features_disable_all( features );
   features->loosen_cpi_size_restriction = 0UL;
 

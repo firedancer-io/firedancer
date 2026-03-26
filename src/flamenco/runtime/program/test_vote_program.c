@@ -34,7 +34,7 @@ struct test_env {
   fd_wksp_t *          wksp;
   ulong                tag;
   fd_banks_t *         banks;
-  fd_bank_t            bank[1];
+  fd_bank_t *          bank;
   void *               funk_mem;
   void *               funk_locks;
   fd_accdb_admin_t     accdb_admin[1];
@@ -82,7 +82,7 @@ init_rent_sysvar( test_env_t * env ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 50
   };
-  env->bank->data->f.rent = rent;
+  env->bank->f.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 }
 
@@ -95,7 +95,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  env->bank->data->f.epoch_schedule = epoch_schedule;
+  env->bank->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 }
 
@@ -112,7 +112,7 @@ init_clock_sysvar( test_env_t * env ) {
 static void
 init_blockhash_queue( test_env_t * env ) {
   ulong blockhash_seed = 12345UL;
-  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->data->f.block_hash_queue, blockhash_seed );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->f.block_hash_queue, blockhash_seed );
   fd_hash_t dummy_hash = {0};
   fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
   fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
@@ -151,7 +151,8 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   FD_TEST( banks_mem );
   env->banks = fd_banks_join( fd_banks_new( banks_mem, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) );
   FD_TEST( env->banks );
-  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
+  env->bank = fd_banks_init_bank( env->banks );
+  FD_TEST( env->bank );
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
@@ -159,7 +160,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->data->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->idx } };
   fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
   fd_progcache_attach_child( env->progcache->join, root, &env->xid );
 
@@ -169,8 +170,8 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   init_clock_sysvar( env );
   init_blockhash_queue( env );
 
-  env->bank->data->f.slot = 9UL;
-  env->bank->data->f.epoch = 4UL;
+  env->bank->f.slot = 9UL;
+  env->bank->f.epoch = 4UL;
 
   fd_bank_top_votes_t_2_modify( env->bank );
 
@@ -178,7 +179,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
     fd_features_t features = {0};
     fd_features_disable_all( &features );
     features.enable_loader_v4 = 0UL;
-    env->bank->data->f.features = features;
+    env->bank->f.features = features;
   }
 
   fd_builtin_programs_init( env->bank, env->accdb, &env->xid, NULL );
@@ -239,21 +240,21 @@ test_env_cleanup( test_env_t * env ) {
 static void
 process_slot( test_env_t * env, ulong slot ) {
   fd_bank_t * parent_bank = env->bank;
-  ulong parent_slot       = parent_bank->data->f.slot;
-  ulong parent_bank_idx   = parent_bank->data->idx;
+  ulong parent_slot       = parent_bank->f.slot;
+  ulong parent_bank_idx   = parent_bank->idx;
 
-  FD_TEST( parent_bank->data->flags & FD_BANK_FLAGS_FROZEN );
+  FD_TEST( parent_bank->flags & FD_BANK_FLAGS_FROZEN );
 
-  ulong new_bank_idx = fd_banks_new_bank( env->bank, env->banks, parent_bank_idx, 0L )->data->idx;
-  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->bank, env->banks, new_bank_idx );
+  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
+  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
   FD_TEST( new_bank );
 
-  new_bank->data->f.slot = slot;
-  new_bank->data->f.parent_slot = parent_slot;
+  new_bank->f.slot = slot;
+  new_bank->f.parent_slot = parent_slot;
 
-  fd_epoch_schedule_t const * epoch_schedule = &new_bank->data->f.epoch_schedule;
+  fd_epoch_schedule_t const * epoch_schedule = &new_bank->f.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  new_bank->data->f.epoch = epoch;
+  new_bank->f.epoch = epoch;
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
@@ -316,7 +317,7 @@ setup_account_initialize_txn( test_env_t * env ) {
 
   process_slot( env, 10UL );
   /* features */
-  fd_features_enable_cleaned_up( &env->bank->data->f.features );
+  fd_features_enable_cleaned_up( &env->bank->f.features );
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
@@ -327,7 +328,7 @@ setup_account_initialize_txn( test_env_t * env ) {
   /* add the blockhash */
   fd_hash_t blockhash[1];
   fd_hex_decode( blockhash, "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17", 32 );
-  fd_blockhashes_push_new( &env->bank->data->f.block_hash_queue, blockhash );
+  fd_blockhashes_push_new( &env->bank->f.block_hash_queue, blockhash );
 
   /* add the signer to the accdb with 1 SOL */
   fd_pubkey_t pubkey[1];
@@ -385,7 +386,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
 
   process_slot( env, 10UL );
   /* features */
-  fd_features_enable_cleaned_up( &env->bank->data->f.features );
+  fd_features_enable_cleaned_up( &env->bank->f.features );
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
@@ -396,7 +397,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
   /* add the blockhash */
   fd_hash_t blockhash[1];
   fd_hex_decode( blockhash, "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17", 32 );
-  fd_blockhashes_push_new( &env->bank->data->f.block_hash_queue, blockhash );
+  fd_blockhashes_push_new( &env->bank->f.block_hash_queue, blockhash );
 
   /* add the signer to the accdb with 1 SOL */
   fd_pubkey_t pubkey[1];
@@ -441,8 +442,8 @@ test_account_initialize_simd_0387( fd_wksp_t * wksp ) {
   setup_account_initialize_txn( env );
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
@@ -470,8 +471,8 @@ test_account_initialize_v2( fd_wksp_t * wksp ) {
   setup_account_initialize_v2_txn( env );
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
@@ -499,8 +500,8 @@ test_account_initialize_v2_invalid_proof( fd_wksp_t * wksp ) {
   env->txn_p->payload[ proof_off ] = 0xFF;
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( &env->bank->data->f.features, bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );

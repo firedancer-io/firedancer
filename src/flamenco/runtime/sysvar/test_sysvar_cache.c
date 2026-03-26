@@ -26,18 +26,15 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem, shlocks, txn_max );
   FD_TEST( accdb );
 
-  fd_bank_data_t * bank_data = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_data_t), sizeof(fd_bank_data_t), wksp_tag );
-  FD_TEST( bank_data );
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
   FD_TEST( bank );
-  bank->data  = bank_data;
-  fd_rwlock_new( &bank->data->lthash_lock );
+  fd_rwlock_new( &bank->lthash_lock );
 
   env->shfunk       = funk_mem;
   env->shlocks      = shlocks;
   env->bank         = bank;
   env->xid          = (fd_funk_txn_xid_t) { .ul={ 0UL, 0UL } };
-  env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( &bank->data->f.sysvar_cache ) );
+  env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( &bank->f.sysvar_cache ) );
 
   fd_accdb_admin_t admin[1];
   FD_TEST( fd_accdb_admin_v1_init( admin, funk_mem, shlocks ) );

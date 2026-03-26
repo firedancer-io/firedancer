@@ -49,7 +49,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Set up the funk transaction */
   ulong             slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
-  fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->data->idx } };
+  fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->idx } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
   fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
@@ -60,24 +60,24 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
 
   /* Slot*/
-  runner->bank->data->f.slot = slot;
+  runner->bank->f.slot = slot;
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
 
   /* RBH lamports per signature. In the Agave harness this is set inside
      the fee rate governor itself. */
-  runner->bank->data->f.rbh_lamports_per_sig = txn_bank->rbh_lamports_per_signature;
+  runner->bank->f.rbh_lamports_per_sig = txn_bank->rbh_lamports_per_signature;
 
   /* Fee rate governor */
   FD_TEST( txn_bank->has_fee_rate_governor );
   fd_solfuzz_pb_restore_fee_rate_governor( runner->bank, &txn_bank->fee_rate_governor );
 
   /* Parent slot */
-  runner->bank->data->f.parent_slot = slot-1UL;
+  runner->bank->f.parent_slot = slot-1UL;
 
   /* Total epoch stake */
-  runner->bank->data->f.total_epoch_stake = txn_bank->total_epoch_stake;
+  runner->bank->f.total_epoch_stake = txn_bank->total_epoch_stake;
 
   /* Epoch schedule */
   FD_TEST( txn_bank->has_epoch_schedule );
@@ -90,12 +90,12 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Features */
   FD_TEST( txn_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &txn_bank->features;
-  fd_features_t * features_bm = &runner->bank->data->f.features;
+  fd_features_t * features_bm = &runner->bank->f.features;
   FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
 
   /* Epoch */
-  ulong epoch = fd_slot_to_epoch( &runner->bank->data->f.epoch_schedule, slot, NULL );
-  runner->bank->data->f.epoch = epoch;
+  ulong epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
+  runner->bank->f.epoch = epoch;
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -106,8 +106,8 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], i );
   }
 
-  runner->bank->data->f.ticks_per_slot = 64;
-  runner->bank->data->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->data->f.ticks_per_slot);
+  runner->bank->f.ticks_per_slot = 64;
+  runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );

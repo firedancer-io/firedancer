@@ -173,7 +173,7 @@ fd_write_builtin_account( fd_bank_t  *              bank,
   fd_accdb_ref_owner_set( rw, &fd_solana_native_loader_id );
 
   fd_hashes_update_lthash( &pubkey, rw->meta, prev_hash, bank, capture_ctx );
-  bank->data->f.capitalization = bank->data->f.capitalization + 1UL;
+  bank->f.capitalization = bank->f.capitalization + 1UL;
   fd_accdb_close_rw( accdb, rw );
 }
 
@@ -187,11 +187,11 @@ fd_builtin_programs_init( fd_bank_t *               bank,
 
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /** https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4949 */
-    if( bank->data->f.slot==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( accdb, xid, builtins[i].pubkey ) ) {
+    if( bank->f.slot==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( accdb, xid, builtins[i].pubkey ) ) {
       fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
-    } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( bank->data->f.slot, &bank->data->f.features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+    } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;
-    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( bank->data->f.slot, &bank->data->f.features, builtins[i].enable_feature_offset ) ) {
+    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, builtins[i].enable_feature_offset ) ) {
       continue;
     } else {
       fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
@@ -236,7 +236,7 @@ fd_is_migrating_builtin_program( fd_bank_t const *   bank,
 
     if( !memcmp( pubkey->uc, config->builtin_program_id->key, sizeof(fd_pubkey_t) ) ) {
       if( config->enable_feature_offset!=NO_ENABLE_FEATURE_ID &&
-        FD_FEATURE_ACTIVE_OFFSET( bank->data->f.slot, &bank->data->f.features, config->enable_feature_offset ) ) {
+        FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, config->enable_feature_offset ) ) {
         /* The program has been migrated to BPF. */
         *migrated_yet = 1;
       }

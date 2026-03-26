@@ -45,7 +45,7 @@ struct test_env {
   fd_wksp_t *          wksp;
   ulong                tag;
   fd_banks_t *         banks;
-  fd_bank_t            bank[1];
+  fd_bank_t *          bank;
   void *               funk_mem;
   void *               funk_locks;
   fd_accdb_admin_t     accdb_admin[1];
@@ -64,7 +64,7 @@ init_rent_sysvar( test_env_t * env,
     .exemption_threshold     = exemption_threshold,
     .burn_percent            = TEST_DEFAULT_BANK_BURN_PERCENT
   };
-  env->bank->data->f.rent = bank_rent;
+  env->bank->f.rent = bank_rent;
 
   fd_rent_t sysvar_rent = {
     .lamports_per_uint8_year = lamports_per_uint8_year,
@@ -84,7 +84,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_slot           = 0UL
   };
 
-  env->bank->data->f.epoch_schedule = epoch_schedule;
+  env->bank->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 }
 
@@ -101,7 +101,7 @@ init_clock_sysvar( test_env_t * env ) {
 static void
 init_blockhash_queue( test_env_t * env ) {
   ulong blockhash_seed = 12345UL;
-  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->data->f.block_hash_queue, blockhash_seed );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->f.block_hash_queue, blockhash_seed );
 
   fd_hash_t dummy_hash = {0};
   fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
@@ -186,10 +186,10 @@ add_bank_stake_delegation_entry( test_env_t *        env,
                                  fd_pubkey_t const * stake_account,
                                  fd_pubkey_t const * vote_account ) {
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
-  env->bank->data->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
+  env->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
 
   fd_stake_delegations_fork_update( stake_delegations,
-                                    env->bank->data->stake_delegations_fork_id,
+                                    env->bank->stake_delegations_fork_id,
                                     stake_account,
                                     vote_account,
                                     1000000000UL,
@@ -228,7 +228,8 @@ test_env_create( test_env_t * env,
   env->banks = fd_banks_join( fd_banks_new( banks_mem, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) );
   FD_TEST( env->banks );
 
-  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
+  env->bank = fd_banks_init_bank( env->banks );
+  FD_TEST( env->bank );
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
@@ -236,7 +237,7 @@ test_env_create( test_env_t * env,
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 1UL, env->bank->data->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 1UL, env->bank->idx } };
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
 
   init_rent_sysvar( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
@@ -245,8 +246,8 @@ test_env_create( test_env_t * env,
   init_clock_sysvar( env );
   init_blockhash_queue( env );
 
-  env->bank->data->f.slot = 1UL;
-  env->bank->data->f.epoch = 1UL;
+  env->bank->f.slot = 1UL;
+  env->bank->f.epoch = 1UL;
 
   fd_bank_top_votes_t_2_modify( env->bank );
 
@@ -259,14 +260,14 @@ test_env_create( test_env_t * env,
   fd_pubkey_t stake_account = { .ul[0] = 2UL };
   add_delegated_stake_account( env, &stake_account, &pubkey );
   add_bank_stake_delegation_entry( env, &stake_account, &pubkey );
-  FD_LOG_NOTICE(("fork idx %u", env->bank->data->vote_stakes_fork_id));
-  ulong cnt = fd_vote_stakes_ele_cnt( vote_stakes, env->bank->data->vote_stakes_fork_id );
+  FD_LOG_NOTICE(("fork idx %u", env->bank->vote_stakes_fork_id));
+  ulong cnt = fd_vote_stakes_ele_cnt( vote_stakes, env->bank->vote_stakes_fork_id );
   FD_LOG_NOTICE(("cnt %lu", cnt));
 
   fd_features_t features = {0};
   fd_features_disable_all( &features );
   features.deprecate_rent_exemption_threshold = TEST_FEATURE_ACTIVATION_SLOT;
-  env->bank->data->f.features = features;
+  env->bank->f.features = features;
 
   fd_accdb_advance_root( env->accdb_admin, &env->xid );
 
@@ -305,13 +306,13 @@ verify_rent_values( test_env_t * env,
   FD_TEST( funk_rent->exemption_threshold     == expected_threshold );
   FD_TEST( funk_rent->burn_percent            == expected_sysvar_burn_percent );
 
-  fd_rent_t const * bank_rent = &env->bank->data->f.rent;
+  fd_rent_t const * bank_rent = &env->bank->f.rent;
   FD_TEST( bank_rent );
   FD_TEST( bank_rent->lamports_per_uint8_year == expected_lamports );
   FD_TEST( bank_rent->exemption_threshold     == expected_threshold );
   FD_TEST( bank_rent->burn_percent            == expected_bank_burn_percent );
 
-  fd_sysvar_cache_t const * sysvar_cache = &env->bank->data->f.sysvar_cache;
+  fd_sysvar_cache_t const * sysvar_cache = &env->bank->f.sysvar_cache;
   fd_rent_t cache_rent[1];
   FD_TEST( fd_sysvar_cache_rent_read( sysvar_cache, cache_rent ) );
   FD_TEST( cache_rent->lamports_per_uint8_year == expected_lamports );
@@ -332,21 +333,21 @@ static int
 process_slot( test_env_t * env,
               ulong        slot ) {
   fd_bank_t * parent_bank = env->bank;
-  ulong parent_slot       = parent_bank->data->f.slot;
-  ulong parent_bank_idx   = parent_bank->data->idx;
+  ulong parent_slot       = parent_bank->f.slot;
+  ulong parent_bank_idx   = parent_bank->idx;
 
-  FD_TEST( parent_bank->data->flags & FD_BANK_FLAGS_FROZEN );
+  FD_TEST( parent_bank->flags & FD_BANK_FLAGS_FROZEN );
 
-  ulong new_bank_idx = fd_banks_new_bank( env->bank, env->banks, parent_bank_idx, 0L )->data->idx;
-  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->bank, env->banks, new_bank_idx );
+  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
+  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
   FD_TEST( new_bank );
 
-  new_bank->data->f.slot = slot;
-  new_bank->data->f.parent_slot = parent_slot;
+  new_bank->f.slot = slot;
+  new_bank->f.parent_slot = parent_slot;
 
-  fd_epoch_schedule_t const * epoch_schedule = &new_bank->data->f.epoch_schedule;
+  fd_epoch_schedule_t const * epoch_schedule = &new_bank->f.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  new_bank->data->f.epoch = epoch;
+  new_bank->f.epoch = epoch;
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
@@ -372,7 +373,7 @@ process_slot( test_env_t * env,
 static int
 advance_to_slot( test_env_t * env,
                  ulong        target_slot ) {
-  ulong current_slot = env->bank->data->f.slot;
+  ulong current_slot = env->bank->f.slot;
   int rent_modified = 0;
   for( ulong slot = current_slot + 1UL; slot <= target_slot; slot++ ) {
     rent_modified = process_slot( env, slot );

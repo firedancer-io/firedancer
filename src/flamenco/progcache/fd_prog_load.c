@@ -113,9 +113,9 @@ fd_prog_load_env_t *
 fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
                             fd_bank_t const *    bank ) {
   *env = (fd_prog_load_env_t) {
-    .features    = &bank->data->f.features,
-    .epoch       = bank->data->f.epoch,
-    .epoch_slot0 = fd_epoch_slot0( &bank->data->f.epoch_schedule, bank->data->f.epoch )
+    .features    = &bank->f.features,
+    .epoch       = bank->f.epoch,
+    .epoch_slot0 = fd_epoch_slot0( &bank->f.epoch_schedule, bank->f.epoch )
   };
   return env;
 }

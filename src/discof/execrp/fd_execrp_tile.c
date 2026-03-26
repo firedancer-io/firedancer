@@ -54,7 +54,7 @@ struct fd_execrp_tile {
      a funk_txn and a bank. These are queried from fd_banks_t and
      fd_funk_t. */
   fd_banks_t *          banks;
-  fd_bank_t             bank[1];
+  fd_bank_t *           bank;
   fd_accdb_user_t       accdb[1];
   fd_progcache_t        progcache[1];
 
@@ -158,7 +158,7 @@ static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
                            fd_stem_context_t * stem ) {
   fd_execrp_task_done_msg_t * msg  = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-  msg->bank_idx                  = ctx->bank->data->idx;
+  msg->bank_idx                  = ctx->bank->idx;
   msg->txn_exec->txn_idx         = ctx->txn_idx;
   msg->txn_exec->is_committable  = ctx->txn_out.err.is_committable;
   msg->txn_exec->is_fees_only    = ctx->txn_out.err.is_fees_only;
@@ -206,7 +206,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
       case FD_EXECRP_TT_TXN_EXEC: {
         /* Execute. */
         fd_execrp_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, msg->bank_idx ) );
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
         ctx->txn_in.txn = msg->txn;
 
         /* Set the capture txn index from the message so account updates
@@ -235,7 +236,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         /* Notify replay. */
         ctx->txn_idx = msg->txn_idx;
         ctx->dispatch_time_comp = tspub;
-        ctx->slot = ctx->bank->data->f.slot;
+        ctx->slot = ctx->bank->f.slot;
         publish_txn_finalized_msg( ctx, stem );
 
         /* Update metrics */
