@@ -30,7 +30,9 @@ fd_secp256k1_scalar_frombytes( fd_secp256k1_scalar_t * r,
   return r;
 }
 
-/* Operates on scalars NOT in the montgomery domain. */
+/* r = 1 / a
+   Operates on scalars NOT in the montgomery domain.
+   a MUST not be 0. */
 fd_secp256k1_scalar_t *
 fd_secp256k1_scalar_invert( fd_secp256k1_scalar_t *       r,
                             fd_secp256k1_scalar_t const * a ) {
@@ -52,8 +54,17 @@ fd_secp256k1_scalar_mul( fd_secp256k1_scalar_t *       restrict r,
 static inline fd_secp256k1_scalar_t *
 fd_secp256k1_scalar_negate( fd_secp256k1_scalar_t *       r,
                             fd_secp256k1_scalar_t const * a ) {
-  /* If a == 0, then n % n will return 0. Otherwise we return n - a. */
-  bignum_modsub( 4, r->limbs, (ulong *)fd_secp256k1_const_n[ 0 ].limbs, (ulong *)a->limbs, (ulong *)fd_secp256k1_const_n[ 0 ].limbs );
+  /* We cannot use bignum_modsub() as it requires a < n /\ b < n.
+
+     The best way to implement it using the current API is to use
+     bignum_sub(n, a), getting a reuslt bound within [0, n+1). Then
+     we perform a second reduction from [0, n+1) to [0, n) with
+     bignum_mod_n256k1_4(). */
+
+  /* t \in [0, n + 1). There is not carry-out, as a < n. */
+  ulong t[4];
+  bignum_sub( 4, t, 4, (ulong *)fd_secp256k1_const_n[ 0 ].limbs, 4, (ulong *)a->limbs );
+  bignum_mod_n256k1_4( r->limbs, t );
   return r;
 }
 
@@ -152,6 +163,8 @@ fd_secp256k1_fp_is_odd( fd_secp256k1_fp_t const *r ) {
   return scratch->limbs[ 0 ] & 1;
 }
 
+/* r = 1 / a
+   a MUST not be 0. */
 static inline fd_secp256k1_fp_t *
 fd_secp256k1_fp_invert( fd_secp256k1_fp_t *       r,
                         fd_secp256k1_fp_t const * a ) {

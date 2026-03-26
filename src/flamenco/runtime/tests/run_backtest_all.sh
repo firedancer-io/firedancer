@@ -95,23 +95,30 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842-v4.0.0 -y 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384169347-v4.0.0 -y 1 -m 2000000 -e 384169377 --root-distance 32 --max-live-slots 64
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-384395810-v4.0.0 -y 3 -m 2000000 -e 384395820
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.0.0 -y 1 -m 2000000 -e 385786458
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold-v4.0.0 -y 1 -m 1000 -e 260 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.0.0 -y 1 -m 3000 -e 1000 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-386300256-v4.0.0 -y 1 -m 2000000 -e 386300289 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258-v4.0.0 -y 1 -m 2000000 -e 387596373
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax-intrabatch-account-locks-v4.0.0 -y 1 -m 1000 -e 240
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-v4.0.0 -y 1 -m 1000 -e 75
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l limit_instruction_accounts_rekey -y 1 -m 1000 -e 275
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l enshrine_slashing_program -y 1 -m 1000 -e 260
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l create_account_allow_prefund -y 1 -m 1000 -e 520
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_programdata_account_check_migration -y 1 -m 1000 -e 260
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary -y 2 -m 2000000 -e 391824016
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace_spl_token_with_p_token -y 1 -m 1000 -e 720
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.0.0-alpha.0 -y 1 -m 10000
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary -y 2 -m 2000000 -e 391824016
+
+# Direct mapping has 3 different interplaying feature gates:
+# syscall_parameter_address_restrictions, virtual_address_space_adjustments and account_data_direct_mapping
+# account_data_direct_mapping is dependent on virtual_address_space_adjustments,
+# which is in turn dependent on syscall_parameter_address_restrictions.
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-3 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-4 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-5 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-362107883-direct-mapping-3 -y 1 -m 2000000 -e 362219427 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct-mapping-1 -y 1 -m 1000 -e 312
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct-mapping-2 -y 1 -m 1000 -e 819
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct-mapping-3 -y 1 -m 1000 -e 1395
+
+# Local cluster ledgers testing specific feature gates
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-deprecate-rent-exemption-threshold-v4.0.0 -y 1 -m 1000 -e 260 -lt
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax-intrabatch-account-locks-v4.0.0 -y 1 -m 1000 -e 240
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.0.0 -y 1 -m 3000 -e 1000 -lt
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l limit_instruction_accounts_rekey -y 1 -m 1000 -e 275
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l enshrine_slashing_program -y 1 -m 1000 -e 260
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l create_account_allow_prefund -y 1 -m 1000 -e 520
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l relax_programdata_account_check_migration -y 1 -m 1000 -e 260
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace_spl_token_with_p_token -y 1 -m 1000 -e 720
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l syscall-parameter-address-restrictions -y 1 -m 1000 -e 312
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l virtual-address-space-adjustments -y 1 -m 1000 -e 819
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l account-data-direct-mapping -y 1 -m 1000 -e 1395

@@ -4,6 +4,7 @@
 #include "../runtime/fd_bank.h"
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../runtime/sysvar/fd_sysvar_cache.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_system_ids.h"
@@ -255,24 +256,6 @@ write_stake_config( fd_accdb_user_t *         accdb,
 /* Public API                                                         */
 /**********************************************************************/
 
-int
-fd_stakes_new_warmup_cooldown_rate_epoch(
-    fd_epoch_schedule_t const * epoch_schedule,
-    fd_features_t const *       features,
-    /* out */ ulong *           epoch,
-    int *                       err
-) {
-  *err = 0;
-
-  if( FD_UNLIKELY( !epoch_schedule ) ) {
-    *epoch = ULONG_MAX;
-    *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-    return 1;
-  }
-  *epoch = fd_slot_to_epoch( epoch_schedule, features->reduce_stake_warmup_cooldown, NULL );
-  return 1;
-}
-
 void
 fd_stakes_config_init( fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid ) {
@@ -506,9 +489,11 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
 
   fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
-  ulong epoch           = bank->f.epoch;
-  ulong total_stake     = 0UL;
-  ulong staked_accounts = 0UL;
+  ulong epoch              = bank->f.epoch;
+  ulong total_stake        = 0UL;
+  ulong total_activating   = 0UL;
+  ulong total_deactivating = 0UL;
+  ulong staked_accounts    = 0UL;
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
       !fd_stake_delegations_iter_done( iter );
@@ -521,7 +506,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         epoch,
         history,
         new_rate_activation_epoch );
-    total_stake += new_entry.effective;
+    total_stake        += new_entry.effective;
+    total_activating   += new_entry.activating;
+    total_deactivating += new_entry.deactivating;
 
     fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, &stake_delegation->vote_account, NULL, stake_accum_pool );
     if( FD_UNLIKELY( !stake_accum ) ) {
@@ -537,7 +524,11 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       stake_accum->stake += new_entry.effective;
     }
   }
-  bank->f.total_epoch_stake = total_stake;
+
+  bank->f.total_effective_stake    = total_stake;
+  bank->f.total_activating_stake   = total_activating;
+  bank->f.total_deactivating_stake = total_deactivating;
+  bank->f.total_epoch_stake        = total_stake;
 
   /* Copy the top votes set for the t-1 epoch into the t-2 epoch now
      that the epoch boundary is being crossed.  Reset the existing t-1
@@ -665,42 +656,23 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_stake_delegations_t const * stake_delegations,
                           ulong *                        new_rate_activation_epoch ) {
 
-  /* First, we need to accumulate the stats for the current amount of
-     effective, activating, and deactivating stake for the current
-     epoch.  Once this is computed, we can add update our stake history
-     sysvar.  Afterward, we can refresh the stake values for the vote
-     accounts for the new epoch. */
+  /* We can update our stake history sysvar based on the bank stake values.
+     Afterward, we can refresh the stake values for the vote accounts. */
 
   fd_stake_history_t stake_history[1];
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 
-  fd_epoch_stake_history_entry_pair_t new_elem = {
+  fd_epoch_stake_history_entry_pair_t elem = {
     .epoch = bank->f.epoch,
     .entry = {
-      .effective    = 0UL,
-      .activating   = 0UL,
-      .deactivating = 0UL
+      .effective    = bank->f.total_effective_stake,
+      .activating   = bank->f.total_activating_stake,
+      .deactivating = bank->f.total_deactivating_stake,
     }
   };
-
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
-
-    fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating(
-        stake_delegation,
-        bank->f.epoch,
-        stake_history,
-        new_rate_activation_epoch );
-    new_elem.entry.effective    += new_entry.effective;
-    new_elem.entry.activating   += new_entry.activating;
-    new_elem.entry.deactivating += new_entry.deactivating;
-  }
-  fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &new_elem );
+  fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &elem );
 
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
@@ -721,6 +693,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
 }
 
+
 void
 fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
@@ -728,32 +701,93 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
 
-  if( meta->lamports==0UL ) {
+  if( FD_UNLIKELY( meta->lamports==0UL ) ) {
     fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
     return;
   }
 
+  ulong epoch = bank->f.epoch;
+
+  fd_sysvar_cache_t const *  sysvar_cache  = &bank->f.sysvar_cache;
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( sysvar_cache );
+  if( FD_UNLIKELY( !stake_history ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  }
+
+  /* Compute totals for the old delegation before any changes. */
+  fd_stake_delegation_t    old_ele;
+  fd_stake_history_entry_t old_entry = { 0UL, 0UL, 0UL };
+  if( fd_stake_delegations_query( stake_delegations, bank->stake_delegations_fork_id, pubkey, &old_ele ) ) {
+    old_entry = fd_stakes_activating_and_deactivating( &old_ele, epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch );
+  }
+
+  fd_stake_history_entry_t new_entry = { 0UL, 0UL, 0UL };
+  int do_remove = 1;
+
+  /* fd_stakes_get_state returns NULL for closed/invalid accounts. */
   fd_stake_state_t const * stake_state = fd_stakes_get_state( meta );
-  if( FD_UNLIKELY( !stake_state ) ) {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
-    return;
+  if( FD_LIKELY( stake_state != NULL &&
+                 stake_state->stake_type == FD_STAKE_STATE_STAKE &&
+                 stake_state->stake.stake.delegation.stake != 0UL ) ) {
+
+    ulong new_stake = stake_state->stake.stake.delegation.stake;
+    fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
+                                      &stake_state->stake.stake.delegation.voter_pubkey,
+                                      new_stake,
+                                      stake_state->stake.stake.delegation.activation_epoch,
+                                      stake_state->stake.stake.delegation.deactivation_epoch,
+                                      stake_state->stake.stake.credits_observed,
+                                      stake_state->stake.stake.delegation.warmup_cooldown_rate );
+
+    fd_stake_delegation_t new_ele = {
+      .stake              = new_stake,
+      .activation_epoch   = (ushort)fd_ulong_min( stake_state->stake.stake.delegation.activation_epoch,   USHORT_MAX ),
+      .deactivation_epoch = (ushort)fd_ulong_min( stake_state->stake.stake.delegation.deactivation_epoch, USHORT_MAX ),
+      .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_enum(
+                                  stake_state->stake.stake.delegation.warmup_cooldown_rate ),
+    };
+    new_entry = fd_stakes_activating_and_deactivating( &new_ele, epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch );
+    do_remove = 0;
   }
 
-  if( FD_UNLIKELY( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) ) {
+  if( do_remove ) {
     fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
-    return;
   }
 
-  if( FD_UNLIKELY( stake_state->stake.stake.delegation.stake==0UL ) ) {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
-    return;
+  if( stake_history ) fd_sysvar_cache_stake_history_leave_const( sysvar_cache, stake_history );
+
+  bank->f.total_effective_stake    = bank->f.total_effective_stake - old_entry.effective + new_entry.effective;
+  bank->f.total_activating_stake   = bank->f.total_activating_stake - old_entry.activating + new_entry.activating;
+  bank->f.total_deactivating_stake = bank->f.total_deactivating_stake - old_entry.deactivating + new_entry.deactivating;
+}
+
+void
+fd_stakes_init_totals( fd_bank_t *                    bank,
+                       fd_stake_delegations_t const * stake_delegations,
+                       fd_accdb_user_t *              accdb,
+                       fd_funk_txn_xid_t const *      xid ) {
+  fd_stake_history_t stake_history[1];
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 
-  fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
-                                    &stake_state->stake.stake.delegation.voter_pubkey,
-                                    stake_state->stake.stake.delegation.stake,
-                                    stake_state->stake.stake.delegation.activation_epoch,
-                                    stake_state->stake.stake.delegation.deactivation_epoch,
-                                    stake_state->stake.stake.credits_observed,
-                                    stake_state->stake.stake.delegation.warmup_cooldown_rate );
+  ulong epoch              = bank->f.epoch;
+  ulong total_effective    = 0UL;
+  ulong total_activating   = 0UL;
+  ulong total_deactivating = 0UL;
+
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
+    fd_stake_history_entry_t entry = fd_stakes_activating_and_deactivating( stake_delegation, epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch );
+    total_effective    += entry.effective;
+    total_activating   += entry.activating;
+    total_deactivating += entry.deactivating;
+  }
+
+  bank->f.total_effective_stake    = total_effective;
+  bank->f.total_activating_stake   = total_activating;
+  bank->f.total_deactivating_stake = total_deactivating;
 }
