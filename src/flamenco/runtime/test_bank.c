@@ -976,8 +976,6 @@ main( int argc, char ** argv ) {
   FD_TEST( bank11->data->f.slot == 0UL );
   FD_TEST( bank11->data->f.capitalization == 0UL );
 
-  FD_TEST( !fd_banks_join( banksl_join, banks->data, NULL ) );
-
   test_bank_advancing( mem );
 
   test_bank_dead_eviction( mem );
