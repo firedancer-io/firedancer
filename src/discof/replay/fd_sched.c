@@ -6,6 +6,7 @@
 #include "../../util/math/fd_stat.h" /* for sorted search */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
+#include "../../disco/pack/fd_chkdup.h"
 #include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
@@ -128,7 +129,6 @@ struct fd_sched_block {
   uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   ulong               mblks_rem;    /* Number of microblocks remaining in the current batch. */
   ulong               txns_rem;     /* Number of transactions remaining in the current microblock. */
-  fd_acct_addr_t      aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
   uint                fec_buf_sz;   /* Size of the fec_buf in bytes. */
   uint                fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
   uint                fec_buf_boff; /* Byte offset into raw block data of the first byte currently in fec_buf */
@@ -213,8 +213,10 @@ typedef struct fd_sched_metrics fd_sched_metrics_t;
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct fd_sched {
+  fd_acct_addr_t        aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
   char                  print_buf[ FD_SCHED_MAX_PRINT_BUF_SZ ];
   ulong                 print_buf_sz;
+  fd_chkdup_t           chkdup[ 1 ];
   fd_sched_metrics_t    metrics[ 1 ];
   ulong                 canary; /* == FD_SCHED_MAGIC */
   ulong                 depth;         /* Immutable. */
@@ -580,13 +582,19 @@ fd_sched_footprint( ulong depth,
 }
 
 void *
-fd_sched_new( void * mem,
-              ulong  depth,
-              ulong  block_cnt_max,
-              ulong  exec_cnt ) {
+fd_sched_new( void *     mem,
+              fd_rng_t * rng,
+              ulong      depth,
+              ulong      block_cnt_max,
+              ulong      exec_cnt ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !rng ) ) {
+    FD_LOG_WARNING(( "NULL rng" ));
     return NULL;
   }
 
@@ -629,8 +637,7 @@ fd_sched_new( void * mem,
   sched->txn_info_pool = _txn_info_pool;
   sched->mblk_pool     = _mblk_pool;
 
-  ulong seed = ((ulong)fd_tickcount()) ^ FD_SCHED_MAGIC;
-  fd_rdisp_new( _rdisp, depth, block_cnt_max, seed );
+  fd_rdisp_new( _rdisp, depth, block_cnt_max, fd_rng_ulong( rng ) );
 
   fd_sched_block_t * bpool = (fd_sched_block_t *)_bpool;
   for( ulong i=0; i<block_cnt_max; i++ ) {
@@ -639,6 +646,8 @@ fd_sched_new( void * mem,
     mblk_slist_new( bpool[ i ].mblks_hashing_in_progress );
     mblk_slist_new( bpool[ i ].mblks_mixin_in_progress );
   }
+
+  FD_TEST( fd_chkdup_new( sched->chkdup, rng ) );
 
   fd_memset( sched->metrics, 0, sizeof(fd_sched_metrics_t) );
   sched->txn_in_flight_last_tick  = LONG_MAX;
@@ -2049,8 +2058,9 @@ FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
+  uchar * payload = block->fec_buf+block->fec_buf_soff;
   ulong pay_sz = 0UL;
-  ulong txn_sz = fd_txn_parse_core( block->fec_buf+block->fec_buf_soff,
+  ulong txn_sz = fd_txn_parse_core( payload,
                                     fd_ulong_min( FD_TXN_MTU, block->fec_buf_sz-block->fec_buf_soff ),
                                     txn,
                                     NULL,
@@ -2064,27 +2074,39 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   if( FD_UNLIKELY( block->txn_parsed_cnt>=FD_MAX_TXN_PER_SLOT ) ) {
     /* The block contains more transactions than a valid block would.
        Mark the block dead instead of keep processing it. */
-    FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
+    FD_LOG_INFO(( "bad block: illegally many transactions in slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
     return FD_SCHED_BAD_BLOCK;
   }
 
+  ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
+  ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
+
   /* Try to expand ALUTs. */
-  int has_aluts   = txn->transaction_version==FD_TXN_V0 && txn->addr_table_adtl_cnt>0;
   int serializing = 0;
-  if( has_aluts ) {
+  if( alt_cnt>0UL ) {
     uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb, alut_ctx->xid, slot_hashes_mem );
     if( FD_LIKELY( slot_hashes_global ) ) {
       fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
-      serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, block->fec_buf+block->fec_buf_soff, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hash, block->aluts );
+      serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hash, sched->aluts );
       sched->metrics->alut_success_cnt += (uint)!serializing;
     } else {
       serializing = 1;
     }
   }
 
+  /* Transactions should not have duplicate accounts.
+     https://github.com/anza-xyz/agave/blob/v3.1.11/ledger/src/blockstore_processor.rs#L778-L790 */
+  fd_acct_addr_t const * imms = fd_txn_get_acct_addrs( txn, payload );
+  fd_acct_addr_t * alts = (!alt_cnt||serializing) ? NULL : sched->aluts;
+  alt_cnt = alts ? alt_cnt : 0UL;
+  if( FD_UNLIKELY( fd_chkdup_check( sched->chkdup, imms, imm_cnt, alts, alt_cnt ) ) ) {
+    FD_LOG_INFO(( "bad block: duplicate accounts in slot %lu, parent slot %lu, txn_parsed_cnt %u", block->slot, block->parent_slot, block->txn_parsed_cnt ));
+    return FD_SCHED_BAD_BLOCK;
+  }
+
   ulong bank_idx = (ulong)(block-sched->block_pool);
-  ulong txn_idx   = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, block->fec_buf+block->fec_buf_soff, serializing ? NULL : block->aluts, serializing );
+  ulong txn_idx  = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, payload, alts, serializing );
   FD_TEST( txn_idx!=0UL );
   sched->metrics->txn_parsed_cnt++;
   sched->metrics->alut_serializing_cnt += (uint)serializing;
@@ -2096,8 +2118,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   txn_p->start_shred_idx = fd_ushort_if( txn_p->start_shred_idx>0U, (ushort)(txn_p->start_shred_idx-1U), txn_p->start_shred_idx );
   txn_p->end_shred_idx = (ushort)fd_sort_up_uint_split( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
 
-  fd_memcpy( txn_p->payload, block->fec_buf+block->fec_buf_soff, pay_sz );
-  fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
+  fd_memcpy( txn_p->payload, payload, pay_sz );
+  fd_memcpy( TXN(txn_p),     txn,     txn_sz );
   txn_bitset_remove( sched->exec_done_set, txn_idx );
   txn_bitset_remove( sched->sigverify_done_set, txn_idx );
   txn_bitset_remove( sched->poh_mixin_done_set, txn_idx );

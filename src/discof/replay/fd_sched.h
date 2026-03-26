@@ -194,10 +194,11 @@ fd_sched_footprint( ulong depth,           /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MA
    parameter is invalid. */
 
 void *
-fd_sched_new( void * mem,
-              ulong  depth,
-              ulong  block_cnt_max,
-              ulong  exec_cnt );
+fd_sched_new( void *     mem,
+              fd_rng_t * rng,
+              ulong      depth,
+              ulong      block_cnt_max,
+              ulong      exec_cnt );
 
 fd_sched_t *
 fd_sched_join( void * mem );
