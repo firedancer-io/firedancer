@@ -919,6 +919,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
                      long                now,
                      fd_hash_t const *   parent_block_id ) {
   long before = fd_log_wallclock();
+  FD_LOG_NOTICE(("STARTING LEADER %ld", before));
 
   /* Make sure that we are not already leader. */
   FD_TEST( ctx->leader_bank->data==NULL );
@@ -967,6 +968,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
   ctx->leader_bank->data->refcnt++;
+
+  FD_LOG_NOTICE(("STARTED LEADER %ld", fd_log_wallclock()));
 
   return ctx->leader_bank;
 }
@@ -1832,6 +1835,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
                 fd_reasm_fec_t *    reasm_fec ) {
 
   long now = fd_log_wallclock();
+
 
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
 
