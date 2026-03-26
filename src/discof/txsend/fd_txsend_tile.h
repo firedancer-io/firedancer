@@ -108,6 +108,13 @@ struct fd_txsend_tile {
   ulong tower_in_expect_seq;
   int   halt_net_frags;
 
+  int   vote_resend_pending;
+  int   vote_resend_cnt;
+  long  vote_resend_next_ns;
+  ulong vote_resend_slot;
+  ulong vote_resend_payload_sz;
+  uchar vote_resend_payload[ FD_TPU_MTU ];
+
   fd_pubkey_t identity_key[1];
   fd_keyguard_client_t keyguard_client[1];
 

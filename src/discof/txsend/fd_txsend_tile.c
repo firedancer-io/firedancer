@@ -237,6 +237,12 @@ quic_conn_final( fd_quic_conn_t * conn,
    isn't realistic in practice, as verify polls round robin and there's
    only one vote per slot. */
 
+void
+send_vote_to_leader( fd_txsend_tile_t *  ctx,
+                     fd_pubkey_t const * leader_pubkey,
+                     uchar const       * vote_payload,
+                     ulong               vote_payload_sz );
+
 static inline void
 after_credit( fd_txsend_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -246,6 +252,24 @@ after_credit( fd_txsend_tile_t *  ctx,
 
   *charge_busy = fd_quic_service( ctx->quic, fd_log_wallclock() );
   *opt_poll_in = !*charge_busy; /* refetch credits to prevent above documented situation */
+
+  if( FD_UNLIKELY( ctx->vote_resend_pending ) ) {
+    long now = fd_log_wallclock();
+    if( now>=ctx->vote_resend_next_ns ) {
+      for( ulong i=0UL; i<3UL; i++ ) {
+        ulong target_slot = ctx->vote_resend_slot+1UL + i*FD_EPOCH_SLOTS_PER_ROTATION;
+        fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
+        FD_TEST( leader );
+        send_vote_to_leader( ctx, leader, ctx->vote_resend_payload, ctx->vote_resend_payload_sz );
+      }
+      ctx->vote_resend_cnt++;
+      if( ctx->vote_resend_cnt>=2 ) {
+        ctx->vote_resend_pending = 0;
+      } else {
+        ctx->vote_resend_next_ns = now + (long)25e6;
+      }
+    }
+  }
 
   if( FD_UNLIKELY( ctx->leader_schedules<2UL ) ) return;
   if( FD_UNLIKELY( ctx->voted_slot==ULONG_MAX ) ) return;
@@ -462,6 +486,13 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
     send_vote_to_leader( ctx, leader, payload, slot_done->vote_txn_sz );
   }
 
+  ctx->vote_resend_pending    = 1;
+  ctx->vote_resend_cnt        = 0;
+  ctx->vote_resend_next_ns    = fd_log_wallclock() + (long)25e6;
+  ctx->vote_resend_slot       = slot_done->vote_slot;
+  ctx->vote_resend_payload_sz = slot_done->vote_txn_sz;
+  fd_memcpy( ctx->vote_resend_payload, payload, slot_done->vote_txn_sz );
+
   ulong msg_sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
   fd_stem_publish( stem, ctx->txsend_out->idx, 1UL, ctx->txsend_out->chunk, msg_sz, 0UL, 0, 0 );
   ctx->txsend_out->chunk = fd_dcache_compact_next( ctx->txsend_out->chunk, msg_sz, ctx->txsend_out->chunk0, ctx->txsend_out->wmark );
@@ -631,9 +662,10 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ctx->conns_len  = 0UL;
-  ctx->voted_slot = ULONG_MAX;
-  ctx->net_id     = 0;
+  ctx->conns_len          = 0UL;
+  ctx->voted_slot         = ULONG_MAX;
+  ctx->net_id             = 0;
+  ctx->vote_resend_pending = 0;
 
   ctx->src_ip_addr = tile->txsend.ip_addr;
   ctx->src_port    = tile->txsend.txsend_src_port;
