@@ -77,6 +77,22 @@ FD_STATIC_ASSERT( 1<<AUTH_VTR_LG_MAX==32, AUTH_VTR_LG_MAX );
 
 #define EQVOC_MAX (2)
 
+/* The Alpenglow VAT caps the voting set of validators to 2000.  Only
+   the top 2000 voters by stake will be counted towards consensus rules.
+   Firedancer uses the same bound for TowerBFT.
+
+   https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0357-alpenglow_validator_admission_ticket.md */
+
+#define VTR_MAX (2000) /* the maximum # of unique voters ie. node pubkeys. */
+
+/* PER_VTR_MAX controls how many "entries" a validator is allowed to
+   occupy in various vote-tracking structures.  This is set somewhat
+   arbitrarily based on expected worst-case usage by an honest validator
+   and is set to guard against a malicious spamming validator attempting
+   to fill up Firedancer structures. */
+
+#define PER_VTR_MAX (512) /* the maximum amount of slot history the sysvar retains */
+
 struct publish {
   ulong          sig;
   fd_tower_msg_t msg;
@@ -305,7 +321,7 @@ confirm_block( fd_tower_tile_t * ctx,
     if( FD_UNLIKELY( !ghost_blk || !tower_blk ) ) {
       if( fd_uchar_extract_bit( votes_blk->flags, i+4 ) ) continue; /* already forward confirmed */
       votes_blk->flags = fd_uchar_set_bit( votes_blk->flags, i+4 );
-      publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 1, .slot = votes_blk->slot, .block_id = votes_blk->block_id } } } );
+      publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 1, .slot = votes_blk->key.slot, .block_id = votes_blk->key.block_id } } } );
       continue;
     }
 
@@ -325,7 +341,7 @@ confirm_block( fd_tower_tile_t * ctx,
     while( FD_LIKELY( ghost_anc ) ) {
 
       tower_anc = fd_tower_blocks_query( ctx->tower_blocks, ghost_anc->slot );
-      votes_anc = fd_votes_query( ctx->votes, &ghost_anc->id );
+      votes_anc = fd_votes_query( ctx->votes, ghost_anc->slot, &ghost_anc->id );
       if( FD_UNLIKELY( !tower_anc || !votes_anc ) ) break;
 
       /* Terminate at the first ancestor that has already reached this
@@ -990,9 +1006,9 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  ulong slot_max    = tile->tower.max_live_slots;
-  ulong per_vtr_max = slot_max;
-  ulong vtr_max     = FD_VOTER_MAX;
+  ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
+  ulong per_vtr_max = PER_VTR_MAX;
+  ulong vtr_max     = fd_ulong_pow2_up( VTR_MAX );
   ulong blk_max     = slot_max * EQVOC_MAX;
   ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
   ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
@@ -1010,7 +1026,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_blocks_align(),  fd_tower_blocks_footprint( slot_max )                         );
   l = FD_LAYOUT_APPEND( l, fd_tower_leaves_align(),  fd_tower_leaves_footprint( slot_max )                         );
   l = FD_LAYOUT_APPEND( l, fd_tower_lockos_align(),  fd_tower_lockos_footprint( slot_max, vtr_max )                );
-  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_align(),  fd_tower_stakes_footprint( slot_max )                         );
+  l = FD_LAYOUT_APPEND( l, fd_tower_stakes_align(),  fd_tower_stakes_footprint( slot_max, vtr_max )                );
   l = FD_LAYOUT_APPEND( l, fd_tower_voters_align(),  fd_tower_voters_footprint( vtr_max )                          );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -1279,9 +1295,9 @@ privileged_init( fd_topo_t *      topo,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  ulong slot_max    = tile->tower.max_live_slots;
-  ulong per_vtr_max = slot_max;
-  ulong vtr_max     = FD_VOTER_MAX;
+  ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
+  ulong per_vtr_max = PER_VTR_MAX;
+  ulong vtr_max     = fd_ulong_pow2_up( VTR_MAX );
   ulong blk_max     = slot_max * EQVOC_MAX;
   ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
   ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
@@ -1299,7 +1315,7 @@ unprivileged_init( fd_topo_t *      topo,
   void  * tower_blocks  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_blocks_align(),  fd_tower_blocks_footprint( slot_max )                         );
   void  * tower_leaves  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_leaves_align(),  fd_tower_leaves_footprint( slot_max )                         );
   void  * tower_lockos  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_lockos_align(),  fd_tower_lockos_footprint( slot_max, vtr_max )                );
-  void  * tower_stakes  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_align(),  fd_tower_stakes_footprint( slot_max )                         );
+  void  * tower_stakes  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_align(),  fd_tower_stakes_footprint( slot_max, vtr_max )                );
   void  * tower_voters  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_voters_align(),  fd_tower_voters_footprint( vtr_max )                          );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
@@ -1317,7 +1333,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower_blocks       = fd_tower_blocks_join( fd_tower_blocks_new( tower_blocks, slot_max, ctx->seed )                                     );
   ctx->tower_leaves       = fd_tower_leaves_join( fd_tower_leaves_new( tower_leaves, slot_max, ctx->seed )                                     );
   ctx->tower_lockos       = fd_tower_lockos_join( fd_tower_lockos_new( tower_lockos, slot_max, vtr_max, ctx->seed )                          );
-  ctx->tower_stakes       = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes, slot_max, ctx->seed )                                     );
+  ctx->tower_stakes       = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes, slot_max, vtr_max, ctx->seed )                            );
   ctx->tower_voters       = fd_tower_voters_join( fd_tower_voters_new( tower_voters, vtr_max )                                               );
   ctx->publishes          = publishes_join      ( publishes_new      ( publishes, pub_max )                                                    );
   ctx->mleaders           = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );

@@ -36,15 +36,16 @@ test_votes_simple( void ) {
 
   fd_hash_t block_id_a = { .ul = { 200 } };
   FD_TEST( fd_votes_count_vote( votes, &voters[0], 101, &block_id_a ) );
-  blk_t * blk = blk_map_ele_query( votes->blk_map, &block_id_a, NULL, votes->blk_pool );
+  fd_votes_blk_key_t key_a101 = { .slot = 101, .block_id = block_id_a };
+  blk_t * blk = blk_map_ele_query( votes->blk_map, &key_a101, NULL, votes->blk_pool );
   FD_TEST( blk );
   FD_TEST( blk->stake==10 );
-  FD_TEST( blk->slot==101 );
+  FD_TEST( blk->key.slot==101 );
 
   /* Count a vote from voter_b for same slot 101, same block_id. */
 
   FD_TEST( fd_votes_count_vote( votes, &voters[1], 101, &block_id_a ) );
-  blk = blk_map_ele_query( votes->blk_map, &block_id_a, NULL, votes->blk_pool );
+  blk = blk_map_ele_query( votes->blk_map, &key_a101, NULL, votes->blk_pool );
   FD_TEST( blk );
   FD_TEST( blk->stake==61 );
 
@@ -56,20 +57,21 @@ test_votes_simple( void ) {
   /* voter_a votes for a different slot 102. */
 
   FD_TEST( fd_votes_count_vote( votes, &voters[0], 102, &block_id_b ) );
-  blk = blk_map_ele_query( votes->blk_map, &block_id_b, NULL, votes->blk_pool );
+  fd_votes_blk_key_t key_b102 = { .slot = 102, .block_id = block_id_b };
+  blk = blk_map_ele_query( votes->blk_map, &key_b102, NULL, votes->blk_pool );
   FD_TEST( blk );
   FD_TEST( blk->stake==10 );
 
-  /* Query blk by block_id. */
+  /* Query blk by (slot, block_id). */
 
-  FD_TEST( blk_map_ele_query( votes->blk_map, &block_id_a, NULL, votes->blk_pool ) );
-  FD_TEST( blk_map_ele_query( votes->blk_map, &block_id_b, NULL, votes->blk_pool ) );
+  FD_TEST( blk_map_ele_query( votes->blk_map, &key_a101, NULL, votes->blk_pool ) );
+  FD_TEST( blk_map_ele_query( votes->blk_map, &key_b102, NULL, votes->blk_pool ) );
 
   /* Publish root to 102 — slot 101 and its blks should be removed. */
 
   fd_votes_publish( votes, 102 );
-  FD_TEST( !blk_map_ele_query( votes->blk_map, &block_id_a, NULL, votes->blk_pool ) );
-  FD_TEST(  blk_map_ele_query( votes->blk_map, &block_id_b, NULL, votes->blk_pool ) );
+  FD_TEST( !blk_map_ele_query( votes->blk_map, &key_a101, NULL, votes->blk_pool ) );
+  FD_TEST(  blk_map_ele_query( votes->blk_map, &key_b102, NULL, votes->blk_pool ) );
   FD_TEST(  votes->root==102 );
 
   fd_votes_delete( fd_votes_leave( votes ) );
@@ -107,7 +109,8 @@ test_votes_spam_block_ids_per_slot( void ) {
   for( ulong i = 0; i < attacker_cnt; i++ ) {
     fd_hash_t block_id = { .ul = { 1000+i } };
     FD_TEST( fd_votes_count_vote( votes, &voters[i], target_slot, &block_id ) );
-    blk_t * blk = blk_map_ele_query( votes->blk_map, &block_id, NULL, votes->blk_pool );
+    fd_votes_blk_key_t key = { .slot = target_slot, .block_id = block_id };
+    blk_t * blk = blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
     FD_TEST( blk );
     FD_TEST( blk->stake==1 );
   }
@@ -116,7 +119,8 @@ test_votes_spam_block_ids_per_slot( void ) {
 
   for( ulong i = 0; i < attacker_cnt; i++ ) {
     fd_hash_t block_id = { .ul = { 1000+i } };
-    blk_t * blk = blk_map_ele_query( votes->blk_map, &block_id, NULL, votes->blk_pool );
+    fd_votes_blk_key_t key = { .slot = target_slot, .block_id = block_id };
+    blk_t * blk = blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
     FD_TEST( blk );
     FD_TEST( blk->stake==1 );
   }
@@ -134,12 +138,14 @@ test_votes_spam_block_ids_per_slot( void ) {
   fd_hash_t honest_block_id = { .ul = { 9999 } };
   for( ulong i = attacker_cnt; i < vtr_max; i++ ) {
     FD_TEST( fd_votes_count_vote( votes, &voters[i], target_slot, &honest_block_id ) );
-    blk_t * blk = blk_map_ele_query( votes->blk_map, &honest_block_id, NULL, votes->blk_pool );
+    fd_votes_blk_key_t key = { .slot = target_slot, .block_id = honest_block_id };
+    blk_t * blk = blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
     FD_TEST( blk );
     FD_TEST( blk->stake==(i - attacker_cnt + 1) );
   }
 
-  blk_t * honest_blk = blk_map_ele_query( votes->blk_map, &honest_block_id, NULL, votes->blk_pool );
+  fd_votes_blk_key_t honest_key = { .slot = target_slot, .block_id = honest_block_id };
+  blk_t * honest_blk = blk_map_ele_query( votes->blk_map, &honest_key, NULL, votes->blk_pool );
   FD_TEST( honest_blk );
   FD_TEST( honest_blk->stake==(vtr_max - attacker_cnt) );
 
@@ -148,9 +154,10 @@ test_votes_spam_block_ids_per_slot( void ) {
   fd_votes_publish( votes, target_slot + 1 );
   for( ulong i = 0; i < attacker_cnt; i++ ) {
     fd_hash_t block_id = { .ul = { 1000+i } };
-    FD_TEST( !blk_map_ele_query( votes->blk_map, &block_id, NULL, votes->blk_pool ) );
+    fd_votes_blk_key_t key = { .slot = target_slot, .block_id = block_id };
+    FD_TEST( !blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool ) );
   }
-  FD_TEST( !blk_map_ele_query( votes->blk_map, &honest_block_id, NULL, votes->blk_pool ) );
+  FD_TEST( !blk_map_ele_query( votes->blk_map, &honest_key, NULL, votes->blk_pool ) );
 
   fd_votes_delete( fd_votes_leave( votes ) );
 }
@@ -186,7 +193,8 @@ test_votes_spam_many_slots( void ) {
     blk_t * res = fd_votes_count_vote( votes, &voters[i], slot, &block_id );
     if( slot < 100 + slot_max ) {
       FD_TEST( res );
-      blk_t * blk = blk_map_ele_query( votes->blk_map, &block_id, NULL, votes->blk_pool );
+      fd_votes_blk_key_t key = { .slot = slot, .block_id = block_id };
+      blk_t * blk = blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
       FD_TEST( blk );
       FD_TEST( blk->stake==1 );
     } else {
@@ -221,7 +229,8 @@ test_votes_spam_many_slots( void ) {
   for( ulong i = attacker_cnt; i < vtr_max; i++ ) {
     FD_TEST( fd_votes_count_vote( votes, &voters[i], honest_slot, &honest_block_id ) );
   }
-  blk_t * honest_blk = blk_map_ele_query( votes->blk_map, &honest_block_id, NULL, votes->blk_pool );
+  fd_votes_blk_key_t honest_key = { .slot = honest_slot, .block_id = honest_block_id };
+  blk_t * honest_blk = blk_map_ele_query( votes->blk_map, &honest_key, NULL, votes->blk_pool );
   FD_TEST( honest_blk );
   FD_TEST( honest_blk->stake==(vtr_max - attacker_cnt) );
 

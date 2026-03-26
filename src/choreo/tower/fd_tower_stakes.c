@@ -3,6 +3,7 @@
 void *
 fd_tower_stakes_new( void * shmem,
                      ulong  slot_max,
+                     ulong  vtr_max,
                      ulong  seed ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -10,9 +11,9 @@ fd_tower_stakes_new( void * shmem,
     return NULL;
   }
 
-  ulong footprint = fd_tower_stakes_footprint( slot_max );
+  ulong footprint = fd_tower_stakes_footprint( slot_max, vtr_max );
   if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "bad slot_max (%lu)", slot_max ));
+    FD_LOG_WARNING(( "bad slot_max (%lu) or vtr_max (%lu)", slot_max, vtr_max ));
     return NULL;
   }
 
@@ -22,20 +23,20 @@ fd_tower_stakes_new( void * shmem,
   }
 
   int lg_slot_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( slot_max ) ) + 1;
-  ulong vtr_stake_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( FD_VOTER_MAX * slot_max );
+  ulong vtr_stake_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * slot_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_tower_stakes_t * tower_stakes      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_stakes_t),       sizeof(fd_tower_stakes_t)                                     );
-  void *              voter_stake_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( vtr_stake_chain_cnt )     );
-  void *              voter_stake_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( FD_VOTER_MAX * slot_max ) );
-  void *              tower_stakes_slot = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( lg_slot_cnt )                 );
-  void *              used_acc_scratch  = FD_SCRATCH_ALLOC_APPEND( l, fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( FD_VOTER_MAX * slot_max )      );
+  fd_tower_stakes_t * tower_stakes      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_stakes_t),       sizeof(fd_tower_stakes_t)                                  );
+  void *              voter_stake_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint ( vtr_stake_chain_cnt )  );
+  void *              voter_stake_pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * slot_max )   );
+  void *              tower_stakes_slot = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( lg_slot_cnt )              );
+  void *              used_acc_scratch  = FD_SCRATCH_ALLOC_APPEND( l, fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( vtr_max * slot_max )        );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_tower_stakes_align() )==(ulong)shmem + footprint );
 
-  tower_stakes->vtr_map          = fd_tower_stakes_vtr_map_new ( voter_stake_map,  vtr_stake_chain_cnt,     seed );
-  tower_stakes->vtr_pool         = fd_tower_stakes_vtr_pool_new( voter_stake_pool, FD_VOTER_MAX * slot_max       );
-  tower_stakes->slot_map         = fd_tower_stakes_slot_new    ( tower_stakes_slot, lg_slot_cnt,            seed );
-  tower_stakes->used_acc_scratch = fd_used_acc_scratch_new     ( used_acc_scratch, FD_VOTER_MAX * slot_max       );
+  tower_stakes->vtr_map          = fd_tower_stakes_vtr_map_new ( voter_stake_map,  vtr_stake_chain_cnt, seed );
+  tower_stakes->vtr_pool         = fd_tower_stakes_vtr_pool_new( voter_stake_pool, vtr_max * slot_max        );
+  tower_stakes->slot_map         = fd_tower_stakes_slot_new    ( tower_stakes_slot, lg_slot_cnt,         seed );
+  tower_stakes->used_acc_scratch = fd_used_acc_scratch_new     ( used_acc_scratch, vtr_max * slot_max        );
   return shmem;
 }
 
