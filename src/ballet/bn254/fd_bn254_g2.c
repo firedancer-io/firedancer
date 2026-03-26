@@ -252,6 +252,7 @@ fd_bn254_g2_add_mixed( fd_bn254_g2_t *       r,
 }
 
 /* fd_bn254_g2_add computes r = p + q.
+   p MUST not be equal to q, unless p==0.
    http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#addition-add-2007-bl */
 fd_bn254_g2_t *
 fd_bn254_g2_add( fd_bn254_g2_t *       r,
@@ -570,6 +571,7 @@ fd_bn254_g2_frombytes_check_subgroup( fd_bn254_g2_t * p,
   fd_bn254_g2_scalar_mul( xp, p, fd_bn254_const_x ); /* 64-bit */
   fd_bn254_g2_add_mixed( l, xp, p );
 
+  /* l will not be equal to psi unless p==0 */
   fd_bn254_g2_frob( psi, xp );
   fd_bn254_g2_add( l, l, psi );
 

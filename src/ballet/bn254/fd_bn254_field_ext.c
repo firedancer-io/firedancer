@@ -265,6 +265,7 @@ fd_bn254_fp2_mul_by_i( fd_bn254_fp2_t * r,
 }
 
 /* fd_bn254_fp2_inv computes r = 1 / a in Fp2.
+   a MUST not be 0.
    https://eprint.iacr.org/2010/354, Alg. 8. */
 static inline fd_bn254_fp2_t *
 fd_bn254_fp2_inv( fd_bn254_fp2_t * r,
@@ -284,11 +285,14 @@ fd_bn254_fp2_inv( fd_bn254_fp2_t * r,
 fd_bn254_fp2_t *
 fd_bn254_fp2_pow( fd_bn254_fp2_t * restrict r,
                   fd_bn254_fp2_t const *    a,
-                  fd_uint256_t const *      b ) {
+                  fd_uint256_t   const *    b ) {
   fd_bn254_fp2_set_one( r );
+  if( fd_uint256_is_zero( b ) ) return r; /* x^0 = 1 */
 
+  /* There must be a bit set, as b>0, so if we reach i==0, it must be set. */
   int i = 255;
-  while( !fd_uint256_bit( b, i) ) i--;
+  while( !fd_uint256_bit( b, i ) ) i--;
+
   for( ; i>=0; i--) {
     fd_bn254_fp2_sqr( r, r );
     if( fd_uint256_bit( b, i ) ) {

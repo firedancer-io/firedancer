@@ -201,11 +201,14 @@ fd_bn254_fp_sqr( fd_bn254_fp_t * r,
 fd_bn254_fp_t *
 fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
                  fd_bn254_fp_t const *    a,
-                 fd_uint256_t const *     b ) {
+                 fd_uint256_t  const *    b ) {
   fd_bn254_fp_set_one( r );
+  if( fd_uint256_is_zero( b ) ) return r; /* x^0 = 1 */
 
+  /* There must be a bit set, as b>0, so if we reach i==0, it must be set. */
   int i = 255;
-  while( !fd_uint256_bit( b, i) ) i--;
+  while( !fd_uint256_bit( b, i ) ) i--;
+
   for( ; i>=0; i--) {
     fd_bn254_fp_sqr( r, r );
     if( fd_uint256_bit( b, i ) ) {
@@ -215,12 +218,15 @@ fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
   return r;
 }
 
+/* fd_bn254_fp_inv computes r = 1 / a.
+   a MUST not be 0.
+   Computes via a^{-1} <=> a^{p-2}. */
 static inline fd_bn254_fp_t *
 fd_bn254_fp_inv( fd_bn254_fp_t * r,
                   fd_bn254_fp_t const * a ) {
   fd_uint256_t p_minus_2[1];
   fd_bn254_fp_set( p_minus_2, fd_bn254_const_p );
-  p_minus_2->limbs[0] = p_minus_2->limbs[0] - 2UL;
+  p_minus_2->limbs[0] -= 2UL;
   return fd_bn254_fp_pow( r, a, p_minus_2 );
 }
 
