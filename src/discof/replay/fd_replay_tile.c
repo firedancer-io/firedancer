@@ -944,6 +944,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
   }
 
+  FD_LOG_NOTICE(("BANKS %ld", fd_log_wallclock() - before ));
+
   ctx->leader_bank->data->preparation_begin_nanos = before;
 
   ctx->leader_bank->data->f.slot = slot;
@@ -953,6 +955,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_attach_child( ctx->progcache,   &parent_xid, &xid );
+
+  FD_LOG_NOTICE(("FUNK %ld", fd_log_wallclock() - before ));
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
@@ -967,6 +971,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
   ctx->leader_bank->data->refcnt++;
+
+  FD_LOG_NOTICE(("RUNTIME %ld", fd_log_wallclock() - before ));
 
   return ctx->leader_bank;
 }
