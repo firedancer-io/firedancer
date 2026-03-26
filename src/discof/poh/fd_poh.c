@@ -498,7 +498,7 @@ fd_poh_advance( fd_poh_t *          poh,
   /* Now figure out how many hashes are needed to "catch up" the hash
      count to the current system clock, and clamp it to the allowed
      range. */
-  long now = fd_log_wallclock();
+  long now = fd_clock_epoch_y( poh->clock_epoch, fd_tickcount() );
   ulong target_hashcnt;
   if( FD_LIKELY( poh->state==STATE_FOLLOWER ||poh->state==STATE_WAITING_FOR_SLOT ) ) {
     target_hashcnt = (ulong)((double)(now - poh->reset_slot_start_ns) / poh->hashcnt_duration_ns) - (poh->slot-poh->reset_slot)*poh->hashcnt_per_slot;

@@ -62,6 +62,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline void
+during_housekeeping( fd_poh_tile_t * ctx ) {
+  long now = fd_clock_epoch_y( ctx->poh->clock_epoch, fd_tickcount() );
+  if( FD_UNLIKELY( now >= ctx->poh->recal_next ) ) {
+    ctx->poh->recal_next = fd_clock_default_recal( ctx->poh->clock );
+    fd_clock_epoch_refresh( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
+  }
+}
+
+static inline void
 after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
@@ -246,6 +255,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out ) );
 
+  fd_clock_default_init( ctx->poh->clock, ctx->poh->clock_mem );
+  ctx->poh->recal_next = fd_clock_recal_next( ctx->poh->clock );
+  fd_clock_epoch_init( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -289,6 +302,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_tile_t)
 
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
