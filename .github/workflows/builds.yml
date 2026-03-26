@@ -129,8 +129,8 @@ jobs:
     if: ${{ inputs.gcc != 'none' }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: dtolnay/rust-toolchain@1.81.0
 
@@ -192,8 +192,8 @@ jobs:
     if: ${{ inputs.clang != 'none' }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: dtolnay/rust-toolchain@1.81.0
 
@@ -258,8 +258,8 @@ jobs:
         gcc_version: [12]
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
+
+      - uses: ./.github/actions/submodule-init
 
       - name: Run build
         env:
