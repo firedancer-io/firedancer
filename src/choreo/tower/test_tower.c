@@ -274,13 +274,13 @@ test_switch_simple( fd_wksp_t * wksp ) {
   void * forks_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max ), 1UL );
   void * leaves_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_leaves_align(), fd_tower_leaves_footprint( slot_max ), 1UL );
   void * lockos_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
-  void * stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max ), 1UL );
+  void * stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max, voter_max ), 1UL );
 
   fd_tower_t *        tower  = fd_tower_join       ( fd_tower_new       ( tower_mem                            ) );
   fd_tower_blocks_t * blocks = fd_tower_blocks_join( fd_tower_blocks_new( forks_mem,  slot_max,            0UL ) );
   fd_tower_leaves_t * leaves = fd_tower_leaves_join( fd_tower_leaves_new( leaves_mem, slot_max,            0UL ) );
   fd_tower_lockos_t * lockos = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
-  fd_tower_stakes_t * stakes = fd_tower_stakes_join( fd_tower_stakes_new( stakes_mem, slot_max,            0UL ) );
+  fd_tower_stakes_t * stakes = fd_tower_stakes_join( fd_tower_stakes_new( stakes_mem, slot_max, voter_max, 0UL ) );
 
   FD_TEST( tower );
   FD_TEST( blocks );
@@ -340,13 +340,13 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   void * forks_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max ), 1UL );
   void * leaves_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_leaves_align(), fd_tower_leaves_footprint( slot_max ), 1UL );
   void * lockos_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
-  void * tower_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max ), 1UL );
+  void * tower_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max, voter_max ), 1UL );
 
   fd_tower_t *        tower        = fd_tower_join       ( fd_tower_new       ( tower_mem ) );
   fd_tower_blocks_t * forks        = fd_tower_blocks_join( fd_tower_blocks_new( forks_mem, slot_max, 0UL ) );
   fd_tower_leaves_t * leaves       = fd_tower_leaves_join( fd_tower_leaves_new( leaves_mem, slot_max, 0UL ) );
   fd_tower_lockos_t * lockos       = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
-  fd_tower_stakes_t * tower_stakes = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes_mem, slot_max, 0UL ) );
+  fd_tower_stakes_t * tower_stakes = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes_mem, slot_max, voter_max, 0UL ) );
 
   FD_TEST( tower );
   FD_TEST( forks );
@@ -464,13 +464,13 @@ test_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
   void * forks_mem        = fd_wksp_alloc_laddr( wksp, fd_tower_blocks_align(), fd_tower_blocks_footprint( slot_max ), 1UL );
   void * leaves_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_leaves_align(), fd_tower_leaves_footprint( slot_max ), 1UL );
   void * lockos_mem       = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
-  void * tower_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max ), 1UL );
+  void * tower_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), fd_tower_stakes_footprint( slot_max, voter_max ), 1UL );
 
   fd_tower_t *        tower        = fd_tower_join       ( fd_tower_new       ( tower_mem ) );
   fd_tower_blocks_t * forks        = fd_tower_blocks_join( fd_tower_blocks_new( forks_mem, slot_max, 0UL ) );
   fd_tower_leaves_t * leaves       = fd_tower_leaves_join( fd_tower_leaves_new( leaves_mem, slot_max, 0UL ) );
   fd_tower_lockos_t * lockos       = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
-  fd_tower_stakes_t * tower_stakes = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes_mem, slot_max, 0UL ) );
+  fd_tower_stakes_t * tower_stakes = fd_tower_stakes_join( fd_tower_stakes_new( tower_stakes_mem, slot_max, voter_max, 0UL ) );
 
   FD_TEST( tower );
   FD_TEST( forks );
@@ -551,17 +551,18 @@ test_tower_stakes_npow2_init( fd_wksp_t * wksp ) {
   ulong npow2_slot_maxs[] = { 50, 65, 100, 33, 17 };
   ulong cnt = sizeof(npow2_slot_maxs) / sizeof(npow2_slot_maxs[0]);
 
+  ulong voter_max = 16;
   for( ulong i = 0; i < cnt; i++ ) {
     ulong slot_max = npow2_slot_maxs[i];
 
     /* Verify footprint is nonzero. */
-    ulong footprint = fd_tower_stakes_footprint( slot_max );
+    ulong footprint = fd_tower_stakes_footprint( slot_max, voter_max );
     FD_TEST( footprint );
 
     /* new / join */
     void * mem = fd_wksp_alloc_laddr( wksp, fd_tower_stakes_align(), footprint, 1UL );
     FD_TEST( mem );
-    fd_tower_stakes_t * stakes = fd_tower_stakes_join( fd_tower_stakes_new( mem, slot_max, 0UL ) );
+    fd_tower_stakes_t * stakes = fd_tower_stakes_join( fd_tower_stakes_new( mem, slot_max, voter_max, 0UL ) );
     FD_TEST( stakes );
 
     /* Smoke test: insert a few voters for a slot and remove them. */

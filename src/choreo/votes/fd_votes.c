@@ -60,12 +60,12 @@ typedef fd_votes_blk_t blk_t;
 
 #define MAP_NAME                           blk_map
 #define MAP_ELE_T                          blk_t
-#define MAP_KEY_T                          fd_hash_t
-#define MAP_KEY                            block_id
+#define MAP_KEY_T                          fd_votes_blk_key_t
+#define MAP_KEY                            key
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
-#define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,32UL))
-#define MAP_KEY_HASH(key,seed)             ((ulong)((key)->ul[1]^(seed)))
+#define MAP_KEY_EQ(k0,k1)                  ((k0)->slot==(k1)->slot && !memcmp((k0)->block_id.key,(k1)->block_id.key,32UL))
+#define MAP_KEY_HASH(key,seed)             ((ulong)((key)->block_id.ul[1]^(key)->slot^(seed)))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -356,28 +356,14 @@ fd_votes_count_vote( fd_votes_t *        votes,
   if( FD_UNLIKELY( slot_vtrs_test( slot->vtrs, vtr->bit ) ) ) return NULL;
   slot_vtrs_insert( slot->vtrs, vtr->bit );
 
-  blk_t * blk = blk_map_ele_query( votes->blk_map, vote_block_id, NULL, votes->blk_pool );
+  fd_votes_blk_key_t blk_key = { .slot = vote_slot, .block_id = *vote_block_id };
+  blk_t * blk = blk_map_ele_query( votes->blk_map, &blk_key, NULL, votes->blk_pool );
   if( FD_UNLIKELY( !blk ) ) {
-    blk           = blk_pool_ele_acquire( votes->blk_pool );
-    blk->block_id = *vote_block_id;
-    blk->slot     = vote_slot;
-    blk->stake    = 0;
-    blk->flags    = 0;
+    blk        = blk_pool_ele_acquire( votes->blk_pool );
+    blk->key   = blk_key;
+    blk->stake = 0;
+    blk->flags = 0;
     blk_map_ele_insert( votes->blk_map, blk, votes->blk_pool );
-    blk_dlist_ele_push_tail( slot->blk_dlist, blk, votes->blk_pool );
-    slot->blk_cnt++;
-  } else if( FD_UNLIKELY( vote_slot < blk->slot ) ) {
-
-    /* Rekey the blk to the earlier slot's blk_dlist.  This ensures the
-       blk is cleaned up promptly during publish, preventing an attacker
-       from pinning blk entries to far-future slots. */
-
-    slot_t * old_slot = slot_map_ele_query( votes->slot_map, &blk->slot, NULL, votes->slot_pool );
-    if( FD_LIKELY( old_slot ) ) {
-      blk_dlist_ele_remove( old_slot->blk_dlist, blk, votes->blk_pool );
-      old_slot->blk_cnt--;
-    }
-    blk->slot = vote_slot;
     blk_dlist_ele_push_tail( slot->blk_dlist, blk, votes->blk_pool );
     slot->blk_cnt++;
   }
@@ -387,8 +373,10 @@ fd_votes_count_vote( fd_votes_t *        votes,
 
 fd_votes_blk_t *
 fd_votes_query( fd_votes_t *      votes,
+                ulong             slot,
                 fd_hash_t const * block_id ) {
-  return blk_map_ele_query( votes->blk_map, block_id, NULL, votes->blk_pool );
+  fd_votes_blk_key_t key = { .slot = slot, .block_id = *block_id };
+  return blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
 }
 
 void

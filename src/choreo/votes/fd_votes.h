@@ -109,9 +109,15 @@
 #define SET_NAME slot_vtrs
 #include "../../util/tmpl/fd_set_dynamic.c"
 
+struct fd_votes_blk_key {
+  ulong     slot;
+  fd_hash_t block_id;
+};
+typedef struct fd_votes_blk_key fd_votes_blk_key_t;
+
 struct fd_votes_blk {
-  fd_hash_t block_id; /* blk_map key */
-  ulong     next;     /* pool next */
+  fd_votes_blk_key_t key;  /* blk_map key: (slot, block_id) */
+  ulong              next; /* pool next */
   struct {
     ulong prev;
     ulong next;
@@ -120,7 +126,6 @@ struct fd_votes_blk {
     ulong prev;
     ulong next;
   } dlist;
-  ulong slot;
   ulong stake;
   uchar flags;
 };
@@ -178,10 +183,11 @@ void *
 fd_votes_delete( void * votes );
 
 /* fd_votes_query returns a pointer to the votes block entry for the
-   given block_id, or NULL if not found. */
+   given (slot, block_id), or NULL if not found. */
 
 fd_votes_blk_t *
 fd_votes_query( fd_votes_t *      votes,
+                ulong             slot,
                 fd_hash_t const * block_id );
 
 /* fd_votes_count_vote counts id's stake towards the voted slot.
