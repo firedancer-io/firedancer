@@ -1471,6 +1471,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L746 */
+      fd_pubkey_t new_program_id = *program.pubkey;
       fd_borrowed_account_drop( &program );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L747-L773 */
@@ -1670,8 +1671,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* programdata is dropped when it goes out of scope */
 
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
-      //TODO: this is likely the incorrect program_id, do we have new_program_id?
-      FD_BASE58_ENCODE_32_BYTES( program_id->uc, program_id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( new_program_id.uc, program_id_b58 );
       fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", program_id_b58 );
 
       break;
