@@ -139,7 +139,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
   ulong                       slot_duration  = bank->data->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->data->f.slot;
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             fork_idx    = bank->data->vote_stakes_fork_id;
 
   fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
@@ -207,8 +207,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
     /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L54 */
     total_stake += stake_t_2;
   }
-
-  fd_bank_vote_stakes_end_locking_modify( bank );
+  fd_vote_stakes_fork_iter_fini( vote_stakes );
 
   *total_stake_out = total_stake;
   *ts_ele_cnt_out  = ts_ele_cnt;

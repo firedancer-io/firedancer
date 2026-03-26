@@ -4,24 +4,24 @@
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_read( &bank->locks->lthash_lock[ bank->data->idx ] );
+  fd_rwlock_read( &bank->data->lthash_lock );
   return &bank->data->f.lthash;
 }
 
 void
 fd_bank_lthash_end_locking_query( fd_bank_t * bank ) {
-  fd_rwlock_unread( &bank->locks->lthash_lock[ bank->data->idx ] );
+  fd_rwlock_unread( &bank->data->lthash_lock );
 }
 
 fd_lthash_value_t *
 fd_bank_lthash_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_write( &bank->locks->lthash_lock[ bank->data->idx ] );
+  fd_rwlock_write( &bank->data->lthash_lock );
   return &bank->data->f.lthash;
 }
 
 void
 fd_bank_lthash_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->lthash_lock[ bank->data->idx ] );
+  fd_rwlock_unwrite( &bank->data->lthash_lock );
 }
 
 ulong
@@ -65,15 +65,9 @@ fd_banks_get_vote_stakes( fd_banks_data_t * banks_data ) {
 }
 
 fd_vote_stakes_t *
-fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank ) {
-  fd_rwlock_write( &bank->locks->vote_stakes_lock );
+fd_bank_vote_stakes( fd_bank_t const * bank ) {
   fd_banks_data_t * banks_data = fd_type_pun( (uchar *)bank->data - bank->data->banks_data_offset );
   return fd_banks_get_vote_stakes( banks_data );
-}
-
-void
-fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank ) {
-  fd_rwlock_unwrite( &bank->locks->vote_stakes_lock );
 }
 
 fd_stake_delegations_t *
@@ -1103,9 +1097,5 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
 void
 fd_banks_locks_init( fd_banks_locks_t * locks ) {
-  fd_rwlock_new( &locks->vote_stakes_lock );
-
-  for( ulong i=0UL; i<FD_BANKS_MAX_BANKS; i++ ) {
-    fd_rwlock_new( &locks->lthash_lock[i] );
-  }
+  (void)locks;
 }

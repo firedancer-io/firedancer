@@ -123,6 +123,8 @@ struct fd_vote_stakes {
 
   ushort max_fork_width;
   ushort root_idx;
+
+  fd_rwlock_t lock;
 };
 typedef struct fd_vote_stakes fd_vote_stakes_t;
 

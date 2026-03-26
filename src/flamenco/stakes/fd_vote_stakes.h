@@ -93,10 +93,11 @@
    because each key of the index needs to be a compound of
    the pubkey, stake_t_1, node_account_t_1, and epoch.
 
-   As an important note, the vote stakes object can be used globally
-   across different threads, but it is not safe to access concurrently.
-   The caller is responsible for ensuring that reads and writes are
-   properly synchronized.
+   All public APIs internally acquire and release a read-write lock
+   so the caller does not need to manage synchronization.  Read-only
+   operations (query, ele_cnt, get_root_idx) acquire a shared read
+   lock.  Mutating operations and the iterator acquire an exclusive
+   write lock.
 
    fd_vote_stakes is the Firedancer equivalent to the Agave client
    epoch stakes data structure. */
@@ -231,20 +232,20 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
    zero stake: they are treated as the same thing. */
 
 int
-fd_vote_stakes_query( fd_vote_stakes_t const * vote_stakes,
-                      ushort                   fork_idx,
-                      fd_pubkey_t const *      pubkey,
-                      ulong *                  stake_t_1_out_opt,
-                      ulong *                  stake_t_2_out_opt,
-                      fd_pubkey_t *            node_account_t_1_out_opt,
-                      fd_pubkey_t *            node_account_t_2_out_opt,
-                      uchar *                  commission_t_1_out_opt,
-                      uchar *                  commission_t_2_out_opt );
+fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
+                      ushort              fork_idx,
+                      fd_pubkey_t const * pubkey,
+                      ulong *             stake_t_1_out_opt,
+                      ulong *             stake_t_2_out_opt,
+                      fd_pubkey_t *       node_account_t_1_out_opt,
+                      fd_pubkey_t *       node_account_t_2_out_opt,
+                      uchar *             commission_t_1_out_opt,
+                      uchar *             commission_t_2_out_opt );
 
 int
-fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
-                             ushort                   fork_idx,
-                             fd_pubkey_t const *      pubkey );
+fd_vote_stakes_query_pubkey( fd_vote_stakes_t *  vote_stakes,
+                             ushort              fork_idx,
+                             fd_pubkey_t const * pubkey );
 
 /* fd_vote_stakes_query_t_1 and fd_vote_stakes_query_t_2 are shortcuts
    for querying the t_1 and t_2 stake for a given vote account in the
@@ -253,20 +254,20 @@ fd_vote_stakes_query_pubkey( fd_vote_stakes_t const * vote_stakes,
    node_account_out, and commission_out will be set. */
 
 int
-fd_vote_stakes_query_t_1( fd_vote_stakes_t const * vote_stakes,
-                          ushort                   fork_idx,
-                          fd_pubkey_t const *      pubkey,
-                          ulong *                  stake_out,
-                          fd_pubkey_t *            node_account_out,
-                          uchar *                  commission_out );
+fd_vote_stakes_query_t_1( fd_vote_stakes_t *  vote_stakes,
+                          ushort              fork_idx,
+                          fd_pubkey_t const * pubkey,
+                          ulong *             stake_out,
+                          fd_pubkey_t *       node_account_out,
+                          uchar *             commission_out );
 
 int
-fd_vote_stakes_query_t_2( fd_vote_stakes_t const * vote_stakes,
-                          ushort                   fork_idx,
-                          fd_pubkey_t const *      pubkey,
-                          ulong *                  stake_out,
-                          fd_pubkey_t *            node_account_out,
-                          uchar *                  commission_out );
+fd_vote_stakes_query_t_2( fd_vote_stakes_t *  vote_stakes,
+                          ushort              fork_idx,
+                          fd_pubkey_t const * pubkey,
+                          ulong *             stake_out,
+                          fd_pubkey_t *       node_account_out,
+                          uchar *             commission_out );
 
 /* fd_vote_stakes_ele_cnt returns the number of entries for a given
    fork. */
@@ -301,6 +302,10 @@ typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
    a valid initialized iterator.  fd_vote_stakes_fork_iter_next is
    called to advance the iterator.
 
+   fd_vote_stakes_fork_iter_init acquires a write lock on the vote
+   stakes.  The caller MUST call fd_vote_stakes_fork_iter_fini after
+   the iteration loop completes to release the lock.
+
    It is not safe to call any other vote stakes apis while an iteration
    is in progress.
 
@@ -311,6 +316,7 @@ typedef struct stakes_map_iter_t fd_vote_stakes_iter_t;
         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
      fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, &stake_t_1, &stake_t_2, &node_account_t_1, &node_account_t_2, &commission_t_1, &commission_t_2 );
    }
+   fd_vote_stakes_fork_iter_fini( vote_stakes );
 
    Under the hood, the vote stakes iterator is a wrapper of the map
    chain iterator.
@@ -343,6 +349,9 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
                               fd_pubkey_t *           node_account_t_2_out_opt,
                               uchar *                 commission_t_1_out_opt,
                               uchar *                 commission_t_2_out_opt );
+
+void
+fd_vote_stakes_fork_iter_fini( fd_vote_stakes_t * vote_stakes );
 
 FD_PROTOTYPES_END
 

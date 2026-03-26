@@ -252,7 +252,7 @@ test_env_create( test_env_t * env,
 
   fd_bank_top_votes_t_2_modify( env->bank );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( env->bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( env->bank );
   fd_vote_stakes_reset( vote_stakes );
   fd_pubkey_t pubkey = { .ul[0] = 1UL };
   add_vote_account( env, &pubkey, &pubkey );
@@ -264,7 +264,6 @@ test_env_create( test_env_t * env,
   FD_LOG_NOTICE(("fork idx %u", env->bank->data->vote_stakes_fork_id));
   ulong cnt = fd_vote_stakes_ele_cnt( vote_stakes, env->bank->data->vote_stakes_fork_id );
   FD_LOG_NOTICE(("cnt %lu", cnt));
-  fd_bank_vote_stakes_end_locking_modify( env->bank );
 
   fd_features_t features = {0};
   fd_features_disable_all( &features );

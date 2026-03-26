@@ -242,7 +242,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   bank->data->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   bank->data->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
 
   fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
@@ -318,8 +318,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
   }
-
-  fd_bank_vote_stakes_end_locking_modify( bank );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( bank, runtime_stack );

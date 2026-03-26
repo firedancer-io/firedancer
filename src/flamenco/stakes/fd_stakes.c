@@ -369,6 +369,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
       weights[ weights_cnt ].stake = stake_t_2;
       weights_cnt++;
     }
+    fd_vote_stakes_fork_iter_fini( vote_stakes );
   }
 
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
@@ -416,6 +417,7 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
       weights[ weights_cnt ].stake = stake_t_1;
       weights_cnt++;
     }
+    fd_vote_stakes_fork_iter_fini( vote_stakes );
   }
 
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
@@ -593,7 +595,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      not inserted into the vote stakes is if it didn't exist in the
      previous epoch and in the current one. */
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort parent_idx = bank->data->vote_stakes_fork_id;
   ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
   bank->data->vote_stakes_fork_id = child_idx;
@@ -651,8 +653,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         commission_t_1, commission_t_2,
         bank->data->f.epoch );
   }
-
-  fd_bank_vote_stakes_end_locking_modify( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */

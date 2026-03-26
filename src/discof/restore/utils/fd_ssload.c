@@ -223,7 +223,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      in fd_ssmanifest_parser.c. */
   bank->data->f.total_epoch_stake = manifest->epoch_stakes[1].total_stake;
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
 
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
@@ -290,8 +290,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         (uchar)elem->commission,
         bank->data->f.epoch );
   }
-
-  fd_bank_vote_stakes_end_locking_modify( bank );
 
   bank->data->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 }

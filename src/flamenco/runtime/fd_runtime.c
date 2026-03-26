@@ -192,7 +192,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
 
   update_next_leaders( bank, runtime_stack, vote_stakes );
 
@@ -257,8 +257,6 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   memcpy( runtime_stack->epoch_weights.id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
   runtime_stack->epoch_weights.id_weights_cnt      = staked_cnt;
   runtime_stack->epoch_weights.id_weights_excluded = excluded_stake;
-
-  fd_bank_vote_stakes_end_locking_modify( bank );
 }
 
 /******************************************************************************/
@@ -1724,9 +1722,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       stake_history,
       &new_rate_activation_epoch );
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_genesis_fini( vote_stakes );
-  fd_bank_vote_stakes_end_locking_modify( bank );
 
   bank->data->f.epoch = 0UL;
 

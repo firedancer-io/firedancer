@@ -13,7 +13,6 @@
 #include "../../ballet/lthash/fd_lthash.h"
 #include "fd_txncache_shmem.h"
 
-
 FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC     (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
@@ -277,6 +276,10 @@ struct fd_bank_data {
   long first_transaction_scheduled_nanos;
   long last_transaction_finished_nanos;
 
+  /* This field should only be accessed by the replay and executor
+     tiles. */
+  fd_rwlock_t lthash_lock;
+
   struct {
     fd_lthash_value_t                 lthash;
     fd_blockhashes_t                  block_hash_queue;
@@ -328,12 +331,7 @@ struct fd_bank_data {
 typedef struct fd_bank_data fd_bank_data_t;
 
 struct fd_banks_locks {
-  fd_rwlock_t vote_stakes_lock;
-
-  /* These locks are per bank and are used to atomically update their
-     corresponding fields in each bank.  The locks are indexed by the
-     bank index. */
-  fd_rwlock_t lthash_lock[ FD_BANKS_MAX_BANKS ];
+  uchar pad; /* placeholder; vote_stakes_lock moved into fd_vote_stakes_t */
 };
 typedef struct fd_banks_locks fd_banks_locks_t;
 
@@ -351,10 +349,7 @@ struct fd_banks_prune_cancel_info {
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 
 fd_vote_stakes_t *
-fd_bank_vote_stakes_locking_modify( fd_bank_t const * bank );
-
-void
-fd_bank_vote_stakes_end_locking_modify( fd_bank_t * bank );
+fd_bank_vote_stakes( fd_bank_t const * bank );
 
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank );
