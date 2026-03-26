@@ -898,9 +898,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
   /**********************************************************************/
 
-  fd_hash_t const * bank_hash = &bank->f.bank_hash;
-  FD_TEST( bank_hash );
-
   /* Must be last so we can measure completion time correctly, even
      though we could technically do this before the hash cmp and vote
      tower stuff. */
@@ -1033,9 +1030,6 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_banks_mark_bank_frozen( ctx->leader_bank );
   ctx->leader_bank->block_completed_nanos = fd_log_wallclock();
-
-  fd_hash_t const * bank_hash  = &ctx->leader_bank->f.bank_hash;
-  FD_TEST( bank_hash );
 
   publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */ );
 
