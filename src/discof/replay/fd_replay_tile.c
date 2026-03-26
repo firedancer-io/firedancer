@@ -2165,6 +2165,13 @@ after_credit( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx && advance_published_root( ctx ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
+
+
+    if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      return;
+    }
     return;
   }
 
@@ -2243,14 +2250,6 @@ after_credit( fd_replay_tile_t *  ctx,
     *opt_poll_in = 0;
     return;
   }
-
-
-  if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
 
   *charge_busy = replay( ctx, stem );
   *opt_poll_in = !*charge_busy;
