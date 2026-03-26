@@ -263,7 +263,7 @@ after_credit( fd_txsend_tile_t *  ctx,
         send_vote_to_leader( ctx, leader, ctx->vote_resend_payload, ctx->vote_resend_payload_sz );
       }
       ctx->vote_resend_cnt++;
-      if( ctx->vote_resend_cnt>=2 ) {
+      if( ctx->vote_resend_cnt>=4 ) {
         ctx->vote_resend_pending = 0;
       } else {
         ctx->vote_resend_next_ns = now + (long)25e6;
