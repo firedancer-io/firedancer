@@ -256,24 +256,6 @@ write_stake_config( fd_accdb_user_t *         accdb,
 /* Public API                                                         */
 /**********************************************************************/
 
-int
-fd_stakes_new_warmup_cooldown_rate_epoch(
-    fd_epoch_schedule_t const * epoch_schedule,
-    fd_features_t const *       features,
-    /* out */ ulong *           epoch,
-    int *                       err
-) {
-  *err = 0;
-
-  if( FD_UNLIKELY( !epoch_schedule ) ) {
-    *epoch = ULONG_MAX;
-    *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-    return 1;
-  }
-  *epoch = fd_slot_to_epoch( epoch_schedule, features->reduce_stake_warmup_cooldown, NULL );
-  return 1;
-}
-
 void
 fd_stakes_config_init( fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid ) {
@@ -732,19 +714,11 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 
-  int _err[1];
-  ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
-  ulong * new_rate_activation_epoch          = &new_warmup_cooldown_rate_epoch_val;
-  int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
-      &bank->data->f.epoch_schedule, &bank->data->f.features,
-      new_rate_activation_epoch, _err );
-  if( FD_UNLIKELY( !is_some ) ) new_rate_activation_epoch = NULL;
-
   /* Compute totals for the old delegation before any changes. */
   fd_stake_delegation_t    old_ele;
   fd_stake_history_entry_t old_entry = { 0UL, 0UL, 0UL };
   if( fd_stake_delegations_query( stake_delegations, bank->data->stake_delegations_fork_id, pubkey, &old_ele ) ) {
-    old_entry = fd_stakes_activating_and_deactivating( &old_ele, epoch, stake_history, new_rate_activation_epoch );
+    old_entry = fd_stakes_activating_and_deactivating( &old_ele, epoch, stake_history, &bank->data->f.warmup_cooldown_rate_epoch );
   }
 
   fd_stake_history_entry_t new_entry = { 0UL, 0UL, 0UL };
@@ -772,7 +746,7 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
       .warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_enum(
                                   stake_state->stake.stake.delegation.warmup_cooldown_rate ),
     };
-    new_entry = fd_stakes_activating_and_deactivating( &new_ele, epoch, stake_history, new_rate_activation_epoch );
+    new_entry = fd_stakes_activating_and_deactivating( &new_ele, epoch, stake_history, &bank->data->f.warmup_cooldown_rate_epoch );
     do_remove = 0;
   }
 
@@ -802,20 +776,12 @@ fd_stakes_init_totals( fd_bank_t *                    bank,
   ulong total_activating   = 0UL;
   ulong total_deactivating = 0UL;
 
-  int _err[1];
-  ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
-  ulong * new_rate_activation_epoch          = &new_warmup_cooldown_rate_epoch_val;
-  int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
-      &bank->data->f.epoch_schedule, &bank->data->f.features,
-      new_rate_activation_epoch, _err );
-  if( FD_UNLIKELY( !is_some ) ) new_rate_activation_epoch = NULL;
-
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
-    fd_stake_history_entry_t entry = fd_stakes_activating_and_deactivating( stake_delegation, epoch, stake_history, new_rate_activation_epoch );
+    fd_stake_history_entry_t entry = fd_stakes_activating_and_deactivating( stake_delegation, epoch, stake_history, &bank->data->f.warmup_cooldown_rate_epoch );
     total_effective    += entry.effective;
     total_activating   += entry.activating;
     total_deactivating += entry.deactivating;

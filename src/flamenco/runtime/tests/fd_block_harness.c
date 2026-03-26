@@ -291,6 +291,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
      from the parent slot */
   bank->data->f.epoch = fd_slot_to_epoch( &bank->data->f.epoch_schedule, parent_slot, NULL );
 
+  bank->data->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->data->f.epoch_schedule, parent_slot, NULL );
   /* Initialize total_effective/activating/deactivating_stake from the
      loaded stake delegations.  These are read by fd_stakes_activate_epoch
      at epoch boundary instead of re-scanning all delegations. */

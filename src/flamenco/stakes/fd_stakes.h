@@ -6,14 +6,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-int
-fd_stakes_new_warmup_cooldown_rate_epoch(
-    fd_epoch_schedule_t const * epoch_schedule,
-    fd_features_t const *       features,
-    /* out */ ulong *           epoch,
-    int *                       err
-);
-
 void
 fd_stakes_config_init( fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid );
