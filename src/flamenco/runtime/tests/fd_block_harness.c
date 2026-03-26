@@ -5,6 +5,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_runtime_stack.h"
 #include "../../stakes/fd_stake_types.h"
+#include "../../stakes/fd_stakes.h"
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
@@ -285,6 +286,11 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     /* Update the stake delegations cache for epoch T */
     fd_solfuzz_block_register_stake_delegation( accdb, xid, stake_delegations, &pubkey );
   }
+
+  /* Initialize total_effective/activating/deactivating_stake from the
+     loaded stake delegations.  These are read by fd_stakes_activate_epoch
+     at epoch boundary instead of re-scanning all delegations. */
+  fd_stakes_init_totals( bank, stake_delegations, accdb, xid );
 
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */
