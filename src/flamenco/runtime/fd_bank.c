@@ -151,7 +151,6 @@ fd_banks_root( fd_bank_t *  bank_l,
     return NULL;
   }
   bank_l->data  = bank_data;
-  bank_l->locks = banks->locks;
   return bank_l;
 }
 
@@ -162,7 +161,6 @@ fd_banks_bank_query( fd_bank_t *  bank_l,
   fd_bank_data_t * bank_data = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank_idx );
   if( FD_UNLIKELY( !(bank_data->flags&FD_BANK_FLAGS_INIT) ) ) return NULL;
   bank_l->data  = bank_data;
-  bank_l->locks = banks->locks;
   return bank_l;
 }
 
@@ -172,7 +170,6 @@ fd_banks_get_parent( fd_bank_t *  bank_l,
                      fd_bank_t *  bank ) {
   if( FD_UNLIKELY( bank->data->parent_idx==ULONG_MAX ) ) return NULL;
   bank_l->data  = fd_banks_pool_ele( fd_banks_get_bank_pool( banks->data ), bank->data->parent_idx );
-  bank_l->locks = banks->locks;
   return bank_l;
 }
 
@@ -386,17 +383,13 @@ fd_banks_join( fd_banks_t * banks_ljoin,
                void *       banks_data_mem,
                void *       banks_locks_mem ) {
   fd_banks_data_t *  banks_data  = (fd_banks_data_t *)banks_data_mem;
-  fd_banks_locks_t * banks_locks = (fd_banks_locks_t *)banks_locks_mem;
 
   if( FD_UNLIKELY( !banks_data ) ) {
     FD_LOG_WARNING(( "NULL banks data" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !banks_locks ) ) {
-    FD_LOG_WARNING(( "NULL banks locks" ));
-    return NULL;
-  }
+  (void)banks_locks_mem;
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)banks_data, fd_banks_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned banks" ));
@@ -472,7 +465,6 @@ fd_banks_join( fd_banks_t * banks_ljoin,
   }
 
   banks_ljoin->data  = banks_data;
-  banks_ljoin->locks = banks_locks;
 
   return banks_ljoin;
 }
@@ -516,7 +508,6 @@ fd_banks_init_bank( fd_bank_t *  bank_l,
   banks->data->root_idx = bank->idx;
 
   bank_l->data  = bank;
-  bank_l->locks = banks->locks;
   return bank_l;
 }
 
@@ -563,7 +554,6 @@ fd_banks_clone_from_parent( fd_bank_t *  bank_l,
 
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
 
-  bank_l->locks = banks->locks;
   bank_l->data  = child_bank;
   return bank_l;
 }
@@ -930,7 +920,6 @@ fd_banks_new_bank( fd_bank_t *  bank_l,
   child_bank->last_transaction_finished_nanos   = 0L;
 
   bank_l->data  = child_bank;
-  bank_l->locks = banks->locks;
   return bank_l;
 }
 
@@ -1095,9 +1084,4 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks->data );
   fd_vote_stakes_new( vote_stakes, max_vote_accounts, max_vote_accounts, banks->data->max_fork_width, 999UL );
-}
-
-void
-fd_banks_locks_init( fd_banks_locks_t * locks ) {
-  (void)locks;
 }

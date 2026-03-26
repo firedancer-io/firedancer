@@ -193,15 +193,9 @@ FD_PROTOTYPES_BEGIN
   To actually prune away any dead banks, the caller should call:
   fd_banks_prune_one_dead_bank( banks, cancel_info )
 
-  The locks and data used by an fd_bank_t or an fd_banks_t are stored as
-  separate objects.  The locks are stored in an fd_banks_locks_t struct
-  and the data is stored in an fd_banks_data_t struct for an fd_banks_t.
-  Each fd_bank_t uses a fd_bank_data_t struct to store its state and
-  fd_banks_locks_t to store the locks for the bank.  The reason for
-  splitting out the locks and data is to allow for more fine-grained
-  security isolation: this allows for the data for the banks to be
-  mapped in read-only to specific tiles while still being able to use
-  locks to access concurrent fields in the banks.
+  The data used by an fd_bank_t or an fd_banks_t is stored in an
+  fd_banks_data_t struct for an fd_banks_t.  Each fd_bank_t uses a
+  fd_bank_data_t struct to store its state.
 
   If the fields are not templatized, their accessor and modifier
   patterns vary and are documented below.
@@ -330,14 +324,8 @@ struct fd_bank_data {
 };
 typedef struct fd_bank_data fd_bank_data_t;
 
-struct fd_banks_locks {
-  uchar pad; /* placeholder; vote_stakes_lock moved into fd_vote_stakes_t */
-};
-typedef struct fd_banks_locks fd_banks_locks_t;
-
 struct fd_bank {
-  fd_bank_data_t *   data;
-  fd_banks_locks_t * locks;
+  fd_bank_data_t * data;
 };
 typedef struct fd_bank fd_bank_t;
 
@@ -414,8 +402,7 @@ struct fd_banks_data {
 typedef struct fd_banks_data fd_banks_data_t;
 
 struct fd_banks {
-  fd_banks_data_t *  data;
-  fd_banks_locks_t * locks;
+  fd_banks_data_t * data;
 };
 typedef struct fd_banks fd_banks_t;
 
@@ -552,14 +539,6 @@ fd_banks_footprint( ulong max_total_banks,
                     ulong max_stake_accounts,
                     ulong max_vote_accounts );
 
-
-/* fd_banks_locks_init() initializes the locks for the fd_banks_t
-   struct.  In practice, this initializes all of the locks used by the
-   underlying banks. */
-
-void
-fd_banks_locks_init( fd_banks_locks_t * locks );
-
 /* fd_banks_new() creates a new fd_banks_data_t struct.  This function
    lays out the memory for all of the constituent fd_bank_data_t structs
    and pools depending on the max_total_banks and the max_fork_width for
@@ -575,9 +554,10 @@ fd_banks_new( void * mem,
               ulong  seed );
 
 /* fd_banks_join() joins a new fd_banks_t struct.  It takes in a local
-   handle to an fd_banks_t struct along with a valid banks_data_mem and
-   banks_locks_mem.  It returns the local handle to the joined
-   fd_banks_t struct on success and NULL on failure (logs details). */
+   handle to an fd_banks_t struct along with a valid banks_data_mem.
+   banks_locks_mem is ignored (kept for API compatibility).  It returns
+   the local handle to the joined fd_banks_t struct on success and NULL
+   on failure (logs details). */
 
 fd_banks_t *
 fd_banks_join( fd_banks_t * banks_ljoin,

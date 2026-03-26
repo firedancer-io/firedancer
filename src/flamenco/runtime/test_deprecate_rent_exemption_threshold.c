@@ -224,11 +224,8 @@ test_env_create( test_env_t * env,
 
   fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
   FD_TEST( banks_data );
-  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), env->tag );
-  FD_TEST( banks_locks );
-  fd_banks_locks_init( banks_locks );
 
-  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ), banks_locks ) );
+  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ), NULL ) );
 
   FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
@@ -281,7 +278,6 @@ test_env_destroy( test_env_t * env ) {
 
   fd_wksp_free_laddr( env->runtime_stack );
   fd_wksp_free_laddr( env->banks->data );
-  fd_wksp_free_laddr( env->banks->locks );
 
   fd_accdb_admin_fini( env->accdb_admin );
   fd_accdb_user_fini( env->accdb );

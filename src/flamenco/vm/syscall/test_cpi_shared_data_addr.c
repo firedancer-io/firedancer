@@ -338,9 +338,7 @@ test_env_create( test_env_t * env,
   ulong max_fork_width  = 1UL;
   fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), TEST_WKSP_TAG );
   FD_TEST( banks_data );
-  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), TEST_WKSP_TAG );
-  fd_banks_locks_init( banks_locks );
-  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ), banks_locks ) );
+  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ), NULL ) );
   FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
 
   /* Account pool */
@@ -397,7 +395,7 @@ test_env_create( test_env_t * env,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( env->vm ) );
   FD_TEST( vm );
 
-  test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->bank->data, env->banks->locks, env->txn_out );
+  test_vm_minimal_exec_instr_ctx( env->instr_ctx, env->runtime, env->bank, env->bank->data, env->txn_out );
 
   features = &env->bank->data->f.features;
   fd_features_disable_all( features );
@@ -501,7 +499,6 @@ test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( env->runtime );
   fd_wksp_free_laddr( env->acc_pool_mem );
   fd_wksp_free_laddr( env->banks->data );
-  fd_wksp_free_laddr( env->banks->locks );
 
   fd_progcache_shmem_t * shpcache = NULL;
   fd_progcache_leave( env->progcache, &shpcache );

@@ -398,12 +398,9 @@ setup_instr_ctx( fixture_input_t const *      in,
   ulong banks_footprint = fd_banks_footprint( 1UL, 1UL, 2048UL, 2048UL );
   void * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, wksp_tag++ );
   FD_TEST( banks_data );
-  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag++ );
-  FD_TEST( banks_locks );
-  fd_banks_locks_init( banks_locks );
   fd_banks_t * banks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_t), sizeof(fd_banks_t), wksp_tag++ );
   FD_TEST( banks );
-  FD_TEST( fd_banks_join( banks, fd_banks_new( banks_data, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ), banks_locks ) );
+  FD_TEST( fd_banks_join( banks, fd_banks_new( banks_data, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ), NULL ) );
 
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag++ );
   FD_TEST( bank );
@@ -472,7 +469,6 @@ cleanup_instr_ctx( fixture_input_t const * in,
   }
   fd_wksp_free_laddr( runtime );
   fd_wksp_free_laddr( banks->data );
-  fd_wksp_free_laddr( banks->locks );
   fd_wksp_free_laddr( banks );
   fd_wksp_free_laddr( txn_out );
   fd_alloc_free( alloc, storage );
