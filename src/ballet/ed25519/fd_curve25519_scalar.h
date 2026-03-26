@@ -8,6 +8,7 @@
    to secret data) */
 
 #include "../fd_ballet_base.h"
+#include "../bigint/fd_uint256.h"
 
 static const uchar fd_curve25519_scalar_zero[ 32 ] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -75,12 +76,12 @@ fd_curve25519_scalar_validate( uchar const s[ 32 ] ) {
     ulong l1 = *(ulong *)(&fd_curve25519_scalar_minus_one[  8 ]);
     ulong l2 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 16 ]);
     ulong l3 = *(ulong *)(&fd_curve25519_scalar_minus_one[ 24 ]);
-    return (
-      (s3 < l3)
-      || ((s3 == l3) && (s2 < l2))
-      || ((s3 == l3) && (s2 == l2) && (s1 < l1))
-      || ((s3 == l3) && (s2 == l2) && (s1 == l1) && (s0 <= l0))
-    ) ? s : NULL;
+    ulong r; int b;
+    fd_ulong_sub_borrow( &r, &b, s0, l0, 1 );
+    fd_ulong_sub_borrow( &r, &b, s1, l1, b );
+    fd_ulong_sub_borrow( &r, &b, s2, l2, b );
+    fd_ulong_sub_borrow( &r, &b, s3, l3, b );
+    return b ? s : NULL;
   }
   return s;
 }
