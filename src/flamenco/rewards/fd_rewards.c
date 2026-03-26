@@ -960,9 +960,9 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
 
   fd_sysvar_cache_stake_history_leave_const( sysvar_cache, stake_history );
 
-  bank->data->f.total_effective_stake    = fd_ulong_sat_sub( bank->data->f.total_effective_stake,    old_e.effective    ) + new_e.effective;
-  bank->data->f.total_activating_stake   = fd_ulong_sat_sub( bank->data->f.total_activating_stake,   old_e.activating   ) + new_e.activating;
-  bank->data->f.total_deactivating_stake = fd_ulong_sat_sub( bank->data->f.total_deactivating_stake, old_e.deactivating ) + new_e.deactivating;
+  bank->data->f.total_effective_stake    = bank->data->f.total_effective_stake - old_e.effective + new_e.effective;
+  bank->data->f.total_activating_stake   = bank->data->f.total_activating_stake - old_e.activating + new_e.activating;
+  bank->data->f.total_deactivating_stake = bank->data->f.total_deactivating_stake - old_e.deactivating + new_e.deactivating;
 
 
   if( capture_ctx && capture_ctx->capture_solcap ) {

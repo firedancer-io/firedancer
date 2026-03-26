@@ -756,9 +756,9 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
 
   if( stake_history ) fd_sysvar_cache_stake_history_leave_const( sysvar_cache, stake_history );
 
-  bank->data->f.total_effective_stake    = fd_ulong_sat_sub( bank->data->f.total_effective_stake,    old_entry.effective    ) + new_entry.effective;
-  bank->data->f.total_activating_stake   = fd_ulong_sat_sub( bank->data->f.total_activating_stake,   old_entry.activating   ) + new_entry.activating;
-  bank->data->f.total_deactivating_stake = fd_ulong_sat_sub( bank->data->f.total_deactivating_stake, old_entry.deactivating ) + new_entry.deactivating;
+  bank->data->f.total_effective_stake    = bank->data->f.total_effective_stake - old_entry.effective + new_entry.effective;
+  bank->data->f.total_activating_stake   = bank->data->f.total_activating_stake - old_entry.activating + new_entry.activating;
+  bank->data->f.total_deactivating_stake = bank->data->f.total_deactivating_stake - old_entry.deactivating + new_entry.deactivating;
 }
 
 void
