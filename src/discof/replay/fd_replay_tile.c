@@ -2137,12 +2137,6 @@ after_credit( fd_replay_tile_t *  ctx,
               int *               charge_busy ) {
   if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
 
-  if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
   /* If we are leader, we can only unbecome the leader iff we have
      received the poh hash from the poh tile and block id from reasm.
      We have to do an additional check against the slot of the leader
@@ -2249,6 +2243,14 @@ after_credit( fd_replay_tile_t *  ctx,
     *opt_poll_in = 0;
     return;
   }
+
+
+  if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
 
   *charge_busy = replay( ctx, stem );
   *opt_poll_in = !*charge_busy;
