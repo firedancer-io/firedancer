@@ -287,14 +287,14 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_solfuzz_block_register_stake_delegation( accdb, xid, stake_delegations, &pubkey );
   }
 
+  /* Current epoch gets updated in process_new_epoch, so use the epoch
+     from the parent slot */
+  bank->data->f.epoch = fd_slot_to_epoch( &bank->data->f.epoch_schedule, parent_slot, NULL );
+
   /* Initialize total_effective/activating/deactivating_stake from the
      loaded stake delegations.  These are read by fd_stakes_activate_epoch
      at epoch boundary instead of re-scanning all delegations. */
   fd_stakes_init_totals( bank, stake_delegations, accdb, xid );
-
-  /* Current epoch gets updated in process_new_epoch, so use the epoch
-     from the parent slot */
-  bank->data->f.epoch = fd_slot_to_epoch( &bank->data->f.epoch_schedule, parent_slot, NULL );
 
   /* Finalize root fork.  Required before epoch boundary processing which
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */
