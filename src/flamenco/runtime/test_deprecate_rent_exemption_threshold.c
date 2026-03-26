@@ -353,7 +353,8 @@ process_slot( test_env_t * env,
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
 
-  env->xid = xid;
+  env->xid  = xid;
+  env->bank = new_bank;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( env->banks, env->bank, env->accdb, env->runtime_stack, NULL, &is_epoch_boundary );
