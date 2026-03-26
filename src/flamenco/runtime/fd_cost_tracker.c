@@ -42,7 +42,7 @@ fd_cost_tracker_align( void ) {
 
 FD_FN_CONST ulong
 fd_cost_tracker_footprint( void ) {
-  ulong map_chain_cnt = account_cost_map_chain_cnt_est( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
+  ulong map_chain_cnt = account_cost_map_chain_cnt_est( 10000 );
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l,  fd_cost_tracker_align(),  sizeof(cost_tracker_outer_t) );
@@ -65,7 +65,7 @@ fd_cost_tracker_new( void * shmem,
     return NULL;
   }
 
-  ulong map_chain_cnt = account_cost_map_chain_cnt_est( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
+  ulong map_chain_cnt = account_cost_map_chain_cnt_est( 10000 );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   cost_tracker_outer_t * cost_tracker = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_align(),  sizeof(cost_tracker_outer_t) );
