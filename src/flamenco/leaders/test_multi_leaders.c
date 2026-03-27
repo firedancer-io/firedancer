@@ -21,7 +21,6 @@ generate_stake_msg( uchar *      _buf,
   buf->staked_vote_cnt   = strlen(stakers);
   buf->staked_id_cnt     = 0UL;
   buf->excluded_id_stake = 0UL;
-  buf->vote_keyed_lsched = 0UL;
 
   fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( buf + 1 );
   ulong i = 0UL;
@@ -240,7 +239,6 @@ test_limits( void ) {
     buf->staked_vote_cnt        = 0UL;
     buf->staked_id_cnt          = 0UL;
     buf->excluded_id_stake      = 0UL;
-    buf->vote_keyed_lsched      = 0UL;
 
     fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( buf + 1 );
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
