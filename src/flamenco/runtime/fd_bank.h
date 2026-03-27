@@ -292,10 +292,6 @@ struct fd_bank {
     fd_inflation_t                    inflation;
     ulong                             cluster_type;
     ulong                             total_epoch_stake;
-    ulong                             total_effective_stake;
-    ulong                             total_activating_stake;
-    ulong                             total_deactivating_stake;
-    ulong                             warmup_cooldown_rate_epoch; /* epoch when reduce_stake_warmup_cooldown */
     ulong                             block_height;
     ulong                             execution_fees;
     ulong                             priority_fees;

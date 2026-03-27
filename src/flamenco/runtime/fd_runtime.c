@@ -636,17 +636,23 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   fd_compute_and_apply_new_feature_activations( bank, accdb, xid, runtime_stack, capture_ctx );
 
-  /* Update the cached warmup/cooldown rate epoch now that features may
-     have changed (reduce_stake_warmup_cooldown may have just activated). */
-  bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule,
-                                                         bank->f.features.reduce_stake_warmup_cooldown,
-                                                         NULL );
+  /* Get the new rate activation epoch */
+  int _err[1];
+  ulong   new_rate_activation_epoch_val = 0UL;
+  ulong * new_rate_activation_epoch     = &new_rate_activation_epoch_val;
+  int is_some = fd_stakes_new_warmup_cooldown_rate_epoch(
+      &bank->f.epoch_schedule,
+      &bank->f.features,
+      new_rate_activation_epoch,
+      _err );
+  if( FD_UNLIKELY( !is_some ) ) {
+    new_rate_activation_epoch = NULL;
+  }
 
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
-  fd_stakes_activate_epoch( bank, runtime_stack, accdb, xid, capture_ctx, stake_delegations,
-                            &bank->f.warmup_cooldown_rate_epoch );
+  fd_stakes_activate_epoch( bank, runtime_stack, accdb, xid, capture_ctx, stake_delegations, new_rate_activation_epoch );
 
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */

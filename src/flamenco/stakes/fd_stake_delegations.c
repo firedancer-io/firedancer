@@ -314,34 +314,6 @@ fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations ) {
   return root_pool_used( get_root_pool( stake_delegations ) );
 }
 
-int
-fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
-                            ushort                         fork_idx,
-                            fd_pubkey_t const *            stake_account,
-                            fd_stake_delegation_t *        out ) {
-  if( FD_LIKELY( fork_idx!=USHORT_MAX ) ) {
-    fd_stake_delegation_t const * delta_pool = get_delta_pool( stake_delegations );
-    fork_dlist_t const *          dlist      = get_fork_dlist( stake_delegations, fork_idx );
-    for( fork_dlist_iter_t iter = fork_dlist_iter_rev_init( dlist, delta_pool );
-         !fork_dlist_iter_done( iter, dlist, delta_pool );
-         iter = fork_dlist_iter_rev_next( iter, dlist, delta_pool ) ) {
-      fd_stake_delegation_t const * ele = fork_dlist_iter_ele_const( iter, dlist, delta_pool );
-      if( FD_UNLIKELY( fd_pubkey_eq( &ele->stake_account, stake_account ) ) ) {
-        if( ele->is_tombstone ) return 0;
-        *out = *ele;
-        return 1;
-      }
-    }
-  }
-
-  fd_stake_delegation_t const * root_pool = get_root_pool( stake_delegations );
-  root_map_t const *            map       = get_root_map( stake_delegations );
-  fd_stake_delegation_t const * ele       = root_map_ele_query_const( map, stake_account, NULL, root_pool );
-  if( FD_UNLIKELY( !ele ) ) return 0;
-  *out = *ele;
-  return 1;
-}
-
 /* Fork-aware delta operations */
 
 ushort
