@@ -339,10 +339,16 @@ send_vote_to_leader( fd_txsend_tile_t *  ctx,
 
   for( ulong i=0UL; i<2UL; i++ ) {
     fd_quic_conn_t * conn = peer->quic_conns[ i ];
-    if( FD_UNLIKELY( !conn ) ) continue;
+    if( FD_UNLIKELY( !conn ) ) {
+      FD_LOG_DEBUG(("no conn"));
+      continue;
+    }
 
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
-    if( FD_UNLIKELY( !stream ) ) continue;
+    if( FD_UNLIKELY( !stream ) ) {
+      FD_LOG_DEBUG(("no stream"));
+      continue;
+    }
 
     fd_quic_stream_send( stream, vote_payload, vote_payload_sz, 1 );
   }
@@ -461,6 +467,18 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
     FD_TEST( leader );
     send_vote_to_leader( ctx, leader, payload, slot_done->vote_txn_sz );
   }
+
+  fd_pubkey_t const * leader0 = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot_done->vote_slot+1UL + 0*FD_EPOCH_SLOTS_PER_ROTATION);
+  fd_pubkey_t const * leader1 = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot_done->vote_slot+1UL + 1*FD_EPOCH_SLOTS_PER_ROTATION);
+  fd_pubkey_t const * leader2 = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, slot_done->vote_slot+1UL + 2*FD_EPOCH_SLOTS_PER_ROTATION);
+  FD_BASE58_ENCODE_32_BYTES( leader0->uc, leader0str );
+  FD_BASE58_ENCODE_32_BYTES( leader1->uc, leader1str );
+  FD_BASE58_ENCODE_32_BYTES( leader2->uc, leader2str );
+  FD_LOG_DEBUG(("sending vote for slot %lu to leaders %s, %s, %s",
+                slot_done->vote_slot,
+                leader0str,
+                leader1str,
+                leader2str));
 
   ulong msg_sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
   fd_stem_publish( stem, ctx->txsend_out->idx, 1UL, ctx->txsend_out->chunk, msg_sz, 0UL, 0, 0 );
