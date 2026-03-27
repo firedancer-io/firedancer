@@ -389,6 +389,10 @@ struct fd_topo_tile {
     } metric;
 
     struct {
+      int is_voting;
+    } diag;
+
+    struct {
       ulong fec_max;
 
       ulong txncache_obj_id;

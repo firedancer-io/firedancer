@@ -13,10 +13,24 @@
 
 #define REPORT_INTERVAL_MILLIS (100L)
 
+#define FD_DIAG_HEALTH_UNHEALTHY (0UL)
+#define FD_DIAG_HEALTH_HEALTHY   (1UL)
+#define FD_DIAG_HEALTH_DISABLED  (2UL)
+
 struct fd_diag_tile {
   long next_report_nanos;
 
   ulong tile_cnt;
+  int is_voting;
+
+  struct {
+    ulong bundle_tile_idx[ FD_TILE_MAX ];
+    ulong bundle_cnt;
+    ulong shred_tile_idx[ FD_TILE_MAX ];
+    ulong shred_cnt;
+    ulong tower_idx;
+    ulong replay_idx;
+  } tiles;
 
   ulong starttime_nanos[ FD_TILE_MAX ];
   long  first_seen_died[ FD_TILE_MAX ];
@@ -25,6 +39,20 @@ struct fd_diag_tile {
   int sched_fds[ FD_TILE_MAX ];
 
   volatile ulong * metrics[ FD_TILE_MAX ];
+
+  struct {
+    ulong prev_vote_slot;
+    long  vote_slot_changed_ns;
+    ulong prev_reset_slot;
+    long  reset_slot_changed_ns;
+    ulong prev_turbine_slot;
+    long  turbine_slot_changed_ns;
+
+    ulong snapshot_turbine_bytes;
+    ulong snapshot_repair_bytes;
+    long  byte_snapshot_ns;
+    int   repair_outpacing;
+  } check_engine;
 };
 
 typedef struct fd_diag_tile fd_diag_tile_t;
@@ -192,6 +220,99 @@ read_sched_file( int              fd,
 }
 
 static void
+check_engine_metric( fd_diag_tile_t * ctx, long now ) {
+  static ulong const vote_distance_threshold    = 150UL;
+  static long  const vote_stall_threshold_ns    = 60L*1000L*1000L*1000L;
+  static ulong const replay_distance_threshold  = 12UL;
+  static long  const replay_stall_threshold_ns  = 12L*1000L*1000L*1000L;
+  static long  const turbine_stall_threshold_ns = 12L*1000L*1000L*1000L;
+  static long  const turbine_byte_cmp_window_ns = 12L*1000L*1000L*1000L;
+
+  ulong bundle_cnt    = ctx->tiles.bundle_cnt;
+  ulong bundle_health = fd_ulong_if( bundle_cnt>0UL, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
+  if( FD_LIKELY( bundle_cnt ) ) {
+    int any_connected = 0;
+    for( ulong i=0UL; i<bundle_cnt; i++ ) {
+      volatile ulong * m = ctx->metrics[ ctx->tiles.bundle_tile_idx[ i ] ];
+      if( FD_LIKELY( m[ FD_METRICS_GAUGE_BUNDLE_CONNECTED_OFF ]==1UL ) ) any_connected = 1;
+    }
+    bundle_health = fd_ulong_if( any_connected, FD_DIAG_HEALTH_HEALTHY, FD_DIAG_HEALTH_UNHEALTHY );
+  }
+
+  ulong tower_idx   = ctx->tiles.tower_idx;
+  ulong vote_health = fd_ulong_if( ctx->is_voting && tower_idx!=ULONG_MAX, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
+  if( FD_LIKELY( ctx->is_voting && tower_idx!=ULONG_MAX && ctx->metrics[ tower_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]==1UL ) ) {
+    volatile ulong * m = ctx->metrics[ tower_idx ];
+    ulong vote_slot    = m[ FD_METRICS_GAUGE_TOWER_VOTE_SLOT_OFF ];
+    ulong replay_slot  = m[ FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_OFF ];
+    int bad;
+    if( FD_UNLIKELY( vote_slot==ULONG_MAX || replay_slot==0UL ) ) {
+      bad = 1;
+    } else {
+      if( FD_UNLIKELY( vote_slot!=ctx->check_engine.prev_vote_slot ) ) {
+        ctx->check_engine.prev_vote_slot       = vote_slot;
+        ctx->check_engine.vote_slot_changed_ns = now;
+      }
+      bad = (replay_slot>vote_slot && replay_slot-vote_slot>vote_distance_threshold) ||
+            (now-ctx->check_engine.vote_slot_changed_ns>vote_stall_threshold_ns);
+    }
+    vote_health = fd_ulong_if( bad, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_HEALTHY );
+  }
+
+  ulong replay_idx     = ctx->tiles.replay_idx;
+  int   replay_running = replay_idx!=ULONG_MAX && ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]==1UL;
+  ulong replay_health  = fd_ulong_if( replay_idx!=ULONG_MAX, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
+  if( FD_LIKELY( replay_running ) ) {
+    volatile ulong * m = ctx->metrics[ replay_idx ];
+    ulong turbine_slot = m[ FD_METRICS_GAUGE_REPLAY_REASM_LATEST_SLOT_OFF ];
+    ulong reset_slot   = m[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
+    if( FD_UNLIKELY( reset_slot!=ctx->check_engine.prev_reset_slot ) ) {
+      ctx->check_engine.prev_reset_slot       = reset_slot;
+      ctx->check_engine.reset_slot_changed_ns = now;
+    }
+    int bad = (turbine_slot==0UL) || (reset_slot==0UL) || ((turbine_slot>reset_slot) && (turbine_slot-reset_slot>replay_distance_threshold)) || (now-ctx->check_engine.reset_slot_changed_ns>replay_stall_threshold_ns);
+    replay_health = fd_ulong_if( bad, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_HEALTHY );
+  }
+
+  ulong shred_cnt      = ctx->tiles.shred_cnt;
+  ulong turbine_health = fd_ulong_if( replay_idx!=ULONG_MAX && shred_cnt>0UL, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
+  if( FD_LIKELY( replay_running && shred_cnt ) ) {
+    int all_shred_running = 1;
+    ulong cur_turbine_bytes = 0UL, cur_repair_bytes = 0UL;
+    for( ulong i=0UL; i<shred_cnt; i++ ) {
+      volatile ulong * sm = ctx->metrics[ ctx->tiles.shred_tile_idx[ i ] ];
+      cur_turbine_bytes += sm[ FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_OFF ];
+      cur_repair_bytes  += sm[ FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_OFF ];
+      if( FD_UNLIKELY( sm[ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
+        all_shred_running = 0;
+        break;
+      }
+    }
+    if( FD_LIKELY( all_shred_running ) ) {
+      ulong turbine_slot = ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_REPLAY_REASM_LATEST_SLOT_OFF ];
+      if( FD_UNLIKELY( turbine_slot!=ctx->check_engine.prev_turbine_slot ) ) {
+        ctx->check_engine.prev_turbine_slot       = turbine_slot;
+        ctx->check_engine.turbine_slot_changed_ns = now;
+      }
+      if( FD_UNLIKELY( now-ctx->check_engine.byte_snapshot_ns>=turbine_byte_cmp_window_ns ) ) {
+        ctx->check_engine.repair_outpacing       = (cur_repair_bytes-ctx->check_engine.snapshot_repair_bytes)>(cur_turbine_bytes-ctx->check_engine.snapshot_turbine_bytes);
+        ctx->check_engine.snapshot_turbine_bytes = cur_turbine_bytes;
+        ctx->check_engine.snapshot_repair_bytes  = cur_repair_bytes;
+        ctx->check_engine.byte_snapshot_ns       = now;
+      }
+
+      int bad = (turbine_slot==0UL) || (now-ctx->check_engine.turbine_slot_changed_ns>turbine_stall_threshold_ns) || ctx->check_engine.repair_outpacing;
+      turbine_health = fd_ulong_if( bad, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_HEALTHY );
+    }
+  }
+
+  FD_MGAUGE_SET( DIAG, BUNDLE_HEALTH,  bundle_health  );
+  FD_MGAUGE_SET( DIAG, VOTE_HEALTH,    vote_health    );
+  FD_MGAUGE_SET( DIAG, REPLAY_HEALTH,  replay_health  );
+  FD_MGAUGE_SET( DIAG, TURBINE_HEALTH, turbine_health );
+}
+
+static void
 before_credit( fd_diag_tile_t *    ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
@@ -260,6 +381,8 @@ before_credit( fd_diag_tile_t *    ctx,
       ctx->first_seen_died[ i ] = LONG_MAX;
     }
   }
+
+  check_engine_metric( ctx, now );
 }
 
 static void
@@ -383,6 +506,23 @@ unprivileged_init( fd_topo_t *      topo,
       if( FD_UNLIKELY( died ) ) ctx->stat_fds[ i ] = -1;
     }
   }
+
+  memset( &ctx->check_engine, 0, sizeof(ctx->check_engine) );
+
+  ctx->tiles.bundle_cnt = fd_topo_tile_name_cnt( topo, "bundle" );
+  for( ulong i=0UL; i<ctx->tiles.bundle_cnt; i++ ) ctx->tiles.bundle_tile_idx[ i ] = fd_topo_find_tile( topo, "bundle", i );
+  ctx->tiles.shred_cnt = fd_topo_tile_name_cnt( topo, "shred" );
+  for( ulong i=0UL; i<ctx->tiles.shred_cnt; i++ ) ctx->tiles.shred_tile_idx[ i ] = fd_topo_find_tile( topo, "shred", i );
+  ctx->tiles.tower_idx  = fd_topo_find_tile( topo, "tower",  0UL );
+  ctx->tiles.replay_idx = fd_topo_find_tile( topo, "replay", 0UL );
+
+  long now = fd_log_wallclock();
+  ctx->is_voting = tile->diag.is_voting;
+  ctx->check_engine.vote_slot_changed_ns = now;
+  ctx->check_engine.reset_slot_changed_ns = now;
+  ctx->check_engine.turbine_slot_changed_ns = now;
+  ctx->check_engine.byte_snapshot_ns = now;
+
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

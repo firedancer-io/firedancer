@@ -1787,6 +1787,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "diag" ) ) ) {
+    tile->diag.is_voting = strcmp( config->paths.vote_account, "" );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
 
