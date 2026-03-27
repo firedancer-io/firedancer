@@ -846,6 +846,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   fd_tower_out_t out = fd_tower_vote_and_reset( ctx->tower, ctx->tower_blocks, ctx->tower_lockos, ctx->tower_stakes, ctx->tower_voters, ctx->ghost, ctx->votes );
 
+  fd_hash_t newr_block_id = out.root_block_id;
+
   /* Update forks if there is a vote slot. */
 
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) {
@@ -900,7 +902,12 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
        frags for intermediate slots we couldn't vote for.  2. publish
        the new root to ghost. */
 
+    /* Prefer tower's root id (confirmed/voted) when available in
+       ghost; else use replayed id. */
+
     fd_ghost_blk_t * newr = fd_ghost_query( ctx->ghost, &out.root_block_id );
+    if( FD_UNLIKELY( !newr ) ) newr = fd_ghost_query( ctx->ghost, &newr_tower_blk->replayed_block_id );
+    FD_TEST( newr );
     fd_ghost_blk_t * oldr = fd_ghost_root( ctx->ghost );
 
     /* It's possible our new root skips intermediate slot(s) between our
@@ -918,6 +925,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     /* Update the new root. */
 
     ctx->root_slot = out.root_slot;
+    newr_block_id = newr->id;
   }
 
   /* Publish a slot_done frag to tower_out. */
@@ -929,7 +937,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   msg->reset_slot            = out.reset_slot;
   msg->reset_block_id        = out.reset_block_id;
   msg->root_slot             = out.root_slot;
-  msg->root_block_id         = out.root_block_id;
+  msg->root_block_id         = newr_block_id;
   msg->replay_bank_idx       = slot_completed->bank_idx;
   msg->vote_acct_bal         = our_vote_acct_bal;
 
