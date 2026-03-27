@@ -572,10 +572,14 @@ during_frag( fd_shred_ctx_t * ctx,
       }
 
       ctx->pending_batch.slot = target_slot;
+      /* We want to send out some shreds immediately when we start a new
+         slot to help with leader targeting. */
+      int new_slot = 0;
       if( FD_UNLIKELY( target_slot!=ctx->slot )) {
         /* Reset batch count if we are in a new slot */
         ctx->batch_cnt = 0UL;
         ctx->slot      = target_slot;
+        new_slot       = 1;
 
         /* At the beginning of a new slot, prepare chained_merkle_root.
            chained_merkle_root is initialized at the block_id of the parent
@@ -644,9 +648,10 @@ during_frag( fd_shred_ctx_t * ctx,
          batch is closed now, shredded, and a new batch is started
          with the incoming microblock.  If false, no shredding takes
          place, and the microblock is added to the current batch. */
+      int forced_end_batch         = entry_meta->block_complete | new_slot;
       int batch_would_exceed_wmark = ( ctx->pending_batch.pos + entry_sz ) > pending_batch_wmark;
-      int include_in_current_batch = entry_meta->block_complete | ( !batch_would_exceed_wmark );
-      int process_current_batch    = entry_meta->block_complete | batch_would_exceed_wmark;
+      int include_in_current_batch = forced_end_batch | ( !batch_would_exceed_wmark );
+      int process_current_batch    = forced_end_batch | batch_would_exceed_wmark;
       int init_new_batch           = !include_in_current_batch;
 
       if( FD_LIKELY( include_in_current_batch ) ) {
