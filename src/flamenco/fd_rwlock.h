@@ -20,7 +20,7 @@ typedef struct fd_rwlock fd_rwlock_t;
 static inline fd_rwlock_t *
 fd_rwlock_new( fd_rwlock_t * lock ) {
   lock->value = 0;
-  return 0;
+  return lock;
 }
 
 static inline void

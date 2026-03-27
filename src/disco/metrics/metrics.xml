@@ -755,6 +755,22 @@ metric introduced.
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<tile name="accdb">
+    <gauge name="AccountsTotal" summary="Total number of accounts currently in the account database" />
+    <gauge name="AccountsCapacity" summary="Total capacity of accounts that can be stored in the account database" />
+    <counter name="BytesRead" summary="Total number of bytes read from the account database" />
+    <counter name="BytesWritten" summary="Total number of bytes written to the account database" />
+    <counter name="AccountsRead" summary="Total number of accounts read from the account database" />
+    <counter name="AccountsWritten" summary="Total number of accounts written to the account database" />
+    <counter name="AccountsRelocated" summary="Total number of accounts moved in the account database during compaction" />
+    <gauge name="DiskAllocatedBytes" summary="Total allocated size of the account database on disk" />
+    <gauge name="DiskUsedBytes" summary="Total size of the account database on disk that is currently used" />
+    <gauge name="InCompaction" summary="1 if a compaction is currently in progress, 0 if not" />
+    <counter name="CompactionsRequested" summary="Total number of compactions requested on the account database" />
+    <counter name="CompactionsCompleted" summary="Total number of compactions fully completed on the account database, less than or equal to the requested amount" />
+    <counter name="AccountsRelocatedBytes" summary="Total number of bytes moved in the account database during compaction" />
+</tile>
+
 <enum name="RootPhase">
     <int value="0" name="Db" label="Waiting on database server" />
     <int value="1" name="Copy" label="Copying account data" />
@@ -1310,25 +1326,5 @@ metric introduced.
     <int value="1" name="IoCache" label="I/O layer cache" />
     <int value="2" name="File" label="File access" />
 </enum>
-
-<tile name="accdb">
-    <!-- user friendly metrics -->
-    <gauge name="Accounts" summary="Current number of accounts" />
-    <counter name="ReadOps" enum="StorageType" summary="Total number of read operations" />
-    <counter name="ReadBytes" enum="StorageType" summary="Total number of bytes read" />
-    <counter name="WriteOps" enum="StorageType" summary="Total number of write operations" />
-    <counter name="WriteBytes" enum="StorageType" summary="Total number of bytes written" />
-    <gauge name="FileCapacityBytes" summary="Account database file capacity in bytes" />
-    <gauge name="FileUsedBytes" summary="Current number of bytes used in account database file" />
-
-    <!-- developer metrics -->
-    <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
-    <counter name="RequestBatches" summary="Number of request batches processed" />
-    <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
-    <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
-    <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
-    <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
-    <gauge name="AccountIndexRemainingFree" summary="Remaining free slots in the account database index (validator crashes when this number reaches zero)" />
-</tile>
 
 </metrics>

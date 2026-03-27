@@ -201,6 +201,27 @@
 
      int mypool_release( mypool_t * join, myele_t * ele, int blocking );
 
+     // mypool_release_chain splices a singly-linked chain of elements
+     // back into the mypool free stack in a single CAS.  head is a
+     // pointer to the first element of the chain and tail is a pointer
+     // to the last.  The chain must be linked via POOL_NEXT (i.e.
+     // head->next -> ... -> tail).  tail's next pointer will be
+     // overwritten to point at the current stack top.  Assumes join is
+     // a current local join, head and tail are valid elements in the
+     // element store, the chain is non-empty, and none of the elements
+     // are currently in the mypool.  Returns FD_POOL_SUCCESS on success
+     // and an FD_POOL_ERR code on failure.  Reasons for failure:
+     //
+     // FD_POOL_ERR_INVAL: head or tail does not point to an element in
+     // mypool's element store.
+     //
+     // FD_POOL_ERR_AGAIN: the mypool was locked at some point during
+     // the call.  Never returned for a blocking call.
+     //
+     // FD_POOL_ERR_CORRUPT: memory corruption was detected.
+
+     int mypool_release_chain( mypool_t * join, myele_t * head, myele_t * tail, int blocking );
+
      // mypool_is_locked returns whether or not a mypool is locked.
      // Assumes join is a current local join.
 
@@ -541,6 +562,8 @@ POOL_STATIC POOL_ELE_T * POOL_(acquire)( POOL_(t) * join, POOL_ELE_T * sentinel,
 
 POOL_STATIC int POOL_(release)( POOL_(t) * join, POOL_ELE_T * ele, int blocking );
 
+POOL_STATIC int POOL_(release_chain)( POOL_(t) * join, POOL_ELE_T * head, POOL_ELE_T * tail, int blocking );
+
 POOL_STATIC int POOL_(is_empty)( POOL_(t) * join );
 
 POOL_STATIC int POOL_(lock)( POOL_(t) * join, int blocking );
@@ -842,6 +865,58 @@ POOL_(release)( POOL_(t) *   join,
       ele->POOL_NEXT = POOL_(private_cidx)( ele_nxt );
 
       ulong new_ver_top = POOL_(private_vidx)( ver+2UL, ele_idx );
+
+      if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) ) break; /* opt for low contention */
+
+    } else if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
+
+      err = FD_POOL_ERR_AGAIN;
+      break;
+
+    }
+
+    FD_SPIN_PAUSE();
+  }
+
+  FD_COMPILER_MFENCE();
+
+  return err;
+}
+
+POOL_STATIC int
+POOL_(release_chain)( POOL_(t) *   join,
+                      POOL_ELE_T * head,
+                      POOL_ELE_T * tail,
+                      int          blocking ) {
+  ulong            ele_max = join->ele_max;
+  ulong volatile * _v      = (ulong volatile *)&join->pool->ver_top;
+
+  ulong head_idx = (ulong)(head - join->ele);
+  if( FD_UNLIKELY( head_idx>=ele_max ) ) return FD_POOL_ERR_INVAL;
+
+  ulong tail_idx = (ulong)(tail - join->ele);
+  if( FD_UNLIKELY( tail_idx>=ele_max ) ) return FD_POOL_ERR_INVAL;
+
+  int err = FD_POOL_SUCCESS;
+
+  FD_COMPILER_MFENCE();
+
+  for(;;) {
+    ulong ver_top = *_v;
+
+    ulong ver     = POOL_(private_vidx_ver)( ver_top );
+    ulong ele_nxt = POOL_(private_vidx_idx)( ver_top );
+
+    if( FD_LIKELY( !(ver & 1UL) ) ) { /* opt for unlocked */
+
+      if( FD_UNLIKELY( (ele_nxt>=ele_max) & (!POOL_(idx_is_null)( ele_nxt )) ) ) { /* opt for not corrupt */
+        err = FD_POOL_ERR_CORRUPT;
+        break;
+      }
+
+      tail->POOL_NEXT = POOL_(private_cidx)( ele_nxt );
+
+      ulong new_ver_top = POOL_(private_vidx)( ver+2UL, head_idx );
 
       if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) ) break; /* opt for low contention */
 

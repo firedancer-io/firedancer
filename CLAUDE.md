@@ -7,6 +7,9 @@ This repo contains two validator clients:
 - **Firedancer** — A fully C-based Solana validator client.
 - **Frankendancer** — A hybrid validator that uses an FFI shim to call out to the `agave/` Rust submodule for some functions.
 
+Firedancer only supports x64 on Linux, other targets are not correct for
+example ARM due to TSO assumptions.
+
 ## Topologies
 
 - **Firedancer topology:** `src/app/firedancer/topology.c`
