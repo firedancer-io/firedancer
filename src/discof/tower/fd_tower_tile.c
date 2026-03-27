@@ -322,9 +322,12 @@ confirm_block( fd_tower_tile_t * ctx,
       votes_blk->flags = fd_uchar_set_bit( votes_blk->flags, i+4 );
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 1, .slot = votes_blk->key.slot, .block_id = votes_blk->key.block_id } } } );
 
+      /* If we have a tower_blk for the slot, but not a ghost blk, this
+         implies we replayed one version of the slot that is not the
+         same as the one getting confirmed. */
+
       if( FD_LIKELY( tower_blk ) ) {
-        /* implies we replayed one version of the slot that is not the
-           duplicate confirmed version */
+        FD_TEST( 0!=memcmp( &tower_blk->replayed_block_id, &votes_blk->key.block_id, sizeof(fd_hash_t) ) );
         tower_blk->confirmed          = 1;
         tower_blk->confirmed_block_id = votes_blk->key.block_id;
       }
