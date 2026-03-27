@@ -1000,7 +1000,7 @@ dynamic_port_range = "8900-9000"
         # the correct queue(s).  The queue setup and initialization has the
         # following options:
         #
-        # "simple" (default)
+        # "simple"
         #   Reduces the total queue count to equal the number of net tiles.
         #   All packets (both interesting to Firedancer and not) are sharded
         #   amongst these queues.  Simple, reliable, and works everywhere
@@ -1014,10 +1014,10 @@ dynamic_port_range = "8900-9000"
         #   queues based on lowest bits of source address.  This mode
         #   may not work with some network device setups.
         #
-        # "auto"
+        # "auto" (default)
         #   Attempts to run in "dedicated" mode but automatically falls
         #   back to "simple" mode if necessary.
-        rss_queue_mode = "simple"
+        rss_queue_mode = "auto"
 
         # Enable native network bonding support.
         #
