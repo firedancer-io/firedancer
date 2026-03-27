@@ -1,8 +1,9 @@
 #include "fd_tower_lockos.h"
+#include "fd_tower.h"
 #include "fd_tower_serdes.h"
 
 void
-mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_voters_t * out ) {
+mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_voters_t * out, fd_tower_t * tower_mem ) {
   fd_vote_acc_t voter = {
     .kind = FD_VOTE_ACC_V3,
     .v3 = {
@@ -14,8 +15,12 @@ mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_
     }
   };
 
-  memcpy( out->data, &voter, sizeof(fd_vote_acc_t) );
-  out->stake = stake;
+  fd_tower_remove_all( tower_mem );
+  ulong root;
+  fd_tower_from_vote_acc( tower_mem, &root, (uchar const *)&voter );
+  out->tower    = tower_mem;
+  out->root     = root;
+  out->stake    = stake;
   out->vote_acc = *pubkey;
 }
 
@@ -24,15 +29,18 @@ test_lockos( fd_wksp_t * wksp ) {
   ulong slot_max    = 64;
   ulong voter_max   = 16;
 
-  void *              lockos_mem = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
-  fd_tower_lockos_t * lockos     = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
+  void *              lockos_mem    = fd_wksp_alloc_laddr( wksp, fd_tower_lockos_align(), fd_tower_lockos_footprint( slot_max, voter_max ), 1UL );
+  fd_tower_lockos_t * lockos        = fd_tower_lockos_join( fd_tower_lockos_new( lockos_mem, slot_max, voter_max, 0UL ) );
+
+  uchar __attribute__((aligned(FD_TOWER_ALIGN))) mock_tower_mem[ FD_TOWER_FOOTPRINT ];
+  fd_tower_t * mock_tower = fd_tower_join( fd_tower_new( mock_tower_mem ) );
 
   fd_tower_voters_t acct;
   ulong fork_slot = 1;
   ulong end_intervals[31];
   for( ulong i = 1; i < 32; i++ ) {
     ulong vote_slot = 50 - (i - 1);
-    mock_vote_acc( &(fd_hash_t){.ul = {1}}, 100, vote_slot, (uint)i, &acct );
+    mock_vote_acc( &(fd_hash_t){.ul = {1}}, 100, vote_slot, (uint)i, &acct, mock_tower );
     fd_tower_lockos_insert( lockos, fork_slot, &acct.vote_acc, &acct );
     end_intervals[i - 1] = vote_slot + (1UL << (uint)i);
   }

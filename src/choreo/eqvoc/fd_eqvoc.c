@@ -1,4 +1,5 @@
 #include "../fd_choreo_base.h"
+#include "../tower/fd_tower.h"
 #include "fd_eqvoc.h"
 #include "../../ballet/shred/fd_shred.h"
 

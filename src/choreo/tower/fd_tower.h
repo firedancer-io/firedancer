@@ -373,7 +373,6 @@
 #include "fd_tower_lockos.h"
 #include "fd_tower_serdes.h"
 #include "fd_tower_stakes.h"
-#include "fd_tower_voters.h"
 #include "../ghost/fd_ghost.h"
 #include "../votes/fd_votes.h"
 #include "../../disco/pack/fd_microblock.h"
@@ -398,6 +397,28 @@ typedef struct fd_tower_vote fd_tower_vote_t;
 #include "../../util/tmpl/fd_deque.c"
 
 typedef fd_tower_vote_t fd_tower_t; /* typedef for semantic clarity */
+
+/* fd_tower_voters describes the set of vote accounts that feed into
+   TowerBFT rules.  This is fixed for each epoch, and each acct is
+   associated with (vote account address, vote account stake, and the
+   deserialized tower and root).  All the accts in the deque are
+   intended to be as of the same slot.  The tower pointer points into
+   pre-allocated storage managed by the caller and is joined once
+   during unprivileged_init; deserialization from vote account data
+   happens in fd_tower_tile update_voters. */
+
+struct fd_tower_voters {
+  fd_pubkey_t  id_key;   /* validator identity */
+  fd_pubkey_t  vote_acc; /* vote account address */
+  ulong        stake;    /* vote account stake */
+  fd_tower_t * tower;    /* deserialized tower (pre-allocated, caller-owned, joined once at init) */
+  ulong        root;     /* tower root slot (ULONG_MAX if none) */
+};
+/* typedef in fd_tower_voters.h */
+
+#define DEQUE_NAME fd_tower_voters
+#define DEQUE_T    fd_tower_voters_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
 
 /* FD_TOWER_{ALIGN,FOOTPRINT} provided for static declarations. */
 
@@ -460,11 +481,14 @@ fd_tower_reconcile( fd_tower_t  *       tower,
                     uchar const *       vote_acc,
                     fd_tower_blocks_t * tower_blocks );
 
-/* fd_tower_from_vote_acc deserializes the vote account into tower.
-   Assumes tower is a valid local join and currently empty. */
+/* fd_tower_from_vote_acc deserializes the vote account into tower and
+   extracts the root slot.  Assumes tower is a valid local join and
+   currently empty.  On return *root is the tower root slot, or
+   ULONG_MAX if the vote account has no root. */
 
 void
 fd_tower_from_vote_acc( fd_tower_t  * tower,
+                        ulong       * root,
                         uchar const * vote_acc );
 
 /* fd_tower_with_lat_from_vote_acc deserializes the vote account into

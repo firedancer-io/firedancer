@@ -283,7 +283,7 @@ fd_ghost_insert( fd_ghost_t      * ghost,
   return blk;
 }
 
-void
+int
 fd_ghost_count_vote( fd_ghost_t *        ghost,
                      fd_ghost_blk_t *    blk,
                      fd_pubkey_t const * vote_acc,
@@ -293,8 +293,8 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
   fd_ghost_blk_t const * root = fd_ghost_root( ghost );
   fd_ghost_vtr_t *       vtr  = vtr_map_ele_query( vtr_map( ghost ), vote_acc, NULL, vtr_pool( ghost ) );
 
-  if( FD_UNLIKELY( slot == ULONG_MAX  ) ) return; /* hasn't voted */
-  if( FD_UNLIKELY( slot <  root->slot ) ) return; /* vote older than root */
+  if( FD_UNLIKELY( slot==ULONG_MAX  ) ) return FD_GHOST_ERR_NOT_VOTED;
+  if( FD_UNLIKELY( slot< root->slot ) ) return FD_GHOST_ERR_VOTE_TOO_OLD;
 
   if( FD_UNLIKELY( !vtr ) ) {
 
@@ -315,7 +315,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
        For example, if a voter votes for 3 then switches to 5, we might
        observe the vote for 5 before the vote for 3. */
 
-    if( FD_UNLIKELY( !( slot > vtr->prev_slot ) ) ) return;
+    if( FD_UNLIKELY( !( slot > vtr->prev_slot ) ) ) return FD_GHOST_ERR_ALREADY_VOTED;
 
     /* LMD-rule: subtract the voter's stake from the entire fork they
       previously voted for. */
@@ -351,6 +351,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
   vtr->prev_block_id = blk->id;
   vtr->prev_stake    = stake;
   vtr->prev_slot     = slot;
+  return FD_GHOST_SUCCESS;
 }
 
 void
@@ -431,7 +432,7 @@ fd_ghost_publish( fd_ghost_t     * ghost,
 }
 
 ulong
-fd_ghost_active_fork_cnt( fd_ghost_t * ghost ) {
+fd_ghost_width( fd_ghost_t * ghost ) {
   return ghost->width;
 }
 

@@ -1,8 +1,9 @@
+#include "../tower/fd_tower.h"
 #include "fd_votes.h"
 
 /* fd_votes tracks blks, vtrs, and slots.
 
-   blk_pool / blk_map (capacity max = slot_max * vtr_max):
+   blk_pool / blk_map (capacity blk_max = slot_max * vtr_max):
 
    Each blk tracks the aggregate stake voted for a particular block_id.
 
@@ -123,10 +124,9 @@ struct slot {
     ulong prev;
     ulong next;
   } dlist;
-  ulong  blk_cnt;   /* number of distinct block ids for this slot */
-  void * blk_dlist;  /* blk_dlist_t *, opaque here since blk_t is internal */
-
-  slot_vtrs_t * vtrs; /* who has voted for this slot, curr epoch */
+  blk_dlist_t * blks;
+  ulong         blk_cnt; /* number of distinct block ids for this slot */
+  slot_vtrs_t * vtrs;    /* who has voted for this slot, curr epoch */
 };
 typedef struct slot slot_t;
 
@@ -152,19 +152,19 @@ typedef struct slot slot_t;
 #include "../../util/tmpl/fd_dlist.c"
 
 struct __attribute__((aligned(128UL))) fd_votes {
-  ulong             root;
-  ulong             slot_max;
-  ulong             vtr_max;
-  ulong             max;
-  slot_t *          slot_pool;
-  slot_map_t *      slot_map;
-  slot_dlist_t *    slot_dlist;
-  blk_t *           blk_pool;
-  blk_map_t *       blk_map;
-  vtr_t *           vtr_pool;
-  vtr_map_t *       vtr_map;
-  vtr_dlist_t *     vtr_dlist;
-  slot_vtrs_t *     vtr_set;
+  ulong          root;
+  ulong          slot_max;
+  ulong          vtr_max;
+  ulong          blk_max;
+  slot_t *       slot_pool;
+  slot_map_t *   slot_map;
+  slot_dlist_t * slot_dlist;
+  blk_t *        blk_pool;
+  blk_map_t *    blk_map;
+  vtr_t *        vtr_pool;
+  vtr_map_t *    vtr_map;
+  vtr_dlist_t *  vtr_dlist;
+  slot_vtrs_t *  vtr_set;
 };
 
 ulong
@@ -176,15 +176,15 @@ ulong
 fd_votes_footprint( ulong slot_max,
                     ulong vtr_max ) {
 
-  ulong max = slot_max * vtr_max;
+  ulong blk_max = slot_max * vtr_max;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, 128UL,              sizeof(fd_votes_t)                                       );
   l = FD_LAYOUT_APPEND( l, slot_pool_align(),  slot_pool_footprint( slot_max )                          );
   l = FD_LAYOUT_APPEND( l, slot_map_align(),   slot_map_footprint( slot_map_chain_cnt_est( slot_max ) ) );
   l = FD_LAYOUT_APPEND( l, slot_dlist_align(), slot_dlist_footprint()                                   );
-  l = FD_LAYOUT_APPEND( l, blk_pool_align(),   blk_pool_footprint( max )                                );
-  l = FD_LAYOUT_APPEND( l, blk_map_align(),    blk_map_footprint( blk_map_chain_cnt_est( max ) )        );
+  l = FD_LAYOUT_APPEND( l, blk_pool_align(),   blk_pool_footprint( blk_max )                            );
+  l = FD_LAYOUT_APPEND( l, blk_map_align(),    blk_map_footprint( blk_map_chain_cnt_est( blk_max ) )    );
   l = FD_LAYOUT_APPEND( l, vtr_pool_align(),   vtr_pool_footprint( vtr_max )                            );
   l = FD_LAYOUT_APPEND( l, vtr_map_align(),    vtr_map_footprint( vtr_map_chain_cnt_est( vtr_max ) )    );
   l = FD_LAYOUT_APPEND( l, vtr_dlist_align(),  vtr_dlist_footprint()                                    );
@@ -220,15 +220,15 @@ fd_votes_new( void * shmem,
 
   fd_memset( shmem, 0, footprint );
 
-  ulong max = slot_max * vtr_max;
+  ulong blk_max = slot_max * vtr_max;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_votes_t * votes      = FD_SCRATCH_ALLOC_APPEND( l, 128UL,              sizeof(fd_votes_t)                                       );
   void *       slot_pool  = FD_SCRATCH_ALLOC_APPEND( l, slot_pool_align(),  slot_pool_footprint( slot_max )                          );
   void *       slot_map   = FD_SCRATCH_ALLOC_APPEND( l, slot_map_align(),   slot_map_footprint( slot_map_chain_cnt_est( slot_max ) ) );
   void *       slot_dlist = FD_SCRATCH_ALLOC_APPEND( l, slot_dlist_align(), slot_dlist_footprint()                                   );
-  void *       blk_pool   = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),   blk_pool_footprint( max )                                );
-  void *       blk_map    = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),    blk_map_footprint( blk_map_chain_cnt_est( max ) )        );
+  void *       blk_pool   = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),   blk_pool_footprint( blk_max )                            );
+  void *       blk_map    = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),    blk_map_footprint( blk_map_chain_cnt_est( blk_max ) )    );
   void *       vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),   vtr_pool_footprint( vtr_max )                            );
   void *       vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),    vtr_map_footprint( vtr_map_chain_cnt_est( vtr_max ) )    );
   void *       vtr_dlist  = FD_SCRATCH_ALLOC_APPEND( l, vtr_dlist_align(),  vtr_dlist_footprint()                                    );
@@ -237,12 +237,12 @@ fd_votes_new( void * shmem,
   votes->root       = ULONG_MAX;
   votes->slot_max   = slot_max;
   votes->vtr_max    = vtr_max;
-  votes->max        = max;
+  votes->blk_max    = blk_max;
   votes->slot_pool  = slot_pool_new ( slot_pool, slot_max                                 );
   votes->slot_map   = slot_map_new  ( slot_map,  slot_map_chain_cnt_est( slot_max ), seed );
   votes->slot_dlist = slot_dlist_new( slot_dlist                                          );
-  votes->blk_pool   = blk_pool_new  ( blk_pool,  max                                      );
-  votes->blk_map    = blk_map_new   ( blk_map,   blk_map_chain_cnt_est( max ),       seed );
+  votes->blk_pool   = blk_pool_new  ( blk_pool,  blk_max                                  );
+  votes->blk_map    = blk_map_new   ( blk_map,   blk_map_chain_cnt_est( blk_max ),   seed );
   votes->vtr_pool   = vtr_pool_new  ( vtr_pool,  vtr_max                                  );
   votes->vtr_map    = vtr_map_new   ( vtr_map,   vtr_map_chain_cnt_est( vtr_max ),   seed );
   votes->vtr_dlist  = vtr_dlist_new ( vtr_dlist                                           );
@@ -255,8 +255,8 @@ fd_votes_new( void * shmem,
     void * vtrs            = FD_SCRATCH_ALLOC_APPEND( l, slot_vtrs_align(), slot_vtrs_footprint( vtr_max ) );
     void * blk_dlist       = FD_SCRATCH_ALLOC_APPEND( l, blk_dlist_align(), blk_dlist_footprint()          );
     slot_join[i].vtrs      = slot_vtrs_new( vtrs, vtr_max );
+    slot_join[i].blks      = blk_dlist_new( blk_dlist );
     slot_join[i].blk_cnt   = 0;
-    slot_join[i].blk_dlist = blk_dlist_new( blk_dlist );
   }
   slot_pool_leave( slot_join );
 
@@ -291,8 +291,8 @@ fd_votes_join( void * shvotes ) {
   /* Re-join vtrs sets and blk_dlists per slot pool position. */
 
   for( ulong i = 0UL; i < votes->slot_max; i++ ) {
-    votes->slot_pool[i].vtrs      = slot_vtrs_join( votes->slot_pool[i].vtrs      );
-    votes->slot_pool[i].blk_dlist = blk_dlist_join( votes->slot_pool[i].blk_dlist );
+    votes->slot_pool[i].vtrs = slot_vtrs_join( votes->slot_pool[i].vtrs );
+    votes->slot_pool[i].blks = blk_dlist_join( votes->slot_pool[i].blks );
   }
 
   return votes;
@@ -325,18 +325,16 @@ fd_votes_delete( void * votes ) {
   return votes;
 }
 
-fd_votes_blk_t *
+int
 fd_votes_count_vote( fd_votes_t *        votes,
                      fd_pubkey_t const * vote_acc,
                      ulong               vote_slot,
                      fd_hash_t const *   vote_block_id ) {
 
-  if( FD_UNLIKELY( votes->root==ULONG_MAX                     ) ) return NULL; /* uninitialized root */
-  if( FD_UNLIKELY( vote_slot <= votes->root                   ) ) return NULL; /* vote too far behind */
-  if( FD_UNLIKELY( vote_slot >= votes->root + votes->slot_max ) ) return NULL; /* vote too far ahead */
+  if( FD_UNLIKELY( vote_slot >= votes->root + votes->slot_max ) ) return FD_VOTES_ERR_VOTE_TOO_NEW;
 
   vtr_t * vtr = vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool );
-  if( FD_UNLIKELY( !vtr ) ) return NULL; /* voter not found */
+  if( FD_UNLIKELY( !vtr ) ) return FD_VOTES_ERR_UNKNOWN_VTR;
 
   /* Check we haven't already counted the voter's stake for this slot.
      If a voter votes for multiple block ids for the same slot, we only
@@ -353,7 +351,7 @@ fd_votes_count_vote( fd_votes_t *        votes,
     slot_map_ele_insert( votes->slot_map, slot, votes->slot_pool );
     slot_dlist_ele_push_tail( votes->slot_dlist, slot, votes->slot_pool );
   }
-  if( FD_UNLIKELY( slot_vtrs_test( slot->vtrs, vtr->bit ) ) ) return NULL;
+  if( FD_UNLIKELY( slot_vtrs_test( slot->vtrs, vtr->bit ) ) ) return FD_VOTES_ERR_ALREADY_VOTED;
   slot_vtrs_insert( slot->vtrs, vtr->bit );
 
   fd_votes_blk_key_t blk_key = { .slot = vote_slot, .block_id = *vote_block_id };
@@ -364,11 +362,11 @@ fd_votes_count_vote( fd_votes_t *        votes,
     blk->stake = 0;
     blk->flags = 0;
     blk_map_ele_insert( votes->blk_map, blk, votes->blk_pool );
-    blk_dlist_ele_push_tail( slot->blk_dlist, blk, votes->blk_pool );
+    blk_dlist_ele_push_tail( slot->blks, blk, votes->blk_pool );
     slot->blk_cnt++;
   }
   blk->stake += vtr->stake;
-  return blk;
+  return FD_VOTES_SUCCESS;
 }
 
 fd_votes_blk_t *
@@ -386,8 +384,8 @@ fd_votes_publish( fd_votes_t * votes,
   for( ulong slot = votes->root; slot < root; slot++ ) {
     slot_t * votes_slot = slot_map_ele_query( votes->slot_map, &slot, NULL, votes->slot_pool );
     if( FD_LIKELY( votes_slot ) ) {
-      while( FD_LIKELY( !blk_dlist_is_empty( votes_slot->blk_dlist, votes->blk_pool ) ) ) {
-        blk_t * blk = blk_dlist_ele_pop_head( votes_slot->blk_dlist, votes->blk_pool );
+      while( FD_LIKELY( !blk_dlist_is_empty( votes_slot->blks, votes->blk_pool ) ) ) {
+        blk_t * blk = blk_dlist_ele_pop_head( votes_slot->blks, votes->blk_pool );
         blk_map_ele_remove_fast( votes->blk_map, blk, votes->blk_pool );
         blk_pool_ele_release( votes->blk_pool, blk );
       }

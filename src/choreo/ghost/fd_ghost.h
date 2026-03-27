@@ -84,7 +84,6 @@
    fd_ghost API for how that works. */
 
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower_voters.h"
 
 typedef struct fd_ghost fd_ghost_t; /* forward decl*/
 
@@ -186,6 +185,11 @@ fd_ghost_root( fd_ghost_t * ghost );
 fd_ghost_blk_t *
 fd_ghost_parent( fd_ghost_t * ghost, fd_ghost_blk_t * blk );
 
+/* fd_ghost_width returns the width of the ghost tree. */
+
+ulong
+fd_ghost_width( fd_ghost_t * ghost );
+
 /* fd_ghost_query returns the block keyed by block_id.  Returns NULL if
    not found. */
 
@@ -253,20 +257,28 @@ fd_ghost_insert( fd_ghost_t      * ghost,
                  fd_hash_t const * parent_block_id,
                  ulong             slot );
 
+/* fd_ghost_count_vote return codes. */
+
+#define FD_GHOST_SUCCESS           ( 0) /* vote counted successfully */
+#define FD_GHOST_ERR_NOT_VOTED     (-1) /* slot == ULONG_MAX (hasn't voted) */
+#define FD_GHOST_ERR_VOTE_TOO_OLD  (-2) /* slot < root->slot */
+#define FD_GHOST_ERR_ALREADY_VOTED (-3) /* slot <= prev_slot (not newer) */
+
 /* fd_ghost_count_vote updates ghost's stake weights with the latest
    vote on the given voter's tower.  This counts pubkey's stake towards
    all ancestors on the same fork as block_id.  If the voter has
    previously voted, it subtracts the voter's previous stake from all
-   ancestors of vtr->prev_block_id. This ensures that only the most
+   ancestors of vtr->prev_block_id.  This ensures that only the most
    recent vote from a voter is counted (see top-level documentation
-   about the LMD rule).
+   about the LMD rule).  Returns FD_GHOST_SUCCESS on success, or a
+   negative FD_GHOST_ERR_* code if the vote was not counted.
 
    TODO the implementation can be made more efficient by incrementally
    updating and short-circuiting ancestor traversals.  Currently this is
    bounded to O(h), where h is the height of ghost ie. O(block_max) in
    the worst case. */
 
-void
+int
 fd_ghost_count_vote( fd_ghost_t *        ghost,
                      fd_ghost_blk_t *    blk,
                      fd_pubkey_t const * vtr_addr,
@@ -280,9 +292,6 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
 void
 fd_ghost_publish( fd_ghost_t     * ghost,
                   fd_ghost_blk_t * newr );
-
-ulong
-fd_ghost_active_fork_cnt( fd_ghost_t * ghost );
 
 /* Misc */
 

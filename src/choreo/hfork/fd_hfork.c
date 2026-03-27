@@ -1,3 +1,4 @@
+#include "../tower/fd_tower.h"
 #include "fd_hfork.h"
 
 /* fd_hfork maintains four pools and four maps:
@@ -444,7 +445,7 @@ blk_insert( fd_hfork_t      * hfork,
   return blk;
 }
 
-fd_hfork_blk_t *
+int
 fd_hfork_count_vote( fd_hfork_t *        hfork,
                      fd_pubkey_t const * vote_acc,
                      fd_hash_t const *   block_id,
@@ -456,17 +457,17 @@ fd_hfork_count_vote( fd_hfork_t *        hfork,
   /* Get the vtr.  If not in the voter set, ignore. */
 
   vtr_t * vtr = vtr_map_ele_query( hfork->vtr_map, vote_acc, NULL, hfork->vtr_pool );
-  if( FD_UNLIKELY( !vtr ) ) return NULL;
+  if( FD_UNLIKELY( !vtr ) ) return FD_HFORK_ERR_UNKNOWN_VTR;
 
   /* If voter already voted for this block_id, ignore. */
 
   bhm_key_t bhm_key = { .block_id = *block_id, .bank_hash = *bank_hash };
   vte_key_t vte_key = { .addr = *vote_acc, .block_id = *block_id };
-  if( FD_UNLIKELY( vte_map_ele_query_const( hfork->vte_map, &vte_key, NULL, hfork->vte_pool ) ) ) return NULL;
+  if( FD_UNLIKELY( vte_map_ele_query_const( hfork->vte_map, &vte_key, NULL, hfork->vte_pool ) ) ) return FD_HFORK_ERR_ALREADY_VOTED;
 
   /* Only process newer votes (by vote slot) from a given voter. */
 
-  if( FD_UNLIKELY( vtr->vte_cnt && vte_dlist_ele_peek_tail_const( vtr->vte_dlist, hfork->vte_pool )->slot >= slot ) ) return NULL;
+  if( FD_UNLIKELY( vtr->vte_cnt && vte_dlist_ele_peek_tail_const( vtr->vte_dlist, hfork->vte_pool )->slot >= slot ) ) return FD_HFORK_ERR_VOTE_TOO_OLD;
 
   /* If voter has reached their quota, evict their oldest vote. */
 
@@ -519,7 +520,7 @@ fd_hfork_count_vote( fd_hfork_t *        hfork,
   /* Check for hard forks. */
 
   blk->flag = check( blk, bhm, total_stake );
-  return blk;
+  return blk->flag;
 }
 
 fd_hfork_blk_t *

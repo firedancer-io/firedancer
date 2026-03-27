@@ -1,5 +1,4 @@
 #include "fd_tower.c"
-#include "fd_tower_voters.h"
 
 FD_IMPORT_BINARY( vote_acc_v2, "src/choreo/tower/fixtures/vote_acc_v2.bin" );
 FD_IMPORT_BINARY( vote_acc_v3, "src/choreo/tower/fixtures/vote_acc_v3.bin" );
@@ -101,7 +100,8 @@ test_tower_from_vote_acc_data_v1_14_11( void ) {
   fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
   FD_TEST( tower );
 
-  fd_tower_from_vote_acc( tower, vote_acc_v2 );
+  ulong root;
+  fd_tower_from_vote_acc( tower, &root, vote_acc_v2 );
 
   fd_tower_vote_t expected_votes[31] = {
     { 159175525, 31 },
@@ -154,7 +154,8 @@ test_tower_from_vote_acc_data_current( void ) {
   fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
   FD_TEST( tower );
 
-  fd_tower_from_vote_acc( tower, vote_acc_v3 );
+  ulong root;
+  fd_tower_from_vote_acc( tower, &root, vote_acc_v3 );
 
   fd_tower_vote_t expected_votes[31] = {
     { 285373759, 31 },
@@ -203,7 +204,7 @@ test_tower_from_vote_acc_data_current( void ) {
 }
 
 void
-mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_voters_t * out ) {
+mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_voters_t * out, fd_tower_t * tower_mem ) {
   fd_vote_acc_t voter = {
     .kind = FD_VOTE_ACC_V3,
     .v3 = {
@@ -215,7 +216,11 @@ mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_
     }
   };
 
-  memcpy( out->data, &voter, sizeof(fd_vote_acc_t) );
+  fd_tower_remove_all( tower_mem );
+  ulong root;
+  fd_tower_from_vote_acc( tower_mem, &root, (uchar const *)&voter );
+  out->tower    = tower_mem;
+  out->root     = root;
   out->stake    = stake;
   out->vote_acc = *pubkey;
 }
@@ -309,20 +314,22 @@ test_switch_simple( fd_wksp_t * wksp ) {
   mock( ghost, fd_tower_blocks_insert( blocks, 5, 3 ), 4,         &(fd_hash_t){.ul = {5}}, &(fd_hash_t){.ul = {3}} );
 
   fd_tower_voters_t acct;
+  uchar __attribute__((aligned(FD_TOWER_ALIGN))) mock_tower_mem[ FD_TOWER_FOOTPRINT ];
+  fd_tower_t * mock_tower = fd_tower_join( fd_tower_new( mock_tower_mem ) );
 
-  mock_vote_acc( &(fd_hash_t){.ul = {1}}, 10, 5, 1, &acct );
+  mock_vote_acc( &(fd_hash_t){.ul = {1}}, 10, 5, 1, &acct, mock_tower );
   fd_tower_lockos_insert( lockos, 5, &acct.vote_acc, &acct );
   ulong prev = fd_tower_stakes_insert( stakes, 5, &acct.vote_acc, acct.stake, ULONG_MAX );
 
-  mock_vote_acc( &(fd_hash_t){.ul = {2}}, 10, 5, 1, &acct );
+  mock_vote_acc( &(fd_hash_t){.ul = {2}}, 10, 5, 1, &acct, mock_tower );
   fd_tower_lockos_insert( lockos, 5, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( stakes, 5, &acct.vote_acc, acct.stake, prev );
 
-  mock_vote_acc( &(fd_hash_t){.ul = {3}}, 10, 5, 1, &acct );
+  mock_vote_acc( &(fd_hash_t){.ul = {3}}, 10, 5, 1, &acct, mock_tower );
   fd_tower_lockos_insert( lockos, 5, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( stakes, 5, &acct.vote_acc, acct.stake, prev );
 
-  mock_vote_acc( &(fd_hash_t){.ul = {4}}, 9, 5, 1, &acct );
+  mock_vote_acc( &(fd_hash_t){.ul = {4}}, 9, 5, 1, &acct, mock_tower );
   fd_tower_lockos_insert( lockos, 5, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( stakes, 5, &acct.vote_acc, acct.stake, prev );
 
@@ -405,7 +412,10 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   FD_TEST( switch_check( tower, ghost, forks, lockos, tower_stakes, total_stake, 110 ) == 0 );
 
   fd_tower_voters_t acct;
-  mock_vote_acc( &(fd_hash_t){.ul = {1}}, 100, 49, 6, &acct ); /* interval is 49 -> 114 */
+  uchar __attribute__((aligned(FD_TOWER_ALIGN))) mock_tower_mem[ FD_TOWER_FOOTPRINT ];
+  fd_tower_t * mock_tower = fd_tower_join( fd_tower_new( mock_tower_mem ) );
+
+  mock_vote_acc( &(fd_hash_t){.ul = {1}}, 100, 49, 6, &acct, mock_tower ); /* interval is 49 -> 114 */
   fd_tower_lockos_insert( lockos, 50, &acct.vote_acc, &acct );
   ulong prev = fd_tower_stakes_insert( tower_stakes, 50, &acct.vote_acc, acct.stake, ULONG_MAX );
 
@@ -414,7 +424,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
 
   // Adding another validator lockout on an ancestor of last vote should
   // not count toward the switch threshold
-  mock_vote_acc( &(fd_hash_t){.ul = {2}}, 100, 45, 6, &acct ); /* interval is 45 -> 109 */
+  mock_vote_acc( &(fd_hash_t){.ul = {2}}, 100, 45, 6, &acct, mock_tower ); /* interval is 45 -> 109 */
   fd_tower_lockos_insert( lockos, 50, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( tower_stakes, 50, &acct.vote_acc, acct.stake, prev );
 
@@ -423,7 +433,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   // Adding another validator lockout on a different fork, but the lockout
   // doesn't cover the last vote, should not satisfy the switch threshold
 
-  mock_vote_acc( &(fd_hash_t){.ul = {3}}, 100, 12, 5, &acct ); /* interval is 12 -> 44 */
+  mock_vote_acc( &(fd_hash_t){.ul = {3}}, 100, 12, 5, &acct, mock_tower ); /* interval is 12 -> 44 */
   fd_tower_lockos_insert( lockos, 14, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( tower_stakes, 14, &acct.vote_acc, acct.stake, ULONG_MAX );
 
@@ -434,7 +444,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   // covers the last vote would count towards the switch threshold,
   // unless the bank is not the most recent frozen bank on the fork (14 is a
   // frozen/computed bank > 13 on the same fork in this case)
-  mock_vote_acc( &(fd_hash_t){.ul = {4}}, 100, 12, 6, &acct ); /* interval is 12 -> 76 */
+  mock_vote_acc( &(fd_hash_t){.ul = {4}}, 100, 12, 6, &acct, mock_tower ); /* interval is 12 -> 76 */
   fd_tower_lockos_insert( lockos, 13, &acct.vote_acc, &acct );
   fd_tower_stakes_insert( tower_stakes, 13, &acct.vote_acc, acct.stake, ULONG_MAX );
 
@@ -445,7 +455,7 @@ test_switch_threshold( fd_wksp_t * wksp ) {
 
   fd_tower_push_head( tower, (fd_tower_vote_t){.slot = 1, .conf = 32} ); // I NEED AN ARTIFICIAL ROOT,
 
-  mock_vote_acc( &(fd_hash_t){.ul = {5}}, 39, 12, 6, &acct ); /* interval is 14 -> 76 */
+  mock_vote_acc( &(fd_hash_t){.ul = {5}}, 39, 12, 6, &acct, mock_tower ); /* interval is 14 -> 76 */
   fd_tower_lockos_insert( lockos, 14, &acct.vote_acc, &acct );
   prev = fd_tower_stakes_insert( tower_stakes, 14, &acct.vote_acc, acct.stake, prev );
   fd_tower_stakes_insert( tower_stakes, 110, &acct.vote_acc, acct.stake, ULONG_MAX );
@@ -523,7 +533,9 @@ test_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
   // Candidate slot 50 should *not* work
   //vote_simulator.simulate_lockout_interval(50, (10, 49), &other_vote_acc);
   fd_tower_voters_t acct;
-  mock_vote_acc( &(fd_hash_t){.ul = {1}}, 100, 10, 6, &acct );
+  uchar __attribute__((aligned(FD_TOWER_ALIGN))) mock_tower_mem[ FD_TOWER_FOOTPRINT ];
+  fd_tower_t * mock_tower = fd_tower_join( fd_tower_new( mock_tower_mem ) );
+  mock_vote_acc( &(fd_hash_t){.ul = {1}}, 100, 10, 6, &acct, mock_tower );
   fd_tower_lockos_insert( lockos, 50, &acct.vote_acc, &acct );
   fd_tower_stakes_insert( tower_stakes, 50, &acct.vote_acc, acct.stake, ULONG_MAX );
   fd_tower_stakes_insert( tower_stakes, 111, &acct.vote_acc, acct.stake, ULONG_MAX ); // the switch slot
@@ -640,7 +652,9 @@ test_switch_eqvoc( fd_wksp_t * wksp ) {
 
 
   fd_tower_voters_t acct;
-  mock_vote_acc( &(fd_hash_t){.ul = {2}}, 100, 6, 6, &acct );
+  uchar __attribute__((aligned(FD_TOWER_ALIGN))) mock_tower_mem[ FD_TOWER_FOOTPRINT ];
+  fd_tower_t * mock_tower = fd_tower_join( fd_tower_new( mock_tower_mem ) );
+  mock_vote_acc( &(fd_hash_t){.ul = {2}}, 100, 6, 6, &acct, mock_tower );
   fd_tower_stakes_insert( tower_stakes, 7, &acct.vote_acc, acct.stake, ULONG_MAX ); // the switch slot
 
   fd_tower_lockos_insert( lockos, 8, &acct.vote_acc, &acct );
