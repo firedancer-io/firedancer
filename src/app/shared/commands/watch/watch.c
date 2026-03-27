@@ -438,9 +438,9 @@ write_accdb( config_t const * config,
   ulong cap_bytes    = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FILE_CAPACITY_BYTES ) ];
   ulong acct_cnt     = cur_tile[ snapwm_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
   if( snapwr_state==4 ) {
-    used_bytes = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, FILE_USED_BYTES     ) ];
-    cap_bytes  = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, FILE_CAPACITY_BYTES ) ];
-    acct_cnt   = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, ACCOUNTS ) ];
+    used_bytes = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, DISK_USED_BYTES      ) ];
+    cap_bytes  = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, DISK_ALLOCATED_BYTES ) ];
+    acct_cnt   = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, ACCOUNTS_TOTAL       ) ];
   }
 
   double data_pct  = 100.0*(double)used_bytes/(double)cap_bytes;
