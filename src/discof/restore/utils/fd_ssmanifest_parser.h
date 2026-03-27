@@ -3,6 +3,7 @@
 
 #include "fd_ssmsg.h"
 #include "fd_ssparse.h"
+#include "../../../funk/fd_funk.h"
 
 struct fd_ssmanifest_parser_private;
 typedef struct fd_ssmanifest_parser_private fd_ssmanifest_parser_t;
@@ -23,7 +24,9 @@ fd_ssmanifest_parser_join( void * shmem );
 
 void
 fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
-                           fd_snapshot_manifest_t * manifest );
+                           fd_snapshot_manifest_t * manifest,
+                           fd_funk_t *              funk,
+                           int                      is_full );
 
 #define FD_SSMANIFEST_PARSER_ADVANCE_ERROR (-1)
 #define FD_SSMANIFEST_PARSER_ADVANCE_AGAIN ( 0)

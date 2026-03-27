@@ -270,7 +270,7 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
       fd_memset( &ctx->account_hdr, 0, sizeof(ctx->account_hdr) );
       fd_lthash_zero( &ctx->running_lthash );
       fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
+      fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest, NULL, 1 );
       fd_lthash_adder_new( ctx->adder );
       if( ctx->full ) ctx->metrics.full.accounts_hashed = 0UL;
       ctx->metrics.incremental.accounts_hashed = 0UL;
@@ -420,7 +420,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_ssparse_batch_enable( ctx->ssparse, 1 );
   fd_lthash_adder_new( ctx->adder );
-  fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
+  fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest, NULL, 1 );
 
   ctx->metrics.full.accounts_hashed        = 0UL;
   ctx->metrics.incremental.accounts_hashed = 0UL;

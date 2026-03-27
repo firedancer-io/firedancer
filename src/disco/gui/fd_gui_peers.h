@@ -436,9 +436,9 @@ struct fd_gui_peers_ctx {
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
 
 /* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
-FD_STATIC_ASSERT( sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers)/sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers[0])==
-                  sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts)/sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts[0]),
-                  wfs_peers_vote_accounts );
+// FD_STATIC_ASSERT( sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers)/sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers[0])==
+//                   sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts)/sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts[0]),
+//                   wfs_peers_vote_accounts );
 
 FD_PROTOTYPES_BEGIN
 

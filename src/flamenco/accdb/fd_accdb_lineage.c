@@ -21,7 +21,7 @@ fd_accdb_lineage_set_fork_slow( fd_accdb_lineage_t *      lineage,
     fd_funk_txn_xid_t       parent_xid;
 retry:
     /* Speculatively look up transaction from map */
-    for(;;) {
+    { for(;;) {
       int query_err = fd_funk_txn_map_query_try( funk->txn_map, &next_xid, NULL, query, 0 );
       if( FD_UNLIKELY( query_err==FD_MAP_ERR_AGAIN ) ) {
         /* FIXME random backoff */
@@ -33,7 +33,7 @@ retry:
         FD_LOG_CRIT(( "fd_funk_txn_map_query_try failed: %i-%s", query_err, fd_map_strerror( query_err ) ));
       }
       break;
-    }
+    } }
 
     /* Lookup parent transaction while recovering from overruns
        FIXME This would be a lot easier if transactions specified

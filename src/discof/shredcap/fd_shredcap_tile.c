@@ -217,9 +217,8 @@ generate_epoch_info_msg_manifest( ulong                                       ep
                                   fd_epoch_schedule_t const *                 epoch_schedule,
                                   fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
                                   ulong *                                     epoch_info_msg_out ) {
+  (void)epoch_stakes;
   fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
-  fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
-
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
@@ -228,24 +227,16 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   /* Set all features as deactivated as we don't have available feature info from manifest. */
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 
-  /* Filter zero-stake entries (match replay: wsample and leader schedule reject zero weight). */
-  ulong idx = 0UL;
-  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
-    ulong stake = epoch_stakes->vote_stakes[ i ].stake;
-    if( FD_UNLIKELY( !stake ) ) continue;
-    stake_weights[ idx ].stake = stake;
-    memcpy( stake_weights[ idx ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
-    idx++;
-  }
-  epoch_info_msg->staked_vote_cnt = idx;
-  sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
+  /* vote_stakes data is now stored in funk branches and not available
+     in the manifest struct.  Set staked counts to 0.
+     TODO: Add funk access to shredcap tile if epoch stake weights are
+     needed for shred capture. */
+  epoch_info_msg->staked_vote_cnt = 0UL;
 
   fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
+  (void)id_weights;
 
-  epoch_info_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_weights, stake_weights, epoch_info_msg->staked_vote_cnt );
-
-  FD_TEST( idx<=MAX_SHRED_DESTS );
+  epoch_info_msg->staked_id_cnt = 0UL;
 
   epoch_info_msg->epoch_schedule = *epoch_schedule;
 
@@ -462,7 +453,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
         fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc(
                 fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
         FD_TEST( parser );
-        fd_ssmanifest_parser_init( parser, manifest );
+        fd_ssmanifest_parser_init( parser, manifest, NULL, 1 );
         int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
         FD_TEST( parser_err==1 );
         // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));

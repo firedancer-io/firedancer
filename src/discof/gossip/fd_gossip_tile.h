@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../funk/fd_funk.h"
 
 typedef struct {
   int         kind;
@@ -80,6 +81,9 @@ struct fd_gossip_tile_ctx {
   ulong peer_sat_hwm;        /* high-water mark of peer count       */
   long  peer_sat_hwm_nanos;  /* wallclock when HWM last increased   */
   int   peer_sat_published;  /* one-shot latch (0 -> 1)             */
+
+  fd_funk_t   funk_ljoin[1];   /* Local join storage for funk */
+  fd_funk_t * funk;            /* READ_ONLY funk handle for manifest branch iteration */
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;

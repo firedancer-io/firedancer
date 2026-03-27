@@ -3,11 +3,50 @@
 
 #include "../../../flamenco/types/fd_types.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
+#include "../../../funk/fd_funk_txn.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
 #define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
 #define FD_SSMSG_EXPECTED_SLOT        (3) /* Expected rooted slot from incremental snapshot */
+
+/* XIDs for temporary funk branches used to store large manifest arrays.
+   These branches are created by the snapin tile during CTRL_INIT and
+   cancelled by the replay tile during its DONE handler.
+
+   Full and incremental snapshots use separate XIDs so that the full
+   snapshot branches remain readable until all consumers have processed
+   them, even after the incremental snapshot begins parsing.
+
+   Each set of branches is grouped under a dedicated parent transaction:
+
+   - FULL_PARENT is a child of root.  In vinyl mode (accdb v2), root is
+     not used for account storage so the frozen-root is harmless.  In
+     funk-only mode (accdb v1), the account loading paths (batch and
+     header) bypass the frozen check by inserting records directly into
+     the hash map without going through fd_funk_rec_prepare.
+
+   - INCR_PARENT is a child of incremental_xid in both vinyl and
+     funk-only modes.  advance_root(incremental_xid) promotes it to a
+     child of root, keeping manifest branches alive for the replay
+     tile's fd_ssload_recover.  This freezes incremental_xid, but the
+     funk-only header path handles this via a frozen fallback that
+     bypasses fd_funk_rec_prepare and adds records to the transaction's
+     record list directly.
+
+   No collision with root (ULONG_MAX, ULONG_MAX), incremental snapshot
+   (LONG_MAX, LONG_MAX), or slot-based XIDs (slot, bank_idx). */
+
+#define FD_SSMSG_MANIFEST_XID_FULL_PARENT              ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-1UL, ULONG_MAX } })
+#define FD_SSMSG_MANIFEST_XID_FULL_VOTE_ACCOUNTS       ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-1UL, 0UL } })
+#define FD_SSMSG_MANIFEST_XID_FULL_STAKE_DELEGATIONS   ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-1UL, 1UL } })
+#define FD_SSMSG_MANIFEST_XID_FULL_EPOCH_STAKES_0      ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-1UL, 2UL } })
+#define FD_SSMSG_MANIFEST_XID_FULL_EPOCH_STAKES_1      ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-1UL, 3UL } })
+#define FD_SSMSG_MANIFEST_XID_INCR_PARENT              ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-2UL, ULONG_MAX } })
+#define FD_SSMSG_MANIFEST_XID_INCR_VOTE_ACCOUNTS       ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-2UL, 0UL } })
+#define FD_SSMSG_MANIFEST_XID_INCR_STAKE_DELEGATIONS   ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-2UL, 1UL } })
+#define FD_SSMSG_MANIFEST_XID_INCR_EPOCH_STAKES_0      ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-2UL, 2UL } })
+#define FD_SSMSG_MANIFEST_XID_INCR_EPOCH_STAKES_1      ((fd_funk_txn_xid_t){ .ul = { ULONG_MAX-2UL, 3UL } })
 
 FD_FN_CONST static inline ulong
 fd_ssmsg_sig( ulong message ) {
@@ -151,9 +190,8 @@ struct fd_snapshot_manifest_epoch_stakes {
   ulong                              total_stake;
 
   /* The vote accounts and their stakes for a given epoch.
-     FIXME: Snapshot manifest has to support a much larger bound. */
+     Stored in a temporary funk branch (see FD_SSMSG_MANIFEST_XID_FULL/INCR_EPOCH_STAKES_*). */
   ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ 40200UL ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -459,13 +497,12 @@ struct fd_snapshot_manifest {
      vote and stake rewards are calculated as a stake-weighted
      percentage of the inflation rewards for the epoch and validator
      uptime, which is measured by vote account vote credits.
-     FIXME: Make this unbounded or support a much larger bound. */
-  ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ 40200UL ];
 
-  /* FIXME: Make this unbounded or support a much larger bound. */
+     Stored in a temporary funk branch (see FD_SSMSG_MANIFEST_XID_FULL/INCR_VOTE_ACCOUNTS). */
+  ulong                               vote_accounts_len;
+
+  /* Stored in a temporary funk branch (see FD_SSMSG_MANIFEST_XID_FULL/INCR_STAKE_DELEGATIONS). */
   ulong stake_delegations_len;
-  fd_snapshot_manifest_stake_delegation_t stake_delegations[ 3000000UL ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of the previous epoch. They are

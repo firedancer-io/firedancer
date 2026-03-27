@@ -18,7 +18,7 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
 
   int early_exit = 0;
   if( !ctx->full && !existing_rec ) {
-    existing_rec = fd_funk_rec_query_try( funk, fd_funk_root( funk ), &id, query );
+    existing_rec = fd_funk_rec_query_try( funk, fd_funk_last_publish( funk ), &id, query );
   }
   if( FD_UNLIKELY( existing_rec ) ) {
     fd_account_meta_t * meta = fd_funk_val( existing_rec, funk->wksp );
@@ -38,9 +38,66 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
   if( FD_LIKELY( !rec ) ) {
-    should_publish = 1;
-    rec = fd_funk_rec_prepare( funk, ctx->xid, &id, prepare, NULL );
-    FD_TEST( rec );
+    int err = 0;
+    rec = fd_funk_rec_prepare( funk, ctx->xid, &id, prepare, &err );
+    if( FD_LIKELY( rec ) ) {
+      should_publish = 1;
+    } else if( FD_LIKELY( err==FD_FUNK_ERR_FROZEN ) ) {
+      /* Transaction is frozen because manifest branches are children.
+         Manually create the record and insert into the hash map,
+         bypassing the frozen check (same approach as the batch path). */
+      fd_funk_rec_t *     rec_tbl = funk->rec_pool->ele;
+      fd_funk_rec_map_t * rec_map = funk->rec_map;
+      rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
+      FD_TEST( rec );
+      ulong rec_idx = (ulong)( rec - rec_tbl );
+      fd_funk_val_init( rec );
+      fd_funk_txn_xid_copy( rec->pair.xid, ctx->xid );
+      fd_funk_rec_key_copy( rec->pair.key, &id );
+      rec->map_next = 0U;
+      rec->next_idx = UINT_MAX;
+      rec->prev_idx = UINT_MAX;
+      rec->val_sz   = 0;
+      rec->val_max  = 0;
+      rec->tag      = 0;
+      rec->val_gaddr = 0UL;
+      funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( 1UL, 0UL );
+      fd_funk_rec_map_shmem_private_chain_t * chain_tbl = fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );
+      ulong memo       = fd_funk_rec_key_hash1( id.uc, rec_map->map->seed );
+      ulong chain_mask = rec_map->map->chain_cnt-1UL;
+      fd_funk_rec_map_shmem_private_chain_t * chain = &chain_tbl[ (uint)(memo & chain_mask) ];
+      ulong ver_cnt    = chain->ver_cnt;
+      uint  head_cidx  = chain->head_cidx;
+      chain->ver_cnt   = fd_funk_rec_map_private_vcnt( fd_funk_rec_map_private_vcnt_ver( ver_cnt ), fd_funk_rec_map_private_vcnt_cnt( ver_cnt )+1UL );
+      chain->head_cidx = (uint)( rec - rec_tbl );
+      rec->map_next    = head_cidx;
+
+      /* For non-root transactions (incremental loading), also add the
+         record to the transaction's record list.  This is required so
+         that advance_root's fd_accdb_publish_recs can find and migrate
+         these records to root.  Root records don't have a list. */
+      if( !fd_funk_txn_xid_eq( ctx->xid, fd_funk_last_publish( funk ) ) ) {
+        fd_funk_txn_map_query_t txn_query[1];
+        int txn_err;
+        for(;;) {
+          txn_err = fd_funk_txn_map_query_try( funk->txn_map, ctx->xid, NULL, txn_query, 0 );
+          if( FD_LIKELY( txn_err!=FD_MAP_ERR_AGAIN ) ) break;
+        }
+        FD_TEST( !txn_err );
+        fd_funk_txn_t * frozen_txn = fd_funk_txn_map_query_ele( txn_query );
+        uint prev_tail = frozen_txn->rec_tail_idx;
+        rec->prev_idx = prev_tail;
+        rec->next_idx = FD_FUNK_REC_IDX_NULL;
+        if( fd_funk_rec_idx_is_null( prev_tail ) ) {
+          frozen_txn->rec_head_idx = (uint)rec_idx;
+        } else {
+          rec_tbl[ prev_tail ].next_idx = (uint)rec_idx;
+        }
+        frozen_txn->rec_tail_idx = (uint)rec_idx;
+      }
+    } else {
+      FD_TEST( rec );
+    }
   }
 
   fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
@@ -163,9 +220,13 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     chain_max = fd_uint_max( chain_max, chain_cnt[ i ] );
   }
 
-  /* Parallel walk hash chains */
+  /* Parallel walk hash chains.  Match records belonging to ctx->xid
+     or to root (last_publish).  The latter is needed during incremental
+     snapshot loading to find existing full-snapshot records.  Manifest
+     branch records (different xids) are excluded. */
   static fd_funk_rec_t dummy_rec = { .map_next = UINT_MAX };
   fd_funk_rec_t * rec[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  fd_funk_txn_xid_t const * root_xid = fd_funk_last_publish( funk );
   for( ulong j=0UL; j<chain_max; j++ ) {
     for( ulong i=start_idx; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
       uchar const *   frame     = result ? result->account_batch.batch[ i ] : buffered_batch->batch[ i ];
@@ -173,7 +234,9 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
       int const       has_node  = j<chain_cnt[ i ];
       fd_funk_rec_t * node      = has_node ? rec_tbl+map_node[ i ] : &dummy_rec;
       int const       key_match = 0==memcmp( node->pair.key, pubkey, sizeof(fd_funk_rec_key_t) );
-      if( has_node && key_match ) rec[ i ] = node;
+      int const       xid_match = fd_funk_txn_xid_eq( node->pair.xid, ctx->xid ) |
+                                  fd_funk_txn_xid_eq( node->pair.xid, root_xid );
+      if( has_node && key_match && xid_match ) rec[ i ] = node;
       map_node[ i ] = node->map_next;
     }
   }

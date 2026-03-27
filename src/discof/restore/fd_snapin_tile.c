@@ -857,10 +857,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->manifest_capitalization = 0UL;
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
-      fd_slot_delta_parser_init( ctx->slot_delta_parser );
-      fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
-      fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
@@ -873,6 +869,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->capitalization                     = 0UL;
         ctx->dup_capitalization                 = 0UL;
         ctx->recovery.capitalization            = 0UL;
+
       } else {
         ctx->metrics.accounts_loaded   = ctx->metrics.full_accounts_loaded;
         ctx->metrics.accounts_replaced = ctx->metrics.full_accounts_replaced;
@@ -886,6 +883,62 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->capitalization     = ctx->recovery.capitalization;
         ctx->dup_capitalization = 0UL;
       }
+
+      /* Create temporary funk branches for manifest arrays under a
+         dedicated parent transaction.
+
+         Full snapshot: FULL_PARENT is a child of root.
+
+         Incremental snapshot: INCR_PARENT is a child of
+           incremental_xid so that advance_root(incremental_xid)
+           promotes it to child of root, keeping manifest branches
+           alive for the replay tile's fd_ssload_recover.
+
+         Cleanup: advance_root cancels FULL_PARENT (sibling).
+         Replay's DONE handler cancels the remaining INCR_PARENT. */
+      {
+        fd_funk_txn_xid_t parent_xid;
+        fd_funk_txn_xid_t va_xid;
+        fd_funk_txn_xid_t sd_xid;
+        fd_funk_txn_xid_t es0_xid;
+        fd_funk_txn_xid_t es1_xid;
+        if( ctx->full ) {
+          parent_xid = FD_SSMSG_MANIFEST_XID_FULL_PARENT;
+          va_xid     = FD_SSMSG_MANIFEST_XID_FULL_VOTE_ACCOUNTS;
+          sd_xid     = FD_SSMSG_MANIFEST_XID_FULL_STAKE_DELEGATIONS;
+          es0_xid    = FD_SSMSG_MANIFEST_XID_FULL_EPOCH_STAKES_0;
+          es1_xid    = FD_SSMSG_MANIFEST_XID_FULL_EPOCH_STAKES_1;
+        } else {
+          parent_xid = FD_SSMSG_MANIFEST_XID_INCR_PARENT;
+          va_xid     = FD_SSMSG_MANIFEST_XID_INCR_VOTE_ACCOUNTS;
+          sd_xid     = FD_SSMSG_MANIFEST_XID_INCR_STAKE_DELEGATIONS;
+          es0_xid    = FD_SSMSG_MANIFEST_XID_INCR_EPOCH_STAKES_0;
+          es1_xid    = FD_SSMSG_MANIFEST_XID_INCR_EPOCH_STAKES_1;
+        }
+
+        /* Full: attach under root.
+           Incr: attach under incremental_xid so that
+             advance_root(incremental_xid) promotes it to child of root,
+             keeping manifest branches alive for replay's fd_ssload_recover.
+             This freezes incremental_xid, but both the header path
+             (frozen fallback) and batch path handle frozen transactions. */
+        fd_funk_txn_xid_t attach_xid;
+        if( ctx->full ) {
+          attach_xid = fd_accdb_root_get( ctx->accdb_admin );
+        } else {
+          fd_funk_txn_xid_copy( &attach_xid, ctx->xid );
+        }
+        fd_accdb_attach_child( ctx->accdb_admin, &attach_xid, &parent_xid );
+        fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &va_xid );
+        fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &sd_xid );
+        fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &es0_xid );
+        fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &es1_xid );
+      }
+
+      fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ), ctx->funk, ctx->full );
+      fd_slot_delta_parser_init( ctx->slot_delta_parser );
+      fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
+      fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
 
       /* Save the slot advertised by the snapshot peer and verify it
          against the slot in the snapshot manifest.  For downloaded
@@ -957,8 +1010,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         }
       }
 
-      /* Publish any remaining funk txn */
-      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
+      /* Publish any remaining funk txn.
+         Full-only: ctx->xid equals root — nothing to advance.
+         Full+incr: ctx->xid is incremental_xid — advance_root
+           cancels FULL_PARENT (sibling), promotes INCR_PARENT
+           (child of incremental_xid) to child of root.
+
+         The final advance_root (setting root XID to the snapshot slot
+         number) is deferred to the replay tile's DONE handler, which
+         first cancels any remaining manifest parents. */
+      if( FD_LIKELY( !fd_funk_txn_xid_eq_root( ctx->xid ) ) ) {
         ctx->accdb_admin->base.gc_root_cnt = 0UL;
         ctx->accdb_admin->base.reclaim_cnt = 0UL;
         fd_accdb_advance_root( ctx->accdb_admin, ctx->xid );
@@ -970,13 +1031,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.accounts_loaded   -= ctx->accdb_admin->base.reclaim_cnt;
         ctx->metrics.accounts_replaced += ctx->accdb_admin->base.reclaim_cnt;
       }
-      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
-
-      /* Make 'Last published' XID equal the restored slot number */
-      fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
-      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &target_xid );
-      fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
-      fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -997,6 +1051,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       if( !ctx->full ) {
+        /* Cancelling incremental_xid also recursively cancels
+           INCR_PARENT and its children (INCR_PARENT is a child of
+           incremental_xid in both vinyl and funk-only modes). */
         fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
         fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
       }
@@ -1188,7 +1245,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_ssparse_reset( ctx->ssparse );
-  fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
+  fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ), ctx->funk, 1 /* is_full */ );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );
 
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];

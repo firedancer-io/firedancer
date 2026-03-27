@@ -335,7 +335,9 @@ fd_accdb_user_v2_open_ro_multi( fd_accdb_user_t *         accdb,
   memset( comp, 0, sizeof(fd_vinyl_comp_t) );
   fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, 0UL, batch_idx, req_cnt );
 
-  while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
+  while( FD_VOLATILE_CONST( comp->seq )!=1UL ) {
+    FD_SPIN_PAUSE();
+  }
   FD_COMPILER_MFENCE();
   int comp_err = FD_VOLATILE_CONST( comp->err );
   if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {

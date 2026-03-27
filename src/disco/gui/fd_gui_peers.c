@@ -1105,13 +1105,14 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
     FD_LOG_WARNING(( "exceeded 40200UL vote accounts" ));
     vote_accounts_sz = 40200UL;
   }
-  for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
-    if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-    fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-    vote_scratch[ vote_scratch_cnt ].stake = manifest->vote_accounts[ i ].stake;
-    vote_scratch_cnt++;
-  }
+  /* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
+  // for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
+  //   if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
+  //   fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
+  //   fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
+  //   vote_scratch[ vote_scratch_cnt ].stake = manifest->vote_accounts[ i ].stake;
+  //   vote_scratch_cnt++;
+  // }
 
   /* Mirrors gossip WFS logic */
   fd_stake_weight_t * id_weights = peers->scratch.manifest_id_weights;

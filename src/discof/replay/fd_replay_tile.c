@@ -682,8 +682,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
   }
   bank->f.max_tick_height = max_tick_height;
   fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.hashes_per_tick, &parent_bank->f.poh );
-
-  FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
 }
 
 static void
@@ -1514,6 +1512,61 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     ulong snapshot_slot = bank->f.slot;
 
+    /* Cancel temporary manifest funk branch parents (and their
+       children recursively), then finalize the funk root XID.
+
+       The manifest branches must remain alive until this point because
+       fd_ssload_recover (called when processing FD_SSMSG_MANIFEST_*)
+       reads data from them.  The snapin tile does NOT cancel them in
+       CTRL_DONE — instead, this handler is responsible for cleanup.
+
+       For full+incr loads, FULL_PARENT was already cancelled by the
+       snapin tile's advance_root(incremental_xid) as a sibling.
+       INCR_PARENT survived advance_root because it was a child of
+       incremental_xid (promoted to child of root).
+
+       For full-only loads, FULL_PARENT is still a child of root.
+
+       Use retry loops for FD_MAP_ERR_AGAIN (concurrent map access). */
+    {
+      fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
+      fd_funk_txn_map_query_t query[1];
+      int query_err;
+
+      fd_funk_txn_xid_t full_parent_xid = FD_SSMSG_MANIFEST_XID_FULL_PARENT;
+      for(;;) {
+        query_err = fd_funk_txn_map_query_try( funk->txn_map, &full_parent_xid, NULL, query, 0 );
+        if( FD_LIKELY( query_err!=FD_MAP_ERR_AGAIN ) ) break;
+      }
+      if( !query_err ) {
+        fd_accdb_cancel( ctx->accdb_admin, &full_parent_xid );
+      }
+
+      fd_funk_txn_xid_t incr_parent_xid = FD_SSMSG_MANIFEST_XID_INCR_PARENT;
+      for(;;) {
+        query_err = fd_funk_txn_map_query_try( funk->txn_map, &incr_parent_xid, NULL, query, 0 );
+        if( FD_LIKELY( query_err!=FD_MAP_ERR_AGAIN ) ) break;
+      }
+      if( !query_err ) {
+        fd_accdb_cancel( ctx->accdb_admin, &incr_parent_xid );
+      }
+
+      /* Set 'last published' XID to the restored slot number.  This
+         was previously done in the snapin tile's CTRL_DONE via
+         attach_child + advance_root, but is deferred here so manifest
+         branches survive until read.
+
+         We set last_publish directly rather than going through
+         attach_child + advance_root because the accdb_admin handle
+         may be V1 or V2, and V2's advance_root has a delayed publish
+         strategy that skips publishing during snapshot bootstrap
+         (slot delay is zero).  Since the target txn would be empty
+         (no records, no children), the only effect of advance_root
+         is stamping last_publish — so we do that directly. */
+      fd_funk_txn_xid_t target_xid = { .ul = { snapshot_slot, 0UL } };
+      fd_funk_txn_xid_st_atomic( funk->shmem->last_publish, &target_xid );
+    }
+
     fd_hash_t bank_hash = bank->f.bank_hash;
     if( FD_UNLIKELY( ctx->wfs_enabled && memcmp( ctx->expected_bank_hash.uc, bank_hash.uc, sizeof(fd_hash_t) ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->expected_bank_hash.uc, expected_bank_hash_cstr );
@@ -1610,7 +1663,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                          ctx->banks,
                          fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
                          ctx->runtime_stack,
-                         msg==FD_SSMSG_MANIFEST_INCREMENTAL );
+                         msg==FD_SSMSG_MANIFEST_INCREMENTAL,
+                         fd_accdb_user_v1_funk( ctx->accdb ) );
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->hard_forks_cnt = manifest->hard_forks_len;
@@ -2225,6 +2279,7 @@ after_credit( fd_replay_tile_t *  ctx,
 
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
+
   int evict_banks = 0;
   if( FD_LIKELY( can_process_fec( ctx, &evict_banks ) ) ) {
     fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
@@ -2361,7 +2416,7 @@ static void
 process_tower_slot_done( fd_replay_tile_t *           ctx,
                          fd_stem_context_t *          stem,
                          fd_tower_slot_done_t const * msg,
-                         ulong                        seq ) {
+                         ulong                        seq FD_PARAM_UNUSED ) {
   fd_bank_t * replay_bank = fd_banks_bank_query( ctx->banks, msg->replay_bank_idx );
   if( FD_UNLIKELY( !replay_bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
   replay_bank->refcnt--;
@@ -2424,7 +2479,6 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
 
-  FD_LOG_INFO(( "tower_slot_done(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, replay_slot=%lu, root_slot=%lu, seqno=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->replay_slot, msg->root_slot, seq ));
   maybe_become_leader( ctx, stem );
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {

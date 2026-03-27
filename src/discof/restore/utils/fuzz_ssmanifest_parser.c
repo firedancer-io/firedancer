@@ -35,7 +35,7 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data_,
                         ulong         size ) {
-  fd_ssmanifest_parser_init( parser, output_mem );
+  fd_ssmanifest_parser_init( parser, output_mem, NULL, 1 );
   fd_ssmanifest_parser_consume( parser, data_, size, NULL, NULL );
   return 0;
 }

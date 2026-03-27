@@ -225,6 +225,17 @@ fd_funk_rec_publish( fd_funk_t *             funk,
     fd_funk_rec_push_tail( funk, prepare );
   }
 
+  /* Ensure rec_lock marks record as alive.  Records created via
+     fd_accdb_funk_prep_create are already alive+write-locked, so
+     only update when not yet alive. */
+  ulong rec_idx  = (ulong)( rec - funk->rec_pool->ele );
+  ulong ver_lock = funk->rec_lock[ rec_idx ];
+  if( FD_UNLIKELY( !fd_funk_rec_ver_alive( fd_funk_rec_ver_bits( ver_lock ) ) ) ) {
+    funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock(
+        fd_funk_rec_ver_inc( fd_funk_rec_ver_bits( ver_lock ) ),
+        fd_funk_rec_lock_bits( ver_lock ) );
+  }
+
   fd_racesan_hook( "funk_rec_publish:map_insert" );
   int insert_err = fd_funk_rec_map_insert( funk->rec_map, rec, FD_MAP_FLAG_BLOCKING );
   if( insert_err ) {
