@@ -199,11 +199,22 @@ quic_conn_final( fd_quic_conn_t * conn,
 
   for( ulong i=0UL; i<tile->conns_len; i++ ) {
     if( FD_UNLIKELY( tile->conns[ i ].conn==conn ) ) {
+      FD_BASE58_ENCODE_32_BYTES( tile->conns[ i ].pubkey.uc, final_pubkey_str );
+      FD_LOG_DEBUG(( "quic_conn_final: conn to %s at " FD_IP4_ADDR_FMT ":%u (state %u reason %u conns_len=%lu)",
+                     final_pubkey_str,
+                     FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ),
+                     conn->peer[0].udp_port,
+                     conn->state,
+                     conn->reason,
+                     tile->conns_len ));
+
       peer_entry_t * peer = peer_map_ele_query( tile->peer_map, &tile->conns[ i ].pubkey, NULL, tile->peers );
       if( FD_LIKELY( peer ) ) {
         for( ulong j=0UL; j<2UL; j++ ) {
           if( peer->quic_conns[ j ]==conn ) peer->quic_conns[ j ] = NULL;
         }
+      } else {
+        FD_LOG_DEBUG(( "quic_conn_final: peer entry not found in map for %s", final_pubkey_str ));
       }
       if( FD_UNLIKELY( i!=tile->conns_len-1UL ) ) tile->conns[ i ] = tile->conns[ tile->conns_len-1UL ];
       tile->conns_len--;
@@ -308,6 +319,13 @@ after_credit( fd_txsend_tile_t *  ctx,
       peer->quic_conns[ j ] = conn;
       peer->quic_last_connected[ j ] = now;
       ctx->conns_len++;
+
+      FD_BASE58_ENCODE_32_BYTES( leader->uc, new_conn_leader_str );
+      FD_LOG_DEBUG(( "after_credit: new quic conn to leader %s at " FD_IP4_ADDR_FMT ":%u (slot[%lu] j=%lu conns_len=%lu)",
+                     new_conn_leader_str,
+                     FD_IP4_ADDR_FMT_ARGS( peer->quic_ip_addrs[ j ] ),
+                     peer->quic_ports[ j ],
+                     i, j, ctx->conns_len ));
     }
   }
 }
@@ -344,6 +362,24 @@ send_vote_to_leader( fd_txsend_tile_t *  ctx,
       continue;
     }
 
+    FD_BASE58_ENCODE_32_BYTES( leader_pubkey->uc, leader_str );
+    FD_LOG_DEBUG(( "send_vote_to_leader quic[%lu]: intended leader %s, "
+                   "conn peer " FD_IP4_ADDR_FMT ":%u, conn state %u",
+                   i,
+                   leader_str,
+                   FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ),
+                   conn->peer[0].udp_port,
+                   conn->state ));
+
+    for( ulong k=0UL; k<ctx->conns_len; k++ ) {
+      if( ctx->conns[ k ].conn==conn ) {
+        FD_BASE58_ENCODE_32_BYTES( ctx->conns[ k ].pubkey.uc, conns_pubkey_str );
+        FD_LOG_DEBUG(( "send_vote_to_leader quic[%lu]: conns[%lu] pubkey %s",
+                       i, k, conns_pubkey_str ));
+        break;
+      }
+    }
+
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
     if( FD_UNLIKELY( !stream ) ) {
       FD_LOG_DEBUG(("no stream"));
@@ -358,6 +394,22 @@ static inline void
 handle_contact_info_update( fd_txsend_tile_t *                 ctx,
                             fd_gossip_update_message_t const * msg ) {
   peer_entry_t * entry = &ctx->peers[ msg->contact_info->idx ];
+
+  if( FD_UNLIKELY( entry->quic_conns[ 0 ] || entry->quic_conns[ 1 ] ) ) {
+    int pubkey_changing = memcmp( entry->pubkey.uc, msg->origin, 32UL );
+    if( FD_UNLIKELY( pubkey_changing ) ) {
+      FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, old_pubkey_str );
+      FD_BASE58_ENCODE_32_BYTES( msg->origin, new_pubkey_str );
+      FD_LOG_DEBUG(( "contact_info_update: peer idx %lu changing identity from %s to %s "
+                     "with live quic_conns[0]=%p quic_conns[1]=%p",
+                     msg->contact_info->idx,
+                     old_pubkey_str,
+                     new_pubkey_str,
+                     (void *)entry->quic_conns[ 0 ],
+                     (void *)entry->quic_conns[ 1 ] ));
+    }
+  }
+
   if( FD_UNLIKELY( entry->tombstoned ) ) {
     FD_TEST( peer_map_ele_remove( ctx->peer_map, &entry->pubkey, NULL, ctx->peers ) );
     entry->quic_last_connected[ 0 ] = 0L;
