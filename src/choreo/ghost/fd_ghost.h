@@ -245,17 +245,24 @@ fd_ghost_invalid_ancestor( fd_ghost_t     * ghost,
 
 /* Operations */
 
+/* fd_ghost_init initializes the ghost tree with a root block keyed by
+   block_id at the given slot.  Must be called exactly once before any
+   fd_ghost_insert calls.  Returns the new root block. */
+
+fd_ghost_blk_t *
+fd_ghost_init( fd_ghost_t      * ghost,
+               ulong             slot,
+               fd_hash_t const * block_id );
+
 /* fd_ghost_insert inserts a new tree node representing a block keyed by
    block_id (and slot).  parent_block_id is used to link this new block
-   to its parent in the ghost tree.  parent_block_id may only be NULL if
-   this is the very first ghost insert, in which case this new block
-   will be set to the ghost root.  Returns the new block.*/
+   to its parent in the ghost tree.  Returns the new block. */
 
 fd_ghost_blk_t *
 fd_ghost_insert( fd_ghost_t      * ghost,
+                 ulong             slot,
                  fd_hash_t const * block_id,
-                 fd_hash_t const * parent_block_id,
-                 ulong             slot );
+                 fd_hash_t const * parent_block_id );
 
 /* fd_ghost_count_vote return codes. */
 
@@ -281,7 +288,7 @@ fd_ghost_insert( fd_ghost_t      * ghost,
 int
 fd_ghost_count_vote( fd_ghost_t *        ghost,
                      fd_ghost_blk_t *    blk,
-                     fd_pubkey_t const * vtr_addr,
+                     fd_pubkey_t const * vote_acc,
                      ulong               stake,
                      ulong               slot );
 

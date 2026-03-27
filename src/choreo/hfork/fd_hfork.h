@@ -69,23 +69,9 @@
    running on the forked chain. */
 
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower_voters.h"
 
 struct fd_hfork;
 typedef struct fd_hfork fd_hfork_t;
-
-struct fd_hfork_blk {
-  fd_hash_t block_id;      /* blk_map key */
-  ulong     prev;          /* blk_map prev */
-  ulong     next;          /* pool next / blk_map next */
-  fd_hash_t our_bank_hash; /* our bank hash for this block id */
-  int       replayed;      /* whether we've replayed this block  */
-  int       dead;          /* whether we marked this block as dead */
-  int       flag;          /* -1: mismatch, 0: not compared yet, 1: match */
-  ulong     bhm_cnt;       /* number of competing bank hashes for this block id */
-  void *    bhm_dlist;     /* dlist of bank hash objects for this block id */
-};
-typedef struct fd_hfork_blk fd_hfork_blk_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -162,25 +148,26 @@ fd_hfork_count_vote( fd_hfork_t *        hfork,
 /* fd_hfork_record_our_bank_hash updates the hard fork detector with our
    bank hash (computed on replay) for a given block ID.  If bank_hash is
    NULL, this indicates the block was marked dead during replay and we
-   did not think it was valid.  Always returns a pointer to the
-   associated fd_hfork_blk_t.  The caller should inspect blk->flag to
-   determine the outcome: 1 (match), -1 (mismatch), or 0 (not yet
-   compared). */
+   did not think it was valid.  Returns a flag indicating the outcome:
+   1 (match), -1 (mismatch), or 0 (not yet compared). */
 
-fd_hfork_blk_t *
+int
 fd_hfork_record_our_bank_hash( fd_hfork_t *      hfork,
                                fd_hash_t const * block_id,
                                fd_hash_t const * bank_hash,
                                ulong             total_stake );
 
 /* fd_hfork_update_voters updates the set of voters tracked by the hard
-   fork detector.  Voters not in tower_voters are removed along with all
-   their vote entries.  New voters are added.  This should be called on
-   each epoch boundary when the stake-weighted voter set changes. */
+   fork detector.  Voters not in vote_accs[0..cnt) are removed along
+   with all their vote entries.  New voters are added.  This should be
+   called on each epoch boundary when the stake-weighted voter set
+   changes.  vote_accs is an array of vote account addresses of length
+   cnt. */
 
 void
-fd_hfork_update_voters( fd_hfork_t *              hfork,
-                        fd_tower_voters_t const * tower_voters );
+fd_hfork_update_voters( fd_hfork_t *        hfork,
+                        fd_pubkey_t const * vote_accs,
+                        ulong               cnt );
 
 FD_PROTOTYPES_END
 

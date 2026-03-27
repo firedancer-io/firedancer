@@ -1,5 +1,4 @@
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower.h"
 #include "fd_eqvoc.h"
 #include "../../ballet/shred/fd_shred.h"
 
@@ -264,10 +263,11 @@ fd_eqvoc_footprint( ulong dup_max,
                     ulong per_vtr_max,
                     ulong vtr_max ) {
 
-  dup_max          = fd_ulong_pow2_up( dup_max );
-  fec_max          = fd_ulong_pow2_up( fec_max );
-  ulong prf_max    = per_vtr_max * vtr_max;
-  vtr_max          = fd_ulong_pow2_up( vtr_max );
+  dup_max       = fd_ulong_pow2_up( dup_max );
+  fec_max       = fd_ulong_pow2_up( fec_max );
+  per_vtr_max   = fd_ulong_pow2_up( per_vtr_max );
+  vtr_max       = fd_ulong_pow2_up( vtr_max );
+  ulong prf_max = per_vtr_max * vtr_max;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_eqvoc_t),    sizeof(fd_eqvoc_t)                                      );
@@ -314,10 +314,11 @@ fd_eqvoc_new( void * shmem,
     return NULL;
   }
 
-  dup_max          = fd_ulong_pow2_up( dup_max );
-  fec_max          = fd_ulong_pow2_up( fec_max );
-  vtr_max          = fd_ulong_pow2_up( vtr_max );
-  ulong prf_max    = per_vtr_max * vtr_max;
+  dup_max       = fd_ulong_pow2_up( dup_max );
+  fec_max       = fd_ulong_pow2_up( fec_max );
+  per_vtr_max   = fd_ulong_pow2_up( per_vtr_max );
+  vtr_max       = fd_ulong_pow2_up( vtr_max );
+  ulong prf_max = per_vtr_max * vtr_max;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   void * eqvoc_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),    sizeof(fd_eqvoc_t)                                      );
@@ -341,19 +342,19 @@ fd_eqvoc_new( void * shmem,
   eqvoc->per_vtr_max = per_vtr_max;
   eqvoc->vtr_max     = vtr_max;
 
-  eqvoc->sha512     = fd_sha512_new( sha512                                            );
+  eqvoc->sha512     = fd_sha512_new( sha512                                           );
   eqvoc->bmtree_mem = bmtree_mem;
-  eqvoc->dup_pool   = dup_pool_new ( dup_pool, dup_max                                 );
-  eqvoc->dup_map    = dup_map_new  ( dup_map,  dup_map_chain_cnt_est( dup_max ),  seed );
-  eqvoc->dup_dlist  = dup_dlist_new( dup_dlist                                         );
-  eqvoc->fec_pool   = fec_pool_new ( fec_pool, fec_max                                 );
-  eqvoc->fec_map    = fec_map_new  ( fec_map,  fec_map_chain_cnt_est( fec_max ),  seed );
-  eqvoc->fec_dlist  = fec_dlist_new( fec_dlist                                         );
-  eqvoc->prf_pool   = prf_pool_new ( prf_pool, prf_max                                 );
-  eqvoc->prf_map    = prf_map_new  ( prf_map,  prf_map_chain_cnt_est( prf_max ),  seed );
-  eqvoc->vtr_pool   = vtr_pool_new ( vtr_pool, vtr_max                                 );
-  eqvoc->vtr_map    = vtr_map_new  ( vtr_map,  vtr_map_chain_cnt_est( vtr_max ),  seed );
-  eqvoc->vtr_dlist  = vtr_dlist_new( vtr_dlist                                         );
+  eqvoc->dup_pool   = dup_pool_new ( dup_pool, dup_max                                );
+  eqvoc->dup_map    = dup_map_new  ( dup_map,  dup_map_chain_cnt_est( dup_max ), seed );
+  eqvoc->dup_dlist  = dup_dlist_new( dup_dlist                                        );
+  eqvoc->fec_pool   = fec_pool_new ( fec_pool, fec_max                                );
+  eqvoc->fec_map    = fec_map_new  ( fec_map,  fec_map_chain_cnt_est( fec_max ), seed );
+  eqvoc->fec_dlist  = fec_dlist_new( fec_dlist                                        );
+  eqvoc->prf_pool   = prf_pool_new ( prf_pool, prf_max                                );
+  eqvoc->prf_map    = prf_map_new  ( prf_map,  prf_map_chain_cnt_est( prf_max ), seed );
+  eqvoc->vtr_pool   = vtr_pool_new ( vtr_pool, vtr_max                                );
+  eqvoc->vtr_map    = vtr_map_new  ( vtr_map,  vtr_map_chain_cnt_est( vtr_max ), seed );
+  eqvoc->vtr_dlist  = vtr_dlist_new( vtr_dlist                                        );
 
   vtr_t * pool_join = vtr_pool_join( eqvoc->vtr_pool );
   for( ulong i = 0UL; i < vtr_max; i++ ) {
@@ -731,8 +732,8 @@ verify_proof( fd_eqvoc_t const *         eqvoc,
 
       if( FD_UNLIKELY( lo->fec_set_idx + lo->code.data_cnt == hi->fec_set_idx ) ) {
         uchar * merkle_hash  = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx,
-                                          (uchar *)shred1 + fd_shred_merkle_off( shred1 ),
-                                          (uchar *)shred2 + fd_shred_merkle_off( shred2 ) );
+                                          (uchar *)root1.hash,
+                                          (uchar *)root2.hash );
         uchar * chained_hash = fd_ptr_if( shred1->fec_set_idx > shred2->fec_set_idx,
                                           (uchar *)shred1 + fd_shred_chain_off( shred1->variant ),
                                           (uchar *)shred2 + fd_shred_chain_off( shred2->variant ) );
@@ -917,8 +918,9 @@ cleanup:;
 }
 
 void
-fd_eqvoc_update_voters( fd_eqvoc_t *              eqvoc,
-                        fd_tower_voters_t const * tower_voters ) {
+fd_eqvoc_update_voters( fd_eqvoc_t *        eqvoc,
+                        fd_pubkey_t const * id_keys,
+                        ulong               cnt ) {
 
   for( vtr_dlist_iter_t iter = vtr_dlist_iter_fwd_init( eqvoc->vtr_dlist, eqvoc->vtr_pool );
        !vtr_dlist_iter_done( iter, eqvoc->vtr_dlist, eqvoc->vtr_pool );
@@ -926,13 +928,11 @@ fd_eqvoc_update_voters( fd_eqvoc_t *              eqvoc,
     eqvoc->vtr_pool[iter].next = 1; /* mark for removal */
   }
 
-  /* Move all voters in the new tower_voters set to the back of the
+  /* Move all voters in the new voters set to the back of the
      dlist.  We mark them by setting their `next` field to null. */
 
-  for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( tower_voters );
-                                    !fd_tower_voters_iter_done( tower_voters, iter );
-                              iter = fd_tower_voters_iter_next( tower_voters, iter ) ) {
-    fd_pubkey_t const * id  = &fd_tower_voters_iter_ele_const( tower_voters, iter )->id_key;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t const * id  = &id_keys[i];
     vtr_t *             vtr = vtr_map_ele_query( eqvoc->vtr_map, id, NULL, eqvoc->vtr_pool );
     if( FD_UNLIKELY( !vtr ) ) {
       vtr                = vtr_pool_ele_acquire( eqvoc->vtr_pool );

@@ -1284,19 +1284,20 @@ metric introduced.
 
     <!-- Tower slot metadata -->
 
-    <gauge name="ReplaySlot" summary="Replay slot" />
-    <gauge name="VoteSlot" summary="Most recent vote slot, ULONG_MAX if no vote cast" />
-    <gauge name="ResetSlot" summary="Reset slot" />
-    <gauge name="RootSlot" summary="Root slot" />
-    <gauge name="InitSlot" summary="Init slot" />
+    <gauge name="ReplaySlot" summary="The most recently replayed slot, ULONG_MAX if nothing replayed yet. Not monotonically increasing." />
+    <gauge name="VoteSlot" summary="The highest voted slot in the local tower, ULONG_MAX if haven't voted. Monotonically increasing." />
+    <gauge name="ResetSlot" summary="The most recent reset slot, ULONG_MAX if no reset yet. Not monotonically increasing." />
+    <gauge name="RootSlot" summary="The highest rooted slot, ULONG_MAX if no root yet. Monotonically increasing." />
+    <gauge name="InitSlot" summary="Init slot. Either the snapshot or genesis slot. Set once and does not change." />
 
     <!-- Vote txn handling -->
+
+    <counter name="NotReady" summary="Frag was dropped because it arrived before tower tile was initialized" />
 
     <counter name="TxnBadDeser" summary="Vote txn failed to deserialize" />
     <counter name="TxnBadTower" summary="Vote txn deserialized but tower was invalid" />
     <counter name="TxnNotTowerSync" summary="Vote txn was not a TowerSync instruction" />
     <counter name="TxnEmptyTower" summary="Vote txn had an empty tower (validator hasn't voted)" />
-    <counter name="TxnNotReady" summary="Vote txn arrived before votes root was initialized" />
 
     <!-- Eqvoc -->
 

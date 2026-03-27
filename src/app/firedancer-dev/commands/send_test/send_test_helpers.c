@@ -204,16 +204,17 @@ encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
   ulong const vote_slot = root+30;
 
   /* Create minimal mock tower with one vote */
-  uchar tower_mem[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN)));
-  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem ) );
-  fd_tower_push_tail( tower, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
+  uchar votes_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  fd_tower_vote_t * votes = fd_tower_vote_join( fd_tower_vote_new( votes_mem ) );
+  fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
+  fd_tower_t tower[1] = {{ .root = root, .votes = votes }};
 
   /* Mock values */
   fd_hash_t test_hash = {0};
   fd_txn_p_t txn[1];
 
   /* Use fd_tower_to_vote_txn to generate the transaction */
-  fd_tower_to_vote_txn( tower, root, &test_hash, &test_hash,
+  fd_tower_to_vote_txn( tower, &test_hash, &test_hash,
                         &test_hash, ctx->identity_key,
                         ctx->identity_key, ctx->vote_acct_addr, txn );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
