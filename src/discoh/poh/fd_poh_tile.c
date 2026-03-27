@@ -864,6 +864,7 @@ fd_ext_poh_update_active_descendant( ulong max_active_descendant ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
   ctx->max_active_descendant = max_active_descendant;
   fd_ext_poh_write_unlock();
+  FD_LOG_INFO(( "fd_ext_poh_update_active_descendant( %lu )", max_active_descendant ));
 }
 
 /* fd_ext_poh_reached_leader_slot returns 1 if we have reached a slot
