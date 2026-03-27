@@ -26,6 +26,7 @@ typedef struct {
   ulong _pack_idx;
   ulong _txn_idx;
   int _is_bundle;
+
   fd_acct_addr_t _alt_accts[MAX_TXN_PER_MICROBLOCK][FD_TXN_ACCT_ADDR_MAX];
 
   ulong * busy_fseq;

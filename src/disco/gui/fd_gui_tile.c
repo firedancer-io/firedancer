@@ -229,8 +229,8 @@ before_frag( fd_gui_ctx_t * ctx,
              ulong          sig ) {
   (void)seq;
 
-  /* Ignore "done draining banks" signal from pack->poh */
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==ULONG_MAX ) ) return 1;
+  /* Ignore "done draining banks" and "reduce microblock bound" signals from pack->poh */
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && (sig==FD_PACK_MSG_DONE_DRAINING || sig==FD_PACK_MSG_REDUCE_MB_BOUND) ) ) return 1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;

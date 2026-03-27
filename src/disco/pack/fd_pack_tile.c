@@ -206,6 +206,15 @@ typedef struct {
      for, if we are currently packing for a slot.*/
   long slot_end_ns;
 
+  /* The current dynamic upper bound on total microblocks for this slot.
+     Monotonically decreasing over the slot lifetime. */
+  ulong slot_dynamic_max_microblocks;
+
+  /* Set by during_housekeeping when the dynamic bound drops below
+     slot_max_microblocks.  Consumed by after_credit which publishes
+     the updated bound to POH over the pack_poh link. */
+  int pending_reduce_mb_bound;
+
   /* pacer and ticks_per_ns are used for pacing CUs through the slot,
      i.e. deciding when to schedule a microblock given the number of CUs
      that have been consumed so far.  pacer is an opaque pacing object,
@@ -442,6 +451,40 @@ metrics_write( fd_pack_ctx_t * ctx ) {
   fd_pack_metrics_write( ctx->pack );
 }
 
+/* compute_dynamic_max_microblocks: Computes the upper bound on total
+   microblocks based on remaining time and bank count.
+
+   The basic idea here is that if there is 1ms left in the slot, we
+   don't expect to schedule 130k microblocks.  We can reduce our
+   remaining budget which allows POH to advance hashing a bit further
+   and avoid having to do a lot of hashing after the slot ends.
+
+   The fastest we can execute a transaction is about 1us.  With n
+   execle tiles, that means we can execute at most n txn/us.  If we have
+   k ms left in the block, only reserve up to k*n*1000 microblocks. */
+
+static inline ulong
+compute_dynamic_max_microblocks( fd_pack_ctx_t * ctx ) {
+  long  now = ctx->approx_wallclock_ns + (long)((double)(fd_tickcount() - ctx->approx_tickcount) / ctx->ticks_per_ns);
+  long  end = ctx->slot_end_ns;
+
+  /* If the slot has ended, don't reserve any more microblocks. */
+  if( FD_UNLIKELY( now>=end ) ) return ctx->slot_microblock_cnt;
+
+  /* remaining_ns * n / 1000 = (remaining_ns/1e6 ms) * n * 1000.
+
+     Overflow: remaining_ns is at most ~4e8, n at most 64, so
+     remaining_ns * n is at most ~2.6e10 << 1.8e19. */
+
+  ulong remaining_ns = (ulong)(end - now);
+  ulong n            = ctx->execle_cnt;
+  ulong cnt          = ctx->slot_microblock_cnt;
+  ulong R            = ctx->slot_max_microblocks - cnt;
+  ulong can_execute  = remaining_ns * n / 1000UL;
+
+  return cnt + fd_ulong_min( R, can_execute );
+}
+
 static inline void
 during_housekeeping( fd_pack_ctx_t * ctx ) {
   ctx->approx_wallclock_ns = fd_log_wallclock();
@@ -450,6 +493,34 @@ during_housekeeping( fd_pack_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->crank->enabled && fd_keyswitch_state_query( ctx->crank->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     fd_memcpy( ctx->crank->identity_pubkey, ctx->crank->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->crank->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
+    ulong raw = compute_dynamic_max_microblocks( ctx );
+    ulong prev = ctx->slot_dynamic_max_microblocks;
+
+    /* Enforce monotonically decreasing. This ensures pack's bound is
+       always smaller than POH's.  */
+    ctx->slot_dynamic_max_microblocks = fd_ulong_min( raw, prev );
+
+    /* If the bound decreased, we must update pack's internal scheduling
+       limit.  Otherwise, pack could schedule a microblock that exceeds
+       the remaining capacity from the tile's and poh's perspectives
+       (e.g. pack might produce a 5-transaction microblock when only 4
+       microblocks worth of space remain). */
+    if( FD_UNLIKELY( ctx->slot_dynamic_max_microblocks < prev ) ) {
+      fd_pack_limits_t limits[1];
+      limits->max_cost_per_block           = ctx->limits.slot_max_cost;
+      limits->max_data_bytes_per_block     = ctx->slot_max_data;
+      limits->max_microblocks_per_block    = ctx->slot_dynamic_max_microblocks;
+      limits->max_vote_cost_per_block      = ctx->limits.slot_max_vote_cost;
+      limits->max_write_cost_per_acct      = ctx->limits.slot_max_write_cost_per_acct;
+      limits->max_txn_per_microblock       = ULONG_MAX; /* unused */
+      limits->max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK;
+      fd_pack_set_block_limits( ctx->pack, limits );
+
+      ctx->pending_reduce_mb_bound = 1; /* publish bound decrease */
+    }
   }
 }
 
@@ -518,8 +589,6 @@ after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
@@ -626,19 +695,30 @@ after_credit( fd_pack_ctx_t *     ctx,
 
       /* Pack notifies poh when execle are drained so that poh can
          relinquish pack's ownership over the slot execle (by decrementing
-         its Arc). We do this by sending a ULONG_MAX sig over the
-         pack_poh mcache.
+         its Arc). We do this by sending a FD_PACK_MSG_DONE_DRAINING
+         sig over the pack_poh mcache.
 
          TODO: This is only needed for Frankendancer, not Firedancer,
          which manages bank lifetime different. */
-      fd_stem_publish( stem, 1UL, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, 1UL, FD_PACK_MSG_DONE_DRAINING, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     } else {
       return;
     }
   }
 
+  if( FD_UNLIKELY( ctx->pending_reduce_mb_bound ) ) {
+    ctx->pending_reduce_mb_bound = 0;
+    ulong * dst = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
+    *dst = ctx->slot_dynamic_max_microblocks;
+    fd_stem_publish( stem, 1UL, FD_PACK_MSG_REDUCE_MB_BOUND, ctx->poh_out_chunk, sizeof(ulong), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(ulong), ctx->poh_out_chunk0, ctx->poh_out_wmark );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* Have I sent the max allowed microblocks? Nothing to do. */
-  if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
+  if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_dynamic_max_microblocks ) ) return;
 
   /* Do I have enough transactions and/or have I waited enough time? */
 #if !SMALL_MICROBLOCKS
@@ -767,6 +847,10 @@ after_credit( fd_pack_ctx_t *     ctx,
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
       trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
 
+      /* When sending MAX_TXN_PER_MICROBLOCK transactions as fd_txn_e_t
+         to execle, there must be room for the trailer at the end. */
+      FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_e_t)+sizeof(fd_microblock_execle_trailer_t)<=MAX_MICROBLOCK_SZ, pack_execle_mtu );
+
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_execle_trailer_t), 0UL, tsorig, tspub );
       ctx->execle_expect[ i ] = stem->seqs[0]-1UL;
@@ -809,7 +893,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 #endif
 
   /* Did we send the maximum allowed microblocks? Then end the slot. */
-  if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_max_microblocks )) {
+  if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_dynamic_max_microblocks )) {
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,      0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
@@ -1098,6 +1182,8 @@ after_frag( fd_pack_ctx_t *     ctx,
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
 
     ctx->slot_end_ns = ctx->_became_leader->slot_end_ns;
+    ctx->slot_dynamic_max_microblocks  = ctx->slot_max_microblocks;
+    ctx->pending_reduce_mb_bound       = 0;
     fd_pack_limits_t limits[ 1 ];
     limits->max_cost_per_block = ctx->limits.slot_max_cost;
     limits->max_data_bytes_per_block = ctx->slot_max_data;
@@ -1321,6 +1407,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;
   ctx->slot_max_microblocks          = 0UL;
+  ctx->slot_dynamic_max_microblocks  = 0UL;
+  ctx->pending_reduce_mb_bound       = 0;
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->drain_execle                  = 0;
