@@ -112,10 +112,18 @@ fd_blockhashes_peek_last_hash( fd_blockhashes_t const * blockhashes ) {
 }
 
 
+
+
 FD_FN_PURE static inline fd_blockhash_info_t const *
 fd_blockhashes_peek_last( fd_blockhashes_t const * blockhashes ) {
   if( FD_UNLIKELY( fd_blockhash_deq_empty( blockhashes->d.deque ) ) ) return 0;
   return fd_blockhash_deq_peek_tail_const( blockhashes->d.deque );
+}
+
+FD_FN_PURE static inline fd_hash_t const *
+fd_blockhashes_peek_second_to_last( fd_blockhashes_t const * blockhashes ) {
+  if( FD_UNLIKELY( fd_blockhash_deq_cnt( blockhashes->d.deque )<2UL ) ) return 0;
+  return &fd_blockhash_deq_peek_index_const( blockhashes->d.deque, fd_blockhash_deq_cnt( blockhashes->d.deque )-2UL )->hash;
 }
 
 FD_PROTOTYPES_END

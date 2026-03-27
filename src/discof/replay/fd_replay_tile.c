@@ -761,6 +761,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
+  slot_info->second_blockhash      = *fd_blockhashes_peek_second_to_last( &bank->f.block_hash_queue );
   slot_info->transaction_count     = bank->f.txn_count;
 
   fd_inflation_t inflation = bank->f.inflation;

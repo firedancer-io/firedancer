@@ -1088,7 +1088,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   if( FD_LIKELY( found_authority ) ) {
     msg->has_vote_txn = 1;
     fd_txn_p_t          txn[1];
-    fd_tower_to_vote_txn( ctx->tower, ctx->root_slot, &slot_completed->bank_hash, &slot_completed->block_id, &slot_completed->block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
+    fd_tower_to_vote_txn( ctx->tower, ctx->root_slot, &slot_completed->bank_hash, &slot_completed->block_id, &slot_completed->second_blockhash, ctx->identity_key, authority, ctx->vote_account, txn );
     FD_TEST( !fd_tower_empty( ctx->tower ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
