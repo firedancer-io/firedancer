@@ -348,6 +348,16 @@ struct fd_topo_tile {
     } sign;
 
     struct {
+      char  path[ PATH_MAX ];
+      ulong max_accounts;
+      ulong max_unrooted_slots;
+      ulong max_txn_per_slot;
+      ulong cache_footprint;
+      ulong partition_cnt;
+      ulong partition_sz;
+    } accdb;
+
+    struct {
       uint   listen_addr;
       ushort listen_port;
 
@@ -647,18 +657,6 @@ struct fd_topo_tile {
 
       ulong accdb_max_depth;
     } genesi;
-
-    struct {
-      ulong meta_map_obj_id;
-      ulong meta_pool_obj_id;
-      ulong line_max;
-      ulong data_obj_id;
-      char  bstream_path[ PATH_MAX ];
-      ulong pair_cnt_limit;
-
-      int  io_type; /* FD_VINYL_IO_TYPE_* */
-      uint uring_depth;
-    } accdb;
 
     struct {
       ulong capture_start_slot;

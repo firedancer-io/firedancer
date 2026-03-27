@@ -65,6 +65,7 @@ enum {
 #include "fd_metrics_poh.h"
 #include "fd_metrics_shred.h"
 #include "fd_metrics_store.h"
+#include "fd_metrics_accdb.h"
 #include "fd_metrics_replay.h"
 #include "fd_metrics_repair.h"
 #include "fd_metrics_gossip.h"
@@ -93,7 +94,6 @@ enum {
 #include "fd_metrics_tower.h"
 #include "fd_metrics_gui.h"
 #include "fd_metrics_event.h"
-#include "fd_metrics_accdb.h"
 
 /* LINK IN metric properties */
 

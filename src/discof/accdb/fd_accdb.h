@@ -1,0 +1,209 @@
+#ifndef HEADER_fd_src_discof_accdb_fd_accdb_h
+#define HEADER_fd_src_discof_accdb_fd_accdb_h
+
+#include "fd_accdb_shmem.h"
+
+/* The accdb is a fork aware database that can be queried to get the
+   current state of any accounts as-of a given fork, and update them. */
+
+#define FD_ACCDB_ALIGN     (128UL)
+#define FD_ACCDB_FOOTPRINT (128UL)
+
+struct fd_accdb_private;
+typedef struct fd_accdb_private fd_accdb_t;
+
+struct fd_accdb_fork_id { ushort val; };
+typedef struct fd_accdb_fork_id fd_accdb_fork_id_t;
+
+struct fd_accdb_entry {
+  uchar   owner[ 32UL ];
+  ulong   lamports;
+  ulong   data_len;
+
+  uchar * data;
+
+  int     commit;
+
+  int     _writable;
+  int     _overwrite;
+
+  ushort  _fork_id;
+  ulong   _generation;
+  ulong   _acc_map_idx;
+  uchar   _pubkey[ 32UL ];
+
+  ulong   _original_size_class;
+  ulong   _original_cache_idx;
+
+  struct {
+    ulong destination_cache_idx[ 8UL ];
+  } _write;
+};
+
+typedef struct fd_accdb_entry fd_accdb_entry_t;
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST ulong
+fd_accdb_align( void );
+
+FD_FN_CONST ulong
+fd_accdb_footprint( ulong max_live_slots );
+
+void *
+fd_accdb_new( void *             ljoin,
+              fd_accdb_shmem_t * shmem,
+              int                fd );
+
+fd_accdb_t *
+fd_accdb_join( void * shaccdb );
+
+/* fd_accdb_attach_child allocates a new fork as a child of
+   parent_fork_id and returns the new fork's id.  This must be done
+   any time a new fork is being inserted into the accounts database,
+   so that the accounts database can maintain ancestry information
+   in order to support queries correctly.
+
+   To create the initial root fork, pass a sentinel value with
+   val==USHORT_MAX as parent_fork_id.  This must be done exactly
+   once, before any other fork operations.
+
+   For non-root forks, parent_fork_id must refer to a fork that has
+   already been attached.  The ancestry must form a tree and it is
+   undefined behavior to create cycles. */
+
+fd_accdb_fork_id_t
+fd_accdb_attach_child( fd_accdb_t *       accdb,
+                       fd_accdb_fork_id_t parent_fork_id );
+
+/* fd_accdb_advance_root advances the root of the accounts database to
+   the given fork_id.  fork_id must be a direct child of the current
+   root (i.e. fork->parent_id equals the current root_fork_id).
+
+   Any competing sibling forks (and their entire subtrees) are
+   removed.  For accounts updated on the newly rooted fork, any
+   older versions on ancestor forks are tombstoned for later
+   compaction.  After this call the old root fork slot is freed
+   and fork_id becomes the new root. */
+
+void
+fd_accdb_advance_root( fd_accdb_t *       accdb,
+                       fd_accdb_fork_id_t fork_id );
+
+/* fd_accdb_purge removes the provided fork and all of its descendants
+   from the accounts database.  This is an extremely rare operation,
+   used to handle cases where a leader equivocated and produced two
+   competing blocks for the same slot.
+
+   All accounts written on the purged fork and any child or
+   grandchild forks are removed from the index, and their disk
+   space is freed for compaction.  The ancestry information for all
+   purged forks is also removed. */
+
+void
+fd_accdb_purge( fd_accdb_t *       accdb,
+                fd_accdb_fork_id_t fork_id );
+
+/* fd_accdb_acquire brings all of the requested accounts as-of the given
+   fork_idx into the cache, and refcnts them in the cache so they cannot
+   be evicted until later released.
+
+   fork_idx is the fork index from replay to query as-of, and must exist
+   for the entire duration of the acquire call, meaning, whoever is
+   acquiring must have a refcnt on the bank corresponding to fork_idx,
+   and not release it until after the accounts are acquired.  It is safe
+   to release the bank after the acquire call returns, and this will not
+   cause the acquired accounts to be evicted from the cache.
+
+   pubkeys_cnt is the number of accounts to acquire, and pubkeys is an
+   array of pointers to the 32-byte pubkeys of the accounts to acquire.
+   writable is an array of flags indicating whether each corresponding
+   account in pubkeys is being acquired for read (0) or write (1).
+   Writes provide a temporary buffer of 10MiB in all cases, which the
+   caller can use for staging changes to the data, and this allows
+   account resizing, or cancelling of any data written (for example if a
+   transaction fails) without needing to restore it.  If an account is
+   acquired for write, the caller must set the commit bit on the entry
+   to non-zero to have the changes written back to the database on
+   release, or leave it at zero to discard the changes.  The commit bit
+   must be set even if only the metadata has changed.
+
+   IMPORTANT: The caller must guarantee that for any given (pubkey,
+   fork) pair, there is no concurrent acquire that holds a writable
+   entry while another acquire for the same account on the same fork is
+   outstanding (whether readable or writable).  Specifically:
+
+     - Multiple concurrent read-only acquires of the same account on the
+       same fork are permitted.
+     - A writable acquire of an account on a given fork must not overlap
+       with any other acquire (read or write) of that same account on
+       that same fork.
+     - Acquires of the same account on _different_ forks are always safe
+       and may overlap freely, provided that all releases on an ancestor
+       fork have completed before any acquire on a descendant fork
+       begins.  In particular, a fork must finish all of its transaction
+       execution (including committing or cancelling every writable
+       account) before a child fork is attached and begins acquiring.
+       This is naturally guaranteed by the replay scheduler, which does
+       not activate a child block until the parent block is fully done.
+       Concurrent acquires across unrelated sibling forks have no
+       ordering requirement.
+
+   Violating this contract is undefined behavior and will likely crash
+   with an assertion failure inside the cache refcount logic.  In
+   practice, these constraints are naturally satisfied by the Solana
+   execution model: each transaction has exclusive write locks on its
+   writable accounts within a slot, the scheduler ensures no two
+   concurrent transactions write to the same account on the same fork,
+   and the replay scheduler serializes parent block completion before
+   child block activation on the same fork chain.
+
+   out_entries is an array of pubkeys_cnt cache entries to be filled in
+   with the acquired accounts.  The cache will fill the owner, lamports,
+   data_len, and data fields of each entry if the acquire is successful,
+   and the account exists.  If the account does not exist, the lamports
+   field will be set to zero and other fields are undefined. */
+
+void
+fd_accdb_acquire( fd_accdb_t *          accdb,
+                  fd_accdb_fork_id_t    fork_id,
+                  ulong                 pubkeys_cnt,
+                  uchar const * const * pubkeys,
+                  int *                 writable,
+                  fd_accdb_entry_t *    out_entries );
+
+/* fd_accdb_release releases previously acquired accounts back to the
+   cache, and if any of the released writable accounts have their commit
+   bit set, the cache will write the changes back to the database.  The
+   caller must guarantee that the entries being released were previously
+   acquired and not yet released, and that the pubkeys in the entries
+   match the pubkeys of the acquired accounts.  The entries need not be
+   a specific set that was acquired together, although this is
+   recommended.  The fork that each entry refers to must still exist
+   (not yet purged or advanced past) at the time of release.  Releasing
+   accounts for a fork that has been purged or recycled is undefined
+   behavior. */
+
+void
+fd_accdb_release( fd_accdb_t *       accdb,
+                  ulong              entries_cnt,
+                  fd_accdb_entry_t * entries );
+
+/* fd_accdb_compact relocates one record from the oldest partition
+   queued for compaction at src_layer into the write head for the
+   next colder tier, or the same tier for the deepest layer.  Layer 0
+   is the hot execution tier; layers 1..N-1 are successively colder.
+   src_layer must be in 0..FD_ACCDB_COMPACTION_LAYER_CNT-1.
+
+   Designed to be called repeatedly from a dedicated compaction tile.
+   If there is work to do, *charge_busy is set to 1; otherwise it is
+   left unchanged and the call returns immediately. */
+
+void
+fd_accdb_compact( fd_accdb_t * accdb,
+                  ulong        src_layer,
+                  int *        charge_busy );
+
+FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_discof_accdb_fd_accdb_h */
