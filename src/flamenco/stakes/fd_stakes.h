@@ -81,10 +81,10 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
    stake history. This is called after snapshot load before execution. */
 
 void
-fd_stakes_init_totals( fd_bank_t *                    bank,
-                       fd_stake_delegations_t const * stake_delegations,
-                       fd_accdb_user_t *              accdb,
-                       fd_funk_txn_xid_t const *      xid );
+fd_stakes_init_totals( fd_bank_t *               bank,
+                       fd_stake_delegations_t *  stake_delegations,
+                       fd_accdb_user_t *         accdb,
+                       fd_funk_txn_xid_t const * xid );
 
 FD_PROTOTYPES_END
 

@@ -117,6 +117,10 @@ struct fd_stake_delegations {
   ulong       fork_pool_offset_;
   ulong       dlist_offsets_[ FD_STAKE_DELEGATIONS_FORK_MAX ];
   fd_rwlock_t delta_lock;
+
+  ulong effective_stake;
+  ulong activating_stake;
+  ulong deactivating_stake;
 };
 typedef struct fd_stake_delegations fd_stake_delegations_t;
 
@@ -190,6 +194,13 @@ fd_stake_delegations_join( void * mem );
 
 void
 fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations );
+
+/* fd_stake_delegation_root_query looks up the stake delegation for the
+   given stake account in the root map. */
+
+fd_stake_delegation_t const *
+fd_stake_delegation_root_query( fd_stake_delegations_t const * stake_delegations,
+                                fd_pubkey_t const *            stake_account );
 
 /* fd_stake_delegations_root_update will either insert a new stake
    delegation if the pubkey doesn't exist yet, or it will update the
@@ -301,9 +312,12 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
    the corresponding stake account from the root map.  Caller must
    ensure no concurrent iteration on stake_delegations for this fork. */
 
-void
-fd_stake_delegations_apply_fork_delta( fd_stake_delegations_t * stake_delegations,
-                                       ushort                   fork_idx );
+   void
+   fd_stake_delegations_apply_fork_delta( ulong                      epoch,
+                                          fd_stake_history_t const * stake_history,
+                                          ulong *                    warmup_cooldown_rate_epoch,
+                                          fd_stake_delegations_t *   stake_delegations,
+                                          ushort                     fork_idx );
 
 /* fd_stake_delegations_{mark,unmark}_delta are used to temporarily
    tag delta elements from a given fork in the base/root stake
@@ -320,13 +334,19 @@ fd_stake_delegations_apply_fork_delta( fd_stake_delegations_t * stake_delegation
    temporarily added to the root, but will be removed with a call to
    unmark_delta. */
 
-void
-fd_stake_delegations_mark_delta( fd_stake_delegations_t * stake_delegations,
-                                 ushort                   fork_idx );
+   void
+   fd_stake_delegations_mark_delta( fd_stake_delegations_t * stake_delegations,
+                                    ulong                    epoch,
+                                    fd_stake_history_t const * stake_history,
+                                    ulong *                    warmup_cooldown_rate_epoch,
+                                    ushort                   fork_idx );
 
-void
-fd_stake_delegations_unmark_delta( fd_stake_delegations_t * stake_delegations,
-                                  ushort                   fork_idx );
+  void
+  fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
+                                      ulong                      epoch,
+                                      fd_stake_history_t const * stake_history,
+                                      ulong *                    warmup_cooldown_rate_epoch,
+                                      ushort                     fork_idx );
 
 /* Iterator API for stake delegations.  The iterator is initialized with
    a call to fd_stake_delegations_iter_init.  The caller is responsible

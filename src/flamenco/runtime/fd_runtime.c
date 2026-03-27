@@ -629,11 +629,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                               fd_runtime_stack_t *      runtime_stack ) {
   long start = fd_log_wallclock();
 
-  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
-  if( FD_UNLIKELY( !stake_delegations ) ) {
-    FD_LOG_CRIT(( "stake_delegations is NULL" ));
-  }
-
   fd_compute_and_apply_new_feature_activations( bank, accdb, xid, runtime_stack, capture_ctx );
 
   /* Update the cached warmup/cooldown rate epoch now that features may
@@ -644,6 +639,11 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
+
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "stake_delegations is NULL" ));
+  }
 
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, xid, capture_ctx, stake_delegations,
                             &bank->f.warmup_cooldown_rate_epoch );
