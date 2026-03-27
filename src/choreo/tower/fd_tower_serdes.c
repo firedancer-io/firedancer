@@ -3,45 +3,65 @@
 
 #define SHORTVEC 0
 
-#define DE( T, name ) do {                                  \
-    if( FD_UNLIKELY( off+sizeof(T)>buf_sz ) ) return -1;    \
-    serde->name = *(T const *)fd_type_pun_const( buf+off ); \
-    off += sizeof(T);                                       \
+#define DE( T, name ) do {                                \
+    if( FD_UNLIKELY( buf_sz<sizeof(T) ) ) return -1;      \
+    serde->name = *(T const *)fd_type_pun_const( buf );   \
+    buf    += sizeof(T);                                  \
+    buf_sz -= sizeof(T);                                  \
 } while(0)
 
-#define SER( T, name ) do {                              \
-    if( FD_UNLIKELY( off+sizeof(T)>buf_sz ) ) return -1; \
-    FD_STORE( T, buf+off, serde->name );                 \
-    off += sizeof(T);                                    \
+#define SER( T, name ) do {                               \
+    if( FD_UNLIKELY( off+sizeof(T)>buf_max ) ) return -1; \
+    FD_STORE( T, buf+off, serde->name );                  \
+    off += sizeof(T);                                     \
 } while(0)
 
-static ulong
-de_short_u16( ushort * dst, uchar const * src ) {
-  if     ( FD_LIKELY( !(0x80U & src[0]) ) ) { *dst = (ushort)src[0];                                                                           return 1; }
-  else if( FD_LIKELY( !(0x80U & src[1]) ) ) { *dst = (ushort)((ulong)(src[0]&0x7FUL) + (((ulong)src[1])<<7));                                  return 2; }
-  else                                      { *dst = (ushort)((ulong)(src[0]&0x7FUL) + (((ulong)(src[1]&0x7FUL))<<7) + (((ulong)src[2])<<14)); return 3; }
+static int
+de_short_u16( ushort * dst, uchar const ** src, ulong * src_sz ) {
+  uchar const * s = *src;
+  if( FD_UNLIKELY( *src_sz<1 ) ) return -1;
+  if( FD_LIKELY( !( 0x80U & s[0] ) ) ) {
+    *dst = (ushort)s[0];
+    *src += 1;
+    *src_sz -= 1;
+    return 0;
+  }
+  if( FD_UNLIKELY( *src_sz<2 ) ) return -1;
+  if( FD_LIKELY( !( 0x80U & s[1] ) ) ) {
+    if( FD_UNLIKELY( !s[1] ) ) return -1; /* non-canonical: value fits in 1 byte */
+    *dst = (ushort)( (ulong)(s[0]&0x7FUL) + (((ulong)s[1])<<7) );
+    *src += 2;
+    *src_sz -= 2;
+    return 0;
+  }
+  if( FD_UNLIKELY( *src_sz<3    ) ) return -1;
+  if( FD_UNLIKELY( 0x80U & s[2] ) ) return -1; /* 3rd byte is final; continuation bit is invalid */
+  if( FD_UNLIKELY( !s[2]        ) ) return -1; /* non-canonical: value fits in 2 bytes */
+  ulong val = (ulong)(s[0]&0x7FUL) + (((ulong)(s[1]&0x7FUL))<<7) + (((ulong)s[2])<<14);
+  if( FD_UNLIKELY( val>USHORT_MAX ) ) return -1;
+  *dst = (ushort)val;
+  *src += 3;
+  *src_sz -= 3;
+  return 0;
 }
 
-static ulong
-de_var_int( ulong *       dst,
-            uchar const * src,
-            ulong         src_sz ) {
+static int
+de_var_int( ulong * dst, uchar const ** src, ulong * src_sz ) {
   *dst = 0;
-  ulong off = 0;
   ulong bit = 0;
   while( FD_LIKELY( bit < 64 ) ) {
-    if( FD_UNLIKELY( off >= src_sz ) ) return 0;
-    uchar byte = *(uchar const *)(src+off);
-    off       += 1;
-    *dst      |= (byte & 0x7FUL) << bit;
+    if( FD_UNLIKELY( !*src_sz ) ) return -1;
+    uchar byte = **src;
+    (*src)++; (*src_sz)--;
+    *dst |= (ulong)(byte & 0x7FUL) << bit;
     if( FD_LIKELY( (byte & 0x80U) == 0U ) ) {
-      if( FD_UNLIKELY( (*dst>>bit) != byte                ) ) return 0;
-      if( FD_UNLIKELY( byte==0U && (bit!=0U || *dst!=0UL) ) ) return 0;
-      return off;
+      if( FD_UNLIKELY( (*dst>>bit) != byte                ) ) return -1;
+      if( FD_UNLIKELY( byte==0U && (bit!=0U || *dst!=0UL) ) ) return -1;
+      return 0;
     }
     bit += 7;
   }
-  return 0;
+  return -1;
 }
 
 static ulong
@@ -79,18 +99,16 @@ int
 fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           uchar const *                   buf,
                           ulong                           buf_sz ) {
-  ulong off = 0;
   DE( ulong, root );
-  off += de_short_u16( &serde->lockouts_cnt, buf+off );
+  if( FD_UNLIKELY( de_short_u16( &serde->lockouts_cnt, &buf, &buf_sz ) ) ) return -1;
   if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
   for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
-    ulong varint_sz = de_var_int( &serde->lockouts[i].offset, buf+off, buf_sz-off );
-    if( FD_UNLIKELY( !varint_sz ) ) return -1;
-    off += varint_sz;
+    if( FD_UNLIKELY( de_var_int( &serde->lockouts[i].offset, &buf, &buf_sz ) ) ) return -1;
     DE( uchar, lockouts[i].confirmation_count );
   }
   DE( fd_hash_t, hash             );
   DE( uchar,     timestamp_option );
+  if( FD_UNLIKELY( serde->timestamp_option!=1 && serde->timestamp_option!=0 ) ) return -1;
   if( FD_LIKELY( serde->timestamp_option ) ) {
     DE( long, timestamp );
   }
@@ -101,8 +119,8 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
 int
 fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
                            uchar *                               buf,
-                           ulong                                 buf_sz,
-                           ulong *                               out_sz ) {
+                           ulong                                 buf_max,
+                           ulong *                               buf_sz ) {
   ulong off = 0;
   SER( ulong, root );
   off += ser_short_u16( buf+off, serde->lockouts_cnt );
@@ -117,7 +135,7 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
     SER( long, timestamp );
   }
   SER( fd_hash_t, block_id );
-  if( FD_LIKELY( out_sz ) ) *out_sz = off;
+  if( FD_LIKELY( buf_sz ) ) *buf_sz = off;
   return 0;
 }
 

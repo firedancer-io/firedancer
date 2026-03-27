@@ -81,7 +81,7 @@ struct fd_hfork_blk {
   fd_hash_t our_bank_hash; /* our bank hash for this block id */
   int       replayed;      /* whether we've replayed this block  */
   int       dead;          /* whether we marked this block as dead */
-  int       flag;          /* -1: mismatch, 0: not checked yet, 1: match */
+  int       flag;          /* -1: mismatch, 0: not compared yet, 1: match */
   ulong     bhm_cnt;       /* number of competing bank hashes for this block id */
   void *    bhm_dlist;     /* dlist of bank hash objects for this block id */
 };
@@ -135,12 +135,22 @@ fd_hfork_leave( fd_hfork_t const * hfork );
 void *
 fd_hfork_delete( void * hfork );
 
-/* fd_hfork_count_vote updates the hard fork detector with a newly
-   observed vote.  Always returns a pointer to the associated
-   fd_hfork_blk_t.  The caller should inspect blk->flag to determine
-   the outcome: 1 (match), -1 (mismatch), or 0 (not yet checked). */
+/* fd_hfork_count_vote return codes. */
 
-fd_hfork_blk_t *
+#define FD_HFORK_SUCCESS_MATCHED   ( 1) /* vote counted, bank hash matches ours */
+#define FD_HFORK_SUCCESS           ( 0) /* vote counted successfully */
+#define FD_HFORK_ERR_MISMATCHED    (-1) /* vote counted, bank hash does not match ours */
+#define FD_HFORK_ERR_UNKNOWN_VTR   (-2) /* voter not in vtr_map */
+#define FD_HFORK_ERR_ALREADY_VOTED (-3) /* voter already voted for this block_id */
+#define FD_HFORK_ERR_VOTE_TOO_OLD  (-4) /* vote slot not newer than previous */
+
+/* fd_hfork_count_vote updates the hard fork detector with a newly
+   observed vote.  Returns FD_HFORK_SUCCESS_MATCHED if the bank hash
+   matches ours, FD_HFORK_SUCCESS if counted but not yet compared,
+   FD_HFORK_ERR_MISMATCHED if the bank hash does not match ours, or a
+   negative FD_HFORK_ERR_* code if the vote was not counted. */
+
+int
 fd_hfork_count_vote( fd_hfork_t *        hfork,
                      fd_pubkey_t const * vote_acc,
                      fd_hash_t const *   block_id,
@@ -155,7 +165,7 @@ fd_hfork_count_vote( fd_hfork_t *        hfork,
    did not think it was valid.  Always returns a pointer to the
    associated fd_hfork_blk_t.  The caller should inspect blk->flag to
    determine the outcome: 1 (match), -1 (mismatch), or 0 (not yet
-   checked). */
+   compared). */
 
 fd_hfork_blk_t *
 fd_hfork_record_our_bank_hash( fd_hfork_t *      hfork,

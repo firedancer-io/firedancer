@@ -374,9 +374,6 @@ threshold_check( fd_tower_t const *        tower,
                  ulong                     total_stake,
                  ulong                     slot ) {
 
-  uchar __attribute__((aligned(FD_TOWER_ALIGN))) scratch[ FD_TOWER_FOOTPRINT ];
-  fd_tower_t * scratch_tower = fd_tower_join( fd_tower_new( scratch ) );
-
   /* First, simulate a vote on our tower, popping off everything that
      would be expired by voting for slot. */
 
@@ -393,15 +390,12 @@ threshold_check( fd_tower_t const *        tower,
   ulong threshold_slot  = fd_tower_peek_index_const( tower, cnt - THRESHOLD_DEPTH )->slot;
   ulong threshold_stake = 0;
   for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( accts       );
-                                   !fd_tower_voters_iter_done( accts, iter );
-                             iter = fd_tower_voters_iter_next( accts, iter ) ) {
+                                    !fd_tower_voters_iter_done( accts, iter );
+                              iter = fd_tower_voters_iter_next( accts, iter ) ) {
     fd_tower_voters_t const * acct = fd_tower_voters_iter_ele_const( accts, iter );
 
-    fd_tower_remove_all( scratch_tower );
-    fd_tower_from_vote_acc( scratch_tower, acct->data );
-
-    ulong cnt = simulate_vote( scratch_tower, slot ); /* expire votes */
-    if( FD_UNLIKELY( !cnt ) ) continue;               /* no votes left after expiry */
+    ulong cnt = simulate_vote( acct->tower, slot ); /* expire votes */
+    if( FD_UNLIKELY( !cnt ) ) continue;              /* no votes left after expiry */
 
     /* Count their stake towards the threshold check if their last vote
        slot >= our threshold slot.
@@ -417,7 +411,7 @@ threshold_check( fd_tower_t const *        tower,
        know that vote must be for the threshold slot itself or one of
        threshold slot's descendants. */
 
-    ulong last_vote = fd_tower_peek_index_const( scratch_tower, cnt - 1 )->slot;
+    ulong last_vote = fd_tower_peek_index_const( acct->tower, cnt - 1 )->slot;
     if( FD_LIKELY( last_vote >= threshold_slot ) ) threshold_stake += acct->stake;
   }
 
@@ -850,6 +844,7 @@ fd_tower_reconcile( fd_tower_t  *       tower,
 
 void
 fd_tower_from_vote_acc( fd_tower_t   * tower,
+                        ulong        * root,
                         uchar  const * vote_acc ) {
   fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
   uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
@@ -861,6 +856,7 @@ fd_tower_from_vote_acc( fd_tower_t   * tower,
     default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
     }
   }
+  *root = fd_vote_acc_root_slot( vote_acc );
 }
 
 ulong

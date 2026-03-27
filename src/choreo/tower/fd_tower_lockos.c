@@ -107,15 +107,10 @@ fd_tower_lockos_insert( fd_tower_lockos_t * lockos,
                         fd_hash_t const *   addr,
                         fd_tower_voters_t * voters ) {
 
-  uchar __attribute__((aligned(FD_TOWER_ALIGN))) scratch[ FD_TOWER_FOOTPRINT ];
-  fd_tower_t * scratch_tower = fd_tower_join( fd_tower_new( scratch ) );
-
-  fd_tower_from_vote_acc( scratch_tower, voters->data );
-
-  for( fd_tower_iter_t iter = fd_tower_iter_init( scratch_tower );
-                             !fd_tower_iter_done( scratch_tower, iter );
-                       iter = fd_tower_iter_next( scratch_tower, iter ) ) {
-    fd_tower_t * vote           = fd_tower_iter_ele( scratch_tower, iter );
+  for( fd_tower_iter_t iter = fd_tower_iter_init( voters->tower );
+                             !fd_tower_iter_done( voters->tower, iter );
+                       iter = fd_tower_iter_next( voters->tower, iter ) ) {
+    fd_tower_vote_t const * vote = fd_tower_iter_ele_const( voters->tower, iter );
     ulong        interval_start = vote->slot;
     ulong        interval_end   = vote->slot + ( 1UL << vote->conf );
     ulong        key            = fd_tower_lockos_interval_key( slot, interval_end );

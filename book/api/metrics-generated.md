@@ -1084,28 +1084,20 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;gauge</span> | gauge | Slot number of most recently ignored replay_slot_completed frag |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;gauge</span> | gauge | Slot number of most recently equivocating replay_slot_completed frag |
+| <span class="metrics-name">tower_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored |
+| <span class="metrics-name">tower_&#8203;ignored_&#8203;slot</span> | gauge | Most recent ignored replay_slot_completed frag |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;slot</span> | gauge | Most recent equivocating replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
 | <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Vote slot |
 | <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |
 | <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | Root slot |
 | <span class="metrics-name">tower_&#8203;init_&#8203;slot</span> | gauge | Init slot |
-| <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
-| <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
-| <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
-| <span class="metrics-name">tower_&#8203;switch_&#8203;pass</span> | counter | Prev vote was on a different fork, but we are allowed to switch (can vote) |
-| <span class="metrics-name">tower_&#8203;switch_&#8203;fail</span> | counter | Prev vote was on a different fork, and we are not allowed to switch (can't vote) |
-| <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
-| <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
-| <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;bad_&#8203;deser</span> | counter | Vote txn failed to deserialize |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;not_&#8203;tower_&#8203;sync</span> | counter | Vote txn was not a TowerSync instruction |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;empty_&#8203;tower</span> | counter | Vote txn had an empty tower |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;unknown_&#8203;slot</span> | counter | Vote txn was for a slot we haven't replayed |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;unknown_&#8203;block_&#8203;id</span> | counter | Vote txn was for a block id we don't recognize |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;deser</span> | counter | Vote txn failed to deserialize |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;tower</span> | counter | Vote txn deserialized but tower was invalid |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;not_&#8203;tower_&#8203;sync</span> | counter | Vote txn was not a TowerSync instruction |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;empty_&#8203;tower</span> | counter | Vote txn had an empty tower (validator hasn't voted) |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;not_&#8203;ready</span> | counter | Vote txn arrived before votes root was initialized |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;merkle</span> | counter | Merkle root conflict |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;meta</span> | counter | Coding metadata conflict |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;last</span> | counter | Last shred index conflict |
@@ -1124,8 +1116,28 @@
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;ignored_&#8203;slot</span> | counter | Slot older than root or unable to derive leader schedule |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;proof_&#8203;constructed</span> | counter | Number of duplicate proofs we constructed from shreds |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;proof_&#8203;verified</span> | counter | Number of duplicate proofs we verified from gossip |
+| <span class="metrics-name">tower_&#8203;ghost_&#8203;not_&#8203;voted</span> | counter | Ghost vote skipped because voter hasn't voted |
+| <span class="metrics-name">tower_&#8203;ghost_&#8203;too_&#8203;old</span> | counter | Ghost vote slot was behind the root |
+| <span class="metrics-name">tower_&#8203;ghost_&#8203;already_&#8203;voted</span> | counter | Ghost vote slot was not newer than previous vote |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;unknown_&#8203;vtr</span> | counter | Hfork voter not in voter set |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;already_&#8203;voted</span> | counter | Hfork voter already voted for this block_id |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;too_&#8203;old</span> | counter | Hfork vote slot not newer than previous |
 | <span class="metrics-name">tower_&#8203;hfork_&#8203;matched_&#8203;slot</span> | gauge | Highest slot where 52%+ of stake agreed on our bank hash |
 | <span class="metrics-name">tower_&#8203;hfork_&#8203;mismatched_&#8203;slot</span> | gauge | Highest slot where 52%+ of stake agreed on a different bank hash than ours (we hard forked) |
+| <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
+| <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
+| <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
+| <span class="metrics-name">tower_&#8203;switch_&#8203;pass</span> | counter | Prev vote was on a different fork, but we are allowed to switch (can vote) |
+| <span class="metrics-name">tower_&#8203;switch_&#8203;fail</span> | counter | Prev vote was on a different fork, and we are not allowed to switch (can't vote) |
+| <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
+| <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
+| <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;too_&#8203;old</span> | counter | Vote slot was behind the votes root |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;too_&#8203;new</span> | counter | Vote slot was too far ahead of the votes root |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;vtr</span> | counter | Vote account was not in the voter set |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;already_&#8203;voted</span> | counter | Voter already voted for this slot |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;slot</span> | counter | Vote txn was for a slot we haven't replayed |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;block_&#8203;id</span> | counter | Vote txn was for a block id we don't recognize |
 
 </div>
 

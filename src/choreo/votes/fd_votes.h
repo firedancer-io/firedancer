@@ -190,13 +190,20 @@ fd_votes_query( fd_votes_t *      votes,
                 ulong             slot,
                 fd_hash_t const * block_id );
 
-/* fd_votes_count_vote counts id's stake towards the voted slot.
-   Returns a pointer to the votes block entry after counting, or NULL
-   if the vote was not counted.  The caller may inspect blk->stake and
-   blk->flags directly.  Flag management is the caller's responsibility
-   (use fd_uchar_extract_bit / fd_uchar_set_bit on blk->flags). */
+/* fd_votes_count_vote return codes. */
 
-fd_votes_blk_t *
+#define FD_VOTES_SUCCESS           ( 0) /* vote counted successfully */
+#define FD_VOTES_ERR_VOTE_TOO_NEW  (-1) /* vote_slot >= root + slot_max */
+#define FD_VOTES_ERR_UNKNOWN_VTR   (-2) /* voter not in vtr_map */
+#define FD_VOTES_ERR_ALREADY_VOTED (-3) /* voter already voted for this slot */
+
+/* fd_votes_count_vote counts vote_acc's stake towards the voted
+   (slot, block_id).  Assumes the votes root has already been
+   initialized via fd_votes_publish.  Returns FD_VOTES_SUCCESS on
+   success, or a negative FD_VOTES_ERR_* code if the vote was not
+   counted. */
+
+int
 fd_votes_count_vote( fd_votes_t *        votes,
                      fd_pubkey_t const * vote_acc,
                      ulong               slot,

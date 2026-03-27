@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../tower/fd_tower.h"
 #include "fd_eqvoc.h"
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
