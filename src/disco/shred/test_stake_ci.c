@@ -21,7 +21,6 @@ generate_stake_msg( uchar *      _buf,
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = strlen(stakers);
   buf->excluded_id_stake = 0UL;
-  buf->vote_keyed_lsched = 0UL;
 
   fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( buf );
   for( ulong i=0UL; i<buf->staked_vote_cnt; i++ ) {
@@ -46,7 +45,6 @@ generate_epoch_msg( uchar *      _buf,
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = strlen(stakers);
   buf->excluded_id_stake = 0UL;
-  buf->vote_keyed_lsched = 0UL;
   memset( &buf->features, 0, sizeof(fd_features_t) );
 
   fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );
@@ -337,12 +335,10 @@ test_stake_msg_staked_by_vote( void ) {
   fd_stake_weight_msg_t * msg;
 
   msg = generate_stake_msg( stake_msg, 0UL, "I"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "I",   "" );
 
   msg = generate_stake_msg( stake_msg, 0UL, "ABC"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I" );
 
@@ -562,12 +558,10 @@ test_epoch_msg_staked_by_vote( void ) {
   fd_epoch_info_msg_t * msg;
 
   msg = generate_epoch_msg( epoch_msg, 0UL, "I"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_epoch_msg_init( info, msg );  fd_stake_ci_epoch_msg_fini( info );
   check_destinations( info, 0UL, "I",   "" );
 
   msg = generate_epoch_msg( epoch_msg, 0UL, "ABC"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_epoch_msg_init( info, msg );  fd_stake_ci_epoch_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I" );
 
@@ -646,7 +640,6 @@ test_limits( void ) {
     buf->staked_vote_cnt        = 0UL;
     buf->staked_id_cnt          = 0UL;
     buf->excluded_id_stake      = 0UL;
-    buf->vote_keyed_lsched      = 0UL;
 
     fd_vote_stake_weight_t * vote_stake_weights = fd_stake_weight_msg_stake_weights( buf );
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
@@ -847,7 +840,6 @@ test_dest_update_overflow( void ) {
   buf->slot_cnt          = SLOTS_PER_EPOCH;
   buf->staked_vote_cnt   = MAX_SHRED_DESTS - 2UL;
   buf->excluded_id_stake = 0UL;
-  buf->vote_keyed_lsched = 0UL;
   memset( &buf->features, 0, sizeof(fd_features_t) );
 
   fd_vote_stake_weight_t * weights = fd_epoch_info_msg_stake_weights( buf );

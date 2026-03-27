@@ -170,7 +170,6 @@ test_shred_dest_conformance(
   stake_msg->start_slot = 0UL;
   stake_msg->slot_cnt = 432000UL;
   stake_msg->excluded_id_stake = 0UL;
-  stake_msg->vote_keyed_lsched = 0UL;  /* Use identity-keyed leader schedule */
 
   /* Count staked nodes and build stake weights */
   fd_vote_stake_weight_t * vote_stake_weights = fd_type_pun( stake_msg + 1 );
