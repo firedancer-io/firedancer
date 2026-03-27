@@ -4,10 +4,13 @@
 #include "fd_gui_metrics.h"
 
 #include "../../disco/metrics/fd_metrics_base.h"
+#include "../../disco/shred/fd_stake_ci.h"
 
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
 
 #define LOGGING 0
+
+#define FD_GUI_WFS_ACTIVITY_TIMEOUT_NANOS (15L*1000L*1000L*1000L)
 
 FD_FN_CONST ulong
 fd_gui_peers_align( void ) {
@@ -200,6 +203,7 @@ fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
                   fd_topo_t *        topo,
                   ulong              max_ws_conn_cnt,
+                  char const *       wfs_expected_bank_hash_cstr,
                   long               now ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -237,6 +241,8 @@ fd_gui_peers_new( void *             shmem,
     ctx->http = http;
     ctx->topo = topo;
 
+    ctx->wfs_enabled = !!strcmp( wfs_expected_bank_hash_cstr, "" );
+
     ctx->max_ws_conn_cnt   = max_ws_conn_cnt;
     ctx->open_ws_conn_cnt  = 0UL;
     ctx->active_ws_conn_id = ULONG_MAX;
@@ -269,6 +275,11 @@ fd_gui_peers_new( void *             shmem,
 #if FD_HAS_ZSTD
     build_geoip_trie( ctx, _dbip_nodes,   (uchar *)dbip_f,   dbip_f_sz,   &ctx->dbip,   FD_GUI_GEOIP_DBIP_MAX_NODES   );
 #endif
+
+    ctx->wfs_peers_cnt = 0UL;
+    ctx->wfs_peers_valid = 0;
+    ctx->wfs_stakes_sent = 0;
+    wfs_fresh_dlist_join( wfs_fresh_dlist_new( ctx->wfs_fresh_dlist ) );
 
     return shmem;
 }
@@ -630,6 +641,53 @@ geoip_lookup( fd_gui_ip_db_t const * ip_db,
 
 #endif
 
+#define SORT_NAME wfs_peer_sort
+#define SORT_KEY_T fd_gui_wfs_peer_t
+#define SORT_BEFORE(a,b) (memcmp( (a).identity_key.uc, (b).identity_key.uc, 32UL )<0)
+#include "../../util/tmpl/fd_sort.c"
+
+static void
+wfs_handle_contact_info_update( fd_gui_peers_ctx_t * peers,
+                                fd_pubkey_t const *  identity,
+                                long                 now ) {
+  if( FD_LIKELY( !peers->wfs_peers_valid ) ) return;
+
+  ulong idx = wfs_peer_sort_split( peers->wfs_peers, peers->wfs_peers_cnt, (fd_gui_wfs_peer_t){ .identity_key = *identity } );
+  if( FD_UNLIKELY( idx>=peers->wfs_peers_cnt || memcmp( identity->uc, peers->wfs_peers[ idx ].identity_key.uc, sizeof(fd_pubkey_t) ) ) ) return;
+
+  fd_gui_wfs_peer_t * wp = &peers->wfs_peers[ idx ];
+  wp->update_time_nanos = now;
+
+  if( !wp->is_online ) {
+    wp->is_online = 1;
+    wfs_fresh_dlist_idx_push_tail( peers->wfs_fresh_dlist, idx, peers->wfs_peers );
+
+    fd_gui_peers_printf_wfs_add( peers, &idx, 1UL );
+    fd_http_server_ws_broadcast( peers->http );
+  } else {
+    wfs_fresh_dlist_idx_remove( peers->wfs_fresh_dlist, idx, peers->wfs_peers );
+    wfs_fresh_dlist_idx_push_tail( peers->wfs_fresh_dlist, idx, peers->wfs_peers );
+  }
+}
+
+static void
+wfs_handle_contact_info_remove( fd_gui_peers_ctx_t * peers,
+                                fd_pubkey_t const *  identity ) {
+  if( FD_LIKELY( !peers->wfs_peers_valid ) ) return;
+
+  ulong idx = wfs_peer_sort_split( peers->wfs_peers, peers->wfs_peers_cnt, (fd_gui_wfs_peer_t){ .identity_key = *identity } );
+  if( FD_UNLIKELY( idx>=peers->wfs_peers_cnt || memcmp( identity->uc, peers->wfs_peers[ idx ].identity_key.uc, 32UL ) ) ) return;
+
+  fd_gui_wfs_peer_t * wp = &peers->wfs_peers[ idx ];
+  if( wp->is_online ) {
+    wfs_fresh_dlist_idx_remove( peers->wfs_fresh_dlist, idx, peers->wfs_peers );
+    wp->is_online = 0;
+
+    fd_gui_peers_printf_wfs_remove( peers, &idx, 1UL );
+    fd_http_server_ws_broadcast( peers->http );
+  }
+}
+
 void
 fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    fd_gossip_update_message_t const * update,
@@ -655,7 +713,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
             /* A new pubkey is not allowed to overwrite an existing valid index */
             FD_LOG_ERR(( "invariant violation: peer->pubkey.uc=%s != update->origin=%s ", ci_pk, og_pk ));
           }
-          FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t * )update->origin, NULL, peers->contact_info_table ) );
+          FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t const * )update->origin, NULL, peers->contact_info_table ) );
           fd_gui_peers_node_t * peer_sock = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, &peer->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ], NULL, peers->contact_info_table );
           int found = 0;
           for( fd_gui_peers_node_t * p = peer_sock; !!p; p=(fd_gui_peers_node_t *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
@@ -668,7 +726,9 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 #endif
           /* update does nothing */
           if( FD_UNLIKELY( fd_gui_peers_contact_info_eq( &peer->contact_info, update->contact_info->value ) ) ) {
-            peer->wallclock_nanos = FD_MILLI_TO_NANOSEC( update->wallclock );
+            peer->wallclock_nanos   = FD_MILLI_TO_NANOSEC( update->wallclock );
+            peer->update_time_nanos = now;
+            wfs_handle_contact_info_update( peers, (fd_pubkey_t const *)update->origin, now );
             break;
           }
 
@@ -696,6 +756,8 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           /* broadcast update to WebSocket clients */
           fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info->idx }, 1UL );
           fd_http_server_ws_broadcast( peers->http );
+
+          wfs_handle_contact_info_update( peers, (fd_pubkey_t const *)update->origin, now );
         } else {
 #if LOGGING
           char _pk[ FD_BASE58_ENCODED_32_SZ ];
@@ -747,6 +809,8 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           /* broadcast update to WebSocket clients */
           fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_ADD }, (ulong[]){ update->contact_info->idx }, 1UL );
           fd_http_server_ws_broadcast( peers->http );
+
+          wfs_handle_contact_info_update( peers, (fd_pubkey_t const *)update->origin, now );
         }
         break;
       }
@@ -763,7 +827,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 #ifdef FD_GUI_USE_HANDHOLDING
         /* invariant checks */
         FD_TEST( peer->valid ); /* Should have already been in the table */
-        FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t * )update->origin, NULL, peers->contact_info_table ) );
+        FD_TEST( peer==fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, (fd_pubkey_t const * )update->origin, NULL, peers->contact_info_table ) );
         fd_gui_peers_node_t * peer_sock = fd_gui_peers_node_sock_map_ele_query( peers->node_sock_map, &peer->contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ], NULL, peers->contact_info_table );
         int found = 0;
         for( fd_gui_peers_node_t const * p = peer_sock; !!p; p=(fd_gui_peers_node_t const *)fd_gui_peers_node_sock_map_ele_next_const( p, NULL, peers->contact_info_table ) ) {
@@ -774,6 +838,8 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
         }
         FD_TEST( found );
 #endif
+        wfs_handle_contact_info_remove( peers, (fd_pubkey_t const *)update->origin );
+
         fd_gui_peers_live_table_idx_remove          ( peers->live_table,      update->contact_info_remove->idx, peers->contact_info_table );
         fd_gui_peers_bandwidth_tracking_idx_remove  ( peers->bw_tracking,     update->contact_info_remove->idx, peers->contact_info_table );
         fd_gui_peers_node_sock_map_idx_remove_fast  ( peers->node_sock_map,   update->contact_info_remove->idx, peers->contact_info_table );
@@ -1025,6 +1091,82 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
   }
 }
 
+void
+fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
+                                      fd_snapshot_manifest_t const * manifest,
+                                      long                           now ) {
+
+  if( FD_LIKELY( !peers->wfs_enabled ) ) return;
+
+  fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
+  ulong vote_scratch_cnt = 0UL;
+  ulong vote_accounts_sz = manifest->vote_accounts_len;
+  if( FD_UNLIKELY( vote_accounts_sz>40200UL ) ) {
+    FD_LOG_WARNING(( "exceeded 40200UL vote accounts" ));
+    vote_accounts_sz = 40200UL;
+  }
+  for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
+    if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
+    fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
+    vote_scratch[ vote_scratch_cnt ].stake = manifest->vote_accounts[ i ].stake;
+    vote_scratch_cnt++;
+  }
+
+  /* Mirrors gossip WFS logic */
+  fd_stake_weight_t * id_weights = peers->scratch.manifest_id_weights;
+  ulong id_cnt = compute_id_weights_from_vote_weights( id_weights, vote_scratch, vote_scratch_cnt );
+
+  /* Restore invariant: sorted by identity key */
+  fd_stake_weight_key_sort_inplace( id_weights, id_cnt );
+
+  for( ulong i=0UL; i<id_cnt; i++ ) {
+    peers->wfs_peers[ i ].identity_key = id_weights[ i ].key;
+    peers->wfs_peers[ i ].stake        = id_weights[ i ].stake;
+    peers->wfs_peers[ i ].fresh_prev   = ULONG_MAX;
+    peers->wfs_peers[ i ].fresh_next   = ULONG_MAX;
+
+    ulong peer_idx = fd_gui_peers_node_pubkey_map_idx_query( peers->node_pubkey_map, &id_weights[ i ].key, ULONG_MAX,peers->contact_info_table );
+    if( peer_idx!=ULONG_MAX && peers->contact_info_table[ peer_idx ].update_time_nanos > now - FD_GUI_WFS_ACTIVITY_TIMEOUT_NANOS ) {
+      peers->wfs_peers[ i ].is_online       = 1;
+      peers->wfs_peers[ i ].update_time_nanos = peers->contact_info_table[ peer_idx ].update_time_nanos;
+    } else {
+      peers->wfs_peers[ i ].is_online       = 0;
+      peers->wfs_peers[ i ].update_time_nanos = 0L;
+    }
+  }
+  peers->wfs_peers_cnt = id_cnt;
+}
+
+void
+fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers ) {
+  if( FD_UNLIKELY( !peers->wfs_enabled ) ) return;
+
+  wfs_fresh_dlist_join( wfs_fresh_dlist_new( peers->wfs_fresh_dlist ) );
+
+  /* Emit the wait_for_supermajority.stakes message with stakes and
+     infos.  By this point all config accounts have been processed so
+     node_info_map is populated. */
+  fd_gui_peers_printf_wfs_stakes( peers );
+  fd_http_server_ws_broadcast( peers->http );
+  peers->wfs_stakes_sent = 1;
+
+  ulong added_cnt = 0UL;
+  for( ulong i=0UL; i<peers->wfs_peers_cnt; i++ ) {
+    /* Peers are technically added here not ordered by timestamp, but it's
+       not an issue since a) all timestamps should be similar b) the dlist
+       will eventually be correct as subsequent updates come in. */
+    if( FD_UNLIKELY( peers->wfs_peers[ i ].is_online ) ) {
+      peers->scratch.wfs_peers[ added_cnt++ ] = i;
+      wfs_fresh_dlist_idx_push_tail( peers->wfs_fresh_dlist, i, peers->wfs_peers );
+    }
+  }
+  if( FD_LIKELY( added_cnt ) ) {
+    fd_gui_peers_printf_wfs_add( peers, peers->scratch.wfs_peers, added_cnt );
+    fd_http_server_ws_broadcast( peers->http );
+  }
+  peers->wfs_peers_valid = 1;
+}
 
 static void
 fd_gui_peers_viewport_snap( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {
@@ -1291,6 +1433,24 @@ int
 fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
   int did_work = 0;
 
+  ulong evicted_cnt = 0UL;
+  while( FD_UNLIKELY( peers->wfs_peers_valid && !wfs_fresh_dlist_is_empty( peers->wfs_fresh_dlist, peers->wfs_peers ) ) ) {
+    ulong head_idx = wfs_fresh_dlist_idx_peek_head( peers->wfs_fresh_dlist, peers->wfs_peers );
+    fd_gui_wfs_peer_t * oldest = &peers->wfs_peers[ head_idx ];
+    if( oldest->update_time_nanos > now - FD_GUI_WFS_ACTIVITY_TIMEOUT_NANOS ) break;
+
+    wfs_fresh_dlist_idx_pop_head( peers->wfs_fresh_dlist, peers->wfs_peers );
+    oldest->is_online = 0;
+
+    peers->scratch.wfs_peers[ evicted_cnt++ ] = head_idx;
+    if( FD_UNLIKELY( evicted_cnt>=256UL ) ) break;
+  }
+  if( FD_UNLIKELY( evicted_cnt ) ) {
+    fd_gui_peers_printf_wfs_remove( peers, peers->scratch.wfs_peers, evicted_cnt );
+    fd_http_server_ws_broadcast( peers->http );
+    return 1; /* preserve STEM_BURST */
+  }
+
   /* update client viewports in a round-robin */
   if( FD_UNLIKELY( fd_gui_peers_ws_conn_rr_advance( peers, now ) ) ) {
     FD_TEST( peers->client_viewports[ peers->active_ws_conn_id ].connected );
@@ -1391,7 +1551,7 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
     fd_http_server_ws_broadcast( peers->http );
 
     peers->next_gossip_stats_update_nanos = now + (FD_GUI_PEERS_GOSSIP_STATS_UPDATE_INTERVAL_MILLIS * 1000000L);
-    did_work = 1;
+    return 1; /* preserve STEM_BURST */
   }
 
   return did_work;
@@ -1410,6 +1570,22 @@ fd_gui_peers_ws_open( fd_gui_peers_ctx_t *  peers,
 
   fd_gui_peers_printf_node_all( peers );
   FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
+
+  if( FD_UNLIKELY( peers->wfs_stakes_sent ) ) {
+    fd_gui_peers_printf_wfs_stakes( peers );
+    FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
+  }
+
+  if( FD_UNLIKELY( peers->wfs_peers_valid ) ) {
+    ulong added_cnt = 0UL;
+    for( ulong i=0UL; i<peers->wfs_peers_cnt; i++ ) {
+      if( FD_UNLIKELY( peers->wfs_peers[ i ].is_online ) ) peers->scratch.wfs_peers[ added_cnt++ ] = i;
+    }
+    if( FD_LIKELY( added_cnt ) ) {
+      fd_gui_peers_printf_wfs_add( peers, peers->scratch.wfs_peers, added_cnt );
+      FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
+    }
+  }
 }
 
 void
