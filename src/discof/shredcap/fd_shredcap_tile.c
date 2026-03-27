@@ -9,7 +9,6 @@
 #include "../../discof/fd_discof.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
-#include "../../discof/replay/fd_execrp.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -225,14 +224,6 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
   epoch_info_msg->excluded_id_stake = 0UL;
-  epoch_info_msg->vote_keyed_lsched = 1UL;
-
-  /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
-     This code can be removed once the feature is active. */
-  if( (1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET) ||
-      (0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET) ) {
-    epoch_info_msg->vote_keyed_lsched = 0UL;
-  }
 
   /* Set all features as deactivated as we don't have available feature info from manifest. */
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );

@@ -261,8 +261,7 @@ fd_shred_dest_idx_t *
 fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
                              fd_shred_t const * const * input_shreds,
                              ulong                      shred_cnt,
-                             fd_shred_dest_idx_t      * out,
-                             int                        use_chacha8 ) {
+                             fd_shred_dest_idx_t      * out ) {
 
   if( FD_UNLIKELY( shred_cnt==0UL ) ) return out;
 
@@ -291,7 +290,7 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
 
   int any_staked_candidates = sdest->staked_cnt > (ulong)source_validator_is_staked;
   for( ulong i=0UL; i<shred_cnt; i++ ) {
-    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ], use_chacha8 );
+    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] );
     /* Map FD_WSAMPLE_INDETERMINATE to FD_SHRED_DEST_NO_DEST */
     if( FD_LIKELY( any_staked_candidates ) ) out[i] = (fd_shred_dest_idx_t)fd_ulong_min( fd_wsample_sample( sdest->staked ), FD_SHRED_DEST_NO_DEST );
     else                                     out[i] = (fd_shred_dest_idx_t)sample_unstaked_noprepare( sdest, sdest->source_validator_orig_idx );
@@ -309,8 +308,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
                                 ulong                      out_stride,
                                 ulong                      fanout,
                                 ulong                      dest_cnt,
-                                ulong                    * opt_max_dest_cnt,
-                                int                        use_chacha8 ) {
+                                ulong                    * opt_max_dest_cnt ) {
 
   /* The logic here is a little tricky since we are keeping track of
      staked and unstaked separately and only logically concatenating
@@ -361,7 +359,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     if( FD_LIKELY( query && leader_is_staked ) ) fd_wsample_remove_idx( sdest->staked, leader_idx );
 
     ulong my_idx         = 0UL;
-    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ], use_chacha8 ); /* Seeds both samplers since the rng is shared */
+    fd_wsample_seed_rng( sdest->staked, dest_hash_outputs[ i ] ); /* Seeds both samplers since the rng is shared */
 
     if( FD_UNLIKELY( !i_am_staked ) ) {
       /* If there's excluded stake, we don't know about any unstaked
