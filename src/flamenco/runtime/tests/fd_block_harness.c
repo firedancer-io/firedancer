@@ -295,7 +295,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Initialize total_effective/activating/deactivating_stake from the
      loaded stake delegations.  These are read by fd_stakes_activate_epoch
      at epoch boundary instead of re-scanning all delegations. */
-  fd_stakes_init_totals( bank, stake_delegations, accdb, xid );
+  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache ), &bank->f.warmup_cooldown_rate_epoch, accdb, xid );
 
   /* Finalize root fork.  Required before epoch boundary processing which
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */

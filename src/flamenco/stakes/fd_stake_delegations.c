@@ -272,9 +272,16 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
 #if FD_HAS_DOUBLE
 
 void
-fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
-                              fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid ) {
+fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
+                              ulong                      epoch,
+                              fd_stake_history_t const * stake_history,
+                              ulong *                    warmup_cooldown_rate_epoch,
+                              fd_accdb_user_t *          accdb,
+                              fd_funk_txn_xid_t const *  xid ) {
+
+  stake_delegations->effective_stake    = 0UL;
+  stake_delegations->activating_stake   = 0UL;
+  stake_delegations->deactivating_stake = 0UL;
 
   root_map_t *            map  = get_root_map( stake_delegations );
   fd_stake_delegation_t * pool = get_root_pool( stake_delegations );
@@ -310,6 +317,11 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
           stake->stake.stake.delegation.deactivation_epoch,
           stake->stake.stake.credits_observed,
           stake->stake.stake.delegation.warmup_cooldown_rate );
+
+      fd_stake_history_entry_t entry = stake_activating_and_deactivating( &stake->stake.stake.delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
+      stake_delegations->effective_stake    += entry.effective;
+      stake_delegations->activating_stake   += entry.activating;
+      stake_delegations->deactivating_stake += entry.deactivating;
       continue; /* ok */
 
     remove:
