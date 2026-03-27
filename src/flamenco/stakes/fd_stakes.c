@@ -700,12 +700,6 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_bank_t *               bank ) {
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( bank );
-
-  if( FD_UNLIKELY( meta->lamports==0UL ) ) {
-    fd_stake_delegations_fork_remove( stake_delegations, bank->data->stake_delegations_fork_id, pubkey );
-    return;
-  }
-
   ulong                    epoch             = bank->data->f.epoch;
 
   fd_sysvar_cache_t const *  sysvar_cache  = &bank->data->f.sysvar_cache;
