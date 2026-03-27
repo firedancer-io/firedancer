@@ -801,6 +801,9 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
 
   ctx->signal_leader_change = signal_leader_change;
 
+  FD_LOG_WARNING(( "overriding slot time from %lu ticks/ns to 550ms", tick_duration_ns ));
+  tick_duration_ns = 550000000UL / ticks_per_slot;
+
   /* Static configuration about the clock. */
   ctx->tick_duration_ns = tick_duration_ns;
   ctx->hashcnt_per_tick = hashcnt_per_tick;
