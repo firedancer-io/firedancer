@@ -76,9 +76,11 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_bank_t *               bank );
 
 /* fd_stakes_init_totals initializes total_effective_stake,
-   total_activating_stake, and total_deactivating_stake in the bank by
-   iterating all stake delegations in the root map with the current
-   stake history. This is called after snapshot load before execution. */
+   total_activating_stake, and total_deactivating_stake in the stake
+   delegations struct by iterating all stake delegations in the root map
+   with the current stake history. This is called after snapshot load
+   before replay execution begins.  It initialzes the stakes accumulator
+   for the current root. */
 
 void
 fd_stakes_init_totals( fd_bank_t *               bank,

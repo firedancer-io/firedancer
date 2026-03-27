@@ -118,6 +118,7 @@ struct fd_stake_delegations {
   ulong       dlist_offsets_[ FD_STAKE_DELEGATIONS_FORK_MAX ];
   fd_rwlock_t delta_lock;
 
+  /* Stake totals for the current root. */
   ulong effective_stake;
   ulong activating_stake;
   ulong deactivating_stake;
@@ -247,16 +248,6 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
 ulong
 fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations );
 
-/* fd_stake_delegations_query looks up the current delegation for the
-   given stake account, considering fork deltas (most-recent-first).
-   Returns 1 and fills *out if found and not tombstoned, 0 otherwise. */
-
-int
-fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
-                            ushort                         fork_idx,
-                            fd_pubkey_t const *            stake_account,
-                            fd_stake_delegation_t *        out );
-
 /* fd_stake_delegations_new_fork allocates a new fork index for the
    stake delegations.  The fork index is returned to the caller. */
 
@@ -332,17 +323,18 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
    removed by a delta another field will be reused to ignore it during
    iteration.  If an element is inserted by a delta, it will be
    temporarily added to the root, but will be removed with a call to
-   unmark_delta. */
+   unmark_delta.  These functions are also used to temporarily update
+   (and then unwind) the stake totals for the current root. */
 
    void
-   fd_stake_delegations_mark_delta( fd_stake_delegations_t * stake_delegations,
-                                    ulong                    epoch,
+   fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
+                                    ulong                      epoch,
                                     fd_stake_history_t const * stake_history,
                                     ulong *                    warmup_cooldown_rate_epoch,
-                                    ushort                   fork_idx );
+                                    ushort                     fork_idx );
 
   void
-  fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
+  fd_stake_delegations_unmark_delta( fd_stake_delegations_t *    stake_delegations,
                                       ulong                      epoch,
                                       fd_stake_history_t const * stake_history,
                                       ulong *                    warmup_cooldown_rate_epoch,

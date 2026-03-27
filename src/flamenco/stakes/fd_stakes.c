@@ -525,8 +525,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     }
   }
 
-  /* Only update total_*_stake at the epoch boundary. */
-  bank->f.total_effective_stake    = total_stake;
+  /* Only update total_*_stake at the epoch boundary.  These values
+     are snapshots of the stake totals for the current epoch. */
   bank->f.total_activating_stake   = total_activating;
   bank->f.total_deactivating_stake = total_deactivating;
   bank->f.total_epoch_stake        = total_stake;

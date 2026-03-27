@@ -547,6 +547,15 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t *             banks,
                                        fd_bank_t *              bank,
                                        fd_stake_delegations_t * stake_delegations ) {
 
+  /* The stake_delegations root has crossed an epoch boundary.  The
+     stake totals for the current root need to be updated. */
+  fd_bank_t * old_root = fd_banks_root( banks );
+  if( old_root->f.epoch!=bank->f.epoch ) {
+    stake_delegations->effective_stake    = bank->f.total_epoch_stake;
+    stake_delegations->activating_stake   = bank->f.total_activating_stake;
+    stake_delegations->deactivating_stake = bank->f.total_deactivating_stake;
+  }
+
   /* Naively what we want to do is iterate from the old root to the new
      root and apply the delta to the full state iteratively. */
 
@@ -672,12 +681,6 @@ fd_banks_advance_root( fd_banks_t * banks,
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
 
   fd_bank_stake_delegation_apply_deltas( banks, new_root, stake_delegations );
-
-  if( old_root->f.epoch!=new_root->f.epoch ) {
-    stake_delegations->effective_stake    = new_root->f.total_effective_stake;
-    stake_delegations->activating_stake   = new_root->f.total_activating_stake;
-    stake_delegations->deactivating_stake = new_root->f.total_deactivating_stake;
-  }
 
   fd_stake_delegations_evict_fork( stake_delegations, new_root->stake_delegations_fork_id );
   new_root->stake_delegations_fork_id = USHORT_MAX;
