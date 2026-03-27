@@ -3,6 +3,7 @@
 
 #include "fd_stake_delegations.h"
 #include "fd_stake_types.h"
+#include "../types/fd_types.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -12,6 +13,12 @@ fd_stakes_config_init( fd_accdb_user_t *         accdb,
 
 fd_stake_state_t const *
 fd_stakes_get_state( fd_account_meta_t const * meta );
+
+fd_stake_history_entry_t
+stake_activating_and_deactivating( fd_delegation_t const *    self,
+                                   ulong                      target_epoch,
+                                   fd_stake_history_t const * stake_history,
+                                   ulong *                    new_rate_activation_epoch );
 
 fd_stake_history_entry_t
 fd_stakes_activating_and_deactivating( fd_stake_delegation_t const * self,
@@ -74,17 +81,6 @@ void
 fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                    fd_account_meta_t const * meta,
                                    fd_bank_t *               bank );
-
-/* fd_stakes_init_totals initializes total_effective_stake,
-   total_activating_stake, and total_deactivating_stake in the bank by
-   iterating all stake delegations in the root map with the current
-   stake history. This is called after snapshot load before execution. */
-
-void
-fd_stakes_init_totals( fd_bank_t *                    bank,
-                       fd_stake_delegations_t const * stake_delegations,
-                       fd_accdb_user_t *              accdb,
-                       fd_funk_txn_xid_t const *      xid );
 
 FD_PROTOTYPES_END
 

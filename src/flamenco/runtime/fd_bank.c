@@ -547,6 +547,15 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t *             banks,
                                        fd_bank_t *              bank,
                                        fd_stake_delegations_t * stake_delegations ) {
 
+  /* The stake_delegations root has crossed an epoch boundary.  The
+     stake totals for the current root need to be updated. */
+  fd_bank_t * old_root = fd_banks_root( banks );
+  if( old_root->f.epoch!=bank->f.epoch ) {
+    stake_delegations->effective_stake    = bank->f.total_epoch_stake;
+    stake_delegations->activating_stake   = bank->f.total_activating_stake;
+    stake_delegations->deactivating_stake = bank->f.total_deactivating_stake;
+  }
+
   /* Naively what we want to do is iterate from the old root to the new
      root and apply the delta to the full state iteratively. */
 
@@ -569,9 +578,10 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t *             banks,
   /* We have populated all of the indicies that we need to apply deltas
      from in reverse order. */
 
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache );
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_apply_fork_delta( stake_delegations, idx );
+    fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, stake_delegations, idx );
   }
 }
 
@@ -593,9 +603,11 @@ fd_bank_stake_delegation_mark_deltas( fd_banks_t *             banks,
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
   }
 
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache );
+
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_mark_delta( stake_delegations, idx );
+    fd_stake_delegations_mark_delta( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, idx );
   }
 }
 
@@ -617,9 +629,11 @@ fd_bank_stake_delegation_unmark_deltas( fd_banks_t *             banks,
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
   }
 
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache );
+
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_unmark_delta( stake_delegations, idx );
+    fd_stake_delegations_unmark_delta( stake_delegations, bank->f.epoch-1UL, stake_history, &bank->f.warmup_cooldown_rate_epoch, idx );
   }
 }
 
@@ -665,6 +679,7 @@ fd_banks_advance_root( fd_banks_t * banks,
   fd_bank_t * new_root = fd_banks_pool_ele( bank_pool, root_bank_idx );
 
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
+
   fd_bank_stake_delegation_apply_deltas( banks, new_root, stake_delegations );
 
   fd_stake_delegations_evict_fork( stake_delegations, new_root->stake_delegations_fork_id );
