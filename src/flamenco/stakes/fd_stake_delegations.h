@@ -306,12 +306,12 @@ fd_stake_delegations_evict_fork( fd_stake_delegations_t * stake_delegations,
    the corresponding stake account from the root map.  Caller must
    ensure no concurrent iteration on stake_delegations for this fork. */
 
-   void
-   fd_stake_delegations_apply_fork_delta( ulong                      epoch,
-                                          fd_stake_history_t const * stake_history,
-                                          ulong *                    warmup_cooldown_rate_epoch,
-                                          fd_stake_delegations_t *   stake_delegations,
-                                          ushort                     fork_idx );
+void
+fd_stake_delegations_apply_fork_delta( ulong                      epoch,
+                                       fd_stake_history_t const * stake_history,
+                                       ulong *                    warmup_cooldown_rate_epoch,
+                                       fd_stake_delegations_t *   stake_delegations,
+                                       ushort                     fork_idx );
 
 /* fd_stake_delegations_{mark,unmark}_delta are used to temporarily
    tag delta elements from a given fork in the base/root stake

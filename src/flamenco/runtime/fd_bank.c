@@ -633,7 +633,7 @@ fd_bank_stake_delegation_unmark_deltas( fd_banks_t *             banks,
 
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
-    fd_stake_delegations_unmark_delta( stake_delegations, bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, idx );
+    fd_stake_delegations_unmark_delta( stake_delegations, bank->f.epoch-1UL, stake_history, &bank->f.warmup_cooldown_rate_epoch, idx );
   }
 }
 
