@@ -332,7 +332,7 @@ fd_votes_count_vote( fd_votes_t *        votes,
                      fd_hash_t const *   vote_block_id ) {
 
   if( FD_UNLIKELY( votes->root==ULONG_MAX                     ) ) return NULL; /* uninitialized root */
-  if( FD_UNLIKELY( vote_slot <  votes->root                   ) ) return NULL; /* vote too far behind */
+  if( FD_UNLIKELY( vote_slot <= votes->root                   ) ) return NULL; /* vote too far behind */
   if( FD_UNLIKELY( vote_slot >= votes->root + votes->slot_max ) ) return NULL; /* vote too far ahead */
 
   vtr_t * vtr = vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool );
