@@ -1239,6 +1239,17 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     }
   }
 
+  /* If we haven't started replaying the prior block, but we have
+     finished replaying the second to last slot of the prior
+     leader (and that leader is not us), we should give the prior leader
+     a little more time. */
+  if( FD_UNLIKELY( ctx->next_leader_slot==ctx->reset_slot+2UL && now<ctx->next_leader_tickcount+(long)(1.0*ctx->slot_duration_ticks) ) ) {
+
+    fd_pubkey_t const * reset_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->reset_slot );
+    if( FD_UNLIKELY( reset_leader && !fd_memeq( reset_leader, ctx->identity_pubkey, 32UL ) ) ) return 0;
+  }
+
+
   long now_nanos = fd_log_wallclock();
 
   ctx->is_leader = 1;
