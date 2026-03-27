@@ -300,17 +300,10 @@ int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
                                  ulong       in_sz,
-                                 int         big_endian,
-                                 int         check_len ) {
-  /* https://github.com/anza-xyz/agave/blob/v1.18.6/sdk/program/src/alt_bn128/mod.rs#L244
-     Note: Solana had a bug where it checked if input.len().checked_rem(192).is_none(),
-     which only fails when dividing by zero, so the check never triggered.
-     When check_len is true, we properly validate that input size is a multiple of 192.
-     This corresponds to the fix_alt_bn128_pairing_length_check feature gate. */
-  if( check_len ) {
-    if( FD_UNLIKELY( (in_sz % 192UL) != 0 ) ) {
-      return -1; /* Invalid input length */
-    }
+                                 int         big_endian ) {
+  /* https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/pairing.rs#L79 */
+  if( FD_UNLIKELY( (in_sz % 192UL) != 0 ) ) {
+    return -1; /* Invalid input length */
   }
   ulong elements_len = in_sz / 192UL;
   fd_bn254_g1_t p[FD_BN254_PAIRING_BATCH_MAX];

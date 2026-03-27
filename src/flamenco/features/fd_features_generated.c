@@ -1626,7 +1626,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0e\xcb\x71\x9e\x06\x4c\x3a\xec\xc3\xa9\x71\xb0\x61\x33\x9b\x7e\xdc\x71\xc0\x35\x81\x8f\xf0\x0a\xb0\x53\x46\xaa\x28\xd7\x0b\xe1"},
                                  /* zkdoVwnSFnSLtGJG7irJPEYUpmb4i7sGMGcnN6T9rnC */
     .name                      = "disable_zk_elgamal_proof_program",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, reenable_zk_elgamal_proof_program)>>3,
@@ -1702,7 +1702,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\x3e\xd9\x52\x45\xee\x7b\x8c\x8a\xaf\x88\xa2\x5e\x37\x29\x76\x1d\xa5\xfb\xfa\x47\x48\xfd\xd4\x5a\xff\x2b\xb8\xfa\xd3\x1c\x98"},
                                  /* poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb */
     .name                      = "poseidon_enforce_padding",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, relax_intrabatch_account_locks)>>3,
     .id                        = {"\x34\x2b\x0f\xf3\x77\x8f\xe3\x99\x3b\x5a\xc5\xab\x87\xb5\x93\xeb\xbe\x0c\xcc\xdd\x77\x66\x11\x5d\x6c\xfc\xa1\x1e\x9b\x0e\x0f\xac"},
@@ -1770,8 +1771,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa7\xaf\x63\xf3\xce\xb1\x12\xfc\xc9\xd8\x71\xc1\x4e\x8f\x17\x9e\xd0\x6f\x9b\x70\xf8\x41\x1a\x92\x9e\x48\x46\xb5\x2a\x0e\x98\x0c"},
                                  /* CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB */
     .name                      = "switch_to_chacha8_turbine",
-    .cleaned_up                = 1,
-    .hardcode_for_fuzzing      = 1 },
+    .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, bls_pubkey_management_in_vote_account)>>3,
     .id                        = {"\x1c\x6c\x8a\x1b\xb0\xb6\x27\x37\xd6\xc4\x05\x8b\x2f\x29\x96\x0b\x09\x31\xa0\xd5\xcd\x5f\x9d\x1a\xbb\x2a\xc0\x3a\xc6\x9f\xb6\x36"},
