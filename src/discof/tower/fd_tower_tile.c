@@ -736,7 +736,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     our_vote_acct_bal = fd_accdb_ref_lamports( ro );
     fd_memcpy( ctx->our_vote_acct, fd_accdb_ref_data_const( ro ), ctx->our_vote_acct_sz );
     fd_accdb_close_ro( ctx->accdb, ro );
-    fd_tower_reconcile( ctx->tower, ctx->root_slot, ctx->our_vote_acct );
+    fd_tower_reconcile( ctx->tower, ctx->root_slot, ctx->our_vote_acct, ctx->tower_blocks );
   }
 
   /* Check for equivocation (already received a replay_slot_completed
@@ -1036,6 +1036,7 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
     auth_vtr->paths_idx = ctx->auth_vtr_path_cnt;
     ctx->auth_vtr_path_cnt++;
     fd_keyswitch_state( ctx->auth_vtr_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+
   }
 
   /* FIXME: Currently, the tower tile doesn't support set-identity with
