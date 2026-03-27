@@ -722,28 +722,3 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
     fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
   }
 }
-
-void
-fd_stakes_init_totals( fd_bank_t *               bank,
-                       fd_stake_delegations_t *  stake_delegations,
-                       fd_accdb_user_t *         accdb,
-                       fd_funk_txn_xid_t const * xid ) {
-  fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-  }
-
-  ulong epoch = bank->f.epoch;
-
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
-    fd_stake_history_entry_t entry = fd_stakes_activating_and_deactivating( stake_delegation, epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch );
-    stake_delegations->effective_stake    += entry.effective;
-    stake_delegations->activating_stake   += entry.activating;
-    stake_delegations->deactivating_stake += entry.deactivating;
-  }
-
-}

@@ -438,10 +438,12 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
        iter = fork_dlist_iter_fwd_next( iter, dlist, delta_pool ) ) {
     fd_stake_delegation_t * stake_delegation = fork_dlist_iter_ele( iter, dlist, delta_pool );
     if( FD_LIKELY( !stake_delegation->is_tombstone ) ) {
-      /* TODO: Subtract old value */
-
+      /* If the entry in the delta is an update:
+         - If the entry already exists, subtract the old version's stake
+         - Insert/update the new version
+         - Add the new version's stake to the totals */
       fd_stake_delegation_t const * old_delegation = fd_stake_delegation_root_query( stake_delegations, &stake_delegation->stake_account );
-      if( old_delegation ) {
+      if( FD_LIKELY( old_delegation ) ) {
         fd_stake_history_entry_t old_entry = fd_stakes_activating_and_deactivating( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
         stake_delegations->effective_stake    -= old_entry.effective;
         stake_delegations->activating_stake   -= old_entry.activating;
@@ -463,8 +465,11 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
       stake_delegations->activating_stake   += new_entry.activating;
       stake_delegations->deactivating_stake += new_entry.deactivating;
     } else {
+      /* If the stake delegation in the delta is a tombstone, just
+         remove the stake delegation from the root map and subtract
+         it's stake from the totals. */
       fd_stake_delegation_t const * old_delegation = fd_stake_delegation_root_query( stake_delegations, &stake_delegation->stake_account );
-      if( old_delegation ) {
+      if( FD_LIKELY( old_delegation ) ) {
         fd_stake_history_entry_t old_entry = fd_stakes_activating_and_deactivating( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
         stake_delegations->effective_stake    -= old_entry.effective;
         stake_delegations->activating_stake   -= old_entry.activating;
@@ -553,41 +558,30 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
     if( FD_UNLIKELY( !base_delegation ) ) {
       base_delegation                = root_pool_ele_acquire( root_pool );
       base_delegation->stake_account = delta_delegation->stake_account;
+      base_delegation->dne_in_root   = 1;
+      base_delegation->delta_idx     = (uint)delta_pool_idx( delta_pool, delta_delegation );
       root_map_ele_insert( root_map, base_delegation, root_pool );
-
-      base_delegation->dne_in_root = 1;
-      base_delegation->delta_idx   = (uint)delta_pool_idx( delta_pool, delta_delegation );
-
-      if( FD_LIKELY( !delta_delegation->is_tombstone ) ) {
-        fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
-        stake_delegations->effective_stake    += new_entry.effective;
-        stake_delegations->activating_stake   += new_entry.activating;
-        stake_delegations->deactivating_stake += new_entry.deactivating;
-      }
     } else {
-      if( base_delegation->delta_idx==UINT_MAX ) {
-        fd_stake_history_entry_t old_entry = fd_stakes_activating_and_deactivating( base_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
-        stake_delegations->effective_stake    -= old_entry.effective;
-        stake_delegations->activating_stake   -= old_entry.activating;
-        stake_delegations->deactivating_stake -= old_entry.deactivating;
-      } else {
-        fd_stake_delegation_t * old_delta_delegation = delta_pool_ele( delta_pool, base_delegation->delta_idx );
-        fd_stake_history_entry_t old_entry = fd_stakes_activating_and_deactivating( old_delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
+      /* Only subtract the old version's stake if it's not a tombstone.*/
+      fd_stake_delegation_t *  old_delegation = base_delegation->delta_idx==UINT_MAX ? base_delegation : delta_pool_ele( delta_pool, base_delegation->delta_idx );
+      if( FD_LIKELY( base_delegation->delta_idx==UINT_MAX || !old_delegation->is_tombstone ) ) {
+        fd_stake_history_entry_t old_entry      = fd_stakes_activating_and_deactivating( old_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
         stake_delegations->effective_stake    -= old_entry.effective;
         stake_delegations->activating_stake   -= old_entry.activating;
         stake_delegations->deactivating_stake -= old_entry.deactivating;
       }
-
-      if( FD_LIKELY( !delta_delegation->is_tombstone ) ) {
-        fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
-        stake_delegations->effective_stake    += new_entry.effective;
-        stake_delegations->activating_stake   += new_entry.activating;
-        stake_delegations->deactivating_stake += new_entry.deactivating;
-      }
-
+      /* Update the base delegation to point to the new version. */
       base_delegation->delta_idx = (uint)delta_pool_idx( delta_pool, delta_delegation );
     }
 
+    /* Add the new version's stake to the totals (as long as it's not a
+       tombstone).*/
+    if( FD_LIKELY( !delta_delegation->is_tombstone ) ) {
+      fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating( delta_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
+      stake_delegations->effective_stake    += new_entry.effective;
+      stake_delegations->activating_stake   += new_entry.activating;
+      stake_delegations->deactivating_stake += new_entry.deactivating;
+    }
   }
 }
 
@@ -612,6 +606,9 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
     if( FD_UNLIKELY( !base_delegation ) ) {
       continue;
     }
+
+    uint delta_idx = (uint)delta_pool_idx( delta_pool, delta_delegation );
+    if( FD_UNLIKELY( base_delegation->delta_idx!=delta_idx ) ) continue;
 
     if( FD_UNLIKELY( base_delegation->dne_in_root )) {
       if( FD_LIKELY( !delta_delegation->is_tombstone ) ) {

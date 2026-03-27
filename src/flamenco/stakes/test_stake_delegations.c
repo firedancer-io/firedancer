@@ -377,6 +377,107 @@ int main( int argc, char ** argv ) {
     fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
   }
 
+  /* Stake total tests.
+
+     The existing tests all use activation_epoch=0, deactivation_epoch=0
+     which produces zero effective stake.  To exercise the totals
+     accounting we reinitialize the root with epochs that yield non-zero
+     effective stake: activation_epoch=USHORT_MAX (→ULONG_MAX) and
+     deactivation_epoch=USHORT_MAX (→ULONG_MAX).  With an empty stake
+     history and target_epoch=10 this gives effective=stake,
+     activating=0, deactivating=0. */
+
+  fd_stake_delegations_init( stake_delegations );
+  stake_delegations->effective_stake    = 0UL;
+  stake_delegations->activating_stake   = 0UL;
+  stake_delegations->deactivating_stake = 0UL;
+
+  fd_stake_delegations_root_update( stake_delegations, &stake_account_0, &voter_pubkey_0, 200UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+  fd_stake_delegations_root_update( stake_delegations, &stake_account_1, &voter_pubkey_1, 300UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+  fd_stake_delegations_root_update( stake_delegations, &stake_account_2, &voter_pubkey_1, 500UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+
+  stake_delegations->effective_stake = 200UL + 300UL + 500UL;
+
+  /* Case 16: Duplicate updates -- totals must reflect only the last delta */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 100UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 400UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before - 200UL + 400UL );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 17: Update then tombstone -- totals must subtract base, not double-count */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 999UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_fork_remove( stake_delegations, fork_idx, &stake_account_0 );
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before - 200UL );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 18: Tombstone then update -- totals must reflect only the update */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_remove( stake_delegations, fork_idx, &stake_account_0 );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_1, 777UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before - 200UL + 777UL );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 19: Triple update -- totals must reflect only the last */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 10UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 20UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_0, &voter_pubkey_0, 30UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before - 200UL + 30UL );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 20: Duplicate updates for a new account (dne_in_root) */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_3, &voter_pubkey_0, 50UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_3, &voter_pubkey_0, 80UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before + 80UL );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before );
+    FD_TEST( !test_stake_delegations_find( stake_delegations, &stake_account_3 ) );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
+  /* Case 21: New account insert then tombstone -- totals unchanged */
+  {
+    ulong eff_before = stake_delegations->effective_stake;
+    ushort fork_idx = fd_stake_delegations_new_fork( stake_delegations );
+    fd_stake_delegations_fork_update( stake_delegations, fork_idx, &stake_account_3, &voter_pubkey_0, 123UL, USHORT_MAX, USHORT_MAX, 0UL, 0.25 );
+    fd_stake_delegations_fork_remove( stake_delegations, fork_idx, &stake_account_3 );
+    fd_stake_delegations_mark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before );
+    fd_stake_delegations_unmark_delta( stake_delegations, epoch, stake_history, &warmup_cooldown_rate_epoch, fork_idx );
+    FD_TEST( stake_delegations->effective_stake == eff_before );
+    fd_stake_delegations_evict_fork( stake_delegations, fork_idx );
+  }
+
   /* Test stake delegations refresh */
 
   FD_LOG_NOTICE(( "pass" ));

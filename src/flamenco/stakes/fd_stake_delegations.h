@@ -97,7 +97,7 @@ struct fd_stake_delegation {
   ushort      deactivation_epoch;
   union {
     uchar     is_tombstone; /* Internal dlist/delta usage */
-    uchar     dne_in_root; /* Tracking for stake delegation iteration */
+    uchar     dne_in_root;  /* Tracking for stake delegation iteration */
   };
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
 };
@@ -337,7 +337,7 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
                                  ushort                     fork_idx );
 
 void
-fd_stake_delegations_unmark_delta( fd_stake_delegations_t *    stake_delegations,
+fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
                                    ulong                      epoch,
                                    fd_stake_history_t const * stake_history,
                                    ulong *                    warmup_cooldown_rate_epoch,
