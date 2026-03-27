@@ -601,7 +601,6 @@ publish_epoch_info( fd_replay_tile_t *   ctx,
   epoch_info_msg->start_slot        = fd_epoch_slot0( schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( schedule, epoch );
   epoch_info_msg->excluded_id_stake = current_epoch ? *fd_bank_get_next_id_weights_excluded( bank->data ) : *fd_bank_get_id_weights_excluded( bank->data );
-  epoch_info_msg->vote_keyed_lsched = 1UL;
 
   fd_vote_stake_weight_t * stake_weights = fd_type_pun( epoch_info_msg + 1 );
   fd_vote_stake_weight_t * bank_stake_weights = current_epoch ? fd_bank_get_stake_weights_next( bank->data ) : fd_bank_get_stake_weights( bank->data );

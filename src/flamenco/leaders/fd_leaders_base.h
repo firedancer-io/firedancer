@@ -18,7 +18,6 @@ struct fd_stake_weight_msg_t {
   ulong             start_slot;        /* Start slot of the epoch */
   ulong             slot_cnt;          /* Number of slots in the epoch */
   ulong             excluded_id_stake; /* Total stake that is excluded for shred dests */
-  ulong             vote_keyed_lsched; /* 1=use vote-keyed leader schedule, 0=use old leader schedule */
 };
 typedef struct fd_stake_weight_msg_t fd_stake_weight_msg_t;
 
@@ -52,7 +51,6 @@ struct fd_epoch_info_msg_t {
   ulong                  start_slot;        /* Start slot of the epoch */
   ulong                  slot_cnt;          /* Number of slots in the epoch */
   ulong                  excluded_id_stake; /* Total stake that is excluded for shred dests */
-  ulong                  vote_keyed_lsched; /* Whether vote account keyed leader schedule is active */
   fd_epoch_schedule_t    epoch_schedule;    /* Epoch schedule */
   fd_features_t          features;          /* Feature activation slots */
 };

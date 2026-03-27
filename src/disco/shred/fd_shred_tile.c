@@ -487,8 +487,6 @@ during_frag( fd_shred_ctx_t * ctx,
     *ctx->epoch_schedule                                = epoch_msg->epoch_schedule;
     ctx->features_activation->enforce_fixed_fec_set     = fd_shred_get_feature_activation_slot0(
       epoch_msg->features.enforce_fixed_fec_set, ctx );
-    ctx->features_activation->switch_to_chacha8_turbine = fd_shred_get_feature_activation_slot0(
-      epoch_msg->features.switch_to_chacha8_turbine, ctx );
     ctx->features_activation->discard_unexpected_data_complete_shreds = fd_shred_get_feature_activation_slot0(
       epoch_msg->features.discard_unexpected_data_complete_shreds, ctx );
 
@@ -966,8 +964,7 @@ after_frag( fd_shred_ctx_t *    ctx,
             the shred, but still send it to the blockstore. */
           fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
           if( FD_UNLIKELY( !sdest ) ) break;
-          int use_chacha8 = ( shred->slot >= ctx->features_activation->switch_to_chacha8_turbine );
-          fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt, use_chacha8 );
+          fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
           if( FD_UNLIKELY( !dests ) ) break;
 
           for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, ctx->tsorig );
@@ -1142,7 +1139,6 @@ after_frag( fd_shred_ctx_t *    ctx,
     if( FD_UNLIKELY( !k ) ) return;
     fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, new_shreds[ 0 ]->slot );
     if( FD_UNLIKELY( !sdest ) ) return;
-    int use_chacha8 = ( new_shreds[ 0 ]->slot >= ctx->features_activation->switch_to_chacha8_turbine );
 
     ulong out_stride;
     ulong max_dest_cnt[1];
@@ -1155,14 +1151,14 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* In the case of feature activation, the fanout used below is
           the same as the one calculated/modified previously at the
           beginning of after_frag() for IN_KIND_NET in this slot. */
-      dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt, use_chacha8 );
+      dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
     } else {
       for( ulong i=0UL; i<k; i++ ) {
         for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, ctx->tsorig );
       }
       out_stride = 1UL;
       *max_dest_cnt = 1UL;
-      dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests, use_chacha8 );
+      dests = fd_shred_dest_compute_first   ( sdest, new_shreds, k, ctx->scratchpad_dests );
     }
     if( FD_UNLIKELY( !dests ) ) return;
 

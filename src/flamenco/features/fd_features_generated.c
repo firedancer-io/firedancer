@@ -1763,7 +1763,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa7\xaf\x63\xf3\xce\xb1\x12\xfc\xc9\xd8\x71\xc1\x4e\x8f\x17\x9e\xd0\x6f\x9b\x70\xf8\x41\x1a\x92\x9e\x48\x46\xb5\x2a\x0e\x98\x0c"},
                                  /* CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB */
     .name                      = "switch_to_chacha8_turbine",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, bls_pubkey_management_in_vote_account)>>3,
     .id                        = {"\x1c\x6c\x8a\x1b\xb0\xb6\x27\x37\xd6\xc4\x05\x8b\x2f\x29\x96\x0b\x09\x31\xa0\xd5\xcd\x5f\x9d\x1a\xbb\x2a\xc0\x3a\xc6\x9f\xb6\x36"},
