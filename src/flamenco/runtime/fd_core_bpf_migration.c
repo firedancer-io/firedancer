@@ -353,8 +353,8 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
                                             fd_runtime_stack_t * runtime_stack,
                                             uchar const *        elf,
                                             ulong                elf_sz ) {
-  fd_features_t const * features = &bank->data->f.features;
-  ulong                 slot     = bank->data->f.slot;
+  fd_features_t const * features = &bank->f.features;
+  ulong                 slot     = bank->f.slot;
 
   /* ELF verification with deploy checks enabled */
   fd_prog_versions_t versions = fd_prog_versions( features, slot );
@@ -583,23 +583,23 @@ fd_update_capitalization( fd_bank_t * bank,
     int err = fd_ulong_checked_sub( lamports_to_burn, lamports_to_fund, &diff );
     if( FD_UNLIKELY( err ) ) return err;
 
-    ulong capitalization = bank->data->f.capitalization;
+    ulong capitalization = bank->f.capitalization;
     ulong new_capitalization;
     err = fd_ulong_checked_sub( capitalization, diff, &new_capitalization );
     if( FD_UNLIKELY( err ) ) return err;
 
-    bank->data->f.capitalization = new_capitalization;
+    bank->f.capitalization = new_capitalization;
   } else if( lamports_to_fund > lamports_to_burn ) {
     ulong diff;
     int err = fd_ulong_checked_sub( lamports_to_fund, lamports_to_burn, &diff );
     if( FD_UNLIKELY( err ) ) return err;
 
-    ulong capitalization = bank->data->f.capitalization;
+    ulong capitalization = bank->f.capitalization;
     ulong new_capitalization;
     err = fd_ulong_checked_add( capitalization, diff, &new_capitalization );
     if( FD_UNLIKELY( err ) ) return err;
 
-    bank->data->f.capitalization = new_capitalization;
+    bank->f.capitalization = new_capitalization;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -633,8 +633,8 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       config->verified_build_hash ) ) )
     return;
 
-  fd_rent_t const * rent = &bank->data->f.rent;
-  ulong const       slot = bank->data->f.slot;
+  fd_rent_t const * rent = &bank->f.rent;
+  ulong const       slot = bank->f.slot;
 
   fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration.new_target_program;
   if( FD_UNLIKELY( !new_target_program_account(
@@ -732,7 +732,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   tmp_account_new( new_target_program_data, new_account_size );
   new_target_program_data->addr = program_data_address;
 
-  fd_rent_t const * rent = &bank->data->f.rent;
+  fd_rent_t const * rent = &bank->f.rent;
   new_target_program_data->meta.lamports   = fd_rent_exempt_minimum_balance( rent, new_account_size );
   new_target_program_data->meta.executable = 0;
   fd_memcpy( new_target_program_data->meta.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) );
@@ -740,7 +740,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   fd_bpf_upgradeable_loader_state_t programdata_state[1] = {{
     .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
     .inner = { .program_data = {
-      .slot = bank->data->f.slot,
+      .slot = bank->f.slot,
       .upgrade_authority_address = target->upgrade_authority_address,
       .has_upgrade_authority_address = target->has_upgrade_authority_address
     }}
@@ -819,8 +819,8 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
   if( FD_UNLIKELY( !source_buffer_new_checked( source, accdb, xid, source_buffer_address, NULL ) ) )
     return;
 
-  fd_rent_t const * rent = &bank->data->f.rent;
-  ulong             slot = bank->data->f.slot;
+  fd_rent_t const * rent = &bank->f.rent;
+  ulong             slot = bank->f.slot;
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L416-L417 */
   fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration.new_target_program;

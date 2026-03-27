@@ -273,7 +273,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = vm->instr_ctx->bank->data->f.total_epoch_stake;
+    *_ret = vm->instr_ctx->bank->f.total_epoch_stake;
     return FD_VM_SUCCESS;
   }
 
@@ -293,9 +293,8 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
     fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL );
   } else {
-    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( vm->instr_ctx->bank );
-    fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->data->vote_stakes_fork_id, vote_address, &stake, NULL, NULL );
-    fd_bank_vote_stakes_end_locking_modify( vm->instr_ctx->bank );
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( vm->instr_ctx->bank );
+    fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->vote_stakes_fork_id, vote_address, &stake, NULL, NULL );
   }
 
   *_ret = stake;

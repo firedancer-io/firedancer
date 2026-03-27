@@ -231,11 +231,9 @@ test_0cu_exit( fd_runtime_t * runtime ) {
   ulong text_cnt = 3UL;
 
   fd_exec_instr_ctx_t instr_ctx[1];
-  fd_bank_data_t      bank_data[1];
-  fd_banks_locks_t    bank_locks[1];
   fd_bank_t           bank[1];
   fd_txn_out_t        txn_out[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, bank_data, bank_locks, txn_out );
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
@@ -336,7 +334,6 @@ main( int     argc,
 
   fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
   FD_TEST( runtime );
-  fd_bank_data_t * bank_data = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_data_t), sizeof(fd_bank_data_t), wksp_tag );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
@@ -344,9 +341,8 @@ main( int     argc,
 
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_bank_t           bank[1];
-  fd_banks_locks_t    bank_locks[1];
   fd_txn_out_t        txn_out[1];
-  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, bank_data, bank_locks, txn_out );
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 

@@ -10,7 +10,7 @@
 static void
 encode_rbh_from_blockhash_queue( fd_bank_t * bank,
                                  uchar       out_mem[ static FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
-  fd_blockhashes_t const * bhq = &bank->data->f.block_hash_queue;
+  fd_blockhashes_t const * bhq = &bank->f.block_hash_queue;
 
   ulong queue_sz = fd_blockhash_deq_cnt( bhq->d.deque );
   ulong out_max  = fd_ulong_min( queue_sz, FD_SYSVAR_RECENT_HASHES_CAP );
@@ -50,10 +50,10 @@ fd_sysvar_recent_hashes_init( fd_bank_t *               bank,
 static void
 register_blockhash( fd_bank_t *       bank,
                     fd_hash_t const * hash ) {
-  fd_blockhashes_t * bhq = &bank->data->f.block_hash_queue;
+  fd_blockhashes_t * bhq = &bank->f.block_hash_queue;
   fd_blockhash_info_t * bh = fd_blockhashes_push_new( bhq, hash );
   bh->fee_calculator = (fd_fee_calculator_t){
-    .lamports_per_signature = bank->data->f.rbh_lamports_per_sig
+    .lamports_per_signature = bank->f.rbh_lamports_per_sig
   };
 }
 
@@ -67,7 +67,7 @@ fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
                                 fd_accdb_user_t *         accdb,
                                 fd_funk_txn_xid_t const * xid,
                                 fd_capture_ctx_t *        capture_ctx ) {
-  register_blockhash( bank, &bank->data->f.poh );
+  register_blockhash( bank, &bank->f.poh );
 
   uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
   encode_rbh_from_blockhash_queue( bank, enc );

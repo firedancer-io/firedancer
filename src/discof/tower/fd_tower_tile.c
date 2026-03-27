@@ -166,7 +166,7 @@ struct fd_tower_tile {
 
   /* borrowed joins */
 
-  fd_banks_t      banks[1];
+  fd_banks_t *    banks;
   fd_accdb_user_t accdb[1];
 
   /* static structures */
@@ -611,8 +611,8 @@ update_voters( fd_tower_tile_t * ctx,
                ulong             bank_idx,
                ulong             slot ) {
 
-  fd_bank_t bank[1];
-  if( FD_UNLIKELY( !fd_banks_bank_query( bank, ctx->banks, bank_idx ) ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", bank_idx ));
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", bank_idx ));
 
   fd_tower_voters_t * tower_voters = ctx->tower_voters;
   fd_tower_voters_remove_all( tower_voters );
@@ -1350,9 +1350,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ulong banks_locks_obj_id = fd_pod_query_ulong( topo->props, "banks_locks", ULONG_MAX );
-  FD_TEST( banks_locks_obj_id!=ULONG_MAX );
-  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  FD_TEST( ctx->banks );
 
   fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->tower.accdb_max_depth );
 

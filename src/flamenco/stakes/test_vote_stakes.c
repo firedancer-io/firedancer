@@ -143,6 +143,7 @@ int main( int argc, char * argv[] ) {
       fd_vote_stakes_fork_iter_ele( vote_stakes, idx_3, iter, &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
       seen++;
     }
+    fd_vote_stakes_fork_iter_fini( vote_stakes );
     FD_TEST( seen==6U );
   }
 

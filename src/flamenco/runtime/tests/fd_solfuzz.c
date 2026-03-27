@@ -134,14 +134,14 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
-  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag );
-  fd_banks_locks_init( banks_locks );
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
-  if( FD_UNLIKELY( !fd_banks_join( runner->banks, fd_banks_new( banks_mem, bank_max, fork_max, 2048UL, 2048UL, 0, 8888UL ), banks_locks ) ) ) goto bail2;
-  if( FD_UNLIKELY( !fd_banks_init_bank( runner->bank, runner->banks ) ) ) goto bail2;
+  runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max, 2048UL, 2048UL, 0, 8888UL ) );
+  if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
+  runner->bank = fd_banks_init_bank( runner->banks );
+  if( FD_UNLIKELY( !runner->bank ) ) goto bail2;
   runner->acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX ) );
   if( FD_UNLIKELY( !runner->acc_pool ) ) goto bail2;
-  runner->bank->data->f.slot = 0UL;
+  runner->bank->f.slot = 0UL;
 
   runner->enable_vm_tracing = options->enable_vm_tracing;
   FD_TEST( runner->progcache->join->shmem );
@@ -189,8 +189,7 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 # endif
 
   if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
-  fd_wksp_free_laddr( runner->banks->data );
-  fd_wksp_free_laddr( runner->banks->locks );
+  fd_wksp_free_laddr( runner->banks );
   fd_wksp_free_laddr( runner );
 }
 

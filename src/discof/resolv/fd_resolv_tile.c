@@ -146,8 +146,8 @@ typedef struct {
      freeing the bank when it is no longer needed.  To facilitate this,
      the resolv tile sends a message to replay when it is done with a
      rooted bank (after exchanging it for a new rooted bank). */
-  fd_banks_t banks[1];
-  fd_bank_t  bank[1];
+  fd_banks_t * banks;
+  fd_bank_t * bank;
 
   fd_accdb_user_t accdb[1];
 
@@ -250,7 +250,7 @@ peek_alut( fd_resolv_ctx_t *  ctx,
            fd_txn_m_t *       txnm,
            fd_alut_interp_t * interp,
            ulong              alut_idx ) {
-  fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->data->f.slot, ctx->bank->data->f.slot } };
+  fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
 
   fd_txn_t const * txn         = fd_txn_m_txn_t_const  ( txnm );
   uchar const *    txn_payload = fd_txn_m_payload_const( txnm );
@@ -287,8 +287,8 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   fd_txn_t const *          txn          = fd_txn_m_txn_t_const  ( txnm );
   uchar const *             txn_payload  = fd_txn_m_payload_const( txnm );
   ulong const               alut_cnt     = txn->addr_table_lookup_cnt;
-  ulong const               slot         = ctx->bank->data->f.slot;
-  fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->data->f.sysvar_cache; FD_TEST( sysvar_cache );
+  ulong const               slot         = ctx->bank->f.slot;
+  fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache; FD_TEST( sysvar_cache );
   fd_slot_hash_t const *    slot_hashes  = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
 
   /* Write indirect addrs into here */
@@ -329,7 +329,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
   txnm->reference_slot = ctx->flushing_slot;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank->data ) ) {
+    if( FD_UNLIKELY( !ctx->bank ) ) {
       FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
       return 0;
     }
@@ -436,9 +436,10 @@ after_frag( fd_resolv_ctx_t *   ctx,
         fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
 
         /* Replace current bank with new bank */
-        fd_bank_data_t * prev_bank = ctx->bank->data;
+        fd_bank_t * prev_bank = ctx->bank;
 
-        FD_TEST( fd_banks_bank_query( ctx->bank, ctx->banks, msg->bank_idx ) );
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
 
         /* Send slot completed message back to replay, so it can
            decrement the reference count of the previous bank. */
@@ -541,7 +542,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank->data ) ) {
+    if( FD_UNLIKELY( !ctx->bank ) ) {
       FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
@@ -622,10 +623,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
-  FD_TEST( banks_locks_obj_id!=ULONG_MAX );
-  FD_TEST( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
-  ctx->bank->data = NULL;
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  FD_TEST( ctx->banks );
+  ctx->bank = NULL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

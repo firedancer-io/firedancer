@@ -41,8 +41,8 @@ struct test_env {
   void *               pcache_mem;
   fd_progcache_t       progcache[1];
   uchar *              progcache_scratch;
-  fd_banks_t           banks[1];
-  fd_bank_t            bank[1];
+  fd_banks_t *         banks;
+  fd_bank_t *          bank;
   void *               acc_pool_mem;
   fd_acc_pool_t *      acc_pool;
   fd_runtime_t *       runtime;
@@ -55,7 +55,7 @@ typedef struct test_env test_env_t;
 static void
 init_sysvars( test_env_t * env ) {
   fd_rent_t rent = { .lamports_per_uint8_year = 3480UL, .exemption_threshold = 2.0, .burn_percent = 50 };
-  env->bank->data->f.rent = rent;
+  env->bank->f.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 
   fd_epoch_schedule_t epoch_schedule = {
@@ -65,7 +65,7 @@ init_sysvars( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  env->bank->data->f.epoch_schedule = epoch_schedule;
+  env->bank->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 
   fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
@@ -74,11 +74,11 @@ init_sysvars( test_env_t * env ) {
 
 static void
 init_blockhash_queue( test_env_t * env ) {
-  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->data->f.block_hash_queue, 12345UL );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->f.block_hash_queue, 12345UL );
   fd_hash_t dummy_hash = {0};
   fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
   info->fee_calculator.lamports_per_signature = 0UL;
-  env->bank->data->f.poh = dummy_hash;
+  env->bank->f.poh = dummy_hash;
 }
 
 static void
@@ -130,12 +130,12 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
   FD_TEST( env->progcache_scratch );
   FD_TEST( fd_progcache_join( env->progcache, env->pcache_mem, env->progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 
-  fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
-  FD_TEST( banks_data );
-  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), env->tag );
-  fd_banks_locks_init( banks_locks );
-  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ), banks_locks ) );
-  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
+  FD_TEST( banks_mem );
+  env->banks = fd_banks_join( fd_banks_new( banks_mem, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) );
+  FD_TEST( env->banks );
+  env->bank = fd_banks_init_bank( env->banks );
+  FD_TEST( env->bank );
 
   env->acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(), fd_acc_pool_footprint( acc_pool_cnt ), env->tag );
   FD_TEST( env->acc_pool_mem );
@@ -148,13 +148,13 @@ test_env_create( test_env_t * env, fd_wksp_t * wksp ) {
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 10UL, env->bank->data->idx } };
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 10UL, env->bank->idx } };
   fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
   fd_progcache_attach_child( env->progcache->join, root, &env->xid );
 
-  env->bank->data->f.slot = 10UL;
-  env->bank->data->f.parent_slot = 9UL;
-  env->bank->data->f.epoch = 0UL;
+  env->bank->f.slot = 10UL;
+  env->bank->f.parent_slot = 9UL;
+  env->bank->f.epoch = 0UL;
 
   env->runtime->accdb        = env->accdb;
   env->runtime->status_cache = NULL;
@@ -179,8 +179,7 @@ test_env_destroy( test_env_t * env ) {
 
   fd_wksp_free_laddr( env->runtime );
   fd_wksp_free_laddr( env->acc_pool_mem );
-  fd_wksp_free_laddr( env->banks->data );
-  fd_wksp_free_laddr( env->banks->locks );
+  fd_wksp_free_laddr( env->banks );
 
   fd_progcache_shmem_t * shpcache = NULL;
   fd_progcache_leave( env->progcache, &shpcache );
@@ -261,7 +260,7 @@ test_500_instr_accts( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  env->bank->data->f.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
+  env->bank->f.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( env, txn_p, txn_out, txn_in, 500 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -278,7 +277,7 @@ test_1094_instr_accts( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  env->bank->data->f.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
+  env->bank->f.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( env, txn_p, txn_out, txn_in, FD_INSTR_ACCT_MAX );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -296,7 +295,7 @@ test_limit_instr_accts_at_limit( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  env->bank->data->f.features.limit_instruction_accounts = 0UL;
+  env->bank->f.features.limit_instruction_accounts = 0UL;
   setup_txn( env, txn_p, txn_out, txn_in, 255 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
@@ -312,7 +311,7 @@ test_limit_instr_accts_exceeded( fd_wksp_t * wksp ) {
   fd_txn_in_t  txn_in[1];
 
   test_env_create( env, wksp );
-  env->bank->data->f.features.limit_instruction_accounts = 0UL;
+  env->bank->f.features.limit_instruction_accounts = 0UL;
   setup_txn( env, txn_p, txn_out, txn_in, 256 );
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, txn_in, txn_out );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE );

@@ -94,7 +94,7 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
   fd_bank_lthash_end_locking_modify( bank );
 
   if( capture_ctx && capture_ctx->capture_solcap &&
-      bank->data->f.slot>=capture_ctx->solcap_start_slot ) {
+      bank->f.slot>=capture_ctx->solcap_start_slot ) {
     fd_solana_account_meta_t solana_meta[1];
     fd_solana_account_meta_init(
         solana_meta,
@@ -107,7 +107,7 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
       capture_ctx->current_txn_idx,
       pubkey,
       solana_meta,
-      bank->data->f.slot,
+      bank->f.slot,
       fd_account_data( meta ),
       meta->dlen );
   }
