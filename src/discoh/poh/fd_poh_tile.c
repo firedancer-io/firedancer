@@ -909,34 +909,62 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
     return 1;
   }
 
+  fd_pubkey_t const * reset_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->reset_slot );
+  if( FD_UNLIKELY( reset_leader && fd_memeq( reset_leader, ctx->identity_key.uc, 32UL ) ) ) {
+    /* Surprisingly, in some rare cases where we're skipping ourselves,
+       the following can occur:
+         Reset onto n-1
+         Tick into slot n, become leader for slot n, skipping slot n-1
+         Prior leader start publishing slot n-1
+         max_active_descendant is set to n
+         Switch forks, abandon slot n, reset onto slot n
+       In this case, next_leader_slot is n+1 because we can't become
+       leader again for slot n.  We don't want to give ourselves any
+       grace time though;  we want to start n+1 as soon as the hashing
+       is ready. */
+    fd_ext_poh_write_unlock();
+    return 1;
+  }
+
   long now_ns = fd_log_wallclock();
   long expected_start_time_ns = ctx->reset_slot_start_ns + (long)((double)(ctx->next_leader_slot-ctx->reset_slot)*ctx->slot_duration_ns);
 
-  /* If a prior leader is still in the process of publishing their slot,
-     delay ours to let them finish ... unless they are so delayed that
-     we risk getting skipped by the leader following us.  1.2 seconds
-     is a reasonable default here, although any value between 0 and 1.6
-     seconds could be considered reasonable.  This is arbitrary and
-     chosen due to intuition. */
+  /* Now we're faced with the question of how much grace to give the
+     prior leader before trying to skip them.  If they are still in the
+     process of publishing their slot, delay ours to let them finish ...
+     unless they are so delayed that we risk getting skipped by the
+     leader following us.  1.2 seconds is a reasonable default here,
+     although any value between 0 and 1.6 seconds could be considered
+     reasonable.  If they haven't started their last block, but we're
+     reset on their second to last block, we'll give them an extra
+     400ms.  This is arbitrary and chosen due to intuition. */
 
-  if( FD_UNLIKELY( now_ns<expected_start_time_ns+(long)(3.0*ctx->slot_duration_ns) ) ) {
-    /* If the max_active_descendant is >= next_leader_slot, we waited
-       too long and a leader after us started publishing to try and skip
-       us.  Just start our leader slot immediately, we might win ... */
+  long start_time_with_grace_ns = expected_start_time_ns;
 
-    if( FD_LIKELY( ctx->max_active_descendant>=ctx->reset_slot && ctx->max_active_descendant<ctx->next_leader_slot ) ) {
-      /* If one of the leaders between the reset slot and our leader
-         slot is in the process of publishing (they have a descendant
-         bank that is in progress of being replayed), then keep waiting.
-         We probably wouldn't get a leader slot out before they
-         finished.
+  if( FD_UNLIKELY( ctx->max_active_descendant>=ctx->next_leader_slot ) ) {
+     /* If the max_active_descendant is >= next_leader_slot, we waited
+        too long and a leader after us started publishing to try and skip
+        us.  Just start our leader slot immediately, we might win ... */
+    start_time_with_grace_ns = now_ns;
+  } else if( FD_LIKELY( ctx->max_active_descendant>=ctx->reset_slot ) ) {
+    /* If one of the leaders between the reset slot and our leader
+       slot is in the process of publishing (they have a descendant
+       bank that is in progress of being replayed), then keep waiting.
+       We probably wouldn't get a leader slot out before they
+       finished. */
+    start_time_with_grace_ns += (long)(3.0*ctx->slot_duration_ns);
+  } else if( FD_LIKELY( ctx->next_leader_slot==ctx->reset_slot+1UL ) ) {
+    /* We finished replaying the slot two before ours, which means the
+       prior leader is probably online, but they haven't started
+       publishing the slot immediately prior to ours.  Give the prior
+       leader a little more time. */
+    start_time_with_grace_ns += (long)(1.0*ctx->slot_duration_ns);
+  }
 
-         Unless... we are past the deadline to start our slot by more
-         than 1.2 seconds, in which case we should probably start it to
-         avoid getting skipped by the leader behind us. */
-      fd_ext_poh_write_unlock();
-      return 0;
-    }
+
+  if( FD_UNLIKELY( now_ns<start_time_with_grace_ns ) ) {
+    fd_ext_poh_write_unlock();
+    return 0;
   }
 
   fd_ext_poh_write_unlock();
