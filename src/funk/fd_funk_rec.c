@@ -144,6 +144,49 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   return rec;
 }
 
+fd_funk_rec_t *
+fd_funk_rec_prepare_frozen( fd_funk_t *               funk,
+                            fd_funk_txn_xid_t const * xid,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_rec_prepare_t *   prepare,
+                            int *                     opt_err ) {
+  if( FD_UNLIKELY( !funk    ) ) FD_LOG_CRIT(( "NULL funk"    ));
+  if( FD_UNLIKELY( !xid     ) ) FD_LOG_CRIT(( "NULL xid"     ));
+  if( FD_UNLIKELY( !prepare ) ) FD_LOG_CRIT(( "NULL prepare" ));
+
+  fd_funk_txn_map_query_t txn_query[1];
+  fd_funk_txn_t * txn = fd_funk_rec_txn_borrow( funk, xid, txn_query );
+
+  memset( prepare, 0, sizeof(fd_funk_rec_prepare_t) );
+
+  /* No frozen check -- intentionally bypassed */
+
+  fd_funk_rec_t * rec = prepare->rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 1, opt_err );
+  if( opt_err && *opt_err == FD_POOL_ERR_CORRUPT ) {
+    FD_LOG_CRIT(( "corrupt element returned from funk rec pool" ));
+  }
+  if( FD_UNLIKELY( !rec ) ) {
+    fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_REC );
+    fd_funk_rec_txn_release( txn_query );
+    return rec;
+  }
+
+  fd_funk_val_init( rec );
+  if( txn == NULL ) {
+    fd_funk_txn_xid_set_root( rec->pair.xid );
+  } else {
+    fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );
+    prepare->rec_head_idx = &txn->rec_head_idx;
+    prepare->rec_tail_idx = &txn->rec_tail_idx;
+  }
+  fd_funk_rec_key_copy( rec->pair.key, key );
+  rec->tag      = 0;
+  rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+  rec->next_idx = FD_FUNK_REC_IDX_NULL;
+  fd_funk_rec_txn_release( txn_query );
+  return rec;
+}
+
 #if FD_HAS_ATOMIC
 
 static void

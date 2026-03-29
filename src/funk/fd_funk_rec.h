@@ -143,6 +143,20 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
                      fd_funk_rec_prepare_t *   prepare,
                      int *                     opt_err );
 
+/* fd_funk_rec_prepare_frozen is the same as fd_funk_rec_prepare but
+   allows preparing records in frozen transactions (transactions that
+   have children).  Use with care -- this bypasses the invariant that
+   frozen transactions are immutable.  Intended for snapshot loading
+   where manifest branch children coexist with account record
+   insertion. */
+
+fd_funk_rec_t *
+fd_funk_rec_prepare_frozen( fd_funk_t *               funk,
+                            fd_funk_txn_xid_t const * xid,
+                            fd_funk_rec_key_t const * key,
+                            fd_funk_rec_prepare_t *   prepare,
+                            int *                     opt_err );
+
 /* fd_funk_rec_publish makes a prepared record globally visible.  First,
    registers a record with the txn's record list, then inserts it into
    the record map.  Concurrent record publishing is fine, even to the

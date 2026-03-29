@@ -397,7 +397,10 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
         FD_TEST( rec->val_sz>=sizeof(fd_snapshot_manifest_vote_account_t) );
         if( FD_LIKELY( va->stake>0UL ) ) {
           ctx->wfs_stake.total += va->stake;
-          FD_TEST( wfs_stakes_unconverted_cnt<40200UL );
+          if( FD_UNLIKELY( wfs_stakes_unconverted_cnt>=40200UL ) ) {
+            rec_idx = rec->next_idx;
+            continue;
+          }
           fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc,   va->node_account_pubkey, sizeof(fd_pubkey_t) );
           fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, va->vote_account_pubkey, sizeof(fd_pubkey_t) );
           ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = va->stake;

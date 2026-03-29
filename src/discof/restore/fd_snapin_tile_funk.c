@@ -44,57 +44,10 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
       should_publish = 1;
     } else if( FD_LIKELY( err==FD_FUNK_ERR_FROZEN ) ) {
       /* Transaction is frozen because manifest branches are children.
-         Manually create the record and insert into the hash map,
-         bypassing the frozen check (same approach as the batch path). */
-      fd_funk_rec_t *     rec_tbl = funk->rec_pool->ele;
-      fd_funk_rec_map_t * rec_map = funk->rec_map;
-      rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
+         Use fd_funk_rec_prepare_frozen to bypass the frozen check. */
+      rec = fd_funk_rec_prepare_frozen( funk, ctx->xid, &id, prepare, &err );
       FD_TEST( rec );
-      ulong rec_idx = (ulong)( rec - rec_tbl );
-      fd_funk_val_init( rec );
-      fd_funk_txn_xid_copy( rec->pair.xid, ctx->xid );
-      fd_funk_rec_key_copy( rec->pair.key, &id );
-      rec->map_next = 0U;
-      rec->next_idx = UINT_MAX;
-      rec->prev_idx = UINT_MAX;
-      rec->val_sz   = 0;
-      rec->val_max  = 0;
-      rec->tag      = 0;
-      rec->val_gaddr = 0UL;
-      funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( 1UL, 0UL );
-      fd_funk_rec_map_shmem_private_chain_t * chain_tbl = fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );
-      ulong memo       = fd_funk_rec_key_hash1( id.uc, rec_map->map->seed );
-      ulong chain_mask = rec_map->map->chain_cnt-1UL;
-      fd_funk_rec_map_shmem_private_chain_t * chain = &chain_tbl[ (uint)(memo & chain_mask) ];
-      ulong ver_cnt    = chain->ver_cnt;
-      uint  head_cidx  = chain->head_cidx;
-      chain->ver_cnt   = fd_funk_rec_map_private_vcnt( fd_funk_rec_map_private_vcnt_ver( ver_cnt ), fd_funk_rec_map_private_vcnt_cnt( ver_cnt )+1UL );
-      chain->head_cidx = (uint)( rec - rec_tbl );
-      rec->map_next    = head_cidx;
-
-      /* For non-root transactions (incremental loading), also add the
-         record to the transaction's record list.  This is required so
-         that advance_root's fd_accdb_publish_recs can find and migrate
-         these records to root.  Root records don't have a list. */
-      if( !fd_funk_txn_xid_eq( ctx->xid, fd_funk_last_publish( funk ) ) ) {
-        fd_funk_txn_map_query_t txn_query[1];
-        int txn_err;
-        for(;;) {
-          txn_err = fd_funk_txn_map_query_try( funk->txn_map, ctx->xid, NULL, txn_query, 0 );
-          if( FD_LIKELY( txn_err!=FD_MAP_ERR_AGAIN ) ) break;
-        }
-        FD_TEST( !txn_err );
-        fd_funk_txn_t * frozen_txn = fd_funk_txn_map_query_ele( txn_query );
-        uint prev_tail = frozen_txn->rec_tail_idx;
-        rec->prev_idx = prev_tail;
-        rec->next_idx = FD_FUNK_REC_IDX_NULL;
-        if( fd_funk_rec_idx_is_null( prev_tail ) ) {
-          frozen_txn->rec_head_idx = (uint)rec_idx;
-        } else {
-          rec_tbl[ prev_tail ].next_idx = (uint)rec_idx;
-        }
-        frozen_txn->rec_tail_idx = (uint)rec_idx;
-      }
+      should_publish = 1;
     } else {
       FD_TEST( rec );
     }

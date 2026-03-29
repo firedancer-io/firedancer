@@ -33,6 +33,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../util/clock/fd_clock.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../util/pod/fd_pod.h"
 
 #define IN_KIND_PLUGIN        ( 0UL)
 #define IN_KIND_POH_PACK      ( 1UL)
@@ -393,7 +394,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_gui_peers_commit_snapshot_manifest( ctx->peers );
       } else {
         fd_gui_stage_snapshot_manifest( ctx->gui, (fd_snapshot_manifest_t const *)src );
-        fd_gui_peers_stage_snapshot_manifest( ctx->peers, (fd_snapshot_manifest_t const *)src, fd_clock_now( ctx->clock ) );
+        fd_gui_peers_stage_snapshot_manifest( ctx->peers, (fd_snapshot_manifest_t const *)src, sig, fd_clock_now( ctx->clock ) );
       }
       break;
     }
@@ -739,6 +740,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->topo = topo;
   ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, fd_clock_now( ctx->clock ) ) );
+
+  /* Join funk for read-only access to manifest branches */
+  ulong funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX );
+  ulong funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX );
+  if( FD_LIKELY( funk_obj_id!=ULONG_MAX && funk_locks_obj_id!=ULONG_MAX ) ) {
+    ctx->peers->funk = fd_funk_join( ctx->peers->funk_ljoin, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, funk_locks_obj_id ) );
+  } else {
+    ctx->peers->funk = NULL;
+  }
+
   ctx->gui  = fd_gui_join(  fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, fd_clock_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
 

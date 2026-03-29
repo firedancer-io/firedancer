@@ -22,6 +22,7 @@
 
 #include "../../waltz/http/fd_http_server.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../funk/fd_funk.h"
 #include "../topo/fd_topo.h"
 
 #if FD_HAS_ZSTD
@@ -431,14 +432,16 @@ struct fd_gui_peers_ctx {
   int                       wfs_peers_valid;
   int                       wfs_stakes_sent;
   wfs_fresh_dlist_t         wfs_fresh_dlist[ 1 ];
+
+  fd_funk_t   funk_ljoin[1];
+  fd_funk_t * funk;
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
 
-/* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
-// FD_STATIC_ASSERT( sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers)/sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers[0])==
-//                   sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts)/sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts[0]),
-//                   wfs_peers_vote_accounts );
+/* wfs_peers is bounded at 40200 entries (MAX_SHRED_DESTS).  Vote
+   account data is stored in temporary funk branches and may exceed
+   this bound; consumers truncate gracefully. */
 
 FD_PROTOTYPES_BEGIN
 
@@ -514,6 +517,7 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
 void
 fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
                                       fd_snapshot_manifest_t const * manifest,
+                                      ulong                          sig,
                                       long                           now );
 
 void

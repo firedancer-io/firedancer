@@ -5,6 +5,8 @@
 
 #include "../../disco/metrics/fd_metrics_base.h"
 #include "../../disco/shred/fd_stake_ci.h"
+#include "../../funk/fd_funk_val.h"
+#include "../../funk/fd_funk_rec.h"
 
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
 
@@ -1094,25 +1096,50 @@ fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
 void
 fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
                                       fd_snapshot_manifest_t const * manifest,
+                                      ulong                          sig,
                                       long                           now ) {
+  (void)manifest;
 
   if( FD_LIKELY( !peers->wfs_enabled ) ) return;
 
   fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
   ulong vote_scratch_cnt = 0UL;
-  ulong vote_accounts_sz = manifest->vote_accounts_len;
-  if( FD_UNLIKELY( vote_accounts_sz>40200UL ) ) {
-    FD_LOG_WARNING(( "exceeded 40200UL vote accounts" ));
-    vote_accounts_sz = 40200UL;
+
+  /* Read vote accounts from funk branch */
+  if( FD_LIKELY( peers->funk ) ) {
+    int is_full = fd_ssmsg_sig_message( sig )==FD_SSMSG_MANIFEST_FULL;
+    fd_funk_txn_xid_t va_xid = is_full ? FD_SSMSG_MANIFEST_XID_FULL_VOTE_ACCOUNTS
+                                        : FD_SSMSG_MANIFEST_XID_INCR_VOTE_ACCOUNTS;
+    fd_funk_txn_map_query_t query[1];
+    int query_err;
+    for(;;) {
+      query_err = fd_funk_txn_map_query_try( peers->funk->txn_map, &va_xid, NULL, query, 0 );
+      if( FD_LIKELY( query_err!=FD_MAP_ERR_AGAIN ) ) break;
+    }
+    if( FD_UNLIKELY( query_err ) ) {
+      FD_LOG_WARNING(( "manifest funk branch for vote accounts not found" ));
+    } else {
+      fd_funk_txn_t * va_txn = fd_funk_txn_map_query_ele( query );
+      uint rec_idx = va_txn->rec_head_idx;
+      while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+        fd_funk_rec_t const * rec = &peers->funk->rec_pool->ele[ rec_idx ];
+        fd_snapshot_manifest_vote_account_t const * va = fd_funk_val_const( rec, fd_funk_wksp( peers->funk ) );
+        FD_TEST( va );
+        FD_TEST( rec->val_sz>=sizeof(fd_snapshot_manifest_vote_account_t) );
+        if( FD_LIKELY( va->stake>0UL ) ) {
+          if( FD_UNLIKELY( vote_scratch_cnt>=40200UL ) ) {
+            rec_idx = rec->next_idx;
+            continue;
+          }
+          fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   va->node_account_pubkey, sizeof(fd_pubkey_t) );
+          fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, va->vote_account_pubkey, sizeof(fd_pubkey_t) );
+          vote_scratch[ vote_scratch_cnt ].stake = va->stake;
+          vote_scratch_cnt++;
+        }
+        rec_idx = rec->next_idx;
+      }
+    }
   }
-  /* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
-  // for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
-  //   if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
-  //   fd_memcpy( vote_scratch[ vote_scratch_cnt ].id_key.uc,   manifest->vote_accounts[ i ].node_account_pubkey, sizeof(fd_pubkey_t) );
-  //   fd_memcpy( vote_scratch[ vote_scratch_cnt ].vote_key.uc, manifest->vote_accounts[ i ].vote_account_pubkey, sizeof(fd_pubkey_t) );
-  //   vote_scratch[ vote_scratch_cnt ].stake = manifest->vote_accounts[ i ].stake;
-  //   vote_scratch_cnt++;
-  // }
 
   /* Mirrors gossip WFS logic */
   fd_stake_weight_t * id_weights = peers->scratch.manifest_id_weights;
