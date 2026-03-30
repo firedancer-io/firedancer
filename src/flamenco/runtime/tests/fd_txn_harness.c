@@ -4,6 +4,7 @@
 #include "fd_dump_pb.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_rent.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../progcache/fd_progcache_admin.h"
@@ -108,6 +109,9 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   runner->bank->f.ticks_per_slot = 64;
   runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
+
+  /* Write the rent parameters into the Rent sysvar account. */
+  fd_sysvar_rent_write( runner->bank, accdb, &xid, NULL, &runner->bank->f.rent );
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );
