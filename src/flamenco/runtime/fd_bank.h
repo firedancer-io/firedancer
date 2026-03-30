@@ -211,7 +211,7 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 
 /* The banks follow a state machine that generally transitions forward:
    All banks start off as INACTIVE.  Once a bank is provisioned (when
-   the first FEC is received from the reassember), it is in the state
+   the first FEC is received from the reassembler), it is in the state
    INIT; at this point, the bank is not yet replayable but the memory
    has been reserved.  At this point, it is part of the bank tree and
    additional children bank can be assigned to the bank.  Once the bank

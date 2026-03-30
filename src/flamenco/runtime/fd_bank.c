@@ -344,6 +344,7 @@ fd_banks_new( void * shmem,
 
     fd_rwlock_new( &bank->lthash_lock );
 
+    bank->idx               = i;
     bank->banks_data_offset = (ulong)bank - (ulong)banks_data;
 
     if( i==0UL ) {
@@ -715,7 +716,6 @@ fd_banks_advance_root( fd_banks_t * banks,
        is the case, we need to release the pool element. */
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
     if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) {
-      FD_TEST( head->state==FD_BANK_STATE_REPLAYABLE );
       FD_LOG_DEBUG(( "releasing cost tracker pool element for bank at index %lu", head->idx ));
       fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, head->cost_tracker_pool_idx );
       head->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
@@ -818,7 +818,6 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
     ulong       child_idx    = curr->child_idx;
     while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
       fd_bank_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
-      if( is_rooted[child_bank->idx] ) rooted_child = child_bank;
       child_idx = child_bank->sibling_idx;
     }
     curr = rooted_child;
@@ -860,7 +859,6 @@ fd_banks_new_bank( fd_banks_t * banks,
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
 
   child_bank->bank_seq    = FD_ATOMIC_FETCH_AND_ADD( &banks->bank_seq, 1UL );
-  child_bank->idx         = child_bank_idx;
   child_bank->parent_idx  = null_idx;
   child_bank->child_idx   = null_idx;
   child_bank->sibling_idx = null_idx;
@@ -942,6 +940,8 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
 
     FD_LOG_DEBUG(( "pruning dead bank (idx=%lu)", bank->idx ));
 
+    int started_replaying = bank->stake_delegations_fork_id!=USHORT_MAX;
+
     /* There are a few cases to consider:
        1. The to-be-pruned bank is the left-most child of the parent.
           This means that the parent bank's child idx is the
@@ -982,8 +982,7 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
 
     bank->stake_rewards_fork_id = UCHAR_MAX;
 
-    int needs_cancel = bank->state==FD_BANK_STATE_REPLAYABLE;
-    if( FD_LIKELY( needs_cancel ) ) {
+    if( FD_LIKELY( started_replaying ) ) {
       cancel->txncache_fork_id = bank->txncache_fork_id;
       cancel->slot             = bank->f.slot;
       cancel->bank_idx         = bank->idx;
@@ -993,7 +992,7 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
 
     fd_banks_pool_ele_release( bank_pool, bank );
     fd_banks_dead_pop_head( dead_banks_queue );
-    return 1+needs_cancel;
+    return 1+started_replaying;
   }
   return 0;
 }
@@ -1002,7 +1001,7 @@ void
 fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
   fd_banks_t * banks = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
 
-  FD_CRIT( bank->state!=FD_BANK_STATE_FROZEN, "invariant violation: cost tracker pool index is null" );
+  FD_CRIT( bank->state==FD_BANK_STATE_REPLAYABLE, "invariant violation: bank is not replayable" );
   bank->state = FD_BANK_STATE_FROZEN;
 
   FD_CRIT( bank->cost_tracker_pool_idx!=ULONG_MAX, "invariant violation: cost tracker pool index is null" );
