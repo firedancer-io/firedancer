@@ -78,12 +78,10 @@ fd_reasm_new( void * shmem,
   void * xid      = FD_SCRATCH_ALLOC_APPEND( l, xid_align(),         xid_footprint     ( lgf_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_reasm_align() ) == (ulong)shmem + footprint );
 
-  fd_reasm_fec_t * pool_laddr = pool_join( pool_new( pool, fec_max ) );
-
   reasm->slot0      = ULONG_MAX;
   reasm->root       = pool_idx_null( pool );
-  reasm->pool_gaddr = fd_wksp_gaddr_fast( wksp, pool_laddr );
-  reasm->pool       = pool_laddr;
+  reasm->pool_gaddr = fd_wksp_gaddr_fast( wksp, pool_join( pool_new( pool, fec_max ) ) );
+  reasm->wksp_gaddr = fd_wksp_gaddr_fast( wksp, reasm );
   reasm->ancestry   = ancestry_new( ancestry, fec_max, seed );
   reasm->frontier   = frontier_new( frontier, fec_max, seed );
   reasm->orphaned   = orphaned_new( orphaned, fec_max, seed );

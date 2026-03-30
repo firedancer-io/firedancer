@@ -66,32 +66,37 @@ typedef struct xid xid_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct __attribute__((aligned(128UL))) fd_reasm {
-  ulong            slot0;       /* special initialization slot. chains first FEC */
-  ulong            root;        /* pool idx of the root FEC set */
-  ulong            pool_gaddr;  /* gaddr of the pool of FEC nodes backing the above maps / tree */
-  fd_reasm_fec_t * pool;        /* local address of the pool */
-  ancestry_t *     ancestry;    /* map of mr->fec. non-leaves of the connected tree */
-  frontier_t *     frontier;    /* map of mr->fec. leaves of the connected tree */
-  orphaned_t *     orphaned;    /* map of mr->fec. non-roots of the orphaned subtrees */
-  subtrees_t *     subtrees;    /* map of mr->fec. roots of the orphaned subtrees */
-  subtreel_t       _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
-  subtreel_t *     subtreel;    /* the join to the dlist */
+  ulong        slot0;       /* special initialization slot. chains first FEC */
+  ulong        root;        /* pool idx of the root FEC set */
+  ulong        pool_gaddr;  /* gaddr of the pool of FEC nodes backing the above maps / tree */
+  ulong        wksp_gaddr;  /* gaddr of this reasm struct within the workspace */
+  ancestry_t * ancestry;    /* map of mr->fec. non-leaves of the connected tree */
+  frontier_t * frontier;    /* map of mr->fec. leaves of the connected tree */
+  orphaned_t * orphaned;    /* map of mr->fec. non-roots of the orphaned subtrees */
+  subtrees_t * subtrees;    /* map of mr->fec. roots of the orphaned subtrees */
+  subtreel_t   _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
+  subtreel_t * subtreel;    /* the join to the dlist */
 
-  out_t            _out[1];     /* delivery queue(dlist) of elements to output */
-  out_t *          out;         /* the join to the dlist */
+  out_t        _out[1];     /* delivery queue(dlist) of elements to output */
+  out_t *      out;         /* the join to the dlist */
 
-  ulong *          bfs;         /* internal queue of pool idxs for BFS */
-  xid_t *          xid;         /* map of (slot, fec_set_idx)->mr */
+  ulong *      bfs;         /* internal queue of pool idxs for BFS */
+  xid_t *      xid;         /* map of (slot, fec_set_idx)->mr */
 };
+
+FD_FN_PURE static inline fd_wksp_t *
+wksp( fd_reasm_t const * reasm ) {
+  return (fd_wksp_t *)( (ulong)reasm - reasm->wksp_gaddr );
+}
 
 static inline fd_reasm_fec_t *
 reasm_pool( fd_reasm_t * reasm ) {
-  return reasm->pool;
+  return (fd_reasm_fec_t *)fd_wksp_laddr_fast( wksp( reasm ), reasm->pool_gaddr );
 }
 
 static inline fd_reasm_fec_t const *
 reasm_pool_const( fd_reasm_t const * reasm ) {
-  return reasm->pool;
+  return (fd_reasm_fec_t const *)fd_wksp_laddr_fast( wksp( reasm ), reasm->pool_gaddr );
 }
 
 #endif /* HEADER_fd_src_discof_reasm_fd_reasm_private_h */
