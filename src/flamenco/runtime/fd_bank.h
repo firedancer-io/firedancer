@@ -209,21 +209,32 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define POOL_T    fd_bank_cost_tracker_t
 #include "../../util/tmpl/fd_pool.c"
 
-/* Initialized.  Not yet replayable. */
-#define FD_BANK_FLAGS_INIT       (0x00000001UL)
-/* Replayable.  Implies that FD_BANK_FLAGS_INIT is also set. */
-#define FD_BANK_FLAGS_REPLAYABLE (0x00000002UL)
-/* Frozen.  We finished replaying or because it was a snapshot/genesis
-   loaded bank.  Implies that FD_BANK_FLAGS_REPLAYABLE is also set. */
-#define FD_BANK_FLAGS_FROZEN     (0x00000004UL)
-/* Dead.  We stopped replaying it before we could finish it (e.g.
-   invalid block or pruned minority fork).  It is implied that
-   FD_BANK_FLAGS_INIT is set, but not necessarily
-   FD_BANK_FLAGS_REPLAYABLE. */
-#define FD_BANK_FLAGS_DEAD       (0x00000008UL)
- /* Rooted.  Part of the consnensus root fork.  Implies that
-    FD_BANK_FLAGS_FROZEN is also set. */
-#define FD_BANK_FLAGS_ROOTED     (0x00000010UL)
+/* The banks follow a state machine that generally transitions forward:
+   All banks start off as INACTIVE.  Once a bank is provisioned (when
+   the first FEC is received from the reassembler), it is in the state
+   INIT; at this point, the bank is not yet replayable but the memory
+   has been reserved.  At this point, it is part of the bank tree and
+   additional children bank can be assigned to the bank.  Once the bank
+   is replayable, it is moved from INIT to REPLAYABLE and any relevant
+   state is copied over from the parent bank.  We know that the parent
+   bank is done executing at this point.  Transactions can now be
+   dispatched and scheduled against the bank.  If the block for the bank
+   is done executing then it transitions to the state FROZEN and the
+   fields in the bank should no longer change.
+
+   A bank can be marked DEAD even before it enters the replayable or
+   frozen state.  A dead bank can only transition to INACTIVE.
+
+       INACTIVE -> INIT -> REPLAYABLE -> FROZEN -> INACTIVE
+                        \            \
+                         v            v
+                        DEAD    ->   DEAD -> INACTIVE */
+
+#define FD_BANK_STATE_INACTIVE   (0UL)
+#define FD_BANK_STATE_INIT       (1UL)
+#define FD_BANK_STATE_REPLAYABLE (2UL)
+#define FD_BANK_STATE_FROZEN     (3UL)
+#define FD_BANK_STATE_DEAD       (4UL)
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management
@@ -247,7 +258,7 @@ struct fd_bank {
   ulong parent_idx;  /* index of the parent in the node pool */
   ulong child_idx;   /* index of the left-child in the node pool */
   ulong sibling_idx; /* index of the right-sibling in the node pool */
-  ulong flags;       /* keeps track of the state of the bank */
+  ulong state;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
 
   ulong refcnt; /* reference count on the bank, see replay for more details */
