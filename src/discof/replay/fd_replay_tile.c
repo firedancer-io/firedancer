@@ -2329,9 +2329,6 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         mark_bank_dead( ctx, stem, bank->idx );
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
-      if( FD_UNLIKELY( bank->state==FD_BANK_STATE_DEAD && bank->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( bank );
-      }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
       if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {

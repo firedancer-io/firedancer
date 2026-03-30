@@ -271,16 +271,6 @@ fd_banks_new( void * shmem,
     return NULL;
   }
 
-  /* Mark all of the banks as not initialized. */
-  for( ulong i=0UL; i<max_total_banks; i++ ) {
-    fd_bank_t * bank = fd_banks_pool_ele( bank_pool, i );
-    if( FD_UNLIKELY( !bank ) ) {
-      FD_LOG_WARNING(( "Failed to get bank" ));
-      return NULL;
-    }
-    bank->state = FD_BANK_STATE_INACTIVE;
-  }
-
   fd_bank_idx_seq_t * banks_dead_deque = fd_banks_dead_join( fd_banks_dead_new( dead_banks_deque_mem ) );
   if( FD_UNLIKELY( !banks_dead_deque ) ) {
     FD_LOG_WARNING(( "Failed to create banks dead deque" ));
@@ -345,6 +335,7 @@ fd_banks_new( void * shmem,
     fd_rwlock_new( &bank->lthash_lock );
 
     bank->idx               = i;
+    bank->state             = FD_BANK_STATE_INACTIVE;
     bank->banks_data_offset = (ulong)bank - (ulong)banks_data;
 
     if( i==0UL ) {
